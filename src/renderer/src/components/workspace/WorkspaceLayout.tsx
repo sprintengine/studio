@@ -1,11 +1,11 @@
-import React, { useCallback, useRef } from 'react'
+import React, { useCallback, useEffect, useRef } from 'react'
 import { Layout, Model, TabNode } from 'flexlayout-react'
 import 'flexlayout-react/style/dark.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import AgentPanel from '../panels/AgentPanel'
 import EditorPanel from '../panels/EditorPanel'
 import FileExplorer from '../panels/FileExplorer'
-import SwarmBar from './SwarmBar'
 
 interface Props {
   workspaceId: string
@@ -21,6 +21,11 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
   if (!modelRef.current) {
     modelRef.current = Model.fromJson(workspace.layoutModel)
   }
+
+  useEffect(() => {
+    if (modelRef.current) registerModel(workspaceId, modelRef.current)
+    return () => unregisterModel(workspaceId)
+  }, [workspaceId])
 
   const factory = useCallback(
     (node: TabNode) => {
@@ -40,22 +45,19 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
         case 'explorer':
           return <FileExplorer />
         default:
-          return <div className="h-full bg-zinc-950" />
+          return <div className="h-full bg-[#0f1012]" />
       }
     },
     [workspaceId]
   )
 
   return (
-    <div className="flex flex-col h-full">
-      <SwarmBar workspaceId={workspaceId} />
-      <div className="relative flex-1 min-h-0">
-        <Layout
-          model={modelRef.current}
-          factory={factory}
-          onModelChange={(model) => updateLayout(workspaceId, model.toJson())}
-        />
-      </div>
+    <div className="relative h-full">
+      <Layout
+        model={modelRef.current}
+        factory={factory}
+        onModelChange={(model) => updateLayout(workspaceId, model.toJson())}
+      />
     </div>
   )
 }

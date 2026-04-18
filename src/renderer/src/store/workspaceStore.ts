@@ -16,7 +16,7 @@ import { extractAgentIds } from '../utils/layout'
 interface WorkspaceStore {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
-  addWorkspace: (template: LayoutTemplate) => void
+  addWorkspace: (template: LayoutTemplate, options?: { name?: string; folderPath?: string | null }) => void
   removeWorkspace: (id: WorkspaceId) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setActiveWorkspace: (id: WorkspaceId) => void
@@ -48,13 +48,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       workspaces: [],
       activeWorkspaceId: null,
 
-      addWorkspace: (template) =>
+      addWorkspace: (template, options) =>
         set((state) => {
           const id = nanoid()
           const agentIds = extractAgentIds(template.layout)
+          const fallbackName = `${template.name} ${state.workspaces.length + 1}`
           state.workspaces.push({
             id,
-            name: `${template.name} ${state.workspaces.length + 1}`,
+            name: options?.name?.trim() || fallbackName,
+            folderPath: options?.folderPath ?? null,
             templateId: template.id,
             layoutModel: template.layout,
             agents: {},
@@ -143,6 +145,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...ws,
             id,
             name: `${ws.name} (imported)`,
+            folderPath: ws.folderPath ?? null,
             agents: Object.fromEntries(
               Object.entries(ws.agents).map(([k, v]) => [
                 k,

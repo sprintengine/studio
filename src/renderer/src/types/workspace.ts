@@ -67,6 +67,7 @@ export type SwarmConfig = {
 export type Workspace = {
   id: WorkspaceId
   name: string
+  folderPath: string | null
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>

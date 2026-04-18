@@ -1,36 +1,132 @@
-import type { LayoutTemplate } from '../types/workspace'
+import type { LayoutTemplate, PreviewSlot } from '../types/workspace'
 
-// Each template is a flexlayout-react JSON model — this IS the template system.
+// Helpers to keep preview slot definitions readable.
+// Previews are rendered in a 300×110 viewBox.
+const agent = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'agent', label })
+const editor = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'editor', label })
+const files = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'explorer', label })
+
+// flexlayout shortcuts
+const agentTab = (id: string, name = id) => ({
+  type: 'tab',
+  name,
+  component: 'agent',
+  config: { agentId: id },
+})
+const editorTab = { type: 'tab', name: 'Editor', component: 'editor' }
+const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
+
+// Each template is a flexlayout-react JSON model.
 // To add a new template, add an entry here; no other code changes needed.
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   {
-    id: 'standard',
-    name: 'Standard',
-    description: 'File explorer + code editor + 4 agents in a 2×2 grid',
-    previewSlots: [
-      { x: 2,   y: 2,  w: 46,  h: 116, type: 'explorer', label: 'Explorer' },
-      { x: 52,  y: 2,  w: 128, h: 116, type: 'editor',   label: 'Editor'   },
-      { x: 184, y: 2,  w: 54,  h: 56,  type: 'agent',    label: 'Agent 1'  },
-      { x: 242, y: 2,  w: 56,  h: 56,  type: 'agent',    label: 'Agent 2'  },
-      { x: 184, y: 62, w: 54,  h: 56,  type: 'agent',    label: 'Agent 3'  },
-      { x: 242, y: 62, w: 56,  h: 56,  type: 'agent',    label: 'Agent 4'  },
-    ],
+    id: 'solo',
+    name: 'Solo',
+    description: 'Single AI terminal for focused work.',
+    previewSlots: [agent('Agent', 4, 4, 292, 102)],
     layout: {
-      global: { tabSetEnableDrop: true },
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
       borders: [],
       layout: {
         type: 'row',
         children: [
+          { type: 'tabset', weight: 100, children: [agentTab('agent-1', 'Agent')] },
+        ],
+      },
+    },
+  },
+  {
+    id: 'duo',
+    name: 'Duo',
+    description: 'Two AI terminals side by side.',
+    previewSlots: [
+      agent('Agent 1', 4, 4, 144, 102),
+      agent('Agent 2', 152, 4, 144, 102),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          { type: 'tabset', weight: 50, children: [agentTab('agent-1', 'Agent 1')] },
+          { type: 'tabset', weight: 50, children: [agentTab('agent-2', 'Agent 2')] },
+        ],
+      },
+    },
+  },
+  {
+    id: 'solo-dev',
+    name: 'Solo Dev',
+    description: 'Explorer, editor, and one AI terminal.',
+    previewSlots: [
+      files('Files', 4, 4, 56, 102),
+      editor('Editor', 64, 4, 148, 102),
+      agent('Agent', 216, 4, 80, 102),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          { type: 'tabset', weight: 18, children: [explorerTab] },
+          { type: 'tabset', weight: 52, children: [editorTab] },
+          { type: 'tabset', weight: 30, children: [agentTab('agent-1', 'Agent')] },
+        ],
+      },
+    },
+  },
+  {
+    id: 'duo-dev',
+    name: 'Duo Dev',
+    description: 'Editor flow with two stacked AI terminals.',
+    previewSlots: [
+      files('Files', 4, 4, 56, 102),
+      editor('Editor', 64, 4, 148, 102),
+      agent('Agent 1', 216, 4, 80, 49),
+      agent('Agent 2', 216, 57, 80, 49),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          { type: 'tabset', weight: 18, children: [explorerTab] },
+          { type: 'tabset', weight: 52, children: [editorTab] },
           {
-            type: 'tabset',
-            weight: 15,
-            children: [{ type: 'tab', name: 'Explorer', component: 'explorer' }],
+            type: 'row',
+            weight: 30,
+            children: [
+              { type: 'tabset', weight: 50, children: [agentTab('agent-1', 'Agent 1')] },
+              { type: 'tabset', weight: 50, children: [agentTab('agent-2', 'Agent 2')] },
+            ],
           },
-          {
-            type: 'tabset',
-            weight: 45,
-            children: [{ type: 'tab', name: 'Editor', component: 'editor' }],
-          },
+        ],
+      },
+    },
+  },
+  {
+    id: 'quad-dev',
+    name: 'Quad Dev',
+    description: 'Editor plus four visible AI terminals.',
+    previewSlots: [
+      files('Files', 4, 4, 50, 102),
+      editor('Editor', 58, 4, 140, 102),
+      agent('A1', 202, 4, 44, 49),
+      agent('A3', 202, 57, 44, 49),
+      agent('A2', 250, 4, 46, 49),
+      agent('A4', 250, 57, 46, 49),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          { type: 'tabset', weight: 16, children: [explorerTab] },
+          { type: 'tabset', weight: 44, children: [editorTab] },
           {
             type: 'row',
             weight: 40,
@@ -39,16 +135,16 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
                 type: 'row',
                 weight: 50,
                 children: [
-                  { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 1', component: 'agent', config: { agentId: 'agent-1' } }] },
-                  { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 2', component: 'agent', config: { agentId: 'agent-2' } }] },
+                  { type: 'tabset', weight: 50, children: [agentTab('agent-1', 'Agent 1')] },
+                  { type: 'tabset', weight: 50, children: [agentTab('agent-3', 'Agent 3')] },
                 ],
               },
               {
                 type: 'row',
                 weight: 50,
                 children: [
-                  { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 3', component: 'agent', config: { agentId: 'agent-3' } }] },
-                  { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 4', component: 'agent', config: { agentId: 'agent-4' } }] },
+                  { type: 'tabset', weight: 50, children: [agentTab('agent-2', 'Agent 2')] },
+                  { type: 'tabset', weight: 50, children: [agentTab('agent-4', 'Agent 4')] },
                 ],
               },
             ],
@@ -58,75 +154,47 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     },
   },
   {
-    id: 'agents-only',
-    name: 'Agents Only',
-    description: '4 agents in a 2×2 grid — no editor or explorer',
+    id: 'command-center',
+    name: 'AI Command Center',
+    description: 'Nine tiled AI terminals for swarm-style work.',
     previewSlots: [
-      { x: 2,   y: 2,  w: 144, h: 56, type: 'agent', label: 'Agent 1' },
-      { x: 154, y: 2,  w: 144, h: 56, type: 'agent', label: 'Agent 2' },
-      { x: 2,   y: 62, w: 144, h: 56, type: 'agent', label: 'Agent 3' },
-      { x: 154, y: 62, w: 144, h: 56, type: 'agent', label: 'Agent 4' },
+      agent('A1', 4, 4, 94, 32),     agent('A2', 104, 4, 94, 32),    agent('A3', 204, 4, 92, 32),
+      agent('A4', 4, 40, 94, 32),    agent('A5', 104, 40, 94, 32),   agent('A6', 204, 40, 92, 32),
+      agent('A7', 4, 76, 94, 30),    agent('A8', 104, 76, 94, 30),   agent('A9', 204, 76, 92, 30),
     ],
     layout: {
-      global: { tabSetEnableDrop: true },
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
       borders: [],
       layout: {
         type: 'row',
         children: [
           {
             type: 'row',
-            weight: 50,
+            weight: 33,
             children: [
-              { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 1', component: 'agent', config: { agentId: 'agent-1' } }] },
-              { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 2', component: 'agent', config: { agentId: 'agent-2' } }] },
+              { type: 'tabset', weight: 33, children: [agentTab('agent-1', 'A1')] },
+              { type: 'tabset', weight: 33, children: [agentTab('agent-4', 'A4')] },
+              { type: 'tabset', weight: 33, children: [agentTab('agent-7', 'A7')] },
             ],
           },
           {
             type: 'row',
-            weight: 50,
+            weight: 33,
             children: [
-              { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 3', component: 'agent', config: { agentId: 'agent-3' } }] },
-              { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 4', component: 'agent', config: { agentId: 'agent-4' } }] },
+              { type: 'tabset', weight: 33, children: [agentTab('agent-2', 'A2')] },
+              { type: 'tabset', weight: 33, children: [agentTab('agent-5', 'A5')] },
+              { type: 'tabset', weight: 33, children: [agentTab('agent-8', 'A8')] },
             ],
           },
-        ],
-      },
-    },
-  },
-  {
-    id: 'split-view',
-    name: 'Split View',
-    description: '2 full-height vertical agent panels',
-    previewSlots: [
-      { x: 2,   y: 2, w: 146, h: 116, type: 'agent', label: 'Agent 1' },
-      { x: 152, y: 2, w: 146, h: 116, type: 'agent', label: 'Agent 2' },
-    ],
-    layout: {
-      global: { tabSetEnableDrop: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 1', component: 'agent', config: { agentId: 'agent-1' } }] },
-          { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent 2', component: 'agent', config: { agentId: 'agent-2' } }] },
-        ],
-      },
-    },
-  },
-  {
-    id: 'focus',
-    name: 'Focus View',
-    description: 'One maximized agent panel — full concentration mode',
-    previewSlots: [
-      { x: 2, y: 2, w: 296, h: 116, type: 'agent', label: 'Agent' },
-    ],
-    layout: {
-      global: { tabSetEnableDrop: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          { type: 'tabset', weight: 100, children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'agent-1' } }] },
+          {
+            type: 'row',
+            weight: 33,
+            children: [
+              { type: 'tabset', weight: 33, children: [agentTab('agent-3', 'A3')] },
+              { type: 'tabset', weight: 33, children: [agentTab('agent-6', 'A6')] },
+              { type: 'tabset', weight: 33, children: [agentTab('agent-9', 'A9')] },
+            ],
+          },
         ],
       },
     },
