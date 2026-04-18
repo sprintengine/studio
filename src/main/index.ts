@@ -1,8 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { readdir, readFile, writeFile } from 'fs/promises'
-import { spawn, type ChildProcess } from 'child_process'
 import { autoUpdater } from 'electron-updater'
+import * as pty from 'node-pty'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -33,49 +33,164 @@ function createWindow(): void {
   }
 }
 
-// ── Claude Code CLI IPC ───────────────────────────────────────────────────────
+// ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
-const claudeProcs = new Map<string, ChildProcess>()
+const terminals = new Map<string, pty.IPty>()
 
-ipcMain.handle('claude:run', (event, { agentId, prompt }: { agentId: string; prompt: string }) => {
-  // Kill any prior run for this agent
-  claudeProcs.get(agentId)?.kill()
-  claudeProcs.delete(agentId)
+type TerminalSpawnPayload = {
+  sessionId: string
+  cols: number
+  rows: number
+  cwd?: string
+}
 
-  const isWin = process.platform === 'win32'
-  const child = spawn(isWin ? 'claude.cmd' : 'claude', ['--print'], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    // shell:false on unix (no .cmd lookup needed); shell:true on win as fallback
-    shell: isWin,
-  })
+type ShellLaunchConfig = {
+  command: string
+  args: string[]
+  initialInput?: string
+}
 
-  claudeProcs.set(agentId, child)
+function getTerminalEnv(): Record<string, string> {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  )
 
-  child.stdout.on('data', (data: Buffer) => {
-    event.sender.send(`claude:chunk:${agentId}`, data.toString())
-  })
+  delete env.ELECTRON_RUN_AS_NODE
+  env.TERM = env.TERM || 'xterm-256color'
 
-  child.on('close', () => {
-    claudeProcs.delete(agentId)
-    event.sender.send(`claude:done:${agentId}`)
-  })
+  return env
+}
 
-  child.on('error', (err: Error) => {
-    claudeProcs.delete(agentId)
-    const msg = err.message.includes('ENOENT')
-      ? 'claude CLI not found — make sure Claude Code is installed and in your PATH'
-      : err.message
-    event.sender.send(`claude:error:${agentId}`, msg)
-  })
+function toWslPath(dirPath: string): string {
+  const normalized = dirPath.replace(/\\/g, '/')
+  const driveMatch = normalized.match(/^([A-Za-z]):\/(.*)$/)
 
-  // Pipe prompt via stdin — avoids any shell-quoting issues
-  child.stdin.write(prompt)
-  child.stdin.end()
+  if (!driveMatch) {
+    return normalized
+  }
+
+  const [, drive, rest] = driveMatch
+  return `/mnt/${drive.toLowerCase()}/${rest}`
+}
+
+function quotePosix(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`
+}
+
+function quotePowerShell(value: string): string {
+  return `"${value.replace(/"/g, '`"')}"`
+}
+
+function buildWslStartupInput(cwd: string, sessionId: string): string {
+  const shellScript = [
+    `cd ${quotePosix(toWslPath(cwd))} && ${buildClaudeLaunchCommand(sessionId)}`,
+    'exec bash -li',
+  ].join('; ')
+
+  return `wsl.exe -e bash -lic ${quotePowerShell(shellScript)}`
+}
+
+function getShellLaunchConfig(cwd: string, sessionId: string): ShellLaunchConfig {
+  if (process.platform === 'win32') {
+    return {
+      command: 'powershell.exe',
+      args: ['-NoLogo', '-NoProfile'],
+      initialInput: `${buildWslStartupInput(cwd, sessionId)}\r`,
+    }
+  }
+
+  const shellPath = process.env.SHELL || 'bash'
+  const shellName = shellPath.split(/[\\/]/).at(-1)
+  const args = shellName === 'bash' || shellName === 'zsh' ? ['-l'] : []
+
+  return {
+    command: shellPath,
+    args,
+    initialInput: `${buildClaudeLaunchCommand(sessionId)}\r`,
+  }
+}
+
+function buildClaudeLaunchCommand(sessionId: string): string {
+  return `claude --session-id ${sessionId}`
+}
+
+function sendTerminalEvent(
+  sender: Electron.WebContents,
+  channel: string,
+  payload: string | number
+): void {
+  if (!sender.isDestroyed()) {
+    sender.send(channel, payload)
+  }
+}
+
+function getTerminalErrorMessage(error: unknown): string {
+  if (error instanceof Error && /enoent/i.test(error.message)) {
+    return process.platform === 'win32'
+      ? 'WSL could not be started. Make sure your default WSL distro is installed and available.'
+      : 'Claude CLI shell could not be started. Make sure your login shell is available.'
+  }
+
+  return error instanceof Error ? error.message : String(error)
+}
+
+function disposeTerminal(sessionId: string): void {
+  terminals.get(sessionId)?.kill()
+  terminals.delete(sessionId)
+}
+
+ipcMain.handle(
+  'terminal:spawn',
+  (event, { sessionId, cols, rows, cwd }: TerminalSpawnPayload) => {
+    disposeTerminal(sessionId)
+
+    try {
+      const workingDirectory = cwd || process.cwd()
+      const { command, args, initialInput } = getShellLaunchConfig(workingDirectory, sessionId)
+      const termProcess = pty.spawn(command, args, {
+        name: 'xterm-256color',
+        cols: Math.max(cols || 80, 20),
+        rows: Math.max(rows || 24, 8),
+        cwd: workingDirectory,
+        env: getTerminalEnv(),
+      })
+
+      terminals.set(sessionId, termProcess)
+
+      termProcess.onData((data) => {
+        sendTerminalEvent(event.sender, `terminal:data:${sessionId}`, data)
+      })
+
+      termProcess.onExit((e) => {
+        terminals.delete(sessionId)
+        sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, e.exitCode)
+      })
+
+      if (initialInput) {
+        // Start Claude inside the interactive shell so the user can keep using the terminal afterward.
+        termProcess.write(initialInput)
+      }
+    } catch (error) {
+      sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, getTerminalErrorMessage(error))
+      sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, 1)
+    }
+  }
+)
+
+ipcMain.handle('terminal:write', (_, { sessionId, data }: { sessionId: string; data: string }) => {
+  terminals.get(sessionId)?.write(data)
 })
 
-ipcMain.handle('claude:cancel', (_, agentId: string) => {
-  claudeProcs.get(agentId)?.kill()
-  claudeProcs.delete(agentId)
+ipcMain.handle('terminal:resize', (_, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
+  try {
+    terminals.get(sessionId)?.resize(cols, rows)
+  } catch (e) {
+    // ignore resize errors if process died
+  }
+})
+
+ipcMain.handle('terminal:kill', (_, sessionId: string) => {
+  disposeTerminal(sessionId)
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────

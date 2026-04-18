@@ -14,27 +14,29 @@ contextBridge.exposeInMainWorld('api', {
   saveFile:  (options?: SaveDialogOptions)     => ipcRenderer.invoke('fs:dialog:savefile', options),
   openFile:  (options?: OpenDialogOptions)     => ipcRenderer.invoke('fs:dialog:openfile', options),
 
-  // Claude Code CLI runner
-  claudeRun:    (agentId: string, prompt: string) => ipcRenderer.invoke('claude:run', { agentId, prompt }),
-  claudeCancel: (agentId: string)                 => ipcRenderer.invoke('claude:cancel', agentId),
+  // Claude Code CLI Terminal
+  terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd }),
+  terminalWrite:  (sessionId: string, data: string) => ipcRenderer.invoke('terminal:write', { sessionId, data }),
+  terminalResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
+  terminalKill:   (sessionId: string) => ipcRenderer.invoke('terminal:kill', sessionId),
 
-  onClaudeChunk: (agentId: string, cb: (chunk: string) => void): (() => void) => {
-    const ch = `claude:chunk:${agentId}`
-    const handler = (_: Electron.IpcRendererEvent, chunk: string) => cb(chunk)
+  onTerminalData: (sessionId: string, cb: (data: string) => void): (() => void) => {
+    const ch = `terminal:data:${sessionId}`
+    const handler = (_: Electron.IpcRendererEvent, data: string) => cb(data)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
 
-  onClaudeDone: (agentId: string, cb: () => void): (() => void) => {
-    const ch = `claude:done:${agentId}`
-    const handler = () => cb()
+  onTerminalExit: (sessionId: string, cb: (code: number) => void): (() => void) => {
+    const ch = `terminal:exit:${sessionId}`
+    const handler = (_: Electron.IpcRendererEvent, code: number) => cb(code)
     ipcRenderer.once(ch, handler)
-    return () => ipcRenderer.removeAllListeners(ch)
+    return () => ipcRenderer.removeListener(ch, handler)
   },
 
-  onClaudeError: (agentId: string, cb: (err: string) => void): (() => void) => {
-    const ch = `claude:error:${agentId}`
-    const handler = (_: Electron.IpcRendererEvent, err: string) => cb(err)
+  onTerminalError: (sessionId: string, cb: (message: string) => void): (() => void) => {
+    const ch = `terminal:error:${sessionId}`
+    const handler = (_: Electron.IpcRendererEvent, message: string) => cb(message)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },

@@ -4,7 +4,5 @@ import './assets/index.css'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <React.StrictMode>
-    <WorkspaceManager />
-  </React.StrictMode>
+  <WorkspaceManager />
 )

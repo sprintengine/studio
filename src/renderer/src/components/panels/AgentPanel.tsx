@@ -2,9 +2,9 @@ import React, { useRef, useEffect, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { runAgent, cancelAgent } from '../../services/agentRunner'
-import { runAgentCLI, cancelAgentCLI } from '../../services/agentRunnerCLI'
 import { DEFAULT_AGENT_CONFIG } from '../../types/workspace'
 import type { AgentStatus, SwarmRole } from '../../types/workspace'
+import TerminalView from './TerminalView'
 
 interface Props {
   workspaceId: string
@@ -44,6 +44,7 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLInputElement>(null)
+  const noKeyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [noKey, setNoKey] = useState(false)
 
   const isActive = agent?.status === 'streaming' || agent?.status === 'running'
@@ -54,13 +55,27 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
     }
   }, [agent?.messages.length, agent?.streamBuffer])
 
+  useEffect(() => {
+    return () => {
+      if (noKeyTimerRef.current) {
+        clearTimeout(noKeyTimerRef.current)
+      }
+    }
+  }, [])
+
   const handleSend = () => {
     const value = inputRef.current?.value.trim()
     if (!value || isActive) return
 
     if (provider === 'anthropic' && !apiKey) {
+      if (noKeyTimerRef.current) {
+        clearTimeout(noKeyTimerRef.current)
+      }
       setNoKey(true)
-      setTimeout(() => setNoKey(false), 3000)
+      noKeyTimerRef.current = setTimeout(() => {
+        setNoKey(false)
+        noKeyTimerRef.current = null
+      }, 3000)
       return
     }
 
@@ -86,19 +101,11 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
       }),
     }
 
-    if (provider === 'claude-cli') {
-      runAgentCLI(agentId, currentMessages, value, callbacks)
-    } else {
-      runAgent(agentId, apiKey, DEFAULT_AGENT_CONFIG, currentMessages, value, callbacks)
-    }
+    runAgent(agentId, apiKey, DEFAULT_AGENT_CONFIG, currentMessages, value, callbacks)
   }
 
   const handleStop = () => {
-    if (provider === 'claude-cli') {
-      cancelAgentCLI(agentId)
-    } else {
-      cancelAgent(agentId)
-    }
+    cancelAgent(agentId)
     commitStream(workspaceId, agentId)
   }
 
@@ -126,62 +133,70 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
         </div>
       </div>
 
-      {/* Message feed */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3 text-sm">
-        {agent?.messages.map((msg, i) => (
-          <div key={i} className={msg.role === 'user' ? 'text-zinc-400' : 'text-zinc-200'}>
-            <span className="text-[10px] text-zinc-600 uppercase font-mono mr-2">{msg.role}</span>
-            <span className="whitespace-pre-wrap">{msg.content}</span>
-          </div>
-        ))}
-
-        {agent?.streamBuffer && (
-          <div className="text-zinc-200">
-            <span className="text-[10px] text-zinc-600 uppercase font-mono mr-2">assistant</span>
-            <span className="whitespace-pre-wrap">{agent.streamBuffer}</span>
-            <span className="inline-block w-[5px] h-[14px] bg-indigo-400 ml-0.5 align-middle animate-pulse" />
-          </div>
-        )}
-
-        {!agent?.messages.length && !agent?.streamBuffer && (
-          <p className="text-zinc-700 text-xs text-center pt-4">Agent ready</p>
-        )}
-      </div>
-
-      {/* No-key warning — only for Anthropic provider */}
-      {noKey && (
-        <div className="mx-2 mb-1 px-3 py-1.5 bg-amber-900/30 border border-amber-700/50 rounded text-xs text-amber-400">
-          No API key set — open Settings (⚙) to add your Anthropic key.
+      {provider === 'claude-cli' ? (
+        <div className="flex-1 relative overflow-hidden">
+          <TerminalView />
         </div>
-      )}
+      ) : (
+        <>
+          {/* Message feed */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3 text-sm">
+            {agent?.messages.map((msg, i) => (
+              <div key={i} className={msg.role === 'user' ? 'text-zinc-400' : 'text-zinc-200'}>
+                <span className="text-[10px] text-zinc-600 uppercase font-mono mr-2">{msg.role}</span>
+                <span className="whitespace-pre-wrap">{msg.content}</span>
+              </div>
+            ))}
 
-      {/* Input row */}
-      <div className="p-2 border-t border-zinc-800/80 shrink-0">
-        <div className="flex gap-2">
-          <input
-            ref={inputRef}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            disabled={isActive}
-            className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
-            placeholder={isActive ? 'Streaming…' : 'Send a message…'}
-          />
-          {isActive ? (
-            <button
-              onClick={handleStop}
-              className="px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded text-xs text-white transition-colors"
-            >
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={handleSend}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 rounded text-xs text-white transition-colors"
-            >
-              Send
-            </button>
+            {agent?.streamBuffer && (
+              <div className="text-zinc-200">
+                <span className="text-[10px] text-zinc-600 uppercase font-mono mr-2">assistant</span>
+                <span className="whitespace-pre-wrap">{agent.streamBuffer}</span>
+                <span className="inline-block w-[5px] h-[14px] bg-indigo-400 ml-0.5 align-middle animate-pulse" />
+              </div>
+            )}
+
+            {!agent?.messages.length && !agent?.streamBuffer && (
+              <p className="text-zinc-700 text-xs text-center pt-4">Agent ready</p>
+            )}
+          </div>
+
+          {/* No-key warning — only for Anthropic provider */}
+          {noKey && (
+            <div className="mx-2 mb-1 px-3 py-1.5 bg-amber-900/30 border border-amber-700/50 rounded text-xs text-amber-400">
+              No API key set — open Settings (⚙) to add your Anthropic key.
+            </div>
           )}
-        </div>
-      </div>
+
+          {/* Input row */}
+          <div className="p-2 border-t border-zinc-800/80 shrink-0">
+            <div className="flex gap-2">
+              <input
+                ref={inputRef}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                disabled={isActive}
+                className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
+                placeholder={isActive ? 'Streaming…' : 'Send a message…'}
+              />
+              {isActive ? (
+                <button
+                  onClick={handleStop}
+                  className="px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded text-xs text-white transition-colors"
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 rounded text-xs text-white transition-colors"
+                >
+                  Send
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

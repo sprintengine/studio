@@ -110,14 +110,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           const agent = ws?.agents[agentId]
-          if (!agent || !agent.streamBuffer) return
-          agent.messages.push({
-            role: 'assistant',
-            content: agent.streamBuffer,
-            timestamp: Date.now(),
-          })
-          agent.streamBuffer = ''
-          agent.status = 'complete'
+          if (!agent) return
+
+          if (agent.streamBuffer) {
+            agent.messages.push({
+              role: 'assistant',
+              content: agent.streamBuffer,
+              timestamp: Date.now(),
+            })
+            agent.streamBuffer = ''
+          }
+
+          if (agent.status !== 'error') {
+            agent.status = 'complete'
+          }
         }),
 
       updateSwarm: (workspaceId, config) =>

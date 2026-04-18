@@ -24,11 +24,14 @@ declare interface Window {
     saveFile:  (options?: SaveDialogOptions) => Promise<string | null>
     openFile:  (options?: OpenDialogOptions) => Promise<string | null>
 
-    // Claude Code CLI
-    claudeRun:     (agentId: string, prompt: string) => Promise<void>
-    claudeCancel:  (agentId: string) => Promise<void>
-    onClaudeChunk: (agentId: string, cb: (chunk: string) => void) => () => void
-    onClaudeDone:  (agentId: string, cb: () => void) => () => void
-    onClaudeError: (agentId: string, cb: (err: string) => void) => () => void
+    // Claude Code CLI Terminal
+    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string) => Promise<void>
+    terminalWrite:  (sessionId: string, data: string) => Promise<void>
+    terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
+    terminalKill:   (sessionId: string) => Promise<void>
+
+    onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
+    onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
+    onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   }
 }
