@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Actions, DockLocation, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { useEditorStore } from '../../store/editorStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
@@ -20,7 +19,6 @@ export default function WorkspaceManager() {
   const addWorkspace       = useWorkspaceStore((s) => s.addWorkspace)
   const updateSwarm        = useWorkspaceStore((s) => s.updateSwarm)
   const importWorkspace    = useWorkspaceStore((s) => s.importWorkspace)
-  const setRootPath        = useEditorStore((s) => s.setRootPath)
   const apiKey             = useSettingsStore((s) => s.apiKey)
   const provider           = useSettingsStore((s) => s.provider)
   const needsApiKey        = provider === 'anthropic' && !apiKey
@@ -39,11 +37,6 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (workspaces.length === 0) setShowTemplateSelector(true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Sync editor rootPath with active workspace folder.
-  useEffect(() => {
-    if (activeWorkspace?.folderPath) setRootPath(activeWorkspace.folderPath)
-  }, [activeWorkspaceId, activeWorkspace?.folderPath, setRootPath])
 
   // Focus rename input when it appears
   useEffect(() => {
@@ -74,7 +67,6 @@ export default function WorkspaceManager() {
     template, name, folderPath,
   }: { template: LayoutTemplate; name: string; folderPath: string | null }) => {
     addWorkspace(template, { name, folderPath })
-    if (folderPath) setRootPath(folderPath)
     setShowTemplateSelector(false)
   }
 
@@ -291,13 +283,29 @@ export default function WorkspaceManager() {
         </div>
       </div>
 
-      {/* ── Active workspace ──────────────────────────────────────────── */}
+      {/* ── Workspaces ─────────────────────────────────────────────────
+           All workspaces stay mounted so their flexlayout Model, agent
+           state, and CLI pty sessions survive tab switches. Inactive
+           workspaces are hidden via visibility (not display:none, so
+           xterm/Monaco keep a valid layout and don't re-fit on return). */}
       <div className="relative z-10 flex-1 min-h-0">
-        {activeWorkspaceId ? (
-          <WorkspaceLayout key={activeWorkspaceId} workspaceId={activeWorkspaceId} />
-        ) : (
-          <EmptyState onNew={() => setShowTemplateSelector(true)} />
-        )}
+        {workspaces.length === 0 && <EmptyState onNew={() => setShowTemplateSelector(true)} />}
+        {workspaces.map((ws) => {
+          const active = ws.id === activeWorkspaceId
+          return (
+            <div
+              key={ws.id}
+              className="absolute inset-0"
+              style={{
+                visibility: active ? 'visible' : 'hidden',
+                pointerEvents: active ? 'auto' : 'none',
+              }}
+              aria-hidden={!active}
+            >
+              <WorkspaceLayout workspaceId={ws.id} />
+            </div>
+          )
+        })}
       </div>
 
       {showTemplateSelector && (

@@ -1,32 +1,41 @@
 import React, { useCallback, useRef } from 'react'
 import MonacoEditor, { OnMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
-import { useEditorStore } from '../../store/editorStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 
 interface Props {
-  workspaceId?: string
+  workspaceId: string
 }
 
 export default function EditorPanel({ workspaceId }: Props) {
-  const { openFiles, activeFilePath, setActiveFile, closeFile, updateContent } = useEditorStore()
-  const appendStream = useWorkspaceStore((s) => s.appendStream)
+  const editorState = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.editorState
+  )
+  const setActiveFile     = useWorkspaceStore((s) => s.setActiveFile)
+  const closeFile         = useWorkspaceStore((s) => s.closeFile)
+  const updateFileContent = useWorkspaceStore((s) => s.updateFileContent)
+  const markFileClean     = useWorkspaceStore((s) => s.markFileClean)
+  const appendStream      = useWorkspaceStore((s) => s.appendStream)
+
+  const openFiles = editorState?.openFiles ?? []
+  const activeFilePath = editorState?.activeFilePath ?? null
   const activeFile = openFiles.find((f) => f.path === activeFilePath)
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
 
   const handleMount: OnMount = (editor) => {
     editorRef.current = editor
     editor.addCommand(2097 /* KeyMod.CtrlCmd | KeyCode.KeyS */, async () => {
-      const store = useEditorStore.getState()
-      const file = store.openFiles.find((f) => f.path === store.activeFilePath)
+      const state = useWorkspaceStore.getState()
+      const ws = state.workspaces.find((w) => w.id === workspaceId)
+      const file = ws?.editorState?.openFiles.find((f) => f.path === ws.editorState.activeFilePath)
       if (!file) return
       await window.api.writefile(file.path, file.content)
-      store.markClean(file.path)
+      markFileClean(workspaceId, file.path)
     })
   }
 
   const handleSendToAgent = useCallback(() => {
-    if (!editorRef.current || !workspaceId) return
+    if (!editorRef.current) return
     const selection = editorRef.current.getModel()?.getValueInRange(
       editorRef.current.getSelection()!
     )
@@ -51,7 +60,7 @@ export default function EditorPanel({ workspaceId }: Props) {
           return (
             <div
               key={f.path}
-              onClick={() => setActiveFile(f.path)}
+              onClick={() => setActiveFile(workspaceId, f.path)}
               className={`group inline-flex items-center gap-2 h-9 px-3 text-[12px] cursor-pointer whitespace-nowrap border-r border-[#23262d] transition-colors ${
                 active
                   ? 'bg-[#0f1012] text-zinc-200'
@@ -60,7 +69,7 @@ export default function EditorPanel({ workspaceId }: Props) {
             >
               <span className="font-mono">{f.name}{f.isDirty ? ' •' : ''}</span>
               <button
-                onClick={(e) => { e.stopPropagation(); closeFile(f.path) }}
+                onClick={(e) => { e.stopPropagation(); closeFile(workspaceId, f.path) }}
                 className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-zinc-300 leading-none"
                 aria-label={`Close ${f.name}`}
               >
@@ -70,15 +79,13 @@ export default function EditorPanel({ workspaceId }: Props) {
           )
         })}
 
-        {workspaceId && (
-          <button
-            onClick={handleSendToAgent}
-            className="ml-auto mr-2 h-7 px-2.5 rounded-md text-[10px] uppercase tracking-[0.08em] text-zinc-500 hover:text-[#a9c8ff] hover:bg-[#17191d] transition-colors shrink-0"
-            title="Send selection to first agent"
-          >
-            → agent
-          </button>
-        )}
+        <button
+          onClick={handleSendToAgent}
+          className="ml-auto mr-2 h-7 px-2.5 rounded-md text-[10px] uppercase tracking-[0.08em] text-zinc-500 hover:text-[#a9c8ff] hover:bg-[#17191d] transition-colors shrink-0"
+          title="Send selection to first agent"
+        >
+          → agent
+        </button>
       </div>
 
       {activeFile && (
@@ -102,7 +109,7 @@ export default function EditorPanel({ workspaceId }: Props) {
             }}
             onChange={(value) => {
               if (value !== undefined && activeFilePath) {
-                updateContent(activeFilePath, value)
+                updateFileContent(workspaceId, activeFilePath, value)
               }
             }}
             onMount={handleMount}

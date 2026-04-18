@@ -64,6 +64,19 @@ export type SwarmConfig = {
   orchestratorId: AgentId | null
 }
 
+export type OpenFile = {
+  path: string
+  name: string
+  content: string
+  language: string
+  isDirty: boolean
+}
+
+export type EditorState = {
+  openFiles: OpenFile[]
+  activeFilePath: string | null
+}
+
 export type Workspace = {
   id: WorkspaceId
   name: string
@@ -72,5 +85,6 @@ export type Workspace = {
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>
   swarmConfig: SwarmConfig
+  editorState: EditorState
   createdAt: number
 }

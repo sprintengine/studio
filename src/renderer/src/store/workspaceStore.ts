@@ -10,8 +10,10 @@ import type {
   AgentState,
   AgentId,
   SwarmConfig,
+  EditorState,
 } from '../types/workspace'
 import { extractAgentIds } from '../utils/layout'
+import { detectLanguage } from '../utils/files'
 
 interface WorkspaceStore {
   workspaces: Workspace[]
@@ -21,11 +23,19 @@ interface WorkspaceStore {
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setActiveWorkspace: (id: WorkspaceId) => void
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
+  setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   updateSwarm: (workspaceId: WorkspaceId, config: Partial<SwarmConfig>) => void
   importWorkspace: (ws: Workspace) => void
+
+  // Per-workspace editor actions
+  openFile: (workspaceId: WorkspaceId, path: string, name: string, content: string) => void
+  closeFile: (workspaceId: WorkspaceId, path: string) => void
+  setActiveFile: (workspaceId: WorkspaceId, path: string) => void
+  updateFileContent: (workspaceId: WorkspaceId, path: string, content: string) => void
+  markFileClean: (workspaceId: WorkspaceId, path: string) => void
 }
 
 const defaultAgent = (id: AgentId): AgentState => ({
@@ -40,6 +50,11 @@ const defaultSwarmConfig = (agentIds: string[]): SwarmConfig => ({
   enabled: false,
   agents: agentIds.map((id) => ({ agentId: id, role: 'standalone' })),
   orchestratorId: null,
+})
+
+const defaultEditorState = (): EditorState => ({
+  openFiles: [],
+  activeFilePath: null,
 })
 
 export const useWorkspaceStore = create<WorkspaceStore>()(
@@ -61,6 +76,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             layoutModel: template.layout,
             agents: {},
             swarmConfig: defaultSwarmConfig(agentIds),
+            editorState: defaultEditorState(),
             createdAt: Date.now(),
           })
           state.activeWorkspaceId = id
@@ -89,6 +105,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === id)
           if (ws) ws.layoutModel = model
+        }),
+
+      setFolderPath: (id, folderPath) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === id)
+          if (ws) ws.folderPath = folderPath
         }),
 
       updateAgent: (workspaceId, agentId, update) =>
@@ -133,7 +155,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           if (!ws) return
           Object.assign(ws.swarmConfig, config)
-          // Keep orchestratorId in sync with agents array
           const orchAgent = ws.swarmConfig.agents.find((a) => a.role === 'orchestrator')
           ws.swarmConfig.orchestratorId = orchAgent?.agentId ?? null
         }),
@@ -152,12 +173,83 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 { ...v, streamBuffer: '', status: 'idle' as const },
               ])
             ),
+            editorState: ws.editorState ?? defaultEditorState(),
           })
           state.activeWorkspaceId = id
+        }),
+
+      openFile: (workspaceId, path, name, content) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          if (!ws.editorState) ws.editorState = defaultEditorState()
+          const existing = ws.editorState.openFiles.find((f) => f.path === path)
+          if (existing) {
+            existing.content = content
+            existing.isDirty = false
+          } else {
+            ws.editorState.openFiles.push({
+              path,
+              name,
+              content,
+              language: detectLanguage(name),
+              isDirty: false,
+            })
+          }
+          ws.editorState.activeFilePath = path
+        }),
+
+      closeFile: (workspaceId, path) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws?.editorState) return
+          const idx = ws.editorState.openFiles.findIndex((f) => f.path === path)
+          if (idx === -1) return
+          ws.editorState.openFiles.splice(idx, 1)
+          if (ws.editorState.activeFilePath === path) {
+            ws.editorState.activeFilePath = ws.editorState.openFiles.at(-1)?.path ?? null
+          }
+        }),
+
+      setActiveFile: (workspaceId, path) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (ws?.editorState) ws.editorState.activeFilePath = path
+        }),
+
+      updateFileContent: (workspaceId, path, content) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          const file = ws?.editorState?.openFiles.find((f) => f.path === path)
+          if (file) {
+            file.content = content
+            file.isDirty = true
+          }
+        }),
+
+      markFileClean: (workspaceId, path) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          const file = ws?.editorState?.openFiles.find((f) => f.path === path)
+          if (file) file.isDirty = false
         }),
     })),
     {
       name: 'free-ai-ide-workspaces',
+      version: 1,
+      // Migrate older persisted state that lacks editorState / folderPath
+      migrate: (persisted: unknown, version: number) => {
+        const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
+        if (!state?.workspaces) return state as never
+        if (version < 1) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            folderPath: ws.folderPath ?? null,
+            editorState: ws.editorState ?? defaultEditorState(),
+          }))
+        }
+        return state as never
+      },
       partialize: (s) => ({
         workspaces: s.workspaces.map((ws) => ({
           ...ws,
@@ -167,6 +259,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               { ...a, streamBuffer: '', status: 'idle' as const },
             ])
           ),
+          // Keep file list + active file, drop content so we don't resurrect stale edits
+          editorState: {
+            openFiles: (ws.editorState?.openFiles ?? []).map((f) => ({
+              ...f,
+              content: '',
+              isDirty: false,
+            })),
+            activeFilePath: ws.editorState?.activeFilePath ?? null,
+          },
         })),
         activeWorkspaceId: s.activeWorkspaceId,
       }),

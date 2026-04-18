@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { useEditorStore } from '../../store/editorStore'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 
 type Entry = { name: string; isDir: boolean; path: string }
 
@@ -53,26 +53,22 @@ function EntryRow({
   depth,
   selected,
   onSelect,
+  onOpenFile,
 }: {
   entry: Entry
   depth: number
   selected: string | null
   onSelect: (path: string) => void
+  onOpenFile: (path: string, name: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [children, setChildren] = useState<Entry[]>([])
   const [loading, setLoading] = useState(false)
-  const { openFile } = useEditorStore()
 
   const toggle = async () => {
     onSelect(entry.path)
     if (!entry.isDir) {
-      try {
-        const content = await window.api.readfile(entry.path)
-        openFile(entry.path, entry.name, content)
-      } catch {
-        openFile(entry.path, entry.name, '')
-      }
+      onOpenFile(entry.path, entry.name)
       return
     }
     if (!open && children.length === 0) {
@@ -128,6 +124,7 @@ function EntryRow({
             depth={depth + 1}
             selected={selected}
             onSelect={onSelect}
+            onOpenFile={onOpenFile}
           />
         ))}
       {open && loading && (
@@ -142,7 +139,13 @@ function EntryRow({
   )
 }
 
-function ExplorerTree({ rootPath }: { rootPath: string }) {
+function ExplorerTree({
+  rootPath,
+  onOpenFile,
+}: {
+  rootPath: string
+  onOpenFile: (path: string, name: string) => void
+}) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
@@ -166,21 +169,37 @@ function ExplorerTree({ rootPath }: { rootPath: string }) {
           depth={0}
           selected={selected}
           onSelect={setSelected}
+          onOpenFile={onOpenFile}
         />
       ))}
     </div>
   )
 }
 
-export default function FileExplorer() {
-  const { rootPath, setRootPath } = useEditorStore()
+interface Props {
+  workspaceId: string
+}
+
+export default function FileExplorer({ workspaceId }: Props) {
+  const folderPath    = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
+  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
+  const openFile      = useWorkspaceStore((s) => s.openFile)
 
   const handleOpen = async () => {
     const dir = await window.api.openDir()
-    if (dir) setRootPath(dir)
+    if (dir) setFolderPath(workspaceId, dir)
   }
 
-  const rootName = rootPath?.split(/[/\\]/).filter(Boolean).pop() ?? ''
+  const handleOpenFile = async (path: string, name: string) => {
+    try {
+      const content = await window.api.readfile(path)
+      openFile(workspaceId, path, name, content)
+    } catch {
+      openFile(workspaceId, path, name, '')
+    }
+  }
+
+  const rootName = folderPath?.split(/[/\\]/).filter(Boolean).pop() ?? ''
 
   return (
     <div className="flex flex-col h-full bg-[#121316] text-zinc-300 overflow-hidden">
@@ -200,8 +219,8 @@ export default function FileExplorer() {
       </div>
 
       <div className="flex-1 overflow-y-auto py-1.5 px-1">
-        {rootPath ? (
-          <ExplorerTree rootPath={rootPath} />
+        {folderPath ? (
+          <ExplorerTree rootPath={folderPath} onOpenFile={handleOpenFile} />
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-600">
             <p className="text-[12px] text-center px-4">No folder open</p>

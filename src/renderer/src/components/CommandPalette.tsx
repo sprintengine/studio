@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
-import { useEditorStore } from '../store/editorStore'
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
 
 interface Command {
@@ -20,8 +19,9 @@ interface Props {
 export default function CommandPalette({ onClose, onNewWorkspace, onSettings }: Props) {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  const { workspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace } = useWorkspaceStore()
-  const { openFiles, setActiveFile } = useEditorStore()
+  const { workspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace, setActiveFile } = useWorkspaceStore()
+  const activeWs = workspaces.find((w) => w.id === activeWorkspaceId)
+  const openFiles = activeWs?.editorState?.openFiles ?? []
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -45,13 +45,15 @@ export default function CommandPalette({ onClose, onNewWorkspace, onSettings }: 
       description: ws.id === activeWorkspaceId ? 'active' : '',
       run: () => { setActiveWorkspace(ws.id); onClose() },
     })),
-    // Open recent files
-    ...openFiles.map((f) => ({
-      id: `file-${f.path}`,
-      label: f.name,
-      description: f.path,
-      run: () => { setActiveFile(f.path); onClose() },
-    })),
+    // Open recent files (from active workspace)
+    ...(activeWorkspaceId
+      ? openFiles.map((f) => ({
+          id: `file-${f.path}`,
+          label: f.name,
+          description: f.path,
+          run: () => { setActiveFile(activeWorkspaceId, f.path); onClose() },
+        }))
+      : []),
     {
       id: 'settings',
       label: 'Open Settings',

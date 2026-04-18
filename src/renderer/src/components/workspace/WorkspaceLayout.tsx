@@ -43,7 +43,7 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
         case 'editor':
           return <EditorPanel workspaceId={workspaceId} />
         case 'explorer':
-          return <FileExplorer />
+          return <FileExplorer workspaceId={workspaceId} />
         default:
           return <div className="h-full bg-[#0f1012]" />
       }
