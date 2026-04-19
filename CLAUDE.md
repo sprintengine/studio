@@ -73,3 +73,52 @@ VSCode (and any Electron host) sets `ELECTRON_RUN_AS_NODE=1` in its environment.
 - New panel types: add a `case` to the `factory` function in `WorkspaceLayout.tsx` and a matching `component` string in `templates.ts`.
 - Never select the entire workspace in a panel component — always select the specific agent slice to avoid unnecessary re-renders during streaming.
 - Tailwind dark palette: `zinc-950` backgrounds, `zinc-900` surfaces, `zinc-800` borders, `indigo-500/600` for agent accents.
+
+## Swarm Coordination Tool
+
+When working as a swarm specialist, prefer the repo-local `swarm-kanban` skill and the `swarm` command over manually editing `swarm/state.yaml`.
+
+Canonical skill:
+
+- `.agents/skills/swarm-kanban/SKILL.md`
+
+Tool entry points:
+
+- `swarm` (preferred inside swarm terminals)
+- `python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py`
+- `python3 scripts/swarm_tool.py` (compatibility wrapper)
+
+Use it for:
+
+- listing ready tasks for your role
+- atomically claiming the next ready task for your role
+- claiming a task
+- moving your own task between `in_progress`, `needs_input`, and `done`
+- appending notes and evidence
+- printing the final run summary
+- validating/replacing the task graph when acting as architect
+- marking the final architect plan ready for approval
+- creating or completing specialist consultation artifacts
+
+Common commands:
+
+```bash
+swarm list-ready-tasks --role frontend
+swarm claim-next-task --role frontend --agent-id frontend-1
+swarm claim-task --task-id T3 --agent-id frontend-1
+swarm set-task-status --task-id T3 --status in_progress --actor frontend-1
+swarm append-evidence --task-id T3 --actor frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SwarmBoardPanel.tsx --command "npm run typecheck" --result "Passed"
+swarm run-summary
+swarm validate-tasks --file swarm/tasks.json
+swarm replace-tasks --actor architect --file swarm/tasks.json
+swarm mark-plan-ready --actor architect
+swarm create-consultation --request-id UX-001 --from-role architect --to-role frontend --title "Need UX input for approval flow" --task-id T4 --question "Where should plan approval live?" --question "How should waiting state be shown?"
+swarm complete-consultation --request-id UX-001 --actor frontend --summary "Recommend a top-level approval banner." --recommendation "Use a persistent approval strip above the board." --recommendation "Keep task detail focused on execution."
+```
+
+Rules:
+
+- only claim tasks that are ready for your role
+- only update your own task card
+- append evidence before marking work `done`
+- use consultation artifacts when the architect needs specialist planning input

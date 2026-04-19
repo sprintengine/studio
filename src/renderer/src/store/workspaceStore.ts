@@ -33,6 +33,8 @@ interface WorkspaceStore {
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
+  setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
+  approveSwarmPlan: (workspaceId: WorkspaceId) => void
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   importWorkspace: (ws: Workspace) => void
@@ -61,6 +63,22 @@ const defaultEditorState = (): EditorState => ({
   activeFilePath: null,
 })
 
+function reconcileSwarmAgents(
+  currentAgents: Workspace['agents'],
+  swarmState: SwarmState | null
+): Workspace['agents'] {
+  if (!swarmState) return {}
+
+  return Object.fromEntries(
+    buildSwarmAgentRoster(swarmState.roleCounts).map((agent) => [
+      agent.id,
+      currentAgents[agent.id]
+        ? { ...currentAgents[agent.id], name: agent.label }
+        : defaultAgent(agent.id, agent.label),
+    ])
+  )
+}
+
 export const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
     immer((set) => ({
@@ -76,10 +94,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ? normalizeSwarmState(options?.swarmState)
               ?? createInitialSwarmState({
                 goal: options?.swarmState?.goal ?? 'Launch swarm mode',
+                name: options?.swarmState?.name ?? options?.name ?? 'Swarm Team',
                 agentCount: options?.swarmState?.agentCount ?? 4,
                 roleCounts: options?.swarmState?.roleCounts ?? createDefaultSwarmRoleCounts(),
                 skills: options?.swarmState?.skills ?? {
                   architect: [],
+                  product: [],
                   developer: [],
                   frontend: [],
                   tester: [],
@@ -148,6 +168,32 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (!ws) return
           if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
           Object.assign(ws.agents[agentId], update)
+        }),
+
+      setSwarmState: (workspaceId, swarmState) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const normalized = normalizeSwarmState(swarmState)
+          ws.swarmState = normalized
+          ws.mode = normalized ? 'swarm' : 'standard'
+          ws.agents = reconcileSwarmAgents(ws.agents, normalized)
+        }),
+
+      approveSwarmPlan: (workspaceId) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws?.swarmState || ws.swarmState.planApproved || !ws.swarmState.planReady) return
+
+          ws.swarmState.planApproved = true
+          ws.swarmState.phase = 'executing'
+          ws.swarmState.events.push({
+            id: `EVT-${String(ws.swarmState.events.length + 1).padStart(3, '0')}`,
+            timestamp: Date.now(),
+            type: 'plan_approved',
+            actor: 'user',
+            message: 'Plan approved. Worker execution is now active.',
+          })
         }),
 
       appendStream: (workspaceId, agentId, chunk) =>

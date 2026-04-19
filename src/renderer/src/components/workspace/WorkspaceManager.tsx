@@ -202,20 +202,16 @@ export default function WorkspaceManager() {
         }}
       />
 
-      <div className="relative z-10 flex h-[44px] shrink-0 items-center border-b border-[#23262d] bg-[#101114] px-4">
-        <div className="flex items-center gap-3">
-          <div className="h-7 w-7 rounded-lg border border-[#393c44] bg-gradient-to-b from-[#2d2f34] to-[#1a1c21]" />
-          <strong className="text-[13px] font-semibold tracking-tight text-zinc-100">Multicode</strong>
-        </div>
-      </div>
-
       {window.api.platform !== 'darwin' && (
-        <div className="relative z-10 flex h-[30px] shrink-0 items-center gap-1 border-b border-[#23262d] bg-[#111214] px-2">
+        <div
+          className="app-drag relative z-10 flex h-[38px] shrink-0 items-center gap-1 border-b border-[#23262d] bg-[#101114] px-2"
+          style={{ paddingRight: 138 }}
+        >
           {MENU_BAR_ITEMS.map((label) => (
             <button
               key={label}
               onClick={(event) => void handleShowMenubarMenu(event, label)}
-              className="inline-flex h-6 items-center rounded-md px-2.5 text-[12px] text-zinc-400 transition-colors hover:bg-[#1a1c20] hover:text-zinc-100"
+              className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-zinc-400 transition-colors hover:bg-[#1a1c20] hover:text-zinc-100"
             >
               {label}
             </button>

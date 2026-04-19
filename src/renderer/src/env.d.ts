@@ -44,7 +44,7 @@ declare interface Window {
     showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
 
     // Claude Code CLI Terminal
-    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean) => Promise<void>
+    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string) => Promise<void>
     terminalWrite:  (sessionId: string, data: string) => Promise<void>
     terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
     terminalKill:   (sessionId: string) => Promise<void>

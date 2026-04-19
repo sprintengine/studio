@@ -73,3 +73,44 @@ VSCode (and any Electron host) sets `ELECTRON_RUN_AS_NODE=1` in its environment.
 - New panel types: add a `case` to the `factory` function in `WorkspaceLayout.tsx` and a matching `component` string in `templates.ts`.
 - Never select the entire workspace in a panel component — always select the specific agent slice to avoid unnecessary re-renders during streaming.
 - Tailwind dark palette: `zinc-950` backgrounds, `zinc-900` surfaces, `zinc-800` borders, `indigo-500/600` for agent accents.
+
+## Swarm Coordination Tool
+
+Swarm specialists should prefer the repo-local `swarm-kanban` skill and the `swarm` command over hand-editing `swarm/state.yaml`.
+
+Canonical skill:
+
+- `.agents/skills/swarm-kanban/SKILL.md`
+
+Tool entry points:
+
+- `swarm` (preferred inside swarm terminals)
+- `python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py`
+- `python3 scripts/swarm_tool.py` (compatibility wrapper)
+
+Primary commands:
+
+- `list-ready-tasks`
+- `claim-next-task`
+- `claim-task`
+- `set-task-status`
+- `add-note`
+- `append-evidence`
+- `run-summary`
+- `validate-tasks`
+- `replace-tasks`
+- `mark-plan-ready`
+- `create-consultation`
+- `complete-consultation`
+
+This tool is the intended coordination surface for:
+
+- task claiming
+- status updates
+- evidence publishing
+- final run summaries
+- architect task graph validation/replacement
+- architect plan readiness gating
+- structured architect-to-specialist consultations
+
+When a swarm terminal starts, it should read the repo-local skill first and then use `swarm` for board state changes.

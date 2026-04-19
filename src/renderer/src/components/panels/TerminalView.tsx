@@ -3,10 +3,85 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import type { SwarmRole } from '../../types/workspace'
+import { buildSwarmAgentRoster, swarmRoleLabels } from '../../utils/swarm'
+import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
 
 interface Props {
   workspaceId: string
   agentId: string
+}
+
+const SWARM_SKILL_PATH = '.agents/skills/swarm-kanban/SKILL.md'
+const SWARM_TOOL_PATH = '.agents/skills/swarm-kanban/scripts/swarm_tool.py'
+const SWARM_COMMAND = 'swarm'
+
+function buildWorkerExecutionPrompt(role: SwarmRole, agentId: string): string {
+  return [
+    'The architect plan is approved. Begin worker execution now.',
+    `Run \`${SWARM_COMMAND} claim-next-task --role ${role} --agent-id ${agentId}\` to atomically claim your next ready task.`,
+    'If a task is returned, read swarm/plan.md and the returned task JSON before editing. Implement only your claimed task and stay within the task intent and owned paths unless the work clearly requires a better specialist judgment.',
+    `Run the relevant tests, lint, or typecheck for your change. If you need user input, run \`${SWARM_COMMAND} set-task-status --task-id <task-id> --status needs_input --actor ${agentId}\` and make the question clear with \`${SWARM_COMMAND} add-note\`.`,
+    `Before marking the task done, run \`${SWARM_COMMAND} append-evidence --task-id <task-id> --actor ${agentId}\` with your summary, touched files, commands, and results. Then run \`${SWARM_COMMAND} set-task-status --task-id <task-id> --status done --actor ${agentId}\`.`,
+    `After finishing, run \`${SWARM_COMMAND} claim-next-task --role ${role} --agent-id ${agentId}\` again. If no ready task is available, stay idle and do not edit swarm/state.yaml manually.`,
+  ].join('\n\n')
+}
+
+function buildProductPlanningPrompt(agentId: string, goal: string, planApproved: boolean): string {
+  if (planApproved) {
+    return [
+      'The plan is approved. Continue as the product strategist for this swarm.',
+      `Run \`${SWARM_COMMAND} claim-next-task --role product --agent-id ${agentId}\` if there are approved product review, market research, or adoption-risk tasks ready for you.`,
+      'When you contribute, focus on competitor products, target audience needs, workflow fit, positioning, onboarding clarity, trust, and whether the implementation still serves the intended user.',
+      'Publish findings through task notes, consultation responses, or task evidence. Do not manually edit swarm/state.yaml.',
+    ].join('\n\n')
+  }
+
+  return [
+    'You are the product strategist for this swarm. Your job is to sharpen what the team should build before implementation starts.',
+    `Goal: ${goal}`,
+    'When the architect asks for consultation, research the likely market, competitor products, audience demographics, workflows, adoption risks, and product positioning.',
+    'Give concrete guidance that can change scope, priority, language, interaction design, or acceptance criteria. Prefer practical tradeoffs over broad product theory.',
+    'Use `swarm complete-consultation` for consultation responses and do not manually edit swarm/state.yaml.',
+  ].join('\n\n')
+}
+
+function buildSwarmStartupPrompt(
+  role: SwarmRole,
+  agentId: string,
+  goal: string,
+  planApproved: boolean
+): string {
+  const roleLabel = swarmRoleLabels[role]
+  const firstAction =
+    role === 'architect'
+      ? planApproved
+        ? 'The plan is already approved. Stay aligned with swarm/plan.md and use the coordination tool only for consultations or state updates that belong to the architect.'
+        : [
+            'You are responsible for creating the plan from scratch. Treat swarm/plan.md as your final planning artifact, not as an existing source of truth.',
+            'First, carefully study the repository and current implementation. Inspect the relevant code, architecture, conventions, dependencies, and any existing related features.',
+            'Perform deep problem/domain research using the available local context and specialist consultations when helpful. For market, competitor, audience, positioning, workflow, or adoption-risk concerns, consult the product strategist early instead of guessing.',
+            'For UI/UX, security, testing, or implementation concerns, create structured consultation requests with the swarm tool instead of guessing.',
+            'Ask the user clarifying questions until you are fully aligned on the desired outcome, constraints, scope, and acceptance criteria. Do not finalize the plan until the user confirms the direction.',
+            'Only after alignment, write swarm/plan.md with a low-level design, implementation approach, risks, acceptance criteria, and a task breakdown for the specialist roles.',
+            'Create swarm/tasks.json using swarm/tasks.template.json and swarm/tasks.schema.json as the contract. Run `swarm validate-tasks --file swarm/tasks.json`, fix any errors, then run `swarm replace-tasks --actor architect --file swarm/tasks.json`.',
+            'After the final plan and board task graph are ready, run `swarm mark-plan-ready --actor architect`. Tell the user the plan is ready for review only after that succeeds. Do not manually edit swarm/state.yaml.',
+          ].join('\n\n')
+      : role === 'product'
+        ? buildProductPlanningPrompt(agentId, goal, planApproved)
+      : planApproved
+        ? buildWorkerExecutionPrompt(role, agentId)
+        : `Do not claim work yet. Your agent id is ${agentId}. Wait for the architect to finish discovery, user alignment, swarm/plan.md, and plan approval before starting execution.`
+
+  return [
+    `You are the ${roleLabel} specialist for this swarm run.`,
+    `Agent id: ${agentId}`,
+    `Goal: ${goal}`,
+    `Use the repo-local skill at ${SWARM_SKILL_PATH}.`,
+    `Use \`${SWARM_COMMAND}\` as the primary shortcut for the shared coordination tool.`,
+    `\`${SWARM_COMMAND}\` expands to \`python3 ${SWARM_TOOL_PATH}\`. Do not manually edit swarm/state.yaml.`,
+    firstAction,
+  ].join('\n\n')
 }
 
 export default function TerminalView({ workspaceId, agentId }: Props) {
@@ -17,7 +92,66 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const folderPath = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? undefined
   )
+  const swarmName = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.swarmState?.name
+  )
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  const swarmRole = useWorkspaceStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId)
+    if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
+
+    return buildSwarmAgentRoster(workspace.swarmState.roleCounts).find(
+      (candidate) => candidate.id === agentId
+    )?.role ?? null
+  })
+  const swarmPlanApproved = useWorkspaceStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId)
+    return workspace?.mode === 'swarm' ? workspace.swarmState?.planApproved ?? false : false
+  })
+  const swarmStartupPrompt = useWorkspaceStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId)
+    if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
+
+    const role = buildSwarmAgentRoster(workspace.swarmState.roleCounts).find(
+      (candidate) => candidate.id === agentId
+    )?.role
+
+    if (!role) return null
+    return buildSwarmStartupPrompt(role, agentId, workspace.swarmState.goal, workspace.swarmState.planApproved)
+  })
+  const swarmStartupPromptRef = useRef<string | null>(swarmStartupPrompt)
+  const previousPlanApprovedRef = useRef<boolean | null>(swarmPlanApproved)
+
+  useEffect(() => {
+    swarmStartupPromptRef.current = swarmStartupPrompt
+  }, [swarmStartupPrompt])
+
+  useEffect(() => {
+    const previous = previousPlanApprovedRef.current
+    previousPlanApprovedRef.current = swarmPlanApproved
+
+    if (
+      previous !== false
+      || !swarmPlanApproved
+      || !agent?.cliSessionId
+      || !agent.cliHasLaunched
+      || !swarmRole
+      || swarmRole === 'architect'
+    ) {
+      return
+    }
+
+    const notification = [
+      '',
+      '[Swarm] Plan approved. Worker execution may begin.',
+      swarmRole === 'product'
+        ? buildProductPlanningPrompt(agentId, 'Approved swarm plan', true)
+        : buildWorkerExecutionPrompt(swarmRole, agentId),
+      '',
+    ].join('\n')
+
+    void window.api.terminalWrite(agent.cliSessionId, notification.replace(/\r?\n/g, '\r'))
+  }, [agent?.cliHasLaunched, agent?.cliSessionId, agentId, swarmPlanApproved, swarmRole])
 
   useEffect(() => {
     const container = containerRef.current
@@ -134,8 +268,19 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     fitTerminal()
     focusTerminal()
 
+    let hasSentSwarmPrompt = false
+    const sendSwarmPrompt = () => {
+      const prompt = swarmStartupPromptRef.current
+      if (shouldResume || !prompt || hasSentSwarmPrompt) return
+      hasSentSwarmPrompt = true
+      void window.api.terminalWrite(sessionId, `${prompt.replace(/\r?\n/g, '\r')}\r`)
+    }
+
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
       term.write(data)
+      if (!hasSentSwarmPrompt && data.trim().length > 0) {
+        window.setTimeout(sendSwarmPrompt, 150)
+      }
     })
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
@@ -167,10 +312,18 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     container.addEventListener('keydown', handleKeyDown)
     container.addEventListener('contextmenu', handleContextMenu)
 
-    void window.api.terminalSpawn(sessionId, term.cols, term.rows, folderPath, shouldResume)
+    const swarmStatePath = folderPath && swarmName ? getSwarmStateFilePath(folderPath, swarmName) : undefined
+    void window.api.terminalSpawn(sessionId, term.cols, term.rows, folderPath, shouldResume, swarmStatePath)
     if (!shouldResume) {
       updateAgent(workspaceId, agentId, { cliHasLaunched: true })
     }
+
+    const swarmOnboardingTimer =
+      !shouldResume && swarmStartupPromptRef.current
+        ? window.setTimeout(() => {
+            sendSwarmPrompt()
+          }, 1800)
+        : null
 
     const settleTimer = window.setTimeout(() => {
       fitTerminal()
@@ -178,6 +331,9 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     }, 50)
 
     return () => {
+      if (swarmOnboardingTimer !== null) {
+        window.clearTimeout(swarmOnboardingTimer)
+      }
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       container.removeEventListener('mousedown', focusTerminal)
@@ -201,6 +357,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agentId,
     agent?.cliSessionId,
     folderPath,
+    swarmName,
     updateAgent,
   ])
 

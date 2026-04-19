@@ -42,7 +42,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('app:show-menubar-menu', label, position),
 
   // Claude Code CLI Terminal
-  terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume }),
+  terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath }),
   terminalWrite:  (sessionId: string, data: string) => ipcRenderer.invoke('terminal:write', { sessionId, data }),
   terminalResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
   terminalKill:   (sessionId: string) => ipcRenderer.invoke('terminal:kill', sessionId),

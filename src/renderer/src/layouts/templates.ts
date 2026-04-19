@@ -24,22 +24,15 @@ const swarmTab = () => ({
 
 export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
   const roster = buildSwarmAgentRoster(config.roleCounts)
-  const agentChildren = roster.map((agent, index) => ({
-    type: 'tabset',
-    weight: Math.max(1, Math.round(100 / roster.length)),
-    children: [agentTab(agent.id, agent.label)],
-    id: `swarm-agent-${index + 1}`,
-  }))
 
   return {
     id: 'swarm-mode',
     name: 'Swarm Mode',
-    description: 'Kanban board with live specialist agents.',
+    description: 'Map, Kanban, and explicit specialist terminals.',
     previewSlots: [
-      editor('Board', 4, 4, 188, 102),
-      agent('Architect', 196, 4, 100, 22),
-      agent('Workers', 196, 30, 100, 36),
-      agent('Tester', 196, 70, 100, 36),
+      editor('Map', 4, 4, 188, 49),
+      editor('Kanban', 4, 57, 188, 49),
+      agent(`${roster.length} Terms`, 196, 4, 100, 102),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -49,13 +42,8 @@ export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
         children: [
           {
             type: 'tabset',
-            weight: 66,
+            weight: 100,
             children: [swarmTab()],
-          },
-          {
-            type: 'row',
-            weight: 34,
-            children: agentChildren,
           },
         ],
       },

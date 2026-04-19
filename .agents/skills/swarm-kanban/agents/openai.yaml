@@ -1,0 +1,3 @@
+interface:
+  display_name: "Swarm Kanban"
+  short_description: "Coordinate swarm board state and consultations"

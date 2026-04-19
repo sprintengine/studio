@@ -12,9 +12,9 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     show: false,
-    titleBarStyle: 'hidden',
     ...(process.platform !== 'darwin'
       ? {
+          titleBarStyle: 'hidden',
           titleBarOverlay: {
             color: '#101114',
             symbolColor: '#a1a1aa',
@@ -141,6 +141,7 @@ type TerminalSpawnPayload = {
   rows: number
   cwd?: string
   resume?: boolean
+  swarmStatePath?: string
 }
 
 type ShellLaunchConfig = {
@@ -180,21 +181,48 @@ function quotePowerShell(value: string): string {
   return `"${value.replace(/"/g, '`"')}"`
 }
 
-function buildWslStartupInput(cwd: string, sessionId: string, resume = false): string {
+function buildSwarmShellBootstrap(swarmStatePath?: string): string {
+  const shellStatePath =
+    swarmStatePath && process.platform === 'win32' ? toWslPath(swarmStatePath) : swarmStatePath
+  const stateArg = shellStatePath ? `--state ${quotePosix(shellStatePath)}` : ''
+  const lines = [
+    'export SWARM_TOOL_PATH="$PWD/.agents/skills/swarm-kanban/scripts/swarm_tool.py"',
+  ]
+
+  if (shellStatePath) {
+    lines.push(`export SWARM_STATE_PATH=${quotePosix(shellStatePath)}`)
+  }
+
+  lines.push(
+    `swarm() { python3 "$PWD/scripts/swarm_tool.py" ${stateArg} "$@"; }`,
+    'export -f swarm >/dev/null 2>&1 || true',
+  )
+
+  return lines.join('; ')
+}
+
+function buildWslStartupInput(cwd: string, sessionId: string, resume = false, swarmStatePath?: string): string {
   const shellScript = [
-    `cd ${quotePosix(toWslPath(cwd))} && ${buildClaudeLaunchCommand(sessionId, resume)}`,
+    `cd ${quotePosix(toWslPath(cwd))}`,
+    buildSwarmShellBootstrap(swarmStatePath),
+    buildClaudeLaunchCommand(sessionId, resume),
     'exec bash -li',
   ].join('; ')
 
   return `wsl.exe -e bash -lic ${quotePowerShell(shellScript)}`
 }
 
-function getShellLaunchConfig(cwd: string, sessionId: string, resume = false): ShellLaunchConfig {
+function getShellLaunchConfig(
+  cwd: string,
+  sessionId: string,
+  resume = false,
+  swarmStatePath?: string
+): ShellLaunchConfig {
   if (process.platform === 'win32') {
     return {
       command: 'powershell.exe',
       args: ['-NoLogo', '-NoProfile'],
-      initialInput: `${buildWslStartupInput(cwd, sessionId, resume)}\r`,
+      initialInput: `${buildWslStartupInput(cwd, sessionId, resume, swarmStatePath)}\r`,
     }
   }
 
@@ -205,7 +233,7 @@ function getShellLaunchConfig(cwd: string, sessionId: string, resume = false): S
   return {
     command: shellPath,
     args,
-    initialInput: `${buildClaudeLaunchCommand(sessionId, resume)}\r`,
+    initialInput: `${[buildSwarmShellBootstrap(swarmStatePath), buildClaudeLaunchCommand(sessionId, resume)].join('; ')}\r`,
   }
 }
 
@@ -273,12 +301,17 @@ function disposeFileWatchersForSender(senderId: number): void {
 
 ipcMain.handle(
   'terminal:spawn',
-  (event, { sessionId, cols, rows, cwd, resume }: TerminalSpawnPayload) => {
+  (event, { sessionId, cols, rows, cwd, resume, swarmStatePath }: TerminalSpawnPayload) => {
     disposeTerminal(sessionId)
 
     try {
       const workingDirectory = cwd || process.cwd()
-      const { command, args, initialInput } = getShellLaunchConfig(workingDirectory, sessionId, resume)
+      const { command, args, initialInput } = getShellLaunchConfig(
+        workingDirectory,
+        sessionId,
+        resume,
+        swarmStatePath
+      )
       const termProcess = pty.spawn(command, args, {
         name: 'xterm-256color',
         cols: Math.max(cols || 80, 20),

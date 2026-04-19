@@ -21,7 +21,7 @@ declare global {
       openFile:  (options?: Electron.OpenDialogOptions) => Promise<string | null>
       showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>
 
-      terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean) => Promise<void>
+      terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string) => Promise<void>
       terminalWrite:  (sessionId: string, data: string) => Promise<void>
       terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
       terminalKill:   (sessionId: string) => Promise<void>

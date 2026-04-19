@@ -20,7 +20,7 @@ export type LayoutTemplate = {
   layout: IJsonModel
 }
 
-export type SwarmRole = 'architect' | 'developer' | 'frontend' | 'tester' | 'security'
+export type SwarmRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security'
 
 export type SwarmSkillMap = Record<SwarmRole, string[]>
 export type SwarmRoleCounts = Record<SwarmRole, number>
@@ -54,6 +54,27 @@ export type SwarmTaskEvidence = {
   results: string[]
 }
 
+export type SwarmTaskValidation = {
+  ok: boolean
+  checkedAt: number | null
+  errors: string[]
+  warnings: string[]
+}
+
+export type SwarmRuntimeAgentStatus =
+  | 'idle'
+  | 'planning'
+  | 'running'
+  | 'needs_input'
+  | 'complete'
+  | 'error'
+
+export type SwarmRuntimeAgent = {
+  role: SwarmRole
+  status: SwarmRuntimeAgentStatus
+  currentTaskId: string | null
+}
+
 export type SwarmTask = {
   id: string
   title: string
@@ -74,18 +95,25 @@ export type SwarmTask = {
 }
 
 export type SwarmState = {
+  name: string
   goal: string
   agentCount: number
   roleCounts: SwarmRoleCounts
   skills: SwarmSkillMap
+  swarmAgents: Record<string, SwarmRuntimeAgent>
   phase: SwarmPhase
   planApproved: boolean
+  planReady: boolean
+  planReadyAt: number | null
+  planReadyBy: string | null
+  taskGraphReplacedAt: number | null
+  taskValidation: SwarmTaskValidation | null
   artifacts: SwarmArtifact[]
   events: SwarmEvent[]
   tasks: SwarmTask[]
 }
 
-export type SwarmMockConfig = Pick<SwarmState, 'goal' | 'agentCount' | 'roleCounts' | 'skills'>
+export type SwarmMockConfig = Pick<SwarmState, 'name' | 'goal' | 'agentCount' | 'roleCounts' | 'skills'>
 
 export type AgentMessage = {
   role: 'user' | 'assistant' | 'system'
