@@ -12,6 +12,16 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     show: false,
+    titleBarStyle: 'hidden',
+    ...(process.platform !== 'darwin'
+      ? {
+          titleBarOverlay: {
+            color: '#101114',
+            symbolColor: '#a1a1aa',
+            height: 38,
+          },
+        }
+      : {}),
     autoHideMenuBar: process.platform !== 'darwin',
     backgroundColor: '#09090b',
     webPreferences: {
