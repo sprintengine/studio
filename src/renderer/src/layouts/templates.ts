@@ -1,4 +1,4 @@
-import type { LayoutTemplate, PreviewSlot } from '../types/workspace'
+import type { LayoutTemplate, PreviewSlot, SwarmMockConfig, SwarmRole } from '../types/workspace'
 
 // Helpers to keep preview slot definitions readable.
 // Previews are rendered in a 300×110 viewBox.
@@ -15,6 +15,86 @@ const agentTab = (id: string, name = id) => ({
 })
 const editorTab = { type: 'tab', name: 'Editor', component: 'editor' }
 const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
+const swarmTab = (config: SwarmMockConfig) => ({
+  type: 'tab',
+  name: 'Swarm',
+  component: 'swarm',
+  config,
+})
+
+export type SwarmAgentRosterItem = {
+  id: string
+  label: string
+  role: SwarmRole | 'developer'
+}
+
+export function buildSwarmAgentRoster(agentCount: number): SwarmAgentRosterItem[] {
+  const count = Math.max(1, agentCount)
+  const roster: SwarmAgentRosterItem[] = [{ id: 'architect', label: 'Architect', role: 'architect' }]
+
+  if (count >= 2) {
+    roster.push({ id: 'developer-1', label: 'Developer 1', role: 'developer' })
+  }
+  if (count >= 3) {
+    roster.push({ id: 'frontend', label: 'Frontend / UX', role: 'frontend' })
+  }
+  if (count >= 4) {
+    roster.push({ id: 'tester', label: 'Tester', role: 'tester' })
+  }
+
+  let developerIndex = 2
+  while (roster.length < count) {
+    roster.push({
+      id: `developer-${developerIndex}`,
+      label: `Developer ${developerIndex}`,
+      role: 'developer',
+    })
+    developerIndex += 1
+  }
+
+  return roster
+}
+
+export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
+  const roster = buildSwarmAgentRoster(config.agentCount)
+  const agentChildren = roster.map((agent, index) => ({
+    type: 'tabset',
+    weight: Math.max(1, Math.round(100 / roster.length)),
+    children: [agentTab(agent.id, agent.label)],
+    id: `swarm-agent-${index + 1}`,
+  }))
+
+  return {
+    id: 'swarm-mode',
+    name: 'Swarm Mode',
+    description: 'Kanban board with live specialist agents.',
+    previewSlots: [
+      editor('Board', 4, 4, 188, 102),
+      agent('Architect', 196, 4, 100, 22),
+      agent('Workers', 196, 30, 100, 36),
+      agent('Tester', 196, 70, 100, 36),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          {
+            type: 'tabset',
+            weight: 66,
+            children: [swarmTab(config)],
+          },
+          {
+            type: 'row',
+            weight: 34,
+            children: agentChildren,
+          },
+        ],
+      },
+    },
+  }
+}
 
 // Each template is a flexlayout-react JSON model.
 // To add a new template, add an entry here; no other code changes needed.
@@ -155,8 +235,8 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   },
   {
     id: 'command-center',
-    name: 'AI Command Center',
-    description: 'Nine tiled AI terminals for swarm-style work.',
+    name: 'Command Center',
+    description: 'Nine tiled AI terminals in a dense grid.',
     previewSlots: [
       agent('A1', 4, 4, 94, 32),     agent('A2', 104, 4, 94, 32),    agent('A3', 204, 4, 92, 32),
       agent('A4', 4, 40, 94, 32),    agent('A5', 104, 40, 94, 32),   agent('A6', 204, 40, 92, 32),

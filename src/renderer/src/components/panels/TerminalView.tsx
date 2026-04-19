@@ -2,16 +2,37 @@ import React, { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 
-export default function TerminalView() {
+interface Props {
+  workspaceId: string
+  agentId: string
+}
+
+export default function TerminalView({ workspaceId, agentId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const sessionIdRef = useRef(crypto.randomUUID())
+  const agent = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
+  )
+  const folderPath = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? undefined
+  )
+  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
-    const sessionId = sessionIdRef.current
+    if (!agent?.cliSessionId) {
+      updateAgent(workspaceId, agentId, {
+        cliSessionId: crypto.randomUUID(),
+        cliHasLaunched: false,
+      })
+      return
+    }
+
+    const sessionId = agent.cliSessionId
+    const shouldResume = agent.cliHasLaunched ?? false
     const term = new Terminal({
       theme: {
         background: '#09090b',
@@ -79,15 +100,36 @@ export default function TerminalView() {
       }
     }
 
-    const handleContextMenu = (event: MouseEvent) => {
-      const selection = term.getSelection()
-      if (!selection) return
+    const handleContextMenu = async (event: MouseEvent) => {
       event.preventDefault()
-      void navigator.clipboard.writeText(selection).catch(() => {})
+      const hasSelection = term.hasSelection()
+      const command = await window.api.showContextMenu([
+        { id: 'copy', label: 'Copy', enabled: hasSelection },
+        { id: 'paste', label: 'Paste' },
+        { type: 'separator' },
+        { id: 'select-all', label: 'Select All' },
+      ])
+
+      if (command === 'copy') {
+        void copySelection().catch(() => {})
+      } else if (command === 'paste') {
+        void navigator.clipboard.readText().then(pasteText).catch(() => {})
+      } else if (command === 'select-all') {
+        term.selectAll()
+      }
+
       focusTerminal()
     }
 
     term.loadAddon(fitAddon)
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
+        event.preventDefault()
+        void window.api.terminalWrite(sessionId, '\u001b[13;2u')
+        return false
+      }
+      return true
+    })
     term.open(container)
     fitTerminal()
     focusTerminal()
@@ -125,7 +167,10 @@ export default function TerminalView() {
     container.addEventListener('keydown', handleKeyDown)
     container.addEventListener('contextmenu', handleContextMenu)
 
-    void window.api.terminalSpawn(sessionId, term.cols, term.rows)
+    void window.api.terminalSpawn(sessionId, term.cols, term.rows, folderPath, shouldResume)
+    if (!shouldResume) {
+      updateAgent(workspaceId, agentId, { cliHasLaunched: true })
+    }
 
     const settleTimer = window.setTimeout(() => {
       fitTerminal()
@@ -151,7 +196,13 @@ export default function TerminalView() {
       void window.api.terminalKill(sessionId).catch(() => {})
       term.dispose()
     }
-  }, [])
+  }, [
+    workspaceId,
+    agentId,
+    agent?.cliSessionId,
+    folderPath,
+    updateAgent,
+  ])
 
   return (
     <div

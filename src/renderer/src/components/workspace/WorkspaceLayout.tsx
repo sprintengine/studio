@@ -6,6 +6,8 @@ import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import AgentPanel from '../panels/AgentPanel'
 import EditorPanel from '../panels/EditorPanel'
 import FileExplorer from '../panels/FileExplorer'
+import SwarmBoardPanel from '../panels/SwarmBoardPanel'
+import type { SwarmMockConfig } from '../../types/workspace'
 
 interface Props {
   workspaceId: string
@@ -30,7 +32,7 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
   const factory = useCallback(
     (node: TabNode) => {
       const component = node.getComponent()
-      const config = node.getConfig() as { agentId?: string } | undefined
+      const config = node.getConfig() as ({ agentId?: string } & Partial<SwarmMockConfig>) | undefined
 
       switch (component) {
         case 'agent':
@@ -44,6 +46,8 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
           return <EditorPanel workspaceId={workspaceId} />
         case 'explorer':
           return <FileExplorer workspaceId={workspaceId} />
+        case 'swarm':
+          return <SwarmBoardPanel config={config} />
         default:
           return <div className="h-full bg-[#0f1012]" />
       }

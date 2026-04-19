@@ -1,84 +1,116 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Actions, DockLocation, TabSetNode, type Model } from 'flexlayout-react'
+import React, { useEffect, useRef, useState } from 'react'
+import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
+import CommandPalette from '../CommandPalette'
+import SettingsModal from '../settings/SettingsModal'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { useSettingsStore } from '../../store/settingsStore'
+import type { LayoutTemplate, Workspace } from '../../types/workspace'
 import { getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
 import WorkspaceLayout from './WorkspaceLayout'
-import SettingsModal from '../settings/SettingsModal'
-import CommandPalette from '../CommandPalette'
-import type { LayoutTemplate, Workspace } from '../../types/workspace'
 
 export default function WorkspaceManager() {
-  const workspaces         = useWorkspaceStore((s) => s.workspaces)
-  const activeWorkspaceId  = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
-  const removeWorkspace    = useWorkspaceStore((s) => s.removeWorkspace)
-  const renameWorkspace    = useWorkspaceStore((s) => s.renameWorkspace)
-  const addWorkspace       = useWorkspaceStore((s) => s.addWorkspace)
-  const updateSwarm        = useWorkspaceStore((s) => s.updateSwarm)
-  const importWorkspace    = useWorkspaceStore((s) => s.importWorkspace)
-  const apiKey             = useSettingsStore((s) => s.apiKey)
-  const provider           = useSettingsStore((s) => s.provider)
-  const needsApiKey        = provider === 'anthropic' && !apiKey
-
-  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId)
-  const swarmEnabled = activeWorkspace?.swarmConfig.enabled ?? false
+  const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
+  const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
+  const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
+  const importWorkspace = useWorkspaceStore((s) => s.importWorkspace)
 
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
-  const [showSettings, setShowSettings]   = useState(false)
-  const [showPalette, setShowPalette]     = useState(false)
-  const [renamingId, setRenamingId]       = useState<string | null>(null)
-  const [renameValue, setRenameValue]     = useState('')
+  const [showSettings, setShowSettings] = useState(false)
+  const [showPalette, setShowPalette] = useState(false)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
 
-  // Onboarding: auto-open new-workspace screen on first launch
   useEffect(() => {
     if (workspaces.length === 0) setShowTemplateSelector(true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Focus rename input when it appears
   useEffect(() => {
     if (renamingId) renameInputRef.current?.select()
   }, [renamingId])
 
-  // Global keyboard shortcuts
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (renamingId) return
-      const ctrl = e.ctrlKey || e.metaKey
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || renamingId) return
+
+      const ctrl = event.ctrlKey || event.metaKey
       if (!ctrl) return
-      if (e.key === 'p')             { e.preventDefault(); setShowPalette(true) }
-      if (e.key === 't')             { e.preventDefault(); setShowTemplateSelector(true) }
-      if (e.key === 'w' && activeWorkspaceId) { e.preventDefault(); removeWorkspace(activeWorkspaceId) }
-      if (e.key === ',')             { e.preventDefault(); setShowSettings(true) }
-      const n = parseInt(e.key)
+
+      if (event.key === 'Tab' && activeWorkspaceId) {
+        event.preventDefault()
+        cycleActiveTab(activeWorkspaceId, event.shiftKey ? -1 : 1)
+        return
+      }
+
+      if (event.key === 'p') {
+        event.preventDefault()
+        setShowPalette(true)
+      }
+      if (event.key === 't') {
+        event.preventDefault()
+        setShowTemplateSelector(true)
+      }
+      if (event.key === 'w' && activeWorkspaceId) {
+        event.preventDefault()
+        removeWorkspace(activeWorkspaceId)
+      }
+
+      const n = parseInt(event.key)
       if (n >= 1 && n <= 9 && workspaces[n - 1]) {
-        e.preventDefault()
+        event.preventDefault()
         setActiveWorkspace(workspaces[n - 1].id)
       }
     }
+
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [workspaces, activeWorkspaceId, renamingId, removeWorkspace, setActiveWorkspace])
 
+  useEffect(() => {
+    return window.api.onAppMenuCommand((command) => {
+      if (command === 'show-settings') {
+        setShowSettings(true)
+        return
+      }
+      if (command === 'show-about') {
+        setShowSettings(true)
+        return
+      }
+      if (!activeWorkspaceId) return
+      if (command === 'toggle-explorer') {
+        toggleWorkspacePanel(activeWorkspaceId, 'explorer')
+      } else if (command === 'toggle-editor') {
+        toggleWorkspacePanel(activeWorkspaceId, 'editor')
+      }
+    })
+  }, [activeWorkspaceId])
+
   const handleCreate = ({
-    template, name, folderPath,
-  }: { template: LayoutTemplate; name: string; folderPath: string | null }) => {
+    template,
+    name,
+    folderPath,
+  }: {
+    template: LayoutTemplate
+    name: string
+    folderPath: string | null
+  }) => {
     addWorkspace(template, { name, folderPath })
     setShowTemplateSelector(false)
   }
 
-  const handleCloseTab = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation()
+  const handleCloseTab = (event: React.MouseEvent, id: string) => {
+    event.stopPropagation()
     removeWorkspace(id)
   }
 
-  const startRename = (e: React.MouseEvent, ws: Workspace) => {
-    e.stopPropagation()
-    setRenamingId(ws.id)
-    setRenameValue(ws.name)
+  const startRename = (event: React.MouseEvent, workspace: Workspace) => {
+    event.stopPropagation()
+    setRenamingId(workspace.id)
+    setRenameValue(workspace.name)
   }
 
   const commitRename = () => {
@@ -86,36 +118,39 @@ export default function WorkspaceManager() {
     setRenamingId(null)
   }
 
-  const handleExport = async (e: React.MouseEvent, ws: Workspace) => {
-    e.stopPropagation()
+  const handleExport = async (event: React.MouseEvent, workspace: Workspace) => {
+    event.stopPropagation()
     const filePath = await window.api.saveFile({
       title: 'Export Workspace',
-      defaultPath: `${ws.name.replace(/[^a-z0-9_\- ]/gi, '_')}.swarm.json`,
-      filters: [{ name: 'Swarm Workspace', extensions: ['swarm.json', 'json'] }],
+      defaultPath: `${workspace.name.replace(/[^a-z0-9_\- ]/gi, '_')}.workspace.json`,
+      filters: [{ name: 'Workspace', extensions: ['json'] }],
     })
     if (!filePath) return
+
     const exportData = {
-      ...ws,
+      ...workspace,
       agents: Object.fromEntries(
-        Object.entries(ws.agents).map(([id, a]) => [
+        Object.entries(workspace.agents).map(([id, agent]) => [
           id,
-          { ...a, streamBuffer: '', status: 'idle' as const },
+          { ...agent, streamBuffer: '', status: 'idle' as const },
         ])
       ),
     }
+
     await window.api.writefile(filePath, JSON.stringify(exportData, null, 2))
   }
 
   const handleImport = async () => {
     const filePath = await window.api.openFile({
       title: 'Import Workspace',
-      filters: [{ name: 'Swarm Workspace', extensions: ['swarm.json', 'json'] }],
+      filters: [{ name: 'Workspace', extensions: ['json'] }],
     })
     if (!filePath) return
+
     try {
       const raw = await window.api.readfile(filePath)
-      const ws = JSON.parse(raw) as Workspace
-      importWorkspace(ws)
+      const workspace = JSON.parse(raw) as Workspace
+      importWorkspace(workspace)
     } catch {
       console.error('[import] Failed to parse workspace file')
     }
@@ -125,9 +160,11 @@ export default function WorkspaceManager() {
     if (!activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
     if (!model) return
+
     const newId = `agent-${nanoid(6)}`
     const targetTabset = model.getActiveTabset() ?? firstTabset(model)
     if (!targetTabset) return
+
     model.doAction(
       Actions.addNode(
         { type: 'tab', name: newId, component: 'agent', config: { agentId: newId } },
@@ -139,14 +176,8 @@ export default function WorkspaceManager() {
     )
   }
 
-  const toggleSwarm = () => {
-    if (!activeWorkspaceId) return
-    updateSwarm(activeWorkspaceId, { enabled: !swarmEnabled })
-  }
-
   return (
-    <div className="flex flex-col h-screen text-zinc-100 overflow-hidden bg-[#09090a]">
-      {/* Subtle background texture */}
+    <div className="flex h-screen flex-col overflow-hidden bg-[#09090a] text-zinc-100">
       <div
         className="pointer-events-none fixed inset-0 z-0"
         style={{
@@ -156,86 +187,59 @@ export default function WorkspaceManager() {
         }}
       />
 
-      {/* ── Global bar ─────────────────────────────────────────────────── */}
-      <div
-        className="relative z-10 grid items-center gap-4 px-4 h-[52px] border-b border-[#23262d] bg-[#101114] shrink-0"
-        style={{ gridTemplateColumns: 'auto 1fr auto' }}
-      >
+      <div className="relative z-10 flex h-[44px] shrink-0 items-center border-b border-[#23262d] bg-[#101114] px-4">
         <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-lg border border-[#393c44] bg-gradient-to-b from-[#2d2f34] to-[#1a1c21]" />
-          <strong className="text-[13px] font-semibold tracking-tight text-zinc-100">Free AI IDE</strong>
-        </div>
-
-        <button
-          onClick={() => setShowPalette(true)}
-          className="flex items-center gap-2 h-9 px-3.5 rounded-[11px] border border-[#23262d] bg-[#14161a] text-[12px] text-zinc-500 hover:text-zinc-300 hover:border-[#2d3139] transition-colors max-w-[520px] w-full justify-self-center"
-          title="Command palette (Ctrl+P)"
-        >
-          <span className="opacity-70">⌕</span>
-          <span className="flex-1 text-left truncate">Search files, commands, workspaces</span>
-        </button>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowSettings(true)}
-            className="relative h-9 px-3 rounded-[11px] border border-[#23262d] bg-[#14161a] text-[12px] text-zinc-400 hover:text-zinc-200 hover:border-[#2d3139] transition-colors"
-            title="Settings (Ctrl+,)"
-          >
-            Settings
-            {needsApiKey && (
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-500" />
-            )}
-          </button>
+          <div className="h-7 w-7 rounded-lg border border-[#393c44] bg-gradient-to-b from-[#2d2f34] to-[#1a1c21]" />
+          <strong className="text-[13px] font-semibold tracking-tight text-zinc-100">Multicode</strong>
         </div>
       </div>
 
-      {/* ── Workspace tabs row ─────────────────────────────────────────── */}
-      <div className="relative z-10 flex items-center justify-between gap-3 px-3 py-2 border-b border-[#23262d] bg-[#111214] shrink-0">
-        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto">
-          {workspaces.map((ws) => {
-            const active = ws.id === activeWorkspaceId
+      <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-b border-[#23262d] bg-[#111214] px-3 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+          {workspaces.map((workspace) => {
+            const active = workspace.id === activeWorkspaceId
             return (
               <div
-                key={ws.id}
-                onClick={() => { if (!renamingId) setActiveWorkspace(ws.id) }}
-                className={`group inline-flex items-center gap-2 h-[30px] px-2.5 rounded-[10px] text-[13px] cursor-pointer select-none whitespace-nowrap border transition-colors ${
+                key={workspace.id}
+                onClick={() => {
+                  if (!renamingId) setActiveWorkspace(workspace.id)
+                }}
+                className={`group inline-flex h-[30px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-[10px] border px-2.5 text-[13px] transition-colors ${
                   active
                     ? 'border-[#2d3139] bg-[#1a1c20] text-zinc-100'
-                    : 'border-transparent text-zinc-500 hover:text-zinc-200 hover:bg-[#16181c]'
+                    : 'border-transparent text-zinc-500 hover:bg-[#16181c] hover:text-zinc-200'
                 }`}
               >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-[#d2b48c]' : 'bg-[#4c515a]'}`}
-                />
-                {renamingId === ws.id ? (
+                <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-[#d2b48c]' : 'bg-[#4c515a]'}`} />
+                {renamingId === workspace.id ? (
                   <input
                     ref={renameInputRef}
                     value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
+                    onChange={(event) => setRenameValue(event.target.value)}
                     onBlur={commitRename}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitRename()
-                      if (e.key === 'Escape') setRenamingId(null)
-                      e.stopPropagation()
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') commitRename()
+                      if (event.key === 'Escape') setRenamingId(null)
+                      event.stopPropagation()
                     }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-32 bg-[#0f1012] border border-[#3d4252] rounded px-1.5 py-0 text-[13px] text-zinc-100 focus:outline-none"
+                    onClick={(event) => event.stopPropagation()}
+                    className="w-32 rounded border border-[#3d4252] bg-[#0f1012] px-1.5 py-0 text-[13px] text-zinc-100 focus:outline-none"
                   />
                 ) : (
-                  <span onDoubleClick={(e) => startRename(e, ws)}>{ws.name}</span>
+                  <span onDoubleClick={(event) => startRename(event, workspace)}>{workspace.name}</span>
                 )}
 
                 <button
-                  onClick={(e) => handleExport(e, ws)}
-                  className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-zinc-200 text-xs leading-none transition-opacity"
-                  title={`Export "${ws.name}"`}
+                  onClick={(event) => handleExport(event, workspace)}
+                  className="text-xs leading-none text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100 hover:text-zinc-200"
+                  title={`Export "${workspace.name}"`}
                 >
                   ↓
                 </button>
                 <button
-                  onClick={(e) => handleCloseTab(e, ws.id)}
-                  className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-zinc-200 text-xs leading-none transition-opacity"
-                  aria-label={`Close ${ws.name}`}
+                  onClick={(event) => handleCloseTab(event, workspace.id)}
+                  className="text-xs leading-none text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100 hover:text-zinc-200"
+                  aria-label={`Close ${workspace.name}`}
                 >
                   ×
                 </button>
@@ -245,56 +249,39 @@ export default function WorkspaceManager() {
 
           <button
             onClick={() => setShowTemplateSelector(true)}
-            className="inline-flex items-center gap-1.5 h-[30px] px-2.5 rounded-[10px] text-[13px] text-zinc-500 hover:text-zinc-200 hover:bg-[#16181c] transition-colors shrink-0"
+            className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-[10px] px-2.5 text-[13px] text-zinc-500 transition-colors hover:bg-[#16181c] hover:text-zinc-200"
             title="New workspace (Ctrl+T)"
           >
             + New Workspace
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             onClick={addNewCLI}
             disabled={!activeWorkspaceId}
-            className="inline-flex items-center gap-2 h-8 px-3 rounded-[10px] border border-[#2d3139] bg-[#1c1f25] text-[12px] font-medium text-zinc-100 hover:bg-[#222530] transition-colors disabled:opacity-40 disabled:hover:bg-[#1c1f25]"
+            className="inline-flex h-8 items-center gap-2 rounded-[10px] border border-[#2d3139] bg-[#1c1f25] px-3 text-[12px] font-medium text-zinc-100 transition-colors hover:bg-[#222530] disabled:opacity-40 disabled:hover:bg-[#1c1f25]"
             title="Add a new CLI pane to the active workspace"
           >
             New CLI
           </button>
           <button
-            onClick={toggleSwarm}
-            disabled={!activeWorkspaceId}
-            className={`inline-flex items-center gap-2 h-8 px-3 rounded-[10px] border text-[12px] font-medium transition-colors disabled:opacity-40 ${
-              swarmEnabled
-                ? 'border-[#3d4c6b] bg-[#1a223a] text-[#a9c8ff] hover:bg-[#1d2742]'
-                : 'border-[#23262d] bg-[#17191d] text-zinc-400 hover:text-zinc-200 hover:bg-[#1c1f25]'
-            }`}
-            title="Toggle swarm mode for this workspace"
-          >
-            Swarm {swarmEnabled ? '· on' : ''}
-          </button>
-          <button
             onClick={handleImport}
-            className="inline-flex items-center h-8 w-8 justify-center rounded-[10px] border border-[#23262d] bg-[#17191d] text-zinc-500 hover:text-zinc-200 hover:bg-[#1c1f25] transition-colors"
-            title="Import workspace from .swarm.json"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[#23262d] bg-[#17191d] text-zinc-500 transition-colors hover:bg-[#1c1f25] hover:text-zinc-200"
+            title="Import workspace"
           >
             +
           </button>
         </div>
       </div>
 
-      {/* ── Workspaces ─────────────────────────────────────────────────
-           All workspaces stay mounted so their flexlayout Model, agent
-           state, and CLI pty sessions survive tab switches. Inactive
-           workspaces are hidden via visibility (not display:none, so
-           xterm/Monaco keep a valid layout and don't re-fit on return). */}
-      <div className="relative z-10 flex-1 min-h-0">
+      <div className="relative z-10 min-h-0 flex-1">
         {workspaces.length === 0 && <EmptyState onNew={() => setShowTemplateSelector(true)} />}
-        {workspaces.map((ws) => {
-          const active = ws.id === activeWorkspaceId
+        {workspaces.map((workspace) => {
+          const active = workspace.id === activeWorkspaceId
           return (
             <div
-              key={ws.id}
+              key={workspace.id}
               className="absolute inset-0"
               style={{
                 visibility: active ? 'visible' : 'hidden',
@@ -302,7 +289,7 @@ export default function WorkspaceManager() {
               }}
               aria-hidden={!active}
             >
-              <WorkspaceLayout workspaceId={ws.id} />
+              <WorkspaceLayout workspaceId={workspace.id} />
             </div>
           )
         })}
@@ -322,11 +309,23 @@ export default function WorkspaceManager() {
         <CommandPalette
           onClose={() => setShowPalette(false)}
           onNewWorkspace={() => setShowTemplateSelector(true)}
-          onSettings={() => setShowSettings(true)}
         />
       )}
     </div>
   )
+}
+
+function cycleActiveTab(workspaceId: string, step: 1 | -1): void {
+  const model = getModel(workspaceId)
+  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
+  if (!tabset) return
+
+  const tabs = tabset.getChildren().filter((node): node is TabNode => node instanceof TabNode)
+  if (tabs.length < 2) return
+
+  const selectedIndex = tabset.getSelected()
+  const nextIndex = (selectedIndex + step + tabs.length) % tabs.length
+  model?.doAction(Actions.selectTab(tabs[nextIndex].getId()))
 }
 
 function firstTabset(model: Model): TabSetNode | null {
@@ -338,14 +337,77 @@ function firstTabset(model: Model): TabSetNode | null {
   return found
 }
 
+function findPanelTab(model: Model, component: 'explorer' | 'editor'): TabNode | null {
+  let found: TabNode | null = null
+  model.visitNodes((node) => {
+    if (found) return
+    if (node instanceof TabNode && node.getComponent() === component) {
+      found = node
+    }
+  })
+  return found
+}
+
+function toggleWorkspacePanel(workspaceId: string, component: 'explorer' | 'editor'): void {
+  const model = getModel(workspaceId)
+  if (!model) return
+
+  const existingTab = findPanelTab(model, component)
+  if (existingTab) {
+    model.doAction(Actions.deleteTab(existingTab.getId()))
+    return
+  }
+
+  const tabName = component === 'explorer' ? 'Files' : 'Editor'
+  const target = getPreferredPanelTarget(model, component)
+
+  model.doAction(
+    Actions.addNode(
+      { type: 'tab', name: tabName, component },
+      target.id,
+      target.location,
+      -1,
+      true
+    )
+  )
+}
+
+function getPreferredPanelTarget(
+  model: Model,
+  component: 'explorer' | 'editor'
+): { id: string; location: DockLocation } {
+  if (component === 'explorer') {
+    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+    return {
+      id: targetTabset?.getId() ?? model.getRoot().getId(),
+      location: DockLocation.LEFT,
+    }
+  }
+
+  const explorerTab = findPanelTab(model, 'explorer')
+  const explorerParent = explorerTab?.getParent()
+  if (explorerParent instanceof TabSetNode) {
+    return {
+      id: explorerParent.getId(),
+      location: DockLocation.RIGHT,
+    }
+  }
+
+  const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+  return {
+    id: targetTabset?.getId() ?? model.getRoot().getId(),
+    location: DockLocation.LEFT,
+  }
+}
+
 function EmptyState({ onNew }: { onNew: () => void }) {
   return (
-    <div className="flex items-center justify-center h-full">
-      <div className="text-center space-y-4">
-        <p className="text-zinc-600 text-sm">No workspace open</p>
+    <div className="flex h-full items-center justify-center">
+      <div className="space-y-4 text-center">
+        <p className="text-sm text-zinc-600">No workspace open</p>
         <button
           onClick={onNew}
-          className="px-4 py-2 bg-zinc-200 hover:bg-white rounded text-zinc-950 text-sm font-medium transition-colors"
+          className="rounded bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-950 transition-colors hover:bg-white"
         >
           New Workspace
         </button>

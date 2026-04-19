@@ -9,10 +9,8 @@ import type {
   LayoutTemplate,
   AgentState,
   AgentId,
-  SwarmConfig,
   EditorState,
 } from '../types/workspace'
-import { extractAgentIds } from '../utils/layout'
 import { detectLanguage } from '../utils/files'
 
 interface WorkspaceStore {
@@ -27,7 +25,6 @@ interface WorkspaceStore {
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
-  updateSwarm: (workspaceId: WorkspaceId, config: Partial<SwarmConfig>) => void
   importWorkspace: (ws: Workspace) => void
 
   // Per-workspace editor actions
@@ -36,6 +33,7 @@ interface WorkspaceStore {
   setActiveFile: (workspaceId: WorkspaceId, path: string) => void
   updateFileContent: (workspaceId: WorkspaceId, path: string, content: string) => void
   markFileClean: (workspaceId: WorkspaceId, path: string) => void
+  remapOpenFiles: (workspaceId: WorkspaceId, fromPath: string, toPath: string) => void
 }
 
 const defaultAgent = (id: AgentId): AgentState => ({
@@ -44,12 +42,8 @@ const defaultAgent = (id: AgentId): AgentState => ({
   status: 'idle',
   messages: [],
   streamBuffer: '',
-})
-
-const defaultSwarmConfig = (agentIds: string[]): SwarmConfig => ({
-  enabled: false,
-  agents: agentIds.map((id) => ({ agentId: id, role: 'standalone' })),
-  orchestratorId: null,
+  cliSessionId: undefined,
+  cliHasLaunched: false,
 })
 
 const defaultEditorState = (): EditorState => ({
@@ -66,7 +60,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       addWorkspace: (template, options) =>
         set((state) => {
           const id = nanoid()
-          const agentIds = extractAgentIds(template.layout)
           const fallbackName = `${template.name} ${state.workspaces.length + 1}`
           state.workspaces.push({
             id,
@@ -75,7 +68,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             templateId: template.id,
             layoutModel: template.layout,
             agents: {},
-            swarmConfig: defaultSwarmConfig(agentIds),
             editorState: defaultEditorState(),
             createdAt: Date.now(),
           })
@@ -148,15 +140,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (agent.status !== 'error') {
             agent.status = 'complete'
           }
-        }),
-
-      updateSwarm: (workspaceId, config) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          Object.assign(ws.swarmConfig, config)
-          const orchAgent = ws.swarmConfig.agents.find((a) => a.role === 'orchestrator')
-          ws.swarmConfig.orchestratorId = orchAgent?.agentId ?? null
         }),
 
       importWorkspace: (ws) =>
@@ -232,6 +215,30 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           const file = ws?.editorState?.openFiles.find((f) => f.path === path)
           if (file) file.isDirty = false
+        }),
+
+      remapOpenFiles: (workspaceId, fromPath, toPath) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          const openFiles = ws?.editorState?.openFiles
+          if (!ws?.editorState || !openFiles?.length) return
+
+          const separator = fromPath.includes('\\') && !fromPath.includes('/') ? '\\' : '/'
+          const fromPrefix = `${fromPath}${separator}`
+
+          openFiles.forEach((file) => {
+            if (file.path !== fromPath && !file.path.startsWith(fromPrefix)) return
+
+            const suffix = file.path === fromPath ? '' : file.path.slice(fromPath.length)
+            file.path = `${toPath}${suffix}`
+            file.name = file.path.split(/[/\\]/).filter(Boolean).pop() ?? file.name
+          })
+
+          if (ws.editorState.activeFilePath === fromPath) {
+            ws.editorState.activeFilePath = toPath
+          } else if (ws.editorState.activeFilePath?.startsWith(fromPrefix)) {
+            ws.editorState.activeFilePath = `${toPath}${ws.editorState.activeFilePath.slice(fromPath.length)}`
+          }
         }),
     })),
     {

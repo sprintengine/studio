@@ -1,7 +1,8 @@
-import React, { useCallback, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import MonacoEditor, { OnMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { renderMarkdown } from '../../utils/markdown'
 
 interface Props {
   workspaceId: string
@@ -15,16 +16,37 @@ export default function EditorPanel({ workspaceId }: Props) {
   const closeFile         = useWorkspaceStore((s) => s.closeFile)
   const updateFileContent = useWorkspaceStore((s) => s.updateFileContent)
   const markFileClean     = useWorkspaceStore((s) => s.markFileClean)
-  const appendStream      = useWorkspaceStore((s) => s.appendStream)
 
   const openFiles = editorState?.openFiles ?? []
   const activeFilePath = editorState?.activeFilePath ?? null
   const activeFile = openFiles.find((f) => f.path === activeFilePath)
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
 
-  const handleMount: OnMount = (editor) => {
+  useEffect(() => {
+    if (activeFile?.language === 'markdown') {
+      setMarkdownMode('preview')
+    }
+  }, [activeFilePath, activeFile?.language])
+
+  const cycleOpenFiles = (step: 1 | -1) => {
+    const state = useWorkspaceStore.getState()
+    const workspace = state.workspaces.find((w) => w.id === workspaceId)
+    const files = workspace?.editorState?.openFiles ?? []
+    const currentPath = workspace?.editorState?.activeFilePath ?? null
+    if (files.length < 2 || !currentPath) return
+
+    const currentIndex = files.findIndex((file) => file.path === currentPath)
+    const nextIndex = currentIndex === -1
+      ? 0
+      : (currentIndex + step + files.length) % files.length
+
+    state.setActiveFile(workspaceId, files[nextIndex].path)
+  }
+
+  const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor
-    editor.addCommand(2097 /* KeyMod.CtrlCmd | KeyCode.KeyS */, async () => {
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
       const state = useWorkspaceStore.getState()
       const ws = state.workspaces.find((w) => w.id === workspaceId)
       const file = ws?.editorState?.openFiles.find((f) => f.path === ws.editorState.activeFilePath)
@@ -32,16 +54,36 @@ export default function EditorPanel({ workspaceId }: Props) {
       await window.api.writefile(file.path, file.content)
       markFileClean(workspaceId, file.path)
     })
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab, () => cycleOpenFiles(1))
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => cycleOpenFiles(-1))
   }
 
-  const handleSendToAgent = useCallback(() => {
-    if (!editorRef.current) return
-    const selection = editorRef.current.getModel()?.getValueInRange(
-      editorRef.current.getSelection()!
-    )
-    if (!selection?.trim()) return
-    appendStream(workspaceId, 'agent-1', `\`\`\`\n${selection}\n\`\`\``)
-  }, [workspaceId, appendStream])
+  const showEditorContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
+    if (showPreview || !editorRef.current) return
+
+    event.preventDefault()
+    const editor = editorRef.current
+    const selection = editor.getSelection()
+    const hasSelection = Boolean(selection && !selection.isEmpty())
+
+    const command = await window.api.showContextMenu([
+      { id: 'cut', label: 'Cut', enabled: hasSelection },
+      { id: 'copy', label: 'Copy', enabled: hasSelection },
+      { id: 'paste', label: 'Paste' },
+      { type: 'separator' },
+      { id: 'select-all', label: 'Select All' },
+    ])
+
+    if (command === 'cut') {
+      editor.trigger('context-menu', 'editor.action.clipboardCutAction', null)
+    } else if (command === 'copy') {
+      editor.trigger('context-menu', 'editor.action.clipboardCopyAction', null)
+    } else if (command === 'paste') {
+      editor.trigger('context-menu', 'editor.action.clipboardPasteAction', null)
+    } else if (command === 'select-all') {
+      editor.trigger('context-menu', 'editor.action.selectAll', null)
+    }
+  }
 
   if (openFiles.length === 0) {
     return (
@@ -51,9 +93,11 @@ export default function EditorPanel({ workspaceId }: Props) {
     )
   }
 
+  const isMarkdown = activeFile?.language === 'markdown'
+  const showPreview = isMarkdown && markdownMode === 'preview'
+
   return (
     <div className="flex flex-col h-full bg-[#0f1012]">
-      {/* File tabs */}
       <div className="flex items-center gap-0 h-9 border-b border-[#23262d] overflow-x-auto shrink-0 bg-[#15171b]">
         {openFiles.map((f) => {
           const active = f.path === activeFilePath
@@ -79,41 +123,55 @@ export default function EditorPanel({ workspaceId }: Props) {
           )
         })}
 
-        <button
-          onClick={handleSendToAgent}
-          className="ml-auto mr-2 h-7 px-2.5 rounded-md text-[10px] uppercase tracking-[0.08em] text-zinc-500 hover:text-[#a9c8ff] hover:bg-[#17191d] transition-colors shrink-0"
-          title="Send selection to first agent"
-        >
-          → agent
-        </button>
+        <div className="ml-auto mr-2 flex items-center gap-1.5 shrink-0">
+          {isMarkdown && (
+            <button
+              onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}
+              className="h-7 px-2.5 rounded-md text-[10px] uppercase tracking-[0.08em] text-zinc-500 hover:text-zinc-200 hover:bg-[#17191d] transition-colors"
+            >
+              {showPreview ? 'Edit' : 'Preview'}
+            </button>
+          )}
+        </div>
       </div>
 
       {activeFile && (
         <div className="flex-1 overflow-hidden">
-          <MonacoEditor
-            height="100%"
-            language={activeFile.language}
-            value={activeFile.content}
-            theme="vs-dark"
-            options={{
-              fontSize: 13,
-              fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace',
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              renderLineHighlight: 'gutter',
-              lineNumbers: 'on',
-              wordWrap: 'off',
-              tabSize: 2,
-              automaticLayout: true,
-              padding: { top: 12 },
-            }}
-            onChange={(value) => {
-              if (value !== undefined && activeFilePath) {
-                updateFileContent(workspaceId, activeFilePath, value)
-              }
-            }}
-            onMount={handleMount}
-          />
+          {showPreview ? (
+            <div className="h-full overflow-y-auto px-8 py-8 bg-[#0f1012]">
+              <div className="max-w-4xl mx-auto">
+                {renderMarkdown(activeFile.content)}
+              </div>
+            </div>
+          ) : (
+            <div className="h-full" onContextMenu={(event) => void showEditorContextMenu(event)}>
+              <MonacoEditor
+                height="100%"
+                language={activeFile.language}
+                value={activeFile.content}
+                theme="vs-dark"
+                options={{
+                  fontSize: 13,
+                  fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace',
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  renderLineHighlight: 'gutter',
+                  lineNumbers: 'on',
+                  wordWrap: 'off',
+                  tabSize: 2,
+                  automaticLayout: true,
+                  contextmenu: false,
+                  padding: { top: 12 },
+                }}
+                onChange={(value) => {
+                  if (value !== undefined && activeFilePath) {
+                    updateFileContent(workspaceId, activeFilePath, value)
+                  }
+                }}
+                onMount={handleMount}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

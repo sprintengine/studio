@@ -20,6 +20,14 @@ export type LayoutTemplate = {
   layout: IJsonModel
 }
 
+export type SwarmRole = 'architect' | 'developer' | 'frontend' | 'tester'
+
+export type SwarmMockConfig = {
+  goal: string
+  agentCount: number
+  skills: Record<SwarmRole, string[]>
+}
+
 export type AgentMessage = {
   role: 'user' | 'assistant' | 'system'
   content: string
@@ -34,6 +42,8 @@ export type AgentState = {
   status: AgentStatus
   messages: AgentMessage[]
   streamBuffer: string
+  cliSessionId?: string
+  cliHasLaunched?: boolean
 }
 
 export type AgentConfig = {
@@ -48,20 +58,6 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   systemPrompt: 'You are a helpful AI assistant.',
   temperature: 1,
   maxTokens: 8096,
-}
-
-export type SwarmRole = 'orchestrator' | 'worker' | 'reviewer' | 'standalone'
-
-export type SwarmAgent = {
-  agentId: AgentId
-  role: SwarmRole
-  config?: AgentConfig
-}
-
-export type SwarmConfig = {
-  enabled: boolean
-  agents: SwarmAgent[]
-  orchestratorId: AgentId | null
 }
 
 export type OpenFile = {
@@ -84,7 +80,6 @@ export type Workspace = {
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>
-  swarmConfig: SwarmConfig
   editorState: EditorState
   createdAt: number
 }

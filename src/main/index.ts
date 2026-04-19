@@ -1,6 +1,6 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
-import { join } from 'path'
-import { readdir, readFile, writeFile } from 'fs/promises'
+import { app, shell, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
+import { basename, dirname, join, parse } from 'path'
+import { access, cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
 
@@ -11,7 +11,7 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     show: false,
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,
     backgroundColor: '#09090b',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -33,6 +33,90 @@ function createWindow(): void {
   }
 }
 
+function sendMenuCommand(win: Electron.BaseWindow | null, command: string): void {
+  if (!win || win.isDestroyed()) return
+  const browserWindow = BrowserWindow.fromId(win.id)
+  if (!browserWindow || browserWindow.isDestroyed()) return
+  browserWindow.webContents.send('app-menu:command', command)
+}
+
+function createAppMenu(): Menu {
+  return Menu.buildFromTemplate([
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Settings',
+          accelerator: 'CmdOrCtrl+,',
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'show-settings'),
+        },
+        { type: 'separator' },
+        { role: 'close' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Toggle File Explorer',
+          accelerator: 'CmdOrCtrl+Shift+E',
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-explorer'),
+        },
+        {
+          label: 'Toggle Code Editor',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-editor'),
+        },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+      ],
+    },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'About Multicode',
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'show-about'),
+        },
+      ],
+    },
+  ])
+}
+
+type ContextMenuItem = {
+  id?: string
+  label?: string
+  enabled?: boolean
+  type?: 'normal' | 'separator'
+}
+
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
 const terminals = new Map<string, pty.IPty>()
@@ -42,6 +126,7 @@ type TerminalSpawnPayload = {
   cols: number
   rows: number
   cwd?: string
+  resume?: boolean
 }
 
 type ShellLaunchConfig = {
@@ -81,21 +166,21 @@ function quotePowerShell(value: string): string {
   return `"${value.replace(/"/g, '`"')}"`
 }
 
-function buildWslStartupInput(cwd: string, sessionId: string): string {
+function buildWslStartupInput(cwd: string, sessionId: string, resume = false): string {
   const shellScript = [
-    `cd ${quotePosix(toWslPath(cwd))} && ${buildClaudeLaunchCommand(sessionId)}`,
+    `cd ${quotePosix(toWslPath(cwd))} && ${buildClaudeLaunchCommand(sessionId, resume)}`,
     'exec bash -li',
   ].join('; ')
 
   return `wsl.exe -e bash -lic ${quotePowerShell(shellScript)}`
 }
 
-function getShellLaunchConfig(cwd: string, sessionId: string): ShellLaunchConfig {
+function getShellLaunchConfig(cwd: string, sessionId: string, resume = false): ShellLaunchConfig {
   if (process.platform === 'win32') {
     return {
       command: 'powershell.exe',
       args: ['-NoLogo', '-NoProfile'],
-      initialInput: `${buildWslStartupInput(cwd, sessionId)}\r`,
+      initialInput: `${buildWslStartupInput(cwd, sessionId, resume)}\r`,
     }
   }
 
@@ -106,12 +191,12 @@ function getShellLaunchConfig(cwd: string, sessionId: string): ShellLaunchConfig
   return {
     command: shellPath,
     args,
-    initialInput: `${buildClaudeLaunchCommand(sessionId)}\r`,
+    initialInput: `${buildClaudeLaunchCommand(sessionId, resume)}\r`,
   }
 }
 
-function buildClaudeLaunchCommand(sessionId: string): string {
-  return `claude --session-id ${sessionId}`
+function buildClaudeLaunchCommand(sessionId: string, resume = false): string {
+  return resume ? `claude --resume ${sessionId}` : `claude --session-id ${sessionId}`
 }
 
 function sendTerminalEvent(
@@ -141,12 +226,12 @@ function disposeTerminal(sessionId: string): void {
 
 ipcMain.handle(
   'terminal:spawn',
-  (event, { sessionId, cols, rows, cwd }: TerminalSpawnPayload) => {
+  (event, { sessionId, cols, rows, cwd, resume }: TerminalSpawnPayload) => {
     disposeTerminal(sessionId)
 
     try {
       const workingDirectory = cwd || process.cwd()
-      const { command, args, initialInput } = getShellLaunchConfig(workingDirectory, sessionId)
+      const { command, args, initialInput } = getShellLaunchConfig(workingDirectory, sessionId, resume)
       const termProcess = pty.spawn(command, args, {
         name: 'xterm-256color',
         cols: Math.max(cols || 80, 20),
@@ -208,6 +293,43 @@ ipcMain.handle('fs:writefile', async (_, filePath: string, content: string) => {
   await writeFile(filePath, content, 'utf-8')
 })
 
+ipcMain.handle('fs:create-file', async (_, parentDir: string, name: string) => {
+  const filePath = join(parentDir, name)
+  await writeFile(filePath, '', { encoding: 'utf-8', flag: 'wx' })
+  return filePath
+})
+
+ipcMain.handle('fs:create-dir', async (_, parentDir: string, name: string) => {
+  const dirPath = join(parentDir, name)
+  await mkdir(dirPath)
+  return dirPath
+})
+
+ipcMain.handle('fs:rename', async (_, sourcePath: string, nextName: string) => {
+  const targetPath = join(dirname(sourcePath), nextName)
+  if (targetPath === sourcePath) return targetPath
+
+  if (await pathExists(targetPath)) {
+    throw new Error(`A file or folder named "${nextName}" already exists.`)
+  }
+
+  await rename(sourcePath, targetPath)
+  return targetPath
+})
+
+ipcMain.handle('fs:copy', async (_, sourcePath: string, destinationDir: string) => {
+  const sourceName = basename(sourcePath)
+  const destinationPath = await getUniqueCopyPath(destinationDir, sourceName, sourcePath)
+
+  await cp(sourcePath, destinationPath, {
+    errorOnExist: true,
+    force: false,
+    recursive: true,
+  })
+
+  return destinationPath
+})
+
 ipcMain.handle('fs:dialog:opendir', async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showOpenDialog(win!, {
@@ -232,6 +354,89 @@ ipcMain.handle('fs:dialog:openfile', async (event, options: Electron.OpenDialogO
   return result.filePaths[0] ?? null
 })
 
+ipcMain.handle('app:show-context-menu', async (event, items: ContextMenuItem[]) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) return null
+
+  return await new Promise<string | null>((resolve) => {
+    let settled = false
+    const menu = Menu.buildFromTemplate(
+      items.map((item) => {
+        if (item.type === 'separator') {
+          return { type: 'separator' }
+        }
+
+        return {
+          label: item.label ?? '',
+          enabled: item.enabled ?? true,
+          click: () => {
+            if (settled) return
+            settled = true
+            resolve(item.id ?? null)
+          },
+        }
+      })
+    )
+
+    menu.popup({
+      window: win,
+      callback: () => {
+        if (settled) return
+        settled = true
+        resolve(null)
+      },
+    })
+  })
+})
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function getUniqueCopyPath(
+  destinationDir: string,
+  sourceName: string,
+  sourcePath: string
+): Promise<string> {
+  const base = await buildCopyBaseName(sourceName, sourcePath)
+  let attempt = 0
+
+  while (true) {
+    const candidateName = attempt === 0 ? base.first : base.next(attempt + 1)
+    const candidatePath = join(destinationDir, candidateName)
+    if (!(await pathExists(candidatePath))) {
+      return candidatePath
+    }
+    attempt += 1
+  }
+}
+
+async function buildCopyBaseName(
+  sourceName: string,
+  sourcePath: string
+): Promise<{ first: string; next: (count: number) => string }> {
+  const sourceStats = await stat(sourcePath)
+  const sourceIsDirectory = sourceStats.isDirectory()
+
+  if (sourceIsDirectory) {
+    return {
+      first: `${sourceName} copy`,
+      next: (count) => `${sourceName} copy ${count}`,
+    }
+  }
+
+  const parsed = parse(sourceName)
+  return {
+    first: `${parsed.name} copy${parsed.ext}`,
+    next: (count) => `${parsed.name} copy ${count}${parsed.ext}`,
+  }
+}
+
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -241,6 +446,7 @@ app.whenReady().then(() => {
     )
   }
 
+  Menu.setApplicationMenu(createAppMenu())
   createWindow()
 
   // Check for updates in production only (no update server configured = silent no-op)
