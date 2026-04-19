@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 
 type Entry = {
@@ -161,10 +161,11 @@ interface ExplorerTreeProps {
   workspaceId: string
   rootPath: string
   query: string
+  refreshToken: number
   onOpenFile: (path: string, name: string) => void
 }
 
-function ExplorerTree({ workspaceId, rootPath, query, onOpenFile }: ExplorerTreeProps) {
+function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }: ExplorerTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const remapOpenFiles = useWorkspaceStore((s) => s.remapOpenFiles)
@@ -177,6 +178,11 @@ function ExplorerTree({ workspaceId, rootPath, query, onOpenFile }: ExplorerTree
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Entry[]>([])
+  const refreshTimeoutRef = useRef<number | null>(null)
+  const latestExpandedPathsRef = useRef<Record<string, boolean>>({})
+  const latestSearchQueryRef = useRef('')
+  const latestSearchingRef = useRef(false)
+  const lastManualRefreshRef = useRef(refreshToken)
 
   const visibleRows = useMemo(
     () => flattenTree(rootEntries, 0, expandedPaths, childrenByPath),
@@ -188,7 +194,16 @@ function ExplorerTree({ workspaceId, rootPath, query, onOpenFile }: ExplorerTree
     ? searchResults.map((entry) => ({ entry, depth: 0 }))
     : visibleRows
 
-  const loadDirectory = async (dirPath: string) => {
+  useEffect(() => {
+    latestExpandedPathsRef.current = expandedPaths
+  }, [expandedPaths])
+
+  useEffect(() => {
+    latestSearchQueryRef.current = query
+    latestSearchingRef.current = isSearching
+  }, [query, isSearching])
+
+  const loadDirectory = useCallback(async (dirPath: string) => {
     const raw = await window.api.readdir(dirPath)
     const entries = toEntries(raw, dirPath)
 
@@ -199,7 +214,7 @@ function ExplorerTree({ workspaceId, rootPath, query, onOpenFile }: ExplorerTree
     }
 
     return entries
-  }
+  }, [rootPath])
 
   const ensureDirectoryLoaded = async (dirPath: string) => {
     if (dirPath === rootPath || childrenByPath[dirPath]) return
@@ -213,6 +228,58 @@ function ExplorerTree({ workspaceId, rootPath, query, onOpenFile }: ExplorerTree
   const refreshParentDirectory = async (parentPath: string) => {
     await loadDirectory(parentPath)
   }
+
+  const refreshTree = useCallback(async () => {
+    const expandedDirectories = Object.entries(latestExpandedPathsRef.current)
+      .filter(([, expanded]) => expanded)
+      .map(([dirPath]) => dirPath)
+
+    const directories = Array.from(new Set([rootPath, ...expandedDirectories]))
+    await Promise.all(
+      directories.map(async (dirPath) => {
+        try {
+          await loadDirectory(dirPath)
+        } catch (error) {
+          if (dirPath === rootPath) {
+            throw error
+          }
+
+          setChildrenByPath((current) => {
+            if (!(dirPath in current)) return current
+            const next = { ...current }
+            delete next[dirPath]
+            return next
+          })
+          setExpandedPaths((current) => {
+            if (!(dirPath in current)) return current
+            const next = { ...current }
+            delete next[dirPath]
+            return next
+          })
+        }
+      })
+    )
+
+    if (latestSearchingRef.current) {
+      setSearching(true)
+      try {
+        setSearchResults(await searchFiles(rootPath, latestSearchQueryRef.current))
+      } finally {
+        setSearching(false)
+      }
+    }
+  }, [loadDirectory, rootPath])
+
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimeoutRef.current) {
+      window.clearTimeout(refreshTimeoutRef.current)
+    }
+
+    refreshTimeoutRef.current = window.setTimeout(() => {
+      refreshTimeoutRef.current = null
+      void refreshTree()
+    }, 150)
+  }, [refreshTree])
 
   const toggleDirectory = async (entry: Entry) => {
     if (!entry.isDir) return
@@ -338,13 +405,8 @@ function ExplorerTree({ workspaceId, rootPath, query, onOpenFile }: ExplorerTree
     if (command === 'paste' && !isSearching) return void pasteIntoDirectory(targetDir)
     if (command === 'rename' && entry) return void renameEntry(entry)
     if (command === 'refresh') {
-      if (isSearching) {
-        setSearching(true)
-        try {
-          setSearchResults(await searchFiles(rootPath, query))
-        } finally {
-          setSearching(false)
-        }
+      if (isSearching || targetDir === rootPath) {
+        await refreshTree()
       } else {
         await refreshParentDirectory(targetDir)
       }
@@ -363,7 +425,13 @@ function ExplorerTree({ workspaceId, rootPath, query, onOpenFile }: ExplorerTree
         setSelectedPath(entries[0]?.path ?? null)
       })
       .finally(() => setLoading(false))
-  }, [rootPath])
+  }, [loadDirectory, rootPath])
+
+  useEffect(() => {
+    if (refreshToken === lastManualRefreshRef.current) return
+    lastManualRefreshRef.current = refreshToken
+    void refreshTree()
+  }, [refreshToken, refreshTree])
 
   useEffect(() => {
     let cancelled = false
@@ -390,6 +458,36 @@ function ExplorerTree({ workspaceId, rootPath, query, onOpenFile }: ExplorerTree
       cancelled = true
     }
   }, [rootPath, query, isSearching])
+
+  useEffect(() => {
+    let disposed = false
+    let unsubscribe: (() => Promise<void>) | undefined
+
+    window.api.watchPath(rootPath, () => {
+      scheduleRefresh()
+    })
+      .then((cleanup) => {
+        if (disposed) {
+          void cleanup()
+          return
+        }
+        unsubscribe = cleanup
+      })
+      .catch(() => {
+        // Some filesystems do not support watch events reliably.
+      })
+
+    return () => {
+      disposed = true
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current)
+        refreshTimeoutRef.current = null
+      }
+      if (unsubscribe) {
+        void unsubscribe()
+      }
+    }
+  }, [rootPath, scheduleRefresh])
 
   useEffect(() => {
     if (!activeRows.length) {
@@ -545,6 +643,7 @@ export default function FileExplorer({ workspaceId }: Props) {
   const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const [query, setQuery] = useState('')
+  const [refreshToken, setRefreshToken] = useState(0)
 
   const handleOpen = async () => {
     const dir = await window.api.openDir()
@@ -573,12 +672,23 @@ export default function FileExplorer({ workspaceId }: Props) {
             <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-500">Files</span>
             {rootName && <span className="truncate font-mono text-[11px] text-zinc-400">{rootName}</span>}
           </div>
-          <button
-            onClick={handleOpen}
-            className="h-6 rounded-md border border-[#23262d] bg-[#17191d] px-2 text-[10px] text-zinc-400 transition-colors hover:bg-[#1c1f25] hover:text-zinc-200"
-          >
-            Open
-          </button>
+          <div className="flex items-center gap-1.5">
+            {folderPath && (
+              <button
+                onClick={() => setRefreshToken((current) => current + 1)}
+                className="h-6 rounded-md border border-[#23262d] bg-[#17191d] px-2 text-[10px] text-zinc-400 transition-colors hover:bg-[#1c1f25] hover:text-zinc-200"
+                title="Refresh files"
+              >
+                Refresh
+              </button>
+            )}
+            <button
+              onClick={handleOpen}
+              className="h-6 rounded-md border border-[#23262d] bg-[#17191d] px-2 text-[10px] text-zinc-400 transition-colors hover:bg-[#1c1f25] hover:text-zinc-200"
+            >
+              Open
+            </button>
+          </div>
         </div>
 
         {folderPath && (
@@ -599,6 +709,7 @@ export default function FileExplorer({ workspaceId }: Props) {
             workspaceId={workspaceId}
             rootPath={folderPath}
             query={query}
+            refreshToken={refreshToken}
             onOpenFile={handleOpenFile}
           />
         ) : (

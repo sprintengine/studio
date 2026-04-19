@@ -9,6 +9,8 @@ import { getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
 import WorkspaceLayout from './WorkspaceLayout'
 
+const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
+
 export default function WorkspaceManager() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -93,12 +95,14 @@ export default function WorkspaceManager() {
     template,
     name,
     folderPath,
+    swarmState,
   }: {
     template: LayoutTemplate
     name: string
     folderPath: string | null
+    swarmState?: Workspace['swarmState']
   }) => {
-    addWorkspace(template, { name, folderPath })
+    addWorkspace(template, { name, folderPath, swarmState })
     setShowTemplateSelector(false)
   }
 
@@ -176,6 +180,17 @@ export default function WorkspaceManager() {
     )
   }
 
+  const handleShowMenubarMenu = async (
+    event: React.MouseEvent<HTMLButtonElement>,
+    label: (typeof MENU_BAR_ITEMS)[number]
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    await window.api.showMenubarMenu(label, {
+      x: rect.left,
+      y: rect.bottom + 4,
+    })
+  }
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#09090a] text-zinc-100">
       <div
@@ -193,6 +208,20 @@ export default function WorkspaceManager() {
           <strong className="text-[13px] font-semibold tracking-tight text-zinc-100">Multicode</strong>
         </div>
       </div>
+
+      {window.api.platform !== 'darwin' && (
+        <div className="relative z-10 flex h-[30px] shrink-0 items-center gap-1 border-b border-[#23262d] bg-[#111214] px-2">
+          {MENU_BAR_ITEMS.map((label) => (
+            <button
+              key={label}
+              onClick={(event) => void handleShowMenubarMenu(event, label)}
+              className="inline-flex h-6 items-center rounded-md px-2.5 text-[12px] text-zinc-400 transition-colors hover:bg-[#1a1c20] hover:text-zinc-100"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-b border-[#23262d] bg-[#111214] px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">

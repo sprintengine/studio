@@ -19,6 +19,11 @@ interface ContextMenuItem {
   type?: 'normal' | 'separator'
 }
 
+interface FileWatchEvent {
+  eventType: string
+  path: string | null
+}
+
 declare interface Window {
   api: {
     platform: string
@@ -31,10 +36,12 @@ declare interface Window {
     createDir: (parentDir: string, name: string) => Promise<string>
     renamePath: (sourcePath: string, nextName: string) => Promise<string>
     copyPath: (sourcePath: string, destinationDir: string) => Promise<string>
+    watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
     openDir:   () => Promise<string | null>
     saveFile:  (options?: SaveDialogOptions) => Promise<string | null>
     openFile:  (options?: OpenDialogOptions) => Promise<string | null>
     showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>
+    showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
 
     // Claude Code CLI Terminal
     terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean) => Promise<void>

@@ -1,39 +1,36 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createSwarmTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
-import type { LayoutTemplate, PreviewSlot, SwarmMockConfig, SwarmRole } from '../../types/workspace'
+import type {
+  LayoutTemplate,
+  PreviewSlot,
+  SwarmMockConfig,
+  SwarmRole,
+  SwarmRoleCounts,
+  SwarmState,
+} from '../../types/workspace'
+import {
+  countSwarmAgents,
+  createDefaultSwarmRoleCounts,
+  createDefaultSwarmSkills,
+  swarmRoleAccent,
+  swarmRoleLabels,
+  swarmTeamPresets,
+} from '../../utils/swarm'
 
 interface Props {
-  onCreate: (args: { template: LayoutTemplate; name: string; folderPath: string | null }) => void
+  onCreate: (args: {
+    template: LayoutTemplate
+    name: string
+    folderPath: string | null
+    swarmState?: SwarmState | null
+  }) => void
   onClose: () => void
   allowClose?: boolean
-}
-
-const swarmSkillOptions: Record<SwarmRole, string[]> = {
-  architect: ['Repo analysis', 'Planning', 'Task decomposition', 'Dependency mapping'],
-  developer: ['Refactoring', 'Backend APIs', 'Data modeling', 'Integration work'],
-  frontend: ['Next.js', 'UI systems', 'UX design', 'Responsive layouts'],
-  tester: ['Regression checks', 'Acceptance review', 'QA notes', 'Test planning'],
-}
-
-const roleLabels: Record<SwarmRole, string> = {
-  architect: 'Architect',
-  developer: 'Developer',
-  frontend: 'Frontend / UX Engineer',
-  tester: 'Tester',
 }
 
 function basename(p: string): string {
   const parts = p.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? ''
-}
-
-function createEmptySkillMap(): Record<SwarmRole, string[]> {
-  return {
-    architect: [],
-    developer: [],
-    frontend: [],
-    tester: [],
-  }
 }
 
 export default function TemplateSelector({ onCreate, onClose, allowClose = true }: Props) {
@@ -43,8 +40,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const [mode, setMode] = useState<'standard' | 'swarm'>('standard')
   const [selectedId, setSelectedId] = useState<string>(LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id)
   const [swarmGoal, setSwarmGoal] = useState('')
-  const [swarmAgents, setSwarmAgents] = useState(4)
-  const [swarmSkills, setSwarmSkills] = useState<Record<SwarmRole, string[]>>(createEmptySkillMap())
+  const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(createDefaultSwarmRoleCounts())
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -60,10 +56,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const swarmConfig = useMemo<SwarmMockConfig>(
     () => ({
       goal: swarmGoal.trim(),
-      agentCount: swarmAgents,
-      skills: swarmSkills,
+      agentCount: countSwarmAgents(swarmRoleCounts),
+      roleCounts: swarmRoleCounts,
+      skills: createDefaultSwarmSkills(),
     }),
-    [swarmGoal, swarmAgents, swarmSkills]
+    [swarmGoal, swarmRoleCounts]
   )
 
   const handlePick = async () => {
@@ -73,19 +70,25 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     if (!nameTouched) setName(basename(dir) || 'workspace')
   }
 
-  const toggleSkill = (role: SwarmRole, skill: string) => {
-    setSwarmSkills((current) => ({
-      ...current,
-      [role]: current[role].includes(skill)
-        ? current[role].filter((item) => item !== skill)
-        : [...current[role], skill],
-    }))
+  const applyPreset = (roleCounts: SwarmRoleCounts) => {
+    setSwarmRoleCounts(roleCounts)
+  }
+
+  const adjustRoleCount = (role: SwarmRole, delta: number) => {
+    setSwarmRoleCounts((current) => {
+      const minimum = role === 'architect' ? 1 : 0
+      return {
+        ...current,
+        [role]: Math.max(minimum, current[role] + delta),
+      }
+    })
   }
 
   const handleCreate = () => {
     if (!canCreate) return
+    const swarmState = mode === 'swarm' ? undefined : null
     const template = mode === 'swarm' ? createSwarmTemplate(swarmConfig) : selected
-    onCreate({ template, name: name.trim(), folderPath })
+    onCreate({ template, name: name.trim(), folderPath, swarmState })
   }
 
   return (
@@ -233,51 +236,83 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                     </div>
 
                     <div className="rounded-2xl border border-[#23262d] bg-[#14161a] p-4">
-                      <div className="mb-3 flex items-center justify-between gap-4">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">Agent Count</div>
-                        <div className="text-xs text-zinc-500">Architect plus specialist workers</div>
+                      <div className="mb-4 flex items-center justify-between gap-4">
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                            Team Composition
+                          </div>
+                          <div className="mt-1 text-sm text-zinc-300">
+                            Choose specialist roles instead of selecting skills manually.
+                          </div>
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          {countSwarmAgents(swarmRoleCounts)} total agents
+                        </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
-                        {[1, 2, 3, 4, 5, 10].map((count) => (
-                          <button
-                            key={count}
-                            onClick={() => setSwarmAgents(count)}
-                            className={`rounded-xl border px-3 py-3 text-sm font-semibold transition-colors ${
-                              swarmAgents === count
-                                ? 'border-[#4d4d51] bg-zinc-200 text-zinc-950'
-                                : 'border-[#23262d] bg-[#101216] text-zinc-400 hover:border-[#2f3540] hover:text-zinc-100'
-                            }`}
-                          >
-                            {count}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
 
-                    <div className="rounded-2xl border border-[#23262d] bg-[#14161a] p-4">
-                      <div className="mb-4 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">Role Skills</div>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        {(Object.keys(swarmSkillOptions) as SwarmRole[]).map((role) => (
-                          <div key={role} className="rounded-xl border border-[#23262d] bg-[#101216] p-4">
-                            <div className="mb-3 text-sm font-semibold text-zinc-100">{roleLabels[role]}</div>
-                            <div className="space-y-2">
-                              {swarmSkillOptions[role].map((skill) => {
-                                const checked = swarmSkills[role].includes(skill)
-                                return (
-                                  <label
-                                    key={skill}
-                                    className="flex cursor-pointer items-center gap-2 text-[13px] text-zinc-300"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() => toggleSkill(role, skill)}
-                                      className="h-4 w-4 rounded border-[#3a3f48] bg-[#0f1012]"
-                                    />
-                                    <span>{skill}</span>
-                                  </label>
-                                )
-                              })}
+                      <div className="grid gap-3 md:grid-cols-3">
+                        {swarmTeamPresets.map((preset) => {
+                          const isSelected = roleCountsEqual(swarmRoleCounts, preset.roleCounts)
+                          return (
+                            <button
+                              key={preset.id}
+                              onClick={() => applyPreset(preset.roleCounts)}
+                              className={`rounded-2xl border p-4 text-left transition-colors ${
+                                isSelected
+                                  ? 'border-[#4d4d51] bg-[#191c21]'
+                                  : 'border-[#23262d] bg-[#101216] hover:border-[#2f3540] hover:bg-[#13161b]'
+                              }`}
+                            >
+                              <div className="text-sm font-semibold text-zinc-100">{preset.name}</div>
+                              <div className="mt-1 text-[12px] leading-5 text-zinc-500">{preset.description}</div>
+                              <div className="mt-4">
+                                <RoleBubbleRow roleCounts={preset.roleCounts} />
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {(['architect', 'developer', 'frontend', 'tester', 'security'] as SwarmRole[]).map((role) => (
+                          <div
+                            key={role}
+                            className="rounded-xl border border-[#23262d] bg-[#101216] px-4 py-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <span
+                                  className="h-3 w-3 shrink-0 rounded-full"
+                                  style={{
+                                    backgroundColor: swarmRoleAccent[role],
+                                    boxShadow: `0 0 16px ${swarmRoleAccent[role]}`,
+                                  }}
+                                />
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold text-zinc-100">
+                                    {swarmRoleLabels[role]}
+                                  </div>
+                                  <div className="text-[11px] text-zinc-500">Preconfigured specialist</div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => adjustRoleCount(role, -1)}
+                                  disabled={role === 'architect' && swarmRoleCounts[role] <= 1}
+                                  className="h-8 w-8 rounded-lg border border-[#2d3139] bg-[#171a20] text-zinc-300 transition-colors hover:bg-[#1f232b] disabled:opacity-40 disabled:hover:bg-[#171a20]"
+                                >
+                                  -
+                                </button>
+                                <div className="w-8 text-center text-sm font-semibold text-zinc-100">
+                                  {swarmRoleCounts[role]}
+                                </div>
+                                <button
+                                  onClick={() => adjustRoleCount(role, 1)}
+                                  className="h-8 w-8 rounded-lg border border-[#2d3139] bg-[#171a20] text-zinc-300 transition-colors hover:bg-[#1f232b]"
+                                >
+                                  +
+                                </button>
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -293,10 +328,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                           <div className="mt-1 text-lg font-semibold text-zinc-100">Swarm Board</div>
                         </div>
                         <span className="rounded-full border border-[#2f3540] bg-[#171b22] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-400">
-                          {swarmAgents} agents
+                          {countSwarmAgents(swarmRoleCounts)} agents
                         </span>
                       </div>
-                      <SwarmCreatePreview goal={swarmGoal} skills={swarmSkills} />
+                      <SwarmCreatePreview goal={swarmGoal} roleCounts={swarmRoleCounts} />
                     </div>
 
                     <div className="rounded-2xl border border-[#23262d] bg-[#14161a] p-4">
@@ -305,8 +340,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                       </div>
                       <ul className="space-y-2 text-sm leading-6 text-zinc-300">
                         <li>Central kanban board with live task creation and progress.</li>
-                        <li>Task detail modal on click for description and acceptance notes.</li>
-                        <li>Right-side specialist CLI panes for each active worker.</li>
+                        <li>Task detail modal on click for ownership, evidence, and implementation details.</li>
+                        <li>Right-side specialist CLI panes for each configured role.</li>
                         <li>No file explorer or code editor in the initial swarm view.</li>
                       </ul>
                     </div>
@@ -430,10 +465,10 @@ function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
 
 function SwarmCreatePreview({
   goal,
-  skills,
+  roleCounts,
 }: {
   goal: string
-  skills: Record<SwarmRole, string[]>
+  roleCounts: SwarmRoleCounts
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[#1f2229] bg-[#0c0d10]">
@@ -452,15 +487,15 @@ function SwarmCreatePreview({
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            {['Backlog', 'In Progress', 'Done'].map((lane, index) => (
+            {['Todo', 'Ready', 'In Progress'].map((lane, index) => (
               <div key={lane} className="rounded-lg border border-[#23262d] bg-[#101216] p-2">
                 <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">{lane}</div>
                 <div className={`rounded-md p-2 text-[11px] leading-5 ${
-                  index === 1 ? 'bg-amber-950/40 text-amber-200' : index === 2 ? 'bg-zinc-800 text-zinc-100' : 'bg-[#181b20] text-zinc-300'
+                  index === 1 ? 'bg-sky-950/40 text-sky-200' : index === 2 ? 'bg-amber-950/40 text-amber-200' : 'bg-[#181b20] text-zinc-300'
                 }`}>
-                  {index === 0 && 'Define worker tasks'}
-                  {index === 1 && 'Design swarm board UI'}
-                  {index === 2 && 'Audit app shell'}
+                  {index === 0 && 'Architect writes low-level design'}
+                  {index === 1 && 'Developer claims execution task'}
+                  {index === 2 && 'Frontend designer updates board UX'}
                 </div>
               </div>
             ))}
@@ -468,20 +503,82 @@ function SwarmCreatePreview({
         </div>
         <div className="space-y-3">
           <div className="rounded-xl border border-[#23262d] bg-[#14161a] p-3">
-            <div className="mb-2 text-xs font-semibold text-zinc-200">Specialist CLIs</div>
+            <div className="mb-2 text-xs font-semibold text-zinc-200">Specialist Roles</div>
+            <div className="mb-3 text-[11px] text-zinc-500">
+              Preconfigured specialists with role-specific prompts and skills.
+            </div>
             <div className="space-y-2">
-              {(['architect', 'developer', 'frontend', 'tester'] as SwarmRole[]).map((role) => (
+              {roleBadgeSummary(roleCounts).map(({ role, count }) => (
                 <div key={role} className="rounded-lg border border-[#23262d] bg-[#101216] px-3 py-2">
-                  <div className="text-[11px] font-medium text-zinc-100">{roleLabels[role]}</div>
-                  <div className="mt-1 text-[10px] text-zinc-500">
-                    {skills[role].length > 0 ? skills[role].join(', ') : 'Default role prompt'}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: swarmRoleAccent[role], boxShadow: `0 0 12px ${swarmRoleAccent[role]}` }}
+                      />
+                      <div className="text-[11px] font-medium text-zinc-100">{swarmRoleLabels[role]}</div>
+                    </div>
+                    <div className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+                      {count}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           </div>
+          <div className="rounded-xl border border-[#23262d] bg-[#14161a] p-3">
+            <div className="mb-2 text-xs font-semibold text-zinc-200">Team Footprint</div>
+            <RoleBubbleRow roleCounts={roleCounts} />
+          </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function roleCountsEqual(a: SwarmRoleCounts, b: SwarmRoleCounts): boolean {
+  return (
+    a.architect === b.architect
+    && a.developer === b.developer
+    && a.frontend === b.frontend
+    && a.tester === b.tester
+    && a.security === b.security
+  )
+}
+
+function roleBadgeSummary(roleCounts: SwarmRoleCounts): Array<{ role: SwarmRole; count: number }> {
+  return (Object.entries(roleCounts) as Array<[SwarmRole, number]>)
+    .filter(([, count]) => count > 0)
+    .map(([role, count]) => ({ role, count }))
+}
+
+function RoleBubbleRow({ roleCounts }: { roleCounts: SwarmRoleCounts }) {
+  const roles = roleBadgeSummary(roleCounts)
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {roles.flatMap(({ role, count }) =>
+        Array.from({ length: count }, (_, index) => (
+          <div
+            key={`${role}-${index}`}
+            className="inline-flex items-center gap-2 rounded-full border border-[#2a2e36] bg-[#111318] px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] text-zinc-200"
+          >
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: swarmRoleAccent[role], boxShadow: `0 0 12px ${swarmRoleAccent[role]}` }}
+            />
+            {role === 'architect'
+              ? 'A'
+              : role === 'developer'
+                ? 'D'
+                : role === 'frontend'
+                  ? 'UX'
+                  : role === 'security'
+                    ? 'SEC'
+                    : 'T'}
+          </div>
+        ))
+      )}
     </div>
   )
 }

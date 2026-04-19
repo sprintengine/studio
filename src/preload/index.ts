@@ -8,6 +8,10 @@ type ContextMenuItem = {
   enabled?: boolean
   type?: 'normal' | 'separator'
 }
+type FileWatchEvent = {
+  eventType: string
+  path: string | null
+}
 
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
@@ -20,10 +24,22 @@ contextBridge.exposeInMainWorld('api', {
   createDir:  (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-dir', parentDir, name),
   renamePath: (sourcePath: string, nextName: string) => ipcRenderer.invoke('fs:rename', sourcePath, nextName),
   copyPath:   (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:copy', sourcePath, destinationDir),
+  watchPath:  async (path: string, cb: (event: FileWatchEvent) => void) => {
+    const watchId = await ipcRenderer.invoke('fs:watch-start', path)
+    const ch = `fs:watch-event:${watchId}`
+    const handler = (_: Electron.IpcRendererEvent, event: FileWatchEvent) => cb(event)
+    ipcRenderer.on(ch, handler)
+    return async () => {
+      ipcRenderer.removeListener(ch, handler)
+      await ipcRenderer.invoke('fs:watch-stop', watchId)
+    }
+  },
   openDir:   ()                                => ipcRenderer.invoke('fs:dialog:opendir'),
   saveFile:  (options?: SaveDialogOptions)     => ipcRenderer.invoke('fs:dialog:savefile', options),
   openFile:  (options?: OpenDialogOptions)     => ipcRenderer.invoke('fs:dialog:openfile', options),
   showContextMenu: (items: ContextMenuItem[])  => ipcRenderer.invoke('app:show-context-menu', items),
+  showMenubarMenu: (label: string, position?: { x?: number; y?: number }) =>
+    ipcRenderer.invoke('app:show-menubar-menu', label, position),
 
   // Claude Code CLI Terminal
   terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume }),

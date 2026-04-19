@@ -1,4 +1,5 @@
-import type { LayoutTemplate, PreviewSlot, SwarmMockConfig, SwarmRole } from '../types/workspace'
+import type { LayoutTemplate, PreviewSlot, SwarmMockConfig } from '../types/workspace'
+import { buildSwarmAgentRoster } from '../utils/swarm'
 
 // Helpers to keep preview slot definitions readable.
 // Previews are rendered in a 300×110 viewBox.
@@ -15,48 +16,14 @@ const agentTab = (id: string, name = id) => ({
 })
 const editorTab = { type: 'tab', name: 'Editor', component: 'editor' }
 const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
-const swarmTab = (config: SwarmMockConfig) => ({
+const swarmTab = () => ({
   type: 'tab',
   name: 'Swarm',
   component: 'swarm',
-  config,
 })
 
-export type SwarmAgentRosterItem = {
-  id: string
-  label: string
-  role: SwarmRole | 'developer'
-}
-
-export function buildSwarmAgentRoster(agentCount: number): SwarmAgentRosterItem[] {
-  const count = Math.max(1, agentCount)
-  const roster: SwarmAgentRosterItem[] = [{ id: 'architect', label: 'Architect', role: 'architect' }]
-
-  if (count >= 2) {
-    roster.push({ id: 'developer-1', label: 'Developer 1', role: 'developer' })
-  }
-  if (count >= 3) {
-    roster.push({ id: 'frontend', label: 'Frontend / UX', role: 'frontend' })
-  }
-  if (count >= 4) {
-    roster.push({ id: 'tester', label: 'Tester', role: 'tester' })
-  }
-
-  let developerIndex = 2
-  while (roster.length < count) {
-    roster.push({
-      id: `developer-${developerIndex}`,
-      label: `Developer ${developerIndex}`,
-      role: 'developer',
-    })
-    developerIndex += 1
-  }
-
-  return roster
-}
-
 export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
-  const roster = buildSwarmAgentRoster(config.agentCount)
+  const roster = buildSwarmAgentRoster(config.roleCounts)
   const agentChildren = roster.map((agent, index) => ({
     type: 'tabset',
     weight: Math.max(1, Math.round(100 / roster.length)),
@@ -83,7 +50,7 @@ export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
           {
             type: 'tabset',
             weight: 66,
-            children: [swarmTab(config)],
+            children: [swarmTab()],
           },
           {
             type: 'row',

@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { basename, dirname, join, parse } from 'path'
+import { watch, type FSWatcher } from 'fs'
 import { access, cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
@@ -11,7 +12,7 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     show: false,
-    autoHideMenuBar: false,
+    autoHideMenuBar: process.platform !== 'darwin',
     backgroundColor: '#09090b',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -120,6 +121,9 @@ type ContextMenuItem = {
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
 const terminals = new Map<string, pty.IPty>()
+const fileWatchers = new Map<string, { watcher: FSWatcher; senderId: number }>()
+const trackedWatcherSenders = new Set<number>()
+let nextFileWatcherId = 0
 
 type TerminalSpawnPayload = {
   sessionId: string
@@ -196,7 +200,23 @@ function getShellLaunchConfig(cwd: string, sessionId: string, resume = false): S
 }
 
 function buildClaudeLaunchCommand(sessionId: string, resume = false): string {
-  return resume ? `claude --resume ${sessionId}` : `claude --session-id ${sessionId}`
+  const quotedSessionId = quotePosix(sessionId)
+
+  if (!resume) {
+    return `claude --session-id ${quotedSessionId}`
+  }
+
+  // Some panes get a generated session id before the user actually starts a Claude
+  // conversation. In that case there is nothing persisted to resume yet, so fall
+  // back to starting a fresh session with the same id instead of surfacing the
+  // "No conversation found" error on every app launch.
+  return [
+    `if find "$HOME/.claude/projects" -type f -name ${quotePosix(`${sessionId}.jsonl`)} -print -quit 2>/dev/null | grep -q .; then`,
+    `claude --resume ${quotedSessionId};`,
+    `else`,
+    `claude --session-id ${quotedSessionId};`,
+    `fi`,
+  ].join(' ')
 }
 
 function sendTerminalEvent(
@@ -222,6 +242,23 @@ function getTerminalErrorMessage(error: unknown): string {
 function disposeTerminal(sessionId: string): void {
   terminals.get(sessionId)?.kill()
   terminals.delete(sessionId)
+}
+
+function disposeFileWatcher(watchId: string): void {
+  const fileWatcher = fileWatchers.get(watchId)
+  if (!fileWatcher) return
+
+  fileWatcher.watcher.close()
+  fileWatchers.delete(watchId)
+}
+
+function disposeFileWatchersForSender(senderId: number): void {
+  for (const [watchId, fileWatcher] of fileWatchers.entries()) {
+    if (fileWatcher.senderId === senderId) {
+      fileWatcher.watcher.close()
+      fileWatchers.delete(watchId)
+    }
+  }
 }
 
 ipcMain.handle(
@@ -279,6 +316,46 @@ ipcMain.handle('terminal:kill', (_, sessionId: string) => {
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
+
+ipcMain.handle('fs:watch-start', (event, dirPath: string) => {
+  if (!trackedWatcherSenders.has(event.sender.id)) {
+    trackedWatcherSenders.add(event.sender.id)
+    event.sender.once('destroyed', () => {
+      trackedWatcherSenders.delete(event.sender.id)
+      disposeFileWatchersForSender(event.sender.id)
+    })
+  }
+
+  const watchId = `watch-${++nextFileWatcherId}`
+  const recursive = process.platform === 'win32' || process.platform === 'darwin'
+
+  const createWatcher = (useRecursive: boolean): FSWatcher =>
+    watch(dirPath, { recursive: useRecursive }, (eventType, filename) => {
+      if (event.sender.isDestroyed()) return
+      event.sender.send(`fs:watch-event:${watchId}`, {
+        eventType,
+        path: typeof filename === 'string' ? filename : null,
+      })
+    })
+
+  try {
+    const watcher = createWatcher(recursive)
+    fileWatchers.set(watchId, { watcher, senderId: event.sender.id })
+    return watchId
+  } catch (error) {
+    if (!recursive) {
+      throw error
+    }
+
+    const watcher = createWatcher(false)
+    fileWatchers.set(watchId, { watcher, senderId: event.sender.id })
+    return watchId
+  }
+})
+
+ipcMain.handle('fs:watch-stop', (_, watchId: string) => {
+  disposeFileWatcher(watchId)
+})
 
 ipcMain.handle('fs:readdir', async (_, dirPath: string) => {
   const entries = await readdir(dirPath, { withFileTypes: true })
@@ -387,6 +464,27 @@ ipcMain.handle('app:show-context-menu', async (event, items: ContextMenuItem[]) 
       },
     })
   })
+})
+
+ipcMain.handle('app:show-menubar-menu', async (
+  event,
+  menuLabel: string,
+  position?: { x?: number; y?: number }
+) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const appMenu = Menu.getApplicationMenu()
+  if (!win || !appMenu) return false
+
+  const topLevelItem = appMenu.items.find((item) => item.label === menuLabel)
+  if (!topLevelItem?.submenu) return false
+
+  topLevelItem.submenu.popup({
+    window: win,
+    x: typeof position?.x === 'number' ? Math.round(position.x) : undefined,
+    y: typeof position?.y === 'number' ? Math.round(position.y) : undefined,
+  })
+
+  return true
 })
 
 async function pathExists(targetPath: string): Promise<boolean> {

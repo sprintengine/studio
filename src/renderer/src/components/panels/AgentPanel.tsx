@@ -25,16 +25,18 @@ const statusLabel: Record<AgentStatus, string> = {
 }
 
 export default function AgentPanel({ workspaceId, agentId }: Props) {
-  const status = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]?.status ?? 'idle'
+  const agent = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
+  const status = agent?.status ?? 'idle'
+  const label = agent?.name ?? agentId
 
   return (
     <div className="flex h-full flex-col bg-[#15171b] font-mono text-[12px] text-zinc-200">
       <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-[#23262d] bg-[#17191d] px-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot[status]}`} />
-          <span className="truncate text-[12px] text-zinc-200">{agentId}</span>
+          <span className="truncate text-[12px] text-zinc-200">{label}</span>
           <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-zinc-500">
             {statusLabel[status]}
           </span>

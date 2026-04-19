@@ -10,13 +10,23 @@ import type {
   AgentState,
   AgentId,
   EditorState,
+  SwarmState,
 } from '../types/workspace'
 import { detectLanguage } from '../utils/files'
+import {
+  buildSwarmAgentRoster,
+  createDefaultSwarmRoleCounts,
+  createInitialSwarmState,
+  normalizeSwarmState,
+} from '../utils/swarm'
 
 interface WorkspaceStore {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
-  addWorkspace: (template: LayoutTemplate, options?: { name?: string; folderPath?: string | null }) => void
+  addWorkspace: (
+    template: LayoutTemplate,
+    options?: { name?: string; folderPath?: string | null; swarmState?: SwarmState | null }
+  ) => void
   removeWorkspace: (id: WorkspaceId) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setActiveWorkspace: (id: WorkspaceId) => void
@@ -36,9 +46,9 @@ interface WorkspaceStore {
   remapOpenFiles: (workspaceId: WorkspaceId, fromPath: string, toPath: string) => void
 }
 
-const defaultAgent = (id: AgentId): AgentState => ({
+const defaultAgent = (id: AgentId, name = id): AgentState => ({
   id,
-  name: id,
+  name,
   status: 'idle',
   messages: [],
   streamBuffer: '',
@@ -61,14 +71,41 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set((state) => {
           const id = nanoid()
           const fallbackName = `${template.name} ${state.workspaces.length + 1}`
+          const isSwarm = template.id === 'swarm-mode' || Boolean(options?.swarmState)
+          const swarmState = isSwarm
+            ? normalizeSwarmState(options?.swarmState)
+              ?? createInitialSwarmState({
+                goal: options?.swarmState?.goal ?? 'Launch swarm mode',
+                agentCount: options?.swarmState?.agentCount ?? 4,
+                roleCounts: options?.swarmState?.roleCounts ?? createDefaultSwarmRoleCounts(),
+                skills: options?.swarmState?.skills ?? {
+                  architect: [],
+                  developer: [],
+                  frontend: [],
+                  tester: [],
+                  security: [],
+                },
+              })
+            : null
+          const agents = swarmState
+            ? Object.fromEntries(
+                buildSwarmAgentRoster(swarmState.roleCounts).map((agent) => [
+                  agent.id,
+                  defaultAgent(agent.id, agent.label),
+                ])
+              )
+            : {}
+
           state.workspaces.push({
             id,
             name: options?.name?.trim() || fallbackName,
+            mode: swarmState ? 'swarm' : 'standard',
             folderPath: options?.folderPath ?? null,
             templateId: template.id,
             layoutModel: template.layout,
-            agents: {},
+            agents,
             editorState: defaultEditorState(),
+            swarmState,
             createdAt: Date.now(),
           })
           state.activeWorkspaceId = id
@@ -149,6 +186,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...ws,
             id,
             name: `${ws.name} (imported)`,
+            mode: ws.mode ?? (ws.swarmState ? 'swarm' : 'standard'),
             folderPath: ws.folderPath ?? null,
             agents: Object.fromEntries(
               Object.entries(ws.agents).map(([k, v]) => [
@@ -157,6 +195,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ])
             ),
             editorState: ws.editorState ?? defaultEditorState(),
+            swarmState: normalizeSwarmState(ws.swarmState),
           })
           state.activeWorkspaceId = id
         }),
@@ -243,8 +282,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: 'free-ai-ide-workspaces',
-      version: 1,
-      // Migrate older persisted state that lacks editorState / folderPath
+      version: 3,
+      // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
         if (!state?.workspaces) return state as never
@@ -253,6 +292,19 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...ws,
             folderPath: ws.folderPath ?? null,
             editorState: ws.editorState ?? defaultEditorState(),
+          }))
+        }
+        if (version < 2) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            mode: ws.mode ?? (ws.swarmState ? 'swarm' : 'standard'),
+            swarmState: normalizeSwarmState(ws.swarmState),
+          }))
+        }
+        if (version < 3) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            swarmState: normalizeSwarmState(ws.swarmState),
           }))
         }
         return state as never
