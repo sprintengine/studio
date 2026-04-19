@@ -17,6 +17,8 @@ import { renderMarkdown } from '../../utils/markdown'
 import TerminalView from './TerminalView'
 import {
   getSwarmDirectoryPath,
+  getSwarmMailboxMessageFilePath,
+  getSwarmMailboxRootPath,
   getSwarmPlanFilePath,
   getSwarmRootDirectoryPath,
   getSwarmTasksSchemaFilePath,
@@ -83,7 +85,6 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
   const [activeView, setActiveView] = useState<SwarmView>('map')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [terminalsMounted, setTerminalsMounted] = useState(false)
-  const [activeTerminalIds, setActiveTerminalIds] = useState<string[]>([])
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [planReview, setPlanReview] = useState<PlanReviewState>({
     open: false,
@@ -129,6 +130,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
       try {
         const swarmRootDirectory = getSwarmRootDirectoryPath(folderPath)
         const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
+        const mailboxRootPath = getSwarmMailboxRootPath(folderPath, swarmName)
         const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
         const planFilePath = getSwarmPlanFilePath(folderPath, swarmName)
         const tasksTemplateFilePath = getSwarmTasksTemplateFilePath(folderPath, swarmName)
@@ -144,6 +146,10 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
           await window.api.createDir(folderPath, 'swarm').catch(() => {})
         }
         await window.api.createDir(swarmRootDirectory, slugifySwarmName(swarmName)).catch(() => {})
+        await window.api.createDir(swarmDirectory, 'mailboxes').catch(() => {})
+        for (const rosterAgent of buildSwarmAgentRoster(swarmState.roleCounts)) {
+          await window.api.createDir(mailboxRootPath, rosterAgent.id).catch(() => {})
+        }
 
         if (cancelled) return
         if (lastSyncedContentRef.current === serializedState) {
@@ -320,26 +326,10 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
     }
   }
 
-  const startAgentTerminal = (agentId: string) => {
-    setTerminalsMounted(true)
-    setActiveTerminalIds((current) => (
-      current.includes(agentId) ? current : [...current, agentId]
-    ))
-  }
-
   const openAgentTerminal = (agentId: string) => {
     setSelectedAgentId(agentId)
-    startAgentTerminal(agentId)
-    setActiveView('terminals')
-  }
-
-  const stopAgentTerminal = (agentId: string) => {
-    setActiveTerminalIds((current) => current.filter((id) => id !== agentId))
-  }
-
-  const startAllTerminals = () => {
     setTerminalsMounted(true)
-    setActiveTerminalIds(roster.map((agent) => agent.id))
+    setActiveView('terminals')
   }
 
   const loadPlanReview = async () => {
@@ -408,9 +398,49 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
     setPlanReview((current) => ({ ...current, open: false }))
   }
 
-  const approveFromPlanReview = () => {
+  const writePlanApprovedMailboxes = async () => {
+    if (!folderPath) return
+    const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
+    const mailboxRootPath = getSwarmMailboxRootPath(folderPath, swarmName)
+
+    await window.api.createDir(swarmDirectory, 'mailboxes').catch(() => {})
+
+    await Promise.all(roster
+      .filter((agent) => agent.role !== 'architect')
+      .map(async (agent) => {
+        await window.api.createDir(mailboxRootPath, agent.id).catch(() => {})
+
+        const messageId = `${Date.now()}-plan-approved-${agent.id}`
+        const roleInstruction = agent.role === 'product'
+          ? `Review your mailbox, then run \`swarm claim-next-task --role product --agent-id ${agent.id}\` if a product research, competitor analysis, audience, positioning, or adoption-risk task is ready.`
+          : `Review your mailbox, then run \`swarm claim-next-task --role ${agent.role} --agent-id ${agent.id}\` to pick up approved work for your specialty.`
+        const payload = {
+          id: messageId,
+          from: 'architect',
+          to: agent.id,
+          subject: 'Plan approved',
+          createdAt: new Date().toISOString(),
+          body: [
+            `The swarm plan for "${swarmState.name}" has been approved.`,
+            roleInstruction,
+            'Continue polling your mailbox about every 30 seconds with `swarm get-mailbox --agent-id <your-agent-id> --consume` while you are active.',
+            'Do not manually edit swarm/state.yaml; use the swarm tool for task claiming, notes, evidence, and status updates.',
+          ].join('\n\n'),
+        }
+
+        await window.api.writefile(
+          getSwarmMailboxMessageFilePath(folderPath, swarmName, agent.id, messageId),
+          `${JSON.stringify(payload, null, 2)}\n`
+        )
+      }))
+  }
+
+  const approveFromPlanReview = async () => {
     if (!swarmState.planReady) return
+    await writePlanApprovedMailboxes()
     approveSwarmPlan(workspaceId)
+    setTerminalsMounted(true)
+    setActiveView('terminals')
     setPlanReview((current) => ({ ...current, open: false }))
   }
 
@@ -654,23 +684,19 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
           workspaceId={workspaceId}
           roster={roster}
           active={activeView === 'terminals'}
-          activeTerminalIds={activeTerminalIds}
-          onStartTerminal={startAgentTerminal}
-          onStopTerminal={stopAgentTerminal}
-          onStartAll={startAllTerminals}
         />
       ) : activeView === 'terminals' ? (
         <div className="flex flex-1 items-center justify-center bg-[#101216] p-6">
           <div className="max-w-md rounded-2xl border border-[#2a2e36] bg-[#15171b] p-5 text-center">
-            <div className="text-sm font-semibold text-zinc-100">No terminals are running yet</div>
+            <div className="text-sm font-semibold text-zinc-100">Preparing terminals</div>
             <p className="mt-2 text-sm leading-6 text-zinc-400">
-              Start only the CLIs you want active. Stopping a terminal unmounts it and kills that Claude process.
+              Opening the Terminals view starts the visible team CLIs. Use Ctrl-C inside any terminal when you want that process to stop.
             </p>
             <button
-              onClick={startAllTerminals}
+              onClick={() => setTerminalsMounted(true)}
               className="mt-4 rounded-xl border border-zinc-500 bg-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-950 transition-colors hover:bg-white"
             >
-              Start All Terminals
+              Open Team Terminals
             </button>
           </div>
         </div>
@@ -997,7 +1023,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
                   </button>
                 ) : null}
                 <button
-                  onClick={approveFromPlanReview}
+                  onClick={() => void approveFromPlanReview()}
                   disabled={planReview.status !== 'ready' || !swarmState.planReady}
                   className="rounded-xl border border-amber-300/40 bg-amber-200 px-4 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100 disabled:opacity-40 disabled:hover:bg-amber-200"
                 >
@@ -1175,36 +1201,21 @@ function SwarmTerminalsView({
   workspaceId,
   roster,
   active,
-  activeTerminalIds,
-  onStartTerminal,
-  onStopTerminal,
-  onStartAll,
 }: {
   workspaceId: string
   roster: RosterItem[]
   active: boolean
-  activeTerminalIds: string[]
-  onStartTerminal: (agentId: string) => void
-  onStopTerminal: (agentId: string) => void
-  onStartAll: () => void
 }) {
   return (
     <div className={`min-h-0 flex-1 flex-col bg-[#101216] ${active ? 'flex' : 'hidden'}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#23262d] bg-[#121419] px-4 py-3">
         <div>
           <div className="text-sm font-semibold text-zinc-100">Terminals</div>
-          <div className="mt-1 text-xs text-zinc-500">Stopping a terminal closes that Claude CLI process.</div>
+          <div className="mt-1 text-xs text-zinc-500">Use Ctrl-C inside a terminal to stop the running command.</div>
         </div>
-        <button
-          onClick={onStartAll}
-          className="rounded-lg border border-[#3b4250] bg-[#1b1f26] px-3 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:bg-[#20252e]"
-        >
-          Start All
-        </button>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-2">
         {roster.map((agent) => {
-          const running = activeTerminalIds.includes(agent.id)
           return (
             <section
               key={agent.id}
@@ -1218,30 +1229,12 @@ function SwarmTerminalsView({
                   />
                   <span className="truncate text-sm font-semibold text-zinc-100">{agent.label}</span>
                 </div>
-                {running ? (
-                  <button
-                    onClick={() => onStopTerminal(agent.id)}
-                    className="rounded-md border border-rose-400/30 bg-rose-950/20 px-2 py-1 text-xs font-semibold text-rose-100 transition-colors hover:bg-rose-950/35"
-                  >
-                    Stop
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => onStartTerminal(agent.id)}
-                    className="rounded-md border border-[#3b4250] bg-[#1b1f26] px-2 py-1 text-xs font-semibold text-zinc-100 transition-colors hover:bg-[#20252e]"
-                  >
-                    Start
-                  </button>
-                )}
+                <span className="rounded-md border border-[#2a2e36] bg-[#111318] px-2 py-1 text-xs font-semibold text-zinc-400">
+                  Ctrl-C to stop
+                </span>
               </div>
               <div className="relative min-h-0 flex-1 bg-[#0b0c0e]">
-                {running ? (
-                  <TerminalView workspaceId={workspaceId} agentId={agent.id} />
-                ) : (
-                  <div className="flex h-full items-center justify-center p-4 text-center text-sm text-zinc-500">
-                    Terminal stopped
-                  </div>
-                )}
+                <TerminalView workspaceId={workspaceId} agentId={agent.id} />
               </div>
             </section>
           )

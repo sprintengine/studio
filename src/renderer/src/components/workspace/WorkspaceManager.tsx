@@ -192,26 +192,17 @@ export default function WorkspaceManager() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#09090a] text-zinc-100">
-      <div
-        className="pointer-events-none fixed inset-0 z-0"
-        style={{
-          backgroundImage:
-            'radial-gradient(circle, rgba(255,255,255,0.018) 0, rgba(255,255,255,0.018) 1px, transparent 1px)',
-          backgroundSize: '22px 22px',
-        }}
-      />
-
+    <div className="flex h-screen flex-col overflow-hidden bg-[#0b0d10] text-zinc-100">
       {window.api.platform !== 'darwin' && (
         <div
-          className="app-drag relative z-10 flex h-[38px] shrink-0 items-center gap-1 border-b border-[#23262d] bg-[#101114] px-2"
+          className="app-drag flex h-[36px] shrink-0 items-center gap-1 border-b border-[#202631] bg-[#0f1217] px-2"
           style={{ paddingRight: 138 }}
         >
           {MENU_BAR_ITEMS.map((label) => (
             <button
               key={label}
               onClick={(event) => void handleShowMenubarMenu(event, label)}
-              className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-zinc-400 transition-colors hover:bg-[#1a1c20] hover:text-zinc-100"
+              className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[#8d96a8] transition-colors hover:bg-[#171d26] hover:text-[#e7ecf4]"
             >
               {label}
             </button>
@@ -219,7 +210,7 @@ export default function WorkspaceManager() {
         </div>
       )}
 
-      <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-b border-[#23262d] bg-[#111214] px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#202631] bg-[#0d1015] px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {workspaces.map((workspace) => {
             const active = workspace.id === activeWorkspaceId
@@ -229,13 +220,13 @@ export default function WorkspaceManager() {
                 onClick={() => {
                   if (!renamingId) setActiveWorkspace(workspace.id)
                 }}
-                className={`group inline-flex h-[30px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-[10px] border px-2.5 text-[13px] transition-colors ${
+                className={`group inline-flex h-[30px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
                   active
-                    ? 'border-[#2d3139] bg-[#1a1c20] text-zinc-100'
-                    : 'border-transparent text-zinc-500 hover:bg-[#16181c] hover:text-zinc-200'
+                    ? 'border-[#344152] bg-[#151c26] text-[#f2f5f9]'
+                    : 'border-transparent text-[#778196] hover:bg-[#141a23] hover:text-[#dbe1ea]'
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-[#d2b48c]' : 'bg-[#4c515a]'}`} />
+                <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-[#6ee7d8]' : 'bg-[#4c5668]'}`} />
                 {renamingId === workspace.id ? (
                   <input
                     ref={renameInputRef}
@@ -248,7 +239,7 @@ export default function WorkspaceManager() {
                       event.stopPropagation()
                     }}
                     onClick={(event) => event.stopPropagation()}
-                    className="w-32 rounded border border-[#3d4252] bg-[#0f1012] px-1.5 py-0 text-[13px] text-zinc-100 focus:outline-none"
+                    className="w-32 rounded border border-[#3a4454] bg-[#0b0f14] px-1.5 py-0 text-[13px] text-[#f2f5f9] focus:outline-none"
                   />
                 ) : (
                   <span onDoubleClick={(event) => startRename(event, workspace)}>{workspace.name}</span>
@@ -256,17 +247,17 @@ export default function WorkspaceManager() {
 
                 <button
                   onClick={(event) => handleExport(event, workspace)}
-                  className="text-xs leading-none text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100 hover:text-zinc-200"
+                  className="text-xs leading-none text-[#5f6878] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#dbe1ea]"
                   title={`Export "${workspace.name}"`}
                 >
-                  ↓
+                  Export
                 </button>
                 <button
                   onClick={(event) => handleCloseTab(event, workspace.id)}
-                  className="text-xs leading-none text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100 hover:text-zinc-200"
+                  className="text-xs leading-none text-[#5f6878] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#dbe1ea]"
                   aria-label={`Close ${workspace.name}`}
                 >
-                  ×
+                  x
                 </button>
               </div>
             )
@@ -274,7 +265,7 @@ export default function WorkspaceManager() {
 
           <button
             onClick={() => setShowTemplateSelector(true)}
-            className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-[10px] px-2.5 text-[13px] text-zinc-500 transition-colors hover:bg-[#16181c] hover:text-zinc-200"
+            className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-[#778196] transition-colors hover:bg-[#141a23] hover:text-[#dbe1ea]"
             title="New workspace (Ctrl+T)"
           >
             + New Workspace
@@ -285,14 +276,14 @@ export default function WorkspaceManager() {
           <button
             onClick={addNewCLI}
             disabled={!activeWorkspaceId}
-            className="inline-flex h-8 items-center gap-2 rounded-[10px] border border-[#2d3139] bg-[#1c1f25] px-3 text-[12px] font-medium text-zinc-100 transition-colors hover:bg-[#222530] disabled:opacity-40 disabled:hover:bg-[#1c1f25]"
+            className="inline-flex h-8 items-center gap-2 rounded-md border border-[#2b3442] bg-[#141a23] px-3 text-[12px] font-medium text-[#e7ecf4] transition-colors hover:border-[#435064] hover:bg-[#19212c] disabled:opacity-40 disabled:hover:bg-[#141a23]"
             title="Add a new CLI pane to the active workspace"
           >
             New CLI
           </button>
           <button
             onClick={handleImport}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[#23262d] bg-[#17191d] text-zinc-500 transition-colors hover:bg-[#1c1f25] hover:text-zinc-200"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#222833] bg-[#11161d] text-[#778196] transition-colors hover:border-[#384456] hover:bg-[#141a23] hover:text-[#dbe1ea]"
             title="Import workspace"
           >
             +
@@ -300,33 +291,35 @@ export default function WorkspaceManager() {
         </div>
       </div>
 
-      <div className="relative z-10 min-h-0 flex-1">
-        {workspaces.length === 0 && <EmptyState onNew={() => setShowTemplateSelector(true)} />}
-        {workspaces.map((workspace) => {
-          const active = workspace.id === activeWorkspaceId
-          return (
-            <div
-              key={workspace.id}
-              className="absolute inset-0"
-              style={{
-                visibility: active ? 'visible' : 'hidden',
-                pointerEvents: active ? 'auto' : 'none',
-              }}
-              aria-hidden={!active}
-            >
-              <WorkspaceLayout workspaceId={workspace.id} />
-            </div>
-          )
-        })}
+      <div className="relative min-h-0 flex-1">
+        {showTemplateSelector ? (
+          <TemplateSelector
+            onCreate={handleCreate}
+            onClose={() => setShowTemplateSelector(false)}
+            allowClose={workspaces.length > 0}
+          />
+        ) : (
+          <>
+            {workspaces.length === 0 && <EmptyState onNew={() => setShowTemplateSelector(true)} />}
+            {workspaces.map((workspace) => {
+              const active = workspace.id === activeWorkspaceId
+              return (
+                <div
+                  key={workspace.id}
+                  className="absolute inset-0"
+                  style={{
+                    visibility: active ? 'visible' : 'hidden',
+                    pointerEvents: active ? 'auto' : 'none',
+                  }}
+                  aria-hidden={!active}
+                >
+                  <WorkspaceLayout workspaceId={workspace.id} />
+                </div>
+              )
+            })}
+          </>
+        )}
       </div>
-
-      {showTemplateSelector && (
-        <TemplateSelector
-          onCreate={handleCreate}
-          onClose={() => setShowTemplateSelector(false)}
-          allowClose={workspaces.length > 0}
-        />
-      )}
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 

@@ -6,6 +6,7 @@ import type {
   SwarmRuntimeAgent,
   SwarmTaskBoardColumn,
   SwarmTaskEvidence,
+  SwarmPromptMap,
   SwarmSkillMap,
   SwarmState,
   SwarmTask,
@@ -139,6 +140,41 @@ export function createDefaultSwarmSkills(): SwarmSkillMap {
   }
 }
 
+export function createDefaultSwarmRolePrompts(): SwarmPromptMap {
+  return {
+    architect: [
+      'Own discovery, architecture, task decomposition, and final plan readiness.',
+      'Consult specialists early when product, interface, security, testing, or implementation judgment could change the plan.',
+      'Do not unlock execution until the plan, task graph, dependencies, and acceptance criteria are coherent.',
+    ].join('\n'),
+    product: [
+      'Pressure-test the goal against user intent, competitor expectations, workflow fit, and adoption risk.',
+      'Turn ambiguous user language into clear product priorities, tradeoffs, and acceptance criteria.',
+      'Keep recommendations practical enough for the architect to convert into concrete tasks.',
+    ].join('\n'),
+    developer: [
+      'Implement production code inside the assigned task scope with minimal unrelated churn.',
+      'Respect existing architecture, verify behavior with focused tests or checks, and publish clear evidence.',
+      'Raise blockers through the swarm tool instead of guessing across ownership boundaries.',
+    ].join('\n'),
+    frontend: [
+      'Own visual hierarchy, interaction design, responsiveness, accessibility, and UI implementation quality.',
+      'Prefer dense, calm interfaces with clear affordances, stable spacing, and consistent type/color systems.',
+      'Validate that important controls fit without overlap across practical desktop and mobile widths.',
+    ].join('\n'),
+    tester: [
+      'Probe the plan and implementation for regressions, missing acceptance criteria, and validation gaps.',
+      'Run or specify the highest-signal checks available for the changed surface.',
+      'Report failures with reproduction steps and enough context for the owner to fix them quickly.',
+    ].join('\n'),
+    security: [
+      'Review data flow, permissions, command execution, secrets handling, and abuse cases.',
+      'Call out risky defaults, unsafe trust boundaries, and gaps in validation or user consent.',
+      'Recommend focused hardening work that fits the actual threat model.',
+    ].join('\n'),
+  }
+}
+
 export function createDefaultSwarmRoleCounts(): SwarmRoleCounts {
   return { architect: 1, product: 1, developer: 1, frontend: 1, tester: 0, security: 0 }
 }
@@ -239,6 +275,10 @@ export function createInitialSwarmState(config: SwarmMockConfig): SwarmState {
     skills: {
       ...createDefaultSwarmSkills(),
       ...config.skills,
+    },
+    rolePrompts: {
+      ...createDefaultSwarmRolePrompts(),
+      ...config.rolePrompts,
     },
     swarmAgents: buildInitialSwarmAgents(roleCounts),
     phase: 'awaiting_approval',
@@ -341,6 +381,10 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
       frontend: input.skills?.frontend ?? createDefaultSwarmSkills().frontend,
       tester: input.skills?.tester ?? createDefaultSwarmSkills().tester,
       security: input.skills?.security ?? createDefaultSwarmSkills().security,
+    },
+    rolePrompts: {
+      ...createDefaultSwarmRolePrompts(),
+      ...input.rolePrompts,
     },
     swarmAgents:
       input.swarmAgents && Object.keys(input.swarmAgents).length > 0

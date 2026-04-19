@@ -216,6 +216,69 @@ def ensure_task_evidence(task: Dict[str, Any]) -> Dict[str, Any]:
     return evidence
 
 
+def safe_mailbox_segment(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or normalized in {".", ".."}:
+        raise SystemExit("Mailbox agent id must be non-empty.")
+    if "/" in normalized or "\\" in normalized:
+        raise SystemExit(f"Mailbox agent id must not contain path separators: {value!r}")
+    return normalized
+
+
+def mailbox_root(state_path: Path) -> Path:
+    return state_path.parent / "mailboxes"
+
+
+def agent_mailbox_path(state_path: Path, agent_id: str) -> Path:
+    return mailbox_root(state_path) / safe_mailbox_segment(agent_id)
+
+
+def mailbox_message_id(prefix: str = "MSG") -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"{prefix}-{timestamp}-{os.getpid()}"
+
+
+def read_mailbox_message(path: Path) -> Dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Mailbox message is not valid JSON: {path}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Mailbox message must be an object: {path}")
+    payload.setdefault("id", path.stem)
+    return payload
+
+
+def write_mailbox_message(
+    state_path: Path,
+    *,
+    to_agent: str,
+    from_agent: str,
+    subject: str,
+    body: str,
+    message_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    agent_id = safe_mailbox_segment(to_agent)
+    message_id = safe_mailbox_segment(message_id or mailbox_message_id())
+    inbox = agent_mailbox_path(state_path, agent_id)
+    inbox.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "id": message_id,
+        "from": from_agent,
+        "to": agent_id,
+        "subject": subject,
+        "body": body,
+        "createdAt": now_iso(),
+    }
+    message_path = inbox / f"{message_id}.json"
+    with message_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+    return {"message": payload, "path": str(message_path)}
+
+
 def normalize_task_card(raw_task: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw_task, dict):
         raise SystemExit("Each task must be an object.")
@@ -437,6 +500,94 @@ def cmd_run_summary(args: argparse.Namespace) -> Dict[str, Any]:
         return {"ok": True, "summary": build_run_summary(state), "write": False}
 
     return with_locked_state(args.state, run)
+
+
+def cmd_send_message(args: argparse.Namespace) -> Dict[str, Any]:
+    root = mailbox_root(args.state)
+    root.mkdir(parents=True, exist_ok=True)
+    lock = StateLock(root / ".mailbox.lock")
+    with lock:
+        result = write_mailbox_message(
+            args.state,
+            to_agent=args.to_agent,
+            from_agent=args.from_agent,
+            subject=args.subject,
+            body=args.body,
+            message_id=args.message_id,
+        )
+    return {"ok": True, **result}
+
+
+def cmd_broadcast_message(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        agents = state.get("agents", {})
+        if not isinstance(agents, dict):
+            return {"ok": False, "error": "State agents field is not an object.", "write": False}
+
+        recipients = []
+        for agent_id, agent in agents.items():
+            if args.role and isinstance(agent, dict) and agent.get("role") != args.role:
+                continue
+            if args.exclude and agent_id in args.exclude:
+                continue
+            recipients.append(agent_id)
+
+        root = mailbox_root(args.state)
+        root.mkdir(parents=True, exist_ok=True)
+        lock = StateLock(root / ".mailbox.lock")
+        messages = []
+        with lock:
+            for index, agent_id in enumerate(recipients, start=1):
+                result = write_mailbox_message(
+                    args.state,
+                    to_agent=agent_id,
+                    from_agent=args.from_agent,
+                    subject=args.subject,
+                    body=args.body,
+                    message_id=f"{mailbox_message_id('BCAST')}-{index}",
+                )
+                messages.append(result)
+
+        return {"ok": True, "recipientCount": len(recipients), "messages": messages, "write": False}
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_get_mailbox(args: argparse.Namespace) -> Dict[str, Any]:
+    inbox = agent_mailbox_path(args.state, args.agent_id)
+    inbox.mkdir(parents=True, exist_ok=True)
+
+    root = mailbox_root(args.state)
+    root.mkdir(parents=True, exist_ok=True)
+    lock = StateLock(root / ".mailbox.lock")
+    with lock:
+        message_paths = sorted(
+            path for path in inbox.glob("*.json") if path.is_file()
+        )
+        if args.limit is not None:
+            message_paths = message_paths[: max(0, args.limit)]
+
+        messages = [read_mailbox_message(path) for path in message_paths]
+
+        if args.consume and message_paths:
+            read_dir = inbox / "read"
+            read_dir.mkdir(parents=True, exist_ok=True)
+            consumed_at = now_iso()
+            for path, message in zip(message_paths, messages):
+                message["consumedAt"] = consumed_at
+                target = read_dir / path.name
+                with path.open("w", encoding="utf-8") as handle:
+                    json.dump(message, handle, indent=2)
+                    handle.write("\n")
+                os.replace(path, target)
+
+    return {
+        "ok": True,
+        "agentId": args.agent_id,
+        "mailbox": str(inbox),
+        "count": len(messages),
+        "messages": messages,
+    }
 
 
 def cmd_replace_tasks(args: argparse.Namespace) -> Dict[str, Any]:
@@ -791,6 +942,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_summary = subparsers.add_parser("run-summary", help="Print a final run summary from completed task evidence.")
     run_summary.set_defaults(handler=cmd_run_summary)
+
+    get_mailbox = subparsers.add_parser("get-mailbox", help="Read an agent mailbox.")
+    get_mailbox.add_argument("--agent-id", required=True)
+    get_mailbox.add_argument("--consume", action="store_true", help="Move returned messages into the mailbox read folder.")
+    get_mailbox.add_argument("--limit", type=int)
+    get_mailbox.set_defaults(handler=cmd_get_mailbox)
+
+    send_message = subparsers.add_parser("send-message", help="Send a message to one agent mailbox.")
+    send_message.add_argument("--to-agent", required=True)
+    send_message.add_argument("--from-agent", required=True)
+    send_message.add_argument("--subject", required=True)
+    send_message.add_argument("--body", required=True)
+    send_message.add_argument("--message-id")
+    send_message.set_defaults(handler=cmd_send_message)
+
+    broadcast_message = subparsers.add_parser("broadcast-message", help="Send a message to all agent mailboxes.")
+    broadcast_message.add_argument("--from-agent", required=True)
+    broadcast_message.add_argument("--subject", required=True)
+    broadcast_message.add_argument("--body", required=True)
+    broadcast_message.add_argument("--role", choices=sorted(VALID_ROLES))
+    broadcast_message.add_argument("--exclude", action="append")
+    broadcast_message.set_defaults(handler=cmd_broadcast_message)
 
     validate_tasks = subparsers.add_parser("validate-tasks", help="Validate a JSON task graph before replacing the board.")
     validate_tasks.add_argument("--file", type=Path)

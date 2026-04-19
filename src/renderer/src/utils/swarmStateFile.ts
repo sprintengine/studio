@@ -14,6 +14,7 @@ import type {
 import {
   buildInitialSwarmAgents,
   buildSwarmAgentRoster,
+  createDefaultSwarmRolePrompts,
   createDefaultSwarmSkills,
   normalizeSwarmState,
 } from './swarm'
@@ -53,6 +54,7 @@ type SwarmFileState = {
     {
       label: string
       skills: string[]
+      prompt?: string
     }
   >
   agents: Record<
@@ -170,6 +172,27 @@ export function getSwarmTasksSchemaFilePath(folderPath: string, swarmName?: stri
   return joinPath(getSwarmDirectoryPath(folderPath, swarmName), 'tasks.schema.json')
 }
 
+export function getSwarmMailboxRootPath(folderPath: string, swarmName?: string): string {
+  return joinPath(getSwarmDirectoryPath(folderPath, swarmName), 'mailboxes')
+}
+
+export function getSwarmAgentMailboxPath(
+  folderPath: string,
+  swarmName: string | undefined,
+  agentId: string
+): string {
+  return joinPath(getSwarmMailboxRootPath(folderPath, swarmName), agentId)
+}
+
+export function getSwarmMailboxMessageFilePath(
+  folderPath: string,
+  swarmName: string | undefined,
+  agentId: string,
+  messageId: string
+): string {
+  return joinPath(getSwarmAgentMailboxPath(folderPath, swarmName, agentId), `${messageId}.json`)
+}
+
 export function serializeSwarmStateFile(args: {
   workspaceId: string
   workspacePath: string
@@ -204,26 +227,32 @@ export function serializeSwarmStateFile(args: {
       architect: {
         label: 'Architect',
         skills: swarmState.skills.architect,
+        prompt: swarmState.rolePrompts.architect,
       },
       product: {
         label: 'Product Strategist',
         skills: swarmState.skills.product,
+        prompt: swarmState.rolePrompts.product,
       },
       developer: {
         label: 'Developer',
         skills: swarmState.skills.developer,
+        prompt: swarmState.rolePrompts.developer,
       },
       frontend: {
         label: 'Frontend Designer',
         skills: swarmState.skills.frontend,
+        prompt: swarmState.rolePrompts.frontend,
       },
       tester: {
         label: 'Tester',
         skills: swarmState.skills.tester,
+        prompt: swarmState.rolePrompts.tester,
       },
       security: {
         label: 'Security Specialist',
         skills: swarmState.skills.security,
+        prompt: swarmState.rolePrompts.security,
       },
     },
     agents: Object.fromEntries(
@@ -260,6 +289,7 @@ export function parseSwarmStateFile(content: string): SwarmState {
   const parsed = JSON.parse(content) as Partial<SwarmFileState>
   const roleCounts = countRolesFromAgents(parsed.agents) ?? undefined
   const defaultSkills = createDefaultSwarmSkills()
+  const defaultPrompts = createDefaultSwarmRolePrompts()
 
   const candidate: SwarmState = {
     name: parsed.swarm?.name ?? 'Swarm Team',
@@ -280,6 +310,14 @@ export function parseSwarmStateFile(content: string): SwarmState {
       frontend: parsed.roles?.frontend?.skills ?? defaultSkills.frontend,
       tester: parsed.roles?.tester?.skills ?? defaultSkills.tester,
       security: parsed.roles?.security?.skills ?? defaultSkills.security,
+    },
+    rolePrompts: {
+      architect: parsed.roles?.architect?.prompt ?? defaultPrompts.architect,
+      product: parsed.roles?.product?.prompt ?? defaultPrompts.product,
+      developer: parsed.roles?.developer?.prompt ?? defaultPrompts.developer,
+      frontend: parsed.roles?.frontend?.prompt ?? defaultPrompts.frontend,
+      tester: parsed.roles?.tester?.prompt ?? defaultPrompts.tester,
+      security: parsed.roles?.security?.prompt ?? defaultPrompts.security,
     },
     swarmAgents: normalizeRuntimeAgents(parsed.agents as Record<string, SwarmRuntimeAgent> | undefined, roleCounts ?? {
       architect: 1,

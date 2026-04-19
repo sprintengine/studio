@@ -4,15 +4,20 @@ import type {
   LayoutTemplate,
   PreviewSlot,
   SwarmMockConfig,
+  SwarmPromptMap,
   SwarmRole,
   SwarmRoleCounts,
+  SwarmSkillMap,
   SwarmState,
 } from '../../types/workspace'
 import {
   countSwarmAgents,
   createDefaultSwarmRoleCounts,
+  createDefaultSwarmRolePrompts,
   createDefaultSwarmSkills,
+  createInitialSwarmState,
   swarmRoleAccent,
+  swarmRoleLabels,
   swarmTeamPresets,
 } from '../../utils/swarm'
 
@@ -27,19 +32,40 @@ interface Props {
   allowClose?: boolean
 }
 
+const ROLES: SwarmRole[] = ['architect', 'product', 'developer', 'frontend', 'tester', 'security']
+
+const roleSummaries: Record<SwarmRole, string> = {
+  architect: 'Plans the run, decomposes tasks, and gates execution readiness.',
+  product: 'Clarifies audience, positioning, adoption risk, and priority tradeoffs.',
+  developer: 'Ships scoped implementation work and integration changes.',
+  frontend: 'Owns interaction design, visual quality, responsive layout, and UI polish.',
+  tester: 'Validates behavior, regression risk, and acceptance criteria.',
+  security: 'Reviews trust boundaries, command safety, data handling, and hardening.',
+}
+
 function basename(p: string): string {
   const parts = p.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? ''
+}
+
+function cleanLines(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
 }
 
 export default function TemplateSelector({ onCreate, onClose, allowClose = true }: Props) {
   const [folderPath, setFolderPath] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [nameTouched, setNameTouched] = useState(false)
-  const [mode, setMode] = useState<'standard' | 'swarm'>('standard')
+  const [mode, setMode] = useState<'standard' | 'swarm'>('swarm')
   const [selectedId, setSelectedId] = useState<string>(LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id)
   const [swarmGoal, setSwarmGoal] = useState('')
   const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(createDefaultSwarmRoleCounts())
+  const [selectedRole, setSelectedRole] = useState<SwarmRole>('architect')
+  const [roleSkills, setRoleSkills] = useState<SwarmSkillMap>(createDefaultSwarmSkills())
+  const [rolePrompts, setRolePrompts] = useState<SwarmPromptMap>(createDefaultSwarmRolePrompts())
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -50,17 +76,20 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   }, [onClose, allowClose])
 
   const selected = LAYOUT_TEMPLATES.find((template) => template.id === selectedId) ?? LAYOUT_TEMPLATES[0]
-  const canCreate = name.trim().length > 0 && (mode === 'standard' || swarmGoal.trim().length > 0)
+  const activeRoleCount = swarmRoleCounts[selectedRole]
+  const totalAgents = countSwarmAgents(swarmRoleCounts)
+  const canCreate = name.trim().length > 0 && (mode === 'standard' || (swarmGoal.trim().length > 0 && totalAgents > 0))
 
   const swarmConfig = useMemo<SwarmMockConfig>(
     () => ({
       name: name.trim() || 'Swarm Team',
       goal: swarmGoal.trim(),
-      agentCount: countSwarmAgents(swarmRoleCounts),
+      agentCount: totalAgents,
       roleCounts: swarmRoleCounts,
-      skills: createDefaultSwarmSkills(),
+      skills: roleSkills,
+      rolePrompts,
     }),
-    [name, swarmGoal, swarmRoleCounts]
+    [name, rolePrompts, roleSkills, swarmGoal, swarmRoleCounts, totalAgents]
   )
 
   const handlePick = async () => {
@@ -72,6 +101,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
 
   const applyPreset = (roleCounts: SwarmRoleCounts) => {
     setSwarmRoleCounts(roleCounts)
+    if (roleCounts[selectedRole] === 0) {
+      setSelectedRole(ROLES.find((role) => roleCounts[role] > 0) ?? 'architect')
+    }
   }
 
   const adjustRoleCount = (role: SwarmRole, delta: number) => {
@@ -84,280 +116,302 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     })
   }
 
+  const updateRoleSkills = (role: SwarmRole, value: string) => {
+    setRoleSkills((current) => ({
+      ...current,
+      [role]: cleanLines(value),
+    }))
+  }
+
+  const updateRolePrompt = (role: SwarmRole, value: string) => {
+    setRolePrompts((current) => ({
+      ...current,
+      [role]: value,
+    }))
+  }
+
   const handleCreate = () => {
     if (!canCreate) return
-    const swarmState = mode === 'swarm' ? undefined : null
+    const swarmState = mode === 'swarm' ? createInitialSwarmState(swarmConfig) : null
     const template = mode === 'swarm' ? createSwarmTemplate(swarmConfig) : selected
     onCreate({ template, name: name.trim(), folderPath, swarmState })
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#08080a]/95 p-4"
-      onClick={(event) => allowClose && event.target === event.currentTarget && onClose()}
-    >
-      <div
-        className="pointer-events-none fixed inset-0"
-        style={{
-          backgroundImage:
-            'radial-gradient(circle, rgba(255,255,255,0.018) 0, rgba(255,255,255,0.018) 1px, transparent 1px)',
-          backgroundSize: '22px 22px',
-        }}
-      />
-
-      <div className="relative h-[min(820px,calc(100vh-1.5rem))] w-full max-w-[1180px]">
-        <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-[#23262d] bg-[#0f1012] shadow-[0_28px_70px_rgba(0,0,0,0.55)]">
-          <div className="flex items-start justify-between gap-4 border-b border-[#23262d] bg-[#101114] px-5 py-2.5">
-            <div className="flex flex-col gap-1">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">Workspace</div>
-              <h1 className="m-0 text-[20px] font-semibold tracking-tight text-zinc-100">New Workspace</h1>
-            </div>
-            {allowClose && (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0b0d10] text-zinc-100">
+      <header className="shrink-0 border-b border-[#222833] bg-[#0f1217] px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase text-[#8892a6]">Workspace</div>
+            <h1 className="m-0 mt-1 text-[24px] font-semibold text-[#f2f5f9]">Create Workspace</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            {allowClose ? (
               <button
                 onClick={onClose}
-                className="h-8 rounded-[10px] border border-[#23262d] bg-[#14161a] px-3 text-sm text-zinc-400 transition-colors hover:bg-[#1a1c20] hover:text-zinc-200"
+                className="h-9 rounded-md border border-[#28303d] bg-[#131821] px-3 text-sm font-medium text-[#b8c0cf] transition-colors hover:border-[#3a4454] hover:bg-[#18202b] hover:text-white"
               >
                 Cancel
               </button>
-            )}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <div className="grid h-full gap-3 p-4">
-            <section className="rounded-2xl border border-[#23262d] bg-[#111214] overflow-hidden">
-              <div className="border-b border-[#23262d] bg-[#131519] px-3 pt-3">
-                <div className="inline-flex rounded-t-xl border border-b-0 border-[#2a2e36] bg-[#161920] p-1">
-                  {[
-                    { id: 'standard' as const, label: 'Standard' },
-                    { id: 'swarm' as const, label: 'Swarm Mode' },
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setMode(tab.id)}
-                      className={`rounded-[10px] px-4 py-2 text-sm font-medium transition-colors ${
-                        mode === tab.id
-                          ? 'bg-zinc-200 text-zinc-950'
-                          : 'text-zinc-400 hover:text-zinc-100'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-3 p-3">
-              <div className="grid gap-2 lg:grid-cols-[1.15fr_auto_0.95fr]">
-                <div className="flex min-h-[44px] items-center gap-3 rounded-xl border border-[#23262d] bg-[#14161a] px-4">
-                  <div className="flex min-w-0 flex-col">
-                    <span className="text-[10px] uppercase tracking-wider text-zinc-500">Folder</span>
-                    <span className="truncate font-mono text-sm text-zinc-200">
-                      {folderPath ?? 'No folder selected'}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  onClick={handlePick}
-                  className="min-h-[44px] rounded-xl border border-[#2d3139] bg-[#1a1c20] px-5 text-sm font-medium text-zinc-200 transition-colors hover:bg-[#1f2127]"
-                >
-                  Choose Folder
-                </button>
-                <div className="flex min-h-[44px] items-center gap-3 rounded-xl border border-[#23262d] bg-[#14161a] px-4">
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-[10px] uppercase tracking-wider text-zinc-500">Workspace Name</span>
-                    <input
-                      value={name}
-                      onChange={(event) => {
-                        setName(event.target.value)
-                        setNameTouched(true)
-                      }}
-                      onKeyDown={(event) => event.key === 'Enter' && handleCreate()}
-                      placeholder="my-workspace"
-                      className="border-0 bg-transparent font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {mode === 'standard' ? (
-                <>
-                  <div className="mb-3 flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-                        IDE Layout
-                      </div>
-                      <div className="mt-1 text-sm text-zinc-300">
-                        Choose the workspace arrangement you want to open.
-                      </div>
-                    </div>
-                    <span className="truncate text-xs text-zinc-500">{selected.description}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
-                    {LAYOUT_TEMPLATES.map((template) => {
-                      const isSelected = template.id === selectedId
-                      return (
-                        <button
-                          key={template.id}
-                          onClick={() => setSelectedId(template.id)}
-                          className={`group flex flex-col gap-2 rounded-2xl border p-2.5 text-left transition-all focus:outline-none ${
-                            isSelected
-                              ? 'border-[#5d616c] bg-[#1a1c20]'
-                              : 'border-[#23262d] bg-[#14161a] hover:-translate-y-px hover:border-[#2d3139] hover:bg-[#17191d]'
-                          }`}
-                        >
-                          <div className="overflow-hidden rounded-xl border border-[#1f2229] bg-[#0c0d10]">
-                            <div className="relative flex h-[124px] items-center justify-center px-3 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.035),transparent_62%)]">
-                              <LayoutPreview slots={template.previewSlots} />
-                            </div>
-                          </div>
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="truncate text-[15px] font-semibold tracking-tight text-zinc-100">
-                                {template.name}
-                              </div>
-                              <div className="mt-0.5 truncate text-xs text-zinc-500">{template.description}</div>
-                            </div>
-                            <span
-                              className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${
-                                isSelected ? 'bg-[#343740] text-zinc-100' : 'bg-[#23252b] text-zinc-500'
-                              }`}
-                            >
-                              {agentCountLabel(template.previewSlots)}
-                            </span>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-3">
-                  <div className="w-full rounded-2xl border border-[#23262d] bg-[#14161a] p-4">
-                    <div className="mb-4 flex items-center justify-between gap-4">
-                      <div>
-                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-                          Team Composition
-                        </div>
-                        <div className="mt-1 text-sm text-zinc-300">
-                          Choose specialist roles instead of selecting skills manually.
-                        </div>
-                      </div>
-                      <div className="text-xs text-zinc-500">
-                        {countSwarmAgents(swarmRoleCounts)} total agents
-                      </div>
-                    </div>
-
-                    <div className="grid gap-2 lg:grid-cols-3">
-                      {swarmTeamPresets.map((preset) => {
-                        const isSelected = roleCountsEqual(swarmRoleCounts, preset.roleCounts)
-                        return (
-                          <button
-                            key={preset.id}
-                            onClick={() => applyPreset(preset.roleCounts)}
-                            className={`flex h-full flex-col rounded-2xl border p-3 text-left transition-colors ${
-                              isSelected
-                                ? 'border-[#4d4d51] bg-[#191c21]'
-                                : 'border-[#23262d] bg-[#101216] hover:border-[#2f3540] hover:bg-[#13161b]'
-                            }`}
-                          >
-                            <div className="text-sm font-semibold text-zinc-100">{preset.name}</div>
-                            <div className="mt-3">
-                              <PresetRolePills roleCounts={preset.roleCounts} />
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-                      {(['architect', 'product', 'developer', 'frontend', 'tester', 'security'] as SwarmRole[]).map((role) => (
-                        <div
-                          key={role}
-                          className="rounded-xl border border-[#23262d] bg-[#101216] px-3 py-2.5"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span
-                                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                style={{
-                                  backgroundColor: swarmRoleAccent[role],
-                                  boxShadow: `0 0 16px ${swarmRoleAccent[role]}`,
-                                }}
-                              />
-                              <div className="truncate text-sm font-semibold leading-5 text-zinc-100">
-                                {roleConfiguratorLabel(role)}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="mt-2 flex items-center justify-between gap-2">
-                            <button
-                              onClick={() => adjustRoleCount(role, -1)}
-                              disabled={role === 'architect' && swarmRoleCounts[role] <= 1}
-                              className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#2d3139] bg-[#171a20] text-zinc-300 transition-colors hover:bg-[#1f232b] disabled:opacity-40 disabled:hover:bg-[#171a20]"
-                            >
-                              -
-                            </button>
-                            <div className="min-w-[2rem] text-center text-sm font-semibold text-zinc-100">
-                              {swarmRoleCounts[role]}
-                            </div>
-                            <button
-                              onClick={() => adjustRoleCount(role, 1)}
-                              className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#2d3139] bg-[#171a20] text-zinc-300 transition-colors hover:bg-[#1f232b]"
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="w-full rounded-2xl border border-[#23262d] bg-[#14161a] p-3">
-                    <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-                      Swarm Goal
-                    </div>
-                    <textarea
-                      value={swarmGoal}
-                      onChange={(event) => setSwarmGoal(event.target.value)}
-                      placeholder="Describe the overall outcome you want the architect and workers to achieve..."
-                      className="min-h-[88px] w-full rounded-xl border border-[#23262d] bg-[#101216] px-4 py-3 text-sm leading-6 text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-[#3d4252]"
-                    />
-                  </div>
-                </div>
-              )}
-              </div>
-            </section>
-            </div>
-          </div>
-
-          <div className={`flex items-center gap-4 border-t border-[#23262d] bg-[#0f1012] px-5 py-3 ${
-            mode === 'standard' ? 'justify-between' : 'justify-end'
-          }`}>
-            {mode === 'standard' ? (
-              <div className="text-xs text-zinc-500">
-                Workspace opens in a new tab with its own layout and agents.
-              </div>
-            ) : <div />}
-            <div className="flex gap-2">
-              {allowClose && (
-                <button
-                  onClick={onClose}
-                  className="h-10 rounded-xl border border-[#23262d] bg-[#14161a] px-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-[#1a1c20]"
-                >
-                  Back
-                </button>
-              )}
-              <button
-                onClick={handleCreate}
-                disabled={!canCreate}
-                className="h-10 rounded-xl border border-[#4d4d51] bg-zinc-200 px-5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-white disabled:opacity-40 disabled:hover:bg-zinc-200"
-              >
-                {mode === 'swarm' ? 'Create Swarm Workspace' : 'Create Workspace'}
-              </button>
-            </div>
+            ) : null}
+            <button
+              onClick={handleCreate}
+              disabled={!canCreate}
+              className="h-9 rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea] disabled:opacity-40 disabled:hover:bg-[#6ee7d8]"
+            >
+              {mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
+            </button>
           </div>
         </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_190px_minmax(260px,0.9fr)]">
+          <div className="min-w-0 rounded-lg border border-[#222833] bg-[#11161d] px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase text-[#778196]">Folder</div>
+            <div className="mt-1 truncate font-mono text-[13px] text-[#dbe1ea]">
+              {folderPath ?? 'No folder selected'}
+            </div>
+          </div>
+          <button
+            onClick={handlePick}
+            className="h-full min-h-[56px] rounded-lg border border-[#2b3442] bg-[#141a23] px-4 text-sm font-semibold text-[#d7deea] transition-colors hover:border-[#435064] hover:bg-[#19212c]"
+          >
+            Choose Folder
+          </button>
+          <label className="min-w-0 rounded-lg border border-[#222833] bg-[#11161d] px-3 py-2">
+            <span className="text-[11px] font-semibold uppercase text-[#778196]">Name</span>
+            <input
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value)
+                setNameTouched(true)
+              }}
+              onKeyDown={(event) => event.key === 'Enter' && handleCreate()}
+              placeholder="my-workspace"
+              className="mt-1 block w-full border-0 bg-transparent font-mono text-[13px] text-[#f2f5f9] outline-none placeholder:text-[#5f6878]"
+            />
+          </label>
+        </div>
+      </header>
+
+      <div className="flex shrink-0 items-center gap-1 border-b border-[#202631] bg-[#0d1015] px-5 py-2">
+        {[
+          { id: 'standard' as const, label: 'Standard' },
+          { id: 'swarm' as const, label: 'Swarm Mode' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setMode(tab.id)}
+            className={`h-8 rounded-md px-3 text-sm font-medium transition-colors ${
+              mode === tab.id
+                ? 'bg-[#e8edf5] text-[#10151d]'
+                : 'text-[#8d96a8] hover:bg-[#151a22] hover:text-[#dbe1ea]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
+
+      <main className="min-h-0 flex-1 overflow-auto">
+        {mode === 'standard' ? (
+          <div className="grid min-h-full gap-4 p-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <section className="min-w-0">
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase text-[#778196]">IDE Layout</div>
+                  <div className="mt-1 text-sm text-[#a8b2c3]">Choose the panes that should open first.</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                {LAYOUT_TEMPLATES.map((template) => {
+                  const isSelected = template.id === selectedId
+                  return (
+                    <button
+                      key={template.id}
+                      onClick={() => setSelectedId(template.id)}
+                      className={`group flex min-h-[188px] flex-col rounded-lg border p-3 text-left transition-colors focus:outline-none ${
+                        isSelected
+                          ? 'border-[#6ee7d8]/60 bg-[#14202a]'
+                          : 'border-[#222833] bg-[#11161d] hover:border-[#384456] hover:bg-[#141a23]'
+                      }`}
+                    >
+                      <div className="rounded-md border border-[#1d232d] bg-[#080a0d] p-3">
+                        <LayoutPreview slots={template.previewSlots} />
+                      </div>
+                      <div className="mt-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-[15px] font-semibold text-[#f2f5f9]">{template.name}</div>
+                          <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#8d96a8]">
+                            {template.description}
+                          </div>
+                        </div>
+                        <span className="shrink-0 rounded-md border border-[#2a323f] bg-[#0d1117] px-2 py-1 text-[11px] font-semibold text-[#aeb7c7]">
+                          {agentCountLabel(template.previewSlots)}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+
+            <aside className="rounded-lg border border-[#222833] bg-[#11161d] p-4">
+              <div className="text-[11px] font-semibold uppercase text-[#778196]">Selected</div>
+              <h2 className="mt-2 text-[20px] font-semibold text-[#f2f5f9]">{selected.name}</h2>
+              <p className="mt-2 text-sm leading-6 text-[#a8b2c3]">{selected.description}</p>
+              <div className="mt-5 rounded-md border border-[#202631] bg-[#090c10] p-4">
+                <LayoutPreview slots={selected.previewSlots} large />
+              </div>
+            </aside>
+          </div>
+        ) : (
+          <div className="grid min-h-full gap-4 p-5 xl:grid-cols-[280px_minmax(360px,0.9fr)_minmax(380px,1.1fr)]">
+            <section className="min-w-0">
+              <div className="mb-3">
+                <div className="text-[11px] font-semibold uppercase text-[#778196]">Presets</div>
+                <div className="mt-1 text-sm text-[#a8b2c3]">Start with a team shape.</div>
+              </div>
+              <div className="space-y-2">
+                {swarmTeamPresets.map((preset) => {
+                  const isSelected = roleCountsEqual(swarmRoleCounts, preset.roleCounts)
+                  return (
+                    <button
+                      key={preset.id}
+                      onClick={() => applyPreset(preset.roleCounts)}
+                      className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                        isSelected
+                          ? 'border-[#6ee7d8]/60 bg-[#14202a]'
+                          : 'border-[#222833] bg-[#11161d] hover:border-[#384456] hover:bg-[#141a23]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-semibold text-[#f2f5f9]">{preset.name}</div>
+                        <div className="rounded-md bg-[#0c1117] px-2 py-1 text-[11px] font-semibold text-[#b6c0cf]">
+                          {countSwarmAgents(preset.roleCounts)}
+                        </div>
+                      </div>
+                      <p className="mt-2 text-[12px] leading-5 text-[#8d96a8]">{preset.description}</p>
+                      <PresetRoleLine roleCounts={preset.roleCounts} />
+                    </button>
+                  )
+                })}
+              </div>
+
+              <label className="mt-4 block rounded-lg border border-[#222833] bg-[#11161d] p-3">
+                <span className="text-[11px] font-semibold uppercase text-[#778196]">Goal</span>
+                <textarea
+                  value={swarmGoal}
+                  onChange={(event) => setSwarmGoal(event.target.value)}
+                  placeholder="Describe the outcome this swarm should deliver..."
+                  className="mt-2 min-h-[150px] w-full resize-none rounded-md border border-[#202631] bg-[#0b0f14] px-3 py-2 text-sm leading-6 text-[#f2f5f9] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
+                />
+              </label>
+            </section>
+
+            <section className="min-w-0">
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase text-[#778196]">Team</div>
+                  <div className="mt-1 text-sm text-[#a8b2c3]">{totalAgents} agents in this workspace.</div>
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-lg border border-[#222833] bg-[#11161d]">
+                {ROLES.map((role) => {
+                  const selectedRoleRow = role === selectedRole
+                  return (
+                    <div
+                      key={role}
+                      onClick={() => setSelectedRole(role)}
+                      className={`flex w-full items-center gap-3 border-b border-[#202631] px-3 py-3 text-left last:border-b-0 transition-colors ${
+                        selectedRoleRow ? 'bg-[#16212b]' : 'hover:bg-[#141a23]'
+                      }`}
+                    >
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: swarmRoleAccent[role] }}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-[#f2f5f9]">
+                          {swarmRoleLabels[role]}
+                        </span>
+                        <span className="mt-1 block truncate text-[12px] text-[#8d96a8]">
+                          {roleSummaries[role]}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            adjustRoleCount(role, -1)
+                          }}
+                          disabled={role === 'architect' && swarmRoleCounts[role] <= 1}
+                          className={`flex h-7 w-7 items-center justify-center rounded-md border border-[#2a323f] bg-[#0e131a] text-[#c5cedd] ${
+                            role === 'architect' && swarmRoleCounts[role] <= 1
+                              ? 'opacity-35'
+                              : 'hover:bg-[#18202b]'
+                          }`}
+                        >
+                          -
+                        </button>
+                        <span className="min-w-8 text-center text-sm font-semibold text-[#f2f5f9]">
+                          {swarmRoleCounts[role]}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            adjustRoleCount(role, 1)
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-[#2a323f] bg-[#0e131a] text-[#c5cedd] hover:bg-[#18202b]"
+                        >
+                          +
+                        </button>
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+
+            <aside className="min-w-0 rounded-lg border border-[#222833] bg-[#11161d]">
+              <div className="border-b border-[#202631] px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-semibold uppercase text-[#778196]">Specialist</div>
+                    <h2 className="mt-1 truncate text-[20px] font-semibold text-[#f2f5f9]">
+                      {swarmRoleLabels[selectedRole]}
+                    </h2>
+                  </div>
+                  <div className="rounded-md border border-[#2a323f] bg-[#0d1117] px-2.5 py-1 text-sm font-semibold text-[#dbe1ea]">
+                    {activeRoleCount}
+                  </div>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-[#a8b2c3]">{roleSummaries[selectedRole]}</p>
+              </div>
+
+              <div className="space-y-4 p-4">
+                <label className="block">
+                  <span className="text-[11px] font-semibold uppercase text-[#778196]">Skills</span>
+                  <textarea
+                    value={roleSkills[selectedRole].join('\n')}
+                    onChange={(event) => updateRoleSkills(selectedRole, event.target.value)}
+                    className="mt-2 min-h-[128px] w-full resize-none rounded-md border border-[#202631] bg-[#0b0f14] px-3 py-2 font-mono text-[12px] leading-5 text-[#e7ecf4] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-semibold uppercase text-[#778196]">Pre-prompt</span>
+                  <textarea
+                    value={rolePrompts[selectedRole]}
+                    onChange={(event) => updateRolePrompt(selectedRole, event.target.value)}
+                    className="mt-2 min-h-[220px] w-full resize-none rounded-md border border-[#202631] bg-[#0b0f14] px-3 py-2 font-mono text-[12px] leading-5 text-[#e7ecf4] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
+                  />
+                </label>
+              </div>
+            </aside>
+          </div>
+        )}
+      </main>
     </div>
   )
 }
@@ -367,61 +421,22 @@ function agentCountLabel(slots: PreviewSlot[]): string {
   return n === 1 ? '1 agent' : `${n} agents`
 }
 
-function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
-  const style: Record<
-    PreviewSlot['type'],
-    { fill: string; stroke: string; text: string; neonStroke: string; neonGlow: string }
-  > = {
-    explorer: {
-      fill: 'url(#grad-files)',
-      stroke: 'rgba(255, 214, 126, 0.78)',
-      text: '#f3d69e',
-      neonStroke: 'rgba(255, 202, 92, 0.58)',
-      neonGlow: 'rgba(255, 198, 84, 0.42)',
-    },
-    editor: {
-      fill: 'url(#grad-editor)',
-      stroke: 'rgba(129, 238, 161, 0.8)',
-      text: '#b8f2c8',
-      neonStroke: 'rgba(111, 219, 145, 0.56)',
-      neonGlow: 'rgba(72, 181, 106, 0.42)',
-    },
-    agent: {
-      fill: 'url(#grad-agent)',
-      stroke: 'rgba(126, 179, 255, 0.8)',
-      text: '#a9c8ff',
-      neonStroke: 'rgba(85, 147, 255, 0.6)',
-      neonGlow: 'rgba(57, 118, 255, 0.44)',
-    },
+function LayoutPreview({ slots, large = false }: { slots: PreviewSlot[]; large?: boolean }) {
+  const style: Record<PreviewSlot['type'], { fill: string; stroke: string; text: string }> = {
+    explorer: { fill: '#1b2430', stroke: '#f6c86b', text: '#f7d997' },
+    editor: { fill: '#16261e', stroke: '#77e6a0', text: '#b7f2c8' },
+    agent: { fill: '#132234', stroke: '#78b7ff', text: '#b9d7ff' },
   }
 
   return (
     <svg
       viewBox="0 0 300 110"
       preserveAspectRatio="xMidYMid meet"
-      className="block h-[96px] w-full max-w-[276px]"
+      className={`block w-full ${large ? 'h-[150px]' : 'h-[104px]'}`}
       xmlns="http://www.w3.org/2000/svg"
     >
-      <defs>
-        <linearGradient id="grad-surface" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#0d1016" />
-          <stop offset="100%" stopColor="#090b10" />
-        </linearGradient>
-        <linearGradient id="grad-agent" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(15,30,48,0.98)" />
-          <stop offset="100%" stopColor="rgba(12,22,34,0.98)" />
-        </linearGradient>
-        <linearGradient id="grad-editor" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(20,32,24,0.98)" />
-          <stop offset="100%" stopColor="rgba(15,23,18,0.98)" />
-        </linearGradient>
-        <linearGradient id="grad-files" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(42,33,14,0.98)" />
-          <stop offset="100%" stopColor="rgba(31,25,12,0.98)" />
-        </linearGradient>
-      </defs>
-      <rect x="0" y="0" width="300" height="110" rx="16" fill="url(#grad-surface)" />
-      <rect x="4" y="4" width="292" height="102" rx="13" fill="none" stroke="rgba(255,255,255,0.05)" />
+      <rect x="0" y="0" width="300" height="110" rx="8" fill="#0c1016" />
+      <rect x="4" y="4" width="292" height="102" rx="6" fill="none" stroke="#1f2733" />
       {slots.map((slot, index) => {
         const c = style[slot.type]
         return (
@@ -431,23 +446,10 @@ function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
               y={slot.y}
               width={slot.w}
               height={slot.h}
-              rx="6"
-              fill="none"
-              stroke={c.neonStroke}
-              strokeWidth="2.2"
-              opacity="0.38"
-              style={{ filter: `blur(3.5px) drop-shadow(0 0 8px ${c.neonGlow})` }}
-            />
-            <rect
-              x={slot.x}
-              y={slot.y}
-              width={slot.w}
-              height={slot.h}
-              rx="6"
+              rx="5"
               fill={c.fill}
               stroke={c.stroke}
-              strokeWidth="1.05"
-              style={{ filter: `drop-shadow(0 0 10px ${c.neonGlow})` }}
+              strokeWidth="1"
             />
             <text
               x={slot.x + slot.w / 2}
@@ -455,9 +457,8 @@ function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
               textAnchor="middle"
               fontSize={slot.w < 70 ? '7' : '8'}
               fontWeight="700"
-              letterSpacing="0.08em"
               fill={c.text}
-              fontFamily="ui-monospace, monospace"
+              fontFamily="ui-monospace, SFMono-Regular, Consolas, monospace"
             >
               {slot.label.toUpperCase()}
             </text>
@@ -479,64 +480,35 @@ function roleCountsEqual(a: SwarmRoleCounts, b: SwarmRoleCounts): boolean {
   )
 }
 
-function roleConfiguratorLabel(role: SwarmRole): string {
-  switch (role) {
-    case 'architect':
-      return 'Architect'
-    case 'product':
-      return 'Product'
-    case 'developer':
-      return 'Developer'
-    case 'frontend':
-      return 'Frontend'
-    case 'tester':
-      return 'Tester'
-    case 'security':
-      return 'Security'
-  }
-}
-
-function rolePresetLabel(role: SwarmRole): string {
-  switch (role) {
-    case 'architect':
-      return 'Architect'
-    case 'product':
-      return 'Product'
-    case 'developer':
-      return 'Developer'
-    case 'frontend':
-      return 'UX'
-    case 'tester':
-      return 'Tester'
-    case 'security':
-      return 'Security'
-  }
-}
-
-function roleBadgeSummary(roleCounts: SwarmRoleCounts): Array<{ role: SwarmRole; count: number }> {
-  return (Object.entries(roleCounts) as Array<[SwarmRole, number]>)
-    .filter(([, count]) => count > 0)
-    .map(([role, count]) => ({ role, count }))
-}
-
-function PresetRolePills({ roleCounts }: { roleCounts: SwarmRoleCounts }) {
-  const roles = roleBadgeSummary(roleCounts)
-
+function PresetRoleLine({ roleCounts }: { roleCounts: SwarmRoleCounts }) {
   return (
-    <div className="flex flex-wrap gap-2">
-      {roles.map(({ role, count }) => (
-        <div
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {ROLES.filter((role) => roleCounts[role] > 0).map((role) => (
+        <span
           key={role}
-          className="inline-flex items-center gap-2 rounded-full border border-[#2a2e36] bg-[#111318] px-3 py-1.5 text-[11px] text-zinc-200"
+          className="inline-flex items-center gap-1.5 rounded-md border border-[#27303d] bg-[#0c1117] px-2 py-1 text-[11px] text-[#b8c2d1]"
         >
-          <span
-            className="h-2.5 w-2.5 rounded-full"
-            style={{ backgroundColor: swarmRoleAccent[role], boxShadow: `0 0 12px ${swarmRoleAccent[role]}` }}
-          />
-          <span>{rolePresetLabel(role)}</span>
-          <span className="font-semibold text-zinc-100">{count}</span>
-        </div>
+          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: swarmRoleAccent[role] }} />
+          {roleShortLabel(role)} {roleCounts[role]}
+        </span>
       ))}
     </div>
   )
+}
+
+function roleShortLabel(role: SwarmRole): string {
+  switch (role) {
+    case 'architect':
+      return 'Arch'
+    case 'product':
+      return 'Product'
+    case 'developer':
+      return 'Dev'
+    case 'frontend':
+      return 'UI'
+    case 'tester':
+      return 'Test'
+    case 'security':
+      return 'Sec'
+  }
 }

@@ -16,6 +16,7 @@ import { detectLanguage } from '../utils/files'
 import {
   buildSwarmAgentRoster,
   createDefaultSwarmRoleCounts,
+  createDefaultSwarmRolePrompts,
   createInitialSwarmState,
   normalizeSwarmState,
 } from '../utils/swarm'
@@ -105,6 +106,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                   tester: [],
                   security: [],
                 },
+                rolePrompts: options?.swarmState?.rolePrompts ?? createDefaultSwarmRolePrompts(),
               })
             : null
           const agents = swarmState

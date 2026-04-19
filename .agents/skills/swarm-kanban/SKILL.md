@@ -1,9 +1,9 @@
 ---
 name: swarm-kanban
-description: Coordinate swarm task claiming, status updates, evidence publishing, and architect-to-specialist consultations for projects that use `swarm/state.yaml` and `swarm/plan.md`. Use when acting as a swarm architect or worker in this repo's swarm-mode workflow.
+description: Coordinate swarm task claiming, status updates, evidence publishing, mailbox messages, and architect-to-specialist consultations for projects that use named `swarm/<team>/state.yaml` and `swarm/<team>/plan.md` files. Use when acting as a swarm architect or worker in this repo's swarm-mode workflow.
 ---
 
-Use the bundled coordination command instead of hand-editing `swarm/state.yaml`.
+Use the bundled coordination command instead of hand-editing `swarm/state.yaml` or named `swarm/<team>/state.yaml` files.
 
 Primary command:
 
@@ -17,17 +17,18 @@ Worker workflow:
 
 1. Read `swarm/plan.md` for the human-authored plan and task context.
 2. Run `swarm claim-next-task --role <your-role> --agent-id <your-agent-id>` to atomically claim the next ready task for your role.
-3. If no task is ready, stay idle and do not manually edit shared state.
-4. Update only your own task card with:
+3. Poll your mailbox about every 30 seconds with `swarm get-mailbox --agent-id <your-agent-id> --consume`.
+4. If no task is ready, stay idle and do not manually edit shared state.
+5. Update only your own task card with:
    - `swarm set-task-status`
    - `swarm add-note`
    - `swarm append-evidence`
-5. Before marking work `done`, publish:
+6. Before marking work `done`, publish:
    - summary
    - touched files
    - commands run
    - results
-6. After marking a task `done`, run `claim-next-task` again to pick up the next ready task for your role.
+7. After marking a task `done`, run `claim-next-task` again to pick up the next ready task for your role.
 
 Architect workflow:
 
@@ -58,6 +59,9 @@ swarm claim-task --task-id T3 --agent-id frontend-1
 swarm set-task-status --task-id T3 --status in_progress --actor frontend-1
 swarm append-evidence --task-id T3 --actor frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SwarmBoardPanel.tsx --command "npm run typecheck" --result "Passed"
 swarm run-summary
+swarm get-mailbox --agent-id frontend-1 --consume
+swarm send-message --from-agent architect --to-agent frontend-1 --subject "Plan approved" --body "Claim your next ready task."
+swarm broadcast-message --from-agent architect --subject "Plan ready" --body "Review your mailbox and claim ready work."
 swarm validate-tasks --file swarm/tasks.json
 swarm replace-tasks --actor architect --file swarm/tasks.json
 swarm mark-plan-ready --actor architect

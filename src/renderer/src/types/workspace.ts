@@ -23,6 +23,7 @@ export type LayoutTemplate = {
 export type SwarmRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security'
 
 export type SwarmSkillMap = Record<SwarmRole, string[]>
+export type SwarmPromptMap = Record<SwarmRole, string>
 export type SwarmRoleCounts = Record<SwarmRole, number>
 
 export type SwarmPhase = 'planning' | 'awaiting_approval' | 'executing' | 'completed'
@@ -100,6 +101,7 @@ export type SwarmState = {
   agentCount: number
   roleCounts: SwarmRoleCounts
   skills: SwarmSkillMap
+  rolePrompts: SwarmPromptMap
   swarmAgents: Record<string, SwarmRuntimeAgent>
   phase: SwarmPhase
   planApproved: boolean
@@ -113,7 +115,10 @@ export type SwarmState = {
   tasks: SwarmTask[]
 }
 
-export type SwarmMockConfig = Pick<SwarmState, 'name' | 'goal' | 'agentCount' | 'roleCounts' | 'skills'>
+export type SwarmMockConfig = Pick<
+  SwarmState,
+  'name' | 'goal' | 'agentCount' | 'roleCounts' | 'skills' | 'rolePrompts'
+>
 
 export type AgentMessage = {
   role: 'user' | 'assistant' | 'system'
