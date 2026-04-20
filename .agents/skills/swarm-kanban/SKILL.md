@@ -36,13 +36,14 @@ Architect workflow:
 2. Study the repository and current implementation deeply before planning.
 3. Ask the user clarifying questions until they confirm the intended outcome, constraints, and acceptance criteria.
 4. Use consultation artifacts when specialist input would improve the plan.
-5. Write `swarm/plan.md` with the low-level design, implementation approach, risks, acceptance criteria, and specialist task breakdown.
-6. Create `swarm/tasks.json` using `swarm/tasks.template.json` and `swarm/tasks.schema.json`.
-7. Validate the task graph with `swarm validate-tasks --file swarm/tasks.json`.
-8. Replace the kanban task graph with `swarm replace-tasks --actor architect --file swarm/tasks.json`.
-9. Mark the final plan ready with `swarm mark-plan-ready --actor architect`.
-10. Tell the user the plan is ready for review only after `mark-plan-ready` succeeds.
-11. Do not manually edit `swarm/state.yaml`.
+5. Write `swarm/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond `tasks.json`.
+6. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
+7. Create `swarm/tasks.json` using `swarm/tasks.template.json` and `swarm/tasks.schema.json`.
+8. Validate the task graph with `swarm validate-tasks --file swarm/tasks.json`.
+9. Replace the kanban task graph with `swarm replace-tasks --actor architect --file swarm/tasks.json`.
+10. Mark the final plan ready with `swarm mark-plan-ready --actor architect`.
+11. Tell the user the plan is ready for review only after `mark-plan-ready` succeeds.
+12. Do not manually edit `swarm/state.yaml`.
 
 Use consultations when planning needs specialist input:
 
@@ -61,6 +62,8 @@ swarm append-evidence --task-id T3 --actor frontend-1 --summary "Updated board U
 swarm run-summary
 swarm get-mailbox --agent-id frontend-1 --consume
 swarm send-message --from-agent architect --to-agent frontend-1 --subject "Plan approved" --body "Claim your next ready task."
+swarm send-message --from-agent frontend-1 --to-agent architect --subject "Re: UX question" --body "Recommended approach..." --reply-to REQ-20260419T130000Z-12345
+swarm send-and-receive --from-agent architect --to-agent product --subject "Product validation request" --body "Validate this MVP scope." --timeout-seconds 1800 --consume
 swarm broadcast-message --from-agent architect --subject "Plan ready" --body "Review your mailbox and claim ready work."
 swarm validate-tasks --file swarm/tasks.json
 swarm replace-tasks --actor architect --file swarm/tasks.json
@@ -77,6 +80,7 @@ Rules:
 - Append evidence before moving work to `done`.
 - Use `swarm run-summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
+- Use `send-and-receive` when the architect must pause for a specialist reply before continuing. Responders should include `--reply-to <request-message-id>` when answering.
 - Only use `validate-tasks`, `replace-tasks`, and `mark-plan-ready` as the architect during planning, before the user approves the plan.
 - If `python3` or `PyYAML` is unavailable, report the blocker instead of silently hand-editing shared state.
 

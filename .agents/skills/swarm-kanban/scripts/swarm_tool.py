@@ -258,6 +258,7 @@ def write_mailbox_message(
     subject: str,
     body: str,
     message_id: Optional[str] = None,
+    reply_to: Optional[str] = None,
 ) -> Dict[str, Any]:
     agent_id = safe_mailbox_segment(to_agent)
     message_id = safe_mailbox_segment(message_id or mailbox_message_id())
@@ -272,11 +273,51 @@ def write_mailbox_message(
         "body": body,
         "createdAt": now_iso(),
     }
+    if reply_to:
+        payload["replyTo"] = reply_to
     message_path = inbox / f"{message_id}.json"
     with message_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
         handle.write("\n")
     return {"message": payload, "path": str(message_path)}
+
+
+def find_reply_messages(
+    state_path: Path,
+    *,
+    inbox_agent: str,
+    request_id: str,
+    expected_from_agent: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    inbox = agent_mailbox_path(state_path, inbox_agent)
+    inbox.mkdir(parents=True, exist_ok=True)
+
+    replies = []
+    for path in sorted(path for path in inbox.glob("*.json") if path.is_file()):
+        message = read_mailbox_message(path)
+        if expected_from_agent and message.get("from") != expected_from_agent:
+            continue
+        if message.get("replyTo") != request_id and message.get("inReplyTo") != request_id:
+            continue
+        replies.append({"message": message, "path": str(path)})
+    return replies
+
+
+def consume_mailbox_paths(paths: List[Path]) -> None:
+    if not paths:
+        return
+
+    read_dir = paths[0].parent / "read"
+    read_dir.mkdir(parents=True, exist_ok=True)
+    consumed_at = now_iso()
+    for path in paths:
+        message = read_mailbox_message(path)
+        message["consumedAt"] = consumed_at
+        target = read_dir / path.name
+        with path.open("w", encoding="utf-8") as handle:
+            json.dump(message, handle, indent=2)
+            handle.write("\n")
+        os.replace(path, target)
 
 
 def normalize_task_card(raw_task: Dict[str, Any]) -> Dict[str, Any]:
@@ -514,8 +555,69 @@ def cmd_send_message(args: argparse.Namespace) -> Dict[str, Any]:
             subject=args.subject,
             body=args.body,
             message_id=args.message_id,
+            reply_to=args.reply_to,
         )
     return {"ok": True, **result}
+
+
+def cmd_send_and_receive(args: argparse.Namespace) -> Dict[str, Any]:
+    root = mailbox_root(args.state)
+    root.mkdir(parents=True, exist_ok=True)
+    request_id = args.message_id or mailbox_message_id("REQ")
+    response_instruction = (
+        "\n\nReply by sending a correlated mailbox message with:\n"
+        f"swarm send-message --from-agent {args.to_agent} --to-agent {args.from_agent} "
+        f"--subject \"Re: {args.subject}\" --body \"<response>\" --reply-to {request_id}"
+    )
+    body = args.body if args.no_reply_instruction else f"{args.body}{response_instruction}"
+
+    lock = StateLock(root / ".mailbox.lock")
+    with lock:
+        sent = write_mailbox_message(
+            args.state,
+            to_agent=args.to_agent,
+            from_agent=args.from_agent,
+            subject=args.subject,
+            body=body,
+            message_id=request_id,
+        )
+
+    deadline = time.monotonic() + max(0.0, args.timeout_seconds)
+    poll_seconds = max(0.2, args.poll_seconds)
+    last_replies: List[Dict[str, Any]] = []
+
+    while True:
+        with lock:
+            replies = find_reply_messages(
+                args.state,
+                inbox_agent=args.from_agent,
+                request_id=request_id,
+                expected_from_agent=args.to_agent if args.require_responder else None,
+            )
+            if replies:
+                last_replies = replies
+                if args.consume:
+                    consume_mailbox_paths([Path(reply["path"]) for reply in replies])
+                break
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {
+                "ok": False,
+                "timeout": True,
+                "message": f"No reply received for {request_id} within {args.timeout_seconds:g} seconds.",
+                "sent": sent,
+                "replyTo": request_id,
+            }
+        time.sleep(min(poll_seconds, remaining))
+
+    return {
+        "ok": True,
+        "sent": sent,
+        "replyTo": request_id,
+        "replyCount": len(last_replies),
+        "replies": last_replies,
+    }
 
 
 def cmd_broadcast_message(args: argparse.Namespace) -> Dict[str, Any]:
@@ -955,7 +1057,33 @@ def build_parser() -> argparse.ArgumentParser:
     send_message.add_argument("--subject", required=True)
     send_message.add_argument("--body", required=True)
     send_message.add_argument("--message-id")
+    send_message.add_argument("--reply-to")
     send_message.set_defaults(handler=cmd_send_message)
+
+    send_and_receive = subparsers.add_parser(
+        "send-and-receive",
+        help="Send a mailbox message and wait for a correlated reply.",
+    )
+    send_and_receive.add_argument("--to-agent", required=True)
+    send_and_receive.add_argument("--from-agent", required=True)
+    send_and_receive.add_argument("--subject", required=True)
+    send_and_receive.add_argument("--body", required=True)
+    send_and_receive.add_argument("--message-id")
+    send_and_receive.add_argument("--timeout-seconds", type=float, default=900.0)
+    send_and_receive.add_argument("--poll-seconds", type=float, default=5.0)
+    send_and_receive.add_argument("--consume", action="store_true", help="Move the matched reply into the read folder.")
+    send_and_receive.add_argument(
+        "--no-reply-instruction",
+        action="store_true",
+        help="Do not append the suggested reply command to the outgoing body.",
+    )
+    send_and_receive.add_argument(
+        "--require-responder",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Only accept replies from the requested recipient agent.",
+    )
+    send_and_receive.set_defaults(handler=cmd_send_and_receive)
 
     broadcast_message = subparsers.add_parser("broadcast-message", help="Send a message to all agent mailboxes.")
     broadcast_message.add_argument("--from-agent", required=True)

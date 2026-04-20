@@ -135,7 +135,11 @@ export type AgentState = {
   messages: AgentMessage[]
   streamBuffer: string
   cliSessionId?: string
+  cliStartRequested?: boolean
+  cliRestartNonce?: number
   cliHasLaunched?: boolean
+  cliOnboardingPromptSent?: boolean
+  cliPlanApprovedPromptSent?: boolean
 }
 
 export type AgentConfig = {

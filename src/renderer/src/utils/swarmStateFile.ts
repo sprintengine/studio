@@ -361,69 +361,6 @@ export function parseSwarmStateFile(content: string): SwarmState {
   return normalizeSwarmState(candidate) ?? candidate
 }
 
-export function serializeSwarmPlanMarkdown(swarmState: SwarmState): string {
-  const lines = [
-    '# Swarm Plan',
-    '',
-    '> Draft placeholder. The architect owns this file and should replace it after repo discovery, product research, specialist consultation, and user alignment.',
-    '',
-    '## Goal',
-    '',
-    swarmState.goal,
-    '',
-    '## Architect Workflow',
-    '',
-    '- Study the current repository and relevant implementation details.',
-    '- Ask clarifying questions until the user confirms the intended outcome.',
-    '- Consult the product strategist when market, competitor, audience, positioning, onboarding, or workflow ambiguity could change the plan.',
-    '- Consult other specialists when the plan needs frontend, security, testing, or domain-specific input.',
-    '- Replace this placeholder with the final low-level design and execution plan.',
-    '- Update task cards through the swarm coordination tool, not by hand-editing state.',
-    '',
-    '## Low-Level Design',
-    '',
-    '_Architect to fill in after discovery._',
-    '',
-    '## Implementation Plan',
-    '',
-    '_Architect to fill in after user alignment._',
-    '',
-    '## Acceptance Criteria',
-    '',
-    '_Architect to fill in._',
-    '',
-    '## Risks / Open Questions',
-    '',
-    '_Architect to fill in._',
-    '',
-    '## Initial Task Placeholders',
-    '',
-  ]
-
-  for (const task of swarmState.tasks) {
-    lines.push(`### ${task.id} - ${task.title}`)
-    lines.push('')
-    lines.push(`- Role: ${task.role}`)
-    lines.push(`- Status: ${task.status}`)
-    lines.push(`- Depends on: ${task.dependsOn.length > 0 ? task.dependsOn.join(', ') : 'none'}`)
-    if (task.ownedPaths.length > 0) {
-      lines.push('- Owned paths:')
-      task.ownedPaths.forEach((path) => lines.push(`  - ${path}`))
-    }
-    if (task.acceptanceCriteria.length > 0) {
-      lines.push('- Acceptance criteria:')
-      task.acceptanceCriteria.forEach((item) => lines.push(`  - ${item}`))
-    }
-    if (task.implementationNotes.length > 0) {
-      lines.push('- Implementation notes:')
-      task.implementationNotes.forEach((item) => lines.push(`  - ${item}`))
-    }
-    lines.push('')
-  }
-
-  return `${lines.join('\n')}\n`
-}
-
 export function serializeSwarmTasksTemplate(): string {
   return `${JSON.stringify({
     tasks: [
@@ -440,7 +377,7 @@ export function serializeSwarmTasksTemplate(): string {
           'Specific behavior or outcome that must be true when this task is complete.',
         ],
         implementationNotes: [
-          'Important plan details, constraints, or suggested approach from the architect.',
+          'Important plan details, constraints, or suggested approach from the architect. Keep this concise and do not include timelines, dates, or duration estimates.',
         ],
         evidence: {
           summary: '',

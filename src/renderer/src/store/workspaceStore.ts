@@ -47,6 +47,7 @@ interface WorkspaceStore {
   updateFileContent: (workspaceId: WorkspaceId, path: string, content: string) => void
   markFileClean: (workspaceId: WorkspaceId, path: string) => void
   remapOpenFiles: (workspaceId: WorkspaceId, fromPath: string, toPath: string) => void
+  removeOpenFilesForPath: (workspaceId: WorkspaceId, path: string) => void
 }
 
 const defaultAgent = (id: AgentId, name = id): AgentState => ({
@@ -56,13 +57,73 @@ const defaultAgent = (id: AgentId, name = id): AgentState => ({
   messages: [],
   streamBuffer: '',
   cliSessionId: undefined,
+  cliStartRequested: false,
+  cliRestartNonce: 0,
   cliHasLaunched: false,
+  cliOnboardingPromptSent: false,
+  cliPlanApprovedPromptSent: false,
 })
 
 const defaultEditorState = (): EditorState => ({
   openFiles: [],
   activeFilePath: null,
 })
+
+const swarmAgentTab = (id: string, name: string) => ({
+  type: 'tab',
+  name,
+  component: 'agent',
+  config: { agentId: id },
+})
+
+const swarmTabsLayoutModel = (swarmState: SwarmState | null): IJsonModel => ({
+  global: { tabSetEnableDrop: true, tabEnableClose: true },
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        weight: 58,
+        children: [
+          { type: 'tab', name: 'Swarm Map', component: 'swarm-map' },
+          { type: 'tab', name: 'Kanban', component: 'swarm-kanban' },
+        ],
+      },
+      {
+        type: 'tabset',
+        weight: 42,
+        children: buildSwarmAgentRoster(swarmState?.roleCounts ?? createDefaultSwarmRoleCounts()).map((agent) =>
+          swarmAgentTab(agent.id, agent.label)
+        ),
+      },
+    ],
+  },
+})
+
+function isLegacySwarmLayout(model: IJsonModel): boolean {
+  const serialized = JSON.stringify(model)
+  if (serialized.includes('"component":"swarm"') && !serialized.includes('"component":"swarm-map"')) return true
+  if (serialized.includes('"component":"swarm-terminals"')) return true
+
+  return false
+}
+
+function migrateSwarmLayout(ws: Workspace): Workspace {
+  if (ws.mode !== 'swarm' && !ws.swarmState) return ws
+  if (!isLegacySwarmLayout(ws.layoutModel)) return ws
+
+  return {
+    ...ws,
+    layoutModel: swarmTabsLayoutModel(ws.swarmState),
+  }
+}
+
+function isPathOrChild(path: string, parentPath: string): boolean {
+  if (path === parentPath) return true
+  const separator = parentPath.includes('\\') && !parentPath.includes('/') ? '\\' : '/'
+  return path.startsWith(`${parentPath}${separator}`)
+}
 
 function reconcileSwarmAgents(
   currentAgents: Workspace['agents'],
@@ -244,7 +305,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ),
             editorState: ws.editorState ?? defaultEditorState(),
             swarmState: normalizeSwarmState(ws.swarmState),
-          })
+          } satisfies Workspace)
+          const imported = state.workspaces.at(-1)
+          if (imported) {
+            Object.assign(imported, migrateSwarmLayout(imported))
+          }
           state.activeWorkspaceId = id
         }),
 
@@ -327,10 +392,27 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ws.editorState.activeFilePath = `${toPath}${ws.editorState.activeFilePath.slice(fromPath.length)}`
           }
         }),
+
+      removeOpenFilesForPath: (workspaceId, path) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          const openFiles = ws?.editorState?.openFiles
+          if (!ws?.editorState || !openFiles?.length) return
+
+          const activeFileDeleted = ws.editorState.activeFilePath
+            ? isPathOrChild(ws.editorState.activeFilePath, path)
+            : false
+
+          ws.editorState.openFiles = openFiles.filter((file) => !isPathOrChild(file.path, path))
+
+          if (activeFileDeleted) {
+            ws.editorState.activeFilePath = ws.editorState.openFiles.at(-1)?.path ?? null
+          }
+        }),
     })),
     {
       name: 'free-ai-ide-workspaces',
-      version: 3,
+      version: 7,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -354,6 +436,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...ws,
             swarmState: normalizeSwarmState(ws.swarmState),
           }))
+        }
+        if (version < 4) {
+          state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
+        }
+        if (version < 5) {
+          state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
+        }
+        if (version < 6) {
+          state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
+        }
+        if (version < 7) {
+          state.workspaces = state.workspaces.map((ws) =>
+            ws.mode === 'swarm' || ws.swarmState
+              ? { ...ws, layoutModel: swarmTabsLayoutModel(ws.swarmState) }
+              : ws
+          )
         }
         return state as never
       },

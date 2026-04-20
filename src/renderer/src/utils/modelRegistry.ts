@@ -37,6 +37,40 @@ export function focusAgentTab(workspaceId: string, agentId: string): boolean {
   return true
 }
 
+export function focusOrAddAgentTab(
+  workspaceId: string,
+  agentId: string,
+  name: string
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  if (focusAgentTab(workspaceId, agentId)) return true
+
+  let targetTabset: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (targetTabset || !(node instanceof TabSetNode)) return
+    const hasAgentTab = node.getChildren().some((child) =>
+      child instanceof TabNode && child.getComponent() === 'agent'
+    )
+    if (hasAgentTab) targetTabset = node
+  })
+  const targetId = targetTabset
+    ? (targetTabset as TabSetNode).getId()
+    : model.getRoot().getId()
+  const targetLocation = targetTabset ? DockLocation.CENTER : DockLocation.RIGHT
+
+  model.doAction(
+    Actions.addNode(
+      { type: 'tab', name, component: 'agent', config: { agentId } },
+      targetId,
+      targetLocation,
+      -1,
+      true
+    )
+  )
+  return true
+}
+
 export function focusComponentTab(workspaceId: string, component: string): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
@@ -78,6 +112,44 @@ export function focusOrAddComponentTab(
       { type: 'tab', name, component },
       targetTabset.getId(),
       DockLocation.CENTER,
+      -1,
+      true
+    )
+  )
+  return true
+}
+
+export function focusOrAddEditorBesideExplorer(workspaceId: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  if (focusComponentTab(workspaceId, 'editor')) return true
+
+  let explorerParent: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (explorerParent) return
+    if (!(node instanceof TabNode) || node.getComponent() !== 'explorer') return
+
+    const parent = node.getParent()
+    if (parent instanceof TabSetNode) {
+      explorerParent = parent
+    }
+  })
+
+  let targetTabset = explorerParent ?? model.getActiveTabset() ?? null
+  if (!targetTabset) {
+    model.visitNodes((node) => {
+      if (!targetTabset && node instanceof TabSetNode) {
+        targetTabset = node
+      }
+    })
+  }
+  if (!targetTabset) return false
+
+  model.doAction(
+    Actions.addNode(
+      { type: 'tab', name: 'Editor', component: 'editor' },
+      targetTabset.getId(),
+      explorerParent ? DockLocation.RIGHT : DockLocation.CENTER,
       -1,
       true
     )

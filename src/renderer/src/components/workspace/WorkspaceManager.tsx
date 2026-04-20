@@ -19,6 +19,7 @@ export default function WorkspaceManager() {
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const importWorkspace = useWorkspaceStore((s) => s.importWorkspace)
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
 
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -161,7 +162,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewCLI = () => {
-    if (!activeWorkspaceId) return
+    if (!activeWorkspaceId || activeWorkspace?.mode === 'swarm') return
     const model = getModel(activeWorkspaceId)
     if (!model) return
 
@@ -273,14 +274,16 @@ export default function WorkspaceManager() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            onClick={addNewCLI}
-            disabled={!activeWorkspaceId}
-            className="inline-flex h-8 items-center gap-2 rounded-md border border-[#2b3442] bg-[#141a23] px-3 text-[12px] font-medium text-[#e7ecf4] transition-colors hover:border-[#435064] hover:bg-[#19212c] disabled:opacity-40 disabled:hover:bg-[#141a23]"
-            title="Add a new CLI pane to the active workspace"
-          >
-            New CLI
-          </button>
+          {activeWorkspace?.mode !== 'swarm' && (
+            <button
+              onClick={addNewCLI}
+              disabled={!activeWorkspaceId}
+              className="inline-flex h-8 items-center gap-2 rounded-md border border-[#2b3442] bg-[#141a23] px-3 text-[12px] font-medium text-[#e7ecf4] transition-colors hover:border-[#435064] hover:bg-[#19212c] disabled:opacity-40 disabled:hover:bg-[#141a23]"
+              title="Add a new CLI pane to the active workspace"
+            >
+              New CLI
+            </button>
+          )}
           <button
             onClick={handleImport}
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#222833] bg-[#11161d] text-[#778196] transition-colors hover:border-[#384456] hover:bg-[#141a23] hover:text-[#dbe1ea]"

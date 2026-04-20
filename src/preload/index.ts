@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('api', {
   createDir:  (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-dir', parentDir, name),
   renamePath: (sourcePath: string, nextName: string) => ipcRenderer.invoke('fs:rename', sourcePath, nextName),
   copyPath:   (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:copy', sourcePath, destinationDir),
+  deletePath: (targetPath: string) => ipcRenderer.invoke('fs:delete', targetPath),
   watchPath:  async (path: string, cb: (event: FileWatchEvent) => void) => {
     const watchId = await ipcRenderer.invoke('fs:watch-start', path)
     const ch = `fs:watch-event:${watchId}`

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { focusOrAddEditorBesideExplorer } from '../../utils/modelRegistry'
 
 type Entry = {
   name: string
@@ -106,6 +107,12 @@ function remapPath(path: string, fromPath: string, toPath: string): string {
   return path.startsWith(prefix) ? `${toPath}${path.slice(fromPath.length)}` : path
 }
 
+function isPathOrChild(path: string, parentPath: string): boolean {
+  if (path === parentPath) return true
+  const separator = parentPath.includes('\\') && !parentPath.includes('/') ? '\\' : '/'
+  return path.startsWith(`${parentPath}${separator}`)
+}
+
 function remapChildrenByPath(
   childrenByPath: Record<string, Entry[]>,
   fromPath: string,
@@ -169,6 +176,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
   const containerRef = useRef<HTMLDivElement>(null)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const remapOpenFiles = useWorkspaceStore((s) => s.remapOpenFiles)
+  const removeOpenFilesForPath = useWorkspaceStore((s) => s.removeOpenFilesForPath)
 
   const [rootEntries, setRootEntries] = useState<Entry[]>([])
   const [childrenByPath, setChildrenByPath] = useState<Record<string, Entry[]>>({})
@@ -318,6 +326,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
 
       if (kind === 'file') {
         openFile(workspaceId, newPath, name, '')
+        focusOrAddEditorBesideExplorer(workspaceId)
       }
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
@@ -357,6 +366,35 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     }
   }
 
+  const deleteEntry = async (entry: Entry) => {
+    if (typeof window.api.deletePath !== 'function') {
+      alert('Delete support is not loaded yet. Restart the app so Electron reloads the preload script.')
+      return
+    }
+
+    const targetLabel = entry.isDir ? `folder "${entry.name}" and its contents` : `file "${entry.name}"`
+    if (!window.confirm(`Move ${targetLabel} to Trash?`)) return
+
+    try {
+      await window.api.deletePath(entry.path)
+      removeOpenFilesForPath(workspaceId, entry.path)
+
+      setChildrenByPath((current) =>
+        Object.fromEntries(Object.entries(current).filter(([path]) => !isPathOrChild(path, entry.path)))
+      )
+      setExpandedPaths((current) =>
+        Object.fromEntries(Object.entries(current).filter(([path]) => !isPathOrChild(path, entry.path)))
+      )
+      setSearchResults((current) => current.filter((result) => !isPathOrChild(result.path, entry.path)))
+      setClipboard((current) => current && isPathOrChild(current.path, entry.path) ? null : current)
+
+      await refreshParentDirectory(entry.parentPath)
+      setSelectedPath(isSearching ? null : entry.parentPath)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const showContextMenu = async (event: React.MouseEvent, entry?: Entry) => {
     event.preventDefault()
     event.stopPropagation()
@@ -367,6 +405,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     }
 
     const targetDir = entry ? (entry.isDir ? entry.path : entry.parentPath) : rootPath
+    const canDeletePath = typeof window.api.deletePath === 'function'
     const command = await window.api.showContextMenu([
       ...(entry && !entry.isDir ? [{ id: 'open', label: 'Open' }] : []),
       ...(entry?.isDir && !isSearching
@@ -379,6 +418,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
       ...(entry ? [{ id: 'copy', label: 'Copy' }] : []),
       { id: 'paste', label: 'Paste', enabled: Boolean(clipboard) && !isSearching },
       ...(entry ? [{ id: 'rename', label: 'Rename' }] : []),
+      ...(entry ? [{ id: 'delete', label: canDeletePath ? 'Delete' : 'Delete (restart app)', enabled: canDeletePath }] : []),
       { type: 'separator' as const },
       { id: 'refresh', label: 'Refresh' },
     ])
@@ -404,6 +444,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     }
     if (command === 'paste' && !isSearching) return void pasteIntoDirectory(targetDir)
     if (command === 'rename' && entry) return void renameEntry(entry)
+    if (command === 'delete' && entry) return void deleteEntry(entry)
     if (command === 'refresh') {
       if (isSearching || targetDir === rootPath) {
         await refreshTree()
@@ -660,6 +701,7 @@ export default function FileExplorer({ workspaceId }: Props) {
     } catch {
       openFile(workspaceId, path, name, '')
     }
+    focusOrAddEditorBesideExplorer(workspaceId)
   }
 
   const rootName = folderPath?.split(/[/\\]/).filter(Boolean).pop() ?? ''

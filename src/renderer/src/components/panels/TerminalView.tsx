@@ -12,9 +12,27 @@ interface Props {
   agentId: string
 }
 
-const SWARM_SKILL_PATH = '.agents/skills/swarm-kanban/SKILL.md'
-const SWARM_TOOL_PATH = '.agents/skills/swarm-kanban/scripts/swarm_tool.py'
 const SWARM_COMMAND = 'swarm'
+const MAX_TERMINAL_READINESS_BUFFER = 5000
+
+function plainTerminalText(data: string): string {
+  return data
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\r/g, '\n')
+}
+
+function looksLikeClaudeReady(output: string): boolean {
+  return /Claude Code|Welcome to Claude|cwd:|Bypassing Permissions|\/help|Try .*Claude/i.test(output)
+}
+
+function looksLikeLaunchBlocked(output: string): boolean {
+  return /unexpected EOF|command not found|No such file or directory|can't open file|WSL could not be started/i.test(output)
+}
+
+function looksLikeClaudeTrustPrompt(output: string): boolean {
+  return /Do you trust the files|trust files in this folder/i.test(output)
+}
 
 function buildWorkerExecutionPrompt(role: SwarmRole, agentId: string): string {
   return [
@@ -35,9 +53,10 @@ function buildProductPlanningPrompt(agentId: string, goal: string, planApproved:
       'The plan is approved. Continue as the product strategist for this swarm.',
       `First run \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\` to read any direct instructions.`,
       `Run \`${SWARM_COMMAND} claim-next-task --role product --agent-id ${agentId}\` if there are approved product review, market research, or adoption-risk tasks ready for you.`,
-      'When you contribute, focus on competitor products, target audience needs, workflow fit, positioning, onboarding clarity, trust, and whether the implementation still serves the intended user.',
-      `While active, poll your mailbox about every 30 seconds with \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\`.`,
-      'Publish findings through task notes, consultation responses, or task evidence. Do not manually edit shared swarm state.',
+    'When you contribute, focus on competitor products, target audience needs, workflow fit, positioning, onboarding clarity, trust, and whether the implementation still serves the intended user.',
+    `While active, poll your mailbox about every 30 seconds with \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\`.`,
+    `If a mailbox message asks you to reply and includes a reply command or request id, answer with \`${SWARM_COMMAND} send-message --from-agent ${agentId} --to-agent <sender> --subject "Re: <subject>" --body "<response>" --reply-to <request-id>\`.`,
+    'Publish findings through task notes, consultation responses, mailbox replies, or task evidence. Do not manually edit shared swarm state.',
     ].join('\n\n')
   }
 
@@ -47,6 +66,7 @@ function buildProductPlanningPrompt(agentId: string, goal: string, planApproved:
     'When the architect asks for consultation, research the likely market, competitor products, audience demographics, workflows, adoption risks, and product positioning.',
     'Give concrete guidance that can change scope, priority, language, interaction design, or acceptance criteria. Prefer practical tradeoffs over broad product theory.',
     `Poll your mailbox about every 30 seconds with \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\` while you are waiting for architect consultation.`,
+    `When replying to a mailbox request, use \`${SWARM_COMMAND} send-message --from-agent ${agentId} --to-agent <sender> --subject "Re: <subject>" --body "<response>" --reply-to <request-id>\` so the sender can continue automatically.`,
     'Use `swarm complete-consultation` for consultation responses and do not manually edit shared swarm state.',
   ].join('\n\n')
 }
@@ -69,10 +89,14 @@ function buildSwarmStartupPrompt(
             'First, carefully study the repository and current implementation. Inspect the relevant code, architecture, conventions, dependencies, and any existing related features.',
             'Perform deep problem/domain research using the available local context and specialist consultations when helpful. For market, competitor, audience, positioning, workflow, or adoption-risk concerns, consult the product strategist early instead of guessing.',
             'For UI/UX, security, testing, or implementation concerns, create structured consultation requests with the swarm tool instead of guessing.',
+            'When you need product validation before continuing, use: `swarm send-and-receive --from-agent architect --to-agent product --subject "Product validation request" --body "<your question>" --timeout-seconds 1800 --consume`. This sends the request and blocks until the product strategist replies with the matching `--reply-to` id.',
             'Ask the user clarifying questions until you are fully aligned on the desired outcome, constraints, scope, and acceptance criteria. Do not finalize the plan until the user confirms the direction.',
-            'Only after alignment, write swarm/plan.md with a low-level design, implementation approach, risks, acceptance criteria, and a task breakdown for the specialist roles.',
+            'Only after alignment, write swarm/plan.md as a compact technical execution plan for AI agents. Keep it succinct, low-level, and directly actionable.',
+            'Plan format: Goal, Constraints, Technical Approach, Files/Surfaces, Task Graph Summary, Acceptance Checks, Risks/Open Questions. Use short bullets. Do not write narrative prose, market decks, roadmap language, or implementation timelines.',
+            'Do not include weeks, dates, sprint plans, milestone schedules, duration estimates, or sequencing expressed as time. AI specialists execute in seconds or minutes; represent ordering only with task dependencies in swarm/tasks.json.',
+            'Keep swarm/plan.md focused on context workers need that is not already encoded in tasks.json. The task graph is the primary execution contract, so prefer precise task titles, owned paths, dependencies, acceptance criteria, and implementation notes over a long plan document.',
             'Create swarm/tasks.json using swarm/tasks.template.json and swarm/tasks.schema.json as the contract. Run `swarm validate-tasks --file swarm/tasks.json`, fix any errors, then run `swarm replace-tasks --actor architect --file swarm/tasks.json`.',
-            'When the final plan is ready, send direct mailbox messages with `swarm send-message` or `swarm broadcast-message` so each specialist knows when and how to proceed.',
+            'When the final plan is ready, send direct mailbox messages with `swarm send-message --from-agent architect --to-agent <agent-id> --subject "<subject>" --body "<body>"` or `swarm broadcast-message --from-agent architect --subject "<subject>" --body "<body>"` so each specialist knows when and how to proceed.',
             'After the final plan and board task graph are ready, run `swarm mark-plan-ready --actor architect`. Tell the user the plan is ready for review only after that succeeds. Do not manually edit shared swarm state.',
           ].join('\n\n')
       : role === 'product'
@@ -86,9 +110,10 @@ function buildSwarmStartupPrompt(
     `Agent id: ${agentId}`,
     `Goal: ${goal}`,
     rolePrompt ? `Role prompt:\n${rolePrompt}` : null,
-    `Use the repo-local skill at ${SWARM_SKILL_PATH}.`,
-    `Use \`${SWARM_COMMAND}\` as the primary shortcut for the shared coordination tool.`,
-    `\`${SWARM_COMMAND}\` expands to \`python3 ${SWARM_TOOL_PATH}\` scoped to this team's named state file. Do not manually edit swarm/state.yaml or named team state files.`,
+    `Use \`${SWARM_COMMAND}\` as the shared coordination tool. This terminal predefines it and scopes it to this team's named state file.`,
+    `Do not call \`python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py\`, \`python3 scripts/swarm_tool.py\`, or pass \`--team\`; this project may not contain those files and the state path is already configured.`,
+    `Use \`type ${SWARM_COMMAND}\` to inspect the command if needed. Do not use \`which ${SWARM_COMMAND}\` because it may be a shell function.`,
+    'Mailbox syntax is strict: `swarm send-message --from-agent <sender-id> --to-agent <recipient-agent-id> --subject "<subject>" --body "<body>"`. For blocking requests use `swarm send-and-receive --from-agent <sender-id> --to-agent <recipient-agent-id> --subject "<subject>" --body "<body>" --timeout-seconds 1800 --consume`. Replies must use `--reply-to <request-id>`. There is no `--recipient`, `--message`, or `--team` flag.',
     firstAction,
   ].filter(Boolean).join('\n\n')
 }
@@ -150,6 +175,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       || !swarmPlanApproved
       || !agent?.cliSessionId
       || !agent.cliHasLaunched
+      || agent.cliPlanApprovedPromptSent
       || !swarmRole
       || swarmRole === 'architect'
     ) {
@@ -165,8 +191,18 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       '',
     ].join('\n')
 
+    updateAgent(workspaceId, agentId, { cliPlanApprovedPromptSent: true })
     void window.api.terminalWrite(agent.cliSessionId, notification.replace(/\r?\n/g, '\r'))
-  }, [agent?.cliHasLaunched, agent?.cliSessionId, agentId, swarmPlanApproved, swarmRole])
+  }, [
+    agent?.cliHasLaunched,
+    agent?.cliPlanApprovedPromptSent,
+    agent?.cliSessionId,
+    agentId,
+    swarmPlanApproved,
+    swarmRole,
+    updateAgent,
+    workspaceId,
+  ])
 
   useEffect(() => {
     const container = containerRef.current
@@ -283,18 +319,63 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     fitTerminal()
     focusTerminal()
 
-    let hasSentSwarmPrompt = false
-    const sendSwarmPrompt = () => {
+    let hasInjectedSwarmPrompt = false
+    let promptInjectionBlocked = false
+    let terminalReadinessBuffer = ''
+    let promptInjectionTimer: number | null = null
+
+    const injectSwarmPrompt = () => {
       const prompt = swarmStartupPromptRef.current
-      if (shouldResume || !prompt || hasSentSwarmPrompt) return
-      hasSentSwarmPrompt = true
-      void window.api.terminalWrite(sessionId, `${prompt.replace(/\r?\n/g, '\r')}\r`)
+      if (
+        promptInjectionBlocked
+        || agent.cliOnboardingPromptSent
+        || !prompt
+        || hasInjectedSwarmPrompt
+      ) return
+
+      hasInjectedSwarmPrompt = true
+      updateAgent(workspaceId, agentId, { cliOnboardingPromptSent: true })
+
+      const normalizedPrompt = prompt.replace(/\r?\n/g, '\n')
+      void window.api.terminalWrite(sessionId, `\x1b[200~${normalizedPrompt}\x1b[201~\r`)
+    }
+
+    const schedulePromptInjection = (delay: number) => {
+      if (promptInjectionBlocked || agent.cliOnboardingPromptSent || hasInjectedSwarmPrompt) return
+      if (promptInjectionTimer !== null) return
+
+      promptInjectionTimer = window.setTimeout(() => {
+        promptInjectionTimer = null
+        injectSwarmPrompt()
+      }, delay)
     }
 
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
       term.write(data)
-      if (!hasSentSwarmPrompt && data.trim().length > 0) {
-        window.setTimeout(sendSwarmPrompt, 150)
+      if (data.trim().length > 0) {
+        const plainData = plainTerminalText(data)
+        terminalReadinessBuffer = `${terminalReadinessBuffer}${plainData}`.slice(-MAX_TERMINAL_READINESS_BUFFER)
+
+        if (looksLikeLaunchBlocked(terminalReadinessBuffer)) {
+          promptInjectionBlocked = true
+          if (promptInjectionTimer !== null) {
+            window.clearTimeout(promptInjectionTimer)
+            promptInjectionTimer = null
+          }
+          return
+        }
+
+        if (looksLikeClaudeTrustPrompt(plainData)) {
+          if (promptInjectionTimer !== null) {
+            window.clearTimeout(promptInjectionTimer)
+            promptInjectionTimer = null
+          }
+          return
+        }
+
+        if (looksLikeClaudeReady(terminalReadinessBuffer)) {
+          schedulePromptInjection(900)
+        }
       }
     })
 
@@ -328,17 +409,22 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     container.addEventListener('contextmenu', handleContextMenu)
 
     const swarmStatePath = folderPath && swarmName ? getSwarmStateFilePath(folderPath, swarmName) : undefined
-    void window.api.terminalSpawn(sessionId, term.cols, term.rows, folderPath, shouldResume, swarmStatePath)
+    void window.api.terminalSpawn(
+      sessionId,
+      term.cols,
+      term.rows,
+      folderPath,
+      shouldResume,
+      swarmStatePath
+    )
     if (!shouldResume) {
-      updateAgent(workspaceId, agentId, { cliHasLaunched: true })
+      updateAgent(workspaceId, agentId, {
+        cliHasLaunched: true,
+      })
     }
-
-    const swarmOnboardingTimer =
-      !shouldResume && swarmStartupPromptRef.current
-        ? window.setTimeout(() => {
-            sendSwarmPrompt()
-          }, 1800)
-        : null
+    if (swarmStartupPromptRef.current && !agent.cliOnboardingPromptSent) {
+      schedulePromptInjection(shouldResume ? 6500 : 5000)
+    }
 
     const settleTimer = window.setTimeout(() => {
       fitTerminal()
@@ -346,8 +432,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     }, 50)
 
     return () => {
-      if (swarmOnboardingTimer !== null) {
-        window.clearTimeout(swarmOnboardingTimer)
+      if (promptInjectionTimer !== null) {
+        window.clearTimeout(promptInjectionTimer)
       }
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
@@ -371,6 +457,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     workspaceId,
     agentId,
     agent?.cliSessionId,
+    agent?.cliRestartNonce,
     folderPath,
     swarmName,
     updateAgent,

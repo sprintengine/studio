@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { basename, dirname, join, parse } from 'path'
-import { watch, type FSWatcher } from 'fs'
+import { existsSync, watch, type FSWatcher } from 'fs'
 import { access, cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
@@ -177,39 +177,61 @@ function quotePosix(value: string): string {
   return `'${value.replace(/'/g, `'\"'\"'`)}'`
 }
 
-function quotePowerShell(value: string): string {
-  return `"${value.replace(/"/g, '`"')}"`
+function getBundledSwarmToolPath(): string | null {
+  const candidates = [
+    join(process.cwd(), '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
+    join(app.getAppPath(), '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
+    join(__dirname, '..', '..', '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
+    join(__dirname, '..', '..', '..', '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
+  ]
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
 function buildSwarmShellBootstrap(swarmStatePath?: string): string {
   const shellStatePath =
     swarmStatePath && process.platform === 'win32' ? toWslPath(swarmStatePath) : swarmStatePath
+  const bundledToolPath = getBundledSwarmToolPath()
+  const shellBundledToolPath =
+    bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
   const stateArg = shellStatePath ? `--state ${quotePosix(shellStatePath)}` : ''
   const lines = [
-    'export SWARM_TOOL_PATH="$PWD/.agents/skills/swarm-kanban/scripts/swarm_tool.py"',
+    'export SWARM_REPO_TOOL_PATH="$PWD/.agents/skills/swarm-kanban/scripts/swarm_tool.py"',
+    'export SWARM_REPO_WRAPPER_PATH="$PWD/scripts/swarm_tool.py"',
   ]
 
   if (shellStatePath) {
     lines.push(`export SWARM_STATE_PATH=${quotePosix(shellStatePath)}`)
   }
 
+  if (shellBundledToolPath) {
+    lines.push(`export FREE_AI_IDE_SWARM_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
+  }
+
   lines.push(
-    `swarm() { python3 "$PWD/scripts/swarm_tool.py" ${stateArg} "$@"; }`,
+    [
+      'swarm() {',
+      'local tool_path="";',
+      'if [ -f "$SWARM_REPO_WRAPPER_PATH" ]; then tool_path="$SWARM_REPO_WRAPPER_PATH";',
+      'elif [ -f "$SWARM_REPO_TOOL_PATH" ]; then tool_path="$SWARM_REPO_TOOL_PATH";',
+      'elif [ -n "${FREE_AI_IDE_SWARM_TOOL_PATH:-}" ] && [ -f "$FREE_AI_IDE_SWARM_TOOL_PATH" ]; then tool_path="$FREE_AI_IDE_SWARM_TOOL_PATH";',
+      'else echo "swarm tool not found" >&2; return 127; fi;',
+      `python3 "$tool_path" ${stateArg} "$@";`,
+      '}',
+    ].join(' '),
     'export -f swarm >/dev/null 2>&1 || true',
   )
 
   return lines.join('; ')
 }
 
-function buildWslStartupInput(cwd: string, sessionId: string, resume = false, swarmStatePath?: string): string {
-  const shellScript = [
+function buildWslShellScript(cwd: string, sessionId: string, resume = false, swarmStatePath?: string): string {
+  return [
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSwarmShellBootstrap(swarmStatePath),
     buildClaudeLaunchCommand(sessionId, resume),
     'exec bash -li',
   ].join('; ')
-
-  return `wsl.exe -e bash -lic ${quotePowerShell(shellScript)}`
 }
 
 function getShellLaunchConfig(
@@ -220,9 +242,8 @@ function getShellLaunchConfig(
 ): ShellLaunchConfig {
   if (process.platform === 'win32') {
     return {
-      command: 'powershell.exe',
-      args: ['-NoLogo', '-NoProfile'],
-      initialInput: `${buildWslStartupInput(cwd, sessionId, resume, swarmStatePath)}\r`,
+      command: 'wsl.exe',
+      args: ['-e', 'bash', '-lic', buildWslShellScript(cwd, sessionId, resume, swarmStatePath)],
     }
   }
 
@@ -448,6 +469,10 @@ ipcMain.handle('fs:copy', async (_, sourcePath: string, destinationDir: string) 
   })
 
   return destinationPath
+})
+
+ipcMain.handle('fs:delete', async (_, targetPath: string) => {
+  await shell.trashItem(targetPath)
 })
 
 ipcMain.handle('fs:dialog:opendir', async (event) => {

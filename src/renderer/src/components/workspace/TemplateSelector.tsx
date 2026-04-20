@@ -48,6 +48,14 @@ function basename(p: string): string {
   return parts[parts.length - 1] ?? ''
 }
 
+function toTitleName(value: string): string {
+  return value
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
 function cleanLines(value: string): string[] {
   return value
     .split(/\r?\n/)
@@ -59,6 +67,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const [folderPath, setFolderPath] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [nameTouched, setNameTouched] = useState(false)
+  const [swarmTeamName, setSwarmTeamName] = useState('')
+  const [swarmTeamNameTouched, setSwarmTeamNameTouched] = useState(false)
   const [mode, setMode] = useState<'standard' | 'swarm'>('swarm')
   const [selectedId, setSelectedId] = useState<string>(LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id)
   const [swarmGoal, setSwarmGoal] = useState('')
@@ -78,18 +88,20 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const selected = LAYOUT_TEMPLATES.find((template) => template.id === selectedId) ?? LAYOUT_TEMPLATES[0]
   const activeRoleCount = swarmRoleCounts[selectedRole]
   const totalAgents = countSwarmAgents(swarmRoleCounts)
-  const canCreate = name.trim().length > 0 && (mode === 'standard' || (swarmGoal.trim().length > 0 && totalAgents > 0))
+  const canCreate =
+    name.trim().length > 0
+    && (mode === 'standard' || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0 && totalAgents > 0))
 
   const swarmConfig = useMemo<SwarmMockConfig>(
     () => ({
-      name: name.trim() || 'Swarm Team',
+      name: swarmTeamName.trim() || name.trim() || 'Swarm Team',
       goal: swarmGoal.trim(),
       agentCount: totalAgents,
       roleCounts: swarmRoleCounts,
       skills: roleSkills,
       rolePrompts,
     }),
-    [name, rolePrompts, roleSkills, swarmGoal, swarmRoleCounts, totalAgents]
+    [name, rolePrompts, roleSkills, swarmGoal, swarmRoleCounts, swarmTeamName, totalAgents]
   )
 
   const handlePick = async () => {
@@ -97,6 +109,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     if (!dir) return
     setFolderPath(dir)
     if (!nameTouched) setName(basename(dir) || 'workspace')
+    if (!swarmTeamNameTouched) setSwarmTeamName(toTitleName(basename(dir)) || 'Swarm Team')
   }
 
   const applyPreset = (roleCounts: SwarmRoleCounts) => {
@@ -178,12 +191,16 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
             Choose Folder
           </button>
           <label className="min-w-0 rounded-lg border border-[#222833] bg-[#11161d] px-3 py-2">
-            <span className="text-[11px] font-semibold uppercase text-[#778196]">Name</span>
+            <span className="text-[11px] font-semibold uppercase text-[#778196]">Workspace Name</span>
             <input
               value={name}
               onChange={(event) => {
-                setName(event.target.value)
+                const nextName = event.target.value
+                setName(nextName)
                 setNameTouched(true)
+                if (mode === 'swarm' && !swarmTeamNameTouched) {
+                  setSwarmTeamName(toTitleName(nextName))
+                }
               }}
               onKeyDown={(event) => event.key === 'Enter' && handleCreate()}
               placeholder="my-workspace"
@@ -265,7 +282,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
             </aside>
           </div>
         ) : (
-          <div className="grid min-h-full gap-4 p-5 xl:grid-cols-[280px_minmax(360px,0.9fr)_minmax(380px,1.1fr)]">
+          <div className="grid min-h-full gap-4 p-5 xl:grid-cols-[280px_minmax(420px,1fr)_minmax(360px,0.95fr)]">
             <section className="min-w-0">
               <div className="mb-3">
                 <div className="text-[11px] font-semibold uppercase text-[#778196]">Presets</div>
@@ -296,19 +313,35 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                   )
                 })}
               </div>
-
-              <label className="mt-4 block rounded-lg border border-[#222833] bg-[#11161d] p-3">
-                <span className="text-[11px] font-semibold uppercase text-[#778196]">Goal</span>
-                <textarea
-                  value={swarmGoal}
-                  onChange={(event) => setSwarmGoal(event.target.value)}
-                  placeholder="Describe the outcome this swarm should deliver..."
-                  className="mt-2 min-h-[150px] w-full resize-none rounded-md border border-[#202631] bg-[#0b0f14] px-3 py-2 text-sm leading-6 text-[#f2f5f9] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
-                />
-              </label>
             </section>
 
             <section className="min-w-0">
+              <div className="mb-4 rounded-lg border border-[#2d3746] bg-[#111820] p-4">
+                <div className="text-[11px] font-semibold uppercase text-[#778196]">Swarm Objective</div>
+                <div className="mt-1 text-sm text-[#a8b2c3]">Name the team and put the mission where every specialist will see it.</div>
+                <label className="mt-4 block">
+                  <span className="text-[11px] font-semibold uppercase text-[#778196]">Team Name</span>
+                  <input
+                    value={swarmTeamName}
+                    onChange={(event) => {
+                      setSwarmTeamName(event.target.value)
+                      setSwarmTeamNameTouched(true)
+                    }}
+                    onKeyDown={(event) => event.key === 'Enter' && handleCreate()}
+                    placeholder="Interface Rescue Team"
+                    className="mt-2 block h-10 w-full rounded-md border border-[#26303d] bg-[#0b0f14] px-3 text-sm font-semibold text-[#f2f5f9] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
+                  />
+                </label>
+                <label className="mt-4 block">
+                  <span className="text-[11px] font-semibold uppercase text-[#778196]">Goal</span>
+                  <textarea
+                    value={swarmGoal}
+                    onChange={(event) => setSwarmGoal(event.target.value)}
+                    placeholder="Describe the outcome this swarm should deliver..."
+                    className="mt-2 min-h-[190px] w-full resize-none rounded-md border border-[#26303d] bg-[#0b0f14] px-3 py-3 text-[15px] leading-7 text-[#f2f5f9] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
+                  />
+                </label>
+              </div>
               <div className="mb-3 flex items-end justify-between gap-3">
                 <div>
                   <div className="text-[11px] font-semibold uppercase text-[#778196]">Team</div>

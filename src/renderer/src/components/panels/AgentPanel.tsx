@@ -28,11 +28,19 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
   const agent = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
+  const workspace = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
+  )
   const swarmRuntimeAgent = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.swarmState?.swarmAgents[agentId] ?? null
   )
+  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const status = agent?.status ?? 'idle'
   const label = agent?.name ?? agentId
+  const isSwarmAgent = workspace?.mode === 'swarm' && Boolean(swarmRuntimeAgent)
+  const planApproved = workspace?.swarmState?.planApproved ?? false
+  const canStart = !isSwarmAgent || swarmRuntimeAgent?.role === 'architect' || planApproved
+  const hasStarted = !isSwarmAgent || Boolean(agent?.cliStartRequested)
   const needsInput = swarmRuntimeAgent?.status === 'needs_input'
   const currentTaskId = swarmRuntimeAgent?.currentTaskId ?? null
   const cliShellTone = needsInput
@@ -41,6 +49,22 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
   const cliHeaderTone = needsInput
     ? 'border-b border-amber-300/30 bg-[linear-gradient(90deg,rgba(245,158,11,0.18),rgba(23,25,29,0.96)_42%)]'
     : 'border-b border-[#23262d] bg-[#17191d]'
+
+  const startAgent = (restart = false) => {
+    if (isSwarmAgent && !canStart) return
+
+    const existingSessionId = restart ? agent?.cliSessionId : undefined
+    updateAgent(workspaceId, agentId, {
+      cliStartRequested: true,
+      cliSessionId: existingSessionId ?? crypto.randomUUID(),
+      cliHasLaunched: false,
+      cliOnboardingPromptSent: false,
+      cliPlanApprovedPromptSent: false,
+      cliRestartNonce: (agent?.cliRestartNonce ?? 0) + 1,
+    })
+  }
+
+  const startLabel = swarmRuntimeAgent?.role === 'architect' ? 'Start Architect' : 'Start Worker'
 
   return (
     <div className={`flex h-full flex-col bg-[#15171b] font-mono text-[12px] text-zinc-200 ${cliShellTone}`}>
@@ -71,7 +95,19 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
       </div>
 
       <div className={`relative flex-1 overflow-hidden bg-[#0b0c0e] ${needsInput ? 'shadow-[inset_0_1px_0_rgba(251,191,36,0.08)]' : ''}`}>
-        <TerminalView workspaceId={workspaceId} agentId={agentId} />
+        {hasStarted ? (
+          <TerminalView workspaceId={workspaceId} agentId={agentId} />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center p-5">
+            <button
+              onClick={() => startAgent(false)}
+              disabled={!canStart}
+              className="rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea] disabled:border-[#303542] disabled:bg-[#1b1f26] disabled:text-zinc-500"
+            >
+              {canStart ? startLabel : 'Waiting for Plan Approval'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

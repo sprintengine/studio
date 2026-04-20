@@ -36,6 +36,7 @@ declare interface Window {
     createDir: (parentDir: string, name: string) => Promise<string>
     renamePath: (sourcePath: string, nextName: string) => Promise<string>
     copyPath: (sourcePath: string, destinationDir: string) => Promise<string>
+    deletePath: (targetPath: string) => Promise<void>
     watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
     openDir:   () => Promise<string | null>
     saveFile:  (options?: SaveDialogOptions) => Promise<string | null>

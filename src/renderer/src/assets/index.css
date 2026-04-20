@@ -139,7 +139,9 @@ body {
 
 .flexlayout__tab_button_trailing,
 .flexlayout__tab_toolbar_button-close {
-  display: none !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .flexlayout__tabset_tabbar_outer {

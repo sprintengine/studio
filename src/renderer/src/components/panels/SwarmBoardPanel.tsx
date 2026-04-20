@@ -14,7 +14,6 @@ import {
   swarmRoleLabels,
 } from '../../utils/swarm'
 import { renderMarkdown } from '../../utils/markdown'
-import TerminalView from './TerminalView'
 import {
   getSwarmDirectoryPath,
   getSwarmMailboxMessageFilePath,
@@ -25,13 +24,12 @@ import {
   getSwarmTasksTemplateFilePath,
   getSwarmStateFilePath,
   parseSwarmStateFile,
-  serializeSwarmPlanMarkdown,
   serializeSwarmStateFile,
   serializeSwarmTasksSchema,
   serializeSwarmTasksTemplate,
   slugifySwarmName,
 } from '../../utils/swarmStateFile'
-import { focusOrAddComponentTab } from '../../utils/modelRegistry'
+import { focusOrAddAgentTab, focusOrAddComponentTab } from '../../utils/modelRegistry'
 
 const columnMeta: { key: SwarmTaskBoardColumn; label: string; tint: string }[] = [
   { key: 'todo', label: 'Todo', tint: 'bg-zinc-900/80 text-zinc-400' },
@@ -40,13 +38,6 @@ const columnMeta: { key: SwarmTaskBoardColumn; label: string; tint: string }[] =
   { key: 'needs_input', label: 'Needs Input', tint: 'bg-rose-950/50 text-rose-300' },
   { key: 'done', label: 'Done', tint: 'bg-zinc-800/80 text-zinc-200' },
 ]
-
-const phaseTone: Record<string, string> = {
-  planning: 'border-[#3a4150] bg-[#171a20] text-zinc-300',
-  awaiting_approval: 'border-[#5f4b2d] bg-[#1d1813] text-amber-200',
-  executing: 'border-[#324558] bg-[#151a22] text-sky-200',
-  completed: 'border-[#335245] bg-[#141b18] text-emerald-200',
-}
 
 const taskStateLabel: Record<SwarmTaskStatus, string> = {
   todo: 'Todo',
@@ -57,6 +48,7 @@ const taskStateLabel: Record<SwarmTaskStatus, string> = {
 
 interface Props {
   workspaceId: string
+  fixedView?: SwarmView
 }
 
 type SyncState = {
@@ -72,19 +64,19 @@ type PlanReviewState = {
   mode: 'preview' | 'source'
 }
 
-type SwarmView = 'map' | 'kanban' | 'terminals'
+type SwarmView = 'map' | 'kanban'
 
-export default function SwarmBoardPanel({ workspaceId }: Props) {
+export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const workspace = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
   )
   const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
   const approveSwarmPlan = useWorkspaceStore((s) => s.approveSwarmPlan)
+  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<SwarmView>('map')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
-  const [terminalsMounted, setTerminalsMounted] = useState(false)
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [planReview, setPlanReview] = useState<PlanReviewState>({
     open: false,
@@ -101,6 +93,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
   const externalReadTimerRef = useRef<number | null>(null)
 
   const swarmState = workspace?.swarmState ?? null
+  const effectiveView = fixedView ?? activeView
   const folderPath = workspace?.folderPath ?? null
   const agents = workspace?.agents ?? {}
   const swarmName = swarmState?.name ?? workspace?.name ?? 'Swarm Team'
@@ -132,7 +125,6 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
         const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
         const mailboxRootPath = getSwarmMailboxRootPath(folderPath, swarmName)
         const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
-        const planFilePath = getSwarmPlanFilePath(folderPath, swarmName)
         const tasksTemplateFilePath = getSwarmTasksTemplateFilePath(folderPath, swarmName)
         const tasksSchemaFilePath = getSwarmTasksSchemaFilePath(folderPath, swarmName)
         setSyncState({ status: 'syncing', message: 'Writing swarm state to disk...' })
@@ -158,11 +150,6 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
         }
 
         await window.api.writefile(stateFilePath, serializedState)
-        try {
-          await window.api.readfile(planFilePath)
-        } catch {
-          await window.api.writefile(planFilePath, serializeSwarmPlanMarkdown(swarmState))
-        }
         try {
           await window.api.readfile(tasksTemplateFilePath)
         } catch {
@@ -320,16 +307,27 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
 
   const activateView = (view: SwarmView) => {
+    if (fixedView) return
     setActiveView(view)
-    if (view === 'terminals') {
-      setTerminalsMounted(true)
-    }
   }
 
   const openAgentTerminal = (agentId: string) => {
+    const role = rosterById[agentId]?.role
+    const label = rosterById[agentId]?.label ?? agentId
+    const current = agents[agentId]
     setSelectedAgentId(agentId)
-    setTerminalsMounted(true)
-    setActiveView('terminals')
+    if (role === 'architect' || swarmState.planApproved) {
+      updateAgent(workspaceId, agentId, {
+        cliStartRequested: true,
+        cliSessionId: current?.cliStartRequested && current.cliSessionId
+          ? current.cliSessionId
+          : crypto.randomUUID(),
+        cliHasLaunched: current?.cliStartRequested ? current.cliHasLaunched ?? false : false,
+        cliOnboardingPromptSent: current?.cliStartRequested ? current.cliOnboardingPromptSent ?? false : false,
+        cliPlanApprovedPromptSent: current?.cliStartRequested ? current.cliPlanApprovedPromptSent ?? false : false,
+      })
+    }
+    focusOrAddAgentTab(workspaceId, agentId, label)
   }
 
   const loadPlanReview = async () => {
@@ -368,8 +366,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
       try {
         content = await window.api.readfile(nextPlanFilePath)
       } catch {
-        content = serializeSwarmPlanMarkdown(swarmState)
-        await window.api.writefile(nextPlanFilePath, content)
+        content = ''
       }
 
       setPlanReview((current) => ({
@@ -392,7 +389,14 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
 
   const openPlanInEditor = async () => {
     if (!planFilePath) return
-    const content = planReview.content || await window.api.readfile(planFilePath)
+    let content = planReview.content
+    if (!content) {
+      try {
+        content = await window.api.readfile(planFilePath)
+      } catch {
+        content = ''
+      }
+    }
     openFile(workspaceId, planFilePath, 'plan.md', content)
     focusOrAddComponentTab(workspaceId, 'editor', 'Editor')
     setPlanReview((current) => ({ ...current, open: false }))
@@ -439,8 +443,6 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
     if (!swarmState.planReady) return
     await writePlanApprovedMailboxes()
     approveSwarmPlan(workspaceId)
-    setTerminalsMounted(true)
-    setActiveView('terminals')
     setPlanReview((current) => ({ ...current, open: false }))
   }
 
@@ -448,7 +450,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
     <div className="relative flex h-full flex-col overflow-hidden bg-[#0f1012] text-zinc-100">
       <div className="border-b border-[#23262d] bg-[#121419] px-5 py-4">
         {!swarmState.planApproved ? (
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#5f4b2d] bg-[#1d1813] px-4 py-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#5f4b2d] bg-[#1d1813] px-4 py-3">
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-300">
                 {planReadiness.label}
@@ -464,14 +466,14 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
               {architectAgentId ? (
                 <button
                   onClick={() => openAgentTerminal(architectAgentId)}
-                  className="rounded-xl border border-amber-300/25 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-100 transition-colors hover:bg-amber-200/15"
+                  className="rounded-md border border-amber-300/25 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-100 transition-colors hover:bg-amber-200/15"
                 >
-                  Open Architect CLI
+                  Focus Architect
                 </button>
               ) : null}
               <button
                 onClick={() => void loadPlanReview()}
-                className="rounded-xl border border-amber-300/40 bg-amber-200 px-4 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100"
+                className="rounded-md border border-amber-300/40 bg-amber-200 px-4 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100"
               >
                 Review Plan
               </button>
@@ -480,7 +482,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
         ) : null}
 
         {allTasksDone ? (
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-400/30 bg-emerald-950/20 px-4 py-3 shadow-[0_0_30px_rgba(16,185,129,0.08)]">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-emerald-400/30 bg-emerald-950/20 px-4 py-3 shadow-[0_0_30px_rgba(16,185,129,0.08)]">
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
                 Run Complete
@@ -494,83 +496,55 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
             </div>
             <button
               onClick={() => setShowRunSummary(true)}
-              className="rounded-xl border border-emerald-300/40 bg-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-950 transition-colors hover:bg-emerald-100"
+              className="rounded-md border border-emerald-300/40 bg-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-950 transition-colors hover:bg-emerald-100"
             >
               View Run Summary
             </button>
           </div>
         ) : null}
 
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[22px] font-semibold tracking-tight text-zinc-100">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
               {swarmState.name}
-            </h2>
-            <p className="mt-1 max-w-4xl truncate text-sm text-zinc-400">{formatSwarmGoal(swarmState.goal)}</p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              {runtimeAgents.map((agent) => (
-                <div
-                  key={agent.agentId}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#2a2e36] bg-[#171a20] px-3 py-1.5 text-[11px] text-zinc-300"
-                >
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{
-                      backgroundColor: swarmRoleAccent[agent.role],
-                      boxShadow: `0 0 10px ${swarmRoleAccent[agent.role]}`,
-                    }}
-                  />
-                  <span className="font-medium text-zinc-200">{rosterById[agent.agentId]?.label ?? agent.agentId}</span>
-                  <span className={`rounded-full px-2 py-0.5 ${runtimeTone(agent.status)}`}>
-                    {runtimeStatusLabel(agent.status)}
-                  </span>
-                  {agent.currentTaskId ? (
-                    <span className="text-zinc-500">{agent.currentTaskId}</span>
-                  ) : null}
-                </div>
-              ))}
             </div>
+            <h2 className="mt-1 max-w-5xl text-[24px] font-semibold leading-tight tracking-tight text-zinc-100">
+              {formatSwarmGoal(swarmState.goal)}
+            </h2>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Phase" value={swarmState.phase.replace('_', ' ')} tone={phaseTone[swarmState.phase]} />
-            <MetricCard
-              label="Plan"
-              value={getPlanMetricValue(swarmState)}
-              tone={getPlanMetricTone(swarmState)}
-            />
-            <MetricCard
-              label="Done"
-              value={`${doneCount}/${swarmState.tasks.length}`}
-              tone={allTasksDone ? 'border-emerald-400/30 bg-emerald-950/20 text-emerald-100' : 'border-[#2f3540] bg-[#171b22] text-zinc-100'}
-            />
-            <MetricCard label="Active" value={`${activeCount} running / ${needsInputCount} waiting`} tone="border-[#2f3540] bg-[#171b22] text-zinc-100" />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-zinc-400">
+            <span><span className="text-zinc-600">Phase</span> <span className="capitalize text-zinc-200">{swarmState.phase.replace('_', ' ')}</span></span>
+            <span><span className="text-zinc-600">Plan</span> <span className="text-zinc-200">{getPlanMetricValue(swarmState)}</span></span>
+            <span><span className="text-zinc-600">Done</span> <span className="text-zinc-200">{doneCount}/{swarmState.tasks.length}</span></span>
+            <span><span className="text-zinc-600">Active</span> <span className="text-zinc-200">{activeCount} running, {needsInputCount} waiting</span></span>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {([
-            { id: 'map' as const, label: 'Map' },
-            { id: 'kanban' as const, label: 'Kanban' },
-            { id: 'terminals' as const, label: 'Terminals' },
-          ]).map((view) => (
-            <button
-              key={view.id}
-              onClick={() => activateView(view.id)}
-              className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${
-                activeView === view.id
-                  ? 'border-zinc-500 bg-zinc-200 text-zinc-950'
-                  : 'border-[#2a2e36] bg-[#171a20] text-zinc-400 hover:bg-[#1b1f26] hover:text-zinc-100'
-              }`}
-            >
-              {view.label}
-            </button>
-          ))}
-        </div>
+        {!fixedView ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {([
+              { id: 'map' as const, label: 'Map' },
+              { id: 'kanban' as const, label: 'Kanban' },
+            ]).map((view) => (
+              <button
+                key={view.id}
+                onClick={() => activateView(view.id)}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                  effectiveView === view.id
+                    ? 'border-zinc-500 bg-zinc-200 text-zinc-950'
+                    : 'border-[#2a2e36] bg-[#171a20] text-zinc-400 hover:bg-[#1b1f26] hover:text-zinc-100'
+                }`}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
       </div>
 
-      {activeView === 'map' ? (
+      {effectiveView === 'map' ? (
         <SwarmMapView
           workspaceId={workspaceId}
           swarmState={swarmState}
@@ -578,12 +552,11 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
           rosterById={rosterById}
           runtimeAgents={runtimeAgents}
           selectedAgentId={resolvedSelectedAgentId}
-          onSelectAgent={setSelectedAgentId}
-          onOpenTerminal={openAgentTerminal}
+          onSelectAgent={openAgentTerminal}
         />
       ) : null}
 
-      {activeView === 'kanban' ? (
+      {effectiveView === 'kanban' ? (
       <div className="grid flex-1 gap-3 overflow-x-auto overflow-y-hidden bg-[#101216] p-4 lg:grid-cols-3 xl:grid-cols-5">
         {swarmState.tasks.length === 0 ? (
           <div className="col-span-full flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-[#2a2d34] bg-[#15171b] p-6 text-center">
@@ -679,29 +652,6 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
       </div>
       ) : null}
 
-      {terminalsMounted ? (
-        <SwarmTerminalsView
-          workspaceId={workspaceId}
-          roster={roster}
-          active={activeView === 'terminals'}
-        />
-      ) : activeView === 'terminals' ? (
-        <div className="flex flex-1 items-center justify-center bg-[#101216] p-6">
-          <div className="max-w-md rounded-2xl border border-[#2a2e36] bg-[#15171b] p-5 text-center">
-            <div className="text-sm font-semibold text-zinc-100">Preparing terminals</div>
-            <p className="mt-2 text-sm leading-6 text-zinc-400">
-              Opening the Terminals view starts the visible team CLIs. Use Ctrl-C inside any terminal when you want that process to stop.
-            </p>
-            <button
-              onClick={() => setTerminalsMounted(true)}
-              className="mt-4 rounded-xl border border-zinc-500 bg-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-950 transition-colors hover:bg-white"
-            >
-              Open Team Terminals
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       {selectedTask && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
           <div className="max-h-[90vh] w-full max-w-[900px] overflow-y-auto rounded-2xl border border-[#303542] bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
@@ -771,7 +721,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
                     }}
                     className="rounded-xl border border-[#3b4250] bg-[#1b1f26] px-4 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:bg-[#20252e]"
                   >
-                    Open Worker CLI
+                    Focus Worker CLI
                   </button>
                 </div>
               ) : null}
@@ -934,7 +884,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
                     onClick={() => openAgentTerminal(architectAgentId)}
                     className="rounded-lg border border-amber-300/25 bg-amber-200/10 px-3 py-2 text-sm text-amber-100 transition-colors hover:bg-amber-200/15"
                   >
-                    Architect CLI
+                    Focus Architect
                   </button>
                 ) : null}
                 <button
@@ -997,12 +947,18 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
               ) : null}
               {planReview.status === 'ready' && planReview.mode === 'preview' ? (
                 <div className="mx-auto max-w-4xl">
-                  {renderMarkdown(planReview.content || '# Swarm Plan\n\nNo plan content yet.')}
+                  {planReview.content
+                    ? renderMarkdown(planReview.content)
+                    : (
+                      <div className="rounded-lg border border-dashed border-[#303542] bg-[#171a20] px-4 py-5 text-sm text-zinc-400">
+                        No architect plan has been written yet.
+                      </div>
+                    )}
                 </div>
               ) : null}
               {planReview.status === 'ready' && planReview.mode === 'source' ? (
                 <pre className="min-h-[420px] overflow-x-auto rounded-2xl border border-[#23262d] bg-[#0b0c0e] p-4 text-[13px] leading-6 text-zinc-200">
-                  <code>{planReview.content || '# Swarm Plan\n\nNo plan content yet.'}</code>
+                  <code>{planReview.content}</code>
                 </pre>
               ) : null}
             </div>
@@ -1010,7 +966,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#23262d] bg-[#101216] px-5 py-4">
               <div className="text-[12px] text-zinc-500">
                 {swarmState.planReady
-                  ? 'Plan approval starts worker claiming. Confirm this plan and task graph match your intent.'
+                  ? 'Plan approval unlocks worker start buttons. Confirm this plan and task graph match your intent.'
                   : 'The architect must run `swarm mark-plan-ready --actor architect` before workers can start.'}
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -1027,7 +983,7 @@ export default function SwarmBoardPanel({ workspaceId }: Props) {
                   disabled={planReview.status !== 'ready' || !swarmState.planReady}
                   className="rounded-xl border border-amber-300/40 bg-amber-200 px-4 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100 disabled:opacity-40 disabled:hover:bg-amber-200"
                 >
-                  {swarmState.planReady ? 'Approve Plan & Start Workers' : 'Waiting for Architect'}
+                  {swarmState.planReady ? 'Approve Plan' : 'Waiting for Architect'}
                 </button>
               </div>
             </div>
@@ -1058,7 +1014,6 @@ function SwarmMapView({
   runtimeAgents,
   selectedAgentId,
   onSelectAgent,
-  onOpenTerminal,
 }: {
   workspaceId: string
   swarmState: SwarmState
@@ -1067,7 +1022,6 @@ function SwarmMapView({
   runtimeAgents: RuntimeAgentView[]
   selectedAgentId: string | null
   onSelectAgent: (agentId: string) => void
-  onOpenTerminal: (agentId: string) => void
 }) {
   const selectedAgent = selectedAgentId ? rosterById[selectedAgentId] : undefined
   const selectedRuntime = selectedAgentId
@@ -1077,6 +1031,9 @@ function SwarmMapView({
     ? swarmState.tasks.find((task) => task.id === selectedRuntime.currentTaskId)
     : null
   const positions = buildMapPositions(roster)
+  const doneCount = swarmState.tasks.filter((task) => task.status === 'done').length
+  const activeCount = runtimeAgents.filter((agent) => agent.status === 'running').length
+  const needsInputCount = runtimeAgents.filter((agent) => agent.status === 'needs_input').length
 
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden bg-[#101216] lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -1152,6 +1109,15 @@ function SwarmMapView({
       </div>
 
       <aside className="border-t border-[#23262d] bg-[#121419] p-4 lg:border-l lg:border-t-0">
+        <div className="mb-5">
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">Swarm State</div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <InfoCard label="Phase" value={swarmState.phase.replace('_', ' ')} />
+            <InfoCard label="Plan" value={getPlanMetricValue(swarmState)} />
+            <InfoCard label="Tasks" value={`${doneCount}/${swarmState.tasks.length} done`} />
+            <InfoCard label="Agents" value={`${activeCount} run, ${needsInputCount} wait`} />
+          </div>
+        </div>
         <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">Selected Specialist</div>
         {selectedAgent ? (
           <div className="mt-4 space-y-4">
@@ -1174,13 +1140,6 @@ function SwarmMapView({
             <InfoCard label="Status" value={runtimeStatusLabel(selectedRuntime?.status ?? 'idle')} />
             <InfoCard label="Current Task" value={selectedTask ? `${selectedTask.id} - ${selectedTask.title}` : 'No active task'} />
 
-            <button
-              onClick={() => onOpenTerminal(selectedAgent.id)}
-              className="w-full rounded-xl border border-[#3b4250] bg-[#1b1f26] px-4 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:bg-[#20252e]"
-            >
-              Open Terminal
-            </button>
-
             {selectedAgent.role === 'product' ? (
               <div className="rounded-xl border border-pink-300/20 bg-pink-950/10 px-3 py-3 text-sm leading-6 text-pink-100">
                 Product guides market fit, competitor context, audience needs, workflow risk, and prioritization before the plan hardens.
@@ -1193,53 +1152,6 @@ function SwarmMapView({
           </div>
         )}
       </aside>
-    </div>
-  )
-}
-
-function SwarmTerminalsView({
-  workspaceId,
-  roster,
-  active,
-}: {
-  workspaceId: string
-  roster: RosterItem[]
-  active: boolean
-}) {
-  return (
-    <div className={`min-h-0 flex-1 flex-col bg-[#101216] ${active ? 'flex' : 'hidden'}`}>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#23262d] bg-[#121419] px-4 py-3">
-        <div>
-          <div className="text-sm font-semibold text-zinc-100">Terminals</div>
-          <div className="mt-1 text-xs text-zinc-500">Use Ctrl-C inside a terminal to stop the running command.</div>
-        </div>
-      </div>
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-2">
-        {roster.map((agent) => {
-          return (
-            <section
-              key={agent.id}
-              className="flex min-h-[360px] flex-col overflow-hidden rounded-xl border border-[#23262d] bg-[#15171b]"
-            >
-              <div className="flex h-10 items-center justify-between gap-3 border-b border-[#23262d] bg-[#17191d] px-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: swarmRoleAccent[agent.role], boxShadow: `0 0 12px ${swarmRoleAccent[agent.role]}` }}
-                  />
-                  <span className="truncate text-sm font-semibold text-zinc-100">{agent.label}</span>
-                </div>
-                <span className="rounded-md border border-[#2a2e36] bg-[#111318] px-2 py-1 text-xs font-semibold text-zinc-400">
-                  Ctrl-C to stop
-                </span>
-              </div>
-              <div className="relative min-h-0 flex-1 bg-[#0b0c0e]">
-                <TerminalView workspaceId={workspaceId} agentId={agent.id} />
-              </div>
-            </section>
-          )
-        })}
-      </div>
     </div>
   )
 }
@@ -1291,26 +1203,9 @@ function statusColor(status: string): string {
   }
 }
 
-function MetricCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string
-  value: string
-  tone: string
-}) {
-  return (
-    <div className={`rounded-xl border px-4 py-3 text-right ${tone}`}>
-      <div className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">{label}</div>
-      <div className="mt-1 text-[18px] font-semibold capitalize">{value}</div>
-    </div>
-  )
-}
-
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[#23262d] bg-[#171a20] px-4 py-3">
+    <div className="rounded-lg border border-[#23262d] bg-[#171a20] px-4 py-3">
       <div className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">{label}</div>
       <div className="mt-2 font-medium text-zinc-100">{value}</div>
     </div>
@@ -1474,16 +1369,6 @@ function getPlanMetricValue(swarmState: SwarmState): string {
   if (swarmState.planReady) return 'Ready'
   if (swarmState.taskGraphReplacedAt) return 'Tasked'
   return 'Planning'
-}
-
-function getPlanMetricTone(swarmState: SwarmState): string {
-  if (swarmState.planApproved || swarmState.planReady) {
-    return 'border-[#365149] bg-[#151d1a] text-emerald-200'
-  }
-  if (swarmState.taskValidation && !swarmState.taskValidation.ok) {
-    return 'border-rose-400/30 bg-rose-950/20 text-rose-100'
-  }
-  return 'border-[#5f4b2d] bg-[#1d1813] text-amber-200'
 }
 
 function formatSwarmGoal(goal: string): string {

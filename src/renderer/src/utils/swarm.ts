@@ -145,6 +145,7 @@ export function createDefaultSwarmRolePrompts(): SwarmPromptMap {
     architect: [
       'Own discovery, architecture, task decomposition, and final plan readiness.',
       'Consult specialists early when product, interface, security, testing, or implementation judgment could change the plan.',
+      'Write compact, technical plans for AI agent consumption; avoid roadmap prose, week-based timelines, milestones, and duration estimates.',
       'Do not unlock execution until the plan, task graph, dependencies, and acceptance criteria are coherent.',
     ].join('\n'),
     product: [

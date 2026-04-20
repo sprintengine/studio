@@ -16,10 +16,15 @@ const agentTab = (id: string, name = id) => ({
 })
 const editorTab = { type: 'tab', name: 'Editor', component: 'editor' }
 const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
-const swarmTab = () => ({
+const swarmMapTab = () => ({
   type: 'tab',
-  name: 'Swarm',
-  component: 'swarm',
+  name: 'Swarm Map',
+  component: 'swarm-map',
+})
+const swarmKanbanTab = () => ({
+  type: 'tab',
+  name: 'Kanban',
+  component: 'swarm-kanban',
 })
 
 export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
@@ -30,9 +35,9 @@ export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
     name: 'Swarm Mode',
     description: 'Map, Kanban, and explicit specialist terminals.',
     previewSlots: [
-      editor('Map', 4, 4, 188, 49),
-      editor('Kanban', 4, 57, 188, 49),
-      agent(`${roster.length} Terms`, 196, 4, 100, 102),
+      editor('Map', 4, 4, 168, 49),
+      editor('Kanban', 4, 57, 168, 49),
+      agent(`${roster.length} CLIs`, 178, 4, 118, 102),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -42,8 +47,16 @@ export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
         children: [
           {
             type: 'tabset',
-            weight: 100,
-            children: [swarmTab()],
+            weight: 58,
+            children: [
+              swarmMapTab(),
+              swarmKanbanTab(),
+            ],
+          },
+          {
+            type: 'tabset',
+            weight: 42,
+            children: roster.map((rosterAgent) => agentTab(rosterAgent.id, rosterAgent.label)),
           },
         ],
       },
