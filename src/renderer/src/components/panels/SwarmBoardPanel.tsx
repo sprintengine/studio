@@ -8,7 +8,7 @@ import type {
   SwarmTaskStatus,
 } from '../../types/workspace'
 import {
-  buildSwarmAgentRoster,
+  buildSwarmAgentRosterForState,
   getSwarmTaskBoardColumn,
   swarmRoleAccent,
   swarmRoleLabels,
@@ -46,6 +46,17 @@ const taskStateLabel: Record<SwarmTaskStatus, string> = {
   done: 'Done',
 }
 
+const addableRoles: SwarmRole[] = ['product', 'frontend', 'developer', 'tester', 'security']
+
+const roleSummaries: Record<SwarmRole, string> = {
+  architect: 'Plans the run and gates readiness.',
+  product: 'Shapes scope, positioning, audience fit, and priority tradeoffs.',
+  developer: 'Builds implementation and integration work.',
+  frontend: 'Owns interaction design, visual quality, and UI implementation.',
+  tester: 'Validates behavior, regressions, and acceptance criteria.',
+  security: 'Reviews trust boundaries, command safety, data handling, and hardening.',
+}
+
 interface Props {
   workspaceId: string
   fixedView?: SwarmView
@@ -72,11 +83,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   )
   const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
   const approveSwarmPlan = useWorkspaceStore((s) => s.approveSwarmPlan)
+  const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<SwarmView>('map')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [addMemberOpen, setAddMemberOpen] = useState(false)
+  const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [planReview, setPlanReview] = useState<PlanReviewState>({
     open: false,
@@ -97,6 +111,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const folderPath = workspace?.folderPath ?? null
   const agents = workspace?.agents ?? {}
   const swarmName = swarmState?.name ?? workspace?.name ?? 'Swarm Team'
+  const roster = useMemo(
+    () => buildSwarmAgentRosterForState(swarmState),
+    [swarmState]
+  )
+
+  const rosterById = useMemo(
+    () => Object.fromEntries(roster.map((agent) => [agent.id, agent])),
+    [roster]
+  )
 
   const serializedState = useMemo(() => {
     if (!swarmState || !folderPath || !workspace) return null
@@ -139,7 +162,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         }
         await window.api.createDir(swarmRootDirectory, slugifySwarmName(swarmName)).catch(() => {})
         await window.api.createDir(swarmDirectory, 'mailboxes').catch(() => {})
-        for (const rosterAgent of buildSwarmAgentRoster(swarmState.roleCounts)) {
+        for (const rosterAgent of roster) {
           await window.api.createDir(mailboxRootPath, rosterAgent.id).catch(() => {})
         }
 
@@ -177,7 +200,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     return () => {
       cancelled = true
     }
-  }, [folderPath, serializedState, swarmName, swarmState, workspaceId])
+  }, [folderPath, roster, serializedState, swarmName, swarmState, workspaceId])
 
   useEffect(() => {
     if (!swarmState || !folderPath) return
@@ -256,23 +279,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     }
   }, [folderPath, setSwarmState, swarmName, swarmState, workspaceId])
 
-  const roster = useMemo(
-    () => buildSwarmAgentRoster(swarmState?.roleCounts ?? swarmState?.agentCount ?? 4),
-    [swarmState?.roleCounts, swarmState?.agentCount]
-  )
-
-  const rosterById = useMemo(
-    () => Object.fromEntries(roster.map((agent) => [agent.id, agent])),
-    [roster]
-  )
-
   const runtimeAgents = useMemo(
-    () =>
-      Object.entries(swarmState?.swarmAgents ?? {}).map(([agentId, runtime]) => ({
-        agentId,
-        ...runtime,
-      })),
-    [swarmState?.swarmAgents]
+    () => roster.map((agent) => ({
+      agentId: agent.id,
+      role: swarmState?.swarmAgents[agent.id]?.role ?? agent.role,
+      status: swarmState?.swarmAgents[agent.id]?.status ?? 'idle',
+      currentTaskId: swarmState?.swarmAgents[agent.id]?.currentTaskId ?? null,
+    })),
+    [roster, swarmState?.swarmAgents]
   )
 
   const boardColumns = useMemo(() => {
@@ -309,6 +323,34 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const activateView = (view: SwarmView) => {
     if (fixedView) return
     setActiveView(view)
+  }
+
+  const openAddMemberDialog = () => {
+    const uncoveredRole = addableRoles.find((role) =>
+      swarmState.tasks.some((task) => task.role === role && task.status !== 'done')
+      && !roster.some((agent) => agent.role === role)
+    )
+    setAddMemberRole(uncoveredRole ?? 'developer')
+    setAddMemberOpen(true)
+  }
+
+  const confirmAddMember = () => {
+    const addedAgent = addSwarmMember(workspaceId, addMemberRole)
+    if (!addedAgent) return
+
+    if (swarmState.planApproved) {
+      updateAgent(workspaceId, addedAgent.id, {
+        cliStartRequested: true,
+        cliSessionId: crypto.randomUUID(),
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliPlanApprovedPromptSent: false,
+        cliRestartNonce: 1,
+      })
+    }
+    setSelectedAgentId(addedAgent.id)
+    setAddMemberOpen(false)
+    focusOrAddAgentTab(workspaceId, addedAgent.id, addedAgent.label)
   }
 
   const openAgentTerminal = (agentId: string) => {
@@ -426,7 +468,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           createdAt: new Date().toISOString(),
           body: [
             `The swarm plan for "${swarmState.name}" has been approved.`,
+            'Before your first board mutation, run `swarm --help`. Before using a subcommand for the first time, run `swarm <subcommand> --help` and follow the exact flags shown there.',
             roleInstruction,
+            'If this Claude process was restarted, keep using the same swarm agent id. The claim command will return that slot\'s existing active task before claiming new work.',
             'Continue polling your mailbox about every 30 seconds with `swarm get-mailbox --agent-id <your-agent-id> --consume` while you are active.',
             'Do not manually edit swarm/state.yaml; use the swarm tool for task claiming, notes, evidence, and status updates.',
           ].join('\n\n'),
@@ -508,7 +552,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
               {swarmState.name}
             </div>
-            <h2 className="mt-1 max-w-5xl text-[24px] font-semibold leading-tight tracking-tight text-zinc-100">
+            <h2 className="mt-1 max-w-5xl text-[15px] font-semibold leading-tight tracking-tight text-zinc-100">
               {formatSwarmGoal(swarmState.goal)}
             </h2>
           </div>
@@ -518,6 +562,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             <span><span className="text-zinc-600">Plan</span> <span className="text-zinc-200">{getPlanMetricValue(swarmState)}</span></span>
             <span><span className="text-zinc-600">Done</span> <span className="text-zinc-200">{doneCount}/{swarmState.tasks.length}</span></span>
             <span><span className="text-zinc-600">Active</span> <span className="text-zinc-200">{activeCount} running, {needsInputCount} waiting</span></span>
+            <button
+              onClick={openAddMemberDialog}
+              className="ml-0 rounded-md border border-[#2f3948] bg-[#19202a] px-3 py-1.5 text-sm font-semibold text-zinc-100 transition-colors hover:border-[#4a5668] hover:bg-[#202938] sm:ml-2"
+            >
+              + Team Member
+            </button>
           </div>
         </div>
 
@@ -789,7 +839,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
                   Run Summary
                 </div>
-                <h3 className="text-[20px] font-semibold tracking-tight text-zinc-100">
+                <h3 className="text-[14px] font-semibold tracking-tight text-zinc-100">
                   {formatSwarmGoal(swarmState.goal)}
                 </h3>
                 <p className="mt-2 text-sm text-zinc-400">
@@ -841,6 +891,96 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               <div className="rounded-2xl border border-amber-400/20 bg-amber-950/10 px-4 py-3 text-sm text-amber-100">
                 Next step: manually test the uncommitted changes in the workspace before committing or reverting.
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {addMemberOpen ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-2xl border border-[#303542] bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
+              <div>
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                  Swarm Roster
+                </div>
+                <h3 className="text-[20px] font-semibold tracking-tight text-zinc-100">
+                  Add Team Member
+                </h3>
+              </div>
+              <button
+                onClick={() => setAddMemberOpen(false)}
+                className="rounded-lg border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-3 px-5 py-5 sm:grid-cols-2">
+              {addableRoles.map((role) => {
+                const selected = role === addMemberRole
+                const activeForRole = roster.filter((agent) => agent.role === role).length
+                const openTasksForRole = swarmState.tasks.filter(
+                  (task) => task.role === role && task.status !== 'done'
+                ).length
+
+                return (
+                  <button
+                    key={role}
+                    onClick={() => setAddMemberRole(role)}
+                    className={`rounded-xl border p-4 text-left transition-colors ${
+                      selected
+                        ? 'border-zinc-200 bg-zinc-200 text-zinc-950'
+                        : 'border-[#2a2e36] bg-[#171a20] text-zinc-200 hover:border-[#414958] hover:bg-[#1b2028]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">
+                          {swarmRoleLabels[role]}
+                        </div>
+                        <p className={`mt-2 text-[12px] leading-5 ${selected ? 'text-zinc-700' : 'text-zinc-400'}`}>
+                          {roleSummaries[role]}
+                        </p>
+                      </div>
+                      <span
+                        className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: swarmRoleAccent[role] }}
+                      />
+                    </div>
+
+                    <div className={`mt-4 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.12em] ${
+                      selected ? 'text-zinc-700' : 'text-zinc-500'
+                    }`}>
+                      <span className={`rounded-full border px-2 py-1 ${
+                        selected ? 'border-zinc-400/60 bg-white/40' : 'border-[#303542] bg-[#121419]'
+                      }`}>
+                        {activeForRole} active
+                      </span>
+                      <span className={`rounded-full border px-2 py-1 ${
+                        selected ? 'border-zinc-400/60 bg-white/40' : 'border-[#303542] bg-[#121419]'
+                      }`}>
+                        {openTasksForRole} open
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#23262d] bg-[#101216] px-5 py-4">
+              <button
+                onClick={() => setAddMemberOpen(false)}
+                className="rounded-xl border border-[#2a2e36] bg-[#181b20] px-4 py-2 text-sm font-semibold text-zinc-300 transition-colors hover:bg-[#20252e] hover:text-zinc-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAddMember}
+                className="rounded-xl border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+              >
+                Add {swarmRoleLabels[addMemberRole]}
+              </button>
             </div>
           </div>
         </div>

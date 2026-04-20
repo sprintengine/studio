@@ -13,22 +13,33 @@ Fallback script:
 
 - `python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py`
 
+API discovery:
+
+- When a swarm terminal starts, run `swarm --help`.
+- Before using a command for the first time, run `swarm <command> --help` and follow the exact flags shown by the tool.
+- Do not invent plural aliases or alternate names. In particular, `append-evidence` uses repeatable `--file`, `--command`, and `--result` flags; it does not accept `--touched-files`, `--commands-ran`, or `--results`.
+- Mailbox commands use `--from-agent`, `--to-agent`, `--subject`, and `--body`; they do not accept `--recipient`, `--message`, or `--team`.
+- Agent identity is the stable swarm slot id such as `frontend`, `product`, `developer-1`, or `developer-2`, not the Claude session id. If Claude restarts, reuse the same `--agent-id` to continue that slot's active work.
+- If calling the Python script directly instead of the `swarm` function, put global `--state <path>` before the subcommand.
+
 Worker workflow:
 
 1. Read `swarm/plan.md` for the human-authored plan and task context.
-2. Run `swarm claim-next-task --role <your-role> --agent-id <your-agent-id>` to atomically claim the next ready task for your role.
-3. Poll your mailbox about every 30 seconds with `swarm get-mailbox --agent-id <your-agent-id> --consume`.
-4. If no task is ready, stay idle and do not manually edit shared state.
-5. Update only your own task card with:
+2. Run `swarm --help` and `swarm claim-next-task --help` before the first claim in a fresh terminal.
+3. Run `swarm claim-next-task --role <your-role> --agent-id <your-agent-id>` to atomically claim the next ready task for your role.
+4. If this Claude process was restarted, reuse the same `--agent-id`; `claim-next-task` returns that slot's existing active task before claiming new work.
+5. Poll your mailbox about every 30 seconds with `swarm get-mailbox --agent-id <your-agent-id> --consume`.
+6. If no task is ready, stay idle and do not manually edit shared state.
+7. Update only your own task card with:
    - `swarm set-task-status`
    - `swarm add-note`
    - `swarm append-evidence`
-6. Before marking work `done`, publish:
+8. Before marking work `done`, publish:
    - summary
    - touched files
    - commands run
    - results
-7. After marking a task `done`, run `claim-next-task` again to pick up the next ready task for your role.
+9. After marking a task `done`, run `claim-next-task` again to pick up the next ready task for your role.
 
 Architect workflow:
 
@@ -58,7 +69,7 @@ swarm list-ready-tasks --role frontend
 swarm claim-next-task --role frontend --agent-id frontend-1
 swarm claim-task --task-id T3 --agent-id frontend-1
 swarm set-task-status --task-id T3 --status in_progress --actor frontend-1
-swarm append-evidence --task-id T3 --actor frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SwarmBoardPanel.tsx --command "npm run typecheck" --result "Passed"
+swarm append-evidence --task-id T3 --actor frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SwarmBoardPanel.tsx --file src/renderer/src/utils/swarm.ts --command "npm run typecheck" --result "Passed"
 swarm run-summary
 swarm get-mailbox --agent-id frontend-1 --consume
 swarm send-message --from-agent architect --to-agent frontend-1 --subject "Plan approved" --body "Claim your next ready task."

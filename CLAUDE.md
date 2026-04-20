@@ -88,6 +88,15 @@ Tool entry points:
 - `python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py`
 - `python3 scripts/swarm_tool.py` (compatibility wrapper)
 
+API discovery:
+
+- When a swarm terminal starts, run `swarm --help`.
+- Before using a subcommand for the first time, run `swarm <subcommand> --help` and follow the exact flags shown by the tool.
+- Do not invent aliases. `append-evidence` uses repeatable `--file`, `--command`, and `--result`; it does not accept `--touched-files`, `--commands-ran`, or `--results`.
+- Mailbox commands use `--from-agent`, `--to-agent`, `--subject`, and `--body`; there is no `--recipient`, `--message`, or `--team` flag.
+- Agent identity is the stable swarm slot id such as `frontend`, `product`, `developer-1`, or `developer-2`, not the Claude session id. If Claude restarts, reuse the same `--agent-id` to continue that slot's active work.
+- When calling the Python script directly, put global `--state <path>` before the subcommand.
+
 Use it for:
 
 - listing ready tasks for your role
@@ -107,7 +116,7 @@ swarm list-ready-tasks --role frontend
 swarm claim-next-task --role frontend --agent-id frontend-1
 swarm claim-task --task-id T3 --agent-id frontend-1
 swarm set-task-status --task-id T3 --status in_progress --actor frontend-1
-swarm append-evidence --task-id T3 --actor frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SwarmBoardPanel.tsx --command "npm run typecheck" --result "Passed"
+swarm append-evidence --task-id T3 --actor frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SwarmBoardPanel.tsx --file src/renderer/src/utils/swarm.ts --command "npm run typecheck" --result "Passed"
 swarm run-summary
 swarm validate-tasks --file swarm/tasks.json
 swarm replace-tasks --actor architect --file swarm/tasks.json

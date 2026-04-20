@@ -11,13 +11,17 @@ import type {
   AgentId,
   EditorState,
   SwarmState,
+  SwarmRole,
 } from '../types/workspace'
 import { detectLanguage } from '../utils/files'
 import {
   buildSwarmAgentRoster,
+  buildSwarmAgentRosterForState,
+  countSwarmAgents,
   createDefaultSwarmRoleCounts,
   createDefaultSwarmRolePrompts,
   createInitialSwarmState,
+  getNextSwarmAgentId,
   normalizeSwarmState,
 } from '../utils/swarm'
 
@@ -35,6 +39,10 @@ interface WorkspaceStore {
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
+  addSwarmMember: (
+    workspaceId: WorkspaceId,
+    role: SwarmRole
+  ) => { id: AgentId; label: string } | null
   approveSwarmPlan: (workspaceId: WorkspaceId) => void
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
@@ -93,7 +101,7 @@ const swarmTabsLayoutModel = (swarmState: SwarmState | null): IJsonModel => ({
       {
         type: 'tabset',
         weight: 42,
-        children: buildSwarmAgentRoster(swarmState?.roleCounts ?? createDefaultSwarmRoleCounts()).map((agent) =>
+        children: buildSwarmAgentRosterForState(swarmState).map((agent) =>
           swarmAgentTab(agent.id, agent.label)
         ),
       },
@@ -132,7 +140,7 @@ function reconcileSwarmAgents(
   if (!swarmState) return {}
 
   return Object.fromEntries(
-    buildSwarmAgentRoster(swarmState.roleCounts).map((agent) => [
+    buildSwarmAgentRosterForState(swarmState).map((agent) => [
       agent.id,
       currentAgents[agent.id]
         ? { ...currentAgents[agent.id], name: agent.label }
@@ -242,6 +250,47 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.mode = normalized ? 'swarm' : 'standard'
           ws.agents = reconcileSwarmAgents(ws.agents, normalized)
         }),
+
+      addSwarmMember: (workspaceId, role) => {
+        let addedAgent: { id: AgentId; label: string } | null = null
+
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws?.swarmState) return
+
+          const existingArchitect = Object.values(ws.swarmState.swarmAgents).some(
+            (agent) => agent.role === 'architect'
+          )
+          if (role === 'architect' && existingArchitect) return
+
+          const agentId = getNextSwarmAgentId(role, ws.swarmState.swarmAgents)
+          ws.swarmState.swarmAgents[agentId] = {
+            role,
+            status: 'idle',
+            currentTaskId: null,
+          }
+          ws.swarmState.roleCounts[role] += 1
+          ws.swarmState.agentCount = countSwarmAgents(ws.swarmState.roleCounts)
+
+          const rosterAgent = buildSwarmAgentRosterForState(ws.swarmState).find(
+            (agent) => agent.id === agentId
+          )
+          const agentLabel = rosterAgent?.label ?? agentId
+          ws.agents[agentId] = defaultAgent(agentId, agentLabel)
+          ws.agents = reconcileSwarmAgents(ws.agents, ws.swarmState)
+          ws.swarmState.events.push({
+            id: `EVT-${String(ws.swarmState.events.length + 1).padStart(3, '0')}`,
+            timestamp: Date.now(),
+            type: 'member_added',
+            actor: 'user',
+            message: `${agentLabel} joined the swarm.`,
+          })
+
+          addedAgent = { id: agentId, label: agentLabel }
+        })
+
+        return addedAgent
+      },
 
       approveSwarmPlan: (workspaceId) =>
         set((state) => {
@@ -412,7 +461,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: 'free-ai-ide-workspaces',
-      version: 7,
+      version: 8,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -452,6 +501,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ? { ...ws, layoutModel: swarmTabsLayoutModel(ws.swarmState) }
               : ws
           )
+        }
+        if (version < 8) {
+          state.workspaces = state.workspaces.map((ws) => {
+            const swarmState = normalizeSwarmState(ws.swarmState)
+            if (ws.mode !== 'swarm' && !swarmState) return ws
+
+            return {
+              ...ws,
+              swarmState,
+              agents: reconcileSwarmAgents(ws.agents, swarmState),
+            }
+          })
         }
         return state as never
       },

@@ -26,6 +26,7 @@ except ImportError as exc:  # pragma: no cover - dependency check
 
 
 VALID_TASK_STATUSES = {"todo", "in_progress", "needs_input", "done"}
+ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
 VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security"}
 
 
@@ -184,6 +185,91 @@ def ensure_agent_runtime(state: Dict[str, Any], agent_id: str, role: Optional[st
     agent.setdefault("status", "idle")
     agent.setdefault("currentTaskId", None)
     return agent
+
+
+def find_task_by_id(state: Dict[str, Any], task_id: Any) -> Optional[Dict[str, Any]]:
+    for task in state.get("tasks", []):
+        if isinstance(task, dict) and task.get("id") == task_id:
+            return task
+    return None
+
+
+def set_agent_idle(agent: Dict[str, Any]) -> None:
+    agent["status"] = "idle"
+    agent["currentTaskId"] = None
+
+
+def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any]) -> None:
+    agent["status"] = "needs_input" if task.get("status") == "needs_input" else "running"
+    agent["currentTaskId"] = task.get("id")
+
+
+def clear_runtime_refs_for_task(state: Dict[str, Any], task_id: str) -> List[str]:
+    cleared = []
+    agents = state.get("agents", {})
+    if not isinstance(agents, dict):
+        return cleared
+
+    for agent_id, agent in agents.items():
+        if not isinstance(agent, dict):
+            continue
+        if agent.get("currentTaskId") == task_id:
+            set_agent_idle(agent)
+            cleared.append(str(agent_id))
+    return cleared
+
+
+def reconcile_agent_runtime(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str, Any]:
+    agent = ensure_agent_runtime(state, agent_id, role)
+    agent["role"] = role
+    repairs = []
+
+    current_task_id = agent.get("currentTaskId")
+    if current_task_id:
+        current_task = find_task_by_id(state, current_task_id)
+        if not current_task or current_task.get("status") not in ACTIVE_TASK_STATUSES:
+            set_agent_idle(agent)
+            repairs.append(f"cleared stale currentTaskId {current_task_id}")
+        elif current_task.get("ownerAgentId") in (None, "", agent_id):
+            current_task["ownerAgentId"] = agent_id
+            set_agent_active(agent, current_task)
+            return {"agent": agent, "activeTask": current_task, "repairs": repairs}
+        else:
+            set_agent_idle(agent)
+            repairs.append(
+                f"cleared currentTaskId {current_task_id} because task owner is {current_task.get('ownerAgentId')}"
+            )
+
+    active_task = next(
+        (
+            task
+            for task in state.get("tasks", [])
+            if isinstance(task, dict)
+            and task.get("ownerAgentId") == agent_id
+            and task.get("status") in ACTIVE_TASK_STATUSES
+        ),
+        None,
+    )
+    if active_task:
+        set_agent_active(agent, active_task)
+        return {"agent": agent, "activeTask": active_task, "repairs": repairs}
+
+    set_agent_idle(agent)
+    return {"agent": agent, "activeTask": None, "repairs": repairs}
+
+
+def assign_task_to_agent(
+    state: Dict[str, Any],
+    task: Dict[str, Any],
+    agent_id: str,
+) -> Dict[str, Any]:
+    previous_owner = task.get("ownerAgentId")
+    task["ownerAgentId"] = agent_id
+    task["status"] = "in_progress"
+    task["startedAt"] = task.get("startedAt") or now_iso()
+    agent = ensure_agent_runtime(state, agent_id, task.get("role"))
+    set_agent_active(agent, task)
+    return {"agent": agent, "previousOwnerAgentId": previous_owner}
 
 
 def recompute_swarm_phase(state: Dict[str, Any]) -> None:
@@ -819,24 +905,26 @@ def cmd_claim_task(args: argparse.Namespace) -> Dict[str, Any]:
         if not task_is_ready(state, task):
             return {
                 "ok": False,
-                "error": "Task is not ready to be claimed.",
+                "error": "Task is not ready to be claimed. If this is restarted work, reuse the same --agent-id that already owns the task.",
                 "task": {
                     "id": task.get("id"),
+                    "role": task.get("role"),
                     "status": task.get("status"),
                     "ownerAgentId": task.get("ownerAgentId"),
                 },
                 "write": False,
             }
 
-        task["ownerAgentId"] = args.agent_id
-        task["status"] = "in_progress"
-        task["startedAt"] = now_iso()
-        agent = ensure_agent_runtime(state, args.agent_id, task.get("role"))
-        agent["status"] = "running"
-        agent["currentTaskId"] = args.task_id
+        assignment = assign_task_to_agent(state, task, args.agent_id)
+        agent = assignment["agent"]
         recompute_swarm_phase(state)
         event = append_event(state, "task_claimed", args.agent_id, f"{args.agent_id} claimed {args.task_id}.")
-        return {"ok": True, "task": task, "agent": agent, "event": event}
+        return {
+            "ok": True,
+            "task": task,
+            "agent": agent,
+            "event": event,
+        }
 
     return with_locked_state(args.state, run)
 
@@ -850,26 +938,17 @@ def cmd_claim_next_task(args: argparse.Namespace) -> Dict[str, Any]:
                 "write": False,
             }
 
-        agent = ensure_agent_runtime(state, args.agent_id, args.role)
-        active_task = next(
-            (
-                task
-                for task in state.get("tasks", [])
-                if task.get("ownerAgentId") == args.agent_id
-                and task.get("status") in {"in_progress", "needs_input"}
-            ),
-            None,
-        )
+        runtime = reconcile_agent_runtime(state, args.agent_id, args.role)
+        agent = runtime["agent"]
+        active_task = runtime["activeTask"]
         if active_task:
-            agent["role"] = args.role
-            agent["status"] = "needs_input" if active_task.get("status") == "needs_input" else "running"
-            agent["currentTaskId"] = active_task.get("id")
             return {
                 "ok": True,
                 "claimed": False,
                 "reason": "agent_already_has_active_task",
                 "task": active_task,
                 "agent": agent,
+                "repairs": runtime["repairs"],
             }
 
         for task in state.get("tasks", []):
@@ -878,12 +957,8 @@ def cmd_claim_next_task(args: argparse.Namespace) -> Dict[str, Any]:
             if not task_is_ready(state, task):
                 continue
 
-            task["ownerAgentId"] = args.agent_id
-            task["status"] = "in_progress"
-            task["startedAt"] = task.get("startedAt") or now_iso()
-            agent["role"] = args.role
-            agent["status"] = "running"
-            agent["currentTaskId"] = task.get("id")
+            assignment = assign_task_to_agent(state, task, args.agent_id)
+            agent = assignment["agent"]
             recompute_swarm_phase(state)
             event = append_event(
                 state,
@@ -891,11 +966,15 @@ def cmd_claim_next_task(args: argparse.Namespace) -> Dict[str, Any]:
                 args.agent_id,
                 f"{args.agent_id} claimed next {args.role} task {task.get('id')}.",
             )
-            return {"ok": True, "claimed": True, "task": task, "agent": agent, "event": event}
+            return {
+                "ok": True,
+                "claimed": True,
+                "task": task,
+                "agent": agent,
+                "event": event,
+                "repairs": runtime["repairs"],
+            }
 
-        agent["role"] = args.role
-        agent["status"] = "idle"
-        agent["currentTaskId"] = None
         recompute_swarm_phase(state)
         return {
             "ok": True,
@@ -903,6 +982,7 @@ def cmd_claim_next_task(args: argparse.Namespace) -> Dict[str, Any]:
             "reason": "no_ready_task",
             "message": f"No ready {args.role} tasks are available right now.",
             "agent": agent,
+            "repairs": runtime["repairs"],
         }
 
     return with_locked_state(args.state, run)
@@ -929,17 +1009,15 @@ def cmd_set_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             elif args.status == "needs_input":
                 agent["status"] = "needs_input"
                 agent["currentTaskId"] = args.task_id
-            elif args.status == "done":
-                agent["status"] = "idle"
-                agent["currentTaskId"] = None
-            else:
-                agent["status"] = "idle"
-                agent["currentTaskId"] = None
+
+        cleared_agents: List[str] = []
+        if args.status not in ACTIVE_TASK_STATUSES:
+            cleared_agents = clear_runtime_refs_for_task(state, args.task_id)
 
         recompute_swarm_phase(state)
 
         event = append_event(state, "task_status_changed", actor, f"{actor} moved {args.task_id} to {args.status}.")
-        return {"ok": True, "task": task, "event": event}
+        return {"ok": True, "task": task, "event": event, "clearedAgents": cleared_agents}
 
     return with_locked_state(args.state, run)
 
@@ -1027,8 +1105,39 @@ def cmd_complete_consultation(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+class SwarmArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("formatter_class", argparse.RawDescriptionHelpFormatter)
+        super().__init__(*args, **kwargs)
+
+
+TOP_LEVEL_HELP = """\
+Agent discovery rule:
+  Run `swarm --help` when a swarm terminal starts.
+  Before using any subcommand for the first time, run `swarm <command> --help`.
+  Follow the exact flags shown here; do not invent plural aliases.
+
+Common worker flow:
+  swarm get-mailbox --agent-id frontend-1 --consume
+  swarm claim-next-task --role frontend --agent-id frontend-1
+  swarm append-evidence --task-id T3 --actor frontend-1 --summary "Updated UI" --file src/file.ts --command "npm run typecheck" --result "Passed"
+  swarm set-task-status --task-id T3 --status done --actor frontend-1 --summary "Implemented and verified."
+
+Common architect flow:
+  swarm validate-tasks --file swarm/tasks.json
+  swarm replace-tasks --actor architect --file swarm/tasks.json
+  swarm mark-plan-ready --actor architect
+
+Strict flag notes:
+  append-evidence uses repeatable --file, --command, and --result flags.
+  A restarted Claude process should reuse the same swarm agent id, such as developer-1, to continue that slot's active work.
+  There is no --touched-files, --commands-ran, --results, --recipient, --message, or --team flag.
+  When calling the Python script directly, pass global --state before the subcommand.
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Swarm coordination tool")
+    parser = SwarmArgumentParser(description="Swarm coordination tool", epilog=TOP_LEVEL_HELP)
     parser.add_argument(
         "--state",
         type=Path,
@@ -1038,20 +1147,42 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    list_ready = subparsers.add_parser("list-ready-tasks", help="List ready tasks, optionally filtered by role.")
+    list_ready = subparsers.add_parser(
+        "list-ready-tasks",
+        help="List ready tasks, optionally filtered by role.",
+        epilog="Example:\n  swarm list-ready-tasks --role frontend",
+    )
     list_ready.add_argument("--role", choices=sorted(VALID_ROLES))
     list_ready.set_defaults(handler=cmd_list_ready)
 
-    run_summary = subparsers.add_parser("run-summary", help="Print a final run summary from completed task evidence.")
+    run_summary = subparsers.add_parser(
+        "run-summary",
+        help="Print a final run summary from completed task evidence.",
+        epilog="Example:\n  swarm run-summary",
+    )
     run_summary.set_defaults(handler=cmd_run_summary)
 
-    get_mailbox = subparsers.add_parser("get-mailbox", help="Read an agent mailbox.")
+    get_mailbox = subparsers.add_parser(
+        "get-mailbox",
+        help="Read an agent mailbox.",
+        epilog="Example:\n  swarm get-mailbox --agent-id frontend-1 --consume",
+    )
     get_mailbox.add_argument("--agent-id", required=True)
     get_mailbox.add_argument("--consume", action="store_true", help="Move returned messages into the mailbox read folder.")
     get_mailbox.add_argument("--limit", type=int)
     get_mailbox.set_defaults(handler=cmd_get_mailbox)
 
-    send_message = subparsers.add_parser("send-message", help="Send a message to one agent mailbox.")
+    send_message = subparsers.add_parser(
+        "send-message",
+        help="Send a message to one agent mailbox.",
+        epilog=(
+            "Example:\n"
+            "  swarm send-message --from-agent frontend-1 --to-agent architect "
+            "--subject \"Re: UX question\" --body \"Recommended approach...\" --reply-to REQ-123\n\n"
+            "Strict flags:\n"
+            "  Use --from-agent, --to-agent, --subject, and --body. There is no --recipient or --message flag."
+        ),
+    )
     send_message.add_argument("--to-agent", required=True)
     send_message.add_argument("--from-agent", required=True)
     send_message.add_argument("--subject", required=True)
@@ -1063,6 +1194,13 @@ def build_parser() -> argparse.ArgumentParser:
     send_and_receive = subparsers.add_parser(
         "send-and-receive",
         help="Send a mailbox message and wait for a correlated reply.",
+        epilog=(
+            "Example:\n"
+            "  swarm send-and-receive --from-agent architect --to-agent product "
+            "--subject \"Product validation request\" --body \"Validate this MVP scope.\" "
+            "--timeout-seconds 1800 --consume\n\n"
+            "Replies should use the request id with send-message --reply-to <request-id>."
+        ),
     )
     send_and_receive.add_argument("--to-agent", required=True)
     send_and_receive.add_argument("--from-agent", required=True)
@@ -1085,7 +1223,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     send_and_receive.set_defaults(handler=cmd_send_and_receive)
 
-    broadcast_message = subparsers.add_parser("broadcast-message", help="Send a message to all agent mailboxes.")
+    broadcast_message = subparsers.add_parser(
+        "broadcast-message",
+        help="Send a message to all agent mailboxes.",
+        epilog=(
+            "Examples:\n"
+            "  swarm broadcast-message --from-agent architect --subject \"Plan ready\" --body \"Review your mailbox.\"\n"
+            "  swarm broadcast-message --from-agent architect --role frontend --exclude frontend-2 --subject \"Heads up\" --body \"...\""
+        ),
+    )
     broadcast_message.add_argument("--from-agent", required=True)
     broadcast_message.add_argument("--subject", required=True)
     broadcast_message.add_argument("--body", required=True)
@@ -1093,12 +1239,20 @@ def build_parser() -> argparse.ArgumentParser:
     broadcast_message.add_argument("--exclude", action="append")
     broadcast_message.set_defaults(handler=cmd_broadcast_message)
 
-    validate_tasks = subparsers.add_parser("validate-tasks", help="Validate a JSON task graph before replacing the board.")
+    validate_tasks = subparsers.add_parser(
+        "validate-tasks",
+        help="Validate a JSON task graph before replacing the board.",
+        epilog="Example:\n  swarm validate-tasks --file swarm/tasks.json",
+    )
     validate_tasks.add_argument("--file", type=Path)
     validate_tasks.add_argument("--tasks-json")
     validate_tasks.set_defaults(handler=cmd_validate_tasks)
 
-    replace_tasks = subparsers.add_parser("replace-tasks", help="Replace the kanban task graph from a JSON task list.")
+    replace_tasks = subparsers.add_parser(
+        "replace-tasks",
+        help="Replace the kanban task graph from a JSON task list.",
+        epilog="Example:\n  swarm replace-tasks --actor architect --file swarm/tasks.json",
+    )
     replace_tasks.add_argument("--actor", default="architect")
     replace_tasks.add_argument("--file", type=Path)
     replace_tasks.add_argument("--tasks-json")
@@ -1108,13 +1262,18 @@ def build_parser() -> argparse.ArgumentParser:
     mark_plan_ready = subparsers.add_parser(
         "mark-plan-ready",
         help="Mark the architect plan and task graph ready for user approval.",
+        epilog="Example:\n  swarm mark-plan-ready --actor architect",
     )
     mark_plan_ready.add_argument("--actor", default="architect")
     mark_plan_ready.add_argument("--plan", type=Path)
     mark_plan_ready.add_argument("--force", action="store_true")
     mark_plan_ready.set_defaults(handler=cmd_mark_plan_ready)
 
-    claim_task = subparsers.add_parser("claim-task", help="Claim a ready task for an agent.")
+    claim_task = subparsers.add_parser(
+        "claim-task",
+        help="Claim a ready task for an agent.",
+        epilog="Example:\n  swarm claim-task --task-id T3 --agent-id frontend-1",
+    )
     claim_task.add_argument("--task-id", required=True)
     claim_task.add_argument("--agent-id", required=True)
     claim_task.set_defaults(handler=cmd_claim_task)
@@ -1122,25 +1281,58 @@ def build_parser() -> argparse.ArgumentParser:
     claim_next_task = subparsers.add_parser(
         "claim-next-task",
         help="Atomically claim the next ready task for an agent role.",
+        epilog=(
+            "Example:\n"
+            "  swarm claim-next-task --role frontend --agent-id frontend-1\n\n"
+            "If frontend-1 is restarted, reuse --agent-id frontend-1. The command returns its existing active task before claiming new work."
+        ),
     )
     claim_next_task.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
     claim_next_task.add_argument("--agent-id", required=True)
     claim_next_task.set_defaults(handler=cmd_claim_next_task)
 
-    set_status = subparsers.add_parser("set-task-status", help="Update the status of a task.")
+    set_status = subparsers.add_parser(
+        "set-task-status",
+        help="Update the status of a task.",
+        epilog=(
+            "Examples:\n"
+            "  swarm set-task-status --task-id T3 --status in_progress --actor frontend-1\n"
+            "  swarm set-task-status --task-id T3 --status done --actor frontend-1 --summary \"Implemented and verified.\""
+        ),
+    )
     set_status.add_argument("--task-id", required=True)
     set_status.add_argument("--status", required=True, choices=sorted(VALID_TASK_STATUSES))
     set_status.add_argument("--actor")
     set_status.add_argument("--summary")
     set_status.set_defaults(handler=cmd_set_task_status)
 
-    add_note = subparsers.add_parser("add-note", help="Append a note to a task.")
+    add_note = subparsers.add_parser(
+        "add-note",
+        help="Append a note to a task.",
+        epilog="Example:\n  swarm add-note --task-id T3 --actor frontend-1 --note \"Blocked on missing API detail.\"",
+    )
     add_note.add_argument("--task-id", required=True)
     add_note.add_argument("--actor", required=True)
     add_note.add_argument("--note", required=True)
     add_note.set_defaults(handler=cmd_add_note)
 
-    append_evidence = subparsers.add_parser("append-evidence", help="Append evidence to a task.")
+    append_evidence = subparsers.add_parser(
+        "append-evidence",
+        help="Append evidence to a task.",
+        epilog=(
+            "Example:\n"
+            "  swarm append-evidence --task-id T3 --actor frontend-1 --summary \"Updated board UI\" "
+            "--file src/renderer/src/components/panels/SwarmBoardPanel.tsx "
+            "--file src/renderer/src/utils/swarm.ts "
+            "--command \"npm run typecheck\" "
+            "--result \"Passed\"\n\n"
+            "Strict flags:\n"
+            "  Repeat --file once per touched path.\n"
+            "  Repeat --command once per command run.\n"
+            "  Repeat --result once per result or verification note.\n"
+            "  There is no --touched-files, --commands-ran, or --results flag."
+        ),
+    )
     append_evidence.add_argument("--task-id", required=True)
     append_evidence.add_argument("--actor", required=True)
     append_evidence.add_argument("--summary")
@@ -1152,6 +1344,11 @@ def build_parser() -> argparse.ArgumentParser:
     create_consultation = subparsers.add_parser(
         "create-consultation",
         help="Create a structured specialist consultation request artifact.",
+        epilog=(
+            "Example:\n"
+            "  swarm create-consultation --request-id UX-001 --from-role architect --to-role frontend "
+            "--title \"Need UX input\" --task-id T4 --question \"Where should plan approval live?\""
+        ),
     )
     create_consultation.add_argument("--request-id", required=True)
     create_consultation.add_argument("--from-role", required=True, choices=sorted(VALID_ROLES))
@@ -1165,6 +1362,12 @@ def build_parser() -> argparse.ArgumentParser:
     complete_consultation = subparsers.add_parser(
         "complete-consultation",
         help="Complete a consultation with a structured response artifact.",
+        epilog=(
+            "Example:\n"
+            "  swarm complete-consultation --request-id UX-001 --actor frontend "
+            "--summary \"Recommend a top-level approval banner.\" "
+            "--recommendation \"Use a persistent approval strip above the board.\""
+        ),
     )
     complete_consultation.add_argument("--request-id", required=True)
     complete_consultation.add_argument("--actor", required=True)

@@ -88,6 +88,15 @@ Tool entry points:
 - `python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py`
 - `python3 scripts/swarm_tool.py` (compatibility wrapper)
 
+API discovery:
+
+- When a swarm terminal starts, run `swarm --help`.
+- Before using a subcommand for the first time, run `swarm <subcommand> --help` and follow the exact flags shown by the tool.
+- Do not invent aliases. `append-evidence` uses repeatable `--file`, `--command`, and `--result`; it does not accept `--touched-files`, `--commands-ran`, or `--results`.
+- Mailbox commands use `--from-agent`, `--to-agent`, `--subject`, and `--body`; there is no `--recipient`, `--message`, or `--team` flag.
+- Agent identity is the stable swarm slot id such as `frontend`, `product`, `developer-1`, or `developer-2`, not the Claude session id. If Claude restarts, reuse the same `--agent-id` to continue that slot's active work.
+- When calling the Python script directly, put global `--state <path>` before the subcommand.
+
 Primary commands:
 
 - `list-ready-tasks`
@@ -113,4 +122,4 @@ This tool is the intended coordination surface for:
 - architect plan readiness gating
 - structured architect-to-specialist consultations
 
-When a swarm terminal starts, it should read the repo-local skill first and then use `swarm` for board state changes.
+When a swarm terminal starts, it should read the repo-local skill first, run `swarm --help`, and then use `swarm` for board state changes.

@@ -36,6 +36,24 @@ export const swarmRoleAccent: Record<SwarmRole, string> = {
   security: '#ff6b6b',
 }
 
+export const swarmRoleOrder: SwarmRole[] = [
+  'architect',
+  'product',
+  'frontend',
+  'developer',
+  'tester',
+  'security',
+]
+
+const swarmRoleIdBase: Record<SwarmRole, string> = {
+  architect: 'architect',
+  product: 'product',
+  developer: 'developer',
+  frontend: 'frontend',
+  tester: 'tester',
+  security: 'security',
+}
+
 export const swarmTeamPresets: Array<{
   id: 'small' | 'medium' | 'large'
   name: string
@@ -197,6 +215,38 @@ export function countSwarmAgents(roleCounts: SwarmRoleCounts): number {
   return Object.values(roleCounts).reduce((total, count) => total + Math.max(0, count), 0)
 }
 
+function isSwarmRole(value: unknown): value is SwarmRole {
+  return (
+    value === 'architect'
+    || value === 'product'
+    || value === 'developer'
+    || value === 'frontend'
+    || value === 'tester'
+    || value === 'security'
+  )
+}
+
+export function countSwarmRuntimeAgents(
+  swarmAgents?: Record<AgentId, SwarmRuntimeAgent> | null
+): SwarmRoleCounts | null {
+  if (!swarmAgents || Object.keys(swarmAgents).length === 0) return null
+
+  const counts = createDefaultSwarmRoleCounts()
+  counts.architect = 0
+  counts.product = 0
+  counts.developer = 0
+  counts.frontend = 0
+  counts.tester = 0
+  counts.security = 0
+
+  for (const agent of Object.values(swarmAgents)) {
+    if (!isSwarmRole(agent?.role)) continue
+    counts[agent.role] += 1
+  }
+
+  return Object.values(counts).some((count) => count > 0) ? counts : null
+}
+
 export function normalizeSwarmRoleCounts(
   roleCounts?: Partial<SwarmRoleCounts> | null,
   fallbackAgentCount?: number
@@ -221,6 +271,50 @@ export function normalizeSwarmRoleCounts(
     tester: count >= 5 ? 1 : 0,
     security: 0,
   }
+}
+
+export function getSwarmRoleBaseId(role: SwarmRole): string {
+  return swarmRoleIdBase[role]
+}
+
+function roleAgentIndex(agentId: string, role: SwarmRole): number {
+  const baseId = getSwarmRoleBaseId(role)
+  if (agentId === baseId) return 1
+
+  const match = agentId.match(new RegExp(`^${baseId}-(\\d+)$`))
+  if (!match) return Number.MAX_SAFE_INTEGER
+
+  return Number(match[1])
+}
+
+function swarmAgentLabel(role: SwarmRole, index: number, totalForRole: number): string {
+  const suffix = totalForRole > 1 ? ` ${index}` : ''
+  return `${swarmRoleLabels[role]}${suffix}`
+}
+
+export function getNextSwarmAgentId(
+  role: SwarmRole,
+  swarmAgents: Record<AgentId, SwarmRuntimeAgent>
+): AgentId {
+  const baseId = getSwarmRoleBaseId(role)
+  const usedIds = new Set(Object.keys(swarmAgents))
+
+  if (!usedIds.has(baseId) && role !== 'developer') return baseId
+
+  let nextIndex = 1
+  for (const [agentId, agent] of Object.entries(swarmAgents)) {
+    if (agent.role !== role) continue
+    const index = roleAgentIndex(agentId, role)
+    if (Number.isFinite(index)) nextIndex = Math.max(nextIndex, index + 1)
+  }
+
+  let candidate = `${baseId}-${nextIndex}`
+  while (usedIds.has(candidate)) {
+    nextIndex += 1
+    candidate = `${baseId}-${nextIndex}`
+  }
+
+  return candidate
 }
 
 export function buildSwarmAgentRoster(input: number | SwarmRoleCounts): SwarmAgentRosterItem[] {
@@ -259,6 +353,40 @@ export function buildSwarmAgentRoster(input: number | SwarmRoleCounts): SwarmAge
   pushRole('security', 'Security Specialist', roleCounts.security)
 
   return roster
+}
+
+export function buildSwarmAgentRosterFromRuntimeAgents(
+  swarmAgents: Record<AgentId, SwarmRuntimeAgent>
+): SwarmAgentRosterItem[] {
+  const entries = Object.entries(swarmAgents)
+    .filter((entry): entry is [AgentId, SwarmRuntimeAgent] => isSwarmRole(entry[1]?.role))
+    .sort(([aId, a], [bId, b]) => {
+      const roleDelta = swarmRoleOrder.indexOf(a.role) - swarmRoleOrder.indexOf(b.role)
+      if (roleDelta !== 0) return roleDelta
+      return roleAgentIndex(aId, a.role) - roleAgentIndex(bId, b.role)
+    })
+
+  const roleTotals = countSwarmRuntimeAgents(swarmAgents) ?? createDefaultSwarmRoleCounts()
+  const seenByRole = Object.fromEntries(swarmRoleOrder.map((role) => [role, 0])) as Record<SwarmRole, number>
+
+  return entries.map(([id, agent]) => {
+    seenByRole[agent.role] += 1
+    return {
+      id,
+      label: swarmAgentLabel(agent.role, seenByRole[agent.role], roleTotals[agent.role]),
+      role: agent.role,
+    }
+  })
+}
+
+export function buildSwarmAgentRosterForState(
+  swarmState: Pick<SwarmState, 'roleCounts' | 'swarmAgents'> | null | undefined
+): SwarmAgentRosterItem[] {
+  if (swarmState?.swarmAgents && Object.keys(swarmState.swarmAgents).length > 0) {
+    return buildSwarmAgentRosterFromRuntimeAgents(swarmState.swarmAgents)
+  }
+
+  return buildSwarmAgentRoster(swarmState?.roleCounts ?? createDefaultSwarmRoleCounts())
 }
 
 export function buildInitialSwarmTasks(config: SwarmMockConfig): SwarmTask[] {
@@ -332,6 +460,12 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
   if (!input) return null
 
   const tasks = Array.isArray(input.tasks) ? input.tasks : []
+  const fallbackRoleCounts = normalizeSwarmRoleCounts(input.roleCounts, input.agentCount)
+  const swarmAgents =
+    input.swarmAgents && Object.keys(input.swarmAgents).length > 0
+      ? input.swarmAgents
+      : buildInitialSwarmAgents(fallbackRoleCounts)
+  const roleCounts = countSwarmRuntimeAgents(swarmAgents) ?? fallbackRoleCounts
   const normalizedTasks = tasks.map((task, index) => {
     const legacyTask = task as Omit<Partial<SwarmTask>, 'notes'> & {
       owner?: string
@@ -372,8 +506,8 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
   return {
     name: input.name?.trim() || 'Swarm Team',
     goal: input.goal,
-    agentCount: countSwarmAgents(normalizeSwarmRoleCounts(input.roleCounts, input.agentCount)),
-    roleCounts: normalizeSwarmRoleCounts(input.roleCounts, input.agentCount),
+    agentCount: countSwarmAgents(roleCounts),
+    roleCounts,
     skills: {
       ...createDefaultSwarmSkills(),
       architect: input.skills?.architect ?? createDefaultSwarmSkills().architect,
@@ -387,10 +521,7 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
       ...createDefaultSwarmRolePrompts(),
       ...input.rolePrompts,
     },
-    swarmAgents:
-      input.swarmAgents && Object.keys(input.swarmAgents).length > 0
-        ? input.swarmAgents
-        : buildInitialSwarmAgents(normalizeSwarmRoleCounts(input.roleCounts, input.agentCount)),
+    swarmAgents,
     phase: input.phase ?? (input.planApproved ? 'executing' : 'awaiting_approval'),
     planApproved: input.planApproved ?? true,
     planReady: input.planReady ?? Boolean(input.planApproved),

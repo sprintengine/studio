@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SwarmRole } from '../../types/workspace'
-import { buildSwarmAgentRoster, swarmRoleLabels } from '../../utils/swarm'
+import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
 import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
 
 interface Props {
@@ -37,8 +37,10 @@ function looksLikeClaudeTrustPrompt(output: string): boolean {
 function buildWorkerExecutionPrompt(role: SwarmRole, agentId: string): string {
   return [
     'The architect plan is approved. Begin worker execution now.',
+    `Before your first board mutation, run \`${SWARM_COMMAND} --help\`. Before using a subcommand for the first time, run \`${SWARM_COMMAND} <subcommand> --help\` and follow the exact flags shown there.`,
     `First run \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\` to read any direct instructions from the architect or other specialists.`,
     `Run \`${SWARM_COMMAND} claim-next-task --role ${role} --agent-id ${agentId}\` to atomically claim your next ready task.`,
+    `If this Claude process was restarted, keep using the same swarm agent id \`${agentId}\`. The claim command will return your existing active task before claiming new work.`,
     'If a task is returned, read swarm/plan.md and the returned task JSON before editing. Implement only your claimed task and stay within the task intent and owned paths unless the work clearly requires a better specialist judgment.',
     `Run the relevant tests, lint, or typecheck for your change. If you need user input, run \`${SWARM_COMMAND} set-task-status --task-id <task-id> --status needs_input --actor ${agentId}\` and make the question clear with \`${SWARM_COMMAND} add-note\`.`,
     `Before marking the task done, run \`${SWARM_COMMAND} append-evidence --task-id <task-id> --actor ${agentId}\` with your summary, touched files, commands, and results. Then run \`${SWARM_COMMAND} set-task-status --task-id <task-id> --status done --actor ${agentId}\`.`,
@@ -112,8 +114,9 @@ function buildSwarmStartupPrompt(
     rolePrompt ? `Role prompt:\n${rolePrompt}` : null,
     `Use \`${SWARM_COMMAND}\` as the shared coordination tool. This terminal predefines it and scopes it to this team's named state file.`,
     `Do not call \`python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py\`, \`python3 scripts/swarm_tool.py\`, or pass \`--team\`; this project may not contain those files and the state path is already configured.`,
+    `At startup, run \`${SWARM_COMMAND} --help\`. Before using any subcommand for the first time, run \`${SWARM_COMMAND} <subcommand> --help\` and follow the exact flags shown there. Do this especially before \`${SWARM_COMMAND} append-evidence --help\`, \`${SWARM_COMMAND} send-message --help\`, and \`${SWARM_COMMAND} replace-tasks --help\`.`,
     `Use \`type ${SWARM_COMMAND}\` to inspect the command if needed. Do not use \`which ${SWARM_COMMAND}\` because it may be a shell function.`,
-    'Mailbox syntax is strict: `swarm send-message --from-agent <sender-id> --to-agent <recipient-agent-id> --subject "<subject>" --body "<body>"`. For blocking requests use `swarm send-and-receive --from-agent <sender-id> --to-agent <recipient-agent-id> --subject "<subject>" --body "<body>" --timeout-seconds 1800 --consume`. Replies must use `--reply-to <request-id>`. There is no `--recipient`, `--message`, or `--team` flag.',
+    'Mailbox syntax is strict: `swarm send-message --from-agent <sender-id> --to-agent <recipient-agent-id> --subject "<subject>" --body "<body>"`. For blocking requests use `swarm send-and-receive --from-agent <sender-id> --to-agent <recipient-agent-id> --subject "<subject>" --body "<body>" --timeout-seconds 1800 --consume`. Replies must use `--reply-to <request-id>`. Evidence syntax is strict: repeat `--file`, `--command`, and `--result`. Agent identity is the stable swarm slot id such as `developer-1`, not the Claude session id. There is no `--touched-files`, `--commands-ran`, `--results`, `--recipient`, `--message`, or `--team` flag.',
     firstAction,
   ].filter(Boolean).join('\n\n')
 }
@@ -134,7 +137,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
 
-    return buildSwarmAgentRoster(workspace.swarmState.roleCounts).find(
+    return buildSwarmAgentRosterForState(workspace.swarmState).find(
       (candidate) => candidate.id === agentId
     )?.role ?? null
   })
@@ -146,7 +149,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
 
-    const role = buildSwarmAgentRoster(workspace.swarmState.roleCounts).find(
+    const role = buildSwarmAgentRosterForState(workspace.swarmState).find(
       (candidate) => candidate.id === agentId
     )?.role
 

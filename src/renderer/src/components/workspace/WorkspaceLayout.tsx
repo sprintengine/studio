@@ -3,7 +3,7 @@ import { Layout, Model, TabNode } from 'flexlayout-react'
 import 'flexlayout-react/style/dark.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
-import { buildSwarmAgentRoster } from '../../utils/swarm'
+import { buildSwarmAgentRosterForState } from '../../utils/swarm'
 import AgentPanel from '../panels/AgentPanel'
 import EditorPanel from '../panels/EditorPanel'
 import FileExplorer from '../panels/FileExplorer'
@@ -78,7 +78,7 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
             liveAgentTabs.add(agentId)
           })
 
-          buildSwarmAgentRoster(workspace.swarmState.roleCounts).forEach((agent) => {
+          buildSwarmAgentRosterForState(workspace.swarmState).forEach((agent) => {
             const agentState = workspace.agents[agent.id]
             if (!agentState?.cliStartRequested || liveAgentTabs.has(agent.id)) return
             updateAgent(workspaceId, agent.id, {

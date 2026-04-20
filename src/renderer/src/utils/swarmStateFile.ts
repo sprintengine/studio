@@ -13,7 +13,7 @@ import type {
 } from '../types/workspace'
 import {
   buildInitialSwarmAgents,
-  buildSwarmAgentRoster,
+  buildSwarmAgentRosterForState,
   createDefaultSwarmRolePrompts,
   createDefaultSwarmSkills,
   normalizeSwarmState,
@@ -200,7 +200,7 @@ export function serializeSwarmStateFile(args: {
   agents: Record<string, AgentState>
 }): string {
   const { workspaceId, workspacePath, swarmState, agents } = args
-  const roster = buildSwarmAgentRoster(swarmState.roleCounts)
+  const roster = buildSwarmAgentRosterForState(swarmState)
   const serialized: SwarmFileState = {
     version: 1,
     swarm: {
