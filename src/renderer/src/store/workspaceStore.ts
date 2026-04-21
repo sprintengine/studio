@@ -17,9 +17,7 @@ import { detectLanguage } from '../utils/files'
 import {
   buildSwarmAgentRoster,
   buildSwarmAgentRosterForState,
-  countSwarmAgents,
   createDefaultSwarmRoleCounts,
-  createDefaultSwarmRolePrompts,
   createInitialSwarmState,
   getNextSwarmAgentId,
   normalizeSwarmState,
@@ -69,7 +67,6 @@ const defaultAgent = (id: AgentId, name = id): AgentState => ({
   cliRestartNonce: 0,
   cliHasLaunched: false,
   cliOnboardingPromptSent: false,
-  cliPlanApprovedPromptSent: false,
 })
 
 const defaultEditorState = (): EditorState => ({
@@ -165,17 +162,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ?? createInitialSwarmState({
                 goal: options?.swarmState?.goal ?? 'Launch swarm mode',
                 name: options?.swarmState?.name ?? options?.name ?? 'Swarm Team',
-                agentCount: options?.swarmState?.agentCount ?? 4,
                 roleCounts: options?.swarmState?.roleCounts ?? createDefaultSwarmRoleCounts(),
-                skills: options?.swarmState?.skills ?? {
-                  architect: [],
-                  product: [],
-                  developer: [],
-                  frontend: [],
-                  tester: [],
-                  security: [],
-                },
-                rolePrompts: options?.swarmState?.rolePrompts ?? createDefaultSwarmRolePrompts(),
               })
             : null
           const agents = swarmState
@@ -270,7 +257,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             currentTaskId: null,
           }
           ws.swarmState.roleCounts[role] += 1
-          ws.swarmState.agentCount = countSwarmAgents(ws.swarmState.roleCounts)
 
           const rosterAgent = buildSwarmAgentRosterForState(ws.swarmState).find(
             (agent) => agent.id === agentId
@@ -280,7 +266,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.agents = reconcileSwarmAgents(ws.agents, ws.swarmState)
           ws.swarmState.events.push({
             id: `EVT-${String(ws.swarmState.events.length + 1).padStart(3, '0')}`,
-            timestamp: Date.now(),
+            timestamp: new Date().toISOString(),
             type: 'member_added',
             actor: 'user',
             message: `${agentLabel} joined the swarm.`,
@@ -298,10 +284,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (!ws?.swarmState || ws.swarmState.planApproved || !ws.swarmState.planReady) return
 
           ws.swarmState.planApproved = true
-          ws.swarmState.phase = 'executing'
           ws.swarmState.events.push({
             id: `EVT-${String(ws.swarmState.events.length + 1).padStart(3, '0')}`,
-            timestamp: Date.now(),
+            timestamp: new Date().toISOString(),
             type: 'plan_approved',
             actor: 'user',
             message: 'Plan approved. Worker execution is now active.',

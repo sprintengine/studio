@@ -85,7 +85,6 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
               cliStartRequested: false,
               cliHasLaunched: false,
               cliOnboardingPromptSent: false,
-              cliPlanApprovedPromptSent: false,
             })
           })
         }}

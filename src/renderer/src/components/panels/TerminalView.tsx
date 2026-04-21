@@ -34,91 +34,22 @@ function looksLikeClaudeTrustPrompt(output: string): boolean {
   return /Do you trust the files|trust files in this folder/i.test(output)
 }
 
-function buildWorkerExecutionPrompt(role: SwarmRole, agentId: string): string {
-  return [
-    'The architect plan is approved. Begin worker execution now.',
-    `Before your first board mutation, run \`${SWARM_COMMAND} --help\`. Before using a subcommand for the first time, run \`${SWARM_COMMAND} <subcommand> --help\` and follow the exact flags shown there.`,
-    `First run \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\` to read any direct instructions from the architect or other specialists.`,
-    `Run \`${SWARM_COMMAND} claim-next-task --role ${role} --agent-id ${agentId}\` to atomically claim your next ready task.`,
-    `If this Claude process was restarted, keep using the same swarm agent id \`${agentId}\`. The claim command will return your existing active task before claiming new work.`,
-    'If a task is returned, read swarm/plan.md and the returned task JSON before editing. Implement only your claimed task and stay within the task intent and owned paths unless the work clearly requires a better specialist judgment.',
-    `Run the relevant tests, lint, or typecheck for your change. If you need user input, run \`${SWARM_COMMAND} set-task-status --task-id <task-id> --status needs_input --actor ${agentId}\` and make the question clear with \`${SWARM_COMMAND} add-note\`.`,
-    `Before marking the task done, run \`${SWARM_COMMAND} append-evidence --task-id <task-id> --actor ${agentId}\` with your summary, touched files, commands, and results. Then run \`${SWARM_COMMAND} set-task-status --task-id <task-id> --status done --actor ${agentId}\`.`,
-    `While active, poll your mailbox about every 30 seconds with \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\` so you receive architect updates and cross-specialist messages.`,
-    `After finishing, run \`${SWARM_COMMAND} claim-next-task --role ${role} --agent-id ${agentId}\` again. If no ready task is available, stay idle and do not edit shared swarm state manually.`,
-  ].join('\n\n')
-}
 
-function buildProductPlanningPrompt(agentId: string, goal: string, planApproved: boolean): string {
-  if (planApproved) {
-    return [
-      'The plan is approved. Continue as the product strategist for this swarm.',
-      `First run \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\` to read any direct instructions.`,
-      `Run \`${SWARM_COMMAND} claim-next-task --role product --agent-id ${agentId}\` if there are approved product review, market research, or adoption-risk tasks ready for you.`,
-    'When you contribute, focus on competitor products, target audience needs, workflow fit, positioning, onboarding clarity, trust, and whether the implementation still serves the intended user.',
-    `While active, poll your mailbox about every 30 seconds with \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\`.`,
-    `If a mailbox message asks you to reply and includes a reply command or request id, answer with \`${SWARM_COMMAND} send-message --from-agent ${agentId} --to-agent <sender> --subject "Re: <subject>" --body "<response>" --reply-to <request-id>\`.`,
-    'Publish findings through task notes, consultation responses, mailbox replies, or task evidence. Do not manually edit shared swarm state.',
-    ].join('\n\n')
-  }
-
-  return [
-    'You are the product strategist for this swarm. Your job is to sharpen what the team should build before implementation starts.',
-    `Goal: ${goal}`,
-    'When the architect asks for consultation, research the likely market, competitor products, audience demographics, workflows, adoption risks, and product positioning.',
-    'Give concrete guidance that can change scope, priority, language, interaction design, or acceptance criteria. Prefer practical tradeoffs over broad product theory.',
-    `Poll your mailbox about every 30 seconds with \`${SWARM_COMMAND} get-mailbox --agent-id ${agentId} --consume\` while you are waiting for architect consultation.`,
-    `When replying to a mailbox request, use \`${SWARM_COMMAND} send-message --from-agent ${agentId} --to-agent <sender> --subject "Re: <subject>" --body "<response>" --reply-to <request-id>\` so the sender can continue automatically.`,
-    'Use `swarm complete-consultation` for consultation responses and do not manually edit shared swarm state.',
-  ].join('\n\n')
-}
-
-function buildSwarmStartupPrompt(
-  role: SwarmRole,
-  agentId: string,
-  goal: string,
-  planApproved: boolean,
-  customRolePrompt: string | undefined
-): string {
+function buildSwarmStartupPrompt(role: SwarmRole, agentId: string, goal: string): string {
   const roleLabel = swarmRoleLabels[role]
-  const rolePrompt = customRolePrompt?.trim()
-  const firstAction =
-    role === 'architect'
-      ? planApproved
-        ? 'The plan is already approved. Stay aligned with swarm/plan.md and use the coordination tool only for consultations or state updates that belong to the architect.'
-        : [
-            'You are responsible for creating the plan from scratch. Treat swarm/plan.md as your final planning artifact, not as an existing source of truth.',
-            'First, carefully study the repository and current implementation. Inspect the relevant code, architecture, conventions, dependencies, and any existing related features.',
-            'Perform deep problem/domain research using the available local context and specialist consultations when helpful. For market, competitor, audience, positioning, workflow, or adoption-risk concerns, consult the product strategist early instead of guessing.',
-            'For UI/UX, security, testing, or implementation concerns, create structured consultation requests with the swarm tool instead of guessing.',
-            'When you need product validation before continuing, use: `swarm send-and-receive --from-agent architect --to-agent product --subject "Product validation request" --body "<your question>" --timeout-seconds 1800 --consume`. This sends the request and blocks until the product strategist replies with the matching `--reply-to` id.',
-            'Ask the user clarifying questions until you are fully aligned on the desired outcome, constraints, scope, and acceptance criteria. Do not finalize the plan until the user confirms the direction.',
-            'Only after alignment, write swarm/plan.md as a compact technical execution plan for AI agents. Keep it succinct, low-level, and directly actionable.',
-            'Plan format: Goal, Constraints, Technical Approach, Files/Surfaces, Task Graph Summary, Acceptance Checks, Risks/Open Questions. Use short bullets. Do not write narrative prose, market decks, roadmap language, or implementation timelines.',
-            'Do not include weeks, dates, sprint plans, milestone schedules, duration estimates, or sequencing expressed as time. AI specialists execute in seconds or minutes; represent ordering only with task dependencies in swarm/tasks.json.',
-            'Keep swarm/plan.md focused on context workers need that is not already encoded in tasks.json. The task graph is the primary execution contract, so prefer precise task titles, owned paths, dependencies, acceptance criteria, and implementation notes over a long plan document.',
-            'Create swarm/tasks.json using swarm/tasks.template.json and swarm/tasks.schema.json as the contract. Run `swarm validate-tasks --file swarm/tasks.json`, fix any errors, then run `swarm replace-tasks --actor architect --file swarm/tasks.json`.',
-            'When the final plan is ready, send direct mailbox messages with `swarm send-message --from-agent architect --to-agent <agent-id> --subject "<subject>" --body "<body>"` or `swarm broadcast-message --from-agent architect --subject "<subject>" --body "<body>"` so each specialist knows when and how to proceed.',
-            'After the final plan and board task graph are ready, run `swarm mark-plan-ready --actor architect`. Tell the user the plan is ready for review only after that succeeds. Do not manually edit shared swarm state.',
-          ].join('\n\n')
-      : role === 'product'
-        ? buildProductPlanningPrompt(agentId, goal, planApproved)
-      : planApproved
-        ? buildWorkerExecutionPrompt(role, agentId)
-        : `Do not claim work yet. Your agent id is ${agentId}. Wait for the architect to finish discovery, user alignment, swarm/plan.md, and plan approval before starting execution.`
+  const firstAction = role === 'architect'
+    ? `Run \`${SWARM_COMMAND} init --goal "${goal}"\` to receive your full prompt and instructions.`
+    : `Run \`${SWARM_COMMAND} join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
 
   return [
     `You are the ${roleLabel} specialist for this swarm run.`,
     `Agent id: ${agentId}`,
     `Goal: ${goal}`,
-    rolePrompt ? `Role prompt:\n${rolePrompt}` : null,
     `Use \`${SWARM_COMMAND}\` as the shared coordination tool. This terminal predefines it and scopes it to this team's named state file.`,
-    `Do not call \`python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py\`, \`python3 scripts/swarm_tool.py\`, or pass \`--team\`; this project may not contain those files and the state path is already configured.`,
-    `At startup, run \`${SWARM_COMMAND} --help\`. Before using any subcommand for the first time, run \`${SWARM_COMMAND} <subcommand> --help\` and follow the exact flags shown there. Do this especially before \`${SWARM_COMMAND} append-evidence --help\`, \`${SWARM_COMMAND} send-message --help\`, and \`${SWARM_COMMAND} replace-tasks --help\`.`,
-    `Use \`type ${SWARM_COMMAND}\` to inspect the command if needed. Do not use \`which ${SWARM_COMMAND}\` because it may be a shell function.`,
-    'Mailbox syntax is strict: `swarm send-message --from-agent <sender-id> --to-agent <recipient-agent-id> --subject "<subject>" --body "<body>"`. For blocking requests use `swarm send-and-receive --from-agent <sender-id> --to-agent <recipient-agent-id> --subject "<subject>" --body "<body>" --timeout-seconds 1800 --consume`. Replies must use `--reply-to <request-id>`. Evidence syntax is strict: repeat `--file`, `--command`, and `--result`. Agent identity is the stable swarm slot id such as `developer-1`, not the Claude session id. There is no `--touched-files`, `--commands-ran`, `--results`, `--recipient`, `--message`, or `--team` flag.',
+    `Do not call \`python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py\` or \`python3 scripts/swarm_tool.py\` directly; use the \`${SWARM_COMMAND}\` alias instead.`,
+    'Do NOT edit swarm/state.json directly. All state updates must go through the swarm tool.',
     firstAction,
-  ].filter(Boolean).join('\n\n')
+  ].join('\n\n')
 }
 
 export default function TerminalView({ workspaceId, agentId }: Props) {
@@ -133,18 +64,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     s.workspaces.find((w) => w.id === workspaceId)?.swarmState?.name
   )
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
-  const swarmRole = useWorkspaceStore((s) => {
-    const workspace = s.workspaces.find((w) => w.id === workspaceId)
-    if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
-
-    return buildSwarmAgentRosterForState(workspace.swarmState).find(
-      (candidate) => candidate.id === agentId
-    )?.role ?? null
-  })
-  const swarmPlanApproved = useWorkspaceStore((s) => {
-    const workspace = s.workspaces.find((w) => w.id === workspaceId)
-    return workspace?.mode === 'swarm' ? workspace.swarmState?.planApproved ?? false : false
-  })
   const swarmStartupPrompt = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
@@ -154,58 +73,13 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     )?.role
 
     if (!role) return null
-    return buildSwarmStartupPrompt(
-      role,
-      agentId,
-      workspace.swarmState.goal,
-      workspace.swarmState.planApproved,
-      workspace.swarmState.rolePrompts[role]
-    )
+    return buildSwarmStartupPrompt(role, agentId, workspace.swarmState.goal)
   })
   const swarmStartupPromptRef = useRef<string | null>(swarmStartupPrompt)
-  const previousPlanApprovedRef = useRef<boolean | null>(swarmPlanApproved)
 
   useEffect(() => {
     swarmStartupPromptRef.current = swarmStartupPrompt
   }, [swarmStartupPrompt])
-
-  useEffect(() => {
-    const previous = previousPlanApprovedRef.current
-    previousPlanApprovedRef.current = swarmPlanApproved
-
-    if (
-      previous !== false
-      || !swarmPlanApproved
-      || !agent?.cliSessionId
-      || !agent.cliHasLaunched
-      || agent.cliPlanApprovedPromptSent
-      || !swarmRole
-      || swarmRole === 'architect'
-    ) {
-      return
-    }
-
-    const notification = [
-      '',
-      '[Swarm] Plan approved. Worker execution may begin.',
-      swarmRole === 'product'
-        ? buildProductPlanningPrompt(agentId, 'Approved swarm plan', true)
-        : buildWorkerExecutionPrompt(swarmRole, agentId),
-      '',
-    ].join('\n')
-
-    updateAgent(workspaceId, agentId, { cliPlanApprovedPromptSent: true })
-    void window.api.terminalWrite(agent.cliSessionId, notification.replace(/\r?\n/g, '\r'))
-  }, [
-    agent?.cliHasLaunched,
-    agent?.cliPlanApprovedPromptSent,
-    agent?.cliSessionId,
-    agentId,
-    swarmPlanApproved,
-    swarmRole,
-    updateAgent,
-    workspaceId,
-  ])
 
   useEffect(() => {
     const container = containerRef.current

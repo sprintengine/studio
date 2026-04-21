@@ -1,141 +1,18 @@
 import type {
-  AgentState,
-  SwarmArtifact,
-  SwarmEvent,
   SwarmRole,
   SwarmRoleCounts,
   SwarmRuntimeAgent,
-  SwarmRuntimeAgentStatus,
   SwarmState,
-  SwarmTask,
-  SwarmTaskEvidence,
-  SwarmTaskValidation,
 } from '../types/workspace'
 import {
-  buildInitialSwarmAgents,
-  buildSwarmAgentRosterForState,
-  createDefaultSwarmRolePrompts,
-  createDefaultSwarmSkills,
+  buildSwarmAgentRoster,
+  createDefaultSwarmRoleCounts,
   normalizeSwarmState,
 } from './swarm'
 
-type SwarmFileTaskEvidence = {
-  summary: string
-  touchedFiles: string[]
-  commandsRan: string[]
-  results: string[]
-}
-
-type SwarmFileTask = Omit<SwarmTask, 'startedAt' | 'completedAt' | 'evidence'> & {
-  startedAt: string | null
-  completedAt: string | null
-  evidence: SwarmFileTaskEvidence
-}
-
-type SwarmFileState = {
-  version: number
-  swarm: {
-    id: string
-    name: string
-    goal: string
-    status: SwarmState['phase']
-    planApproved: boolean
-    planReady?: boolean
-    planReadyAt?: string | null
-    planReadyBy?: string | null
-    taskGraphReplacedAt?: string | null
-    taskValidation?: SwarmFileTaskValidation | null
-    workspacePath?: string
-    checkoutMode: 'shared'
-    updatedAt: string
-  }
-  roles: Record<
-    SwarmRole,
-    {
-      label: string
-      skills: string[]
-      prompt?: string
-    }
-  >
-  agents: Record<
-    string,
-    {
-      role: SwarmRole
-      status: SwarmRuntimeAgentStatus
-      currentTaskId: string | null
-    }
-  >
-  tasks: SwarmFileTask[]
-  events: Array<Omit<SwarmEvent, 'timestamp'> & { timestamp: string }>
-  artifacts: SwarmArtifact[]
-}
-
-type SwarmFileTaskValidation = Omit<SwarmTaskValidation, 'checkedAt'> & {
-  checkedAt: string | null
-}
-
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/
-
-function toIso(value: number | null): string | null {
-  return value ? new Date(value).toISOString() : null
-}
-
-function fromIso(value: unknown): number | null {
-  if (typeof value !== 'string' || !ISO_DATE_RE.test(value)) return null
-  const parsed = Date.parse(value)
-  return Number.isNaN(parsed) ? null : parsed
-}
-
-function normalizeEvidence(input: Partial<SwarmTaskEvidence> | undefined): SwarmTaskEvidence {
-  return {
-    summary: input?.summary ?? '',
-    touchedFiles: Array.isArray(input?.touchedFiles) ? input.touchedFiles : [],
-    commandsRan: Array.isArray(input?.commandsRan) ? input.commandsRan : [],
-    results: Array.isArray(input?.results) ? input.results : [],
-  }
-}
-
-function countRolesFromAgents(agents: SwarmFileState['agents'] | undefined): SwarmRoleCounts | null {
-  if (!agents) return null
-
-  const counts: SwarmRoleCounts = {
-    architect: 0,
-    product: 0,
-    developer: 0,
-    frontend: 0,
-    tester: 0,
-    security: 0,
-  }
-
-  for (const agent of Object.values(agents)) {
-    if (!agent?.role || !(agent.role in counts)) continue
-    counts[agent.role] += 1
-  }
-
-  return Object.values(counts).some((count) => count > 0) ? counts : null
-}
-
-function inferAgentStatus(agent: AgentState | undefined, currentTask: SwarmTask | undefined): string {
-  if (currentTask?.status === 'needs_input') return 'needs_input'
-  if (currentTask?.status === 'in_progress') return 'running'
-  if (agent?.status === 'streaming' || agent?.status === 'running') return agent.status
-  return agent?.status ?? 'idle'
-}
-
-function normalizeRuntimeAgents(
-  input: Record<string, SwarmRuntimeAgent> | undefined,
-  roleCounts: SwarmRoleCounts
-): Record<string, SwarmRuntimeAgent> {
-  if (input && Object.keys(input).length > 0) {
-    return input
-  }
-  return buildInitialSwarmAgents(roleCounts)
-}
-
 function joinPath(basePath: string, child: string): string {
-  const separator = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/'
-  const trimmedBase = basePath.replace(/[\\/]+$/, '')
-  return `${trimmedBase}${separator}${child}`
+  const sep = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/'
+  return `${basePath.replace(/[\\/]+$/, '')}${sep}${child}`
 }
 
 export function slugifySwarmName(name: string | null | undefined): string {
@@ -144,7 +21,6 @@ export function slugifySwarmName(name: string | null | undefined): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-
   return slug || 'swarm-team'
 }
 
@@ -172,190 +48,70 @@ export function getSwarmTasksSchemaFilePath(folderPath: string, swarmName?: stri
   return joinPath(getSwarmDirectoryPath(folderPath, swarmName), 'tasks.schema.json')
 }
 
-export function getSwarmMailboxRootPath(folderPath: string, swarmName?: string): string {
-  return joinPath(getSwarmDirectoryPath(folderPath, swarmName), 'mailboxes')
+function isSwarmRole(value: unknown): value is SwarmRole {
+  return ['architect', 'product', 'developer', 'frontend', 'tester', 'security'].includes(value as string)
 }
 
-export function getSwarmAgentMailboxPath(
-  folderPath: string,
-  swarmName: string | undefined,
-  agentId: string
-): string {
-  return joinPath(getSwarmMailboxRootPath(folderPath, swarmName), agentId)
-}
-
-export function getSwarmMailboxMessageFilePath(
-  folderPath: string,
-  swarmName: string | undefined,
-  agentId: string,
-  messageId: string
-): string {
-  return joinPath(getSwarmAgentMailboxPath(folderPath, swarmName, agentId), `${messageId}.json`)
+function countRolesFromAgents(agents: Record<string, { role: SwarmRole }> | undefined): SwarmRoleCounts | null {
+  if (!agents) return null
+  const counts = createDefaultSwarmRoleCounts()
+  for (const key of Object.keys(counts) as SwarmRole[]) counts[key] = 0
+  for (const agent of Object.values(agents)) {
+    if (isSwarmRole(agent?.role)) counts[agent.role] += 1
+  }
+  return Object.values(counts).some((c) => c > 0) ? counts : null
 }
 
 export function serializeSwarmStateFile(args: {
   workspaceId: string
   workspacePath: string
   swarmState: SwarmState
-  agents: Record<string, AgentState>
 }): string {
-  const { workspaceId, workspacePath, swarmState, agents } = args
-  const roster = buildSwarmAgentRosterForState(swarmState)
-  const serialized: SwarmFileState = {
+  const { workspaceId, swarmState } = args
+  const notice = 'DO NOT EDIT THIS FILE DIRECTLY. All updates must go through the swarm tool (swarm task status, swarm task log, swarm plan set, etc.). Direct edits will be overwritten and may corrupt swarm state.'
+  const output = {
+    _notice: notice,
     version: 1,
     swarm: {
       id: `swarm-${workspaceId}-${slugifySwarmName(swarmState.name)}`,
       name: swarmState.name,
       goal: swarmState.goal,
-      status: swarmState.phase,
       planApproved: swarmState.planApproved,
       planReady: swarmState.planReady,
-      planReadyAt: toIso(swarmState.planReadyAt),
+      planReadyAt: swarmState.planReadyAt,
       planReadyBy: swarmState.planReadyBy,
-      taskGraphReplacedAt: toIso(swarmState.taskGraphReplacedAt),
-      taskValidation: swarmState.taskValidation
-        ? {
-            ...swarmState.taskValidation,
-            checkedAt: toIso(swarmState.taskValidation.checkedAt),
-          }
-        : null,
-      workspacePath,
-      checkoutMode: 'shared',
+      taskGraphReplacedAt: swarmState.taskGraphReplacedAt,
+      taskValidation: swarmState.taskValidation,
       updatedAt: new Date().toISOString(),
     },
-    roles: {
-      architect: {
-        label: 'Architect',
-        skills: swarmState.skills.architect,
-        prompt: swarmState.rolePrompts.architect,
-      },
-      product: {
-        label: 'Product Strategist',
-        skills: swarmState.skills.product,
-        prompt: swarmState.rolePrompts.product,
-      },
-      developer: {
-        label: 'Developer',
-        skills: swarmState.skills.developer,
-        prompt: swarmState.rolePrompts.developer,
-      },
-      frontend: {
-        label: 'Frontend Designer',
-        skills: swarmState.skills.frontend,
-        prompt: swarmState.rolePrompts.frontend,
-      },
-      tester: {
-        label: 'Tester',
-        skills: swarmState.skills.tester,
-        prompt: swarmState.rolePrompts.tester,
-      },
-      security: {
-        label: 'Security Specialist',
-        skills: swarmState.skills.security,
-        prompt: swarmState.rolePrompts.security,
-      },
-    },
-    agents: Object.fromEntries(
-      roster.map((rosterAgent) => {
-        const currentTask = swarmState.tasks.find((task) => task.ownerAgentId === rosterAgent.id && task.status !== 'done')
-        const runtimeAgent = swarmState.swarmAgents[rosterAgent.id]
-        return [
-          rosterAgent.id,
-          {
-            role: rosterAgent.role,
-            status: runtimeAgent?.status ?? inferAgentStatus(agents[rosterAgent.id], currentTask),
-            currentTaskId: runtimeAgent?.currentTaskId ?? currentTask?.id ?? null,
-          },
-        ]
-      })
-    ),
-    tasks: swarmState.tasks.map((task) => ({
-      ...task,
-      evidence: normalizeEvidence(task.evidence),
-      startedAt: toIso(task.startedAt),
-      completedAt: toIso(task.completedAt),
-    })),
-    events: swarmState.events.map((event) => ({
-      ...event,
-      timestamp: new Date(event.timestamp).toISOString(),
-    })),
-    artifacts: swarmState.artifacts,
+    agents: swarmState.swarmAgents,
+    tasks: swarmState.tasks,
+    events: swarmState.events,
   }
-
-  return `${JSON.stringify(serialized, null, 2)}\n`
+  return `${JSON.stringify(output, null, 2)}\n`
 }
 
 export function parseSwarmStateFile(content: string): SwarmState {
-  const parsed = JSON.parse(content) as Partial<SwarmFileState>
-  const roleCounts = countRolesFromAgents(parsed.agents) ?? undefined
-  const defaultSkills = createDefaultSwarmSkills()
-  const defaultPrompts = createDefaultSwarmRolePrompts()
+  const parsed = JSON.parse(content) as Record<string, unknown>
+  const swarm = (parsed.swarm ?? {}) as Record<string, unknown>
+  const agents = (parsed.agents ?? {}) as Record<string, SwarmRuntimeAgent>
+  const roleCounts = countRolesFromAgents(agents) ?? createDefaultSwarmRoleCounts()
 
   const candidate: SwarmState = {
-    name: parsed.swarm?.name ?? 'Swarm Team',
-    goal: parsed.swarm?.goal ?? 'Swarm run',
-    agentCount: roleCounts ? Object.values(roleCounts).reduce((sum, count) => sum + count, 0) : 0,
-    roleCounts: roleCounts ?? {
-      architect: 1,
-      product: 1,
-      developer: 1,
-      frontend: 1,
-      tester: 0,
-      security: 0,
-    },
-    skills: {
-      architect: parsed.roles?.architect?.skills ?? defaultSkills.architect,
-      product: parsed.roles?.product?.skills ?? defaultSkills.product,
-      developer: parsed.roles?.developer?.skills ?? defaultSkills.developer,
-      frontend: parsed.roles?.frontend?.skills ?? defaultSkills.frontend,
-      tester: parsed.roles?.tester?.skills ?? defaultSkills.tester,
-      security: parsed.roles?.security?.skills ?? defaultSkills.security,
-    },
-    rolePrompts: {
-      architect: parsed.roles?.architect?.prompt ?? defaultPrompts.architect,
-      product: parsed.roles?.product?.prompt ?? defaultPrompts.product,
-      developer: parsed.roles?.developer?.prompt ?? defaultPrompts.developer,
-      frontend: parsed.roles?.frontend?.prompt ?? defaultPrompts.frontend,
-      tester: parsed.roles?.tester?.prompt ?? defaultPrompts.tester,
-      security: parsed.roles?.security?.prompt ?? defaultPrompts.security,
-    },
-    swarmAgents: normalizeRuntimeAgents(parsed.agents as Record<string, SwarmRuntimeAgent> | undefined, roleCounts ?? {
-      architect: 1,
-      product: 1,
-      developer: 1,
-      frontend: 1,
-      tester: 0,
-      security: 0,
-    }),
-    phase: parsed.swarm?.status ?? 'planning',
-    planApproved: parsed.swarm?.planApproved ?? false,
-    planReady: parsed.swarm?.planReady ?? false,
-    planReadyAt: fromIso(parsed.swarm?.planReadyAt),
-    planReadyBy: parsed.swarm?.planReadyBy ?? null,
-    taskGraphReplacedAt: fromIso(parsed.swarm?.taskGraphReplacedAt),
-    taskValidation: parsed.swarm?.taskValidation
-      ? {
-          ok: Boolean(parsed.swarm.taskValidation.ok),
-          checkedAt: fromIso(parsed.swarm.taskValidation.checkedAt),
-          errors: Array.isArray(parsed.swarm.taskValidation.errors) ? parsed.swarm.taskValidation.errors : [],
-          warnings: Array.isArray(parsed.swarm.taskValidation.warnings) ? parsed.swarm.taskValidation.warnings : [],
-        }
-      : null,
-    artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
-    events: Array.isArray(parsed.events)
-      ? parsed.events.map((event) => ({
-          ...event,
-          timestamp: fromIso(event.timestamp) ?? Date.now(),
-        }))
-      : [],
-    tasks: Array.isArray(parsed.tasks)
-      ? parsed.tasks.map((task) => ({
-          ...task,
-          evidence: normalizeEvidence(task.evidence),
-          startedAt: fromIso(task.startedAt),
-          completedAt: fromIso(task.completedAt),
-        }))
-      : [],
+    name: (swarm.name as string) ?? 'Swarm Team',
+    goal: (swarm.goal as string) ?? '',
+    roleCounts,
+    swarmAgents: Object.keys(agents).length > 0
+      ? agents
+      : Object.fromEntries(buildSwarmAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
+    planApproved: Boolean(swarm.planApproved),
+    planReady: Boolean(swarm.planReady),
+    planReadyAt: (swarm.planReadyAt as string | null) ?? null,
+    planReadyBy: (swarm.planReadyBy as string | null) ?? null,
+    taskGraphReplacedAt: (swarm.taskGraphReplacedAt as string | null) ?? null,
+    taskValidation: (swarm.taskValidation as SwarmState['taskValidation']) ?? null,
+    events: Array.isArray(parsed.events) ? parsed.events as SwarmState['events'] : [],
+    tasks: Array.isArray(parsed.tasks) ? parsed.tasks as SwarmState['tasks'] : [],
   }
 
   return normalizeSwarmState(candidate) ?? candidate
@@ -373,21 +129,10 @@ export function serializeSwarmTasksTemplate(): string {
         ownerAgentId: null,
         dependsOn: [],
         ownedPaths: ['src/path-or-directory'],
-        acceptanceCriteria: [
-          'Specific behavior or outcome that must be true when this task is complete.',
-        ],
-        implementationNotes: [
-          'Important plan details, constraints, or suggested approach from the architect. Keep this concise and do not include timelines, dates, or duration estimates.',
-        ],
-        evidence: {
-          summary: '',
-          touchedFiles: [],
-          commandsRan: [],
-          results: [],
-        },
-        questionsForUser: [],
+        acceptanceCriteria: ['Specific behavior or outcome that must be true when this task is complete.'],
+        implementationNotes: ['Important plan details, constraints, or suggested approach from the architect.'],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
         notes: [],
-        artifacts: [],
         startedAt: null,
         completedAt: null,
       },
@@ -408,30 +153,14 @@ export function serializeSwarmTasksSchema(): string {
         minItems: 1,
         items: {
           type: 'object',
-          required: [
-            'id',
-            'title',
-            'description',
-            'role',
-            'dependsOn',
-            'ownedPaths',
-            'acceptanceCriteria',
-            'implementationNotes',
-          ],
+          required: ['id', 'title', 'description', 'role', 'dependsOn', 'ownedPaths', 'acceptanceCriteria'],
           additionalProperties: true,
           properties: {
             id: { type: 'string', minLength: 1 },
             title: { type: 'string', minLength: 1 },
             description: { type: 'string', minLength: 1 },
-            role: {
-              type: 'string',
-              enum: ['architect', 'product', 'developer', 'frontend', 'tester', 'security'],
-            },
-            status: {
-              type: 'string',
-              enum: ['todo', 'in_progress', 'needs_input', 'done'],
-              default: 'todo',
-            },
+            role: { type: 'string', enum: ['architect', 'product', 'developer', 'frontend', 'tester', 'security'] },
+            status: { type: 'string', enum: ['todo', 'in_progress', 'needs_input', 'done'], default: 'todo' },
             ownerAgentId: { type: ['string', 'null'] },
             dependsOn: { type: 'array', items: { type: 'string' } },
             ownedPaths: { type: 'array', items: { type: 'string' } },
@@ -439,7 +168,6 @@ export function serializeSwarmTasksSchema(): string {
             implementationNotes: { type: 'array', items: { type: 'string' } },
             evidence: {
               type: 'object',
-              additionalProperties: true,
               properties: {
                 summary: { type: 'string' },
                 touchedFiles: { type: 'array', items: { type: 'string' } },
@@ -447,9 +175,7 @@ export function serializeSwarmTasksSchema(): string {
                 results: { type: 'array', items: { type: 'string' } },
               },
             },
-            questionsForUser: { type: 'array', items: { type: 'string' } },
             notes: { type: 'array', items: { type: 'string' } },
-            artifacts: { type: 'array' },
             startedAt: { type: ['string', 'null'] },
             completedAt: { type: ['string', 'null'] },
           },

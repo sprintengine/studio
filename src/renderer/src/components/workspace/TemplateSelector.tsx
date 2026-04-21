@@ -4,7 +4,6 @@ import type {
   LayoutTemplate,
   PreviewSlot,
   SwarmMockConfig,
-  SwarmPromptMap,
   SwarmRole,
   SwarmRoleCounts,
   SwarmSkillMap,
@@ -13,12 +12,10 @@ import type {
 import {
   countSwarmAgents,
   createDefaultSwarmRoleCounts,
-  createDefaultSwarmRolePrompts,
   createDefaultSwarmSkills,
   createInitialSwarmState,
   swarmRoleAccent,
   swarmRoleLabels,
-  swarmTeamPresets,
 } from '../../utils/swarm'
 
 interface Props {
@@ -75,7 +72,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(createDefaultSwarmRoleCounts())
   const [selectedRole, setSelectedRole] = useState<SwarmRole>('architect')
   const [roleSkills, setRoleSkills] = useState<SwarmSkillMap>(createDefaultSwarmSkills())
-  const [rolePrompts, setRolePrompts] = useState<SwarmPromptMap>(createDefaultSwarmRolePrompts())
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -96,12 +92,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     () => ({
       name: swarmTeamName.trim() || name.trim() || 'Swarm Team',
       goal: swarmGoal.trim(),
-      agentCount: totalAgents,
       roleCounts: swarmRoleCounts,
-      skills: roleSkills,
-      rolePrompts,
     }),
-    [name, rolePrompts, roleSkills, swarmGoal, swarmRoleCounts, swarmTeamName, totalAgents]
+    [name, swarmGoal, swarmRoleCounts, swarmTeamName]
   )
 
   const handlePick = async () => {
@@ -110,13 +103,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     setFolderPath(dir)
     if (!nameTouched) setName(basename(dir) || 'workspace')
     if (!swarmTeamNameTouched) setSwarmTeamName(toTitleName(basename(dir)) || 'Swarm Team')
-  }
-
-  const applyPreset = (roleCounts: SwarmRoleCounts) => {
-    setSwarmRoleCounts(roleCounts)
-    if (roleCounts[selectedRole] === 0) {
-      setSelectedRole(ROLES.find((role) => roleCounts[role] > 0) ?? 'architect')
-    }
   }
 
   const adjustRoleCount = (role: SwarmRole, delta: number) => {
@@ -133,13 +119,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     setRoleSkills((current) => ({
       ...current,
       [role]: cleanLines(value),
-    }))
-  }
-
-  const updateRolePrompt = (role: SwarmRole, value: string) => {
-    setRolePrompts((current) => ({
-      ...current,
-      [role]: value,
     }))
   }
 
@@ -282,38 +261,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
             </aside>
           </div>
         ) : (
-          <div className="grid min-h-full gap-4 p-5 xl:grid-cols-[280px_minmax(420px,1fr)_minmax(360px,0.95fr)]">
-            <section className="min-w-0">
-              <div className="mb-3">
-                <div className="text-[11px] font-semibold uppercase text-[#778196]">Presets</div>
-                <div className="mt-1 text-sm text-[#a8b2c3]">Start with a team shape.</div>
-              </div>
-              <div className="space-y-2">
-                {swarmTeamPresets.map((preset) => {
-                  const isSelected = roleCountsEqual(swarmRoleCounts, preset.roleCounts)
-                  return (
-                    <button
-                      key={preset.id}
-                      onClick={() => applyPreset(preset.roleCounts)}
-                      className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                        isSelected
-                          ? 'border-[#6ee7d8]/60 bg-[#14202a]'
-                          : 'border-[#222833] bg-[#11161d] hover:border-[#384456] hover:bg-[#141a23]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-semibold text-[#f2f5f9]">{preset.name}</div>
-                        <div className="rounded-md bg-[#0c1117] px-2 py-1 text-[11px] font-semibold text-[#b6c0cf]">
-                          {countSwarmAgents(preset.roleCounts)}
-                        </div>
-                      </div>
-                      <p className="mt-2 text-[12px] leading-5 text-[#8d96a8]">{preset.description}</p>
-                      <PresetRoleLine roleCounts={preset.roleCounts} />
-                    </button>
-                  )
-                })}
-              </div>
-            </section>
+          <div className="grid min-h-full gap-4 p-5 xl:grid-cols-[minmax(420px,1fr)_minmax(360px,0.95fr)]">
 
             <section className="min-w-0">
               <div className="mb-4 rounded-lg border border-[#2d3746] bg-[#111820] p-4">
@@ -432,14 +380,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                     className="mt-2 min-h-[128px] w-full resize-none rounded-md border border-[#202631] bg-[#0b0f14] px-3 py-2 font-mono text-[12px] leading-5 text-[#e7ecf4] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
                   />
                 </label>
-                <label className="block">
-                  <span className="text-[11px] font-semibold uppercase text-[#778196]">Pre-prompt</span>
-                  <textarea
-                    value={rolePrompts[selectedRole]}
-                    onChange={(event) => updateRolePrompt(selectedRole, event.target.value)}
-                    className="mt-2 min-h-[220px] w-full resize-none rounded-md border border-[#202631] bg-[#0b0f14] px-3 py-2 font-mono text-[12px] leading-5 text-[#e7ecf4] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
-                  />
-                </label>
+                <p className="text-[12px] leading-5 text-[#8d96a8]">
+                  Role prompts are now loaded automatically from the swarm tool when an agent joins.
+                  Run <code className="rounded bg-[#0b0f14] px-1 py-0.5 font-mono text-[11px] text-[#6ee7d8]">swarm join --role {selectedRole} --id {selectedRole}-1</code> to start this specialist.
+                </p>
               </div>
             </aside>
           </div>
@@ -502,46 +446,4 @@ function LayoutPreview({ slots, large = false }: { slots: PreviewSlot[]; large?:
   )
 }
 
-function roleCountsEqual(a: SwarmRoleCounts, b: SwarmRoleCounts): boolean {
-  return (
-    a.architect === b.architect
-    && a.product === b.product
-    && a.developer === b.developer
-    && a.frontend === b.frontend
-    && a.tester === b.tester
-    && a.security === b.security
-  )
-}
 
-function PresetRoleLine({ roleCounts }: { roleCounts: SwarmRoleCounts }) {
-  return (
-    <div className="mt-3 flex flex-wrap gap-1.5">
-      {ROLES.filter((role) => roleCounts[role] > 0).map((role) => (
-        <span
-          key={role}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#27303d] bg-[#0c1117] px-2 py-1 text-[11px] text-[#b8c2d1]"
-        >
-          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: swarmRoleAccent[role] }} />
-          {roleShortLabel(role)} {roleCounts[role]}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function roleShortLabel(role: SwarmRole): string {
-  switch (role) {
-    case 'architect':
-      return 'Arch'
-    case 'product':
-      return 'Product'
-    case 'developer':
-      return 'Dev'
-    case 'frontend':
-      return 'UI'
-    case 'tester':
-      return 'Test'
-    case 'security':
-      return 'Sec'
-  }
-}

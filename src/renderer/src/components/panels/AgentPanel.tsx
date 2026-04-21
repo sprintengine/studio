@@ -59,7 +59,6 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
       cliSessionId: existingSessionId ?? crypto.randomUUID(),
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
-      cliPlanApprovedPromptSent: false,
       cliRestartNonce: (agent?.cliRestartNonce ?? 0) + 1,
     })
   }

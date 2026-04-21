@@ -18,7 +18,7 @@ export default function WorkspaceManager() {
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
-  const importWorkspace = useWorkspaceStore((s) => s.importWorkspace)
+
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
 
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
@@ -121,44 +121,6 @@ export default function WorkspaceManager() {
   const commitRename = () => {
     if (renamingId) renameWorkspace(renamingId, renameValue)
     setRenamingId(null)
-  }
-
-  const handleExport = async (event: React.MouseEvent, workspace: Workspace) => {
-    event.stopPropagation()
-    const filePath = await window.api.saveFile({
-      title: 'Export Workspace',
-      defaultPath: `${workspace.name.replace(/[^a-z0-9_\- ]/gi, '_')}.workspace.json`,
-      filters: [{ name: 'Workspace', extensions: ['json'] }],
-    })
-    if (!filePath) return
-
-    const exportData = {
-      ...workspace,
-      agents: Object.fromEntries(
-        Object.entries(workspace.agents).map(([id, agent]) => [
-          id,
-          { ...agent, streamBuffer: '', status: 'idle' as const },
-        ])
-      ),
-    }
-
-    await window.api.writefile(filePath, JSON.stringify(exportData, null, 2))
-  }
-
-  const handleImport = async () => {
-    const filePath = await window.api.openFile({
-      title: 'Import Workspace',
-      filters: [{ name: 'Workspace', extensions: ['json'] }],
-    })
-    if (!filePath) return
-
-    try {
-      const raw = await window.api.readfile(filePath)
-      const workspace = JSON.parse(raw) as Workspace
-      importWorkspace(workspace)
-    } catch {
-      console.error('[import] Failed to parse workspace file')
-    }
   }
 
   const addNewCLI = () => {

@@ -16,8 +16,6 @@ import {
 import { renderMarkdown } from '../../utils/markdown'
 import {
   getSwarmDirectoryPath,
-  getSwarmMailboxMessageFilePath,
-  getSwarmMailboxRootPath,
   getSwarmPlanFilePath,
   getSwarmRootDirectoryPath,
   getSwarmTasksSchemaFilePath,
@@ -67,6 +65,7 @@ type SyncState = {
   message: string
 }
 
+
 type PlanReviewState = {
   open: boolean
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -104,7 +103,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     message: 'Waiting for a swarm workspace folder.',
   })
   const lastSyncedContentRef = useRef<string | null>(null)
-  const externalReadTimerRef = useRef<number | null>(null)
 
   const swarmState = workspace?.swarmState ?? null
   const effectiveView = fixedView ?? activeView
@@ -127,9 +125,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       workspaceId,
       workspacePath: folderPath,
       swarmState,
-      agents,
     })
-  }, [agents, folderPath, swarmState, workspace, workspaceId])
+  }, [folderPath, swarmState, workspace, workspaceId])
 
   useEffect(() => {
     if (!swarmState || !folderPath || !serializedState) {
@@ -146,7 +143,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       try {
         const swarmRootDirectory = getSwarmRootDirectoryPath(folderPath)
         const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
-        const mailboxRootPath = getSwarmMailboxRootPath(folderPath, swarmName)
         const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
         const tasksTemplateFilePath = getSwarmTasksTemplateFilePath(folderPath, swarmName)
         const tasksSchemaFilePath = getSwarmTasksSchemaFilePath(folderPath, swarmName)
@@ -161,10 +157,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           await window.api.createDir(folderPath, 'swarm').catch(() => {})
         }
         await window.api.createDir(swarmRootDirectory, slugifySwarmName(swarmName)).catch(() => {})
-        await window.api.createDir(swarmDirectory, 'mailboxes').catch(() => {})
-        for (const rosterAgent of roster) {
-          await window.api.createDir(mailboxRootPath, rosterAgent.id).catch(() => {})
-        }
 
         if (cancelled) return
         if (lastSyncedContentRef.current === serializedState) {
@@ -200,16 +192,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     return () => {
       cancelled = true
     }
-  }, [folderPath, roster, serializedState, swarmName, swarmState, workspaceId])
+  }, [folderPath, serializedState, swarmName, swarmState, workspaceId])
 
   useEffect(() => {
     if (!swarmState || !folderPath) return
 
     let disposed = false
     let stopWatching: (() => Promise<void>) | null = null
-    const swarmRootDirectory = getSwarmRootDirectoryPath(folderPath)
     const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
     const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
+    let debounce: number | null = null
 
     const readExternalState = async () => {
       try {
@@ -218,64 +210,25 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         const parsed = parseSwarmStateFile(content)
         lastSyncedContentRef.current = content
         setSwarmState(workspaceId, parsed)
-        setSyncState({ status: 'live', message: `Loaded external swarm update from ${stateFilePath}` })
-      } catch (error) {
-        if (disposed) return
-        setSyncState({
-          status: 'error',
-          message: error instanceof Error ? error.message : 'Failed to read shared swarm state.',
-        })
-      }
-    }
-
-    const scheduleExternalRead = () => {
-      if (externalReadTimerRef.current !== null) {
-        window.clearTimeout(externalReadTimerRef.current)
-      }
-
-      externalReadTimerRef.current = window.setTimeout(() => {
-        void readExternalState()
-      }, 120)
+      } catch { /* file not yet written */ }
     }
 
     const startWatching = async () => {
       try {
-        const entries = await window.api.readdir(folderPath)
-        if (!entries.some((entry) => entry.isDir && entry.name === 'swarm')) {
-          await window.api.createDir(folderPath, 'swarm')
-        }
-        await window.api.createDir(swarmRootDirectory, slugifySwarmName(swarmName)).catch(() => {})
-
         stopWatching = await window.api.watchPath(swarmDirectory, (event) => {
           if (event.path && !event.path.endsWith('state.yaml')) return
-          scheduleExternalRead()
+          if (debounce !== null) window.clearTimeout(debounce)
+          debounce = window.setTimeout(() => { void readExternalState() }, 120)
         })
-      } catch (error) {
-        if (disposed) return
-        setSyncState({
-          status: 'error',
-          message: error instanceof Error ? error.message : 'Failed to watch swarm directory.',
-        })
-      }
+      } catch { /* directory may not exist yet */ }
     }
 
-    void startWatching().catch((error) => {
-      if (disposed) return
-      setSyncState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Failed to watch swarm directory.',
-      })
-    })
+    void startWatching()
 
     return () => {
       disposed = true
-      if (externalReadTimerRef.current !== null) {
-        window.clearTimeout(externalReadTimerRef.current)
-        externalReadTimerRef.current = null
-      }
-      if (stopWatching) {
-        void stopWatching()
-      }
+      if (debounce !== null) window.clearTimeout(debounce)
+      if (stopWatching) void stopWatching()
     }
   }, [folderPath, setSwarmState, swarmName, swarmState, workspaceId])
 
@@ -344,7 +297,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         cliSessionId: crypto.randomUUID(),
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
-        cliPlanApprovedPromptSent: false,
         cliRestartNonce: 1,
       })
     }
@@ -366,7 +318,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           : crypto.randomUUID(),
         cliHasLaunched: current?.cliStartRequested ? current.cliHasLaunched ?? false : false,
         cliOnboardingPromptSent: current?.cliStartRequested ? current.cliOnboardingPromptSent ?? false : false,
-        cliPlanApprovedPromptSent: current?.cliStartRequested ? current.cliPlanApprovedPromptSent ?? false : false,
       })
     }
     focusOrAddAgentTab(workspaceId, agentId, label)
@@ -444,48 +395,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setPlanReview((current) => ({ ...current, open: false }))
   }
 
-  const writePlanApprovedMailboxes = async () => {
-    if (!folderPath) return
-    const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
-    const mailboxRootPath = getSwarmMailboxRootPath(folderPath, swarmName)
-
-    await window.api.createDir(swarmDirectory, 'mailboxes').catch(() => {})
-
-    await Promise.all(roster
-      .filter((agent) => agent.role !== 'architect')
-      .map(async (agent) => {
-        await window.api.createDir(mailboxRootPath, agent.id).catch(() => {})
-
-        const messageId = `${Date.now()}-plan-approved-${agent.id}`
-        const roleInstruction = agent.role === 'product'
-          ? `Review your mailbox, then run \`swarm claim-next-task --role product --agent-id ${agent.id}\` if a product research, competitor analysis, audience, positioning, or adoption-risk task is ready.`
-          : `Review your mailbox, then run \`swarm claim-next-task --role ${agent.role} --agent-id ${agent.id}\` to pick up approved work for your specialty.`
-        const payload = {
-          id: messageId,
-          from: 'architect',
-          to: agent.id,
-          subject: 'Plan approved',
-          createdAt: new Date().toISOString(),
-          body: [
-            `The swarm plan for "${swarmState.name}" has been approved.`,
-            'Before your first board mutation, run `swarm --help`. Before using a subcommand for the first time, run `swarm <subcommand> --help` and follow the exact flags shown there.',
-            roleInstruction,
-            'If this Claude process was restarted, keep using the same swarm agent id. The claim command will return that slot\'s existing active task before claiming new work.',
-            'Continue polling your mailbox about every 30 seconds with `swarm get-mailbox --agent-id <your-agent-id> --consume` while you are active.',
-            'Do not manually edit swarm/state.yaml; use the swarm tool for task claiming, notes, evidence, and status updates.',
-          ].join('\n\n'),
-        }
-
-        await window.api.writefile(
-          getSwarmMailboxMessageFilePath(folderPath, swarmName, agent.id, messageId),
-          `${JSON.stringify(payload, null, 2)}\n`
-        )
-      }))
-  }
-
-  const approveFromPlanReview = async () => {
+  const approveFromPlanReview = () => {
     if (!swarmState.planReady) return
-    await writePlanApprovedMailboxes()
     approveSwarmPlan(workspaceId)
     setPlanReview((current) => ({ ...current, open: false }))
   }
@@ -558,7 +469,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-zinc-400">
-            <span><span className="text-zinc-600">Phase</span> <span className="capitalize text-zinc-200">{swarmState.phase.replace('_', ' ')}</span></span>
+            <span><span className="text-zinc-600">Phase</span> <span className="capitalize text-zinc-200">{swarmState.planApproved ? 'Executing' : swarmState.planReady ? 'Awaiting Approval' : 'Planning'}</span></span>
             <span><span className="text-zinc-600">Plan</span> <span className="text-zinc-200">{getPlanMetricValue(swarmState)}</span></span>
             <span><span className="text-zinc-600">Done</span> <span className="text-zinc-200">{doneCount}/{swarmState.tasks.length}</span></span>
             <span><span className="text-zinc-600">Active</span> <span className="text-zinc-200">{activeCount} running, {needsInputCount} waiting</span></span>
@@ -661,11 +572,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       <span className="rounded-full border border-[#2c313b] px-2 py-1">
                         {task.acceptanceCriteria.length} checks
                       </span>
-                      {task.questionsForUser.length > 0 ? (
-                        <span className="rounded-full border border-rose-900/70 bg-rose-950/40 px-2 py-1 text-rose-200">
-                          {task.questionsForUser.length} question{task.questionsForUser.length === 1 ? '' : 's'}
-                        </span>
-                      ) : null}
                       {task.dependsOn.length > 0 ? (
                         <span className="rounded-full border border-[#2c313b] px-2 py-1">
                           {task.dependsOn.length} deps
@@ -788,12 +694,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 emptyLabel="No implementation notes recorded."
               />
               <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
-              <SectionList
-                title="Questions For User"
-                items={selectedTask.questionsForUser}
-                emptyLabel="No outstanding questions."
-              />
-              {selectedTask.status === 'needs_input' || selectedTask.questionsForUser.length > 0 ? (
+              {selectedTask.status === 'needs_input' ? (
                 <div className="rounded-2xl border border-amber-900/70 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
                   Respond in the highlighted CLI for this worker. The terminal stays the single place to unblock the task.
                 </div>
@@ -1044,7 +945,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 <div className="mt-1 text-sm font-medium">{planReadiness.message}</div>
                 <div className="mt-1 text-[12px] opacity-80">{planReadiness.detail}</div>
                 {swarmState.taskValidation ? (
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
                     <InfoCard
                       label="Validation"
                       value={swarmState.taskValidation.ok ? 'Passed' : 'Failed'}
@@ -1052,10 +953,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                     <InfoCard
                       label="Warnings"
                       value={String(swarmState.taskValidation.warnings.length)}
-                    />
-                    <InfoCard
-                      label="Checked"
-                      value={formatTimestamp(swarmState.taskValidation.checkedAt)}
                     />
                   </div>
                 ) : null}
@@ -1107,7 +1004,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               <div className="text-[12px] text-zinc-500">
                 {swarmState.planReady
                   ? 'Plan approval unlocks worker start buttons. Confirm this plan and task graph match your intent.'
-                  : 'The architect must run `swarm mark-plan-ready --actor architect` before workers can start.'}
+                  : 'The architect must run `swarm plan ready` before workers can start.'}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {planFilePath ? (
@@ -1119,7 +1016,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   </button>
                 ) : null}
                 <button
-                  onClick={() => void approveFromPlanReview()}
+                  onClick={approveFromPlanReview}
                   disabled={planReview.status !== 'ready' || !swarmState.planReady}
                   className="rounded-xl border border-amber-300/40 bg-amber-200 px-4 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100 disabled:opacity-40 disabled:hover:bg-amber-200"
                 >
@@ -1252,7 +1149,7 @@ function SwarmMapView({
         <div className="mb-5">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">Swarm State</div>
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-            <InfoCard label="Phase" value={swarmState.phase.replace('_', ' ')} />
+            <InfoCard label="Phase" value={swarmState.planApproved ? 'Executing' : swarmState.planReady ? 'Awaiting Approval' : 'Planning'} />
             <InfoCard label="Plan" value={getPlanMetricValue(swarmState)} />
             <InfoCard label="Tasks" value={`${doneCount}/${swarmState.tasks.length} done`} />
             <InfoCard label="Agents" value={`${activeCount} run, ${needsInputCount} wait`} />
@@ -1381,12 +1278,12 @@ function SectionList({
   )
 }
 
-function formatTimestamp(value: number | null): string {
+function formatTimestamp(value: string | null): string {
   if (!value) return 'Not started'
   return new Date(value).toLocaleString()
 }
 
-function formatTimestampShort(value: number): string {
+function formatTimestampShort(value: string): string {
   return new Date(value).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -1491,7 +1388,7 @@ function getPlanReadiness(swarmState: SwarmState): {
     return {
       label: 'Awaiting Ready Signal',
       message: 'The task graph was replaced, but the architect has not marked the plan ready yet.',
-      detail: 'The architect should run `swarm mark-plan-ready --actor architect` after final checks.',
+      detail: 'The architect should run `swarm plan ready` after final checks.',
       panelTone: 'border-amber-400/30 bg-amber-950/20 text-amber-100',
     }
   }
@@ -1532,7 +1429,7 @@ function buildRunSummary(tasks: SwarmTask[]) {
     return `${task.id} - ${task.title}: ${summary}`
   })
   const openQuestions = tasks.flatMap((task) =>
-    task.questionsForUser.map((question) => `${task.id}: ${question}`)
+    task.notes.map((note) => `${task.id}: ${note}`)
   )
 
   return {

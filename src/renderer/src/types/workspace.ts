@@ -23,26 +23,15 @@ export type LayoutTemplate = {
 export type SwarmRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security'
 
 export type SwarmSkillMap = Record<SwarmRole, string[]>
-export type SwarmPromptMap = Record<SwarmRole, string>
 export type SwarmRoleCounts = Record<SwarmRole, number>
-
-export type SwarmPhase = 'planning' | 'awaiting_approval' | 'executing' | 'completed'
 
 export type SwarmTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'done'
 
 export type SwarmTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done'
 
-export type SwarmArtifact = {
-  id: string
-  type: string
-  title: string
-  path?: string
-  content?: string
-}
-
 export type SwarmEvent = {
   id: string
-  timestamp: number
+  timestamp: string
   type: string
   actor: string
   message: string
@@ -57,18 +46,11 @@ export type SwarmTaskEvidence = {
 
 export type SwarmTaskValidation = {
   ok: boolean
-  checkedAt: number | null
   errors: string[]
   warnings: string[]
 }
 
-export type SwarmRuntimeAgentStatus =
-  | 'idle'
-  | 'planning'
-  | 'running'
-  | 'needs_input'
-  | 'complete'
-  | 'error'
+export type SwarmRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'
 
 export type SwarmRuntimeAgent = {
   role: SwarmRole
@@ -88,37 +70,27 @@ export type SwarmTask = {
   acceptanceCriteria: string[]
   implementationNotes: string[]
   evidence: SwarmTaskEvidence
-  questionsForUser: string[]
   notes: string[]
-  artifacts: SwarmArtifact[]
-  startedAt: number | null
-  completedAt: number | null
+  startedAt: string | null
+  completedAt: string | null
 }
 
 export type SwarmState = {
   name: string
   goal: string
-  agentCount: number
   roleCounts: SwarmRoleCounts
-  skills: SwarmSkillMap
-  rolePrompts: SwarmPromptMap
   swarmAgents: Record<string, SwarmRuntimeAgent>
-  phase: SwarmPhase
   planApproved: boolean
   planReady: boolean
-  planReadyAt: number | null
+  planReadyAt: string | null
   planReadyBy: string | null
-  taskGraphReplacedAt: number | null
+  taskGraphReplacedAt: string | null
   taskValidation: SwarmTaskValidation | null
-  artifacts: SwarmArtifact[]
   events: SwarmEvent[]
   tasks: SwarmTask[]
 }
 
-export type SwarmMockConfig = Pick<
-  SwarmState,
-  'name' | 'goal' | 'agentCount' | 'roleCounts' | 'skills' | 'rolePrompts'
->
+export type SwarmMockConfig = Pick<SwarmState, 'name' | 'goal' | 'roleCounts'>
 
 export type AgentMessage = {
   role: 'user' | 'assistant' | 'system'
@@ -139,7 +111,6 @@ export type AgentState = {
   cliRestartNonce?: number
   cliHasLaunched?: boolean
   cliOnboardingPromptSent?: boolean
-  cliPlanApprovedPromptSent?: boolean
 }
 
 export type AgentConfig = {
