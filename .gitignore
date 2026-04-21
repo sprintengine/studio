@@ -16,6 +16,13 @@ pnpm-debug.log*
 *.tsbuildinfo
 *.log
 
+# electron-vite temp config
+electron.vite.config.*.mjs
+
+# Local tool settings
+.claude/settings.local.json
+.grok/settings.json
+
 # Editor directories and files
 .idea
 .vscode
