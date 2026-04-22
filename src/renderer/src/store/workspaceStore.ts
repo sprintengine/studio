@@ -12,6 +12,7 @@ import type {
   EditorState,
   SwarmState,
   SwarmRole,
+  AgentCli,
 } from '../types/workspace'
 import { detectLanguage } from '../utils/files'
 import {
@@ -41,7 +42,6 @@ interface WorkspaceStore {
     workspaceId: WorkspaceId,
     role: SwarmRole
   ) => { id: AgentId; label: string } | null
-  approveSwarmPlan: (workspaceId: WorkspaceId) => void
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   importWorkspace: (ws: Workspace) => void
@@ -67,6 +67,7 @@ const defaultAgent = (id: AgentId, name = id): AgentState => ({
   cliRestartNonce: 0,
   cliHasLaunched: false,
   cliOnboardingPromptSent: false,
+  cli: 'codex' as AgentCli,
 })
 
 const defaultEditorState = (): EditorState => ({
@@ -277,21 +278,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
         return addedAgent
       },
-
-      approveSwarmPlan: (workspaceId) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws?.swarmState || ws.swarmState.planApproved || !ws.swarmState.planReady) return
-
-          ws.swarmState.planApproved = true
-          ws.swarmState.events.push({
-            id: `EVT-${String(ws.swarmState.events.length + 1).padStart(3, '0')}`,
-            timestamp: new Date().toISOString(),
-            type: 'plan_approved',
-            actor: 'user',
-            message: 'Plan approved. Worker execution is now active.',
-          })
-        }),
 
       appendStream: (workspaceId, agentId, chunk) =>
         set((state) => {

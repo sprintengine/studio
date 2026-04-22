@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
+  AgentCli,
   SwarmRole,
   SwarmState,
   SwarmTask,
@@ -18,13 +19,9 @@ import {
   getSwarmDirectoryPath,
   getSwarmPlanFilePath,
   getSwarmRootDirectoryPath,
-  getSwarmTasksSchemaFilePath,
-  getSwarmTasksTemplateFilePath,
   getSwarmStateFilePath,
   parseSwarmStateFile,
   serializeSwarmStateFile,
-  serializeSwarmTasksSchema,
-  serializeSwarmTasksTemplate,
   slugifySwarmName,
 } from '../../utils/swarmStateFile'
 import { focusOrAddAgentTab, focusOrAddComponentTab } from '../../utils/modelRegistry'
@@ -45,6 +42,10 @@ const taskStateLabel: Record<SwarmTaskStatus, string> = {
 }
 
 const addableRoles: SwarmRole[] = ['product', 'frontend', 'developer', 'tester', 'security']
+const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
+  { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
+  { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
+]
 
 const roleSummaries: Record<SwarmRole, string> = {
   architect: 'Plans the run and gates readiness.',
@@ -76,18 +77,24 @@ type PlanReviewState = {
 
 type SwarmView = 'map' | 'kanban'
 
+type SpawnDialogState = {
+  agentId: string
+  cli: AgentCli
+}
+
 export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const workspace = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
   )
   const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
-  const approveSwarmPlan = useWorkspaceStore((s) => s.approveSwarmPlan)
   const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<SwarmView>('map')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
+  const [cliPickerOpen, setCliPickerOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
   const [showRunSummary, setShowRunSummary] = useState(false)
@@ -103,6 +110,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     message: 'Waiting for a swarm workspace folder.',
   })
   const lastSyncedContentRef = useRef<string | null>(null)
+  const initialReadDoneRef = useRef(false)
 
   const swarmState = workspace?.swarmState ?? null
   const effectiveView = fixedView ?? activeView
@@ -144,19 +152,24 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         const swarmRootDirectory = getSwarmRootDirectoryPath(folderPath)
         const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
         const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
-        const tasksTemplateFilePath = getSwarmTasksTemplateFilePath(folderPath, swarmName)
-        const tasksSchemaFilePath = getSwarmTasksSchemaFilePath(folderPath, swarmName)
         setSyncState({ status: 'syncing', message: 'Writing swarm state to disk...' })
 
-        try {
-          const entries = await window.api.readdir(folderPath)
-          if (!entries.some((entry) => entry.isDir && entry.name === 'swarm')) {
-            await window.api.createDir(folderPath, 'swarm')
-          }
-        } catch {
-          await window.api.createDir(folderPath, 'swarm').catch(() => {})
+        // On first mount, read the existing state file before writing so we
+        // don't clobber an in-progress swarm with a fresh Zustand state.
+        if (!initialReadDoneRef.current) {
+          initialReadDoneRef.current = true
+          try {
+            const existing = await window.api.readfile(stateFilePath)
+            if (cancelled) return
+            const parsed = parseSwarmStateFile(existing)
+            lastSyncedContentRef.current = existing
+            setSwarmState(workspaceId, parsed)
+            return // re-render will re-run this effect with the correct state
+          } catch { /* file doesn't exist yet — proceed to write */ }
         }
-        await window.api.createDir(swarmRootDirectory, slugifySwarmName(swarmName)).catch(() => {})
+
+        await window.api.ensureDir(folderPath, 'swarm')
+        await window.api.ensureDir(swarmRootDirectory, slugifySwarmName(swarmName))
 
         if (cancelled) return
         if (lastSyncedContentRef.current === serializedState) {
@@ -165,16 +178,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         }
 
         await window.api.writefile(stateFilePath, serializedState)
-        try {
-          await window.api.readfile(tasksTemplateFilePath)
-        } catch {
-          await window.api.writefile(tasksTemplateFilePath, serializeSwarmTasksTemplate())
-        }
-        try {
-          await window.api.readfile(tasksSchemaFilePath)
-        } catch {
-          await window.api.writefile(tasksSchemaFilePath, serializeSwarmTasksSchema())
-        }
         if (cancelled) return
         lastSyncedContentRef.current = serializedState
         setSyncState({ status: 'live', message: `Shared state live at ${swarmDirectory}` })
@@ -248,7 +251,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     return columnMeta.map((column) => ({
       ...column,
       cards: swarmState.tasks.filter(
-        (task) => getSwarmTaskBoardColumn(task, swarmState.tasks, swarmState.planApproved) === column.key
+        (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === column.key
       ),
     }))
   }, [swarmState])
@@ -266,12 +269,20 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const doneCount = swarmState.tasks.filter((task) => task.status === 'done').length
   const activeCount = runtimeAgents.filter((agent) => agent.status === 'running').length
   const needsInputCount = runtimeAgents.filter((agent) => agent.status === 'needs_input').length
+  const runPhase = getRunPhase(swarmState, runtimeAgents)
   const allTasksDone = swarmState.tasks.length > 0 && doneCount === swarmState.tasks.length
   const runSummary = buildRunSummary(swarmState.tasks)
   const architectAgentId = roster.find((agent) => agent.role === 'architect')?.id ?? null
   const planFilePath = folderPath ? getSwarmPlanFilePath(folderPath, swarmName) : null
-  const planReadiness = getPlanReadiness(swarmState)
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
+  const workerRoles: SwarmRole[] = ['developer', 'frontend', 'product', 'tester', 'security']
+  const spawnDialogAgent = spawnDialog ? rosterById[spawnDialog.agentId] : undefined
+  const spawnDialogRuntime = spawnDialog
+    ? runtimeAgents.find((agent) => agent.agentId === spawnDialog.agentId)
+    : undefined
+  const spawnDialogAgentState = spawnDialog ? agents[spawnDialog.agentId] : undefined
+  const spawnDialogIsRunning = Boolean(spawnDialogAgentState?.cliStartRequested)
+  const selectedCliOption = cliOptions.find((option) => option.value === spawnDialog?.cli) ?? cliOptions[0]
 
   const activateView = (view: SwarmView) => {
     if (fixedView) return
@@ -291,36 +302,66 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     const addedAgent = addSwarmMember(workspaceId, addMemberRole)
     if (!addedAgent) return
 
-    if (swarmState.planApproved) {
-      updateAgent(workspaceId, addedAgent.id, {
-        cliStartRequested: true,
-        cliSessionId: crypto.randomUUID(),
-        cliHasLaunched: false,
-        cliOnboardingPromptSent: false,
-        cliRestartNonce: 1,
-      })
-    }
+    startAgentTerminal(addedAgent.id, addedAgent.label)
     setSelectedAgentId(addedAgent.id)
     setAddMemberOpen(false)
-    focusOrAddAgentTab(workspaceId, addedAgent.id, addedAgent.label)
+  }
+
+  const startAgentTerminal = (agentId: string, label: string, cli?: AgentCli) => {
+    const current = agents[agentId]
+    const selectedCli = cli ?? current?.cli ?? 'codex'
+    const shouldResetSession = current?.cli !== undefined && current.cli !== selectedCli
+    updateAgent(workspaceId, agentId, {
+      cliStartRequested: true,
+      cliSessionId: current?.cliStartRequested && current.cliSessionId && !shouldResetSession
+        ? current.cliSessionId
+        : crypto.randomUUID(),
+      cliHasLaunched: current?.cliStartRequested && !shouldResetSession ? current.cliHasLaunched ?? false : false,
+      cliOnboardingPromptSent: current?.cliStartRequested && !shouldResetSession ? current.cliOnboardingPromptSent ?? false : false,
+      cli: selectedCli,
+    })
+    focusOrAddAgentTab(workspaceId, agentId, label)
   }
 
   const openAgentTerminal = (agentId: string) => {
-    const role = rosterById[agentId]?.role
     const label = rosterById[agentId]?.label ?? agentId
-    const current = agents[agentId]
     setSelectedAgentId(agentId)
-    if (role === 'architect' || swarmState.planApproved) {
-      updateAgent(workspaceId, agentId, {
-        cliStartRequested: true,
-        cliSessionId: current?.cliStartRequested && current.cliSessionId
-          ? current.cliSessionId
-          : crypto.randomUUID(),
-        cliHasLaunched: current?.cliStartRequested ? current.cliHasLaunched ?? false : false,
-        cliOnboardingPromptSent: current?.cliStartRequested ? current.cliOnboardingPromptSent ?? false : false,
-      })
+    startAgentTerminal(agentId, label)
+  }
+
+  const openSpawnDialog = (agentId: string) => {
+    const agentState = agents[agentId]
+    setSelectedAgentId(agentId)
+    setCliPickerOpen(false)
+    setSpawnDialog({
+      agentId,
+      cli: agentState?.cliStartRequested ? agentState.cli ?? 'codex' : 'codex',
+    })
+  }
+
+  const confirmSpawnDialog = () => {
+    if (!spawnDialog) return
+    const label = rosterById[spawnDialog.agentId]?.label ?? spawnDialog.agentId
+    startAgentTerminal(spawnDialog.agentId, label, spawnDialog.cli)
+    setCliPickerOpen(false)
+    setSpawnDialog(null)
+  }
+
+  const spawnRole = (role: SwarmRole) => {
+    const existing = roster.find((agent) => agent.role === role && !agents[agent.id]?.cliStartRequested)
+      ?? roster.find((agent) => agent.role === role)
+
+    if (existing) {
+      setSelectedAgentId(existing.id)
+      startAgentTerminal(existing.id, existing.label)
+      return
     }
-    focusOrAddAgentTab(workspaceId, agentId, label)
+
+    const addedAgent = addSwarmMember(workspaceId, role)
+    if (!addedAgent) return
+
+    setSelectedAgentId(addedAgent.id)
+    startAgentTerminal(addedAgent.id, addedAgent.label)
   }
 
   const loadPlanReview = async () => {
@@ -345,15 +386,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     }))
 
     try {
-      try {
-        const entries = await window.api.readdir(folderPath)
-        if (!entries.some((entry) => entry.isDir && entry.name === 'swarm')) {
-          await window.api.createDir(folderPath, 'swarm')
-        }
-      } catch {
-        await window.api.createDir(folderPath, 'swarm').catch(() => {})
-      }
-      await window.api.createDir(swarmRootDirectory, slugifySwarmName(swarmName)).catch(() => {})
+      await window.api.ensureDir(folderPath, 'swarm')
+      await window.api.ensureDir(swarmRootDirectory, slugifySwarmName(swarmName))
 
       let content = ''
       try {
@@ -395,46 +429,35 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setPlanReview((current) => ({ ...current, open: false }))
   }
 
-  const approveFromPlanReview = () => {
-    if (!swarmState.planReady) return
-    approveSwarmPlan(workspaceId)
-    setPlanReview((current) => ({ ...current, open: false }))
-  }
-
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[#0f1012] text-zinc-100">
       <div className="border-b border-[#23262d] bg-[#121419] px-5 py-4">
-        {!swarmState.planApproved ? (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#5f4b2d] bg-[#1d1813] px-4 py-3">
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-300">
-                {planReadiness.label}
-              </div>
-              <div className="mt-1 text-sm font-medium text-amber-100">
-                {planReadiness.message}
-              </div>
-              <div className="mt-1 text-[12px] text-amber-200/80">
-                {planReadiness.detail}
-              </div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#2a3442] bg-[#151a22] px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-sky-300">
+              Manual Swarm Launch
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {architectAgentId ? (
-                <button
-                  onClick={() => openAgentTerminal(architectAgentId)}
-                  className="rounded-md border border-amber-300/25 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-100 transition-colors hover:bg-amber-200/15"
-                >
-                  Focus Architect
-                </button>
-              ) : null}
-              <button
-                onClick={() => void loadPlanReview()}
-                className="rounded-md border border-amber-300/40 bg-amber-200 px-4 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100"
-              >
-                Review Plan
-              </button>
+            <div className="mt-1 text-sm font-medium text-zinc-100">
+              Review the architect plan, then spawn the specialists you want to run.
             </div>
           </div>
-        ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {architectAgentId ? (
+              <button
+                onClick={() => openAgentTerminal(architectAgentId)}
+                className="rounded-md border border-amber-300/25 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-100 transition-colors hover:bg-amber-200/15"
+              >
+                {agents[architectAgentId]?.cliStartRequested ? 'Focus Architect' : 'Spawn Architect'}
+              </button>
+            ) : null}
+            <button
+              onClick={() => void loadPlanReview()}
+              className="rounded-md border border-sky-300/40 bg-sky-200 px-4 py-2 text-sm font-semibold text-sky-950 transition-colors hover:bg-sky-100"
+            >
+              Review Plan
+            </button>
+          </div>
+        </div>
 
         {allTasksDone ? (
           <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-emerald-400/30 bg-emerald-950/20 px-4 py-3 shadow-[0_0_30px_rgba(16,185,129,0.08)]">
@@ -469,17 +492,34 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-zinc-400">
-            <span><span className="text-zinc-600">Phase</span> <span className="capitalize text-zinc-200">{swarmState.planApproved ? 'Executing' : swarmState.planReady ? 'Awaiting Approval' : 'Planning'}</span></span>
-            <span><span className="text-zinc-600">Plan</span> <span className="text-zinc-200">{getPlanMetricValue(swarmState)}</span></span>
+            <span><span className="text-zinc-600">Phase</span> <span className="capitalize text-zinc-200">{runPhase}</span></span>
+            <span><span className="text-zinc-600">Tasks</span> <span className="text-zinc-200">{swarmState.tasks.length}</span></span>
             <span><span className="text-zinc-600">Done</span> <span className="text-zinc-200">{doneCount}/{swarmState.tasks.length}</span></span>
             <span><span className="text-zinc-600">Active</span> <span className="text-zinc-200">{activeCount} running, {needsInputCount} waiting</span></span>
-            <button
-              onClick={openAddMemberDialog}
-              className="ml-0 rounded-md border border-[#2f3948] bg-[#19202a] px-3 py-1.5 text-sm font-semibold text-zinc-100 transition-colors hover:border-[#4a5668] hover:bg-[#202938] sm:ml-2"
-            >
-              + Team Member
-            </button>
           </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {workerRoles.map((role) => {
+            const existing = roster.find((agent) => agent.role === role)
+            const isRunning = existing ? Boolean(agents[existing.id]?.cliStartRequested) : false
+            const label = existing?.label ?? swarmRoleLabels[role]
+            return (
+              <button
+                key={role}
+                onClick={() => spawnRole(role)}
+                className="rounded-md border border-[#2f3948] bg-[#19202a] px-3 py-1.5 text-sm font-semibold text-zinc-100 transition-colors hover:border-[#4a5668] hover:bg-[#202938]"
+              >
+                {isRunning ? `Focus ${label}` : `Spawn ${label}`}
+              </button>
+            )
+          })}
+          <button
+            onClick={openAddMemberDialog}
+            className="rounded-md border border-[#2a2e36] bg-[#171a20] px-3 py-1.5 text-sm font-semibold text-zinc-400 transition-colors hover:bg-[#1b1f26] hover:text-zinc-100"
+          >
+            More Roles
+          </button>
         </div>
 
         {!fixedView ? (
@@ -512,8 +552,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           roster={roster}
           rosterById={rosterById}
           runtimeAgents={runtimeAgents}
+          runPhase={runPhase}
           selectedAgentId={resolvedSelectedAgentId}
-          onSelectAgent={openAgentTerminal}
+          onSelectAgent={openSpawnDialog}
         />
       ) : null}
 
@@ -524,7 +565,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             <div className="max-w-xl">
               <div className="text-sm font-semibold text-zinc-100">Waiting for the architect plan</div>
               <p className="mt-2 text-sm leading-6 text-zinc-400">
-                The board will populate after the architect writes the named team plan, creates swarm/tasks.json, replaces the task graph, and marks it ready for review.
+                The board will populate as the architect adds tasks through the swarm tool.
               </p>
             </div>
           </div>
@@ -606,6 +647,152 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           </section>
         )) : null}
       </div>
+      ) : null}
+
+      {spawnDialog && spawnDialogAgent ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303542] bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
+              <div className="min-w-0">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-sky-300">
+                  Spawn Agent
+                </div>
+                <h3 className="truncate text-[20px] font-semibold tracking-tight text-zinc-100">
+                  {spawnDialogAgent.label}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">
+                  Choose the CLI for this specialist, then open its terminal on the right.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setCliPickerOpen(false)
+                  setSpawnDialog(null)
+                }}
+                className="rounded-md border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InfoCard label="Role" value={swarmRoleLabels[spawnDialogAgent.role]} />
+                <InfoCard label="Status" value={runtimeStatusLabel(spawnDialogRuntime?.status ?? 'idle')} />
+              </div>
+
+              <div className="relative">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                  CLI
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCliPickerOpen((open) => !open)}
+                  aria-haspopup="listbox"
+                  aria-expanded={cliPickerOpen}
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-lg border border-[#303542] bg-[#0f1115] px-3 text-left text-zinc-100 outline-none transition-colors hover:border-[#4a5668] hover:bg-[#151922] focus:border-[#6ee7d8]/60"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#2a2e36] bg-[#171a20] text-[#6ee7d8]">
+                    <CliIcon cli={selectedCliOption.value} className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-zinc-100">
+                      {selectedCliOption.label}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
+                      {selectedCliOption.description}
+                    </span>
+                  </span>
+                  <svg
+                    className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    aria-hidden="true"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+
+                {cliPickerOpen ? (
+                  <div
+                    role="listbox"
+                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-[#303542] bg-[#101216] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                  >
+                    {cliOptions.map((option) => {
+                      const selected = spawnDialog.cli === option.value
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => {
+                            setSpawnDialog((current) =>
+                              current ? { ...current, cli: option.value } : current
+                            )
+                            setCliPickerOpen(false)
+                          }}
+                          className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
+                            selected
+                              ? 'bg-[#6ee7d8]/12 text-zinc-100'
+                              : 'text-zinc-300 hover:bg-[#171d26] hover:text-zinc-100'
+                          }`}
+                        >
+                          <span
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+                              selected
+                                ? 'border-[#6ee7d8]/40 bg-[#061210] text-[#6ee7d8]'
+                                : 'border-[#2a2e36] bg-[#171a20] text-zinc-500'
+                            }`}
+                          >
+                            <CliIcon cli={option.value} className="h-5 w-5" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold">{option.label}</span>
+                            <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
+                              {option.description}
+                            </span>
+                          </span>
+                          {selected ? (
+                            <svg className="h-4 w-4 shrink-0 text-[#6ee7d8]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : null}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-lg border border-[#23262d] bg-[#171a20] px-4 py-3 text-sm leading-6 text-zinc-300">
+                {cliOptions.find((option) => option.value === spawnDialog.cli)?.description}
+                {spawnDialogIsRunning ? (
+                  <span className="text-zinc-500"> A terminal already exists, so this will focus it unless you changed the CLI.</span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#23262d] bg-[#101216] px-5 py-4">
+              <button
+                onClick={() => {
+                  setCliPickerOpen(false)
+                  setSpawnDialog(null)
+                }}
+                className="rounded-md border border-[#2a2e36] bg-[#181b20] px-4 py-2 text-sm font-semibold text-zinc-300 transition-colors hover:bg-[#20252e] hover:text-zinc-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmSpawnDialog}
+                className="rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+              >
+                {spawnDialogIsRunning ? 'Open Terminal' : 'Spawn'}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {selectedTask && (
@@ -806,7 +993,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   Swarm Roster
                 </div>
                 <h3 className="text-[20px] font-semibold tracking-tight text-zinc-100">
-                  Add Team Member
+                  Spawn Team Member
                 </h3>
               </div>
               <button
@@ -880,7 +1067,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 onClick={confirmAddMember}
                 className="rounded-xl border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
               >
-                Add {swarmRoleLabels[addMemberRole]}
+                Spawn {swarmRoleLabels[addMemberRole]}
               </button>
             </div>
           </div>
@@ -899,7 +1086,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   {planFilePath ?? 'swarm/plan.md'}
                 </h3>
                 <p className="mt-2 text-sm text-zinc-400">
-                  Review the architect-authored low-level design and final task graph before unlocking worker execution.
+                  Review the architect-authored low-level design before spawning specialists.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -938,40 +1125,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-              <div className={`mb-5 rounded-2xl border px-4 py-3 ${planReadiness.panelTone}`}>
-                <div className="text-[10px] font-bold uppercase tracking-[0.14em]">
-                  {planReadiness.label}
-                </div>
-                <div className="mt-1 text-sm font-medium">{planReadiness.message}</div>
-                <div className="mt-1 text-[12px] opacity-80">{planReadiness.detail}</div>
-                {swarmState.taskValidation ? (
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    <InfoCard
-                      label="Validation"
-                      value={swarmState.taskValidation.ok ? 'Passed' : 'Failed'}
-                    />
-                    <InfoCard
-                      label="Warnings"
-                      value={String(swarmState.taskValidation.warnings.length)}
-                    />
-                  </div>
-                ) : null}
-                {swarmState.taskValidation?.errors.length ? (
-                  <SectionList
-                    title="Validation Errors"
-                    items={swarmState.taskValidation.errors}
-                    emptyLabel="No validation errors."
-                  />
-                ) : null}
-                {swarmState.taskValidation?.warnings.length ? (
-                  <SectionList
-                    title="Validation Warnings"
-                    items={swarmState.taskValidation.warnings}
-                    emptyLabel="No validation warnings."
-                  />
-                ) : null}
-              </div>
-
               {planReview.status === 'loading' ? (
                 <div className="rounded-2xl border border-[#23262d] bg-[#171a20] px-4 py-5 text-sm text-zinc-400">
                   Loading plan...
@@ -1002,9 +1155,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#23262d] bg-[#101216] px-5 py-4">
               <div className="text-[12px] text-zinc-500">
-                {swarmState.planReady
-                  ? 'Plan approval unlocks worker start buttons. Confirm this plan and task graph match your intent.'
-                  : 'The architect must run `swarm plan ready` before workers can start.'}
+                Spawn specialists from the board header when this plan matches your intent.
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {planFilePath ? (
@@ -1016,11 +1167,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   </button>
                 ) : null}
                 <button
-                  onClick={approveFromPlanReview}
-                  disabled={planReview.status !== 'ready' || !swarmState.planReady}
-                  className="rounded-xl border border-amber-300/40 bg-amber-200 px-4 py-2 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100 disabled:opacity-40 disabled:hover:bg-amber-200"
+                  onClick={() => setPlanReview((current) => ({ ...current, open: false }))}
+                  className="rounded-xl border border-sky-300/40 bg-sky-200 px-4 py-2 text-sm font-semibold text-sky-950 transition-colors hover:bg-sky-100"
                 >
-                  {swarmState.planReady ? 'Approve Plan' : 'Waiting for Architect'}
+                  Done Reviewing
                 </button>
               </div>
             </div>
@@ -1049,6 +1199,7 @@ function SwarmMapView({
   roster,
   rosterById,
   runtimeAgents,
+  runPhase,
   selectedAgentId,
   onSelectAgent,
 }: {
@@ -1057,6 +1208,7 @@ function SwarmMapView({
   roster: RosterItem[]
   rosterById: Record<string, RosterItem | undefined>
   runtimeAgents: RuntimeAgentView[]
+  runPhase: string
   selectedAgentId: string | null
   onSelectAgent: (agentId: string) => void
 }) {
@@ -1149,8 +1301,8 @@ function SwarmMapView({
         <div className="mb-5">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">Swarm State</div>
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-            <InfoCard label="Phase" value={swarmState.planApproved ? 'Executing' : swarmState.planReady ? 'Awaiting Approval' : 'Planning'} />
-            <InfoCard label="Plan" value={getPlanMetricValue(swarmState)} />
+            <InfoCard label="Phase" value={runPhase} />
+            <InfoCard label="Board" value={`${swarmState.tasks.length} tasks`} />
             <InfoCard label="Tasks" value={`${doneCount}/${swarmState.tasks.length} done`} />
             <InfoCard label="Agents" value={`${activeCount} run, ${needsInputCount} wait`} />
           </div>
@@ -1246,6 +1398,39 @@ function InfoCard({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">{label}</div>
       <div className="mt-2 font-medium text-zinc-100">{value}</div>
     </div>
+  )
+}
+
+function CliIcon({ cli, className }: { cli: AgentCli; className?: string }) {
+  if (cli === 'claude') {
+    return (
+      <svg
+        className={className}
+        viewBox="0 0 248 248"
+        fill="none"
+        aria-hidden="true"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M52.4285 162.873L98.7844 136.879L99.5485 134.602L98.7844 133.334H96.4921L88.7237 132.862L62.2346 132.153L39.3113 131.207L17.0249 130.026L11.4214 128.844L6.2 121.873L6.7094 118.447L11.4214 115.257L18.171 115.847L33.0711 116.911L55.485 118.447L71.6586 119.392L95.728 121.873H99.5485L100.058 120.337L98.7844 119.392L97.7656 118.447L74.5877 102.732L49.4995 86.1905L36.3823 76.62L29.3779 71.7757L25.8121 67.2858L24.2839 57.3608L30.6515 50.2716L39.3113 50.8623L41.4763 51.4531L50.2636 58.1879L68.9842 72.7209L93.4357 90.6804L97.0015 93.6343L98.4374 92.6652L98.6571 91.9801L97.0015 89.2625L83.757 65.2772L69.621 40.8192L63.2534 30.6579L61.5978 24.632C60.9565 22.1032 60.579 20.0111 60.579 17.4246L67.8381 7.49965L71.9133 6.19995L81.7193 7.49965L85.7946 11.0443L91.9074 24.9865L101.714 46.8451L116.996 76.62L121.453 85.4816L123.873 93.6343L124.764 96.1155H126.292V94.6976L127.566 77.9197L129.858 57.3608L132.15 30.8942L132.915 23.4505L136.608 14.4708L143.994 9.62643L149.725 12.344L154.437 19.0788L153.8 23.4505L150.998 41.6463L145.522 70.1215L141.957 89.2625H143.994L146.414 86.7813L156.093 74.0206L172.266 53.698L179.398 45.6635L187.803 36.802L193.152 32.5484H203.34L210.726 43.6549L207.415 55.1159L196.972 68.3492L188.312 79.5739L175.896 96.2095L168.191 109.585L168.882 110.689L170.738 110.53L198.755 104.504L213.91 101.787L231.994 98.7149L240.144 102.496L241.036 106.395L237.852 114.311L218.495 119.037L195.826 123.645L162.07 131.592L161.696 131.893L162.137 132.547L177.36 133.925L183.855 134.279H199.774L229.447 136.524L237.215 141.605L241.8 147.867L241.036 152.711L229.065 158.737L213.019 154.956L175.45 145.977L162.587 142.787H160.805V143.85L171.502 154.366L191.242 172.089L215.82 195.011L217.094 200.682L213.91 205.172L210.599 204.699L188.949 188.394L180.544 181.069L161.696 165.118H160.422V166.772L164.752 173.152L187.803 207.771L188.949 218.405L187.294 221.832L181.308 223.959L174.813 222.777L161.187 203.754L147.305 182.486L136.098 163.345L134.745 164.2L128.075 235.42L125.019 239.082L117.887 241.8L111.902 237.31L108.718 229.984L111.902 215.452L115.722 196.547L118.779 181.541L121.58 162.873L123.291 156.636L123.14 156.219L121.773 156.449L107.699 175.752L86.304 204.699L69.3663 222.777L65.291 224.431L58.2867 220.768L58.9235 214.27L62.8713 208.48L86.304 178.705L100.44 160.155L109.551 149.507L109.462 147.967L108.959 147.924L46.6977 188.512L35.6182 189.93L30.7788 185.44L31.4156 178.115L33.7079 175.752L52.4285 162.873Z"
+          fill="#D97757"
+        />
+      </svg>
+    )
+  }
+
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="3.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M7.5 9L10.5 12L7.5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13 15H17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   )
 }
 
@@ -1348,63 +1533,16 @@ function getTaskOwnerLabel(
   return task.status === 'done' ? swarmRoleLabels[task.role] : 'Unclaimed'
 }
 
-function getPlanReadiness(swarmState: SwarmState): {
-  label: string
-  message: string
-  detail: string
-  panelTone: string
-} {
-  if (swarmState.planApproved) {
-    return {
-      label: 'Plan Approved',
-      message: 'Worker execution is unlocked.',
-      detail: 'Specialists can claim ready tasks from the approved board.',
-      panelTone: 'border-emerald-400/30 bg-emerald-950/20 text-emerald-100',
-    }
+function getRunPhase(swarmState: SwarmState, runtimeAgents: RuntimeAgentView[]): string {
+  if (swarmState.tasks.length > 0 && swarmState.tasks.every((task) => task.status === 'done')) {
+    return 'Complete'
   }
-
-  if (swarmState.planReady) {
-    const warningCount = swarmState.taskValidation?.warnings.length ?? 0
-    return {
-      label: 'Ready For Approval',
-      message: 'The architect marked the plan and task graph ready for review.',
-      detail: warningCount > 0
-        ? `${warningCount} validation warning${warningCount === 1 ? '' : 's'} remain. Review before approving.`
-        : 'Review the plan, then approve to unlock worker claiming.',
-      panelTone: 'border-emerald-400/30 bg-emerald-950/20 text-emerald-100',
-    }
+  if (runtimeAgents.some((agent) => agent.status === 'running' || agent.status === 'needs_input')) {
+    return 'Running'
   }
-
-  if (swarmState.taskValidation && !swarmState.taskValidation.ok) {
-    return {
-      label: 'Validation Failed',
-      message: 'The task graph has errors that must be fixed before approval.',
-      detail: 'The architect should fix swarm/tasks.json, validate again, replace tasks, and mark the plan ready.',
-      panelTone: 'border-rose-400/30 bg-rose-950/20 text-rose-100',
-    }
+  if (swarmState.tasks.length > 0) {
+    return 'Tasked'
   }
-
-  if (swarmState.taskGraphReplacedAt) {
-    return {
-      label: 'Awaiting Ready Signal',
-      message: 'The task graph was replaced, but the architect has not marked the plan ready yet.',
-      detail: 'The architect should run `swarm plan ready` after final checks.',
-      panelTone: 'border-amber-400/30 bg-amber-950/20 text-amber-100',
-    }
-  }
-
-  return {
-    label: 'Waiting For Architect',
-    message: 'Architect planning is still gated.',
-    detail: 'The architect must create swarm/plan.md, validate/replace tasks, and mark the plan ready before approval.',
-    panelTone: 'border-amber-400/30 bg-amber-950/20 text-amber-100',
-  }
-}
-
-function getPlanMetricValue(swarmState: SwarmState): string {
-  if (swarmState.planApproved) return 'Approved'
-  if (swarmState.planReady) return 'Ready'
-  if (swarmState.taskGraphReplacedAt) return 'Tasked'
   return 'Planning'
 }
 

@@ -44,12 +44,6 @@ export type SwarmTaskEvidence = {
   results: string[]
 }
 
-export type SwarmTaskValidation = {
-  ok: boolean
-  errors: string[]
-  warnings: string[]
-}
-
 export type SwarmRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'
 
 export type SwarmRuntimeAgent = {
@@ -80,12 +74,6 @@ export type SwarmState = {
   goal: string
   roleCounts: SwarmRoleCounts
   swarmAgents: Record<string, SwarmRuntimeAgent>
-  planApproved: boolean
-  planReady: boolean
-  planReadyAt: string | null
-  planReadyBy: string | null
-  taskGraphReplacedAt: string | null
-  taskValidation: SwarmTaskValidation | null
   events: SwarmEvent[]
   tasks: SwarmTask[]
 }
@@ -99,6 +87,7 @@ export type AgentMessage = {
 }
 
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
+export type AgentCli = 'codex' | 'claude'
 
 export type AgentState = {
   id: AgentId
@@ -111,6 +100,7 @@ export type AgentState = {
   cliRestartNonce?: number
   cliHasLaunched?: boolean
   cliOnboardingPromptSent?: boolean
+  cli?: AgentCli
 }
 
 export type AgentConfig = {

@@ -47,14 +47,12 @@ Architect workflow:
 2. Study the repository and current implementation deeply before planning.
 3. Ask the user clarifying questions until they confirm the intended outcome, constraints, and acceptance criteria.
 4. Use consultation artifacts when specialist input would improve the plan.
-5. Write `swarm/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond `tasks.json`.
+5. Write `swarm/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
 6. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
-7. Create `swarm/tasks.json` using `swarm/tasks.template.json` and `swarm/tasks.schema.json`.
-8. Validate the task graph with `swarm validate-tasks --file swarm/tasks.json`.
-9. Replace the kanban task graph with `swarm replace-tasks --actor architect --file swarm/tasks.json`.
-10. Mark the final plan ready with `swarm mark-plan-ready --actor architect`.
-11. Tell the user the plan is ready for review only after `mark-plan-ready` succeeds.
-12. Do not manually edit `swarm/state.yaml`.
+7. Add task cards one at a time with `swarm plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
+8. During user review, revise the board with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`.
+9. Tell the user the plan is ready for review in the app. The user manually spawns specialists from the UI.
+10. Do not manually edit `swarm/state.yaml`.
 
 Use consultations when planning needs specialist input:
 
@@ -70,17 +68,21 @@ swarm claim-next-task --role frontend --agent-id frontend-1
 swarm claim-task --task-id T3 --agent-id frontend-1
 swarm set-task-status --task-id T3 --status in_progress --actor frontend-1
 swarm append-evidence --task-id T3 --actor frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SwarmBoardPanel.tsx --file src/renderer/src/utils/swarm.ts --command "npm run typecheck" --result "Passed"
+swarm plan add-task --title "Persist swarm state" --role developer --path src/renderer/src/store --acceptance "State tracks task ownership and evidence"
+swarm plan add-task --title "Render task board" --role frontend --depends-on T1 --path src/renderer/src/components/panels --acceptance "Board displays todo, ready, in progress, needs input, and done"
+swarm plan update-task --task-id T1 --title "Persist shared swarm state" --acceptance "State tracks task ownership and evidence" --path src/renderer/src/store
+swarm plan add-dependency --task-id T2 --depends-on T1
+swarm plan remove-dependency --task-id T2 --depends-on T1
+swarm plan delete-task --task-id T3 --unlink-dependents
+swarm plan list
 swarm run-summary
 swarm get-mailbox --agent-id frontend-1 --consume
-swarm send-message --from-agent architect --to-agent frontend-1 --subject "Plan approved" --body "Claim your next ready task."
+swarm send-message --from-agent architect --to-agent frontend-1 --subject "Plan reviewed" --body "The user can spawn you from the UI when ready."
 swarm send-message --from-agent frontend-1 --to-agent architect --subject "Re: UX question" --body "Recommended approach..." --reply-to REQ-20260419T130000Z-12345
 swarm send-and-receive --from-agent architect --to-agent product --subject "Product validation request" --body "Validate this MVP scope." --timeout-seconds 1800 --consume
-swarm broadcast-message --from-agent architect --subject "Plan ready" --body "Review your mailbox and claim ready work."
-swarm validate-tasks --file swarm/tasks.json
-swarm replace-tasks --actor architect --file swarm/tasks.json
-swarm mark-plan-ready --actor architect
-swarm create-consultation --request-id UX-001 --from-role architect --to-role frontend --title "Need UX input for approval flow" --task-id T4 --question "Where should plan approval live?"
-swarm complete-consultation --request-id UX-001 --actor frontend --summary "Recommend a top-level approval banner." --recommendation "Use a persistent approval strip above the board."
+swarm broadcast-message --from-agent architect --subject "Plan available" --body "The user can spawn specialists manually from the UI."
+swarm create-consultation --request-id UX-001 --from-role architect --to-role frontend --title "Need UX input for launch flow" --task-id T4 --question "Where should manual worker spawning live?"
+swarm complete-consultation --request-id UX-001 --actor frontend --summary "Recommend top-level spawn controls." --recommendation "Use persistent specialist spawn buttons above the board."
 ```
 
 Rules:
@@ -92,7 +94,7 @@ Rules:
 - Use `swarm run-summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
 - Use `send-and-receive` when the architect must pause for a specialist reply before continuing. Responders should include `--reply-to <request-message-id>` when answering.
-- Only use `validate-tasks`, `replace-tasks`, and `mark-plan-ready` as the architect during planning, before the user approves the plan.
+- The app does not call the Python tool. The Python tool is for agents; the user manually spawns specialists from the UI.
 - If `python3` or `PyYAML` is unavailable, report the blocker instead of silently hand-editing shared state.
 
 If you need the exact state layout, read `references/state-schema.md`.

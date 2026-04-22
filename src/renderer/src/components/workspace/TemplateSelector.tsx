@@ -17,6 +17,12 @@ import {
   swarmRoleAccent,
   swarmRoleLabels,
 } from '../../utils/swarm'
+import { getSwarmStateFilePath, parseSwarmStateFile } from '../../utils/swarmStateFile'
+
+type ExistingTeam = {
+  slug: string
+  state: SwarmState
+}
 
 interface Props {
   onCreate: (args: {
@@ -72,6 +78,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(createDefaultSwarmRoleCounts())
   const [selectedRole, setSelectedRole] = useState<SwarmRole>('architect')
   const [roleSkills, setRoleSkills] = useState<SwarmSkillMap>(createDefaultSwarmSkills())
+  const [existingTeams, setExistingTeams] = useState<ExistingTeam[]>([])
+  const [selectedExistingTeam, setSelectedExistingTeam] = useState<ExistingTeam | null>(null)
+  const [isScanning, setIsScanning] = useState(false)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -86,7 +95,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const totalAgents = countSwarmAgents(swarmRoleCounts)
   const canCreate =
     name.trim().length > 0
-    && (mode === 'standard' || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0 && totalAgents > 0))
+    && (mode === 'standard' || selectedExistingTeam != null || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0 && totalAgents > 0))
 
   const swarmConfig = useMemo<SwarmMockConfig>(
     () => ({
@@ -101,8 +110,25 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     const dir = await window.api.openDir()
     if (!dir) return
     setFolderPath(dir)
+    setSelectedExistingTeam(null)
     if (!nameTouched) setName(basename(dir) || 'workspace')
     if (!swarmTeamNameTouched) setSwarmTeamName(toTitleName(basename(dir)) || 'Swarm Team')
+
+    setIsScanning(true)
+    try {
+      const entries = await window.api.readdir(`${dir}/swarm`).catch(() => [])
+      const teams: ExistingTeam[] = []
+      for (const entry of entries) {
+        if (!entry.isDir) continue
+        try {
+          const content = await window.api.readfile(getSwarmStateFilePath(dir, entry.name))
+          teams.push({ slug: entry.name, state: parseSwarmStateFile(content) })
+        } catch { /* not a valid team */ }
+      }
+      setExistingTeams(teams)
+    } finally {
+      setIsScanning(false)
+    }
   }
 
   const adjustRoleCount = (role: SwarmRole, delta: number) => {
@@ -124,6 +150,12 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
 
   const handleCreate = () => {
     if (!canCreate) return
+    if (selectedExistingTeam) {
+      const { state } = selectedExistingTeam
+      const template = createSwarmTemplate({ name: state.name, goal: state.goal, roleCounts: state.roleCounts })
+      onCreate({ template, name: name.trim(), folderPath, swarmState: state })
+      return
+    }
     const swarmState = mode === 'swarm' ? createInitialSwarmState(swarmConfig) : null
     const template = mode === 'swarm' ? createSwarmTemplate(swarmConfig) : selected
     onCreate({ template, name: name.trim(), folderPath, swarmState })
@@ -151,7 +183,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
               disabled={!canCreate}
               className="h-9 rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea] disabled:opacity-40 disabled:hover:bg-[#6ee7d8]"
             >
-              {mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
+              {selectedExistingTeam ? 'Load Team' : mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
             </button>
           </div>
         </div>
@@ -263,7 +295,68 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
         ) : (
           <div className="grid min-h-full gap-4 p-5 xl:grid-cols-[minmax(420px,1fr)_minmax(360px,0.95fr)]">
 
-            <section className="min-w-0">
+            {(isScanning || existingTeams.length > 0) ? (
+              <div className="col-span-full">
+                <div className="mb-3 text-[11px] font-semibold uppercase text-[#778196]">
+                  {isScanning ? 'Scanning for existing teams…' : 'Existing Teams'}
+                </div>
+                {!isScanning && (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {existingTeams.map((team) => {
+                      const selected = selectedExistingTeam?.slug === team.slug
+                      const done = team.state.tasks.filter((t) => t.status === 'done').length
+                      const running = Object.values(team.state.swarmAgents).some(
+                        (agent) => agent.status === 'running' || agent.status === 'needs_input'
+                      )
+                      const complete = team.state.tasks.length > 0 && done === team.state.tasks.length
+                      const phaseLabel = complete ? 'Complete' : running ? 'Running' : team.state.tasks.length > 0 ? 'Tasked' : 'Planning'
+                      return (
+                        <button
+                          key={team.slug}
+                          onClick={() => setSelectedExistingTeam(selected ? null : team)}
+                          className={`rounded-xl border p-4 text-left transition-colors ${
+                            selected
+                              ? 'border-[#6ee7d8]/60 bg-[#0e1e1a]'
+                              : 'border-[#222833] bg-[#11161d] hover:border-[#384456] hover:bg-[#141a23]'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-[#f2f5f9]">{team.state.name}</div>
+                              <div className="mt-0.5 font-mono text-[11px] text-[#778196]">{team.slug}</div>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              running
+                                ? 'bg-emerald-950/60 text-emerald-300'
+                                : complete
+                                  ? 'bg-sky-950/60 text-sky-300'
+                                  : 'bg-zinc-800 text-zinc-400'
+                            }`}>
+                              {phaseLabel}
+                            </span>
+                          </div>
+                          <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[#8d96a8]">
+                            {team.state.goal || 'No goal set'}
+                          </p>
+                          <div className="mt-3 flex gap-3 text-[11px] text-[#5a6478]">
+                            <span>{team.state.tasks.length} tasks</span>
+                            <span>{done} done</span>
+                            <span>{Object.keys(team.state.swarmAgents).length} agents</span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                {!isScanning && !selectedExistingTeam && (
+                  <div className="mt-4 border-t border-[#1c2230] pt-4 text-[11px] font-semibold uppercase text-[#778196]">
+                    Or create new
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {!selectedExistingTeam && <section className="min-w-0 col-span-full xl:col-span-1">
               <div className="mb-4 rounded-lg border border-[#2d3746] bg-[#111820] p-4">
                 <div className="text-[11px] font-semibold uppercase text-[#778196]">Swarm Objective</div>
                 <div className="mt-1 text-sm text-[#a8b2c3]">Name the team and put the mission where every specialist will see it.</div>
@@ -353,9 +446,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                   )
                 })}
               </div>
-            </section>
+            </section>}
 
-            <aside className="min-w-0 rounded-lg border border-[#222833] bg-[#11161d]">
+            {selectedExistingTeam ? null : <aside className="min-w-0 rounded-lg border border-[#222833] bg-[#11161d]">
               <div className="border-b border-[#202631] px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -385,7 +478,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                   Run <code className="rounded bg-[#0b0f14] px-1 py-0.5 font-mono text-[11px] text-[#6ee7d8]">swarm join --role {selectedRole} --id {selectedRole}-1</code> to start this specialist.
                 </p>
               </div>
-            </aside>
+            </aside>}
           </div>
         )}
       </main>
@@ -445,5 +538,4 @@ function LayoutPreview({ slots, large = false }: { slots: PreviewSlot[]; large?:
     </svg>
   )
 }
-
 

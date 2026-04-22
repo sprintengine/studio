@@ -135,6 +135,8 @@ const fileWatchers = new Map<string, { watcher: FSWatcher; senderId: number }>()
 const trackedWatcherSenders = new Set<number>()
 let nextFileWatcherId = 0
 
+type AgentCli = 'codex' | 'claude'
+
 type TerminalSpawnPayload = {
   sessionId: string
   cols: number
@@ -142,6 +144,7 @@ type TerminalSpawnPayload = {
   cwd?: string
   resume?: boolean
   swarmStatePath?: string
+  cli?: AgentCli
 }
 
 type ShellLaunchConfig = {
@@ -225,11 +228,17 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
   return lines.join('; ')
 }
 
-function buildWslShellScript(cwd: string, sessionId: string, resume = false, swarmStatePath?: string): string {
+function buildWslShellScript(
+  cwd: string,
+  sessionId: string,
+  resume = false,
+  swarmStatePath?: string,
+  cli: AgentCli = 'codex'
+): string {
   return [
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSwarmShellBootstrap(swarmStatePath),
-    buildClaudeLaunchCommand(sessionId, resume),
+    buildAgentLaunchCommand(cli, sessionId, resume),
     'exec bash -li',
   ].join('; ')
 }
@@ -238,12 +247,13 @@ function getShellLaunchConfig(
   cwd: string,
   sessionId: string,
   resume = false,
-  swarmStatePath?: string
+  swarmStatePath?: string,
+  cli: AgentCli = 'codex'
 ): ShellLaunchConfig {
   if (process.platform === 'win32') {
     return {
       command: 'wsl.exe',
-      args: ['-e', 'bash', '-lic', buildWslShellScript(cwd, sessionId, resume, swarmStatePath)],
+      args: ['-e', 'bash', '-lic', buildWslShellScript(cwd, sessionId, resume, swarmStatePath, cli)],
     }
   }
 
@@ -254,8 +264,12 @@ function getShellLaunchConfig(
   return {
     command: shellPath,
     args,
-    initialInput: `${[buildSwarmShellBootstrap(swarmStatePath), buildClaudeLaunchCommand(sessionId, resume)].join('; ')}\r`,
+    initialInput: `${[buildSwarmShellBootstrap(swarmStatePath), buildAgentLaunchCommand(cli, sessionId, resume)].join('; ')}\r`,
   }
+}
+
+function buildAgentLaunchCommand(cli: AgentCli, sessionId: string, resume = false): string {
+  return cli === 'claude' ? buildClaudeLaunchCommand(sessionId, resume) : 'codex'
 }
 
 function buildClaudeLaunchCommand(sessionId: string, resume = false): string {
@@ -322,7 +336,7 @@ function disposeFileWatchersForSender(senderId: number): void {
 
 ipcMain.handle(
   'terminal:spawn',
-  (event, { sessionId, cols, rows, cwd, resume, swarmStatePath }: TerminalSpawnPayload) => {
+  (event, { sessionId, cols, rows, cwd, resume, swarmStatePath, cli = 'codex' }: TerminalSpawnPayload) => {
     disposeTerminal(sessionId)
 
     try {
@@ -331,7 +345,8 @@ ipcMain.handle(
         workingDirectory,
         sessionId,
         resume,
-        swarmStatePath
+        swarmStatePath,
+        cli
       )
       const termProcess = pty.spawn(command, args, {
         name: 'xterm-256color',
@@ -353,7 +368,7 @@ ipcMain.handle(
       })
 
       if (initialInput) {
-        // Start Claude inside the interactive shell so the user can keep using the terminal afterward.
+        // Start the selected agent CLI inside the interactive shell so the user can keep using the terminal afterward.
         termProcess.write(initialInput)
       }
     } catch (error) {
@@ -443,6 +458,12 @@ ipcMain.handle('fs:create-file', async (_, parentDir: string, name: string) => {
 ipcMain.handle('fs:create-dir', async (_, parentDir: string, name: string) => {
   const dirPath = join(parentDir, name)
   await mkdir(dirPath)
+  return dirPath
+})
+
+ipcMain.handle('fs:ensure-dir', async (_, parentDir: string, name: string) => {
+  const dirPath = join(parentDir, name)
+  await mkdir(dirPath, { recursive: true })
   return dirPath
 })
 

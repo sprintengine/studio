@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { SwarmRole } from '../../types/workspace'
+import type { AgentCli, SwarmRole } from '../../types/workspace'
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
 import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
 
@@ -22,15 +22,20 @@ function plainTerminalText(data: string): string {
     .replace(/\r/g, '\n')
 }
 
-function looksLikeClaudeReady(output: string): boolean {
-  return /Claude Code|Welcome to Claude|cwd:|Bypassing Permissions|\/help|Try .*Claude/i.test(output)
+function looksLikeCliReady(output: string, cli: AgentCli): boolean {
+  if (cli === 'claude') {
+    return /Claude Code|Welcome to Claude|cwd:|Bypassing Permissions|\/help|Try .*Claude/i.test(output)
+  }
+
+  return /Codex|OpenAI|GPT|\/help|model/i.test(output)
 }
 
 function looksLikeLaunchBlocked(output: string): boolean {
   return /unexpected EOF|command not found|No such file or directory|can't open file|WSL could not be started/i.test(output)
 }
 
-function looksLikeClaudeTrustPrompt(output: string): boolean {
+function looksLikeTrustPrompt(output: string, cli: AgentCli): boolean {
+  if (cli !== 'claude') return false
   return /Do you trust the files|trust files in this folder/i.test(output)
 }
 
@@ -63,6 +68,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const swarmName = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.swarmState?.name
   )
+  const cli = agent?.cli ?? 'codex'
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const swarmStartupPrompt = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
@@ -242,7 +248,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           return
         }
 
-        if (looksLikeClaudeTrustPrompt(plainData)) {
+        if (looksLikeTrustPrompt(plainData, cli)) {
           if (promptInjectionTimer !== null) {
             window.clearTimeout(promptInjectionTimer)
             promptInjectionTimer = null
@@ -250,7 +256,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           return
         }
 
-        if (looksLikeClaudeReady(terminalReadinessBuffer)) {
+        if (looksLikeCliReady(terminalReadinessBuffer, cli)) {
           schedulePromptInjection(900)
         }
       }
@@ -292,7 +298,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       term.rows,
       folderPath,
       shouldResume,
-      swarmStatePath
+      swarmStatePath,
+      cli
     )
     if (!shouldResume) {
       updateAgent(workspaceId, agentId, {
@@ -335,6 +342,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agentId,
     agent?.cliSessionId,
     agent?.cliRestartNonce,
+    cli,
     folderPath,
     swarmName,
     updateAgent,

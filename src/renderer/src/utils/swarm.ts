@@ -22,7 +22,7 @@ export const swarmRoleLabels: Record<SwarmRole, string> = {
   architect: 'Architect',
   product: 'Product Strategist',
   developer: 'Developer',
-  frontend: 'Frontend Designer',
+  frontend: 'Frontend Engineer',
   tester: 'Tester',
   security: 'Security Specialist',
 }
@@ -182,12 +182,6 @@ export function createInitialSwarmState(config: SwarmMockConfig): SwarmState {
         { role: agent.role, status: 'idle' as const, currentTaskId: null },
       ])
     ),
-    planApproved: false,
-    planReady: false,
-    planReadyAt: null,
-    planReadyBy: null,
-    taskGraphReplacedAt: null,
-    taskValidation: null,
     events: [],
     tasks: [],
   }
@@ -195,13 +189,11 @@ export function createInitialSwarmState(config: SwarmMockConfig): SwarmState {
 
 export function getSwarmTaskBoardColumn(
   task: SwarmTask,
-  tasks: SwarmTask[],
-  planApproved: boolean
+  tasks: SwarmTask[]
 ): SwarmTaskBoardColumn {
   if (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'done') {
     return task.status
   }
-  if (!planApproved) return 'todo'
   const dependenciesDone = task.dependsOn.every((depId) =>
     tasks.some((t) => t.id === depId && t.status === 'done')
   )
@@ -239,12 +231,6 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
     swarmAgents: input.swarmAgents && Object.keys(input.swarmAgents).length > 0
       ? input.swarmAgents
       : Object.fromEntries(buildSwarmAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
-    planApproved: input.planApproved ?? false,
-    planReady: input.planReady ?? false,
-    planReadyAt: input.planReadyAt ?? null,
-    planReadyBy: input.planReadyBy ?? null,
-    taskGraphReplacedAt: input.taskGraphReplacedAt ?? null,
-    taskValidation: input.taskValidation ?? null,
     events: input.events ?? [],
     tasks,
   }

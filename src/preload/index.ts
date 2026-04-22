@@ -12,6 +12,7 @@ type FileWatchEvent = {
   eventType: string
   path: string | null
 }
+type AgentCli = 'codex' | 'claude'
 
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
@@ -22,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   writefile: (path: string, content: string)   => ipcRenderer.invoke('fs:writefile', path, content),
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),
   createDir:  (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-dir', parentDir, name),
+  ensureDir:  (parentDir: string, name: string) => ipcRenderer.invoke('fs:ensure-dir', parentDir, name),
   renamePath: (sourcePath: string, nextName: string) => ipcRenderer.invoke('fs:rename', sourcePath, nextName),
   copyPath:   (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:copy', sourcePath, destinationDir),
   deletePath: (targetPath: string) => ipcRenderer.invoke('fs:delete', targetPath),
@@ -42,8 +44,8 @@ contextBridge.exposeInMainWorld('api', {
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) =>
     ipcRenderer.invoke('app:show-menubar-menu', label, position),
 
-  // Claude Code CLI Terminal
-  terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath }),
+  // Agent CLI Terminal
+  terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli }),
   terminalWrite:  (sessionId: string, data: string) => ipcRenderer.invoke('terminal:write', { sessionId, data }),
   terminalResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
   terminalKill:   (sessionId: string) => ipcRenderer.invoke('terminal:kill', sessionId),

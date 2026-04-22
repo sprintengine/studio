@@ -15,9 +15,9 @@ Use `swarm run-summary` to print a read-only completion summary from task eviden
 Use `swarm get-mailbox --agent-id <agent-id> --consume` to read and consume mailbox messages.
 Use `swarm send-message` or `swarm broadcast-message` to route instructions or updates to agent mailboxes.
 Use `swarm claim-next-task --role <role> --agent-id <agent-id>` for normal worker task claiming.
-Use `swarm validate-tasks --file <tasks.json>` to validate the architect's task graph before replacing the board.
-Use `swarm replace-tasks --file <tasks.json>` to replace the board task graph after the architect finishes planning.
-Use `swarm mark-plan-ready --actor architect` after the final plan and board task graph are ready for user approval.
+Use `swarm plan add-task` to build the task board one task at a time while planning.
+Use `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency` to revise the board during user review.
+The app does not call the Python tool; the user reviews `plan.md` and manually spawns specialists from the UI.
 
 ## Task Card Fields
 
@@ -40,9 +40,7 @@ Use `swarm mark-plan-ready --actor architect` after the final plan and board tas
   - `touchedFiles`
   - `commandsRan`
   - `results`
-- `questionsForUser`
 - `notes`
-- `artifacts`
 - `startedAt`
 - `completedAt`
 
@@ -57,11 +55,9 @@ Use `swarm mark-plan-ready --actor architect` after the final plan and board tas
 - Consultations are stored as artifacts and events.
 - Agents should poll their mailbox about every 30 seconds while active.
 - Consumed mailbox messages are moved into the agent mailbox `read/` folder.
-- The architect may replace the task graph during planning with `swarm replace-tasks`.
+- The architect builds and revises the task graph during planning with `swarm plan` commands.
 - Product strategist tasks and consultations should capture market, competitor, audience, positioning, workflow, and adoption-risk guidance.
-- The architect should validate `swarm/tasks.json` before replacing the task graph.
-- The architect must mark the plan ready before the user can approve worker execution.
-- Workers should not replace the task graph.
+- Workers should not rewrite the plan or change other workers' task cards.
 
 ## Consultation Flow
 
