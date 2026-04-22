@@ -272,7 +272,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
   if (!swarmState) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#0f1012] text-sm text-zinc-500">
+      <div className="flex h-full items-center justify-center bg-[#08090b] text-sm text-[#5a5a63]">
         Swarm workspace data is missing.
       </div>
     )
@@ -516,7 +516,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             {architectAgentId ? (
               <button
                 onClick={openRecoveryDialog}
-                className="rounded-md border border-emerald-300/30 bg-emerald-200/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition-colors hover:bg-emerald-200/15"
+                className="rounded-md border border-[#30d158]/40 bg-[#30d158]/12 px-4 py-2 text-sm font-semibold text-[#b9f7c8] shadow-[0_0_20px_rgba(48,209,88,0.08)] transition-colors hover:border-[#30d158]/65 hover:bg-[#30d158]/16"
               >
                 Verify Progress
               </button>
@@ -531,21 +531,21 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         </div>
 
         {allTasksDone ? (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-emerald-400/30 bg-emerald-950/20 px-4 py-3 shadow-[0_0_30px_rgba(16,185,129,0.08)]">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#30d158]/35 bg-[#30d158]/12 px-4 py-3 shadow-[0_0_30px_rgba(48,209,88,0.08)]">
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
                 Run Complete
               </div>
-              <div className="mt-1 text-sm font-medium text-emerald-100">
+              <div className="mt-1 text-sm font-medium text-[#d4ffdc]">
                 All tasks are done. Review the uncommitted workspace changes and manually test the feature.
               </div>
-              <div className="mt-1 text-[12px] text-emerald-200/80">
+              <div className="mt-1 text-[12px] text-[#b9f7c8]/80">
                 {runSummary.touchedFiles.length} files touched, {runSummary.commandsRan.length} commands recorded, {runSummary.results.length} validation results.
               </div>
             </div>
             <button
               onClick={() => setShowRunSummary(true)}
-              className="rounded-md border border-emerald-300/40 bg-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-950 transition-colors hover:bg-emerald-100"
+              className="rounded-md border border-[#30d158]/55 bg-[#30d158] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#69e783]"
             >
               View Run Summary
             </button>
@@ -739,16 +739,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {recoveryDialog ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303542] bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
                   Verify Progress
                 </div>
-                <h3 className="truncate text-[20px] font-semibold tracking-tight text-zinc-100">
+                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
                   Architect Audit
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-zinc-400">
+                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
                   The Architect will back up state.yaml, check each task in order, and update task status through the swarm Python tool.
                 </p>
               </div>
@@ -757,7 +757,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   setCliPickerOpen(false)
                   setRecoveryDialog(null)
                 }}
-                className="rounded-md border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+                className="rounded-md border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
@@ -770,7 +770,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </div>
 
               <div className="relative">
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Architect CLI
                 </div>
                 <button
@@ -778,21 +778,21 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   onClick={() => setCliPickerOpen((open) => !open)}
                   aria-haspopup="listbox"
                   aria-expanded={cliPickerOpen}
-                  className="flex min-h-[58px] w-full items-center gap-3 rounded-lg border border-[#303542] bg-[#0f1115] px-3 text-left text-zinc-100 outline-none transition-colors hover:border-[#4a5668] hover:bg-[#151922] focus:border-[#6ee7d8]/60"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-lg border border-[#303139] bg-[#0d0e11] px-3 text-left text-[#ececee] outline-none transition-colors hover:border-[#3a3b44] hover:bg-[#17181d] focus:border-[#6ee7d8]/60"
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#2a2e36] bg-[#171a20] text-[#6ee7d8]">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#303139] bg-[#111216] text-[#6ee7d8]">
                     <CliIcon cli={selectedRecoveryCliOption.value} className="h-5 w-5" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-zinc-100">
+                    <span className="block text-sm font-semibold text-[#ececee]">
                       {selectedRecoveryCliOption.label}
                     </span>
-                    <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
+                    <span className="mt-0.5 block truncate text-[12px] text-[#5a5a63]">
                       {selectedRecoveryCliOption.description}
                     </span>
                   </span>
                   <svg
-                    className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
+                    className={`h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
                     viewBox="0 0 20 20"
                     fill="none"
                     aria-hidden="true"
@@ -805,7 +805,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 {cliPickerOpen ? (
                   <div
                     role="listbox"
-                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-[#303542] bg-[#101216] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
                   >
                     {cliOptions.map((option) => {
                       const selected = recoveryDialog.cli === option.value
@@ -823,22 +823,22 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                           }}
                           className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                             selected
-                              ? 'bg-[#6ee7d8]/12 text-zinc-100'
-                              : 'text-zinc-300 hover:bg-[#171d26] hover:text-zinc-100'
+                              ? 'bg-[#6ee7d8]/12 text-[#ececee]'
+                              : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
                           }`}
                         >
                           <span
                             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
                               selected
                                 ? 'border-[#6ee7d8]/40 bg-[#061210] text-[#6ee7d8]'
-                                : 'border-[#2a2e36] bg-[#171a20] text-zinc-500'
+                                : 'border-[#303139] bg-[#111216] text-[#5a5a63]'
                             }`}
                           >
                             <CliIcon cli={option.value} className="h-5 w-5" />
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-semibold">{option.label}</span>
-                            <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
+                            <span className="mt-0.5 block truncate text-[12px] text-[#5a5a63]">
                               {option.description}
                             </span>
                           </span>
@@ -854,25 +854,25 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 ) : null}
               </div>
 
-              <div className="rounded-lg border border-[#23262d] bg-[#171a20] px-4 py-3 text-sm leading-6 text-zinc-300">
+              <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3 text-sm leading-6 text-[#d7d7dc]">
                 No app-side recovery state is created. The Architect performs the audit in the terminal and updates the watched state file directly.
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#23262d] bg-[#101216] px-5 py-4">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
               <button
                 onClick={() => {
                   setCliPickerOpen(false)
                   setRecoveryDialog(null)
                 }}
-                className="rounded-md border border-[#2a2e36] bg-[#181b20] px-4 py-2 text-sm font-semibold text-zinc-300 transition-colors hover:bg-[#20252e] hover:text-zinc-100"
+                className="rounded-md border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmRecoveryAudit}
                 disabled={!folderPath || !architectAgentId}
-                className="rounded-md border border-emerald-300/50 bg-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-950 transition-colors hover:bg-emerald-100 disabled:opacity-45 disabled:hover:bg-emerald-200"
+                className="rounded-md border border-[#30d158]/55 bg-[#30d158] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#69e783] disabled:opacity-45 disabled:hover:bg-[#30d158]"
               >
                 Start Audit
               </button>
@@ -883,16 +883,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {spawnDialog && spawnDialogAgent ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303542] bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-sky-300">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ee7d8]">
                   Spawn Agent
                 </div>
-                <h3 className="truncate text-[20px] font-semibold tracking-tight text-zinc-100">
+                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
                   {spawnDialogAgent.label}
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-zinc-400">
+                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
                   Choose the CLI for this specialist, then open its terminal on the right.
                 </p>
               </div>
@@ -901,7 +901,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   setCliPickerOpen(false)
                   setSpawnDialog(null)
                 }}
-                className="rounded-md border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+                className="rounded-md border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
@@ -914,7 +914,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </div>
 
               <div className="relative">
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   CLI
                 </div>
                 <button
@@ -922,21 +922,21 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   onClick={() => setCliPickerOpen((open) => !open)}
                   aria-haspopup="listbox"
                   aria-expanded={cliPickerOpen}
-                  className="flex min-h-[58px] w-full items-center gap-3 rounded-lg border border-[#303542] bg-[#0f1115] px-3 text-left text-zinc-100 outline-none transition-colors hover:border-[#4a5668] hover:bg-[#151922] focus:border-[#6ee7d8]/60"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-lg border border-[#303139] bg-[#0d0e11] px-3 text-left text-[#ececee] outline-none transition-colors hover:border-[#3a3b44] hover:bg-[#17181d] focus:border-[#6ee7d8]/60"
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#2a2e36] bg-[#171a20] text-[#6ee7d8]">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#303139] bg-[#111216] text-[#6ee7d8]">
                     <CliIcon cli={selectedCliOption.value} className="h-5 w-5" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-zinc-100">
+                    <span className="block text-sm font-semibold text-[#ececee]">
                       {selectedCliOption.label}
                     </span>
-                    <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
+                    <span className="mt-0.5 block truncate text-[12px] text-[#5a5a63]">
                       {selectedCliOption.description}
                     </span>
                   </span>
                   <svg
-                    className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
+                    className={`h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
                     viewBox="0 0 20 20"
                     fill="none"
                     aria-hidden="true"
@@ -949,7 +949,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 {cliPickerOpen ? (
                   <div
                     role="listbox"
-                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-[#303542] bg-[#101216] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
                   >
                     {cliOptions.map((option) => {
                       const selected = spawnDialog.cli === option.value
@@ -967,22 +967,22 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                           }}
                           className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                             selected
-                              ? 'bg-[#6ee7d8]/12 text-zinc-100'
-                              : 'text-zinc-300 hover:bg-[#171d26] hover:text-zinc-100'
+                              ? 'bg-[#6ee7d8]/12 text-[#ececee]'
+                              : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
                           }`}
                         >
                           <span
                             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
                               selected
                                 ? 'border-[#6ee7d8]/40 bg-[#061210] text-[#6ee7d8]'
-                                : 'border-[#2a2e36] bg-[#171a20] text-zinc-500'
+                                : 'border-[#303139] bg-[#111216] text-[#5a5a63]'
                             }`}
                           >
                             <CliIcon cli={option.value} className="h-5 w-5" />
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-semibold">{option.label}</span>
-                            <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
+                            <span className="mt-0.5 block truncate text-[12px] text-[#5a5a63]">
                               {option.description}
                             </span>
                           </span>
@@ -998,21 +998,21 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 ) : null}
               </div>
 
-              <div className="rounded-lg border border-[#23262d] bg-[#171a20] px-4 py-3 text-sm leading-6 text-zinc-300">
+              <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3 text-sm leading-6 text-[#d7d7dc]">
                 {cliOptions.find((option) => option.value === spawnDialog.cli)?.description}
                 {spawnDialogIsRunning ? (
-                  <span className="text-zinc-500"> A terminal already exists, so this will focus it unless you changed the CLI.</span>
+                  <span className="text-[#5a5a63]"> A terminal already exists, so this will focus it unless you changed the CLI.</span>
                 ) : null}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#23262d] bg-[#101216] px-5 py-4">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
               <button
                 onClick={() => {
                   setCliPickerOpen(false)
                   setSpawnDialog(null)
                 }}
-                className="rounded-md border border-[#2a2e36] bg-[#181b20] px-4 py-2 text-sm font-semibold text-zinc-300 transition-colors hover:bg-[#20252e] hover:text-zinc-100"
+                className="rounded-md border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Cancel
               </button>
@@ -1029,36 +1029,36 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {selectedTask && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[900px] overflow-y-auto rounded-2xl border border-[#303542] bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
+          <div className="max-h-[90vh] w-full max-w-[900px] overflow-y-auto rounded-2xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div>
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Task Detail
                 </div>
-                <h3 className="text-[20px] font-semibold tracking-tight text-zinc-100">
+                <h3 className="text-[20px] font-semibold tracking-tight text-[#ececee]">
                   {selectedTask.title}
                 </h3>
-                <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-zinc-500">
-                  <span className="rounded-full border border-[#2a2e36] px-2 py-1">{selectedTask.id}</span>
-                  <span className="rounded-full border border-[#2a2e36] px-2 py-1">
+                <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                  <span className="rounded-full border border-[#303139] px-2 py-1">{selectedTask.id}</span>
+                  <span className="rounded-full border border-[#303139] px-2 py-1">
                     {swarmRoleLabels[selectedTask.role]}
                   </span>
-                  <span className="rounded-full border border-[#2a2e36] px-2 py-1">
+                  <span className="rounded-full border border-[#303139] px-2 py-1">
                     {taskStateLabel[selectedTask.status]}
                   </span>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedTaskId(null)}
-                className="rounded-lg border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+                className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
             </div>
 
-            <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-zinc-300">
+            <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
               <div>
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Description
                 </div>
                 <p>{selectedTask.description}</p>
@@ -1080,12 +1080,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </div>
 
               {selectedTask.ownerAgentId ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#2a2e36] bg-[#171a20] px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#24252b] bg-[#111216] px-4 py-3">
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                       Worker CLI
                     </div>
-                    <div className="mt-1 text-sm text-zinc-200">
+                    <div className="mt-1 text-sm text-[#d7d7dc]">
                       Jump straight to {rosterById[selectedTask.ownerAgentId]?.label ?? selectedTask.ownerAgentId} to continue or answer questions there.
                     </div>
                   </div>
@@ -1094,7 +1094,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       openAgentTerminal(selectedTask.ownerAgentId!)
                       setSelectedTaskId(null)
                     }}
-                    className="rounded-xl border border-[#3b4250] bg-[#1b1f26] px-4 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:bg-[#20252e]"
+                    className="rounded-xl border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#ececee] transition-colors hover:bg-[#17181d]"
                   >
                     Focus Worker CLI
                   </button>
@@ -1139,10 +1139,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               />
 
               <div>
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Evidence Summary
                 </div>
-                <div className="rounded-xl border border-[#23262d] bg-[#171a20] px-4 py-3 text-zinc-200">
+                <div className="rounded-xl border border-[#24252b] bg-[#111216] px-4 py-3 text-[#d7d7dc]">
                   {selectedTask.evidence.summary || 'No completion summary recorded yet.'}
                 </div>
               </div>
@@ -1153,28 +1153,28 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {showRunSummary ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[980px] overflow-y-auto rounded-2xl border border-emerald-400/30 bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
+          <div className="max-h-[90vh] w-full max-w-[980px] overflow-y-auto rounded-2xl border border-[#30d158]/35 bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55),0_0_28px_rgba(48,209,88,0.1)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div>
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
                   Run Summary
                 </div>
-                <h3 className="text-[14px] font-semibold tracking-tight text-zinc-100">
+                <h3 className="text-[14px] font-semibold tracking-tight text-[#ececee]">
                   {formatSwarmGoal(swarmState.goal)}
                 </h3>
-                <p className="mt-2 text-sm text-zinc-400">
+                <p className="mt-2 text-sm text-[#9a9aa2]">
                   Final evidence collected from completed swarm task cards.
                 </p>
               </div>
               <button
                 onClick={() => setShowRunSummary(false)}
-                className="rounded-lg border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+                className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
             </div>
 
-            <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-zinc-300">
+            <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
               <div className="grid gap-4 md:grid-cols-4">
                 <InfoCard label="Tasks Done" value={`${runSummary.completedTasks}/${runSummary.totalTasks}`} />
                 <InfoCard label="Files Touched" value={String(runSummary.touchedFiles.length)} />
@@ -1218,19 +1218,19 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {addMemberOpen ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-2xl border border-[#303542] bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
+          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-2xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div>
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Swarm Roster
                 </div>
-                <h3 className="text-[20px] font-semibold tracking-tight text-zinc-100">
+                <h3 className="text-[20px] font-semibold tracking-tight text-[#ececee]">
                   Spawn Team Member
                 </h3>
               </div>
               <button
                 onClick={() => setAddMemberOpen(false)}
-                className="rounded-lg border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+                className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
@@ -1250,8 +1250,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                     onClick={() => setAddMemberRole(role)}
                     className={`rounded-xl border p-4 text-left transition-colors ${
                       selected
-                        ? 'border-zinc-200 bg-zinc-200 text-zinc-950'
-                        : 'border-[#2a2e36] bg-[#171a20] text-zinc-200 hover:border-[#414958] hover:bg-[#1b2028]'
+                        ? 'border-[#6ee7d8]/55 bg-[#6ee7d8]/12 text-[#ececee]'
+                        : 'border-[#24252b] bg-[#111216] text-[#d7d7dc] hover:border-[#303139] hover:bg-[#17181d]'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -1259,7 +1259,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                         <div className="truncate text-sm font-semibold">
                           {swarmRoleLabels[role]}
                         </div>
-                        <p className={`mt-2 text-[12px] leading-5 ${selected ? 'text-zinc-700' : 'text-zinc-400'}`}>
+                        <p className={`mt-2 text-[12px] leading-5 ${selected ? 'text-[#bff7f1]' : 'text-[#9a9aa2]'}`}>
                           {roleSummaries[role]}
                         </p>
                       </div>
@@ -1270,15 +1270,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                     </div>
 
                     <div className={`mt-4 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.12em] ${
-                      selected ? 'text-zinc-700' : 'text-zinc-500'
+                      selected ? 'text-[#bff7f1]' : 'text-[#5a5a63]'
                     }`}>
                       <span className={`rounded-full border px-2 py-1 ${
-                        selected ? 'border-zinc-400/60 bg-white/40' : 'border-[#303542] bg-[#121419]'
+                        selected ? 'border-[#6ee7d8]/40 bg-[#6ee7d8]/10' : 'border-[#303139] bg-[#0d0e11]'
                       }`}>
                         {activeForRole} active
                       </span>
                       <span className={`rounded-full border px-2 py-1 ${
-                        selected ? 'border-zinc-400/60 bg-white/40' : 'border-[#303542] bg-[#121419]'
+                        selected ? 'border-[#6ee7d8]/40 bg-[#6ee7d8]/10' : 'border-[#303139] bg-[#0d0e11]'
                       }`}>
                         {openTasksForRole} open
                       </span>
@@ -1288,10 +1288,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               })}
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#23262d] bg-[#101216] px-5 py-4">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
               <button
                 onClick={() => setAddMemberOpen(false)}
-                className="rounded-xl border border-[#2a2e36] bg-[#181b20] px-4 py-2 text-sm font-semibold text-zinc-300 transition-colors hover:bg-[#20252e] hover:text-zinc-100"
+                className="rounded-xl border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Cancel
               </button>
@@ -1308,16 +1308,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {planReview.open ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-2xl border border-[#ffbf2f]/45 bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55),0_0_32px_rgba(255,191,47,0.12)]">
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
+          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-2xl border border-[#ffbf2f]/45 bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55),0_0_32px_rgba(255,191,47,0.12)]">
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0 flex-1">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
                   Architect Plan Review
                 </div>
-                <h3 className="truncate text-[20px] font-semibold tracking-tight text-zinc-100">
+                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
                   {planFilePath ?? 'swarm/plan.md'}
                 </h3>
-                <p className="mt-2 text-sm text-zinc-400">
+                <p className="mt-2 text-sm text-[#9a9aa2]">
                   Review the architect-authored low-level design before spawning specialists.
                 </p>
               </div>
@@ -1329,13 +1329,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       mode: current.mode === 'preview' ? 'source' : 'preview',
                     }))
                   }
-                  className="rounded-lg border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+                  className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
                   {planReview.mode === 'preview' ? 'Source' : 'Preview'}
                 </button>
                 <button
                   onClick={() => void loadPlanReview()}
-                  className="rounded-lg border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+                  className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
                   Refresh
                 </button>
@@ -1349,7 +1349,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 ) : null}
                 <button
                   onClick={() => setPlanReview((current) => ({ ...current, open: false }))}
-                  className="rounded-lg border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+                  className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
                   Close
                 </button>
@@ -1358,12 +1358,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
               {planReview.status === 'loading' ? (
-                <div className="rounded-2xl border border-[#23262d] bg-[#171a20] px-4 py-5 text-sm text-zinc-400">
+                <div className="rounded-2xl border border-[#24252b] bg-[#111216] px-4 py-5 text-sm text-[#9a9aa2]">
                   Loading plan...
                 </div>
               ) : null}
               {planReview.status === 'error' ? (
-                <div className="rounded-2xl border border-rose-400/30 bg-rose-950/20 px-4 py-5 text-sm text-rose-100">
+                <div className="rounded-2xl border border-[#ff1a3d]/45 bg-[#ff1a3d]/12 px-4 py-5 text-sm text-[#ffb3bf]">
                   {planReview.error ?? 'Failed to load plan.'}
                 </div>
               ) : null}
@@ -1372,28 +1372,28 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   {planReview.content
                     ? renderMarkdown(planReview.content)
                     : (
-                      <div className="rounded-lg border border-dashed border-[#303542] bg-[#171a20] px-4 py-5 text-sm text-zinc-400">
+                      <div className="rounded-lg border border-dashed border-[#303139] bg-[#111216] px-4 py-5 text-sm text-[#9a9aa2]">
                         No architect plan has been written yet.
                       </div>
                     )}
                 </div>
               ) : null}
               {planReview.status === 'ready' && planReview.mode === 'source' ? (
-                <pre className="min-h-[420px] overflow-x-auto rounded-2xl border border-[#23262d] bg-[#0b0c0e] p-4 text-[13px] leading-6 text-zinc-200">
+                <pre className="min-h-[420px] overflow-x-auto rounded-2xl border border-[#24252b] bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]">
                   <code>{planReview.content}</code>
                 </pre>
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#23262d] bg-[#101216] px-5 py-4">
-              <div className="text-[12px] text-zinc-500">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
+              <div className="text-[12px] text-[#5a5a63]">
                 Spawn specialists from the board header when this plan matches your intent.
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {planFilePath ? (
                   <button
                     onClick={() => void openPlanInEditor()}
-                    className="rounded-xl border border-[#2a2e36] bg-[#181b20] px-4 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:bg-[#20252e]"
+                    className="rounded-xl border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d]"
                   >
                     Open in Editor
                   </button>
@@ -1462,7 +1462,7 @@ function SwarmMapView({
         className="relative min-h-[460px] overflow-hidden"
         style={{
           backgroundImage:
-            'radial-gradient(circle, rgba(255,255,255,0.06) 0, rgba(255,255,255,0.06) 1px, transparent 1px)',
+            'radial-gradient(circle, rgba(255,255,255,0.20) 0, rgba(255,255,255,0.20) 1px, transparent 1px)',
           backgroundColor: '#08090b',
           backgroundSize: '24px 24px',
         }}
@@ -1645,17 +1645,17 @@ function SectionList({
 }) {
   return (
     <div>
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">{title}</div>
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">{title}</div>
       {items.length > 0 ? (
-        <ul className="space-y-2 text-zinc-300">
+        <ul className="space-y-2 text-[#d7d7dc]">
           {items.map((item) => (
-            <li key={item} className="rounded-lg border border-[#23262d] bg-[#171a20] px-3 py-2">
+            <li key={item} className="rounded-lg border border-[#24252b] bg-[#111216] px-3 py-2">
               {item}
             </li>
           ))}
         </ul>
       ) : (
-        <div className="rounded-lg border border-dashed border-[#2a2d34] bg-[#15171b] px-3 py-3 text-[12px] text-zinc-600">
+        <div className="rounded-lg border border-dashed border-[#24252b] bg-[#111216] px-3 py-3 text-[12px] text-[#5a5a63]">
           {emptyLabel}
         </div>
       )}
@@ -1691,17 +1691,17 @@ function taskCardTone(task: SwarmTask): string {
 function runtimeTone(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-sky-950/60 text-sky-200'
+      return 'bg-[#6ee7d8]/12 text-[#bff7f1]'
     case 'needs_input':
       return 'border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 text-[#ffe0a3] shadow-[0_0_16px_rgba(255,191,47,0.12)]'
     case 'planning':
-      return 'bg-amber-950/60 text-amber-200'
+      return 'bg-[#ffa600]/14 text-[#ffd58a]'
     case 'complete':
-      return 'bg-emerald-950/60 text-emerald-200'
+      return 'bg-[#30d158]/12 text-[#d4ffdc]'
     case 'error':
-      return 'bg-rose-950/80 text-rose-100'
+      return 'bg-[#ff1a3d]/14 text-[#ffb3bf]'
     default:
-      return 'bg-zinc-800 text-zinc-300'
+      return 'bg-[#1a1b20] text-[#9a9aa2]'
   }
 }
 

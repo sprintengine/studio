@@ -28,7 +28,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
       nodes.push(
         <code
           key={`${keyPrefix}-code-${matchIndex}`}
-          className="px-1.5 py-0.5 rounded bg-[#17191d] border border-[#23262d] text-[#d7c38a]"
+          className="px-1.5 py-0.5 rounded bg-[#111216] border border-[#24252b] text-[#ffd58a]"
         >
           {full.slice(1, -1)}
         </code>
@@ -40,7 +40,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
           href={match[4]}
           target="_blank"
           rel="noreferrer"
-          className="text-[#8cb4ff] hover:text-[#a9c8ff] underline underline-offset-2"
+          className="text-[#6ee7d8] hover:text-[#bff7f1] underline underline-offset-2"
         >
           {renderInline(match[3], `${keyPrefix}-link-text-${matchIndex}`)}
         </a>
@@ -48,14 +48,14 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
     } else if (match[5] || match[7]) {
       const strongText = match[6] ?? match[8] ?? ''
       nodes.push(
-        <strong key={`${keyPrefix}-strong-${matchIndex}`} className="font-semibold text-zinc-100">
+        <strong key={`${keyPrefix}-strong-${matchIndex}`} className="font-semibold text-[#ececee]">
           {renderInline(strongText, `${keyPrefix}-strong-text-${matchIndex}`)}
         </strong>
       )
     } else if (match[9] || match[11]) {
       const emText = match[10] ?? match[12] ?? ''
       nodes.push(
-        <em key={`${keyPrefix}-em-${matchIndex}`} className="italic text-zinc-200">
+        <em key={`${keyPrefix}-em-${matchIndex}`} className="italic text-[#d7d7dc]">
           {renderInline(emText, `${keyPrefix}-em-text-${matchIndex}`)}
         </em>
       )
@@ -185,7 +185,7 @@ export function renderMarkdown(markdown: string): React.ReactNode {
         tagName,
         {
           key: `heading-${index}`,
-          className: `${sizeClass} font-semibold tracking-tight text-zinc-100 mt-6 first:mt-0 mb-3`,
+          className: `${sizeClass} font-semibold tracking-tight text-[#ececee] mt-6 first:mt-0 mb-3`,
         },
         renderInline(block.text, `heading-${index}`)
       )
@@ -193,7 +193,7 @@ export function renderMarkdown(markdown: string): React.ReactNode {
 
     if (block.type === 'paragraph') {
       return (
-        <p key={`paragraph-${index}`} className="text-[15px] leading-7 text-zinc-300 mb-4">
+        <p key={`paragraph-${index}`} className="text-[15px] leading-7 text-[#d7d7dc] mb-4">
           {renderInline(block.text, `paragraph-${index}`)}
         </p>
       )
@@ -203,7 +203,7 @@ export function renderMarkdown(markdown: string): React.ReactNode {
       return (
         <blockquote
           key={`quote-${index}`}
-          className="border-l-2 border-[#3d4252] pl-4 py-0.5 my-4 text-zinc-400"
+          className="border-l-2 border-[#303139] pl-4 py-0.5 my-4 text-[#9a9aa2]"
         >
           {block.lines.map((line, lineIndex) => (
             <p key={`quote-line-${index}-${lineIndex}`} className="leading-7">
@@ -220,7 +220,7 @@ export function renderMarkdown(markdown: string): React.ReactNode {
       return (
         <ListTag
           key={`list-${index}`}
-          className={`${markerClass} ml-6 mb-4 space-y-2 text-[15px] leading-7 text-zinc-300`}
+          className={`${markerClass} ml-6 mb-4 space-y-2 text-[15px] leading-7 text-[#d7d7dc]`}
         >
           {block.items.map((item, itemIndex) => (
             <li key={`list-item-${index}-${itemIndex}`}>
@@ -233,19 +233,19 @@ export function renderMarkdown(markdown: string): React.ReactNode {
 
     if (block.type === 'code') {
       return (
-        <div key={`code-${index}`} className="my-4 rounded-xl border border-[#23262d] overflow-hidden">
+        <div key={`code-${index}`} className="my-4 rounded-xl border border-[#24252b] overflow-hidden">
           {block.language && (
-            <div className="px-3 py-2 text-[11px] uppercase tracking-[0.08em] text-zinc-500 bg-[#14161a] border-b border-[#23262d]">
+            <div className="px-3 py-2 text-[11px] uppercase tracking-[0.08em] text-[#5a5a63] bg-[#111216] border-b border-[#24252b]">
               {block.language}
             </div>
           )}
-          <pre className="m-0 p-4 overflow-x-auto bg-[#0b0c0e] text-[13px] leading-6 text-zinc-200">
+          <pre className="m-0 p-4 overflow-x-auto bg-[#08090b] text-[13px] leading-6 text-[#d7d7dc]">
             <code>{block.code}</code>
           </pre>
         </div>
       )
     }
 
-    return <hr key={`hr-${index}`} className="my-6 border-0 border-t border-[#23262d]" />
+    return <hr key={`hr-${index}`} className="my-6 border-0 border-t border-[#24252b]" />
   })
 }

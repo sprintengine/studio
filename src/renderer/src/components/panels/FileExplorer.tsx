@@ -49,53 +49,96 @@ function flattenTree(
   return rows
 }
 
-function fileAppearance(name: string): { color: string; label: string } {
-  if (name === 'package.json') return { color: 'text-[#a79a7a]', label: '{}' }
+function fileAppearance(name: string): { accent: string; bg: string; border: string; label: string } {
+  if (name === 'package.json') {
+    return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: '{}' }
+  }
+
   const ext = name.split('.').pop()?.toLowerCase()
   switch (ext) {
     case 'ts':
     case 'tsx':
-      return { color: 'text-[#8793a8]', label: 'TS' }
+      return { accent: '#7db3ff', bg: '#142033', border: '#29486f', label: 'TS' }
     case 'js':
     case 'jsx':
-      return { color: 'text-[#a79a7a]', label: 'JS' }
+      return { accent: '#f2d36b', bg: '#2b2613', border: '#6e6023', label: 'JS' }
     case 'java':
-      return { color: 'text-[#a88478]', label: 'JV' }
+      return { accent: '#f19974', bg: '#2d1b16', border: '#70402f', label: 'JV' }
     case 'py':
-      return { color: 'text-[#7fa48a]', label: 'PY' }
+      return { accent: '#84d69b', bg: '#14291b', border: '#2c6740', label: 'PY' }
     case 'rs':
-      return { color: 'text-[#a88478]', label: 'RS' }
+      return { accent: '#f19974', bg: '#2d1b16', border: '#70402f', label: 'RS' }
     case 'go':
-      return { color: 'text-[#8793a8]', label: 'GO' }
+      return { accent: '#7bd7ea', bg: '#10272e', border: '#286274', label: 'GO' }
     case 'json':
-      return { color: 'text-[#a79a7a]', label: '{}' }
+      return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: '{}' }
     case 'yaml':
     case 'yml':
-      return { color: 'text-[#a79a7a]', label: 'YML' }
+      return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: 'YML' }
     case 'md':
-      return { color: 'text-[#9a9aa2]', label: 'MD' }
+      return { accent: '#cfd2dd', bg: '#1b1d24', border: '#3a3d49', label: 'MD' }
     case 'txt':
-      return { color: 'text-[#8a8a92]', label: 'TXT' }
+      return { accent: '#b9bcc8', bg: '#181a20', border: '#353844', label: 'TXT' }
     case 'html':
-      return { color: 'text-[#a88478]', label: '<>' }
+      return { accent: '#ff9f75', bg: '#2d1b16', border: '#70402f', label: '<>' }
     case 'css':
     case 'scss':
-      return { color: 'text-[#8793a8]', label: '#' }
+      return { accent: '#7db3ff', bg: '#142033', border: '#29486f', label: '#' }
     case 'sh':
     case 'bash':
-      return { color: 'text-[#7fa48a]', label: 'SH' }
+      return { accent: '#84d69b', bg: '#14291b', border: '#2c6740', label: 'SH' }
     default:
-      return { color: 'text-[#5a5a63]', label: '.' }
+      return { accent: '#a6abb8', bg: '#17191f', border: '#343742', label: '.' }
   }
 }
 
 function FileIcon({ name }: { name: string }) {
-  const { color, label } = fileAppearance(name)
+  const { accent, bg, border, label } = fileAppearance(name)
   return (
     <span
-      className={`inline-flex h-[16px] w-[18px] items-center justify-center font-mono text-[9px] font-bold leading-none ${color}`}
+      className="inline-flex h-[18px] w-[20px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[8px] font-black leading-none shadow-[0_0_0_1px_rgba(0,0,0,0.2)]"
+      style={{ color: accent, backgroundColor: bg, borderColor: border }}
     >
       {label}
+    </span>
+  )
+}
+
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <span className="inline-flex h-[18px] w-3 shrink-0 items-center justify-center text-[#838896] transition-colors group-hover:text-[#d7d7dc]">
+      <svg
+        viewBox="0 0 12 12"
+        aria-hidden="true"
+        className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        fill="none"
+      >
+        <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  )
+}
+
+function FolderIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <span className="inline-flex h-[20px] w-[22px] shrink-0 items-center justify-center">
+      <svg viewBox="0 0 24 20" aria-hidden="true" className="h-5 w-6 drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)]">
+        <path
+          d="M2.5 5.8c0-1.1.9-2 2-2h5.1l1.9 2.1h8c1.1 0 2 .9 2 2v.95h-19V5.8Z"
+          fill={expanded ? '#ffe18a' : '#f2c45f'}
+          stroke="#7a5b18"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M2.25 8.4h19.5l-1.45 7.25c-.22 1.06-1.15 1.85-2.23 1.85H5.93c-1.08 0-2.01-.79-2.23-1.85L2.25 8.4Z"
+          fill={expanded ? '#f4b94f' : '#d9992f'}
+          stroke="#7a5b18"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+        <path d="M5.5 10.35h13" stroke="#ffe7a5" strokeWidth="1.15" strokeLinecap="round" opacity="0.7" />
+      </svg>
     </span>
   )
 }
@@ -664,11 +707,9 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
               </>
             ) : entry.isDir ? (
               <>
-                <span className="w-3 shrink-0 text-[10px] text-[#5a5a63]">{isExpanded ? '▾' : '▸'}</span>
-                <span className="inline-flex w-[18px] shrink-0 items-center justify-center text-[11px] font-bold leading-none text-[#8a8171]">
-                  ▢
-                </span>
-                <span className="truncate">{entry.name}</span>
+                <ChevronIcon expanded={isExpanded} />
+                <FolderIcon expanded={isExpanded} />
+                <span className="truncate font-medium text-[#d7d7dc] group-hover:text-[#fff7d7]">{entry.name}</span>
               </>
             ) : (
               <>

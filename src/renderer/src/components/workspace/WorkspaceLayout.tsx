@@ -62,7 +62,7 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
         case 'swarm-kanban':
           return <SwarmBoardPanel workspaceId={workspaceId} fixedView="kanban" />
         default:
-          return <div className="h-full bg-[#0f1012]" />
+          return <div className="h-full bg-[#08090b]" />
       }
     },
     [workspaceId]

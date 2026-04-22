@@ -9,11 +9,11 @@ interface Props {
 }
 
 const statusDot: Record<AgentStatus, string> = {
-  idle: 'bg-zinc-600',
-  running: 'bg-amber-400 animate-pulse',
-  streaming: 'bg-emerald-400 animate-pulse',
-  error: 'bg-red-500',
-  complete: 'bg-zinc-500',
+  idle: 'bg-[#5a5a63]',
+  running: 'bg-[#ffa600] animate-pulse',
+  streaming: 'bg-[#30d158] animate-pulse',
+  error: 'bg-[#ff1a3d]',
+  complete: 'bg-[#9a9aa2]',
 }
 
 const statusLabel: Record<AgentStatus, string> = {
@@ -47,7 +47,7 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
     : ''
   const cliHeaderTone = needsInput
     ? 'border-b border-[#ffbf2f]/45 bg-[#111216] shadow-[inset_0_2px_0_rgba(255,191,47,0.75)]'
-    : 'border-b border-[#23262d] bg-[#17191d]'
+    : 'border-b border-[#1f2025] bg-[#111216]'
 
   const startAgent = (restart = false) => {
     const existingSessionId = restart ? agent?.cliSessionId : undefined
@@ -64,12 +64,12 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
   const startLabel = swarmRuntimeAgent?.role === 'architect' ? 'Spawn Architect' : `Spawn ${label}`
 
   return (
-    <div className={`flex h-full flex-col bg-[#15171b] font-mono text-[12px] text-zinc-200 ${cliShellTone}`}>
+    <div className={`flex h-full flex-col bg-[#0d0e11] font-mono text-[12px] text-[#d7d7dc] ${cliShellTone}`}>
       <div className={`flex h-9 shrink-0 items-center justify-between gap-3 px-3 ${cliHeaderTone}`}>
         <div className="flex min-w-0 items-center gap-2">
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot[status]}`} />
-          <span className="truncate text-[12px] text-zinc-200">{label}</span>
-          <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-zinc-500">
+          <span className="truncate text-[12px] text-[#d7d7dc]">{label}</span>
+          <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-[#5a5a63]">
             {statusLabel[status]}
           </span>
           {needsInput ? (
@@ -86,12 +86,12 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
             </>
           ) : null}
         </div>
-        <span className={`shrink-0 text-[10px] uppercase tracking-[0.08em] ${needsInput ? 'text-[#ffe0a3]' : 'text-zinc-500'}`}>
+        <span className={`shrink-0 text-[10px] uppercase tracking-[0.08em] ${needsInput ? 'text-[#ffe0a3]' : 'text-[#5a5a63]'}`}>
           {cli}
         </span>
       </div>
 
-      <div className={`relative flex-1 overflow-hidden bg-[#0b0c0e] ${needsInput ? 'shadow-[inset_0_1px_0_rgba(255,191,47,0.1)]' : ''}`}>
+      <div className={`relative flex-1 overflow-hidden bg-[#08090b] ${needsInput ? 'shadow-[inset_0_1px_0_rgba(255,191,47,0.1)]' : ''}`}>
         {hasStarted ? (
           <TerminalView workspaceId={workspaceId} agentId={agentId} />
         ) : (

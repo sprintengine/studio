@@ -397,7 +397,7 @@ export default function WorkspaceManager() {
                   key={workspace.id}
                   className="absolute inset-0"
                   style={{
-                    visibility: active ? 'visible' : 'hidden',
+                    display: active ? 'block' : 'none',
                     pointerEvents: active ? 'auto' : 'none',
                   }}
                   aria-hidden={!active}
