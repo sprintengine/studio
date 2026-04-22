@@ -96,6 +96,7 @@ export type CliRuntimeSettings = {
 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
+  lastSelectedCli: AgentCli
 }
 
 export type AgentState = {

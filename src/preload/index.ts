@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('api', {
   renamePath: (sourcePath: string, nextName: string) => ipcRenderer.invoke('fs:rename', sourcePath, nextName),
   copyPath:   (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:copy', sourcePath, destinationDir),
   deletePath: (targetPath: string) => ipcRenderer.invoke('fs:delete', targetPath),
+  showItemInFolder: (targetPath: string) => ipcRenderer.invoke('fs:show-item-in-folder', targetPath),
   watchPath:  async (path: string, cb: (event: FileWatchEvent) => void) => {
     const watchId = await ipcRenderer.invoke('fs:watch-start', path)
     const ch = `fs:watch-event:${watchId}`
@@ -49,7 +50,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('app:show-menubar-menu', label, position),
 
   // Agent CLI Terminal
-  terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli, initialPrompt, cliRuntimes }),
+  terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli, initialPrompt, cliRuntimes, shellOnly }),
   terminalWrite:  (sessionId: string, data: string) => ipcRenderer.invoke('terminal:write', { sessionId, data }),
   terminalResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
   terminalKill:   (sessionId: string) => ipcRenderer.invoke('terminal:kill', sessionId),

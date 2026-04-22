@@ -44,6 +44,7 @@ declare interface Window {
     renamePath: (sourcePath: string, nextName: string) => Promise<string>
     copyPath: (sourcePath: string, destinationDir: string) => Promise<string>
     deletePath: (targetPath: string) => Promise<void>
+    showItemInFolder: (targetPath: string) => Promise<void>
     watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
     openDir:   () => Promise<string | null>
     saveFile:  (options?: SaveDialogOptions) => Promise<string | null>
@@ -52,7 +53,7 @@ declare interface Window {
     showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
 
     // Agent CLI Terminal
-    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>) => Promise<void>
+    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => Promise<void>
     terminalWrite:  (sessionId: string, data: string) => Promise<void>
     terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
     terminalKill:   (sessionId: string) => Promise<void>

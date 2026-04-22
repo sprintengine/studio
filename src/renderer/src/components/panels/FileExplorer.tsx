@@ -408,6 +408,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     const canDeletePath = typeof window.api.deletePath === 'function'
     const command = await window.api.showContextMenu([
       ...(entry && !entry.isDir ? [{ id: 'open', label: 'Open' }] : []),
+      ...(entry && !entry.isDir ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
       ...(entry?.isDir && !isSearching
         ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
         : []),
@@ -425,6 +426,14 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
 
     if (!command) return
     if (command === 'open' && entry) return void activateEntry(entry)
+    if (command === 'open-in-explorer' && entry && !entry.isDir) {
+      try {
+        await window.api.showItemInFolder(entry.path)
+      } catch (error) {
+        alert(error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
     if (command === 'expand' && entry?.isDir) {
       if (!expandedPaths[entry.path]) {
         await ensureDirectoryLoaded(entry.path)

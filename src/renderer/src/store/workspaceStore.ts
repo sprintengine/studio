@@ -31,6 +31,7 @@ interface WorkspaceStore {
   activeWorkspaceId: WorkspaceId | null
   appSettings: AppSettings
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
+  setLastSelectedCli: (cli: AgentCli) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: { name?: string; folderPath?: string | null; swarmState?: SwarmState | null }
@@ -68,6 +69,7 @@ const defaultAppSettings = (): AppSettings => ({
       useWsl: typeof window !== 'undefined' && window.api?.platform === 'win32',
     },
   },
+  lastSelectedCli: 'claude',
 })
 
 const defaultAgent = (id: AgentId, name = id): AgentState => ({
@@ -178,6 +180,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...state.appSettings.cliRuntimes[cli],
             ...update,
           }
+        }),
+
+      setLastSelectedCli: (cli) =>
+        set((state) => {
+          state.appSettings.lastSelectedCli = cli
         }),
 
       addWorkspace: (template, options) =>
@@ -459,7 +466,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: 'free-ai-ide-workspaces',
-      version: 10,
+      version: 11,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -539,6 +546,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                   ?? defaults.cliRuntimes.claude.command,
               },
             },
+            lastSelectedCli: defaults.lastSelectedCli,
+          }
+        }
+        if (version < 11) {
+          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const defaults = defaultAppSettings()
+          current.appSettings = {
+            ...defaults,
+            ...(current.appSettings ?? {}),
+            cliRuntimes: {
+              ...defaults.cliRuntimes,
+              ...(current.appSettings?.cliRuntimes ?? {}),
+            },
+            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
           }
         }
         return state as never

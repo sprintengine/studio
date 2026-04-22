@@ -24,12 +24,13 @@ declare global {
       renamePath: (sourcePath: string, nextName: string) => Promise<string>
       copyPath: (sourcePath: string, destinationDir: string) => Promise<string>
       deletePath: (targetPath: string) => Promise<void>
+      showItemInFolder: (targetPath: string) => Promise<void>
       openDir:   () => Promise<string | null>
       saveFile:  (options?: Electron.SaveDialogOptions) => Promise<string | null>
       openFile:  (options?: Electron.OpenDialogOptions) => Promise<string | null>
       showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>
 
-      terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>) => Promise<void>
+      terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => Promise<void>
       terminalWrite:  (sessionId: string, data: string) => Promise<void>
       terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
       terminalKill:   (sessionId: string) => Promise<void>

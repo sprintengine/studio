@@ -7,6 +7,7 @@ import { buildSwarmAgentRosterForState } from '../../utils/swarm'
 import AgentPanel from '../panels/AgentPanel'
 import EditorPanel from '../panels/EditorPanel'
 import FileExplorer from '../panels/FileExplorer'
+import PlainTerminalPanel from '../panels/PlainTerminalPanel'
 import SwarmBoardPanel from '../panels/SwarmBoardPanel'
 
 interface Props {
@@ -33,7 +34,7 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
   const factory = useCallback(
     (node: TabNode) => {
       const component = node.getComponent()
-      const config = node.getConfig() as { agentId?: string } | undefined
+      const config = node.getConfig() as { agentId?: string; terminalId?: string } | undefined
 
       switch (component) {
         case 'agent':
@@ -47,6 +48,13 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
           return <EditorPanel workspaceId={workspaceId} />
         case 'explorer':
           return <FileExplorer workspaceId={workspaceId} />
+        case 'terminal':
+          return (
+            <PlainTerminalPanel
+              workspaceId={workspaceId}
+              terminalId={config?.terminalId ?? node.getId()}
+            />
+          )
         case 'swarm':
           return <SwarmBoardPanel workspaceId={workspaceId} />
         case 'swarm-map':

@@ -151,6 +151,7 @@ type TerminalSpawnPayload = {
   cli?: AgentCli
   initialPrompt?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  shellOnly?: boolean
 }
 
 type ShellLaunchConfig = {
@@ -372,6 +373,51 @@ function getShellLaunchConfig(
   }
 }
 
+function getPlainShellLaunchConfig(
+  cwd: string,
+  swarmStatePath?: string
+): ShellLaunchConfig {
+  if (process.platform === 'win32') {
+    const windowsCwd = toWindowsPath(cwd)
+    const windowsStatePath = swarmStatePath ? toWindowsPath(swarmStatePath) : undefined
+
+    if (isNativeWindowsPath(windowsCwd)) {
+      return {
+        command: 'powershell.exe',
+        args: ['-NoLogo'],
+        env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
+        cwd: windowsCwd,
+      }
+    }
+
+    return {
+      command: 'wsl.exe',
+      args: [
+        '-e',
+        'bash',
+        '-lic',
+        [
+          buildUserShellStartup(),
+          `cd ${quotePosix(toWslPath(cwd))}`,
+          buildSwarmShellBootstrap(swarmStatePath),
+          'exec bash -li',
+        ].join('; '),
+      ],
+    }
+  }
+
+  const shellPath = process.env.SHELL || 'bash'
+  const shellName = shellPath.split(/[\\/]/).at(-1)
+  const args = shellName === 'bash' || shellName === 'zsh' ? ['-l'] : []
+
+  return {
+    command: shellPath,
+    args,
+    env: withSwarmEnv(getTerminalEnv(), cwd, swarmStatePath),
+    cwd,
+  }
+}
+
 function buildNativeAgentLaunchCommand(
   cli: AgentCli,
   sessionId: string,
@@ -500,20 +546,22 @@ function disposeFileWatchersForSender(senderId: number): void {
 
 ipcMain.handle(
   'terminal:spawn',
-  (event, { sessionId, cols, rows, cwd, resume, swarmStatePath, cli = 'codex', initialPrompt, cliRuntimes }: TerminalSpawnPayload) => {
+  (event, { sessionId, cols, rows, cwd, resume, swarmStatePath, cli = 'codex', initialPrompt, cliRuntimes, shellOnly }: TerminalSpawnPayload) => {
     disposeTerminal(sessionId)
 
     try {
       const workingDirectory = cwd || process.cwd()
-      const { command, args, cwd: launchCwd, initialInput, env } = getShellLaunchConfig(
-        workingDirectory,
-        sessionId,
-        resume,
-        swarmStatePath,
-        cli,
-        initialPrompt,
-        cliRuntimes
-      )
+      const { command, args, cwd: launchCwd, initialInput, env } = shellOnly
+        ? getPlainShellLaunchConfig(workingDirectory, swarmStatePath)
+        : getShellLaunchConfig(
+          workingDirectory,
+          sessionId,
+          resume,
+          swarmStatePath,
+          cli,
+          initialPrompt,
+          cliRuntimes
+        )
       const termProcess = pty.spawn(command, args, {
         name: 'xterm-256color',
         cols: Math.max(cols || 80, 20),
@@ -660,6 +708,11 @@ ipcMain.handle('fs:copy', async (_, sourcePath: string, destinationDir: string) 
 
 ipcMain.handle('fs:delete', async (_, targetPath: string) => {
   await shell.trashItem(targetPath)
+})
+
+ipcMain.handle('fs:show-item-in-folder', async (_, targetPath: string) => {
+  await access(targetPath)
+  shell.showItemInFolder(targetPath)
 })
 
 ipcMain.handle('fs:dialog:opendir', async (event) => {
