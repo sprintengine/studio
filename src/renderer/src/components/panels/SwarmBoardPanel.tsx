@@ -82,6 +82,10 @@ type SpawnDialogState = {
   cli: AgentCli
 }
 
+type RecoveryDialogState = {
+  cli: AgentCli
+}
+
 export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const workspace = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
@@ -94,6 +98,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [activeView, setActiveView] = useState<SwarmView>('map')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
+  const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
   const [cliPickerOpen, setCliPickerOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
@@ -276,6 +281,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const planFilePath = folderPath ? getSwarmPlanFilePath(folderPath, swarmName) : null
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
   const workerRoles: SwarmRole[] = ['developer', 'frontend', 'product', 'tester', 'security']
+  const readyTasks = swarmState.tasks.filter(
+    (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready'
+  )
+  const readyRoleLaunches = workerRoles
+    .map((role) => ({
+      role,
+      tasks: readyTasks.filter((task) => task.role === role),
+      agent: roster.find((candidate) => candidate.role === role),
+    }))
+    .filter((entry) => entry.tasks.length > 0)
   const spawnDialogAgent = spawnDialog ? rosterById[spawnDialog.agentId] : undefined
   const spawnDialogRuntime = spawnDialog
     ? runtimeAgents.find((agent) => agent.agentId === spawnDialog.agentId)
@@ -283,6 +298,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const spawnDialogAgentState = spawnDialog ? agents[spawnDialog.agentId] : undefined
   const spawnDialogIsRunning = Boolean(spawnDialogAgentState?.cliStartRequested)
   const selectedCliOption = cliOptions.find((option) => option.value === spawnDialog?.cli) ?? cliOptions[0]
+  const selectedRecoveryCliOption =
+    cliOptions.find((option) => option.value === recoveryDialog?.cli) ?? cliOptions[0]
 
   const activateView = (view: SwarmView) => {
     if (fixedView) return
@@ -307,18 +324,29 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setAddMemberOpen(false)
   }
 
-  const startAgentTerminal = (agentId: string, label: string, cli?: AgentCli) => {
+  const startAgentTerminal = (
+    agentId: string,
+    label: string,
+    cli?: AgentCli,
+    options?: { startupPrompt?: string; freshSession?: boolean }
+  ) => {
     const current = agents[agentId]
     const selectedCli = cli ?? current?.cli ?? 'codex'
-    const shouldResetSession = current?.cli !== undefined && current.cli !== selectedCli
+    const hasLegacyLaunchedSession =
+      current?.cli === undefined
+      && Boolean(current?.cliStartRequested || current?.cliHasLaunched || current?.cliSessionId)
+    const shouldResetSession =
+      hasLegacyLaunchedSession || (current?.cli !== undefined && current.cli !== selectedCli)
+    const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession)
     updateAgent(workspaceId, agentId, {
       cliStartRequested: true,
-      cliSessionId: current?.cliStartRequested && current.cliSessionId && !shouldResetSession
+      cliSessionId: current?.cliStartRequested && current.cliSessionId && !shouldStartFresh
         ? current.cliSessionId
         : crypto.randomUUID(),
-      cliHasLaunched: current?.cliStartRequested && !shouldResetSession ? current.cliHasLaunched ?? false : false,
-      cliOnboardingPromptSent: current?.cliStartRequested && !shouldResetSession ? current.cliOnboardingPromptSent ?? false : false,
+      cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
+      cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
       cli: selectedCli,
+      cliStartupPrompt: options?.startupPrompt,
     })
     focusOrAddAgentTab(workspaceId, agentId, label)
   }
@@ -347,21 +375,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setSpawnDialog(null)
   }
 
-  const spawnRole = (role: SwarmRole) => {
+  const openSpawnDialogForRole = (role: SwarmRole) => {
     const existing = roster.find((agent) => agent.role === role && !agents[agent.id]?.cliStartRequested)
       ?? roster.find((agent) => agent.role === role)
+    const agent = existing ?? addSwarmMember(workspaceId, role)
+    if (!agent) return
 
-    if (existing) {
-      setSelectedAgentId(existing.id)
-      startAgentTerminal(existing.id, existing.label)
-      return
-    }
-
-    const addedAgent = addSwarmMember(workspaceId, role)
-    if (!addedAgent) return
-
-    setSelectedAgentId(addedAgent.id)
-    startAgentTerminal(addedAgent.id, addedAgent.label)
+    openSpawnDialog(agent.id)
   }
 
   const loadPlanReview = async () => {
@@ -429,25 +449,66 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setPlanReview((current) => ({ ...current, open: false }))
   }
 
+  const openRecoveryDialog = () => {
+    setCliPickerOpen(false)
+    setRecoveryDialog({ cli: 'codex' })
+  }
+
+  const confirmRecoveryAudit = () => {
+    if (!recoveryDialog || !architectAgentId || !folderPath) return
+    const label = rosterById[architectAgentId]?.label ?? 'Architect'
+
+    startAgentTerminal(architectAgentId, label, recoveryDialog.cli, {
+      freshSession: true,
+      startupPrompt: buildRecoveryAuditPrompt(),
+    })
+    setSelectedAgentId(architectAgentId)
+    setCliPickerOpen(false)
+    setRecoveryDialog(null)
+  }
+
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[#0f1012] text-zinc-100">
       <div className="border-b border-[#23262d] bg-[#121419] px-5 py-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#2a3442] bg-[#151a22] px-4 py-3">
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-sky-300">
-              Manual Swarm Launch
+              {readyRoleLaunches.length > 0 ? 'Ready Work' : 'Manual Swarm Launch'}
             </div>
             <div className="mt-1 text-sm font-medium text-zinc-100">
-              Review the architect plan, then spawn the specialists you want to run.
+              {readyRoleLaunches.length > 0
+                ? `${readyTasks.length} ready ${readyTasks.length === 1 ? 'task needs' : 'tasks need'} specialist attention.`
+                : 'Review the architect plan, then spawn the specialists you want to run.'}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {architectAgentId ? (
+            {readyRoleLaunches.map(({ role, agent }) => {
+              const isRunning = agent ? Boolean(agents[agent.id]?.cliStartRequested) : false
+              const label = agent?.label ?? swarmRoleLabels[role]
+              return (
+                <button
+                  key={role}
+                  onClick={() => openSpawnDialogForRole(role)}
+                  className="rounded-md border border-[#6ee7d8]/35 bg-[#6ee7d8]/12 px-4 py-2 text-sm font-semibold text-[#d8fffb] transition-colors hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18"
+                >
+                  {isRunning ? `Focus ${label}` : `Spawn ${label}`}
+                </button>
+              )
+            })}
+            {architectAgentId && readyRoleLaunches.length === 0 ? (
               <button
                 onClick={() => openAgentTerminal(architectAgentId)}
                 className="rounded-md border border-amber-300/25 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-100 transition-colors hover:bg-amber-200/15"
               >
                 {agents[architectAgentId]?.cliStartRequested ? 'Focus Architect' : 'Spawn Architect'}
+              </button>
+            ) : null}
+            {architectAgentId ? (
+              <button
+                onClick={openRecoveryDialog}
+                className="rounded-md border border-emerald-300/30 bg-emerald-200/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition-colors hover:bg-emerald-200/15"
+              >
+                Verify Progress
               </button>
             ) : null}
             <button
@@ -500,20 +561,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {workerRoles.map((role) => {
-            const existing = roster.find((agent) => agent.role === role)
-            const isRunning = existing ? Boolean(agents[existing.id]?.cliStartRequested) : false
-            const label = existing?.label ?? swarmRoleLabels[role]
-            return (
-              <button
-                key={role}
-                onClick={() => spawnRole(role)}
-                className="rounded-md border border-[#2f3948] bg-[#19202a] px-3 py-1.5 text-sm font-semibold text-zinc-100 transition-colors hover:border-[#4a5668] hover:bg-[#202938]"
-              >
-                {isRunning ? `Focus ${label}` : `Spawn ${label}`}
-              </button>
-            )
-          })}
           <button
             onClick={openAddMemberDialog}
             className="rounded-md border border-[#2a2e36] bg-[#171a20] px-3 py-1.5 text-sm font-semibold text-zinc-400 transition-colors hover:bg-[#1b1f26] hover:text-zinc-100"
@@ -647,6 +694,150 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           </section>
         )) : null}
       </div>
+      ) : null}
+
+      {recoveryDialog ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303542] bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
+              <div className="min-w-0">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
+                  Verify Progress
+                </div>
+                <h3 className="truncate text-[20px] font-semibold tracking-tight text-zinc-100">
+                  Architect Audit
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">
+                  The Architect will back up state.yaml, check each task in order, and update task status through the swarm Python tool.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setCliPickerOpen(false)
+                  setRecoveryDialog(null)
+                }}
+                className="rounded-md border border-[#2a2e36] bg-[#181b20] px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-[#1c2026] hover:text-zinc-100"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InfoCard label="Tasks" value={`${swarmState.tasks.length} to check`} />
+                <InfoCard label="Backup" value="state-timestamp.yaml" />
+              </div>
+
+              <div className="relative">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                  Architect CLI
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCliPickerOpen((open) => !open)}
+                  aria-haspopup="listbox"
+                  aria-expanded={cliPickerOpen}
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-lg border border-[#303542] bg-[#0f1115] px-3 text-left text-zinc-100 outline-none transition-colors hover:border-[#4a5668] hover:bg-[#151922] focus:border-[#6ee7d8]/60"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#2a2e36] bg-[#171a20] text-[#6ee7d8]">
+                    <CliIcon cli={selectedRecoveryCliOption.value} className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-zinc-100">
+                      {selectedRecoveryCliOption.label}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
+                      {selectedRecoveryCliOption.description}
+                    </span>
+                  </span>
+                  <svg
+                    className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    aria-hidden="true"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+
+                {cliPickerOpen ? (
+                  <div
+                    role="listbox"
+                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-[#303542] bg-[#101216] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                  >
+                    {cliOptions.map((option) => {
+                      const selected = recoveryDialog.cli === option.value
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => {
+                            setRecoveryDialog((current) =>
+                              current ? { ...current, cli: option.value } : current
+                            )
+                            setCliPickerOpen(false)
+                          }}
+                          className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
+                            selected
+                              ? 'bg-[#6ee7d8]/12 text-zinc-100'
+                              : 'text-zinc-300 hover:bg-[#171d26] hover:text-zinc-100'
+                          }`}
+                        >
+                          <span
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+                              selected
+                                ? 'border-[#6ee7d8]/40 bg-[#061210] text-[#6ee7d8]'
+                                : 'border-[#2a2e36] bg-[#171a20] text-zinc-500'
+                            }`}
+                          >
+                            <CliIcon cli={option.value} className="h-5 w-5" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold">{option.label}</span>
+                            <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
+                              {option.description}
+                            </span>
+                          </span>
+                          {selected ? (
+                            <svg className="h-4 w-4 shrink-0 text-[#6ee7d8]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : null}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-lg border border-[#23262d] bg-[#171a20] px-4 py-3 text-sm leading-6 text-zinc-300">
+                No app-side recovery state is created. The Architect performs the audit in the terminal and updates the watched state file directly.
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#23262d] bg-[#101216] px-5 py-4">
+              <button
+                onClick={() => {
+                  setCliPickerOpen(false)
+                  setRecoveryDialog(null)
+                }}
+                className="rounded-md border border-[#2a2e36] bg-[#181b20] px-4 py-2 text-sm font-semibold text-zinc-300 transition-colors hover:bg-[#20252e] hover:text-zinc-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRecoveryAudit}
+                disabled={!folderPath || !architectAgentId}
+                className="rounded-md border border-emerald-300/50 bg-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-950 transition-colors hover:bg-emerald-100 disabled:opacity-45 disabled:hover:bg-emerald-200"
+              >
+                Start Audit
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {spawnDialog && spawnDialogAgent ? (
@@ -1553,6 +1744,19 @@ function formatSwarmGoal(goal: string): string {
   }
 
   return trimmed
+}
+
+function buildRecoveryAuditPrompt(): string {
+  return [
+    'You are starting ALIENCODE Verify Progress recovery mode.',
+    '',
+    'Do not run `swarm init`.',
+    'Run `swarm recover` now.',
+    '',
+    '`swarm recover` is the canonical recovery entrypoint. It backs up the active state file, returns the full recovery architect prompt, and defines the allowed audit-only commands.',
+    'Read the returned JSON `prompt` field and follow it exactly.',
+    'If `swarm recover` fails, stop and report the error instead of creating, deleting, or replanning tasks.',
+  ].join('\n')
 }
 
 function buildRunSummary(tasks: SwarmTask[]) {

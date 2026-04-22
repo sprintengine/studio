@@ -82,6 +82,19 @@ def load_prompt(role: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def backup_state_file(path: Path) -> Path:
+    if not path.exists():
+        raise SystemExit(f"State file not found: {path}")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = path.with_name(f"state-{timestamp}.yaml")
+    attempt = 1
+    while backup.exists():
+        backup = path.with_name(f"state-{timestamp}-{attempt}.yaml")
+        attempt += 1
+    backup.write_bytes(path.read_bytes())
+    return backup
+
+
 # ---------------------------------------------------------------------------
 # State I/O
 # ---------------------------------------------------------------------------
@@ -532,6 +545,69 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "prompt": prompt + directive}
 
 
+def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: Path) -> str:
+    swarm = state.get("swarm", {})
+    goal = swarm.get("goal") or "(not set - read the codebase for context)"
+    tasks = state.get("tasks", [])
+    task_count = len(tasks)
+    return "\n".join([
+        "You are the recovery architect for this swarm.",
+        f"Goal: {goal}",
+        f"State file: {state_path}",
+        f"Backup created: {backup_path}",
+        f"Existing task count: {task_count}",
+        "",
+        "Keep this deliberately simple. This is an audit-only recovery pass, not a planning pass.",
+        "Your only job is to compare the existing tasks against the current codebase and update each existing task status/evidence through the swarm tool.",
+        "",
+        "Hard rules:",
+        "- Do NOT run `swarm init`.",
+        "- Do NOT rewrite, replace, delete, or add tasks.",
+        "- Do NOT run `swarm plan delete-task`, `swarm plan add-task`, `swarm plan update-task`, `swarm plan add-dependency`, `swarm plan remove-dependency`, or any task-board replanning command.",
+        "- Do NOT edit plan.md or create a new plan.",
+        "- Do NOT clear the board because tasks look stale.",
+        "- Preserve task IDs, titles, descriptions, paths, dependencies, and acceptance criteria.",
+        "- Only change status, notes, and evidence for tasks that already exist in state.yaml.",
+        "",
+        "Work through every existing task in state.yaml in order.",
+        "",
+        "For each task:",
+        "1. Read the task title, description, owned paths, acceptance criteria, notes, and existing evidence.",
+        "2. Inspect the current codebase for the relevant implementation.",
+        "3. Decide the real status: todo, in_progress, needs_input, or done.",
+        "4. Update only that task's status.",
+        "5. If marking done or in_progress, append evidence with files checked, commands run, and a short result.",
+        "6. If uncertain, mark needs_input or add a note. Do not guess.",
+        "",
+        "Use command discovery before your first mutation:",
+        "- `swarm --help`",
+        "- `swarm task status --help`",
+        "- `swarm task log --help`",
+        "- `swarm task note --help`",
+        "",
+        "Allowed write commands are limited to:",
+        "- `swarm task status`",
+        "- `swarm task log`",
+        "- `swarm task note`",
+        "",
+        "If a needed command is unavailable or fails, stop and explain the blocker instead of changing the plan shape.",
+    ])
+
+
+def cmd_recover(args: argparse.Namespace) -> Dict[str, Any]:
+    backup_path = backup_state_file(args.state)
+    state = load_state(args.state)
+    prompt = build_recovery_prompt(state, args.state, backup_path)
+    return {
+        "ok": True,
+        "role": "architect",
+        "action": "recover",
+        "backupPath": str(backup_path),
+        "taskCount": len(state.get("tasks", [])),
+        "prompt": prompt,
+    }
+
+
 def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ready = []
@@ -771,6 +847,7 @@ Swarm tool — all state mutations go through here. Never edit state.json direct
 
 Entry points (return full system prompt for the agent):
   swarm init [--goal "..."]
+  swarm recover
   swarm join --role developer --id developer-1
 
 Task commands:
@@ -813,6 +890,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("init", help="Start swarm as architect, returns full prompt.")
     p.add_argument("--goal", help="Goal for the swarm (stored in state).")
     p.set_defaults(handler=cmd_init)
+
+    # recover
+    p = sub.add_parser("recover", help="Start audit-only recovery mode, backs up state and returns full prompt.")
+    p.set_defaults(handler=cmd_recover)
 
     # join
     p = sub.add_parser("join", help="Join swarm as worker, returns full role prompt.")

@@ -13,6 +13,8 @@ import type {
   SwarmState,
   SwarmRole,
   AgentCli,
+  AppSettings,
+  CliRuntimeSettings,
 } from '../types/workspace'
 import { detectLanguage } from '../utils/files'
 import {
@@ -27,6 +29,8 @@ import {
 interface WorkspaceStore {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
+  appSettings: AppSettings
+  setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: { name?: string; folderPath?: string | null; swarmState?: SwarmState | null }
@@ -56,6 +60,16 @@ interface WorkspaceStore {
   removeOpenFilesForPath: (workspaceId: WorkspaceId, path: string) => void
 }
 
+const defaultAppSettings = (): AppSettings => ({
+  cliRuntimes: {
+    codex: { command: 'codex', useWsl: false },
+    claude: {
+      command: 'claude',
+      useWsl: typeof window !== 'undefined' && window.api?.platform === 'win32',
+    },
+  },
+})
+
 const defaultAgent = (id: AgentId, name = id): AgentState => ({
   id,
   name,
@@ -68,6 +82,7 @@ const defaultAgent = (id: AgentId, name = id): AgentState => ({
   cliHasLaunched: false,
   cliOnboardingPromptSent: false,
   cli: 'codex' as AgentCli,
+  cliStartupPrompt: undefined,
 })
 
 const defaultEditorState = (): EditorState => ({
@@ -152,6 +167,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     immer((set) => ({
       workspaces: [],
       activeWorkspaceId: null,
+      appSettings: defaultAppSettings(),
+
+      setCliRuntime: (cli, update) =>
+        set((state) => {
+          const defaults = defaultAppSettings()
+          state.appSettings.cliRuntimes ??= defaults.cliRuntimes
+          state.appSettings.cliRuntimes[cli] = {
+            ...defaults.cliRuntimes[cli],
+            ...state.appSettings.cliRuntimes[cli],
+            ...update,
+          }
+        }),
 
       addWorkspace: (template, options) =>
         set((state) => {
@@ -320,7 +347,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             agents: Object.fromEntries(
               Object.entries(ws.agents).map(([k, v]) => [
                 k,
-                { ...v, streamBuffer: '', status: 'idle' as const },
+                { ...v, streamBuffer: '', status: 'idle' as const, cliStartupPrompt: undefined },
               ])
             ),
             editorState: ws.editorState ?? defaultEditorState(),
@@ -432,11 +459,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: 'free-ai-ide-workspaces',
-      version: 8,
+      version: 10,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
-        if (!state?.workspaces) return state as never
+        if (!state) return state as never
+        state.workspaces = state.workspaces ?? []
         if (version < 1) {
           state.workspaces = state.workspaces.map((ws) => ({
             ...ws,
@@ -485,15 +513,44 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             }
           })
         }
+        if (version < 10) {
+          type LegacyAppSettings = Partial<AppSettings> & {
+            cliCommands?: Partial<Record<AgentCli, string>>
+          }
+          const current = state as typeof state & { appSettings?: LegacyAppSettings }
+          const defaults = defaultAppSettings()
+          const existing = current.appSettings ?? {}
+          current.appSettings = {
+            cliRuntimes: {
+              codex: {
+                ...defaults.cliRuntimes.codex,
+                ...(existing.cliRuntimes?.codex ?? {}),
+                command:
+                  existing.cliRuntimes?.codex?.command
+                  ?? existing.cliCommands?.codex
+                  ?? defaults.cliRuntimes.codex.command,
+              },
+              claude: {
+                ...defaults.cliRuntimes.claude,
+                ...(existing.cliRuntimes?.claude ?? {}),
+                command:
+                  existing.cliRuntimes?.claude?.command
+                  ?? existing.cliCommands?.claude
+                  ?? defaults.cliRuntimes.claude.command,
+              },
+            },
+          }
+        }
         return state as never
       },
       partialize: (s) => ({
+        appSettings: s.appSettings,
         workspaces: s.workspaces.map((ws) => ({
           ...ws,
           agents: Object.fromEntries(
             Object.entries(ws.agents).map(([id, a]) => [
               id,
-              { ...a, streamBuffer: '', status: 'idle' as const },
+              { ...a, streamBuffer: '', status: 'idle' as const, cliStartupPrompt: undefined },
             ])
           ),
           // Keep file list + active file, drop content so we don't resurrect stale edits

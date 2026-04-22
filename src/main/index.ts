@@ -113,7 +113,7 @@ function createAppMenu(): Menu {
       label: 'Help',
       submenu: [
         {
-          label: 'About Multicode',
+          label: 'About ALIENCODE',
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'show-about'),
         },
       ],
@@ -136,6 +136,10 @@ const trackedWatcherSenders = new Set<number>()
 let nextFileWatcherId = 0
 
 type AgentCli = 'codex' | 'claude'
+type CliRuntimeSettings = {
+  command: string
+  useWsl: boolean
+}
 
 type TerminalSpawnPayload = {
   sessionId: string
@@ -145,12 +149,16 @@ type TerminalSpawnPayload = {
   resume?: boolean
   swarmStatePath?: string
   cli?: AgentCli
+  initialPrompt?: string
+  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
 }
 
 type ShellLaunchConfig = {
   command: string
   args: string[]
+  cwd?: string
   initialInput?: string
+  env?: Record<string, string>
 }
 
 function getTerminalEnv(): Record<string, string> {
@@ -162,6 +170,19 @@ function getTerminalEnv(): Record<string, string> {
   env.TERM = env.TERM || 'xterm-256color'
 
   return env
+}
+
+function withSwarmEnv(
+  env: Record<string, string>,
+  cwd: string,
+  swarmStatePath?: string
+): Record<string, string> {
+  return {
+    ...env,
+    SWARM_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
+    SWARM_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'swarm_tool.py'),
+    ...(swarmStatePath ? { SWARM_STATE_PATH: swarmStatePath } : {}),
+  }
 }
 
 function toWslPath(dirPath: string): string {
@@ -176,8 +197,46 @@ function toWslPath(dirPath: string): string {
   return `/mnt/${drive.toLowerCase()}/${rest}`
 }
 
+function toWindowsPath(dirPath: string): string {
+  const normalized = dirPath.replace(/\\/g, '/')
+  const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
+
+  if (!wslMatch) {
+    return dirPath
+  }
+
+  const [, drive, rest] = wslMatch
+  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, '\\')}`
+}
+
+function isNativeWindowsPath(dirPath: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(dirPath) || /^\\\\/.test(dirPath)
+}
+
 function quotePosix(value: string): string {
   return `'${value.replace(/'/g, `'\"'\"'`)}'`
+}
+
+function quotePosixCommand(value: string): string {
+  return /^[A-Za-z0-9._/-]+$/.test(value) ? value : quotePosix(value)
+}
+
+function quoteCmd(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
+function quoteCmdIfNeeded(value: string): string {
+  return /[\s&()^|<>"]/g.test(value) ? quoteCmd(value) : value
+}
+
+function getCliRuntimeSettings(
+  cli: AgentCli,
+  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+): CliRuntimeSettings {
+  return {
+    command: cliRuntimes?.[cli]?.command?.trim() || cli,
+    useWsl: Boolean(cliRuntimes?.[cli]?.useWsl),
+  }
 }
 
 function getBundledSwarmToolPath(): string | null {
@@ -208,7 +267,7 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
   }
 
   if (shellBundledToolPath) {
-    lines.push(`export FREE_AI_IDE_SWARM_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
+    lines.push(`export ALIENCODE_SWARM_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
   }
 
   lines.push(
@@ -217,7 +276,7 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
       'local tool_path="";',
       'if [ -f "$SWARM_REPO_WRAPPER_PATH" ]; then tool_path="$SWARM_REPO_WRAPPER_PATH";',
       'elif [ -f "$SWARM_REPO_TOOL_PATH" ]; then tool_path="$SWARM_REPO_TOOL_PATH";',
-      'elif [ -n "${FREE_AI_IDE_SWARM_TOOL_PATH:-}" ] && [ -f "$FREE_AI_IDE_SWARM_TOOL_PATH" ]; then tool_path="$FREE_AI_IDE_SWARM_TOOL_PATH";',
+      'elif [ -n "${ALIENCODE_SWARM_TOOL_PATH:-}" ] && [ -f "$ALIENCODE_SWARM_TOOL_PATH" ]; then tool_path="$ALIENCODE_SWARM_TOOL_PATH";',
       'else echo "swarm tool not found" >&2; return 127; fi;',
       `python3 "$tool_path" ${stateArg} "$@";`,
       '}',
@@ -228,17 +287,28 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
   return lines.join('; ')
 }
 
+function buildUserShellStartup(): string {
+  return [
+    'for profile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do [ -r "$profile" ] && . "$profile" && break; done',
+    '[ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"',
+    '[ -d "$HOME/.npm-global/bin" ] && export PATH="$HOME/.npm-global/bin:$PATH"',
+  ].join('; ')
+}
+
 function buildWslShellScript(
   cwd: string,
   sessionId: string,
   resume = false,
   swarmStatePath?: string,
-  cli: AgentCli = 'codex'
+  cli: AgentCli = 'codex',
+  initialPrompt?: string,
+  cliRuntime?: CliRuntimeSettings
 ): string {
   return [
+    buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSwarmShellBootstrap(swarmStatePath),
-    buildAgentLaunchCommand(cli, sessionId, resume),
+    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime),
     'exec bash -li',
   ].join('; ')
 }
@@ -248,12 +318,46 @@ function getShellLaunchConfig(
   sessionId: string,
   resume = false,
   swarmStatePath?: string,
-  cli: AgentCli = 'codex'
+  cli: AgentCli = 'codex',
+  initialPrompt?: string,
+  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
 ): ShellLaunchConfig {
+  const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
+
+  if (process.platform === 'win32' && !cliRuntime.useWsl) {
+    const windowsCwd = toWindowsPath(cwd)
+    const windowsStatePath = swarmStatePath ? toWindowsPath(swarmStatePath) : undefined
+    if (!isNativeWindowsPath(windowsCwd)) {
+      throw new Error(
+        `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`
+      )
+    }
+    const commandLine = buildNativeAgentLaunchCommand(
+      cli,
+      sessionId,
+      resume,
+      windowsCwd,
+      initialPrompt,
+      cliRuntime
+    )
+
+    return {
+      command: 'cmd.exe',
+      args: ['/d', '/c', commandLine],
+      env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
+      cwd: windowsCwd,
+    }
+  }
+
   if (process.platform === 'win32') {
     return {
       command: 'wsl.exe',
-      args: ['-e', 'bash', '-lic', buildWslShellScript(cwd, sessionId, resume, swarmStatePath, cli)],
+      args: [
+        '-e',
+        'bash',
+        '-lic',
+        buildWslShellScript(cwd, sessionId, resume, swarmStatePath, cli, initialPrompt, cliRuntime),
+      ],
     }
   }
 
@@ -264,19 +368,77 @@ function getShellLaunchConfig(
   return {
     command: shellPath,
     args,
-    initialInput: `${[buildSwarmShellBootstrap(swarmStatePath), buildAgentLaunchCommand(cli, sessionId, resume)].join('; ')}\r`,
+    initialInput: `${[buildSwarmShellBootstrap(swarmStatePath), buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime)].join('; ')}\r`,
   }
 }
 
-function buildAgentLaunchCommand(cli: AgentCli, sessionId: string, resume = false): string {
-  return cli === 'claude' ? buildClaudeLaunchCommand(sessionId, resume) : 'codex'
+function buildNativeAgentLaunchCommand(
+  cli: AgentCli,
+  sessionId: string,
+  resume: boolean,
+  cwd: string,
+  initialPrompt: string | undefined,
+  cliRuntime: CliRuntimeSettings
+): string {
+  const command = quoteCmdIfNeeded(cliRuntime.command || cli)
+
+  if (cli === 'codex') {
+    const promptArg = initialPrompt ? ` ${quoteCmd(initialPrompt)}` : ''
+    return `${command} -C ${quoteCmdIfNeeded(cwd)}${promptArg}`
+  }
+
+  const sessionFlag = resume ? '--resume' : '--session-id'
+  return `${command} ${sessionFlag} ${quoteCmdIfNeeded(sessionId)}`
 }
 
-function buildClaudeLaunchCommand(sessionId: string, resume = false): string {
+function buildAgentLaunchCommand(
+  cli: AgentCli,
+  sessionId: string,
+  resume = false,
+  initialPrompt?: string,
+  cliRuntime?: CliRuntimeSettings
+): string {
+  if (cli === 'claude') return buildClaudeLaunchCommand(sessionId, resume, cliRuntime)
+  return buildCodexLaunchCommand(initialPrompt, cliRuntime)
+}
+
+function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
+  return [
+    `if ! command -v ${quotePosixCommand(command)} >/dev/null 2>&1; then`,
+    `echo ${quotePosix(`${cli === 'codex' ? 'Codex' : 'Claude'} CLI was not found. Check the ${cli} command in ALIENCODE Settings.`)};`,
+    'else',
+  ].join(' ')
+}
+
+function buildCodexLaunchCommand(
+  initialPrompt?: string,
+  cliRuntime?: CliRuntimeSettings
+): string {
+  const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
+  const configuredCommand = cliRuntime?.command?.trim()
+
+  return [
+    buildCommandAvailabilityCheck('codex', configuredCommand || 'codex'),
+    `${quotePosixCommand(configuredCommand || 'codex')}${promptArg};`,
+    'fi',
+  ].join(' ')
+}
+
+function buildClaudeLaunchCommand(
+  sessionId: string,
+  resume = false,
+  cliRuntime?: CliRuntimeSettings
+): string {
   const quotedSessionId = quotePosix(sessionId)
+  const claudeCommand = quotePosixCommand(cliRuntime?.command?.trim() || 'claude')
+  const configuredCommand = cliRuntime?.command?.trim() || 'claude'
 
   if (!resume) {
-    return `claude --session-id ${quotedSessionId}`
+    return [
+      buildCommandAvailabilityCheck('claude', configuredCommand),
+      `${claudeCommand} --session-id ${quotedSessionId};`,
+      'fi',
+    ].join(' ')
   }
 
   // Some panes get a generated session id before the user actually starts a Claude
@@ -284,11 +446,13 @@ function buildClaudeLaunchCommand(sessionId: string, resume = false): string {
   // back to starting a fresh session with the same id instead of surfacing the
   // "No conversation found" error on every app launch.
   return [
+    buildCommandAvailabilityCheck('claude', configuredCommand),
     `if find "$HOME/.claude/projects" -type f -name ${quotePosix(`${sessionId}.jsonl`)} -print -quit 2>/dev/null | grep -q .; then`,
-    `claude --resume ${quotedSessionId};`,
+    `${claudeCommand} --resume ${quotedSessionId};`,
     `else`,
-    `claude --session-id ${quotedSessionId};`,
+    `${claudeCommand} --session-id ${quotedSessionId};`,
     `fi`,
+    'fi',
   ].join(' ')
 }
 
@@ -306,7 +470,7 @@ function getTerminalErrorMessage(error: unknown): string {
   if (error instanceof Error && /enoent/i.test(error.message)) {
     return process.platform === 'win32'
       ? 'WSL could not be started. Make sure your default WSL distro is installed and available.'
-      : 'Claude CLI shell could not be started. Make sure your login shell is available.'
+      : 'Agent CLI shell could not be started. Make sure your login shell is available.'
   }
 
   return error instanceof Error ? error.message : String(error)
@@ -336,24 +500,26 @@ function disposeFileWatchersForSender(senderId: number): void {
 
 ipcMain.handle(
   'terminal:spawn',
-  (event, { sessionId, cols, rows, cwd, resume, swarmStatePath, cli = 'codex' }: TerminalSpawnPayload) => {
+  (event, { sessionId, cols, rows, cwd, resume, swarmStatePath, cli = 'codex', initialPrompt, cliRuntimes }: TerminalSpawnPayload) => {
     disposeTerminal(sessionId)
 
     try {
       const workingDirectory = cwd || process.cwd()
-      const { command, args, initialInput } = getShellLaunchConfig(
+      const { command, args, cwd: launchCwd, initialInput, env } = getShellLaunchConfig(
         workingDirectory,
         sessionId,
         resume,
         swarmStatePath,
-        cli
+        cli,
+        initialPrompt,
+        cliRuntimes
       )
       const termProcess = pty.spawn(command, args, {
         name: 'xterm-256color',
         cols: Math.max(cols || 80, 20),
         rows: Math.max(rows || 24, 8),
-        cwd: workingDirectory,
-        env: getTerminalEnv(),
+        cwd: launchCwd ?? workingDirectory,
+        env: env ?? getTerminalEnv(),
       })
 
       terminals.set(sessionId, termProcess)
@@ -629,7 +795,7 @@ async function buildCopyBaseName(
 app.whenReady().then(() => {
   if (process.platform === 'win32') {
     app.setAppUserModelId(
-      process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.free-ai-ide'
+      process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.aliencode'
     )
   }
 

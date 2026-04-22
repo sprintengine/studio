@@ -31,7 +31,7 @@ function looksLikeCliReady(output: string, cli: AgentCli): boolean {
 }
 
 function looksLikeLaunchBlocked(output: string): boolean {
-  return /unexpected EOF|command not found|No such file or directory|can't open file|WSL could not be started/i.test(output)
+  return /unexpected EOF|command not found|No such file or directory|can't open file|WSL could not be started|Access is denied|permission denied|not recognized|CLI was not found/i.test(output)
 }
 
 function looksLikeTrustPrompt(output: string, cli: AgentCli): boolean {
@@ -68,11 +68,14 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const swarmName = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.swarmState?.name
   )
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cli = agent?.cli ?? 'codex'
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const swarmStartupPrompt = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
+    const currentAgent = workspace.agents[agentId]
+    if (currentAgent?.cliStartupPrompt) return currentAgent.cliStartupPrompt
 
     const role = buildSwarmAgentRosterForState(workspace.swarmState).find(
       (candidate) => candidate.id === agentId
@@ -217,7 +220,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       ) return
 
       hasInjectedSwarmPrompt = true
-      updateAgent(workspaceId, agentId, { cliOnboardingPromptSent: true })
+      updateAgent(workspaceId, agentId, {
+        cliOnboardingPromptSent: true,
+        cliStartupPrompt: undefined,
+      })
 
       const normalizedPrompt = prompt.replace(/\r?\n/g, '\n')
       void window.api.terminalWrite(sessionId, `\x1b[200~${normalizedPrompt}\x1b[201~\r`)
@@ -299,17 +305,15 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       folderPath,
       shouldResume,
       swarmStatePath,
-      cli
+      cli,
+      undefined,
+      cliRuntimes
     )
     if (!shouldResume) {
       updateAgent(workspaceId, agentId, {
         cliHasLaunched: true,
       })
     }
-    if (swarmStartupPromptRef.current && !agent.cliOnboardingPromptSent) {
-      schedulePromptInjection(shouldResume ? 6500 : 5000)
-    }
-
     const settleTimer = window.setTimeout(() => {
       fitTerminal()
       focusTerminal()
@@ -343,6 +347,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agent?.cliSessionId,
     agent?.cliRestartNonce,
     cli,
+    cliRuntimes,
     folderPath,
     swarmName,
     updateAgent,

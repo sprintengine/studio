@@ -7,6 +7,10 @@ declare global {
   }
 
   type AgentCli = 'codex' | 'claude'
+  type CliRuntimeSettings = {
+    command: string
+    useWsl: boolean
+  }
 
   interface Window {
     api: {
@@ -25,7 +29,7 @@ declare global {
       openFile:  (options?: Electron.OpenDialogOptions) => Promise<string | null>
       showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>
 
-      terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli) => Promise<void>
+      terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>) => Promise<void>
       terminalWrite:  (sessionId: string, data: string) => Promise<void>
       terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
       terminalKill:   (sessionId: string) => Promise<void>

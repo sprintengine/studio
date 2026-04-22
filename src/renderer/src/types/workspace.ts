@@ -89,6 +89,15 @@ export type AgentMessage = {
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 export type AgentCli = 'codex' | 'claude'
 
+export type CliRuntimeSettings = {
+  command: string
+  useWsl: boolean
+}
+
+export type AppSettings = {
+  cliRuntimes: Record<AgentCli, CliRuntimeSettings>
+}
+
 export type AgentState = {
   id: AgentId
   name: string
@@ -101,6 +110,7 @@ export type AgentState = {
   cliHasLaunched?: boolean
   cliOnboardingPromptSent?: boolean
   cli?: AgentCli
+  cliStartupPrompt?: string
 }
 
 export type AgentConfig = {

@@ -25,6 +25,10 @@ interface FileWatchEvent {
 }
 
 type AgentCli = 'codex' | 'claude'
+type CliRuntimeSettings = {
+  command: string
+  useWsl: boolean
+}
 
 declare interface Window {
   api: {
@@ -48,7 +52,7 @@ declare interface Window {
     showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
 
     // Agent CLI Terminal
-    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli) => Promise<void>
+    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>) => Promise<void>
     terminalWrite:  (sessionId: string, data: string) => Promise<void>
     terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
     terminalKill:   (sessionId: string) => Promise<void>

@@ -16,6 +16,7 @@ Fallback script:
 API discovery:
 
 - When a swarm terminal starts, run `swarm --help`.
+- For Verify Progress / recovery audits, run `swarm recover` and follow the returned prompt. This is audit-only and must not replan, add, delete, or replace tasks.
 - Before using a command for the first time, run `swarm <command> --help` and follow the exact flags shown by the tool.
 - Do not invent plural aliases or alternate names. In particular, `append-evidence` uses repeatable `--file`, `--command`, and `--result` flags; it does not accept `--touched-files`, `--commands-ran`, or `--results`.
 - Mailbox commands use `--from-agent`, `--to-agent`, `--subject`, and `--body`; they do not accept `--recipient`, `--message`, or `--team`.
