@@ -218,17 +218,17 @@ export default function WorkspaceManager() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#0b0d10] text-zinc-100">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       {window.api.platform !== 'darwin' && (
         <div
-          className="app-drag flex h-[36px] shrink-0 items-center gap-1 border-b border-[#202631] bg-[#0f1217] px-2"
+          className="app-drag flex h-[36px] shrink-0 items-center gap-1 border-b border-[#1f2025] bg-[#0d0e11] px-2"
           style={{ paddingRight: 138 }}
         >
           {MENU_BAR_ITEMS.map((label) => (
             <button
               key={label}
               onClick={(event) => void handleShowMenubarMenu(event, label)}
-              className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[#8d96a8] transition-colors hover:bg-[#171d26] hover:text-[#e7ecf4]"
+              className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
             >
               {label}
             </button>
@@ -236,7 +236,7 @@ export default function WorkspaceManager() {
         </div>
       )}
 
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#202631] bg-[#0d1015] px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {workspaces.map((workspace) => {
             const active = workspace.id === activeWorkspaceId
@@ -248,11 +248,11 @@ export default function WorkspaceManager() {
                 }}
                 className={`group inline-flex h-[30px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
                   active
-                    ? 'border-[#344152] bg-[#151c26] text-[#f2f5f9]'
-                    : 'border-transparent text-[#778196] hover:bg-[#141a23] hover:text-[#dbe1ea]'
+                    ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
+                    : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-[#6ee7d8]' : 'bg-[#4c5668]'}`} />
+                <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-[#30d158]' : 'bg-[#5a5a63]'}`} />
                 {renamingId === workspace.id ? (
                   <input
                     ref={renameInputRef}
@@ -265,7 +265,7 @@ export default function WorkspaceManager() {
                       event.stopPropagation()
                     }}
                     onClick={(event) => event.stopPropagation()}
-                    className="w-32 rounded border border-[#3a4454] bg-[#0b0f14] px-1.5 py-0 text-[13px] text-[#f2f5f9] focus:outline-none"
+                    className="w-32 rounded border border-[#303139] bg-[#090a0c] px-1.5 py-0 text-[13px] text-[#ececee] focus:outline-none"
                   />
                 ) : (
                   <span onDoubleClick={(event) => startRename(event, workspace)}>{workspace.name}</span>
@@ -273,7 +273,7 @@ export default function WorkspaceManager() {
 
                 <button
                   onClick={(event) => handleCloseTab(event, workspace.id)}
-                  className="text-xs leading-none text-[#5f6878] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#dbe1ea]"
+                  className="text-xs leading-none text-[#5a5a63] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#d7d7dc]"
                   aria-label={`Close ${workspace.name}`}
                 >
                   x
@@ -284,7 +284,7 @@ export default function WorkspaceManager() {
 
           <button
             onClick={() => setShowTemplateSelector(true)}
-            className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-[#778196] transition-colors hover:bg-[#141a23] hover:text-[#dbe1ea]"
+            className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-[#8a8a92] transition-colors hover:bg-[#15161a] hover:text-[#d7d7dc]"
             title="New workspace (Ctrl+T)"
           >
             + New Workspace
@@ -296,7 +296,7 @@ export default function WorkspaceManager() {
             <button
               onClick={addNewTerminal}
               disabled={!activeWorkspaceId}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#2b3442] bg-[#141a23] text-[#8d96a8] transition-colors hover:border-[#435064] hover:bg-[#19212c] hover:text-[#dbe1ea] disabled:opacity-40 disabled:hover:bg-[#141a23]"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
               title="Open terminal"
               aria-label="Open terminal"
             >
@@ -310,11 +310,11 @@ export default function WorkspaceManager() {
 
           {activeWorkspace?.mode !== 'swarm' && (
             <div ref={cliMenuRef} className="relative inline-flex">
-              <div className="inline-flex overflow-hidden rounded-md border border-[#2b3442] bg-[#141a23]">
+              <div className="inline-flex overflow-hidden rounded-md border border-[#24252b] bg-[#111216]">
                 <button
                   onClick={() => addNewCLI()}
                   disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-8 items-center justify-center text-[#6ee7d8] transition-colors hover:bg-[#19212c] disabled:opacity-40 disabled:hover:bg-[#141a23]"
+                  className="inline-flex h-8 w-8 items-center justify-center text-[#30d158] transition-colors hover:bg-[#17181d] disabled:opacity-40 disabled:hover:bg-[#111216]"
                   title={`Add a new ${selectedCliOption.label} pane to the active workspace`}
                   aria-label={`Add ${selectedCliOption.label} pane`}
                 >
@@ -323,7 +323,7 @@ export default function WorkspaceManager() {
                 <button
                   onClick={() => setCliMenuOpen((open) => !open)}
                   disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-6 items-center justify-center border-l border-[#2b3442] text-[#778196] transition-colors hover:bg-[#19212c] hover:text-[#dbe1ea] disabled:opacity-40 disabled:hover:bg-[#141a23]"
+                  className="inline-flex h-8 w-6 items-center justify-center border-l border-[#24252b] text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
                   title="Choose CLI"
                   aria-haspopup="menu"
                   aria-expanded={cliMenuOpen}
@@ -338,7 +338,7 @@ export default function WorkspaceManager() {
               {cliMenuOpen ? (
                 <div
                   role="menu"
-                  className="absolute right-0 top-9 z-40 w-44 overflow-hidden rounded-md border border-[#303542] bg-[#101216] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                  className="absolute right-0 top-9 z-40 w-44 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
                 >
                   {CLI_OPTIONS.map((option) => {
                     const selected = option.value === selectedCliOption.value
@@ -351,15 +351,15 @@ export default function WorkspaceManager() {
                         onClick={() => handleSelectCli(option.value)}
                         className={`flex w-full items-center gap-3 rounded px-2.5 py-2 text-left transition-colors ${
                           selected
-                            ? 'bg-[#6ee7d8]/12 text-zinc-100'
-                            : 'text-zinc-300 hover:bg-[#171d26] hover:text-zinc-100'
+                            ? 'bg-[#30d158]/10 text-[#ececee]'
+                            : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
                         }`}
                       >
                         <span
                           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
                             selected
-                              ? 'border-[#6ee7d8]/35 bg-[#6ee7d8]/10 text-[#6ee7d8]'
-                              : 'border-[#2a2e36] bg-[#171a20] text-zinc-500'
+                                ? 'border-[#30d158]/35 bg-[#30d158]/10 text-[#30d158]'
+                                : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
                           }`}
                         >
                           <CliIcon cli={option.value} className="h-[18px] w-[18px]" />
@@ -368,7 +368,7 @@ export default function WorkspaceManager() {
                           {option.label}
                         </span>
                         {selected ? (
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#6ee7d8]" />
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#30d158]" />
                         ) : null}
                       </button>
                     )
@@ -511,10 +511,10 @@ function EmptyState({ onNew }: { onNew: () => void }) {
   return (
     <div className="flex h-full items-center justify-center">
       <div className="space-y-4 text-center">
-        <p className="text-sm text-zinc-600">No workspace open</p>
+        <p className="text-sm text-[#5a5a63]">No workspace open</p>
         <button
           onClick={onNew}
-          className="rounded bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-950 transition-colors hover:bg-white"
+          className="rounded bg-[#111216] px-4 py-2 text-sm font-medium text-[#ececee] transition-colors hover:bg-[#17181d]"
         >
           New Workspace
         </button>
