@@ -28,11 +28,11 @@ import {
 import { focusOrAddAgentTab, focusOrAddComponentTab } from '../../utils/modelRegistry'
 
 const columnMeta: { key: SwarmTaskBoardColumn; label: string; tint: string }[] = [
-  { key: 'todo', label: 'Todo', tint: 'bg-zinc-900/80 text-zinc-400' },
-  { key: 'ready', label: 'Ready', tint: 'bg-sky-950/50 text-sky-300' },
-  { key: 'in_progress', label: 'In Progress', tint: 'bg-amber-950/50 text-amber-300' },
-  { key: 'needs_input', label: 'Needs Input', tint: 'bg-rose-950/50 text-rose-300' },
-  { key: 'done', label: 'Done', tint: 'bg-zinc-800/80 text-zinc-200' },
+  { key: 'todo', label: 'Todo', tint: 'bg-[#111216] text-[#9a9aa2]' },
+  { key: 'ready', label: 'Ready', tint: 'bg-[#111216] text-[#30d158]' },
+  { key: 'in_progress', label: 'In Progress', tint: 'bg-[#111216] text-[#ffa600]' },
+  { key: 'needs_input', label: 'Needs Input', tint: 'bg-[#111216] text-[#ff8a9b]' },
+  { key: 'done', label: 'Done', tint: 'bg-[#111216] text-[#ececee]' },
 ]
 
 const taskStateLabel: Record<SwarmTaskStatus, string> = {
@@ -637,12 +637,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       ) : null}
 
       {effectiveView === 'kanban' ? (
-      <div className="grid flex-1 gap-3 overflow-x-auto overflow-y-hidden bg-[#101216] p-4 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid flex-1 gap-3 overflow-x-auto overflow-y-hidden bg-[#08090b] p-4 lg:grid-cols-3 xl:grid-cols-5">
         {swarmState.tasks.length === 0 ? (
-          <div className="col-span-full flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-[#2a2d34] bg-[#15171b] p-6 text-center">
+          <div className="col-span-full flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-[#24252b] bg-[#0d0e11] p-6 text-center">
             <div className="max-w-xl">
-              <div className="text-sm font-semibold text-zinc-100">Waiting for the architect plan</div>
-              <p className="mt-2 text-sm leading-6 text-zinc-400">
+              <div className="text-sm font-semibold text-[#ececee]">Waiting for the architect plan</div>
+              <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
                 The board will populate as the architect adds tasks through the swarm tool.
               </p>
             </div>
@@ -651,12 +651,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         {swarmState.tasks.length > 0 ? boardColumns.map((column) => (
           <section
             key={column.key}
-            className="flex min-w-[260px] flex-col rounded-2xl border border-[#23262d] bg-[#14161a]"
+            className="flex min-w-[260px] flex-col rounded-2xl border border-[#1f2025] bg-[#0d0e11]"
           >
-            <div className="flex items-center justify-between border-b border-[#23262d] px-4 py-3">
-              <div className="text-sm font-semibold text-zinc-100">{column.label}</div>
+            <div className="flex items-center justify-between border-b border-[#1f2025] px-4 py-3">
+              <div className="text-sm font-semibold text-[#ececee]">{column.label}</div>
               <span
-                className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${column.tint}`}
+                className={`rounded-full border border-[#24252b] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${column.tint}`}
               >
                 {column.cards.length}
               </span>
@@ -672,43 +672,43 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   >
                     <div className="mb-2 flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-zinc-100">{task.title}</div>
-                      <div className="mt-1 text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+                      <div className="truncate text-sm font-medium text-[#ececee]">{task.title}</div>
+                      <div className="mt-1 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
                           {task.id} | {swarmRoleLabels[task.role]}
                       </div>
                     </div>
-                      <span className="rounded-full border border-[#303542] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+                      <span className="rounded-full border border-[#24252b] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
                         {ownerLabel}
                       </span>
                     </div>
 
-                    <p className="text-[12px] leading-5 text-zinc-400">{task.description}</p>
+                    <p className="text-[12px] leading-5 text-[#9a9aa2]">{task.description}</p>
 
-                    <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-zinc-500">
-                      <span className="rounded-full border border-[#2c313b] px-2 py-1">
+                    <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                      <span className="rounded-full border border-[#24252b] px-2 py-1">
                         {task.ownedPaths.length} paths
                       </span>
-                      <span className="rounded-full border border-[#2c313b] px-2 py-1">
+                      <span className="rounded-full border border-[#24252b] px-2 py-1">
                         {task.acceptanceCriteria.length} checks
                       </span>
                       {task.dependsOn.length > 0 ? (
-                        <span className="rounded-full border border-[#2c313b] px-2 py-1">
+                        <span className="rounded-full border border-[#24252b] px-2 py-1">
                           {task.dependsOn.length} deps
                         </span>
                       ) : null}
                       {task.status === 'done' && task.completedAt ? (
-                        <span className="rounded-full border border-emerald-400/20 bg-emerald-950/30 px-2 py-1 text-emerald-200">
+                        <span className="rounded-full border border-[#30d158]/25 bg-[#30d158]/10 px-2 py-1 text-[#b9f7c8]">
                           completed {formatTimestampShort(task.completedAt)}
                         </span>
                       ) : null}
                     </div>
 
                     {task.status === 'done' && task.evidence.summary ? (
-                      <div className="mt-3 rounded-lg border border-emerald-400/20 bg-emerald-950/20 px-3 py-2 text-[11px] leading-5 text-emerald-100">
+                      <div className="mt-3 rounded-lg border border-[#30d158]/20 bg-[#30d158]/10 px-3 py-2 text-[11px] leading-5 text-[#c8f8d3]">
                         {task.evidence.summary}
                       </div>
                     ) : task.notes[0] ? (
-                      <div className="mt-3 rounded-lg border border-[#23262d] bg-[#16191d] px-3 py-2 text-[11px] leading-5 text-zinc-400">
+                      <div className="mt-3 rounded-lg border border-[#1f2025] bg-[#111216] px-3 py-2 text-[11px] leading-5 text-[#9a9aa2]">
                         {task.notes[0]}
                       </div>
                     ) : null}
@@ -717,7 +717,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               })}
 
               {column.cards.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-[#2a2d34] bg-[#15171b] px-3 py-4 text-[12px] text-zinc-600">
+                <div className="rounded-xl border border-dashed border-[#24252b] bg-[#111216] px-3 py-4 text-[12px] text-[#5a5a63]">
                   No tasks here yet
                 </div>
               ) : null}
@@ -1667,13 +1667,13 @@ function formatTimestampShort(value: string): string {
 function taskCardTone(task: SwarmTask): string {
   switch (task.status) {
     case 'done':
-      return 'border-emerald-400/30 bg-emerald-950/15 shadow-[0_0_22px_rgba(16,185,129,0.06)] hover:border-emerald-300/50 hover:bg-emerald-950/25'
+      return 'border-[#30d158]/25 bg-[#111216] hover:border-[#30d158]/40 hover:bg-[#17181d]'
     case 'needs_input':
-      return 'border-amber-400/40 bg-amber-950/15 shadow-[0_0_22px_rgba(245,158,11,0.08)] hover:border-amber-300/60 hover:bg-amber-950/25'
+      return 'border-[#ffa600]/35 bg-[#111216] hover:border-[#ffa600]/50 hover:bg-[#17181d]'
     case 'in_progress':
-      return 'border-sky-400/25 bg-sky-950/10 hover:border-sky-300/40 hover:bg-sky-950/20'
+      return 'border-[#303139] bg-[#111216] hover:border-[#ffa600]/35 hover:bg-[#17181d]'
     default:
-      return 'border-[#2a2e36] bg-[#181b20] hover:border-[#3a4150] hover:bg-[#1b1f26]'
+      return 'border-[#24252b] bg-[#111216] hover:border-[#303139] hover:bg-[#17181d]'
   }
 }
 
