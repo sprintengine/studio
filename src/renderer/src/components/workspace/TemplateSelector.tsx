@@ -162,18 +162,18 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0b0d10] text-zinc-100">
-      <header className="shrink-0 border-b border-[#222833] bg-[#0f1217] px-5 py-4">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
+      <header className="shrink-0 border-b border-[#1f2025] bg-[#0d0e11] px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase text-[#8892a6]">Workspace</div>
-            <h1 className="m-0 mt-1 text-[24px] font-semibold text-[#f2f5f9]">Create Workspace</h1>
+            <div className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Workspace</div>
+            <h1 className="m-0 mt-1 text-[24px] font-semibold text-[#ececee]">Create Workspace</h1>
           </div>
           <div className="flex items-center gap-2">
             {allowClose ? (
               <button
                 onClick={onClose}
-                className="h-9 rounded-md border border-[#28303d] bg-[#131821] px-3 text-sm font-medium text-[#b8c0cf] transition-colors hover:border-[#3a4454] hover:bg-[#18202b] hover:text-white"
+                className="h-9 rounded-md border border-[#303139] bg-[#111216] px-3 text-sm font-medium text-[#d7d7dc] transition-colors hover:border-[#3a3b44] hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Cancel
               </button>
@@ -189,20 +189,20 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_190px_minmax(260px,0.9fr)]">
-          <div className="min-w-0 rounded-lg border border-[#222833] bg-[#11161d] px-3 py-2">
-            <div className="text-[11px] font-semibold uppercase text-[#778196]">Folder</div>
-            <div className="mt-1 truncate font-mono text-[13px] text-[#dbe1ea]">
+          <div className="min-w-0 rounded-lg border border-[#24252b] bg-[#111216] px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Folder</div>
+            <div className="mt-1 truncate font-mono text-[13px] text-[#d7d7dc]">
               {folderPath ?? 'No folder selected'}
             </div>
           </div>
           <button
             onClick={handlePick}
-            className="h-full min-h-[56px] rounded-lg border border-[#2b3442] bg-[#141a23] px-4 text-sm font-semibold text-[#d7deea] transition-colors hover:border-[#435064] hover:bg-[#19212c]"
+            className="h-full min-h-[56px] rounded-lg border border-[#303139] bg-[#111216] px-4 text-sm font-semibold text-[#d7d7dc] transition-colors hover:border-[#3a3b44] hover:bg-[#17181d] hover:text-[#ececee]"
           >
             Choose Folder
           </button>
-          <label className="min-w-0 rounded-lg border border-[#222833] bg-[#11161d] px-3 py-2">
-            <span className="text-[11px] font-semibold uppercase text-[#778196]">Workspace Name</span>
+          <label className="min-w-0 rounded-lg border border-[#24252b] bg-[#111216] px-3 py-2">
+            <span className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Workspace Name</span>
             <input
               value={name}
               onChange={(event) => {
@@ -215,13 +215,13 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
               }}
               onKeyDown={(event) => event.key === 'Enter' && handleCreate()}
               placeholder="my-workspace"
-              className="mt-1 block w-full border-0 bg-transparent font-mono text-[13px] text-[#f2f5f9] outline-none placeholder:text-[#5f6878]"
+              className="mt-1 block w-full border-0 bg-transparent font-mono text-[13px] text-[#ececee] outline-none placeholder:text-[#5a5a63]"
             />
           </label>
         </div>
       </header>
 
-      <div className="flex shrink-0 items-center gap-1 border-b border-[#202631] bg-[#0d1015] px-5 py-2">
+      <div className="flex shrink-0 items-center gap-1 border-b border-[#1f2025] bg-[#0d0e11] px-5 py-2">
         {[
           { id: 'standard' as const, label: 'Standard' },
           { id: 'swarm' as const, label: 'Swarm Mode' },
@@ -231,8 +231,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
             onClick={() => setMode(tab.id)}
             className={`h-8 rounded-md px-3 text-sm font-medium transition-colors ${
               mode === tab.id
-                ? 'bg-[#e8edf5] text-[#10151d]'
-                : 'text-[#8d96a8] hover:bg-[#151a22] hover:text-[#dbe1ea]'
+                ? 'bg-[#111216] text-[#ececee] shadow-[inset_0_-2px_0_#30d158]'
+                : 'text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
             }`}
           >
             {tab.label}
@@ -246,8 +246,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
             <section className="min-w-0">
               <div className="mb-3 flex items-end justify-between gap-3">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase text-[#778196]">IDE Layout</div>
-                  <div className="mt-1 text-sm text-[#a8b2c3]">Choose the panes that should open first.</div>
+                  <div className="text-[11px] font-semibold uppercase text-[#9a9aa2]">IDE Layout</div>
+                  <div className="mt-1 text-sm text-[#9a9aa2]">Choose the panes that should open first.</div>
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
@@ -259,21 +259,21 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                       onClick={() => setSelectedId(template.id)}
                       className={`group flex min-h-[188px] flex-col rounded-lg border p-3 text-left transition-colors focus:outline-none ${
                         isSelected
-                          ? 'border-[#6ee7d8]/60 bg-[#14202a]'
-                          : 'border-[#222833] bg-[#11161d] hover:border-[#384456] hover:bg-[#141a23]'
+                          ? 'border-[#30d158]/55 bg-[#30d158]/10'
+                          : 'border-[#24252b] bg-[#111216] hover:border-[#303139] hover:bg-[#17181d]'
                       }`}
                     >
-                      <div className="rounded-md border border-[#1d232d] bg-[#080a0d] p-3">
+                      <div className="rounded-md border border-[#24252b] bg-[#08090b] p-3">
                         <LayoutPreview slots={template.previewSlots} />
                       </div>
                       <div className="mt-3 flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="truncate text-[15px] font-semibold text-[#f2f5f9]">{template.name}</div>
-                          <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#8d96a8]">
+                          <div className="truncate text-[15px] font-semibold text-[#ececee]">{template.name}</div>
+                          <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#9a9aa2]">
                             {template.description}
                           </div>
                         </div>
-                        <span className="shrink-0 rounded-md border border-[#2a323f] bg-[#0d1117] px-2 py-1 text-[11px] font-semibold text-[#aeb7c7]">
+                        <span className="shrink-0 rounded-md border border-[#303139] bg-[#0d0e11] px-2 py-1 text-[11px] font-semibold text-[#d7d7dc]">
                           {agentCountLabel(template.previewSlots)}
                         </span>
                       </div>
@@ -283,11 +283,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
               </div>
             </section>
 
-            <aside className="rounded-lg border border-[#222833] bg-[#11161d] p-4">
-              <div className="text-[11px] font-semibold uppercase text-[#778196]">Selected</div>
-              <h2 className="mt-2 text-[20px] font-semibold text-[#f2f5f9]">{selected.name}</h2>
-              <p className="mt-2 text-sm leading-6 text-[#a8b2c3]">{selected.description}</p>
-              <div className="mt-5 rounded-md border border-[#202631] bg-[#090c10] p-4">
+            <aside className="rounded-lg border border-[#24252b] bg-[#111216] p-4">
+              <div className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Selected</div>
+              <h2 className="mt-2 text-[20px] font-semibold text-[#ececee]">{selected.name}</h2>
+              <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">{selected.description}</p>
+              <div className="mt-5 rounded-md border border-[#1f2025] bg-[#08090b] p-4">
                 <LayoutPreview slots={selected.previewSlots} large />
               </div>
             </aside>
@@ -297,7 +297,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
 
             {(isScanning || existingTeams.length > 0) ? (
               <div className="col-span-full">
-                <div className="mb-3 text-[11px] font-semibold uppercase text-[#778196]">
+                <div className="mb-3 text-[11px] font-semibold uppercase text-[#9a9aa2]">
                   {isScanning ? 'Scanning for existing teams…' : 'Existing Teams'}
                 </div>
                 {!isScanning && (
@@ -316,29 +316,29 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                           onClick={() => setSelectedExistingTeam(selected ? null : team)}
                           className={`rounded-xl border p-4 text-left transition-colors ${
                             selected
-                              ? 'border-[#6ee7d8]/60 bg-[#0e1e1a]'
-                              : 'border-[#222833] bg-[#11161d] hover:border-[#384456] hover:bg-[#141a23]'
+                              ? 'border-[#30d158]/55 bg-[#30d158]/10'
+                              : 'border-[#24252b] bg-[#111216] hover:border-[#303139] hover:bg-[#17181d]'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-[#f2f5f9]">{team.state.name}</div>
-                              <div className="mt-0.5 font-mono text-[11px] text-[#778196]">{team.slug}</div>
+                              <div className="truncate text-sm font-semibold text-[#ececee]">{team.state.name}</div>
+                              <div className="mt-0.5 font-mono text-[11px] text-[#9a9aa2]">{team.slug}</div>
                             </div>
                             <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                               running
-                                ? 'bg-emerald-950/60 text-emerald-300'
+                                ? 'bg-[#30d158]/15 text-[#b9f7c8]'
                                 : complete
-                                  ? 'bg-sky-950/60 text-sky-300'
-                                  : 'bg-zinc-800 text-zinc-400'
+                                  ? 'bg-[#30d158]/10 text-[#d4ffdc]'
+                                  : 'bg-[#1a1b20] text-[#9a9aa2]'
                             }`}>
                               {phaseLabel}
                             </span>
                           </div>
-                          <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[#8d96a8]">
+                          <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[#9a9aa2]">
                             {team.state.goal || 'No goal set'}
                           </p>
-                          <div className="mt-3 flex gap-3 text-[11px] text-[#5a6478]">
+                          <div className="mt-3 flex gap-3 text-[11px] text-[#5a5a63]">
                             <span>{team.state.tasks.length} tasks</span>
                             <span>{done} done</span>
                             <span>{Object.keys(team.state.swarmAgents).length} agents</span>
@@ -349,7 +349,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                   </div>
                 )}
                 {!isScanning && !selectedExistingTeam && (
-                  <div className="mt-4 border-t border-[#1c2230] pt-4 text-[11px] font-semibold uppercase text-[#778196]">
+                  <div className="mt-4 border-t border-[#1f2025] pt-4 text-[11px] font-semibold uppercase text-[#9a9aa2]">
                     Or create new
                   </div>
                 )}
@@ -357,11 +357,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
             ) : null}
 
             {!selectedExistingTeam && <section className="min-w-0 col-span-full xl:col-span-1">
-              <div className="mb-4 rounded-lg border border-[#2d3746] bg-[#111820] p-4">
-                <div className="text-[11px] font-semibold uppercase text-[#778196]">Swarm Objective</div>
-                <div className="mt-1 text-sm text-[#a8b2c3]">Name the team and put the mission where every specialist will see it.</div>
+              <div className="mb-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+                <div className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Swarm Objective</div>
+                <div className="mt-1 text-sm text-[#9a9aa2]">Name the team and put the mission where every specialist will see it.</div>
                 <label className="mt-4 block">
-                  <span className="text-[11px] font-semibold uppercase text-[#778196]">Team Name</span>
+                  <span className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Team Name</span>
                   <input
                     value={swarmTeamName}
                     onChange={(event) => {
@@ -370,34 +370,34 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                     }}
                     onKeyDown={(event) => event.key === 'Enter' && handleCreate()}
                     placeholder="Interface Rescue Team"
-                    className="mt-2 block h-10 w-full rounded-md border border-[#26303d] bg-[#0b0f14] px-3 text-sm font-semibold text-[#f2f5f9] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
+                    className="mt-2 block h-10 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#30d158]/60"
                   />
                 </label>
                 <label className="mt-4 block">
-                  <span className="text-[11px] font-semibold uppercase text-[#778196]">Goal</span>
+                  <span className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Goal</span>
                   <textarea
                     value={swarmGoal}
                     onChange={(event) => setSwarmGoal(event.target.value)}
                     placeholder="Describe the outcome this swarm should deliver..."
-                    className="mt-2 min-h-[190px] w-full resize-none rounded-md border border-[#26303d] bg-[#0b0f14] px-3 py-3 text-[15px] leading-7 text-[#f2f5f9] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
+                    className="mt-2 min-h-[190px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-3 text-[15px] leading-7 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#30d158]/60"
                   />
                 </label>
               </div>
               <div className="mb-3 flex items-end justify-between gap-3">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase text-[#778196]">Team</div>
-                  <div className="mt-1 text-sm text-[#a8b2c3]">{totalAgents} agents in this workspace.</div>
+                  <div className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Team</div>
+                  <div className="mt-1 text-sm text-[#9a9aa2]">{totalAgents} agents in this workspace.</div>
                 </div>
               </div>
-              <div className="overflow-hidden rounded-lg border border-[#222833] bg-[#11161d]">
+              <div className="overflow-hidden rounded-lg border border-[#24252b] bg-[#111216]">
                 {ROLES.map((role) => {
                   const selectedRoleRow = role === selectedRole
                   return (
                     <div
                       key={role}
                       onClick={() => setSelectedRole(role)}
-                      className={`flex w-full items-center gap-3 border-b border-[#202631] px-3 py-3 text-left last:border-b-0 transition-colors ${
-                        selectedRoleRow ? 'bg-[#16212b]' : 'hover:bg-[#141a23]'
+                      className={`flex w-full items-center gap-3 border-b border-[#1f2025] px-3 py-3 text-left last:border-b-0 transition-colors ${
+                        selectedRoleRow ? 'bg-[#1a1b20]' : 'hover:bg-[#17181d]'
                       }`}
                     >
                       <span
@@ -405,10 +405,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                         style={{ backgroundColor: swarmRoleAccent[role] }}
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-[#f2f5f9]">
+                        <span className="block truncate text-sm font-semibold text-[#ececee]">
                           {swarmRoleLabels[role]}
                         </span>
-                        <span className="mt-1 block truncate text-[12px] text-[#8d96a8]">
+                        <span className="mt-1 block truncate text-[12px] text-[#9a9aa2]">
                           {roleSummaries[role]}
                         </span>
                       </span>
@@ -420,15 +420,15 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                             adjustRoleCount(role, -1)
                           }}
                           disabled={role === 'architect' && swarmRoleCounts[role] <= 1}
-                          className={`flex h-7 w-7 items-center justify-center rounded-md border border-[#2a323f] bg-[#0e131a] text-[#c5cedd] ${
+                          className={`flex h-7 w-7 items-center justify-center rounded-md border border-[#303139] bg-[#0d0e11] text-[#d7d7dc] ${
                             role === 'architect' && swarmRoleCounts[role] <= 1
                               ? 'opacity-35'
-                              : 'hover:bg-[#18202b]'
+                              : 'hover:bg-[#17181d]'
                           }`}
                         >
                           -
                         </button>
-                        <span className="min-w-8 text-center text-sm font-semibold text-[#f2f5f9]">
+                        <span className="min-w-8 text-center text-sm font-semibold text-[#ececee]">
                           {swarmRoleCounts[role]}
                         </span>
                         <button
@@ -437,7 +437,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                             event.stopPropagation()
                             adjustRoleCount(role, 1)
                           }}
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-[#2a323f] bg-[#0e131a] text-[#c5cedd] hover:bg-[#18202b]"
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-[#303139] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#17181d]"
                         >
                           +
                         </button>
@@ -448,34 +448,34 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
               </div>
             </section>}
 
-            {selectedExistingTeam ? null : <aside className="min-w-0 rounded-lg border border-[#222833] bg-[#11161d]">
-              <div className="border-b border-[#202631] px-4 py-3">
+            {selectedExistingTeam ? null : <aside className="min-w-0 rounded-lg border border-[#24252b] bg-[#111216]">
+              <div className="border-b border-[#1f2025] px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-[11px] font-semibold uppercase text-[#778196]">Specialist</div>
-                    <h2 className="mt-1 truncate text-[20px] font-semibold text-[#f2f5f9]">
+                    <div className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Specialist</div>
+                    <h2 className="mt-1 truncate text-[20px] font-semibold text-[#ececee]">
                       {swarmRoleLabels[selectedRole]}
                     </h2>
                   </div>
-                  <div className="rounded-md border border-[#2a323f] bg-[#0d1117] px-2.5 py-1 text-sm font-semibold text-[#dbe1ea]">
+                  <div className="rounded-md border border-[#303139] bg-[#0d0e11] px-2.5 py-1 text-sm font-semibold text-[#d7d7dc]">
                     {activeRoleCount}
                   </div>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-[#a8b2c3]">{roleSummaries[selectedRole]}</p>
+                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">{roleSummaries[selectedRole]}</p>
               </div>
 
               <div className="space-y-4 p-4">
                 <label className="block">
-                  <span className="text-[11px] font-semibold uppercase text-[#778196]">Skills</span>
+                  <span className="text-[11px] font-semibold uppercase text-[#9a9aa2]">Skills</span>
                   <textarea
                     value={roleSkills[selectedRole].join('\n')}
                     onChange={(event) => updateRoleSkills(selectedRole, event.target.value)}
-                    className="mt-2 min-h-[128px] w-full resize-none rounded-md border border-[#202631] bg-[#0b0f14] px-3 py-2 font-mono text-[12px] leading-5 text-[#e7ecf4] outline-none transition-colors placeholder:text-[#5f6878] focus:border-[#435064]"
+                    className="mt-2 min-h-[128px] w-full resize-none rounded-md border border-[#1f2025] bg-[#0d0e11] px-3 py-2 font-mono text-[12px] leading-5 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#30d158]/60"
                   />
                 </label>
-                <p className="text-[12px] leading-5 text-[#8d96a8]">
+                <p className="text-[12px] leading-5 text-[#9a9aa2]">
                   Role prompts are now loaded automatically from the swarm tool when an agent joins.
-                  Run <code className="rounded bg-[#0b0f14] px-1 py-0.5 font-mono text-[11px] text-[#6ee7d8]">swarm join --role {selectedRole} --id {selectedRole}-1</code> to start this specialist.
+                  Run <code className="rounded bg-[#0d0e11] px-1 py-0.5 font-mono text-[11px] text-[#6ee7d8]">swarm join --role {selectedRole} --id {selectedRole}-1</code> to start this specialist.
                 </p>
               </div>
             </aside>}
@@ -493,9 +493,9 @@ function agentCountLabel(slots: PreviewSlot[]): string {
 
 function LayoutPreview({ slots, large = false }: { slots: PreviewSlot[]; large?: boolean }) {
   const style: Record<PreviewSlot['type'], { fill: string; stroke: string; text: string }> = {
-    explorer: { fill: '#1b2430', stroke: '#f6c86b', text: '#f7d997' },
-    editor: { fill: '#16261e', stroke: '#77e6a0', text: '#b7f2c8' },
-    agent: { fill: '#132234', stroke: '#78b7ff', text: '#b9d7ff' },
+    explorer: { fill: '#111216', stroke: '#ffa600', text: '#ffd58a' },
+    editor: { fill: '#111216', stroke: '#30d158', text: '#b9f7c8' },
+    agent: { fill: '#111216', stroke: '#6ee7d8', text: '#bff7f1' },
   }
 
   return (
@@ -505,8 +505,8 @@ function LayoutPreview({ slots, large = false }: { slots: PreviewSlot[]; large?:
       className={`block w-full ${large ? 'h-[150px]' : 'h-[104px]'}`}
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect x="0" y="0" width="300" height="110" rx="8" fill="#0c1016" />
-      <rect x="4" y="4" width="292" height="102" rx="6" fill="none" stroke="#1f2733" />
+      <rect x="0" y="0" width="300" height="110" rx="8" fill="#08090b" />
+      <rect x="4" y="4" width="292" height="102" rx="6" fill="none" stroke="#24252b" />
       {slots.map((slot, index) => {
         const c = style[slot.type]
         return (
@@ -538,4 +538,3 @@ function LayoutPreview({ slots, large = false }: { slots: PreviewSlot[]; large?:
     </svg>
   )
 }
-

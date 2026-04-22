@@ -97,9 +97,9 @@ export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh] backdrop-blur-sm"
       onClick={(event) => event.target === event.currentTarget && onClose()}
     >
-      <div className="w-[600px] max-w-[95vw] overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
-        <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
-          <span className="text-sm text-zinc-500">⌘</span>
+      <div className="w-[600px] max-w-[95vw] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-2xl">
+        <div className="flex items-center gap-2 border-b border-[#1f2025] px-4 py-3">
+          <span className="text-sm text-[#5a5a63]">⌘</span>
           <input
             ref={inputRef}
             value={query}
@@ -109,14 +109,14 @@ export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
             }}
             onKeyDown={handleKey}
             placeholder="Type a command or search..."
-            className="flex-1 bg-transparent text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-[#ececee] placeholder-[#5a5a63] focus:outline-none"
           />
-          <kbd className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-600">Esc</kbd>
+          <kbd className="rounded bg-[#111216] px-1.5 py-0.5 text-[10px] text-[#5a5a63]">Esc</kbd>
         </div>
 
         <div className="max-h-[360px] overflow-y-auto py-1">
           {filtered.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-zinc-600">No results</p>
+            <p className="px-4 py-3 text-xs text-[#5a5a63]">No results</p>
           ) : (
             filtered.map((command, index) => (
               <div
@@ -125,18 +125,18 @@ export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
                 onMouseEnter={() => setSelected(index)}
                 className={`flex cursor-pointer items-center justify-between px-4 py-2 transition-colors ${
                   index === selected
-                    ? 'bg-indigo-600/20 text-zinc-100'
-                    : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
+                    ? 'bg-[#30d158]/15 text-[#ececee]'
+                    : 'text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                 }`}
               >
                 <div className="min-w-0">
                   <div className="truncate text-sm">{command.label}</div>
                   {command.description && (
-                    <div className="mt-0.5 truncate text-[10px] text-zinc-600">{command.description}</div>
+                    <div className="mt-0.5 truncate text-[10px] text-[#5a5a63]">{command.description}</div>
                   )}
                 </div>
                 {command.shortcut && (
-                  <kbd className="ml-3 shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-600">
+                  <kbd className="ml-3 shrink-0 rounded bg-[#111216] px-1.5 py-0.5 text-[10px] text-[#5a5a63]">
                     {command.shortcut}
                   </kbd>
                 )}

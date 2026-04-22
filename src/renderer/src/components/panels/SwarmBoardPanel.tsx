@@ -29,10 +29,10 @@ import { focusOrAddAgentTab, focusOrAddComponentTab } from '../../utils/modelReg
 
 const columnMeta: { key: SwarmTaskBoardColumn; label: string; tint: string }[] = [
   { key: 'todo', label: 'Todo', tint: 'bg-[#111216] text-[#9a9aa2]' },
-  { key: 'ready', label: 'Ready', tint: 'bg-[#111216] text-[#30d158]' },
-  { key: 'in_progress', label: 'In Progress', tint: 'bg-[#111216] text-[#ffa600]' },
-  { key: 'needs_input', label: 'Needs Input', tint: 'bg-[#111216] text-[#ff8a9b]' },
-  { key: 'done', label: 'Done', tint: 'bg-[#111216] text-[#ececee]' },
+  { key: 'ready', label: 'Ready', tint: 'bg-[#30d158]/15 text-[#b9f7c8]' },
+  { key: 'in_progress', label: 'In Progress', tint: 'bg-[#ffa600]/18 text-[#ffd58a]' },
+  { key: 'needs_input', label: 'Needs Input', tint: 'bg-[#ffbf2f]/20 text-[#ffe0a3]' },
+  { key: 'done', label: 'Done', tint: 'bg-[#30d158]/12 text-[#d4ffdc]' },
 ]
 
 const taskStateLabel: Record<SwarmTaskStatus, string> = {
@@ -478,14 +478,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   }
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-[#0f1012] text-zinc-100">
-      <div className="border-b border-[#23262d] bg-[#121419] px-5 py-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#2a3442] bg-[#151a22] px-4 py-3">
+    <div className="relative flex h-full flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
+      <div className="border-b border-[#1f2025] bg-[#0d0e11] px-5 py-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-sky-300">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2]">
               {readyRoleLaunches.length > 0 ? 'Ready Work' : 'Manual Swarm Launch'}
             </div>
-            <div className="mt-1 text-sm font-medium text-zinc-100">
+            <div className="mt-1 text-sm font-medium text-[#ececee]">
               {readyRoleLaunches.length > 0
                 ? `${readyTasks.length} ready ${readyTasks.length === 1 ? 'task needs' : 'tasks need'} specialist attention.`
                 : 'Review the architect plan, then spawn the specialists you want to run.'}
@@ -554,7 +554,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
               {swarmState.name}
             </div>
             <button
@@ -563,16 +563,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 if (canExpandGoal) setGoalExpanded((current) => !current)
               }}
               aria-expanded={goalExpanded}
-              className={`mt-2 flex w-full max-w-5xl items-start justify-between gap-3 rounded-lg border border-[#2a2e36] bg-[#171a20] px-3 py-2 text-left transition-colors ${
-                canExpandGoal ? 'cursor-pointer hover:border-[#3a4150] hover:bg-[#1b1f26]' : 'cursor-default'
+              className={`mt-2 flex w-full max-w-5xl items-start justify-between gap-3 rounded-lg border border-[#24252b] bg-[#111216] px-3 py-2 text-left transition-colors ${
+                canExpandGoal ? 'cursor-pointer hover:border-[#303139] hover:bg-[#17181d]' : 'cursor-default'
               } ${goalExpanded ? 'max-h-40 overflow-y-auto' : ''}`}
             >
-              <span className={`min-w-0 flex-1 text-[13px] font-medium leading-5 text-zinc-100 ${goalExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>
+              <span className={`min-w-0 flex-1 text-[13px] font-medium leading-5 text-[#ececee] ${goalExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>
                 {goalExpanded ? fullGoal : goalPreview}
               </span>
               {canExpandGoal ? (
                 <svg
-                  className={`mt-0.5 h-4 w-4 shrink-0 text-zinc-500 transition-transform ${goalExpanded ? 'rotate-180' : ''}`}
+                  className={`mt-0.5 h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${goalExpanded ? 'rotate-180' : ''}`}
                   viewBox="0 0 20 20"
                   fill="none"
                   aria-hidden="true"
@@ -583,18 +583,18 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-zinc-400">
-            <span><span className="text-zinc-600">Phase</span> <span className="capitalize text-zinc-200">{runPhase}</span></span>
-            <span><span className="text-zinc-600">Tasks</span> <span className="text-zinc-200">{swarmState.tasks.length}</span></span>
-            <span><span className="text-zinc-600">Done</span> <span className="text-zinc-200">{doneCount}/{swarmState.tasks.length}</span></span>
-            <span><span className="text-zinc-600">Active</span> <span className="text-zinc-200">{activeCount} running, {needsInputCount} waiting</span></span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#9a9aa2]">
+            <span><span className="text-[#5a5a63]">Phase</span> <span className="capitalize text-[#d7d7dc]">{runPhase}</span></span>
+            <span><span className="text-[#5a5a63]">Tasks</span> <span className="text-[#d7d7dc]">{swarmState.tasks.length}</span></span>
+            <span><span className="text-[#5a5a63]">Done</span> <span className="text-[#d7d7dc]">{doneCount}/{swarmState.tasks.length}</span></span>
+            <span><span className="text-[#5a5a63]">Active</span> <span className="text-[#d7d7dc]">{activeCount} running, {needsInputCount} waiting</span></span>
           </div>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             onClick={openAddMemberDialog}
-            className="rounded-md border border-[#2a2e36] bg-[#171a20] px-3 py-1.5 text-sm font-semibold text-zinc-400 transition-colors hover:bg-[#1b1f26] hover:text-zinc-100"
+            className="rounded-md border border-[#24252b] bg-[#111216] px-3 py-1.5 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
           >
             More Roles
           </button>
@@ -611,8 +611,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 onClick={() => activateView(view.id)}
                 className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
                   effectiveView === view.id
-                    ? 'border-zinc-500 bg-zinc-200 text-zinc-950'
-                    : 'border-[#2a2e36] bg-[#171a20] text-zinc-400 hover:bg-[#1b1f26] hover:text-zinc-100'
+                    ? 'border-[#30d158]/45 bg-[#30d158]/15 text-[#ececee]'
+                    : 'border-[#24252b] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                 }`}
               >
                 {view.label}
@@ -672,11 +672,21 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   >
                     <div className="mb-2 flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-[#ececee]">{task.title}</div>
-                      <div className="mt-1 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                          {task.id} | {swarmRoleLabels[task.role]}
+                        <div className="truncate text-sm font-medium text-[#ececee]">{task.title}</div>
+                        <div className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                          <span>{task.id}</span>
+                          <span
+                            className="h-1.5 w-1.5 shrink-0 rounded-full"
+                            style={{
+                              backgroundColor: swarmRoleAccent[task.role],
+                              boxShadow: `0 0 8px ${swarmRoleAccent[task.role]}88`,
+                            }}
+                          />
+                          <span style={{ color: swarmRoleAccent[task.role] }}>
+                            {swarmRoleLabels[task.role]}
+                          </span>
+                        </div>
                       </div>
-                    </div>
                       <span className="rounded-full border border-[#24252b] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
                         {ownerLabel}
                       </span>
@@ -1447,12 +1457,13 @@ function SwarmMapView({
   const needsInputCount = runtimeAgents.filter((agent) => agent.status === 'needs_input').length
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden bg-[#101216] lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden bg-[#08090b] lg:grid-cols-[minmax(0,1fr)_340px]">
       <div
         className="relative min-h-[460px] overflow-hidden"
         style={{
           backgroundImage:
             'radial-gradient(circle, rgba(255,255,255,0.06) 0, rgba(255,255,255,0.06) 1px, transparent 1px)',
+          backgroundColor: '#08090b',
           backgroundSize: '24px 24px',
         }}
       >
@@ -1491,7 +1502,7 @@ function SwarmMapView({
               style={{ left: `${node.x}%`, top: `${node.y}%` }}
             >
               <span
-                className={`relative flex h-20 w-20 items-center justify-center rounded-full border bg-[#15171b] text-lg font-semibold text-zinc-100 ${
+                className={`relative flex h-20 w-20 items-center justify-center rounded-full border bg-[#111216] text-lg font-semibold text-[#ececee] ${
                   runtime?.status === 'running' ? 'animate-pulse' : ''
                 }`}
                 style={{
@@ -1501,16 +1512,16 @@ function SwarmMapView({
               >
                 {node.agent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
                 <span
-                  className="absolute -right-1 top-3 h-3 w-3 rounded-full border border-[#101216]"
+                  className="absolute -right-1 top-3 h-3 w-3 rounded-full border border-[#08090b]"
                   style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
                 />
               </span>
-              <span className="max-w-[150px] truncate text-sm font-semibold text-zinc-100">{node.agent.label}</span>
+              <span className="max-w-[150px] truncate text-sm font-semibold text-[#ececee]">{node.agent.label}</span>
               <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${runtimeTone(runtime?.status ?? 'idle')}`}>
                 {runtimeStatusLabel(runtime?.status ?? 'idle')}
               </span>
               {task ? (
-                <span className="max-w-[180px] truncate rounded-full border border-[#2a2e36] bg-[#15171b] px-2 py-1 text-[10px] text-zinc-400">
+                <span className="max-w-[180px] truncate rounded-full border border-[#24252b] bg-[#111216] px-2 py-1 text-[10px] text-[#9a9aa2]">
                   {task.id}: {task.title}
                 </span>
               ) : null}
@@ -1519,9 +1530,9 @@ function SwarmMapView({
         })}
       </div>
 
-      <aside className="border-t border-[#23262d] bg-[#121419] p-4 lg:border-l lg:border-t-0">
+      <aside className="border-t border-[#1f2025] bg-[#0d0e11] p-4 lg:border-l lg:border-t-0">
         <div className="mb-5">
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">Swarm State</div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Swarm State</div>
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
             <InfoCard label="Phase" value={runPhase} />
             <InfoCard label="Board" value={`${swarmState.tasks.length} tasks`} />
@@ -1529,12 +1540,12 @@ function SwarmMapView({
             <InfoCard label="Agents" value={`${activeCount} run, ${needsInputCount} wait`} />
           </div>
         </div>
-        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">Selected Specialist</div>
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Selected Specialist</div>
         {selectedAgent ? (
           <div className="mt-4 space-y-4">
             <div className="flex items-center gap-3">
               <span
-                className="flex h-14 w-14 items-center justify-center rounded-full border bg-[#15171b] text-base font-semibold text-zinc-100"
+                className="flex h-14 w-14 items-center justify-center rounded-full border bg-[#111216] text-base font-semibold text-[#ececee]"
                 style={{
                   borderColor: swarmRoleAccent[selectedAgent.role],
                   boxShadow: `0 0 22px ${swarmRoleAccent[selectedAgent.role]}55`,
@@ -1543,8 +1554,8 @@ function SwarmMapView({
                 {selectedAgent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
               </span>
               <div className="min-w-0">
-                <div className="truncate text-lg font-semibold text-zinc-100">{selectedAgent.label}</div>
-                <div className="mt-1 text-sm text-zinc-400">{swarmRoleLabels[selectedAgent.role]}</div>
+                <div className="truncate text-lg font-semibold text-[#ececee]">{selectedAgent.label}</div>
+                <div className="mt-1 text-sm text-[#9a9aa2]">{swarmRoleLabels[selectedAgent.role]}</div>
               </div>
             </div>
 
@@ -1558,7 +1569,7 @@ function SwarmMapView({
             ) : null}
           </div>
         ) : (
-          <div className="mt-4 rounded-xl border border-dashed border-[#2a2d34] bg-[#15171b] px-3 py-4 text-sm text-zinc-500">
+          <div className="mt-4 rounded-xl border border-dashed border-[#24252b] bg-[#111216] px-3 py-4 text-sm text-[#5a5a63]">
             Select a specialist on the map.
           </div>
         )}
@@ -1616,9 +1627,9 @@ function statusColor(status: string): string {
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-[#23262d] bg-[#171a20] px-4 py-3">
-      <div className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">{label}</div>
-      <div className="mt-2 font-medium text-zinc-100">{value}</div>
+    <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
+      <div className="text-[10px] uppercase tracking-[0.14em] text-[#5a5a63]">{label}</div>
+      <div className="mt-2 font-medium text-[#ececee]">{value}</div>
     </div>
   )
 }
@@ -1667,11 +1678,11 @@ function formatTimestampShort(value: string): string {
 function taskCardTone(task: SwarmTask): string {
   switch (task.status) {
     case 'done':
-      return 'border-[#30d158]/25 bg-[#111216] hover:border-[#30d158]/40 hover:bg-[#17181d]'
+      return 'border-[#30d158]/45 bg-[#30d158]/10 shadow-[0_0_22px_rgba(48,209,88,0.08)] hover:border-[#30d158]/70 hover:bg-[#30d158]/14'
     case 'needs_input':
-      return 'border-[#ffa600]/35 bg-[#111216] hover:border-[#ffa600]/50 hover:bg-[#17181d]'
+      return 'border-[#ffbf2f]/60 bg-[#ffbf2f]/12 shadow-[0_0_24px_rgba(255,191,47,0.12)] hover:border-[#ffbf2f]/80 hover:bg-[#ffbf2f]/16'
     case 'in_progress':
-      return 'border-[#303139] bg-[#111216] hover:border-[#ffa600]/35 hover:bg-[#17181d]'
+      return 'border-[#ffa600]/45 bg-[#ffa600]/10 shadow-[0_0_22px_rgba(255,166,0,0.09)] hover:border-[#ffa600]/70 hover:bg-[#ffa600]/14'
     default:
       return 'border-[#24252b] bg-[#111216] hover:border-[#303139] hover:bg-[#17181d]'
   }
