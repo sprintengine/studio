@@ -508,7 +508,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             {architectAgentId && readyRoleLaunches.length === 0 ? (
               <button
                 onClick={() => openAgentTerminal(architectAgentId)}
-                className="rounded-md border border-amber-300/25 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-100 transition-colors hover:bg-amber-200/15"
+                className="rounded-md border border-[#ffbf2f]/45 bg-[#ffbf2f]/12 px-4 py-2 text-sm font-semibold text-[#ffe0a3] shadow-[0_0_20px_rgba(255,191,47,0.1)] transition-colors hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/16"
               >
                 {agents[architectAgentId]?.cliStartRequested ? 'Focus Architect' : 'Spawn Architect'}
               </button>
@@ -523,7 +523,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             ) : null}
             <button
               onClick={() => void loadPlanReview()}
-              className="rounded-md border border-sky-300/40 bg-sky-200 px-4 py-2 text-sm font-semibold text-sky-950 transition-colors hover:bg-sky-100"
+              className="rounded-md border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 px-4 py-2 text-sm font-semibold text-[#ffe0a3] shadow-[0_0_22px_rgba(255,191,47,0.12)] transition-colors hover:border-[#ffbf2f]/80 hover:bg-[#ffbf2f]/18"
             >
               Review Plan
             </button>
@@ -1114,7 +1114,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               />
               <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
               {selectedTask.status === 'needs_input' ? (
-                <div className="rounded-2xl border border-amber-900/70 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+                <div className="rounded-2xl border border-[#ffbf2f]/65 bg-[#ffbf2f]/12 px-4 py-3 text-sm text-[#ffe0a3] shadow-[0_0_24px_rgba(255,191,47,0.12)]">
                   Respond in the highlighted CLI for this worker. The terminal stays the single place to unblock the task.
                 </div>
               ) : null}
@@ -1208,7 +1208,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 emptyLabel="No open questions remain."
               />
 
-              <div className="rounded-2xl border border-amber-400/20 bg-amber-950/10 px-4 py-3 text-sm text-amber-100">
+              <div className="rounded-2xl border border-[#ffbf2f]/45 bg-[#ffbf2f]/10 px-4 py-3 text-sm text-[#ffe0a3] shadow-[0_0_22px_rgba(255,191,47,0.1)]">
                 Next step: manually test the uncommitted changes in the workspace before committing or reverting.
               </div>
             </div>
@@ -1308,10 +1308,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {planReview.open ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-2xl border border-amber-300/30 bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-2xl border border-[#ffbf2f]/45 bg-[#121419] shadow-[0_30px_80px_rgba(0,0,0,0.55),0_0_32px_rgba(255,191,47,0.12)]">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#23262d] px-5 py-4">
               <div className="min-w-0 flex-1">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-300">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
                   Architect Plan Review
                 </div>
                 <h3 className="truncate text-[20px] font-semibold tracking-tight text-zinc-100">
@@ -1342,7 +1342,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 {architectAgentId ? (
                   <button
                     onClick={() => openAgentTerminal(architectAgentId)}
-                    className="rounded-lg border border-amber-300/25 bg-amber-200/10 px-3 py-2 text-sm text-amber-100 transition-colors hover:bg-amber-200/15"
+                    className="rounded-lg border border-[#ffbf2f]/45 bg-[#ffbf2f]/12 px-3 py-2 text-sm text-[#ffe0a3] transition-colors hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/16"
                   >
                     Focus Architect
                   </button>
@@ -1400,7 +1400,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 ) : null}
                 <button
                   onClick={() => setPlanReview((current) => ({ ...current, open: false }))}
-                  className="rounded-xl border border-sky-300/40 bg-sky-200 px-4 py-2 text-sm font-semibold text-sky-950 transition-colors hover:bg-sky-100"
+                  className="rounded-xl border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 px-4 py-2 text-sm font-semibold text-[#ffe0a3] shadow-[0_0_22px_rgba(255,191,47,0.12)] transition-colors hover:border-[#ffbf2f]/80 hover:bg-[#ffbf2f]/18"
                 >
                   Done Reviewing
                 </button>
@@ -1613,7 +1613,7 @@ function statusColor(status: string): string {
     case 'running':
       return '#38bdf8'
     case 'needs_input':
-      return '#fb7185'
+      return '#ffbf2f'
     case 'planning':
       return '#fbbf24'
     case 'complete':
@@ -1693,7 +1693,7 @@ function runtimeTone(status: string): string {
     case 'running':
       return 'bg-sky-950/60 text-sky-200'
     case 'needs_input':
-      return 'bg-rose-950/60 text-rose-200'
+      return 'border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 text-[#ffe0a3] shadow-[0_0_16px_rgba(255,191,47,0.12)]'
     case 'planning':
       return 'bg-amber-950/60 text-amber-200'
     case 'complete':

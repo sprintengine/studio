@@ -43,10 +43,10 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
   const currentTaskId = swarmRuntimeAgent?.currentTaskId ?? null
   const cli: AgentCli = agent?.cli ?? 'codex'
   const cliShellTone = needsInput
-    ? 'border border-amber-300/60 bg-[#18150f] shadow-[0_0_0_1px_rgba(251,191,36,0.2),0_0_34px_rgba(245,158,11,0.22)]'
+    ? 'border border-[#ffbf2f]/70 bg-[#111216] shadow-[0_0_0_1px_rgba(255,191,47,0.18),0_0_34px_rgba(255,191,47,0.2)]'
     : ''
   const cliHeaderTone = needsInput
-    ? 'border-b border-amber-300/30 bg-[linear-gradient(90deg,rgba(245,158,11,0.18),rgba(23,25,29,0.96)_42%)]'
+    ? 'border-b border-[#ffbf2f]/45 bg-[#111216] shadow-[inset_0_2px_0_rgba(255,191,47,0.75)]'
     : 'border-b border-[#23262d] bg-[#17191d]'
 
   const startAgent = (restart = false) => {
@@ -74,24 +74,24 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
           </span>
           {needsInput ? (
             <>
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.95)]" />
-              <span className="shrink-0 rounded-full border border-amber-300/30 bg-amber-200/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-200">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f] shadow-[0_0_12px_rgba(255,191,47,0.95)]" />
+              <span className="shrink-0 rounded-full border border-[#ffbf2f]/55 bg-[#ffbf2f]/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#ffe0a3] shadow-[0_0_16px_rgba(255,191,47,0.12)]">
                 Needs Input
               </span>
               {currentTaskId ? (
-                <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-amber-100/70">
+                <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-[#ffe0a3]/80">
                   {currentTaskId}
                 </span>
               ) : null}
             </>
           ) : null}
         </div>
-        <span className={`shrink-0 text-[10px] uppercase tracking-[0.08em] ${needsInput ? 'text-amber-200' : 'text-zinc-500'}`}>
+        <span className={`shrink-0 text-[10px] uppercase tracking-[0.08em] ${needsInput ? 'text-[#ffe0a3]' : 'text-zinc-500'}`}>
           {cli}
         </span>
       </div>
 
-      <div className={`relative flex-1 overflow-hidden bg-[#0b0c0e] ${needsInput ? 'shadow-[inset_0_1px_0_rgba(251,191,36,0.08)]' : ''}`}>
+      <div className={`relative flex-1 overflow-hidden bg-[#0b0c0e] ${needsInput ? 'shadow-[inset_0_1px_0_rgba(255,191,47,0.1)]' : ''}`}>
         {hasStarted ? (
           <TerminalView workspaceId={workspaceId} agentId={agentId} />
         ) : (
