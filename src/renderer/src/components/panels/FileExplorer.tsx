@@ -50,42 +50,42 @@ function flattenTree(
 }
 
 function fileAppearance(name: string): { color: string; label: string } {
-  if (name === 'package.json') return { color: 'text-amber-300', label: '{}' }
+  if (name === 'package.json') return { color: 'text-[#a79a7a]', label: '{}' }
   const ext = name.split('.').pop()?.toLowerCase()
   switch (ext) {
     case 'ts':
     case 'tsx':
-      return { color: 'text-[#7ea4dd]', label: 'TS' }
+      return { color: 'text-[#8793a8]', label: 'TS' }
     case 'js':
     case 'jsx':
-      return { color: 'text-amber-300', label: 'JS' }
+      return { color: 'text-[#a79a7a]', label: 'JS' }
     case 'java':
-      return { color: 'text-[#d97b59]', label: 'JV' }
+      return { color: 'text-[#a88478]', label: 'JV' }
     case 'py':
-      return { color: 'text-emerald-400', label: 'PY' }
+      return { color: 'text-[#7fa48a]', label: 'PY' }
     case 'rs':
-      return { color: 'text-orange-400', label: 'RS' }
+      return { color: 'text-[#a88478]', label: 'RS' }
     case 'go':
-      return { color: 'text-sky-300', label: 'GO' }
+      return { color: 'text-[#8793a8]', label: 'GO' }
     case 'json':
-      return { color: 'text-amber-300', label: '{}' }
+      return { color: 'text-[#a79a7a]', label: '{}' }
     case 'yaml':
     case 'yml':
-      return { color: 'text-yellow-300', label: 'YML' }
+      return { color: 'text-[#a79a7a]', label: 'YML' }
     case 'md':
-      return { color: 'text-zinc-300', label: 'MD' }
+      return { color: 'text-[#9a9aa2]', label: 'MD' }
     case 'txt':
-      return { color: 'text-zinc-400', label: 'TXT' }
+      return { color: 'text-[#8a8a92]', label: 'TXT' }
     case 'html':
-      return { color: 'text-orange-300', label: '<>' }
+      return { color: 'text-[#a88478]', label: '<>' }
     case 'css':
     case 'scss':
-      return { color: 'text-sky-300', label: '#' }
+      return { color: 'text-[#8793a8]', label: '#' }
     case 'sh':
     case 'bash':
-      return { color: 'text-emerald-300', label: 'SH' }
+      return { color: 'text-[#7fa48a]', label: 'SH' }
     default:
-      return { color: 'text-zinc-500', label: '.' }
+      return { color: 'text-[#5a5a63]', label: '.' }
   }
 }
 
@@ -609,15 +609,15 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
   }
 
   if (loading) {
-    return <div className="px-4 py-2 text-[11px] text-zinc-600">Loading...</div>
+    return <div className="px-4 py-2 text-[11px] text-[#5a5a63]">Loading...</div>
   }
 
   if (isSearching && searching) {
-    return <div className="px-4 py-2 text-[11px] text-zinc-600">Searching...</div>
+    return <div className="px-4 py-2 text-[11px] text-[#5a5a63]">Searching...</div>
   }
 
   if (isSearching && activeRows.length === 0) {
-    return <div className="px-4 py-2 text-[11px] text-zinc-600">No matching files</div>
+    return <div className="px-4 py-2 text-[11px] text-[#5a5a63]">No matching files</div>
   }
 
   return (
@@ -627,7 +627,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
       role="tree"
       onKeyDown={(event) => void handleKeyDown(event)}
       onContextMenu={(event) => void showContextMenu(event)}
-      className="flex flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[#2f3540]"
+      className="flex flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[#303139]"
     >
       {activeRows.map(({ entry, depth }) => {
         const isSelected = entry.path === selectedPath
@@ -648,8 +648,8 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
             onContextMenu={(event) => void showContextMenu(event, entry)}
             className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
               isSelected
-                ? 'bg-[#20252d] text-zinc-100'
-                : 'text-zinc-400 hover:bg-[#17191d] hover:text-zinc-100'
+                ? 'bg-[#17181d] text-[#ececee]'
+                : 'text-[#9a9aa2] hover:bg-[#15161a] hover:text-[#ececee]'
             }`}
             style={{ paddingLeft: `${8 + (isSearching ? 0 : depth * 14)}px` }}
           >
@@ -659,13 +659,13 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
                 <FileIcon name={entry.name} />
                 <div className="min-w-0">
                   <div className="truncate">{entry.name}</div>
-                  <div className="truncate text-[10px] text-zinc-600">{meta || rootPath}</div>
+                  <div className="truncate text-[10px] text-[#5a5a63]">{meta || rootPath}</div>
                 </div>
               </>
             ) : entry.isDir ? (
               <>
-                <span className="w-3 shrink-0 text-[10px] text-zinc-500">{isExpanded ? '▾' : '▸'}</span>
-                <span className="inline-flex w-[18px] shrink-0 items-center justify-center text-[11px] font-bold leading-none text-[#d2b48c]">
+                <span className="w-3 shrink-0 text-[10px] text-[#5a5a63]">{isExpanded ? '▾' : '▸'}</span>
+                <span className="inline-flex w-[18px] shrink-0 items-center justify-center text-[11px] font-bold leading-none text-[#8a8171]">
                   ▢
                 </span>
                 <span className="truncate">{entry.name}</span>
@@ -716,18 +716,18 @@ export default function FileExplorer({ workspaceId }: Props) {
   const rootName = folderPath?.split(/[/\\]/).filter(Boolean).pop() ?? ''
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#121316] text-zinc-300">
-      <div className="border-b border-[#23262d] bg-[#14161a]">
+    <div className="flex h-full flex-col overflow-hidden bg-[#0d0e11] text-[#d7d7dc]">
+      <div className="border-b border-[#1f2025] bg-[#111216]">
         <div className="flex h-9 shrink-0 items-center justify-between px-3">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-500">Files</span>
-            {rootName && <span className="truncate font-mono text-[11px] text-zinc-400">{rootName}</span>}
+            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Files</span>
+            {rootName && <span className="truncate font-mono text-[11px] text-[#9a9aa2]">{rootName}</span>}
           </div>
           <div className="flex items-center gap-1.5">
             {folderPath && (
               <button
                 onClick={() => setRefreshToken((current) => current + 1)}
-                className="h-6 rounded-md border border-[#23262d] bg-[#17191d] px-2 text-[10px] text-zinc-400 transition-colors hover:bg-[#1c1f25] hover:text-zinc-200"
+                className="h-6 rounded-md border border-[#24252b] bg-[#15161a] px-2 text-[10px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee]"
                 title="Refresh files"
               >
                 Refresh
@@ -735,7 +735,7 @@ export default function FileExplorer({ workspaceId }: Props) {
             )}
             <button
               onClick={handleOpen}
-              className="h-6 rounded-md border border-[#23262d] bg-[#17191d] px-2 text-[10px] text-zinc-400 transition-colors hover:bg-[#1c1f25] hover:text-zinc-200"
+              className="h-6 rounded-md border border-[#24252b] bg-[#15161a] px-2 text-[10px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee]"
             >
               Open
             </button>
@@ -748,7 +748,7 @@ export default function FileExplorer({ workspaceId }: Props) {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search files..."
-              className="h-8 w-full rounded-md border border-[#23262d] bg-[#101216] px-3 text-[12px] text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-[#3d4252]"
+              className="h-8 w-full rounded-md border border-[#24252b] bg-[#090a0c] px-3 text-[12px] text-[#ececee] placeholder-[#5a5a63] outline-none transition-colors focus:border-[#303139]"
             />
           </div>
         )}
@@ -764,11 +764,11 @@ export default function FileExplorer({ workspaceId }: Props) {
             onOpenFile={handleOpenFile}
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-zinc-600">
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-[#5a5a63]">
             <p className="px-4 text-center text-[12px]">No folder open</p>
             <button
               onClick={handleOpen}
-              className="rounded-md border border-[#23262d] bg-[#17191d] px-3 py-1.5 text-[11px] text-zinc-400 transition-colors hover:bg-[#1c1f25]"
+              className="rounded-md border border-[#24252b] bg-[#15161a] px-3 py-1.5 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20]"
             >
               Open Folder
             </button>

@@ -87,7 +87,7 @@ export default function EditorPanel({ workspaceId }: Props) {
 
   if (openFiles.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#0f1012] text-zinc-600 text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[#08090b] text-[#5a5a63] text-[13px] font-mono">
         Open a file from the Files pane
       </div>
     )
@@ -97,24 +97,24 @@ export default function EditorPanel({ workspaceId }: Props) {
   const showPreview = isMarkdown && markdownMode === 'preview'
 
   return (
-    <div className="flex flex-col h-full bg-[#0f1012]">
-      <div className="flex items-center gap-0 h-9 border-b border-[#23262d] overflow-x-auto shrink-0 bg-[#15171b]">
+    <div className="flex flex-col h-full bg-[#08090b]">
+      <div className="flex items-center gap-0 h-9 border-b border-[#1f2025] overflow-x-auto shrink-0 bg-[#111216]">
         {openFiles.map((f) => {
           const active = f.path === activeFilePath
           return (
             <div
               key={f.path}
               onClick={() => setActiveFile(workspaceId, f.path)}
-              className={`group inline-flex items-center gap-2 h-9 px-3 text-[12px] cursor-pointer whitespace-nowrap border-r border-[#23262d] transition-colors ${
+              className={`group inline-flex items-center gap-2 h-9 px-3 text-[12px] cursor-pointer whitespace-nowrap border-r border-[#1f2025] transition-colors ${
                 active
-                  ? 'bg-[#0f1012] text-zinc-200'
-                  : 'text-zinc-500 hover:text-zinc-200 hover:bg-[#17191d]'
+                  ? 'bg-[#08090b] text-[#ececee]'
+                  : 'text-[#5a5a63] hover:text-[#d7d7dc] hover:bg-[#17181d]'
               }`}
             >
               <span className="font-mono">{f.name}{f.isDirty ? ' •' : ''}</span>
               <button
                 onClick={(e) => { e.stopPropagation(); closeFile(workspaceId, f.path) }}
-                className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-zinc-300 leading-none"
+                className="opacity-0 group-hover:opacity-100 text-[#5a5a63] hover:text-[#d7d7dc] leading-none"
                 aria-label={`Close ${f.name}`}
               >
                 ×
@@ -127,7 +127,7 @@ export default function EditorPanel({ workspaceId }: Props) {
           {isMarkdown && (
             <button
               onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}
-              className="h-7 px-2.5 rounded-md text-[10px] uppercase tracking-[0.08em] text-zinc-500 hover:text-zinc-200 hover:bg-[#17191d] transition-colors"
+              className="h-7 px-2.5 rounded-md text-[10px] uppercase tracking-[0.08em] text-[#5a5a63] hover:text-[#d7d7dc] hover:bg-[#17181d] transition-colors"
             >
               {showPreview ? 'Edit' : 'Preview'}
             </button>
@@ -138,7 +138,7 @@ export default function EditorPanel({ workspaceId }: Props) {
       {activeFile && (
         <div className="flex-1 overflow-hidden">
           {showPreview ? (
-            <div className="h-full overflow-y-auto px-8 py-8 bg-[#0f1012]">
+            <div className="h-full overflow-y-auto px-8 py-8 bg-[#08090b]">
               <div className="max-w-4xl mx-auto">
                 {renderMarkdown(activeFile.content)}
               </div>
