@@ -780,11 +780,23 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 const ownerLabel = task.ownerAgentId
                   ? ownerAgent?.label ?? task.ownerAgentId
                   : null
+                const boardColumn = getSwarmTaskBoardColumn(task, swarmState.tasks)
+                const statusLabel = boardColumn === 'ready' ? 'Ready' : taskStateLabel[task.status]
+                const dependencyLabel = task.dependsOn.length > 0
+                  ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
+                  : 'root'
+                const attentionText = task.status === 'needs_input'
+                  ? task.notes[0] || 'Worker is waiting for input.'
+                  : task.status === 'done'
+                    ? task.evidence.summary || 'Completed with no summary recorded.'
+                    : boardColumn === 'ready'
+                      ? `${swarmRoleLabels[task.role]} can claim this now.`
+                      : null
                 return (
                   <button
                     key={task.id}
                     onClick={() => setSelectedTaskId(task.id)}
-                    className={`relative w-full overflow-hidden rounded-xl border p-3 text-left transition-colors ${taskCardTone(task, Boolean(claimRole))}`}
+                    className={`relative w-full overflow-hidden rounded-lg border p-3 text-left transition-colors ${taskCardTone(task, Boolean(claimRole))}`}
                     style={taskCardStyle(claimRole)}
                   >
                     {claimRole ? (
@@ -797,9 +809,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                         }}
                       />
                     ) : null}
-                    <div className="mb-2 flex items-start justify-between gap-2">
+                    <div className="mb-2 flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-[#ececee]">{task.title}</div>
                         <div className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
                           <span>{task.id}</span>
                           <span
@@ -813,18 +824,36 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                             {swarmRoleLabels[task.role]}
                           </span>
                         </div>
+                        <div className="mt-1 text-sm font-semibold leading-5 text-[#ececee]">{task.title}</div>
                       </div>
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${taskGraphStatusTone(task.status, boardColumn)}`}
+                      >
+                        {statusLabel}
+                      </span>
+                    </div>
+
+                    <div className="mb-3 flex flex-wrap gap-2">
                       {ownerLabel && claimRole ? (
                         <span
-                          className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]"
+                          className="rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.12em]"
                           style={taskClaimBadgeStyle(claimRole)}
                         >
                           {ownerLabel}
                         </span>
-                      ) : null}
+                      ) : (
+                        <span className="rounded-full border border-[#24252b] bg-[#0d0e11] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                          No worker
+                        </span>
+                      )}
+                      <span className="rounded-full border border-[#24252b] bg-[#0d0e11] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                        {dependencyLabel}
+                      </span>
                     </div>
 
-                    <p className="text-[12px] leading-5 text-[#9a9aa2]">{task.description}</p>
+                    <p className="line-clamp-2 text-[12px] leading-5 text-[#9a9aa2]">
+                      {task.description || 'No description recorded.'}
+                    </p>
 
                     <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
                       <span className="rounded-full border border-[#24252b] px-2 py-1">
@@ -833,11 +862,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       <span className="rounded-full border border-[#24252b] px-2 py-1">
                         {task.acceptanceCriteria.length} checks
                       </span>
-                      {task.dependsOn.length > 0 ? (
-                        <span className="rounded-full border border-[#24252b] px-2 py-1">
-                          {task.dependsOn.length} deps
-                        </span>
-                      ) : null}
                       {task.status === 'done' && task.completedAt ? (
                         <span className="rounded-full border border-[#30d158]/25 bg-[#30d158]/10 px-2 py-1 text-[#b9f7c8]">
                           completed {formatTimestampShort(task.completedAt)}
@@ -845,13 +869,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       ) : null}
                     </div>
 
-                    {task.status === 'done' && task.evidence.summary ? (
-                      <div className="mt-3 rounded-lg border border-[#30d158]/20 bg-[#30d158]/10 px-3 py-2 text-[11px] leading-5 text-[#c8f8d3]">
-                        {task.evidence.summary}
-                      </div>
-                    ) : task.notes[0] ? (
-                      <div className="mt-3 rounded-lg border border-[#1f2025] bg-[#111216] px-3 py-2 text-[11px] leading-5 text-[#9a9aa2]">
-                        {task.notes[0]}
+                    {attentionText ? (
+                      <div className={`mt-3 rounded-lg border px-3 py-2 text-[11px] leading-5 ${
+                        task.status === 'needs_input'
+                          ? 'border-[#ffbf2f]/45 bg-[#ffbf2f]/12 text-[#ffe0a3]'
+                          : task.status === 'done'
+                            ? 'border-[#30d158]/20 bg-[#30d158]/10 text-[#c8f8d3]'
+                            : 'border-[#6ee7d8]/20 bg-[#6ee7d8]/10 text-[#bff7f1]'
+                      }`}>
+                        {attentionText}
                       </div>
                     ) : null}
                   </button>
@@ -859,8 +885,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               })}
 
               {column.cards.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-[#24252b] bg-[#111216] px-3 py-4 text-[12px] text-[#5a5a63]">
-                  No tasks here yet
+                <div className="rounded-lg border border-dashed border-[#24252b] bg-[#111216] px-3 py-4 text-[12px] leading-5 text-[#5a5a63]">
+                  {emptyKanbanColumnLabel(column.key)}
                 </div>
               ) : null}
             </div>
@@ -2644,6 +2670,21 @@ function taskCardStyle(claimRole: SwarmRole | null): React.CSSProperties | undef
     borderColor: hexToRgba(accent, 0.78),
     background: `linear-gradient(135deg, ${hexToRgba(accent, 0.16)} 0%, ${hexToRgba(accent, 0.07)} 38%, rgba(17, 18, 22, 0.95) 100%)`,
     boxShadow: `0 0 0 1px ${hexToRgba(accent, 0.2)}, 0 0 26px ${hexToRgba(accent, 0.25)}`,
+  }
+}
+
+function emptyKanbanColumnLabel(column: SwarmTaskBoardColumn): string {
+  switch (column) {
+    case 'ready':
+      return 'No ready work. Waiting on dependencies or active workers.'
+    case 'in_progress':
+      return 'No workers are actively claiming tasks.'
+    case 'needs_input':
+      return 'No blocked tasks or worker questions.'
+    case 'done':
+      return 'Completed work will collect here.'
+    default:
+      return 'Planned tasks that are waiting on dependencies appear here.'
   }
 }
 
