@@ -335,6 +335,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           : hasPlannedTasks
             ? 'No ready specialist work right now. Verify progress if the board looks stale.'
             : 'Review the architect plan, then spawn the specialists you want to run.'
+  const selectedTaskBoardColumn = selectedTask
+    ? getSwarmTaskBoardColumn(selectedTask, swarmState.tasks)
+    : null
+  const selectedTaskStatusLabel = selectedTask
+    ? selectedTaskBoardColumn === 'ready' ? 'Ready' : taskStateLabel[selectedTask.status]
+    : ''
+  const selectedTaskOwnerLabel = selectedTask ? getTaskOwnerLabel(selectedTask, rosterById) : ''
+  const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
+    ? selectedTask.notes[0] || 'Worker is waiting for input.'
+    : null
 
   const activateView = (view: SwarmView) => {
     if (fixedView) return
@@ -1187,13 +1197,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {selectedTask && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[900px] overflow-y-auto rounded-2xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+          <div className="max-h-[90vh] w-full max-w-[920px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-              <div>
+              <div className="min-w-0">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Task Detail
                 </div>
-                <h3 className="text-[20px] font-semibold tracking-tight text-[#ececee]">
+                <h3 className="text-[20px] font-semibold leading-7 tracking-tight text-[#ececee]">
                   {selectedTask.title}
                 </h3>
                 <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
@@ -1201,8 +1211,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   <span className="rounded-full border border-[#303139] px-2 py-1">
                     {swarmRoleLabels[selectedTask.role]}
                   </span>
-                  <span className="rounded-full border border-[#303139] px-2 py-1">
-                    {taskStateLabel[selectedTask.status]}
+                  <span className={`rounded-full px-2 py-1 ${taskGraphStatusTone(selectedTask.status, selectedTaskBoardColumn ?? selectedTask.status)}`}>
+                    {selectedTaskStatusLabel}
                   </span>
                 </div>
               </div>
@@ -1215,30 +1225,41 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </div>
 
             <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
-              <div>
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Description
-                </div>
-                <p>{selectedTask.description}</p>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-4">
+                <InfoCard
+                  label="Status"
+                  value={selectedTaskStatusLabel}
+                />
                 <InfoCard
                   label="Owner"
-                  value={getTaskOwnerLabel(selectedTask, rosterById)}
+                  value={selectedTaskOwnerLabel}
                 />
                 <InfoCard
                   label="Dependencies"
                   value={selectedTask.dependsOn.join(', ') || 'None'}
                 />
                 <InfoCard
-                  label="Started"
-                  value={formatTimestamp(selectedTask.startedAt)}
+                  label={selectedTask.completedAt ? 'Completed' : 'Started'}
+                  value={formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt)}
                 />
               </div>
 
+              {selectedTaskNeedsInputNote ? (
+                <div className="rounded-lg border border-[#ffbf2f]/65 bg-[#ffbf2f]/12 px-4 py-3 text-sm text-[#ffe0a3] shadow-[0_0_24px_rgba(255,191,47,0.12)]">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
+                    Needs Input
+                  </div>
+                  <div className="mt-2 leading-6">
+                    {selectedTaskNeedsInputNote}
+                  </div>
+                  <div className="mt-2 text-[12px] text-[#ffe0a3]/75">
+                    Respond in the worker CLI to unblock this task.
+                  </div>
+                </div>
+              ) : null}
+
               {selectedTask.ownerAgentId ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#24252b] bg-[#111216] px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                       Worker CLI
@@ -1252,30 +1273,46 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       openAgentTerminal(selectedTask.ownerAgentId!)
                       setSelectedTaskId(null)
                     }}
-                    className="rounded-xl border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#ececee] transition-colors hover:bg-[#17181d]"
+                    className="rounded-md border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#ececee] transition-colors hover:bg-[#17181d]"
                   >
                     Focus Worker CLI
                   </button>
                 </div>
               ) : null}
 
-              <SectionList title="Owned Paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
-              <SectionList
-                title="Acceptance Criteria"
-                items={selectedTask.acceptanceCriteria}
-                emptyLabel="No acceptance criteria recorded."
-              />
-              <SectionList
-                title="Implementation Notes"
-                items={selectedTask.implementationNotes}
-                emptyLabel="No implementation notes recorded."
-              />
-              <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
-              {selectedTask.status === 'needs_input' ? (
-                <div className="rounded-2xl border border-[#ffbf2f]/65 bg-[#ffbf2f]/12 px-4 py-3 text-sm text-[#ffe0a3] shadow-[0_0_24px_rgba(255,191,47,0.12)]">
-                  Respond in the highlighted CLI for this worker. The terminal stays the single place to unblock the task.
+              <div>
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Description
                 </div>
-              ) : null}
+                <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3 text-[#d7d7dc]">
+                  {selectedTask.description || 'No description recorded.'}
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <SectionList title="Owned Paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
+                <SectionList
+                  title="Acceptance Criteria"
+                  items={selectedTask.acceptanceCriteria}
+                  emptyLabel="No acceptance criteria recorded."
+                />
+                <SectionList
+                  title="Implementation Notes"
+                  items={selectedTask.implementationNotes}
+                  emptyLabel="No implementation notes recorded."
+                />
+              </div>
+
+              <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
+
+              <div>
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Evidence Summary
+                </div>
+                <div className="rounded-xl border border-[#24252b] bg-[#111216] px-4 py-3 text-[#d7d7dc]">
+                  {selectedTask.evidence.summary || 'No completion summary recorded yet.'}
+                </div>
+              </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <SectionList
@@ -1295,15 +1332,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 items={selectedTask.evidence.touchedFiles}
                 emptyLabel="No touched files recorded."
               />
-
-              <div>
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Evidence Summary
-                </div>
-                <div className="rounded-xl border border-[#24252b] bg-[#111216] px-4 py-3 text-[#d7d7dc]">
-                  {selectedTask.evidence.summary || 'No completion summary recorded yet.'}
-                </div>
-              </div>
             </div>
           </div>
         </div>
