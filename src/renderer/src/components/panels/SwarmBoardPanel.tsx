@@ -2270,23 +2270,31 @@ function SwarmTaskGraphView({
               const from = graph.nodesById[edge.fromId]
               const to = graph.nodesById[edge.toId]
               if (!from || !to) return null
-              const startX = from.x + from.width / 2
-              const startY = from.y
-              const endX = to.x - to.width / 2
-              const endY = to.y
-              const curve = Math.max(72, (endX - startX) * 0.42)
               return (
                 <path
                   key={edge.id}
-                  d={`M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${endY}, ${endX} ${endY}`}
+                  d={taskGraphEdgePath(from, to)}
                   fill="none"
                   stroke={edge.color}
                   strokeWidth={edge.weight}
                   strokeDasharray={edge.dashed ? '7 8' : undefined}
                   opacity={edge.opacity}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
               )
             })}
+            {graph.nodes.map((node) => (
+              <rect
+                key={`${node.id}:line-blocker`}
+                x={node.x - node.width / 2 - 8}
+                y={node.y - node.height / 2 - 8}
+                width={node.width + 16}
+                height={node.height + 16}
+                rx="14"
+                fill="#08090b"
+              />
+            ))}
           </svg>
 
           {graph.nodes.map((node) => {
@@ -2294,7 +2302,7 @@ function SwarmTaskGraphView({
               return (
                 <div
                   key={node.id}
-                  className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden rounded-lg border border-[#30d158]/55 bg-[#30d158]/12 px-5 py-4 text-center shadow-[0_0_34px_rgba(48,209,88,0.18)]"
+                  className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden rounded-lg border border-[#2d5f70] bg-[#111216] px-5 py-4 text-center shadow-[0_0_0_1px_rgba(123,215,234,0.14),0_18px_34px_rgba(0,0,0,0.36)]"
                   style={{
                     left: node.x,
                     top: node.y,
@@ -2308,7 +2316,7 @@ function SwarmTaskGraphView({
                   <div className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[#d4ffdc]">
                     {formatSwarmGoalPreview(swarmState.goal)}
                   </div>
-                  <div className="mt-3 rounded-full border border-[#30d158]/35 bg-[#061210] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#b9f7c8]">
+                  <div className="mt-3 rounded-full border border-[#2d5f70] bg-[#0d0e11] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#b9f7c8]">
                     {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
                   </div>
                 </div>
@@ -2742,6 +2750,36 @@ function timestampMs(value: string | null): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function taskGraphEdgePath(from: TaskGraphLayoutNode, to: TaskGraphLayoutNode): string {
+  const startX = from.x + from.width / 2
+  const startY = from.y
+  const endX = to.x - to.width / 2
+  const endY = to.y
+  const horizontalGap = endX - startX
+
+  if (horizontalGap < 120) {
+    const curve = Math.max(72, horizontalGap * 0.42)
+    return `M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${endY}, ${endX} ${endY}`
+  }
+
+  if (Math.abs(endY - startY) < 2) {
+    return `M ${startX} ${startY} H ${endX}`
+  }
+
+  const gutterX = startX + horizontalGap / 2
+  const direction = endY > startY ? 1 : -1
+  const radius = Math.min(22, Math.abs(endY - startY) / 2, Math.abs(gutterX - startX) / 2, Math.abs(endX - gutterX) / 2)
+
+  return [
+    `M ${startX} ${startY}`,
+    `H ${gutterX - radius}`,
+    `Q ${gutterX} ${startY} ${gutterX} ${startY + radius * direction}`,
+    `V ${endY - radius * direction}`,
+    `Q ${gutterX} ${endY} ${gutterX + radius} ${endY}`,
+    `H ${endX}`,
+  ].join(' ')
+}
+
 function taskGraphEdgeStyle(
   dependency: SwarmTask,
   dependent: SwarmTask
@@ -2756,9 +2794,9 @@ function taskGraphEdgeStyle(
 
   return {
     color,
-    opacity: active ? 0.78 : dependencyDone ? 0.52 : 0.34,
-    weight: active ? 2.4 : 1.8,
-    dashed: !dependencyDone,
+    opacity: active ? 0.68 : dependencyDone ? 0.48 : 0.3,
+    weight: active ? 2.2 : 1.6,
+    dashed: false,
   }
 }
 
@@ -2767,9 +2805,9 @@ function taskGraphEndEdgeStyle(
 ): Omit<TaskGraphLayoutEdge, 'id' | 'fromId' | 'toId'> {
   return {
     color: task.status === 'done' ? '#30d158' : swarmRoleAccent[task.role],
-    opacity: task.status === 'done' ? 0.7 : 0.42,
-    weight: task.status === 'done' ? 2.3 : 1.8,
-    dashed: task.status !== 'done',
+    opacity: task.status === 'done' ? 0.58 : 0.32,
+    weight: task.status === 'done' ? 2 : 1.5,
+    dashed: false,
   }
 }
 
@@ -2900,8 +2938,8 @@ function taskGraphNodeStyle(
 
   return {
     borderColor: hexToRgba(statusAccent, selected || focused ? 0.86 : 0.58),
-    background: `linear-gradient(135deg, ${hexToRgba(roleAccent, 0.15)} 0%, ${hexToRgba(statusAccent, 0.08)} 48%, rgba(17, 18, 22, 0.96) 100%)`,
-    boxShadow: `0 0 0 1px ${hexToRgba(statusAccent, selected ? 0.28 : 0.16)}, 0 0 ${selected ? 38 : focused ? 30 : 20}px ${hexToRgba(statusAccent, emphasis)}`,
+    background: `linear-gradient(135deg, ${hexToRgba(roleAccent, 0.1)} 0%, ${hexToRgba(statusAccent, 0.05)} 46%, rgba(17, 18, 22, 0) 100%), #111216`,
+    boxShadow: `0 0 0 1px ${hexToRgba(statusAccent, selected ? 0.24 : 0.12)}, 0 16px ${selected ? 34 : focused ? 30 : 24}px rgba(0, 0, 0, ${selected ? 0.46 : 0.34}), 0 0 ${selected ? 30 : focused ? 22 : 0}px ${hexToRgba(statusAccent, emphasis)}`,
   }
 }
 
