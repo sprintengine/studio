@@ -20,6 +20,11 @@ type GitChangeGroup = {
   entries: GitStatusEntry[]
 }
 
+type GitHistoryState =
+  | { status: 'loading' }
+  | { status: 'ready'; snapshot: GitHistorySnapshot }
+  | { status: 'error'; message: string }
+
 function RefreshGitIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
@@ -65,7 +70,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
   const { repoRoot, status, refresh } = useGitStatus(folderPath)
   const [branches, setBranches] = useState<GitBranchSnapshot | null>(null)
-  const [history, setHistory] = useState<GitHistorySnapshot | null>(null)
+  const [history, setHistory] = useState<GitHistoryState>({ status: 'loading' })
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -85,14 +90,24 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const refreshHistory = useCallback(async () => {
     if (!repoRoot || typeof window.api.getGitHistory !== 'function') {
-      setHistory(null)
+      setHistory({
+        status: 'error',
+        message: 'Restart the app to enable commit history.',
+      })
       return
     }
 
+    setHistory({ status: 'loading' })
     try {
-      setHistory(await window.api.getGitHistory(repoRoot, 12))
-    } catch {
-      setHistory(null)
+      setHistory({ status: 'ready', snapshot: await window.api.getGitHistory(repoRoot, 12) })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setHistory({
+        status: 'error',
+        message: message.includes("No handler registered for 'git:get-history'")
+          ? 'Restart the app to enable commit history.'
+          : 'Unable to load commits.',
+      })
     }
   }, [repoRoot])
 
@@ -245,14 +260,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             {branches?.behind ? <span>Behind {branches.behind}</span> : null}
             {branches && !branches.ahead && !branches.behind ? <span>Up to date</span> : null}
           </div>
-          <button
-            type="button"
-            onClick={() => void handlePush()}
-            disabled={Boolean(busy)}
-            className="h-6 rounded-md border border-[#24252b] bg-[#15161a] px-2 text-[10px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-40"
-          >
-            Push
-          </button>
         </div>
       </div>
 
@@ -283,14 +290,24 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           >
             Stage All
           </button>
-          <button
-            type="button"
-            onClick={() => void handleCommit()}
-            disabled={Boolean(busy) || stagedEntries.length === 0 || !commitMessage.trim()}
-            className="h-8 rounded-md border border-[#2d5f70] bg-[#112a33] px-3 text-[11px] font-semibold text-[#7bd7ea] transition-colors hover:bg-[#163440] disabled:opacity-40"
-          >
-            Commit
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleCommit()}
+              disabled={Boolean(busy) || stagedEntries.length === 0 || !commitMessage.trim()}
+              className="h-8 rounded-md border border-[#3a3d49] bg-[#17181d] px-3 text-[11px] font-semibold text-[#ececee] transition-colors hover:bg-[#1d1e24] disabled:opacity-40"
+            >
+              Commit
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePush()}
+              disabled={Boolean(busy)}
+              className="h-8 rounded-md border border-[#24252b] bg-[#15161a] px-3 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-40"
+            >
+              Push
+            </button>
+          </div>
         </div>
         {message ? (
           <div
@@ -298,7 +315,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               message.tone === 'error'
                 ? 'border-[#713036] bg-[#311417] text-[#ff8a8e]'
                 : message.tone === 'success'
-                  ? 'border-[#2d5f70] bg-[#112a33] text-[#7bd7ea]'
+                  ? 'border-[#3a3d49] bg-[#17181d] text-[#d7d7dc]'
                   : 'border-[#303139] bg-[#15161a] text-[#9a9aa2]'
             }`}
           >
@@ -362,8 +379,8 @@ function ChangeGroup({ group, busy }: { group: GitChangeGroup; busy: string | nu
   )
 }
 
-function CommitHistory({ history }: { history: GitHistorySnapshot | null }) {
-  const commits = history?.commits ?? []
+function CommitHistory({ history }: { history: GitHistoryState }) {
+  const commits = history.status === 'ready' ? history.snapshot.commits : []
 
   return (
     <section className="mt-4 border-t border-[#1f2025] pt-3">
@@ -371,8 +388,10 @@ function CommitHistory({ history }: { history: GitHistorySnapshot | null }) {
         <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">History</div>
         <div className="shrink-0 text-[10px] text-[#5a5a63]">{commits.length ? `${commits.length} recent` : ''}</div>
       </div>
-      {!history ? (
+      {history.status === 'loading' ? (
         <div className="px-1 py-1.5 text-[11px] text-[#5a5a63]">Loading commits...</div>
+      ) : history.status === 'error' ? (
+        <div className="px-1 py-1.5 text-[11px] text-[#8a8a92]">{history.message}</div>
       ) : commits.length === 0 ? (
         <div className="px-1 py-1.5 text-[11px] text-[#5a5a63]">No commits yet</div>
       ) : (
@@ -383,7 +402,7 @@ function CommitHistory({ history }: { history: GitHistorySnapshot | null }) {
               className="group flex min-h-[40px] items-start gap-2 rounded-md px-2 py-1.5 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
               title={commit.subject}
             >
-              <div className="mt-1 h-2 w-2 shrink-0 rounded-full border border-[#2d5f70] bg-[#112a33] shadow-[0_0_8px_rgba(123,215,234,0.14)]" />
+              <div className="mt-1 h-2 w-2 shrink-0 rounded-full border border-[#3a3d49] bg-[#17181d]" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
                 <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#5a5a63]">
