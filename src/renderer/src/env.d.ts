@@ -67,6 +67,18 @@ type GitBranchSnapshot = {
   ahead: number
   behind: number
 }
+type GitCommit = {
+  hash: string
+  shortHash: string
+  author: string
+  date: string
+  refs: string[]
+  subject: string
+}
+type GitHistorySnapshot = {
+  commits: GitCommit[]
+  updatedAt: number
+}
 type GitCommandResult = {
   ok: boolean
   stdout: string
@@ -101,6 +113,7 @@ declare interface Window {
     getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
     getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
     getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>
+    getGitHistory: (repoRoot: string, limit?: number) => Promise<GitHistorySnapshot>
     stageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
     unstageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
     commitGitChanges: (repoRoot: string, message: string) => Promise<GitCommandResult>

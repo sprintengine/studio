@@ -57,6 +57,18 @@ type GitBranchSnapshot = {
   ahead: number
   behind: number
 }
+type GitCommit = {
+  hash: string
+  shortHash: string
+  author: string
+  date: string
+  refs: string[]
+  subject: string
+}
+type GitHistorySnapshot = {
+  commits: GitCommit[]
+  updatedAt: number
+}
 type GitCommandResult = {
   ok: boolean
   stdout: string
@@ -163,6 +175,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('git:get-file-base', repoRoot, filePath),
   getGitBranches: (repoRoot: string): Promise<GitBranchSnapshot> =>
     ipcRenderer.invoke('git:get-branches', repoRoot),
+  getGitHistory: (repoRoot: string, limit?: number): Promise<GitHistorySnapshot> =>
+    ipcRenderer.invoke('git:get-history', repoRoot, limit),
   stageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:stage', repoRoot, paths),
   unstageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>

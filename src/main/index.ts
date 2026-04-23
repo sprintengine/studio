@@ -8,6 +8,7 @@ import {
   commitGitChanges,
   getGitBranches,
   getGitFileBase,
+  getGitHistory,
   getGitRepoRoot,
   getGitStatus,
   pushGitBranch,
@@ -908,6 +909,10 @@ ipcMain.handle('git:get-file-base', async (_, repoRoot: string, filePath: string
 
 ipcMain.handle('git:get-branches', async (_, repoRoot: string) => {
   return getGitBranches(repoRoot)
+})
+
+ipcMain.handle('git:get-history', async (_, repoRoot: string, limit?: number) => {
+  return getGitHistory(repoRoot, limit)
 })
 
 ipcMain.handle('git:stage', async (_, repoRoot: string, paths: string[]) => {

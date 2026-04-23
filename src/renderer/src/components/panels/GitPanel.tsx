@@ -60,6 +60,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
   const { repoRoot, status, refresh } = useGitStatus(folderPath)
   const [branches, setBranches] = useState<GitBranchSnapshot | null>(null)
+  const [history, setHistory] = useState<GitHistorySnapshot | null>(null)
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -77,13 +78,27 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }, [repoRoot])
 
+  const refreshHistory = useCallback(async () => {
+    if (!repoRoot || typeof window.api.getGitHistory !== 'function') {
+      setHistory(null)
+      return
+    }
+
+    try {
+      setHistory(await window.api.getGitHistory(repoRoot, 12))
+    } catch {
+      setHistory(null)
+    }
+  }, [repoRoot])
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([refresh(), refreshBranches()])
-  }, [refresh, refreshBranches])
+    await Promise.all([refresh(), refreshBranches(), refreshHistory()])
+  }, [refresh, refreshBranches, refreshHistory])
 
   useEffect(() => {
     void refreshBranches()
-  }, [refreshBranches])
+    void refreshHistory()
+  }, [refreshBranches, refreshHistory])
 
   const stagedEntries = useMemo(
     () => sortedEntries(Object.values(status?.files ?? {}).filter((entry) => entry.staged)),
@@ -239,6 +254,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             <ChangeGroup key={group.title} group={group} busy={busy} />
           ))
         )}
+        <CommitHistory history={history} />
       </div>
 
       <div className="border-t border-[#1f2025] bg-[#111216] p-3">
@@ -318,6 +334,49 @@ function ChangeGroup({ group, busy }: { group: GitChangeGroup; busy: string | nu
               </div>
             )
           })}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CommitHistory({ history }: { history: GitHistorySnapshot | null }) {
+  const commits = history?.commits ?? []
+
+  return (
+    <section className="mt-4 border-t border-[#1f2025] pt-3">
+      <div className="mb-1 flex items-center justify-between gap-2 px-1">
+        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">History</div>
+        <div className="shrink-0 text-[10px] text-[#5a5a63]">{commits.length ? `${commits.length} recent` : ''}</div>
+      </div>
+      {!history ? (
+        <div className="px-1 py-1.5 text-[11px] text-[#5a5a63]">Loading commits...</div>
+      ) : commits.length === 0 ? (
+        <div className="px-1 py-1.5 text-[11px] text-[#5a5a63]">No commits yet</div>
+      ) : (
+        <div className="space-y-1">
+          {commits.map((commit) => (
+            <div
+              key={commit.hash}
+              className="group flex min-h-[40px] items-start gap-2 rounded-md px-2 py-1.5 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
+              title={commit.subject}
+            >
+              <div className="mt-1 h-2 w-2 shrink-0 rounded-full border border-[#2d5f70] bg-[#112a33] shadow-[0_0_8px_rgba(123,215,234,0.14)]" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
+                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#5a5a63]">
+                  <span className="font-mono text-[#8a8a92]">{commit.shortHash}</span>
+                  <span>{commit.date}</span>
+                  <span className="min-w-0 truncate">{commit.author}</span>
+                </div>
+              </div>
+              {commit.refs.length > 0 ? (
+                <span className="mt-0.5 max-w-[76px] shrink-0 truncate rounded-full border border-[#24252b] bg-[#0d0e11] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[#8a8a92]">
+                  {commit.refs[0].replace(/^HEAD -> /, '')}
+                </span>
+              ) : null}
+            </div>
+          ))}
         </div>
       )}
     </section>

@@ -37,6 +37,20 @@ export type GitBranchSnapshot = {
   behind: number
 }
 
+export type GitCommit = {
+  hash: string
+  shortHash: string
+  author: string
+  date: string
+  refs: string[]
+  subject: string
+}
+
+export type GitHistorySnapshot = {
+  commits: GitCommit[]
+  updatedAt: number
+}
+
 export type GitCommandResult = {
   ok: boolean
   stdout: string
@@ -207,6 +221,38 @@ export async function getGitBranches(repoRoot: string): Promise<GitBranchSnapsho
   }
 
   return { current, branches, ahead, behind }
+}
+
+export async function getGitHistory(repoRoot: string, limit = 12): Promise<GitHistorySnapshot> {
+  try {
+    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 50)
+    const stdout = await runGit(repoRoot, [
+      'log',
+      `--max-count=${safeLimit}`,
+      '--date=short',
+      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1e',
+    ])
+
+    const commits = stdout
+      .split('\x1e')
+      .map((record) => record.trim())
+      .filter(Boolean)
+      .map((record) => {
+        const [hash = '', shortHash = '', author = '', date = '', refsText = '', subject = ''] = record.split('\x1f')
+        return {
+          hash,
+          shortHash,
+          author,
+          date,
+          refs: refsText.split(',').map((ref) => ref.trim()).filter(Boolean),
+          subject,
+        }
+      })
+
+    return { commits, updatedAt: Date.now() }
+  } catch {
+    return { commits: [], updatedAt: Date.now() }
+  }
 }
 
 export async function stageGitPaths(repoRoot: string, paths: string[]): Promise<GitCommandResult> {
