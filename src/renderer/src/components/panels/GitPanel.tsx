@@ -12,6 +12,11 @@ type GitChangeGroup = {
   empty: string
   actionLabel: string
   action: (path: string) => Promise<unknown>
+  bulkAction?: {
+    label: string
+    title: string
+    action: () => Promise<unknown>
+  }
   entries: GitStatusEntry[]
 }
 
@@ -152,6 +157,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       empty: 'No unstaged changes',
       actionLabel: 'Stage',
       action: stagePath,
+      bulkAction: {
+        label: '+',
+        title: 'Stage all changes',
+        action: () => runAction('Staging all', () => window.api.stageGitPaths(repoRoot!, []), 'Staged all changes.'),
+      },
       entries: unstagedEntries,
     },
   ]
@@ -303,8 +313,20 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 function ChangeGroup({ group, busy }: { group: GitChangeGroup; busy: string | null }) {
   return (
     <section className="mb-3">
-      <div className="mb-1 px-1 text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">
-        {group.title}
+      <div className="mb-1 flex h-6 items-center justify-between gap-2 px-1">
+        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">{group.title}</div>
+        {group.bulkAction && group.entries.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => void group.bulkAction?.action()}
+            disabled={Boolean(busy)}
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] font-mono text-[13px] leading-none text-[#8a8a92] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-30"
+            title={group.bulkAction.title}
+            aria-label={group.bulkAction.title}
+          >
+            {group.bulkAction.label}
+          </button>
+        ) : null}
       </div>
       {group.entries.length === 0 ? (
         <div className="px-1 py-1.5 text-[11px] text-[#5a5a63]">{group.empty}</div>
