@@ -5,7 +5,8 @@ import CliIcon from '../CliIcon'
 import CommandPalette from '../CommandPalette'
 import SettingsModal from '../settings/SettingsModal'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentCli, LayoutTemplate, Workspace } from '../../types/workspace'
+import { SPECIALIST_ACTIONS, getSpecialistAction, type SpecialistIcon } from '../../specialists/specialistActions'
+import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '../../types/workspace'
 import { getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
 import WorkspaceLayout from './WorkspaceLayout'
@@ -26,23 +27,31 @@ export default function WorkspaceManager() {
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'claude')
   const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
+  const lastSelectedSpecialist = useWorkspaceStore(
+    (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
+  )
+  const setLastSelectedSpecialist = useWorkspaceStore((s) => s.setLastSelectedSpecialist)
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
   const selectedCliOption = CLI_OPTIONS.find((option) => option.value === lastSelectedCli) ?? CLI_OPTIONS[0]
+  const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
 
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [cliMenuOpen, setCliMenuOpen] = useState(false)
+  const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
   const cliMenuRef = useRef<HTMLDivElement>(null)
+  const specialistMenuRef = useRef<HTMLDivElement>(null)
   const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
 
   const openTemplateSelector = () => {
     setShowTemplateSelector(true)
     setCliMenuOpen(false)
+    setSpecialistMenuOpen(false)
   }
 
   useEffect(() => {
@@ -75,7 +84,29 @@ export default function WorkspaceManager() {
   }, [cliMenuOpen])
 
   useEffect(() => {
+    if (!specialistMenuOpen) return
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!specialistMenuRef.current?.contains(event.target as Node)) {
+        setSpecialistMenuOpen(false)
+      }
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSpecialistMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [specialistMenuOpen])
+
+  useEffect(() => {
     setCliMenuOpen(false)
+    setSpecialistMenuOpen(false)
   }, [activeWorkspaceId])
 
   useEffect(() => {
@@ -104,6 +135,8 @@ export default function WorkspaceManager() {
         if (workspaces.length > 0) setShowTemplateSelector(false)
       } else if (event.key === 'w' && activeWorkspaceId) {
         event.preventDefault()
+        const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
+        if (workspace) terminateWorkspaceTerminals(workspace)
         removeWorkspace(activeWorkspaceId)
       }
 
@@ -162,6 +195,8 @@ export default function WorkspaceManager() {
 
   const handleCloseTab = (event: React.MouseEvent, id: string) => {
     event.stopPropagation()
+    const workspace = workspaces.find((candidate) => candidate.id === id)
+    if (workspace) terminateWorkspaceTerminals(workspace)
     removeWorkspace(id)
   }
 
@@ -197,6 +232,41 @@ export default function WorkspaceManager() {
     )
   }
 
+  const addNewSpecialist = (specialistId: SpecialistActionId = lastSelectedSpecialist) => {
+    if (showTemplateSelector || !activeWorkspaceId) return
+    const model = getModel(activeWorkspaceId)
+    if (!model) return
+
+    const specialist = getSpecialistAction(specialistId)
+    const newId = `specialist-${specialist.id}-${nanoid(6)}`
+    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+    if (!targetTabset) return
+
+    updateAgent(activeWorkspaceId, newId, {
+      name: specialist.shortLabel,
+      cli: lastSelectedCli,
+      kind: 'specialist',
+      specialistId: specialist.id,
+      cliStartupPrompt: specialist.buildPrompt(),
+      cliOnboardingPromptSent: false,
+      cliHasLaunched: false,
+    })
+    model.doAction(
+      Actions.addNode(
+        {
+          type: 'tab',
+          name: specialist.shortLabel,
+          component: 'agent',
+          config: { agentId: newId },
+        },
+        targetTabset.getId(),
+        DockLocation.CENTER,
+        -1,
+        true
+      )
+    )
+  }
+
   const addNewTerminal = () => {
     if (showTemplateSelector || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
@@ -221,6 +291,12 @@ export default function WorkspaceManager() {
     setLastSelectedCli(cli)
     setCliMenuOpen(false)
     addNewCLI(cli)
+  }
+
+  const handleSelectSpecialist = (specialistId: SpecialistActionId) => {
+    setLastSelectedSpecialist(specialistId)
+    setSpecialistMenuOpen(false)
+    addNewSpecialist(specialistId)
   }
 
   const handleShowMenubarMenu = async (
@@ -328,6 +404,84 @@ export default function WorkspaceManager() {
             </button>
           ) : null}
 
+          {workspaceActionsEnabled ? (
+            <div ref={specialistMenuRef} className="relative inline-flex">
+              <div className="inline-flex overflow-hidden rounded-md border border-[#24252b] bg-[#111216]">
+                <button
+                  onClick={() => addNewSpecialist()}
+                  disabled={!activeWorkspaceId}
+                  className="inline-flex h-8 w-8 items-center justify-center text-[#6ee7d8] transition-colors hover:bg-[#17181d] disabled:opacity-40 disabled:hover:bg-[#111216]"
+                  title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}`}
+                  aria-label={`Spawn ${selectedSpecialistAction.label} specialist`}
+                >
+                  <SpecialistActionIcon icon={selectedSpecialistAction.icon} className="h-[18px] w-[18px]" />
+                </button>
+                <button
+                  onClick={() => {
+                    setSpecialistMenuOpen((open) => !open)
+                    setCliMenuOpen(false)
+                  }}
+                  disabled={!activeWorkspaceId}
+                  className="inline-flex h-8 w-6 items-center justify-center border-l border-[#24252b] text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
+                  title="Choose specialist"
+                  aria-haspopup="menu"
+                  aria-expanded={specialistMenuOpen}
+                  aria-label="Choose specialist"
+                >
+                  <svg className={`h-3.5 w-3.5 transition-transform ${specialistMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+
+              {specialistMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-9 z-40 w-72 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                >
+                  {SPECIALIST_ACTIONS.map((action) => {
+                    const selected = action.id === selectedSpecialistAction.id
+                    return (
+                      <button
+                        key={action.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={selected}
+                        onClick={() => handleSelectSpecialist(action.id)}
+                        className={`flex w-full items-start gap-3 rounded px-2.5 py-2 text-left transition-colors ${
+                          selected
+                            ? 'bg-[#6ee7d8]/10 text-[#ececee]'
+                            : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
+                        }`}
+                      >
+                        <span
+                          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
+                            selected
+                              ? 'border-[#6ee7d8]/40 bg-[#6ee7d8]/10 text-[#6ee7d8]'
+                              : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
+                          }`}
+                        >
+                          <SpecialistActionIcon icon={action.icon} className="h-[18px] w-[18px]" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-semibold">
+                            {action.label}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] leading-4 text-[#8a8a92]">
+                            {action.description}
+                          </span>
+                        </span>
+                        {selected ? (
+                          <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#6ee7d8]" />
+                        ) : null}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {workspaceActionsEnabled && activeWorkspace.mode !== 'swarm' && (
             <div ref={cliMenuRef} className="relative inline-flex">
               <div className="inline-flex overflow-hidden rounded-md border border-[#24252b] bg-[#111216]">
@@ -341,7 +495,10 @@ export default function WorkspaceManager() {
                   <CliIcon cli={selectedCliOption.value} className="h-[18px] w-[18px]" />
                 </button>
                 <button
-                  onClick={() => setCliMenuOpen((open) => !open)}
+                  onClick={() => {
+                    setCliMenuOpen((open) => !open)
+                    setSpecialistMenuOpen(false)
+                  }}
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-6 items-center justify-center border-l border-[#24252b] text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
                   title="Choose CLI"
@@ -525,6 +682,89 @@ function getPreferredPanelTarget(
     id: targetTabset?.getId() ?? model.getRoot().getId(),
     location: DockLocation.LEFT,
   }
+}
+
+type LayoutSessionNode = {
+  component?: string
+  config?: {
+    agentId?: string
+    terminalId?: string
+  }
+  children?: LayoutSessionNode[]
+}
+
+function terminateWorkspaceTerminals(workspace: Workspace): void {
+  const sessionIds = new Set<string>()
+
+  Object.values(workspace.agents).forEach((agent) => {
+    if (agent.cliSessionId) sessionIds.add(agent.cliSessionId)
+  })
+
+  const collectLayoutSessions = (node: LayoutSessionNode | undefined) => {
+    if (!node) return
+
+    if (node.component === 'agent') {
+      const agentId = node.config?.agentId
+      const sessionId = agentId ? workspace.agents[agentId]?.cliSessionId : undefined
+      if (sessionId) sessionIds.add(sessionId)
+    }
+
+    if (node.component === 'terminal') {
+      const terminalId = node.config?.terminalId
+      if (terminalId) sessionIds.add(`terminal-${terminalId}`)
+    }
+
+    node.children?.forEach(collectLayoutSessions)
+  }
+
+  collectLayoutSessions(workspace.layoutModel.layout as LayoutSessionNode)
+  workspace.layoutModel.borders?.forEach((border) => collectLayoutSessions(border as LayoutSessionNode))
+
+  sessionIds.forEach((sessionId) => {
+    void window.api.terminalKill(sessionId).catch(() => {})
+  })
+}
+
+function SpecialistActionIcon({ icon, className }: { icon: SpecialistIcon; className?: string }) {
+  if (icon === 'shield') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 3.75L18.75 6.25V11.15C18.75 15.35 16.08 19.08 12 20.25C7.92 19.08 5.25 15.35 5.25 11.15V6.25L12 3.75Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="M9 12.05L11.05 14.1L15.25 9.9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+
+  if (icon === 'design') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M4.5 17.5H19.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M7 17.5L9.4 7.2C9.65 6.13 10.52 5.35 11.55 5.35H12.45C13.48 5.35 14.35 6.13 14.6 7.2L17 17.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8.4 12.75H15.6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
+  if (icon === 'review') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M6.5 4.75H15.25L18.5 8V19.25H6.5V4.75Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="M15.25 4.75V8H18.5" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="M8.9 12.25L10.35 13.7L13.1 10.95" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8.9 16.3H15.1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 18.75V13.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M10 18.75V9.25" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M15 18.75V11.75" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M20 18.75V5.25" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M4.5 19H20.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 function EmptyState({ onNew }: { onNew: () => void }) {

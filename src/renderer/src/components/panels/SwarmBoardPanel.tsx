@@ -298,6 +298,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       agent: roster.find((candidate) => candidate.role === role),
     }))
     .filter((entry) => entry.tasks.length > 0)
+  const specialistReviewAgents = roster.filter((agent) => agent.role !== 'architect')
   const spawnDialogAgent = spawnDialog ? rosterById[spawnDialog.agentId] : undefined
   const spawnDialogRuntime = spawnDialog
     ? runtimeAgents.find((agent) => agent.agentId === spawnDialog.agentId)
@@ -477,6 +478,30 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setRecoveryDialog(null)
   }
 
+  const requestPlanReviews = () => {
+    if (!folderPath || specialistReviewAgents.length === 0) return
+
+    specialistReviewAgents.forEach((agent) => {
+      startAgentTerminal(agent.id, agent.label, agents[agent.id]?.cli ?? 'codex', {
+        freshSession: true,
+        startupPrompt: buildPlanReviewStartupPrompt(agent.role, agent.id),
+      })
+    })
+
+    setSelectedAgentId(specialistReviewAgents.at(-1)?.id ?? null)
+  }
+
+  const addressPlanReviews = () => {
+    if (!folderPath || !architectAgentId) return
+    const label = rosterById[architectAgentId]?.label ?? 'Architect'
+
+    startAgentTerminal(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
+      freshSession: true,
+      startupPrompt: buildAddressPlanReviewsPrompt(),
+    })
+    setSelectedAgentId(architectAgentId)
+  }
+
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       <div className="border-b border-[#1f2025] bg-[#0d0e11] px-5 py-4">
@@ -527,6 +552,22 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             >
               Review Plan
             </button>
+            <button
+              onClick={requestPlanReviews}
+              disabled={!folderPath || specialistReviewAgents.length === 0}
+              className="rounded-md border border-[#6ee7d8]/40 bg-[#6ee7d8]/12 px-4 py-2 text-sm font-semibold text-[#d8fffb] shadow-[0_0_20px_rgba(110,231,216,0.08)] transition-colors hover:border-[#6ee7d8]/65 hover:bg-[#6ee7d8]/16 disabled:opacity-45 disabled:hover:border-[#6ee7d8]/40 disabled:hover:bg-[#6ee7d8]/12"
+            >
+              Request Plan Reviews
+            </button>
+            {architectAgentId ? (
+              <button
+                onClick={addressPlanReviews}
+                disabled={!folderPath}
+                className="rounded-md border border-[#ffbf2f]/45 bg-[#ffbf2f]/10 px-4 py-2 text-sm font-semibold text-[#ffe0a3] shadow-[0_0_20px_rgba(255,191,47,0.08)] transition-colors hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/15 disabled:opacity-45 disabled:hover:border-[#ffbf2f]/45 disabled:hover:bg-[#ffbf2f]/10"
+              >
+                Address Feedback
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -1864,6 +1905,31 @@ function buildRecoveryAuditPrompt(): string {
     '`swarm recover` is the canonical recovery entrypoint. It backs up the active state file, returns the full recovery architect prompt, and defines the allowed audit-only commands.',
     'Read the returned JSON `prompt` field and follow it exactly.',
     'If `swarm recover` fails, stop and report the error instead of creating, deleting, or replanning tasks.',
+  ].join('\n')
+}
+
+function buildPlanReviewStartupPrompt(role: SwarmRole, agentId: string): string {
+  return [
+    'You are starting ALIENCODE specialist plan review mode.',
+    '',
+    'Do not claim tasks. Do not implement. Do not edit state.yaml.',
+    `Run \`swarm plan start-review --role ${role} --id ${agentId}\` now.`,
+    '',
+    'Read the returned JSON `prompt` field and follow it exactly.',
+    'If the command fails, stop and report the error instead of creating a review by hand.',
+  ].join('\n')
+}
+
+function buildAddressPlanReviewsPrompt(): string {
+  return [
+    'You are starting ALIENCODE architect plan-review feedback mode.',
+    '',
+    'Do not run `swarm init`. Do not implement.',
+    'Run `swarm plan address-reviews --actor architect` now.',
+    '',
+    'Read the returned JSON `prompt` field and follow it exactly.',
+    'Update plan.md and task cards only through the instructions returned by the tool.',
+    'If the command fails, stop and report the error instead of manually gathering review files.',
   ].join('\n')
 }
 

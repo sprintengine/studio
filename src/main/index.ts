@@ -130,7 +130,21 @@ type ContextMenuItem = {
 
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
-const terminals = new Map<string, pty.IPty>()
+type TerminalSize = {
+  cols: number
+  rows: number
+}
+
+type TerminalSession = {
+  process: pty.IPty
+  sender: Electron.WebContents
+  isReady: boolean
+  hasExited: boolean
+  isDisposed: boolean
+  pendingResize?: TerminalSize
+}
+
+const terminals = new Map<string, TerminalSession>()
 const fileWatchers = new Map<string, { watcher: FSWatcher; senderId: number }>()
 const trackedWatcherSenders = new Set<number>()
 let nextFileWatcherId = 0
@@ -344,7 +358,7 @@ function getShellLaunchConfig(
 
     return {
       command: 'cmd.exe',
-      args: ['/d', '/c', commandLine],
+      args: ['/d', '/k', commandLine],
       env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
       cwd: windowsCwd,
     }
@@ -522,9 +536,52 @@ function getTerminalErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function getTerminalSize(cols: number, rows: number): TerminalSize {
+  return {
+    cols: Math.max(Number.isFinite(cols) ? Math.floor(cols) : 80, 20),
+    rows: Math.max(Number.isFinite(rows) ? Math.floor(rows) : 24, 8),
+  }
+}
+
+function safeResizeTerminal(sessionId: string, cols: number, rows: number): void {
+  const session = terminals.get(sessionId)
+  if (!session || session.hasExited || session.isDisposed) return
+
+  const size = getTerminalSize(cols, rows)
+  if (process.platform === 'win32' && !session.isReady) {
+    session.pendingResize = size
+    return
+  }
+
+  try {
+    session.process.resize(size.cols, size.rows)
+  } catch {
+    // node-pty can report resize-after-exit races before its exit event is delivered.
+    session.hasExited = true
+  }
+}
+
+function flushPendingTerminalResize(sessionId: string, session: TerminalSession): void {
+  const pendingResize = session.pendingResize
+  if (!pendingResize) return
+
+  session.pendingResize = undefined
+  safeResizeTerminal(sessionId, pendingResize.cols, pendingResize.rows)
+}
+
 function disposeTerminal(sessionId: string): void {
-  terminals.get(sessionId)?.kill()
+  const session = terminals.get(sessionId)
+  if (!session) return
+
+  session.isDisposed = true
+  session.hasExited = true
   terminals.delete(sessionId)
+
+  try {
+    session.process.kill()
+  } catch {
+    // ignore kill errors if process died first
+  }
 }
 
 function disposeFileWatcher(watchId: string): void {
@@ -547,6 +604,13 @@ function disposeFileWatchersForSender(senderId: number): void {
 ipcMain.handle(
   'terminal:spawn',
   (event, { sessionId, cols, rows, cwd, resume, swarmStatePath, cli = 'codex', initialPrompt, cliRuntimes, shellOnly }: TerminalSpawnPayload) => {
+    const existingSession = terminals.get(sessionId)
+    if (existingSession && !existingSession.hasExited && !existingSession.isDisposed) {
+      existingSession.sender = event.sender
+      safeResizeTerminal(sessionId, cols, rows)
+      return
+    }
+
     disposeTerminal(sessionId)
 
     try {
@@ -562,23 +626,40 @@ ipcMain.handle(
           initialPrompt,
           cliRuntimes
         )
+      const initialSize = getTerminalSize(cols, rows)
       const termProcess = pty.spawn(command, args, {
         name: 'xterm-256color',
-        cols: Math.max(cols || 80, 20),
-        rows: Math.max(rows || 24, 8),
+        cols: initialSize.cols,
+        rows: initialSize.rows,
         cwd: launchCwd ?? workingDirectory,
         env: env ?? getTerminalEnv(),
       })
+      const terminalSession: TerminalSession = {
+        process: termProcess,
+        sender: event.sender,
+        isReady: process.platform !== 'win32',
+        hasExited: false,
+        isDisposed: false,
+      }
 
-      terminals.set(sessionId, termProcess)
+      terminals.set(sessionId, terminalSession)
 
       termProcess.onData((data) => {
-        sendTerminalEvent(event.sender, `terminal:data:${sessionId}`, data)
+        if (!terminalSession.isReady) {
+          terminalSession.isReady = true
+          flushPendingTerminalResize(sessionId, terminalSession)
+        }
+        sendTerminalEvent(terminalSession.sender, `terminal:data:${sessionId}`, data)
       })
 
       termProcess.onExit((e) => {
-        terminals.delete(sessionId)
-        sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, e.exitCode)
+        terminalSession.hasExited = true
+        if (terminals.get(sessionId) === terminalSession) {
+          terminals.delete(sessionId)
+        }
+        if (!terminalSession.isDisposed) {
+          sendTerminalEvent(terminalSession.sender, `terminal:exit:${sessionId}`, e.exitCode)
+        }
       })
 
       if (initialInput) {
@@ -593,15 +674,18 @@ ipcMain.handle(
 )
 
 ipcMain.handle('terminal:write', (_, { sessionId, data }: { sessionId: string; data: string }) => {
-  terminals.get(sessionId)?.write(data)
+  const session = terminals.get(sessionId)
+  if (!session || session.hasExited || session.isDisposed) return
+
+  try {
+    session.process.write(data)
+  } catch {
+    session.hasExited = true
+  }
 })
 
 ipcMain.handle('terminal:resize', (_, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
-  try {
-    terminals.get(sessionId)?.resize(cols, rows)
-  } catch (e) {
-    // ignore resize errors if process died
-  }
+  safeResizeTerminal(sessionId, cols, rows)
 })
 
 ipcMain.handle('terminal:kill', (_, sessionId: string) => {

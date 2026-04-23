@@ -8,8 +8,10 @@ All updates must go through this tool.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +28,14 @@ except ImportError as exc:
 VALID_TASK_STATUSES = {"todo", "in_progress", "needs_input", "done"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
 VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security"}
+PLAN_REVIEW_ROLES = VALID_ROLES - {"architect"}
+PLAN_REVIEW_FOCUS = {
+    "product": "scope fit, user value, prioritization, adoption risk, and missing requirements",
+    "developer": "implementation sequence, integration risk, data flow, backend/API impact, and owned paths",
+    "frontend": "interaction design, UI architecture, accessibility, responsive behavior, and user workflow",
+    "tester": "test strategy, acceptance criteria, regression coverage, edge cases, and release confidence",
+    "security": "trust boundaries, command safety, secrets, permissions, abuse cases, and hardening",
+}
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -441,6 +451,233 @@ def unique_strings(values: List[Any]) -> List[str]:
     return result
 
 
+def plan_path_for_state(state_path: Path) -> Path:
+    return state_path.parent / "plan.md"
+
+
+def plan_reviews_dir_for_state(state_path: Path) -> Path:
+    return state_path.parent / "plan-reviews"
+
+
+def safe_review_filename(agent_id: str) -> str:
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", agent_id.strip()).strip(".-")
+    return f"{name or 'agent'}.md"
+
+
+def plan_fingerprint(plan_path: Path) -> str:
+    if not plan_path.exists():
+        raise SystemExit(f"Plan file not found: {plan_path}")
+    return hashlib.sha256(plan_path.read_bytes()).hexdigest()
+
+
+def expected_plan_reviewers(state: Dict[str, Any]) -> List[Dict[str, str]]:
+    reviewers = []
+    for agent_id, agent in state.get("agents", {}).items():
+        if not isinstance(agent, dict):
+            continue
+        role = str(agent.get("role", "")).strip()
+        if role not in PLAN_REVIEW_ROLES:
+            continue
+        reviewers.append({"id": str(agent_id), "role": role})
+    return sorted(reviewers, key=lambda item: (item["role"], item["id"]))
+
+
+def parse_review_metadata(path: Path) -> Dict[str, Any]:
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    fingerprint_match = re.search(r"(?im)^Plan fingerprint:\s*([A-Fa-f0-9]{64})\s*$", content)
+    verdict_match = re.search(r"(?im)^Verdict:\s*([^\n]+)\s*$", content)
+    role_match = re.search(r"(?im)^Role:\s*([A-Za-z0-9_-]+)\s*$", content)
+    agent_match = re.search(r"(?im)^Agent:\s*([A-Za-z0-9._-]+)\s*$", content)
+    return {
+        "path": str(path),
+        "filename": path.name,
+        "agentId": agent_match.group(1).strip() if agent_match else path.stem,
+        "role": role_match.group(1).strip() if role_match else None,
+        "planFingerprint": fingerprint_match.group(1).lower() if fingerprint_match else None,
+        "verdict": verdict_match.group(1).strip() if verdict_match else "unknown",
+        "content": content,
+    }
+
+
+def build_plan_review_status(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
+    plan_path = plan_path_for_state(state_path)
+    reviews_dir = plan_reviews_dir_for_state(state_path)
+    current_fingerprint = plan_fingerprint(plan_path)
+    expected = expected_plan_reviewers(state)
+    expected_by_id = {reviewer["id"]: reviewer for reviewer in expected}
+    files = sorted(reviews_dir.glob("*.md")) if reviews_dir.exists() else []
+    reviews = []
+
+    for path in files:
+        metadata = parse_review_metadata(path)
+        metadata["stale"] = metadata.get("planFingerprint") != current_fingerprint
+        metadata["expected"] = metadata.get("agentId") in expected_by_id
+        metadata.pop("content", None)
+        reviews.append(metadata)
+
+    review_ids = {review.get("agentId") for review in reviews}
+    missing = [reviewer for reviewer in expected if reviewer["id"] not in review_ids]
+    stale = [review for review in reviews if review.get("stale")]
+    unexpected = [review for review in reviews if not review.get("expected")]
+    completed = [
+        review for review in reviews
+        if not review.get("stale") and str(review.get("verdict", "")).lower() in {"approve", "needs_changes", "blocked"}
+    ]
+
+    return {
+        "planPath": str(plan_path),
+        "reviewsDirectory": str(reviews_dir),
+        "planFingerprint": current_fingerprint,
+        "expectedReviewers": expected,
+        "reviews": reviews,
+        "missingReviewers": missing,
+        "staleReviews": stale,
+        "unexpectedReviews": unexpected,
+        "counts": {
+            "expected": len(expected),
+            "completed": len(completed),
+            "missing": len(missing),
+            "stale": len(stale),
+            "unexpected": len(unexpected),
+        },
+    }
+
+
+def build_plan_review_template(agent_id: str, role: str, plan_path: Path, fingerprint: str) -> str:
+    role_label = role.replace("-", " ").title()
+    return "\n".join([
+        f"# Plan Review: {role_label}",
+        "",
+        f"Agent: {agent_id}",
+        f"Role: {role}",
+        f"Plan: {plan_path.name}",
+        f"Plan fingerprint: {fingerprint}",
+        "Verdict: pending",
+        "",
+        "## Summary",
+        "",
+        "## Blocking Issues",
+        "",
+        "## Recommended Changes",
+        "",
+        "## Task Graph Feedback",
+        "",
+        "## Missing Acceptance Criteria",
+        "",
+        "## Risks",
+        "",
+        "## Questions For Architect",
+        "",
+    ])
+
+
+def build_plan_review_prompt(
+    agent_id: str,
+    role: str,
+    plan_path: Path,
+    review_path: Path,
+    fingerprint: str,
+    existing_review: bool,
+) -> str:
+    action = "Replace your existing review" if existing_review else "Write your review"
+    return "\n".join([
+        f"You are the {role} specialist reviewing the architect's swarm plan.",
+        "",
+        "Do not claim tasks, do not implement, and do not edit state.yaml.",
+        "",
+        f"Plan file: {plan_path}",
+        f"Your review file: {review_path}",
+        f"Current plan fingerprint: {fingerprint}",
+        f"Review focus: {PLAN_REVIEW_FOCUS.get(role, 'specialist risks, gaps, and execution quality')}.",
+        "",
+        "Steps:",
+        "1. Read the full architect plan.",
+        "2. Inspect the repository only as needed to validate the plan from your specialty.",
+        "3. Evaluate whether the task graph, owned paths, dependencies, and acceptance criteria are sufficient.",
+        f"4. {action} at the exact review file path above.",
+        "5. Set `Verdict:` to one of: approve, needs_changes, blocked.",
+        "6. Keep feedback concrete and actionable for the architect.",
+        "",
+        "Required markdown sections:",
+        "- Summary",
+        "- Blocking Issues",
+        "- Recommended Changes",
+        "- Task Graph Feedback",
+        "- Missing Acceptance Criteria",
+        "- Risks",
+        "- Questions For Architect",
+        "",
+        "Do not update the task board. The architect will address feedback with `swarm plan address-reviews`.",
+    ])
+
+
+def build_address_reviews_prompt(
+    state: Dict[str, Any],
+    state_path: Path,
+    status: Dict[str, Any],
+    review_contents: List[Dict[str, str]],
+) -> str:
+    plan_path = plan_path_for_state(state_path)
+    plan_content = plan_path.read_text(encoding="utf-8")
+    review_blocks = []
+
+    for review in review_contents:
+        review_blocks.extend([
+            f"## Review File: {review['path']}",
+            "",
+            review["content"].rstrip(),
+            "",
+        ])
+
+    warnings = []
+    if status["missingReviewers"]:
+        missing = ", ".join(f"{r['id']} ({r['role']})" for r in status["missingReviewers"])
+        warnings.append(f"- Missing expected reviews: {missing}")
+    if status["staleReviews"]:
+        stale = ", ".join(str(r["path"]) for r in status["staleReviews"])
+        warnings.append(f"- Stale reviews whose fingerprint does not match the current plan: {stale}")
+    if status["unexpectedReviews"]:
+        unexpected = ", ".join(str(r["path"]) for r in status["unexpectedReviews"])
+        warnings.append(f"- Unexpected review files: {unexpected}")
+    warning_block = "\n".join(warnings) if warnings else "- No missing, stale, or unexpected review files detected."
+
+    return "\n".join([
+        "You are the swarm architect addressing specialist plan reviews.",
+        "",
+        "Do not implement. Do not hand-edit state.yaml. Your job is to revise the plan and task graph.",
+        "",
+        f"Plan file: {plan_path}",
+        f"Plan fingerprint: {status['planFingerprint']}",
+        "",
+        "Review status:",
+        warning_block,
+        "",
+        "Steps:",
+        "1. Read the current plan and all specialist review feedback below.",
+        "2. Decide which feedback to accept, adapt, or reject.",
+        "3. Update plan.md directly when the human-readable plan needs changes.",
+        "4. Update the task graph only with swarm plan commands:",
+        "   - swarm plan update-task",
+        "   - swarm plan add-task",
+        "   - swarm plan delete-task",
+        "   - swarm plan add-dependency",
+        "   - swarm plan remove-dependency",
+        "5. Do not start implementation work.",
+        "6. When done, tell the user which review items were accepted, adapted, or rejected.",
+        "",
+        "# Current Plan",
+        "",
+        plan_content.rstrip(),
+        "",
+        "# Specialist Reviews",
+        "",
+        "\n".join(review_blocks).rstrip() or "(No plan review files found.)",
+    ])
+
+
 def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
     tasks = state.get("tasks", [])
     completed = [t for t in tasks if t.get("status") == "done"]
@@ -832,6 +1069,74 @@ def cmd_plan_list(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_plan_start_review(args: argparse.Namespace) -> Dict[str, Any]:
+    state = load_state(args.state)
+    plan_path = plan_path_for_state(args.state)
+    reviews_dir = plan_reviews_dir_for_state(args.state)
+    fingerprint = plan_fingerprint(plan_path)
+    reviews_dir.mkdir(parents=True, exist_ok=True)
+
+    review_path = reviews_dir / safe_review_filename(args.id)
+    existing_review = review_path.exists()
+    if not existing_review:
+        review_path.write_text(
+            build_plan_review_template(args.id, args.role, plan_path, fingerprint),
+            encoding="utf-8",
+        )
+
+    prompt = build_plan_review_prompt(
+        args.id,
+        args.role,
+        plan_path,
+        review_path,
+        fingerprint,
+        existing_review,
+    )
+    known_reviewers = expected_plan_reviewers(state)
+    return {
+        "ok": True,
+        "role": args.role,
+        "agentId": args.id,
+        "action": "plan_review",
+        "planPath": str(plan_path),
+        "reviewPath": str(review_path),
+        "reviewExisted": existing_review,
+        "planFingerprint": fingerprint,
+        "knownReviewers": known_reviewers,
+        "prompt": prompt,
+    }
+
+
+def cmd_plan_review_status(args: argparse.Namespace) -> Dict[str, Any]:
+    state = load_state(args.state)
+    return {"ok": True, "action": "plan_review_status", **build_plan_review_status(state, args.state)}
+
+
+def cmd_plan_address_reviews(args: argparse.Namespace) -> Dict[str, Any]:
+    state = load_state(args.state)
+    reviews_dir = plan_reviews_dir_for_state(args.state)
+    status = build_plan_review_status(state, args.state)
+    review_contents = []
+
+    if reviews_dir.exists():
+        for path in sorted(reviews_dir.glob("*.md")):
+            metadata = parse_review_metadata(path)
+            review_contents.append({"path": str(path), "content": metadata["content"]})
+
+    prompt = build_address_reviews_prompt(state, args.state, status, review_contents)
+    return {
+        "ok": True,
+        "role": "architect",
+        "actor": args.actor,
+        "action": "address_plan_reviews",
+        "planPath": status["planPath"],
+        "reviewsDirectory": status["reviewsDirectory"],
+        "reviewCount": len(review_contents),
+        "status": status,
+        "prompt": prompt,
+    }
+
+
 def cmd_summary(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": True, "summary": build_run_summary(state), "write": False}
@@ -864,6 +1169,9 @@ Plan commands (architect only):
   swarm plan add-dependency --task-id T2 --depends-on T1
   swarm plan remove-dependency --task-id T2 --depends-on T1
   swarm plan delete-task --task-id T3 --unlink-dependents
+  swarm plan start-review --role frontend --id frontend
+  swarm plan review-status
+  swarm plan address-reviews --actor architect
   swarm plan list
 
 Run summary:
@@ -993,6 +1301,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--depends-on", action="append", required=True)
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=cmd_plan_remove_dependency)
+
+    p = plan_sub.add_parser("start-review", help="Start a specialist review of the architect plan.")
+    p.add_argument("--role", required=True, choices=sorted(PLAN_REVIEW_ROLES))
+    p.add_argument("--id", required=True, help="Stable agent id, e.g. frontend or developer-1.")
+    p.set_defaults(handler=cmd_plan_start_review)
+
+    p = plan_sub.add_parser("review-status", help="Summarize specialist plan review files.")
+    p.set_defaults(handler=cmd_plan_review_status)
+
+    p = plan_sub.add_parser("address-reviews", help="Start architect mode for addressing plan review feedback.")
+    p.add_argument("--actor", default="architect")
+    p.set_defaults(handler=cmd_plan_address_reviews)
 
     p = plan_sub.add_parser("list", help="List planned tasks.")
     p.set_defaults(handler=cmd_plan_list)

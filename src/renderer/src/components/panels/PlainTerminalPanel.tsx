@@ -185,7 +185,6 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
-      void window.api.terminalKill(sessionId).catch(() => {})
       term.dispose()
     }
   }, [folderPath, swarmName, terminalId, workspaceId])

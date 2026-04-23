@@ -52,7 +52,7 @@ Architect workflow:
 6. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
 7. Add task cards one at a time with `swarm plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
 8. During user review, revise the board with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`.
-9. Tell the user the plan is ready for review in the app. The user manually spawns specialists from the UI.
+9. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
 10. Do not manually edit `swarm/state.yaml`.
 
 Use consultations when planning needs specialist input:
@@ -60,6 +60,14 @@ Use consultations when planning needs specialist input:
 - Architect creates a request with `create-consultation`
 - Specialist responds with `complete-consultation`
 - Architect folds the response back into `swarm/plan.md`
+
+Use plan reviews when the architect has drafted a complete plan and wants the specialist roster to critique it before execution:
+
+- Specialist starts review mode with `swarm plan start-review --role <role> --id <agent-id>`
+- The tool returns a prompt and the exact review file path under `plan-reviews/<agent-id>.md`
+- Specialist writes structured markdown feedback in that file and does not claim tasks or implement
+- Architect starts feedback mode with `swarm plan address-reviews --actor architect`
+- The tool reads every review file and returns a prompt for revising `plan.md` and the task graph
 
 Common commands:
 
@@ -75,6 +83,9 @@ swarm plan update-task --task-id T1 --title "Persist shared swarm state" --accep
 swarm plan add-dependency --task-id T2 --depends-on T1
 swarm plan remove-dependency --task-id T2 --depends-on T1
 swarm plan delete-task --task-id T3 --unlink-dependents
+swarm plan start-review --role frontend --id frontend
+swarm plan review-status
+swarm plan address-reviews --actor architect
 swarm plan list
 swarm run-summary
 swarm get-mailbox --agent-id frontend-1 --consume
@@ -95,6 +106,8 @@ Rules:
 - Use `swarm run-summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
 - Use `send-and-receive` when the architect must pause for a specialist reply before continuing. Responders should include `--reply-to <request-message-id>` when answering.
+- Plan reviewers write only their own markdown file in `plan-reviews/`; they do not update `state.yaml`, claim tasks, or change the task graph.
+- Architects address plan reviews with `swarm plan address-reviews --actor architect`, then revise `plan.md` directly and task cards through `swarm plan` commands.
 - The app does not call the Python tool. The Python tool is for agents; the user manually spawns specialists from the UI.
 - If `python3` or `PyYAML` is unavailable, report the blocker instead of silently hand-editing shared state.
 

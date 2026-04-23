@@ -71,11 +71,12 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cli = agent?.cli ?? 'codex'
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
-  const swarmStartupPrompt = useWorkspaceStore((s) => {
+  const startupPrompt = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
-    if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
-    const currentAgent = workspace.agents[agentId]
+    const currentAgent = workspace?.agents[agentId]
     if (currentAgent?.cliStartupPrompt) return currentAgent.cliStartupPrompt
+
+    if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
 
     const role = buildSwarmAgentRosterForState(workspace.swarmState).find(
       (candidate) => candidate.id === agentId
@@ -84,11 +85,11 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     if (!role) return null
     return buildSwarmStartupPrompt(role, agentId, workspace.swarmState.goal)
   })
-  const swarmStartupPromptRef = useRef<string | null>(swarmStartupPrompt)
+  const startupPromptRef = useRef<string | null>(startupPrompt)
 
   useEffect(() => {
-    swarmStartupPromptRef.current = swarmStartupPrompt
-  }, [swarmStartupPrompt])
+    startupPromptRef.current = startupPrompt
+  }, [startupPrompt])
 
   useEffect(() => {
     const container = containerRef.current
@@ -205,21 +206,21 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     fitTerminal()
     focusTerminal()
 
-    let hasInjectedSwarmPrompt = false
+    let hasInjectedStartupPrompt = false
     let promptInjectionBlocked = false
     let terminalReadinessBuffer = ''
     let promptInjectionTimer: number | null = null
 
-    const injectSwarmPrompt = () => {
-      const prompt = swarmStartupPromptRef.current
+    const injectStartupPrompt = () => {
+      const prompt = startupPromptRef.current
       if (
         promptInjectionBlocked
         || agent.cliOnboardingPromptSent
         || !prompt
-        || hasInjectedSwarmPrompt
+        || hasInjectedStartupPrompt
       ) return
 
-      hasInjectedSwarmPrompt = true
+      hasInjectedStartupPrompt = true
       updateAgent(workspaceId, agentId, {
         cliOnboardingPromptSent: true,
         cliStartupPrompt: undefined,
@@ -230,12 +231,12 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     }
 
     const schedulePromptInjection = (delay: number) => {
-      if (promptInjectionBlocked || agent.cliOnboardingPromptSent || hasInjectedSwarmPrompt) return
+      if (promptInjectionBlocked || agent.cliOnboardingPromptSent || hasInjectedStartupPrompt) return
       if (promptInjectionTimer !== null) return
 
       promptInjectionTimer = window.setTimeout(() => {
         promptInjectionTimer = null
-        injectSwarmPrompt()
+        injectStartupPrompt()
       }, delay)
     }
 
@@ -338,7 +339,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
-      void window.api.terminalKill(sessionId).catch(() => {})
       term.dispose()
     }
   }, [

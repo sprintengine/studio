@@ -15,7 +15,10 @@ import type {
   AgentCli,
   AppSettings,
   CliRuntimeSettings,
+  AgentKind,
+  SpecialistActionId,
 } from '../types/workspace'
+import { getSpecialistAction } from '../specialists/specialistActions'
 import { detectLanguage } from '../utils/files'
 import {
   buildSwarmAgentRoster,
@@ -32,6 +35,7 @@ interface WorkspaceStore {
   appSettings: AppSettings
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setLastSelectedCli: (cli: AgentCli) => void
+  setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: { name?: string; folderPath?: string | null; swarmState?: SwarmState | null }
@@ -70,9 +74,10 @@ const defaultAppSettings = (): AppSettings => ({
     },
   },
   lastSelectedCli: 'claude',
+  lastSelectedSpecialist: 'architect',
 })
 
-const defaultAgent = (id: AgentId, name = id): AgentState => ({
+const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'): AgentState => ({
   id,
   name,
   status: 'idle',
@@ -85,6 +90,8 @@ const defaultAgent = (id: AgentId, name = id): AgentState => ({
   cliOnboardingPromptSent: false,
   cli: 'codex' as AgentCli,
   cliStartupPrompt: undefined,
+  kind,
+  specialistId: undefined,
 })
 
 const defaultEditorState = (): EditorState => ({
@@ -154,14 +161,25 @@ function reconcileSwarmAgents(
 ): Workspace['agents'] {
   if (!swarmState) return {}
 
-  return Object.fromEntries(
+  const rosterAgents = Object.fromEntries(
     buildSwarmAgentRosterForState(swarmState).map((agent) => [
       agent.id,
       currentAgents[agent.id]
-        ? { ...currentAgents[agent.id], name: agent.label }
-        : defaultAgent(agent.id, agent.label),
+        ? { ...currentAgents[agent.id], name: agent.label, kind: 'swarm' as const }
+        : defaultAgent(agent.id, agent.label, 'swarm'),
     ])
   )
+
+  const specialistAgents = Object.fromEntries(
+    Object.entries(currentAgents).filter(([id, agent]) =>
+      agent.kind === 'specialist' && !rosterAgents[id]
+    )
+  )
+
+  return {
+    ...specialistAgents,
+    ...rosterAgents,
+  }
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>()(
@@ -187,6 +205,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.appSettings.lastSelectedCli = cli
         }),
 
+      setLastSelectedSpecialist: (specialistId) =>
+        set((state) => {
+          state.appSettings.lastSelectedSpecialist = specialistId
+        }),
+
       addWorkspace: (template, options) =>
         set((state) => {
           const id = nanoid()
@@ -204,7 +227,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ? Object.fromEntries(
                 buildSwarmAgentRoster(swarmState.roleCounts).map((agent) => [
                   agent.id,
-                  defaultAgent(agent.id, agent.label),
+                  defaultAgent(agent.id, agent.label, 'swarm'),
                 ])
               )
             : {}
@@ -297,7 +320,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             (agent) => agent.id === agentId
           )
           const agentLabel = rosterAgent?.label ?? agentId
-          ws.agents[agentId] = defaultAgent(agentId, agentLabel)
+          ws.agents[agentId] = defaultAgent(agentId, agentLabel, 'swarm')
           ws.agents = reconcileSwarmAgents(ws.agents, ws.swarmState)
           ws.swarmState.events.push({
             id: `EVT-${String(ws.swarmState.events.length + 1).padStart(3, '0')}`,
@@ -466,7 +489,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: 'free-ai-ide-workspaces',
-      version: 11,
+      version: 13,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -562,6 +585,38 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
           }
         }
+        if (version < 12) {
+          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const defaults = defaultAppSettings()
+          current.appSettings = {
+            ...defaults,
+            ...(current.appSettings ?? {}),
+            cliRuntimes: {
+              ...defaults.cliRuntimes,
+              ...(current.appSettings?.cliRuntimes ?? {}),
+            },
+            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
+            lastSelectedSpecialist:
+              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
+          }
+        }
+        if (version < 13) {
+          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const defaults = defaultAppSettings()
+          const selectedSpecialist =
+            current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist
+
+          current.appSettings = {
+            ...defaults,
+            ...(current.appSettings ?? {}),
+            cliRuntimes: {
+              ...defaults.cliRuntimes,
+              ...(current.appSettings?.cliRuntimes ?? {}),
+            },
+            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
+            lastSelectedSpecialist: getSpecialistAction(selectedSpecialist).id,
+          }
+        }
         return state as never
       },
       partialize: (s) => ({
@@ -569,10 +624,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         workspaces: s.workspaces.map((ws) => ({
           ...ws,
           agents: Object.fromEntries(
-            Object.entries(ws.agents).map(([id, a]) => [
-              id,
-              { ...a, streamBuffer: '', status: 'idle' as const, cliStartupPrompt: undefined },
-            ])
+            Object.entries(ws.agents).map(([id, a]) => {
+              const shouldKeepSpecialistPrompt =
+                a.kind === 'specialist' && !a.cliOnboardingPromptSent && Boolean(a.specialistId)
+              const cliStartupPrompt = shouldKeepSpecialistPrompt
+                ? a.cliStartupPrompt ?? getSpecialistAction(a.specialistId).buildPrompt()
+                : undefined
+
+              return [
+                id,
+                { ...a, streamBuffer: '', status: 'idle' as const, cliStartupPrompt },
+              ]
+            })
           ),
           // Keep file list + active file, drop content so we don't resurrect stale edits
           editorState: {

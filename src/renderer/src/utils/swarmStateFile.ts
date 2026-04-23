@@ -32,6 +32,10 @@ export function getSwarmDirectoryPath(folderPath: string, swarmName?: string): s
   return joinPath(getSwarmRootDirectoryPath(folderPath), slugifySwarmName(swarmName))
 }
 
+export function getExistingSwarmStateFilePath(folderPath: string, swarmDirectoryName: string): string {
+  return joinPath(joinPath(getSwarmRootDirectoryPath(folderPath), swarmDirectoryName), 'state.yaml')
+}
+
 export function getSwarmStateFilePath(folderPath: string, swarmName?: string): string {
   return joinPath(getSwarmDirectoryPath(folderPath, swarmName), 'state.yaml')
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react'
-import { Layout, Model, TabNode } from 'flexlayout-react'
+import { Actions, Layout, Model, TabNode, TabSetNode, type Action } from 'flexlayout-react'
 import 'flexlayout-react/style/dark.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
@@ -68,11 +68,53 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
     [workspaceId]
   )
 
+  const killTerminalForNode = useCallback(
+    (node: TabNode) => {
+      const config = node.getConfig() as { agentId?: string; terminalId?: string } | undefined
+      if (node.getComponent() === 'agent') {
+        const agentId = config?.agentId ?? node.getId()
+        const sessionId = workspace.agents[agentId]?.cliSessionId
+        if (sessionId) void window.api.terminalKill(sessionId).catch(() => {})
+        return
+      }
+
+      if (node.getComponent() === 'terminal') {
+        const terminalId = config?.terminalId ?? node.getId()
+        void window.api.terminalKill(`terminal-${terminalId}`).catch(() => {})
+      }
+    },
+    [workspace.agents]
+  )
+
+  const handleAction = useCallback(
+    (action: Action) => {
+      if (action.type === Actions.DELETE_TAB) {
+        const node = modelRef.current?.getNodeById(action.data.node)
+        if (node instanceof TabNode) killTerminalForNode(node)
+      }
+
+      if (action.type === Actions.DELETE_TABSET) {
+        const node = modelRef.current?.getNodeById(action.data.node)
+        if (node instanceof TabSetNode) {
+          node.getChildren().forEach((child) => {
+            if (child instanceof TabNode && child.isEnableClose()) {
+              killTerminalForNode(child)
+            }
+          })
+        }
+      }
+
+      return action
+    },
+    [killTerminalForNode]
+  )
+
   return (
     <div className="relative h-full">
       <Layout
         model={modelRef.current}
         factory={factory}
+        onAction={handleAction}
         onModelChange={(model) => {
           updateLayout(workspaceId, model.toJson())
 

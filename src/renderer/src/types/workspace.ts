@@ -88,6 +88,15 @@ export type AgentMessage = {
 
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 export type AgentCli = 'codex' | 'claude'
+export type AgentKind = 'general' | 'specialist' | 'swarm'
+export type SpecialistActionId =
+  | 'architect'
+  | 'developer'
+  | 'devops-infra'
+  | 'qa-test'
+  | 'security-review'
+  | 'frontend-design-review'
+  | 'code-review'
 
 export type CliRuntimeSettings = {
   command: string
@@ -97,6 +106,7 @@ export type CliRuntimeSettings = {
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   lastSelectedCli: AgentCli
+  lastSelectedSpecialist: SpecialistActionId
 }
 
 export type AgentState = {
@@ -112,6 +122,8 @@ export type AgentState = {
   cliOnboardingPromptSent?: boolean
   cli?: AgentCli
   cliStartupPrompt?: string
+  kind?: AgentKind
+  specialistId?: SpecialistActionId
 }
 
 export type AgentConfig = {
