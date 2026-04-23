@@ -271,6 +271,11 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
+      updateAgent(workspaceId, agentId, {
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+      })
     })
 
     const disposeError = window.api.onTerminalError(sessionId, (message) => {

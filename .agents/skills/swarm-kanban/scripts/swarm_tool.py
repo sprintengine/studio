@@ -761,25 +761,47 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
 def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     import sys
     print(f"[swarm] reading state from: {args.state}", file=sys.stderr)
-    state = load_state(args.state)
-    ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
 
-    if not ready:
-        return {"ok": True, "role": args.role, "agentId": args.id, "action": "stop", "message": f"No tasks are currently ready for the '{args.role}' role. Either all tasks are complete or dependencies are not yet resolved. Stop now."}
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        runtime = reconcile_agent(state, args.id, args.role)
+        active = runtime["activeTask"]
+        ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
 
-    prompt = load_prompt(args.role)
-    directive = (
-        f"\n\n---\n"
-        f"## Your First Action\n"
-        f"You are agent `{args.id}` with role `{args.role}`.\n"
-        f"There are **{len(ready)} task(s)** ready for your role.\n\n"
-        f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
-        f"Complete the task, log evidence, mark it done, then loop back to `swarm task next`. "
-        f"When no tasks remain, stop.\n\n"
-        "**IMPORTANT: Do not edit swarm/state.json directly. "
-        "All updates must go through the swarm tool.**"
-    )
-    return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "prompt": prompt + directive}
+        if not active and not ready:
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "stop", "message": f"No tasks are currently ready for the '{args.role}' role. Either all tasks are complete or dependencies are not yet resolved. Stop now."}
+
+        prompt = load_prompt(args.role)
+        if active:
+            task_id = active.get("id")
+            task_title = active.get("title") or "(untitled task)"
+            directive = (
+                f"\n\n---\n"
+                f"## Your First Action\n"
+                f"You are agent `{args.id}` with role `{args.role}`.\n"
+                f"You already have active task `{task_id}`: {task_title}.\n\n"
+                f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
+                f"This reconnects you to your existing active task instead of claiming a new one. "
+                f"Continue the task, log evidence, mark it done, then loop back to `swarm task next`. "
+                f"When no tasks remain, stop.\n\n"
+                "**IMPORTANT: Do not edit swarm/state.json directly. "
+                "All updates must go through the swarm tool.**"
+            )
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "prompt": prompt + directive}
+
+        directive = (
+            f"\n\n---\n"
+            f"## Your First Action\n"
+            f"You are agent `{args.id}` with role `{args.role}`.\n"
+            f"There are **{len(ready)} task(s)** ready for your role.\n\n"
+            f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
+            f"Complete the task, log evidence, mark it done, then loop back to `swarm task next`. "
+            f"When no tasks remain, stop.\n\n"
+            "**IMPORTANT: Do not edit swarm/state.json directly. "
+            "All updates must go through the swarm tool.**"
+        )
+        return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "prompt": prompt + directive}
+
+    return with_locked_state(args.state, run)
 
 
 def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: Path) -> str:

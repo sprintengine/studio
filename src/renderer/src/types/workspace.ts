@@ -72,6 +72,7 @@ export type SwarmTask = {
 export type SwarmState = {
   name: string
   goal: string
+  updatedAt?: string | null
   roleCounts: SwarmRoleCounts
   swarmAgents: Record<string, SwarmRuntimeAgent>
   events: SwarmEvent[]

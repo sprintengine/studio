@@ -23,7 +23,6 @@ import {
   getSwarmRootDirectoryPath,
   getSwarmStateFilePath,
   parseSwarmStateFile,
-  serializeSwarmStateFile,
   slugifySwarmName,
 } from '../../utils/swarmStateFile'
 import { focusOrAddAgentTab, focusOrAddComponentTab } from '../../utils/modelRegistry'
@@ -88,6 +87,33 @@ type RecoveryDialogState = {
   cli: AgentCli
 }
 
+function buildWorkerRespawnStartupPrompt(
+  task: SwarmTask,
+  role: SwarmRole,
+  agentId: string,
+  label: string,
+  goal: string
+): string {
+  const details = [
+    `Task: ${task.id} - ${task.title}`,
+    task.description ? `Description: ${task.description}` : null,
+    task.ownedPaths.length > 0 ? `Owned paths: ${task.ownedPaths.join(', ')}` : null,
+    task.acceptanceCriteria.length > 0 ? `Acceptance criteria: ${task.acceptanceCriteria.join('; ')}` : null,
+  ].filter(Boolean)
+
+  return [
+    `You are respawning as ${label}.`,
+    `Agent id: ${agentId}`,
+    `Role: ${role} (${swarmRoleLabels[role]})`,
+    `Goal: ${goal || '(not set)'}`,
+    'Continue as the same swarm agent slot that was already assigned to this task. Do not pick a new agent id.',
+    ...details,
+    'First run:',
+    `\`\`\`\nswarm join --role ${role} --id ${agentId}\n\`\`\``,
+    'Then follow the returned role prompt. If the tool reconnects you to an active task, continue that task and publish evidence before marking it done.',
+  ].join('\n\n')
+}
+
 export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const workspace = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
@@ -136,78 +162,46 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     [roster]
   )
 
-  const serializedState = useMemo(() => {
-    if (!swarmState || !folderPath || !workspace) return null
-    return serializeSwarmStateFile({
-      workspaceId,
-      workspacePath: folderPath,
-      swarmState,
-    })
-  }, [folderPath, swarmState, workspace, workspaceId])
-
   useEffect(() => {
-    if (!swarmState || !folderPath || !serializedState) {
+    if (!folderPath) {
       setSyncState({
         status: 'idle',
-        message: 'Choose a workspace folder to enable shared swarm state.',
+        message: 'Choose a workspace folder to watch agent-managed swarm state.',
       })
       return
     }
 
+    if (initialReadDoneRef.current) return
+
     let cancelled = false
 
-    const writeStateFile = async () => {
+    const loadStateFile = async () => {
+      const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
+      setSyncState({ status: 'syncing', message: 'Loading agent-managed swarm state...' })
       try {
-        const swarmRootDirectory = getSwarmRootDirectoryPath(folderPath)
-        const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
-        const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
-        setSyncState({ status: 'syncing', message: 'Writing swarm state to disk...' })
-
-        // On first mount, read the existing state file before writing so we
-        // don't clobber an in-progress swarm with a fresh Zustand state.
-        if (!initialReadDoneRef.current) {
-          initialReadDoneRef.current = true
-          try {
-            const existing = await window.api.readfile(stateFilePath)
-            if (cancelled) return
-            const parsed = parseSwarmStateFile(existing)
-            lastSyncedContentRef.current = existing
-            setSwarmState(workspaceId, parsed)
-            return // re-render will re-run this effect with the correct state
-          } catch { /* file doesn't exist yet — proceed to write */ }
-        }
-
-        await window.api.ensureDir(folderPath, 'swarm')
-        await window.api.ensureDir(swarmRootDirectory, slugifySwarmName(swarmName))
-
+        const content = await window.api.readfile(stateFilePath)
         if (cancelled) return
-        if (lastSyncedContentRef.current === serializedState) {
-          setSyncState({ status: 'live', message: `Shared state live at ${stateFilePath}` })
-          return
-        }
-
-        await window.api.writefile(stateFilePath, serializedState)
+        const parsed = parseSwarmStateFile(content)
+        lastSyncedContentRef.current = content
+        setSwarmState(workspaceId, parsed)
+        setSyncState({ status: 'live', message: `Watching agent-managed state at ${stateFilePath}` })
+      } catch {
         if (cancelled) return
-        lastSyncedContentRef.current = serializedState
-        setSyncState({ status: 'live', message: `Shared state live at ${swarmDirectory}` })
-      } catch (error) {
-        if (cancelled) return
-        setSyncState({
-          status: 'error',
-          message: error instanceof Error ? error.message : 'Failed to write swarm state.',
-        })
+        setSyncState({ status: 'idle', message: `Waiting for agent-managed state at ${stateFilePath}` })
+      } finally {
+        initialReadDoneRef.current = true
       }
     }
 
-    void writeStateFile()
+    void loadStateFile()
 
     return () => {
       cancelled = true
     }
-  }, [folderPath, serializedState, swarmName, swarmState, workspaceId])
+  }, [folderPath, setSwarmState, swarmName, workspaceId])
 
   useEffect(() => {
-    if (!swarmState || !folderPath) return
+    if (!folderPath) return
 
     let disposed = false
     let stopWatching: (() => Promise<void>) | null = null
@@ -222,11 +216,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         const parsed = parseSwarmStateFile(content)
         lastSyncedContentRef.current = content
         setSwarmState(workspaceId, parsed)
+        setSyncState({ status: 'live', message: `Watching agent-managed state at ${stateFilePath}` })
       } catch { /* file not yet written */ }
     }
 
     const startWatching = async () => {
       try {
+        // The renderer must never write `state.yaml`. We only watch the
+        // agent-managed file and refresh local UI state when the swarm tool
+        // changes it.
         stopWatching = await window.api.watchPath(swarmDirectory, (event) => {
           if (event.path && !event.path.endsWith('state.yaml')) return
           if (debounce !== null) window.clearTimeout(debounce)
@@ -242,7 +240,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       if (debounce !== null) window.clearTimeout(debounce)
       if (stopWatching) void stopWatching()
     }
-  }, [folderPath, setSwarmState, swarmName, swarmState, workspaceId])
+  }, [folderPath, setSwarmState, swarmName, workspaceId])
 
   const runtimeAgents = useMemo(
     () => roster.map((agent) => ({
@@ -347,6 +345,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     ? selectedTask.notes[0] || 'Worker is waiting for input.'
     : null
   const selectedTaskCanSpawnWorker = selectedTaskBoardColumn === 'ready' && !selectedTask?.ownerAgentId
+  const selectedTaskCanManageWorker = selectedTask?.status === 'in_progress' || selectedTask?.status === 'needs_input'
+  const selectedTaskOwnerCliRunning = selectedTask?.ownerAgentId
+    ? Boolean(agents[selectedTask.ownerAgentId]?.cliStartRequested)
+    : false
 
   const activateView = (view: SwarmView) => {
     if (fixedView) return
@@ -442,7 +444,26 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
   const openReadyTaskWorker = (task: SwarmTask) => {
     if (task.ownerAgentId) {
-      openAgentTerminal(task.ownerAgentId)
+      const agentId = task.ownerAgentId
+      const agent = rosterById[agentId]
+      const label = agent?.label ?? agentId
+
+      if (agents[agentId]?.cliStartRequested) {
+        openAgentTerminal(agentId)
+        return
+      }
+
+      setSelectedAgentId(agentId)
+      startAgentTerminal(agentId, label, agents[agentId]?.cli ?? 'codex', {
+        freshSession: true,
+        startupPrompt: buildWorkerRespawnStartupPrompt(
+          task,
+          agent?.role ?? task.role,
+          agentId,
+          label,
+          swarmState.goal
+        ),
+      })
       return
     }
 
@@ -820,6 +841,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 const ownerLabel = task.ownerAgentId
                   ? ownerAgent?.label ?? task.ownerAgentId
                   : null
+                const ownerCliRunning = task.ownerAgentId
+                  ? Boolean(agents[task.ownerAgentId]?.cliStartRequested)
+                  : false
                 const boardColumn = getSwarmTaskBoardColumn(task, swarmState.tasks)
                 const statusLabel = boardColumn === 'ready' ? 'Ready' : taskStateLabel[task.status]
                 const dependencyLabel = task.dependsOn.length > 0
@@ -830,7 +854,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   : task.status === 'done'
                     ? task.evidence.summary || 'Completed with no summary recorded.'
                     : null
-                const showReadyTaskAction = boardColumn === 'ready' || Boolean(task.ownerAgentId)
+                const showTaskAction = boardColumn === 'ready' || task.status === 'in_progress' || task.status === 'needs_input'
                 return (
                   <article
                     key={task.id}
@@ -927,7 +951,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                         {attentionText}
                       </div>
                     ) : null}
-                    {showReadyTaskAction ? (
+                    {showTaskAction ? (
                       <div className="mt-3 flex justify-center border-t border-[#24252b] pt-3">
                         <button
                           type="button"
@@ -937,11 +961,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                           }}
                           className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
                             task.ownerAgentId
-                              ? 'border-[#30d158]/35 bg-[#30d158]/12 text-[#d4ffdc] hover:border-[#30d158]/60 hover:bg-[#30d158]/16'
+                              ? ownerCliRunning
+                                ? 'border-[#30d158]/35 bg-[#30d158]/12 text-[#d4ffdc] hover:border-[#30d158]/60 hover:bg-[#30d158]/16'
+                                : 'border-[#ffbf2f]/45 bg-[#ffbf2f]/12 text-[#ffe0a3] hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/16'
                               : 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/70 hover:bg-[#6ee7d8]/18'
                           }`}
                         >
-                          {task.ownerAgentId ? 'Focus Worker CLI' : `Spawn ${swarmRoleLabels[task.role]}`}
+                          {task.ownerAgentId ? ownerCliRunning ? 'Focus' : 'Respawn' : `Spawn ${swarmRoleLabels[task.role]}`}
                         </button>
                       </div>
                     ) : null}
@@ -1313,24 +1339,26 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 </div>
               ) : null}
 
-              {selectedTask.ownerAgentId ? (
+              {selectedTask.ownerAgentId && selectedTaskCanManageWorker ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                       Worker CLI
                     </div>
                     <div className="mt-1 text-sm text-[#d7d7dc]">
-                      Jump straight to {rosterById[selectedTask.ownerAgentId]?.label ?? selectedTask.ownerAgentId} to continue or answer questions there.
+                      {selectedTaskOwnerCliRunning
+                        ? `Jump straight to ${rosterById[selectedTask.ownerAgentId]?.label ?? selectedTask.ownerAgentId} to continue or answer questions there.`
+                        : `Respawn ${rosterById[selectedTask.ownerAgentId]?.label ?? selectedTask.ownerAgentId} to continue this assigned task.`}
                     </div>
                   </div>
                   <button
                     onClick={() => {
-                      openAgentTerminal(selectedTask.ownerAgentId!)
+                      openReadyTaskWorker(selectedTask)
                       setSelectedTaskId(null)
                     }}
                     className="rounded-md border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#ececee] transition-colors hover:bg-[#17181d]"
                   >
-                    Focus Worker CLI
+                    {selectedTaskOwnerCliRunning ? 'Focus' : 'Respawn'}
                   </button>
                 </div>
               ) : null}
@@ -2477,6 +2505,20 @@ function buildTaskGraphLayout(tasks: SwarmTask[]): TaskGraphLayout {
   const paddingY = 132
   const minCanvasWidth = 1180
   const minCanvasHeight = 720
+
+  if (tasks.length === 0) {
+    return {
+      nodes: [],
+      nodesById: {},
+      edges: [],
+      canvasWidth: minCanvasWidth,
+      canvasHeight: minCanvasHeight,
+      terminalTaskIds: [],
+      hasCycle: false,
+      missingDependencyCount: 0,
+    }
+  }
+
   const taskById = new Map(tasks.map((task) => [task.id, task]))
   const validDepsByTask = new Map<string, string[]>()
   const dependentsByTask = new Map<string, string[]>()
