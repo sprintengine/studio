@@ -1585,6 +1585,10 @@ function SwarmProjectView({
   onAddMember: () => void
   onReviewPlan: () => void
 }) {
+  const [goalExpanded, setGoalExpanded] = useState(false)
+  const fullGoal = formatSwarmGoal(swarmState.goal)
+  const goalPreview = formatSwarmGoalPreview(swarmState.goal)
+  const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 260
   const tasksByRole = useMemo(() => {
     const counts: Record<SwarmRole, { open: number; ready: number }> = {
       architect: { open: 0, ready: 0 },
@@ -1602,6 +1606,16 @@ function SwarmProjectView({
 
     return counts
   }, [readyTasks, swarmState.tasks])
+
+  const currentTaskByAgentId = useMemo(() => {
+    const tasksById = Object.fromEntries(swarmState.tasks.map((task) => [task.id, task]))
+    return Object.fromEntries(
+      runtimeAgents.map((agent) => [
+        agent.agentId,
+        agent.currentTaskId ? tasksById[agent.currentTaskId] ?? null : null,
+      ])
+    )
+  }, [runtimeAgents, swarmState.tasks])
 
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-[#08090b] p-4">
@@ -1625,16 +1639,44 @@ function SwarmProjectView({
           </div>
 
           <div className="space-y-4 px-4 py-4">
-            <p className="max-w-4xl whitespace-pre-wrap text-sm leading-6 text-[#d7d7dc]">
-              {formatSwarmGoal(swarmState.goal)}
-            </p>
-
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <InfoCard label="Phase" value={runPhase} />
               <InfoCard label="Tasks" value={String(swarmState.tasks.length)} />
               <InfoCard label="Done" value={`${doneCount}/${swarmState.tasks.length}`} />
               <InfoCard label="Active" value={`${activeCount} running, ${needsInputCount} waiting`} />
             </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (canExpandGoal) setGoalExpanded((current) => !current)
+              }}
+              aria-expanded={goalExpanded}
+              className={`block w-full rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3 text-left transition-colors ${
+                canExpandGoal ? 'hover:border-[#303139] hover:bg-[#17181d]' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Goal
+                </div>
+                {canExpandGoal ? (
+                  <svg
+                    className={`h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${goalExpanded ? 'rotate-180' : ''}`}
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : null}
+              </div>
+              <div className={`mt-2 whitespace-pre-wrap text-sm leading-6 text-[#d7d7dc] ${
+                goalExpanded ? 'max-h-72 overflow-y-auto pr-2' : 'line-clamp-4'
+              }`}>
+                {goalExpanded ? fullGoal : goalPreview}
+              </div>
+            </button>
 
             <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -1670,11 +1712,13 @@ function SwarmProjectView({
               const runtime = runtimeAgents.find((candidate) => candidate.agentId === agent.id)
               const isLaunched = Boolean(agents[agent.id]?.cliStartRequested)
               const counts = tasksByRole[agent.role]
+              const currentTask = currentTaskByAgentId[agent.id]
+              const activeTaskLabel = currentTask ? `${currentTask.id}: ${currentTask.title}` : 'No active task'
 
               return (
                 <div
                   key={agent.id}
-                  className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[#24252b] bg-[#111216] px-3 py-3"
+                  className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-lg border border-[#24252b] bg-[#111216] px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
                 >
                   <span
                     className="flex h-10 w-10 items-center justify-center rounded-full border bg-[#0d0e11] text-[12px] font-bold text-[#ececee]"
@@ -1686,16 +1730,19 @@ function SwarmProjectView({
                     {agent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
                   </span>
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-[#ececee]">{agent.label}</div>
+                    <div className="text-sm font-semibold leading-5 text-[#ececee]">{agent.label}</div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-[#5a5a63]">
                       <span>{runtimeStatusLabel(runtime?.status ?? 'idle')}</span>
                       <span>{counts.open} open</span>
                       <span>{counts.ready} ready</span>
                     </div>
+                    <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
+                      {activeTaskLabel}
+                    </div>
                   </div>
                   <button
                     onClick={() => onSelectAgent(agent.id)}
-                    className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                    className={`col-span-2 rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors sm:col-span-1 ${
                       isLaunched
                         ? 'border-[#30d158]/35 bg-[#30d158]/12 text-[#d4ffdc] hover:border-[#30d158]/60 hover:bg-[#30d158]/16'
                         : 'border-[#6ee7d8]/35 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18'
