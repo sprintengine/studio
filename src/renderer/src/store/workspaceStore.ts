@@ -718,9 +718,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             Object.entries(ws.agents).map(([id, a]) => {
               const shouldKeepSpecialistPrompt =
                 a.kind === 'specialist' && !a.cliOnboardingPromptSent && Boolean(a.specialistId)
-              const cliStartupPrompt = shouldKeepSpecialistPrompt
-                ? a.cliStartupPrompt ?? getSpecialistAction(a.specialistId).buildPrompt()
-                : undefined
+              const cliStartupPrompt = shouldKeepSpecialistPrompt ? a.cliStartupPrompt : undefined
 
               return [
                 id,

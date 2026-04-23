@@ -1,11 +1,4 @@
 import type { SpecialistActionId } from '../types/workspace'
-import architectPrompt from '../../../../specialist-prompts/architect-prompt.txt?raw'
-import codeReviewPrompt from '../../../../specialist-prompts/code-reviewer-pre-prompt.txt?raw'
-import developerPrompt from '../../../../specialist-prompts/developer-prompt.txt?raw'
-import devopsInfraPrompt from '../../../../specialist-prompts/devops-infra-prompt.txt?raw'
-import frontendDesignPrompt from '../../../../specialist-prompts/frontend-design-promt.txt?raw'
-import qaTestPrompt from '../../../../specialist-prompts/qa-test-prompt.txt?raw'
-import securityReviewPrompt from '../../../../specialist-prompts/security-review-prompt.txt?raw'
 
 export type SpecialistIcon = 'architecture' | 'code' | 'design' | 'review' | 'shield' | 'test' | 'infra'
 
@@ -15,7 +8,7 @@ export type SpecialistAction = {
   shortLabel: string
   description: string
   icon: SpecialistIcon
-  buildPrompt: () => string
+  promptFile: string
 }
 
 export const SPECIALIST_ACTIONS: SpecialistAction[] = [
@@ -25,7 +18,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Architect',
     description: 'Create implementation plans, compare approaches, and shape system design.',
     icon: 'architecture',
-    buildPrompt: () => architectPrompt,
+    promptFile: 'architect-prompt.md',
   },
   {
     id: 'developer',
@@ -33,7 +26,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Developer',
     description: 'Build reliable backend, API, data, and server-side implementation work.',
     icon: 'code',
-    buildPrompt: () => developerPrompt,
+    promptFile: 'developer-prompt.md',
   },
   {
     id: 'devops-infra',
@@ -41,7 +34,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'DevOps',
     description: 'Review deployment, infrastructure, observability, reliability, and operations.',
     icon: 'infra',
-    buildPrompt: () => devopsInfraPrompt,
+    promptFile: 'devops-infra-prompt.md',
   },
   {
     id: 'frontend-design-review',
@@ -49,7 +42,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Design Review',
     description: 'Assess UI polish, frontend architecture, accessibility, and responsive behavior.',
     icon: 'design',
-    buildPrompt: () => frontendDesignPrompt,
+    promptFile: 'frontend-design-promt.md',
   },
   {
     id: 'qa-test',
@@ -57,7 +50,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'QA Test',
     description: 'Plan and review test strategy, edge cases, regressions, and release quality.',
     icon: 'test',
-    buildPrompt: () => qaTestPrompt,
+    promptFile: 'qa-test-prompt.md',
   },
   {
     id: 'security-review',
@@ -65,7 +58,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Security Review',
     description: 'Look for vulnerabilities, trust boundaries, secrets, and risky defaults.',
     icon: 'shield',
-    buildPrompt: () => securityReviewPrompt,
+    promptFile: 'security-review-prompt.md',
   },
   {
     id: 'code-review',
@@ -73,10 +66,31 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Code Review',
     description: 'Review implementation quality, regressions, edge cases, and missing tests.',
     icon: 'review',
-    buildPrompt: () => codeReviewPrompt,
+    promptFile: 'code-reviewer-pre-prompt.md',
   },
 ]
 
 export function getSpecialistAction(id: SpecialistActionId | string | null | undefined): SpecialistAction {
   return SPECIALIST_ACTIONS.find((action) => action.id === id) ?? SPECIALIST_ACTIONS[0]
+}
+
+export function buildMissingSpecialistPrompt(action: SpecialistAction, message?: string): string {
+  return [
+    'Specialist prompt file missing.',
+    '',
+    message ?? `Could not load specialist-prompts/${action.promptFile}.`,
+    'Restore the prompt file or update the specialist prompt mapping, then restart this agent.',
+  ].join('\n')
+}
+
+export async function loadSpecialistPrompt(specialistId: SpecialistActionId): Promise<string> {
+  const action = getSpecialistAction(specialistId)
+
+  try {
+    const result = await window.api.readSpecialistPrompt(action.id)
+    return result.ok ? result.prompt : buildMissingSpecialistPrompt(action, result.message)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return buildMissingSpecialistPrompt(action, message)
+  }
 }

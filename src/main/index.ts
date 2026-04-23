@@ -128,6 +128,65 @@ type ContextMenuItem = {
   type?: 'normal' | 'separator'
 }
 
+type SpecialistActionId =
+  | 'architect'
+  | 'developer'
+  | 'devops-infra'
+  | 'qa-test'
+  | 'security-review'
+  | 'frontend-design-review'
+  | 'code-review'
+
+type SpecialistPromptResult =
+  | { ok: true; prompt: string; path: string }
+  | { ok: false; message: string; path: string | null }
+
+const specialistPromptFiles: Record<SpecialistActionId, string> = {
+  architect: 'architect-prompt.md',
+  developer: 'developer-prompt.md',
+  'devops-infra': 'devops-infra-prompt.md',
+  'frontend-design-review': 'frontend-design-promt.md',
+  'qa-test': 'qa-test-prompt.md',
+  'security-review': 'security-review-prompt.md',
+  'code-review': 'code-reviewer-pre-prompt.md',
+}
+
+function getSpecialistPromptCandidates(fileName: string): string[] {
+  return [
+    join(process.cwd(), 'specialist-prompts', fileName),
+    join(app.getAppPath(), 'specialist-prompts', fileName),
+    join(__dirname, '..', '..', 'specialist-prompts', fileName),
+    join(__dirname, '..', '..', '..', 'specialist-prompts', fileName),
+  ]
+}
+
+async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<SpecialistPromptResult> {
+  const fileName = specialistPromptFiles[specialistId]
+  if (!fileName) {
+    return {
+      ok: false,
+      message: `Unknown specialist prompt: ${specialistId}`,
+      path: null,
+    }
+  }
+
+  const candidates = getSpecialistPromptCandidates(fileName)
+
+  for (const candidate of candidates) {
+    try {
+      return { ok: true, prompt: await readFile(candidate, 'utf-8'), path: candidate }
+    } catch {
+      // Try the next likely app/dev path before reporting a recoverable missing prompt.
+    }
+  }
+
+  return {
+    ok: false,
+    message: `Prompt file missing: specialist-prompts/${fileName}`,
+    path: candidates[0] ?? null,
+  }
+}
+
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
 type TerminalSize = {
@@ -743,6 +802,10 @@ ipcMain.handle('fs:readfile', async (_, filePath: string) => {
   return readFile(filePath, 'utf-8')
 })
 
+ipcMain.handle('specialist:read-prompt', async (_, specialistId: SpecialistActionId) => {
+  return readSpecialistPrompt(specialistId)
+})
+
 ipcMain.handle('fs:writefile', async (_, filePath: string, content: string) => {
   await writeFile(filePath, content, 'utf-8')
 })
@@ -766,11 +829,16 @@ ipcMain.handle('fs:ensure-dir', async (_, parentDir: string, name: string) => {
 })
 
 ipcMain.handle('fs:rename', async (_, sourcePath: string, nextName: string) => {
-  const targetPath = join(dirname(sourcePath), nextName)
+  const normalizedName = nextName.trim()
+  if (!normalizedName || normalizedName === '.' || normalizedName === '..' || /[/\\]/.test(normalizedName)) {
+    throw new Error('Enter a valid file or folder name.')
+  }
+
+  const targetPath = join(dirname(sourcePath), normalizedName)
   if (targetPath === sourcePath) return targetPath
 
   if (await pathExists(targetPath)) {
-    throw new Error(`A file or folder named "${nextName}" already exists.`)
+    throw new Error(`A file or folder named "${normalizedName}" already exists.`)
   }
 
   await rename(sourcePath, targetPath)

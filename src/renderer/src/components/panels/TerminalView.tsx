@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli, SwarmRole } from '../../types/workspace'
+import { loadSpecialistPrompt } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
 import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
 
@@ -210,6 +211,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     let promptInjectionBlocked = false
     let terminalReadinessBuffer = ''
     let promptInjectionTimer: number | null = null
+    let disposed = false
 
     const injectStartupPrompt = () => {
       const prompt = startupPromptRef.current
@@ -303,29 +305,48 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     container.addEventListener('keydown', handleKeyDown)
     container.addEventListener('contextmenu', handleContextMenu)
 
-    const swarmStatePath = folderPath && swarmName ? getSwarmStateFilePath(folderPath, swarmName) : undefined
-    void window.api.terminalSpawn(
-      sessionId,
-      term.cols,
-      term.rows,
-      folderPath,
-      shouldResume,
-      swarmStatePath,
-      cli,
-      undefined,
-      cliRuntimes
-    )
-    if (!shouldResume) {
-      updateAgent(workspaceId, agentId, {
-        cliHasLaunched: true,
-      })
+    const ensureSpecialistStartupPrompt = async () => {
+      if (startupPromptRef.current || agent.cliOnboardingPromptSent) return
+      if (agent.kind !== 'specialist' || !agent.specialistId) return
+
+      const prompt = await loadSpecialistPrompt(agent.specialistId)
+      if (disposed) return
+
+      startupPromptRef.current = prompt
+      updateAgent(workspaceId, agentId, { cliStartupPrompt: prompt })
     }
+
+    const launchTerminal = async () => {
+      await ensureSpecialistStartupPrompt()
+      if (disposed) return
+
+      const swarmStatePath = folderPath && swarmName ? getSwarmStateFilePath(folderPath, swarmName) : undefined
+      void window.api.terminalSpawn(
+        sessionId,
+        term.cols,
+        term.rows,
+        folderPath,
+        shouldResume,
+        swarmStatePath,
+        cli,
+        undefined,
+        cliRuntimes
+      )
+      if (!shouldResume) {
+        updateAgent(workspaceId, agentId, {
+          cliHasLaunched: true,
+        })
+      }
+    }
+
+    void launchTerminal()
     const settleTimer = window.setTimeout(() => {
       fitTerminal()
       focusTerminal()
     }, 50)
 
     return () => {
+      disposed = true
       if (promptInjectionTimer !== null) {
         window.clearTimeout(promptInjectionTimer)
       }
@@ -351,6 +372,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agentId,
     agent?.cliSessionId,
     agent?.cliRestartNonce,
+    agent?.kind,
+    agent?.specialistId,
     cli,
     cliRuntimes,
     folderPath,

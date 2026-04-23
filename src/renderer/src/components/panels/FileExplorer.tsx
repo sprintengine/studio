@@ -19,6 +19,11 @@ type ExplorerClipboard = {
   isDir: boolean
 }
 
+type RenameDraft = {
+  entry: Entry
+  value: string
+}
+
 function toEntries(raw: { name: string; isDir: boolean }[], parent: string): Entry[] {
   const joiner = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
   return raw
@@ -217,6 +222,7 @@ interface ExplorerTreeProps {
 
 function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }: ExplorerTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const remapOpenFiles = useWorkspaceStore((s) => s.remapOpenFiles)
   const removeOpenFilesForPath = useWorkspaceStore((s) => s.removeOpenFilesForPath)
@@ -229,7 +235,9 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Entry[]>([])
+  const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
+  const committingRenameRef = useRef(false)
   const latestExpandedPathsRef = useRef<Record<string, boolean>>({})
   const latestSearchQueryRef = useRef('')
   const latestSearchingRef = useRef(false)
@@ -253,6 +261,16 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     latestSearchQueryRef.current = query
     latestSearchingRef.current = isSearching
   }, [query, isSearching])
+
+  const renamingPath = renameDraft?.entry.path ?? null
+
+  useEffect(() => {
+    if (!renamingPath) return
+    window.setTimeout(() => {
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+    }, 0)
+  }, [renamingPath])
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     const raw = await window.api.readdir(dirPath)
@@ -376,11 +394,29 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     }
   }
 
-  const renameEntry = async (entry: Entry) => {
-    const nextName = window.prompt('Rename', entry.name)?.trim()
-    if (!nextName || nextName === entry.name) return
+  const startRename = (entry: Entry) => {
+    setSelectedPath(entry.path)
+    setRenameDraft({ entry, value: entry.name })
+  }
+
+  const cancelRename = () => {
+    setRenameDraft(null)
+    focusTree()
+  }
+
+  const commitRename = async () => {
+    if (!renameDraft || committingRenameRef.current) return
+
+    const { entry } = renameDraft
+    const nextName = renameDraft.value.trim()
+    if (!nextName || nextName === entry.name) {
+      setRenameDraft(null)
+      focusTree()
+      return
+    }
 
     try {
+      committingRenameRef.current = true
       const nextPath = await window.api.renamePath(entry.path, nextName)
       remapOpenFiles(workspaceId, entry.path, nextPath)
 
@@ -390,9 +426,16 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
       }
 
       await refreshParentDirectory(entry.parentPath)
+      if (isSearching) {
+        setSearchResults(await searchFiles(rootPath, latestSearchQueryRef.current))
+      }
       setSelectedPath(nextPath)
+      setRenameDraft(null)
+      focusTree()
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
+    } finally {
+      committingRenameRef.current = false
     }
   }
 
@@ -495,7 +538,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
       return
     }
     if (command === 'paste' && !isSearching) return void pasteIntoDirectory(targetDir)
-    if (command === 'rename' && entry) return void renameEntry(entry)
+    if (command === 'rename' && entry) return startRename(entry)
     if (command === 'delete' && entry) return void deleteEntry(entry)
     if (command === 'refresh') {
       if (isSearching || targetDir === rootPath) {
@@ -594,6 +637,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
   }, [activeRows, loading, searching, selectedPath])
 
   const handleKeyDown = async (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (renameDraft) return
     if (!activeRows.length) return
 
     const currentIndex = Math.max(
@@ -651,6 +695,33 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     }
   }
 
+  const renderRenameInput = (className: string) => {
+    if (!renameDraft) return null
+
+    return (
+      <input
+        ref={renameInputRef}
+        value={renameDraft.value}
+        onChange={(event) =>
+          setRenameDraft((current) => current ? { ...current, value: event.target.value } : current)
+        }
+        onBlur={() => void commitRename()}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          event.stopPropagation()
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            void commitRename()
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            cancelRename()
+          }
+        }}
+        className={className}
+      />
+    )
+  }
+
   if (loading) {
     return <div className="px-4 py-2 text-[11px] text-[#5a5a63]">Loading...</div>
   }
@@ -675,6 +746,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
       {activeRows.map(({ entry, depth }) => {
         const isSelected = entry.path === selectedPath
         const isExpanded = entry.isDir && expandedPaths[entry.path]
+        const isRenaming = renameDraft?.entry.path === entry.path
         const meta = entry.parentPath.slice(rootPath.length).replace(/^[\\/]+/, '')
 
         return (
@@ -684,6 +756,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
             aria-selected={isSelected}
             aria-expanded={!isSearching && entry.isDir ? isExpanded : undefined}
             onClick={() => {
+              if (isRenaming) return
               setSelectedPath(entry.path)
               void activateEntry(entry)
               focusTree()
@@ -700,8 +773,14 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
               <>
                 <span className="w-3 shrink-0" />
                 <FileIcon name={entry.name} />
-                <div className="min-w-0">
-                  <div className="truncate">{entry.name}</div>
+                <div className="min-w-0 flex-1">
+                  {isRenaming ? (
+                    renderRenameInput(
+                      'h-5 w-full rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
+                    )
+                  ) : (
+                    <div className="truncate">{entry.name}</div>
+                  )}
                   <div className="truncate text-[10px] text-[#5a5a63]">{meta || rootPath}</div>
                 </div>
               </>
@@ -709,13 +788,25 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
               <>
                 <ChevronIcon expanded={isExpanded} />
                 <FolderIcon expanded={isExpanded} />
-                <span className="truncate font-medium text-[#d7d7dc] group-hover:text-[#fff7d7]">{entry.name}</span>
+                {isRenaming ? (
+                  renderRenameInput(
+                    'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] font-medium text-[#ececee] outline-none focus:border-[#4f6ad7]'
+                  )
+                ) : (
+                  <span className="truncate font-medium text-[#d7d7dc] group-hover:text-[#fff7d7]">{entry.name}</span>
+                )}
               </>
             ) : (
               <>
                 <span className="w-3 shrink-0" />
                 <FileIcon name={entry.name} />
-                <span className="truncate">{entry.name}</span>
+                {isRenaming ? (
+                  renderRenameInput(
+                    'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
+                  )
+                ) : (
+                  <span className="truncate">{entry.name}</span>
+                )}
               </>
             )}
           </div>

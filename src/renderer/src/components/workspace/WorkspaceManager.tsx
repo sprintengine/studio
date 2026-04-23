@@ -5,7 +5,12 @@ import CliIcon from '../CliIcon'
 import CommandPalette from '../CommandPalette'
 import SettingsModal from '../settings/SettingsModal'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { SPECIALIST_ACTIONS, getSpecialistAction, type SpecialistIcon } from '../../specialists/specialistActions'
+import {
+  SPECIALIST_ACTIONS,
+  getSpecialistAction,
+  loadSpecialistPrompt,
+  type SpecialistIcon,
+} from '../../specialists/specialistActions'
 import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '../../types/workspace'
 import { getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
@@ -232,7 +237,7 @@ export default function WorkspaceManager() {
     )
   }
 
-  const addNewSpecialist = (specialistId: SpecialistActionId = lastSelectedSpecialist) => {
+  const addNewSpecialist = async (specialistId: SpecialistActionId = lastSelectedSpecialist) => {
     if (showTemplateSelector || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
     if (!model) return
@@ -247,7 +252,7 @@ export default function WorkspaceManager() {
       cli: lastSelectedCli,
       kind: 'specialist',
       specialistId: specialist.id,
-      cliStartupPrompt: specialist.buildPrompt(),
+      cliStartupPrompt: await loadSpecialistPrompt(specialist.id),
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
     })
@@ -296,7 +301,7 @@ export default function WorkspaceManager() {
   const handleSelectSpecialist = (specialistId: SpecialistActionId) => {
     setLastSelectedSpecialist(specialistId)
     setSpecialistMenuOpen(false)
-    addNewSpecialist(specialistId)
+    void addNewSpecialist(specialistId)
   }
 
   const handleShowMenubarMenu = async (
@@ -408,7 +413,7 @@ export default function WorkspaceManager() {
             <div ref={specialistMenuRef} className="relative inline-flex">
               <div className="inline-flex overflow-hidden rounded-md border border-[#24252b] bg-[#111216]">
                 <button
-                  onClick={() => addNewSpecialist()}
+                  onClick={() => void addNewSpecialist()}
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-8 items-center justify-center text-[#6ee7d8] transition-colors hover:bg-[#17181d] disabled:opacity-40 disabled:hover:bg-[#111216]"
                   title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}`}

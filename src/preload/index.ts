@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
 
 type SaveDialogOptions = Electron.SaveDialogOptions
 type OpenDialogOptions = Electron.OpenDialogOptions
@@ -17,6 +19,73 @@ type CliRuntimeSettings = {
   command: string
   useWsl: boolean
 }
+type SpecialistActionId =
+  | 'architect'
+  | 'developer'
+  | 'devops-infra'
+  | 'qa-test'
+  | 'security-review'
+  | 'frontend-design-review'
+  | 'code-review'
+type SpecialistPromptResult =
+  | { ok: true; prompt: string; path: string }
+  | { ok: false; message: string; path: string | null }
+
+const specialistPromptFiles: Record<SpecialistActionId, string> = {
+  architect: 'architect-prompt.md',
+  developer: 'developer-prompt.md',
+  'devops-infra': 'devops-infra-prompt.md',
+  'frontend-design-review': 'frontend-design-promt.md',
+  'qa-test': 'qa-test-prompt.md',
+  'security-review': 'security-review-prompt.md',
+  'code-review': 'code-reviewer-pre-prompt.md',
+}
+
+function getSpecialistPromptCandidates(fileName: string): string[] {
+  return [
+    join(process.cwd(), 'specialist-prompts', fileName),
+    join(__dirname, '..', '..', 'specialist-prompts', fileName),
+    join(__dirname, '..', '..', '..', 'specialist-prompts', fileName),
+  ]
+}
+
+async function readSpecialistPromptFallback(specialistId: SpecialistActionId): Promise<SpecialistPromptResult> {
+  const fileName = specialistPromptFiles[specialistId]
+  if (!fileName) {
+    return {
+      ok: false,
+      message: `Unknown specialist prompt: ${specialistId}`,
+      path: null,
+    }
+  }
+
+  const candidates = getSpecialistPromptCandidates(fileName)
+  for (const candidate of candidates) {
+    try {
+      return { ok: true, prompt: await readFile(candidate, 'utf-8'), path: candidate }
+    } catch {
+      // Keep checking the next dev/build prompt path.
+    }
+  }
+
+  return {
+    ok: false,
+    message: `Prompt file missing: specialist-prompts/${fileName}`,
+    path: candidates[0] ?? null,
+  }
+}
+
+async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<SpecialistPromptResult> {
+  try {
+    return await ipcRenderer.invoke('specialist:read-prompt', specialistId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes("No handler registered for 'specialist:read-prompt'")) {
+      return readSpecialistPromptFallback(specialistId)
+    }
+    throw error
+  }
+}
 
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
@@ -24,6 +93,7 @@ contextBridge.exposeInMainWorld('api', {
   // File system
   readdir:   (path: string)                    => ipcRenderer.invoke('fs:readdir', path),
   readfile:  (path: string)                    => ipcRenderer.invoke('fs:readfile', path),
+  readSpecialistPrompt,
   writefile: (path: string, content: string)   => ipcRenderer.invoke('fs:writefile', path, content),
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),
   createDir:  (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-dir', parentDir, name),

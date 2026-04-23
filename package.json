@@ -24,6 +24,7 @@
     },
     "files": [
       "out/**/*",
+      "specialist-prompts/**/*",
       "!out/**/*.map"
     ],
     "win": {

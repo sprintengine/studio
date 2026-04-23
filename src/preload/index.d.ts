@@ -11,12 +11,24 @@ declare global {
     command: string
     useWsl: boolean
   }
+  type SpecialistActionId =
+    | 'architect'
+    | 'developer'
+    | 'devops-infra'
+    | 'qa-test'
+    | 'security-review'
+    | 'frontend-design-review'
+    | 'code-review'
+  type SpecialistPromptResult =
+    | { ok: true; prompt: string; path: string }
+    | { ok: false; message: string; path: string | null }
 
   interface Window {
     api: {
       platform: string
       readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>
       readfile:  (path: string) => Promise<string>
+      readSpecialistPrompt: (specialistId: SpecialistActionId) => Promise<SpecialistPromptResult>
       writefile: (path: string, content: string) => Promise<void>
       createFile: (parentDir: string, name: string) => Promise<string>
       createDir: (parentDir: string, name: string) => Promise<string>
