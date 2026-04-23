@@ -38,10 +38,16 @@ export default function WorkspaceManager() {
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
   const cliMenuRef = useRef<HTMLDivElement>(null)
+  const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
+
+  const openTemplateSelector = () => {
+    setShowTemplateSelector(true)
+    setCliMenuOpen(false)
+  }
 
   useEffect(() => {
     if (workspaces.length === 0) setShowTemplateSelector(true)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workspaces.length])
 
   useEffect(() => {
     if (renamingId) renameInputRef.current?.select()
@@ -79,7 +85,7 @@ export default function WorkspaceManager() {
       const ctrl = event.ctrlKey || event.metaKey
       if (!ctrl) return
 
-      if (event.key === 'Tab' && activeWorkspaceId) {
+      if (event.key === 'Tab' && activeWorkspaceId && !showTemplateSelector) {
         event.preventDefault()
         cycleActiveTab(activeWorkspaceId, event.shiftKey ? -1 : 1)
         return
@@ -91,9 +97,12 @@ export default function WorkspaceManager() {
       }
       if (event.key === 't') {
         event.preventDefault()
-        setShowTemplateSelector(true)
+        openTemplateSelector()
       }
-      if (event.key === 'w' && activeWorkspaceId) {
+      if (event.key === 'w' && showTemplateSelector) {
+        event.preventDefault()
+        if (workspaces.length > 0) setShowTemplateSelector(false)
+      } else if (event.key === 'w' && activeWorkspaceId) {
         event.preventDefault()
         removeWorkspace(activeWorkspaceId)
       }
@@ -101,13 +110,21 @@ export default function WorkspaceManager() {
       const n = parseInt(event.key)
       if (n >= 1 && n <= 9 && workspaces[n - 1]) {
         event.preventDefault()
+        setShowTemplateSelector(false)
         setActiveWorkspace(workspaces[n - 1].id)
       }
     }
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [workspaces, activeWorkspaceId, renamingId, removeWorkspace, setActiveWorkspace])
+  }, [
+    workspaces,
+    activeWorkspaceId,
+    showTemplateSelector,
+    renamingId,
+    removeWorkspace,
+    setActiveWorkspace,
+  ])
 
   useEffect(() => {
     return window.api.onAppMenuCommand((command) => {
@@ -160,7 +177,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewCLI = (cli: AgentCli = lastSelectedCli) => {
-    if (!activeWorkspaceId || activeWorkspace?.mode === 'swarm') return
+    if (showTemplateSelector || !activeWorkspaceId || activeWorkspace?.mode === 'swarm') return
     const model = getModel(activeWorkspaceId)
     if (!model) return
 
@@ -181,7 +198,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewTerminal = () => {
-    if (!activeWorkspaceId) return
+    if (showTemplateSelector || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
     if (!model) return
 
@@ -239,12 +256,15 @@ export default function WorkspaceManager() {
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {workspaces.map((workspace) => {
-            const active = workspace.id === activeWorkspaceId
+            const active = !showTemplateSelector && workspace.id === activeWorkspaceId
             return (
               <div
                 key={workspace.id}
                 onClick={() => {
-                  if (!renamingId) setActiveWorkspace(workspace.id)
+                  if (!renamingId) {
+                    setShowTemplateSelector(false)
+                    setActiveWorkspace(workspace.id)
+                  }
                 }}
                 className={`group inline-flex h-[30px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
                   active
@@ -283,7 +303,7 @@ export default function WorkspaceManager() {
           })}
 
           <button
-            onClick={() => setShowTemplateSelector(true)}
+            onClick={openTemplateSelector}
             className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-[#8a8a92] transition-colors hover:bg-[#15161a] hover:text-[#d7d7dc]"
             title="New workspace (Ctrl+T)"
           >
@@ -292,7 +312,7 @@ export default function WorkspaceManager() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          {activeWorkspace ? (
+          {workspaceActionsEnabled ? (
             <button
               onClick={addNewTerminal}
               disabled={!activeWorkspaceId}
@@ -308,7 +328,7 @@ export default function WorkspaceManager() {
             </button>
           ) : null}
 
-          {activeWorkspace?.mode !== 'swarm' && (
+          {workspaceActionsEnabled && activeWorkspace.mode !== 'swarm' && (
             <div ref={cliMenuRef} className="relative inline-flex">
               <div className="inline-flex overflow-hidden rounded-md border border-[#24252b] bg-[#111216]">
                 <button
@@ -389,7 +409,7 @@ export default function WorkspaceManager() {
           />
         ) : (
           <>
-            {workspaces.length === 0 && <EmptyState onNew={() => setShowTemplateSelector(true)} />}
+            {workspaces.length === 0 && <EmptyState onNew={openTemplateSelector} />}
             {workspaces.map((workspace) => {
               const active = workspace.id === activeWorkspaceId
               return (
@@ -415,7 +435,7 @@ export default function WorkspaceManager() {
       {showPalette && (
         <CommandPalette
           onClose={() => setShowPalette(false)}
-          onNewWorkspace={() => setShowTemplateSelector(true)}
+          onNewWorkspace={openTemplateSelector}
         />
       )}
     </div>

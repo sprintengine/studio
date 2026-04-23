@@ -663,13 +663,28 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </div>
             <div className="flex-1 space-y-3 overflow-y-auto p-3">
               {column.cards.map((task) => {
-                const ownerLabel = getTaskOwnerLabel(task, rosterById)
+                const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
+                const claimRole = task.ownerAgentId ? ownerAgent?.role ?? task.role : null
+                const ownerLabel = task.ownerAgentId
+                  ? ownerAgent?.label ?? task.ownerAgentId
+                  : null
                 return (
                   <button
                     key={task.id}
                     onClick={() => setSelectedTaskId(task.id)}
-                    className={`w-full rounded-xl border p-3 text-left transition-colors ${taskCardTone(task)}`}
+                    className={`relative w-full overflow-hidden rounded-xl border p-3 text-left transition-colors ${taskCardTone(task, Boolean(claimRole))}`}
+                    style={taskCardStyle(claimRole)}
                   >
+                    {claimRole ? (
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
+                        style={{
+                          backgroundColor: swarmRoleAccent[claimRole],
+                          boxShadow: `0 0 14px ${hexToRgba(swarmRoleAccent[claimRole], 0.78)}`,
+                        }}
+                      />
+                    ) : null}
                     <div className="mb-2 flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium text-[#ececee]">{task.title}</div>
@@ -687,9 +702,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                           </span>
                         </div>
                       </div>
-                      <span className="rounded-full border border-[#24252b] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                        {ownerLabel}
-                      </span>
+                      {ownerLabel && claimRole ? (
+                        <span
+                          className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]"
+                          style={taskClaimBadgeStyle(claimRole)}
+                        >
+                          {ownerLabel}
+                        </span>
+                      ) : null}
                     </div>
 
                     <p className="text-[12px] leading-5 text-[#9a9aa2]">{task.description}</p>
@@ -1455,10 +1475,28 @@ function SwarmMapView({
   const doneCount = swarmState.tasks.filter((task) => task.status === 'done').length
   const activeCount = runtimeAgents.filter((agent) => agent.status === 'running').length
   const needsInputCount = runtimeAgents.filter((agent) => agent.status === 'needs_input').length
+  const mapCanvasRef = useRef<HTMLDivElement | null>(null)
+
+  const updateMapCursor = (event: React.PointerEvent<HTMLDivElement>) => {
+    const el = mapCanvasRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    el.style.setProperty('--swarm-cursor-x', `${event.clientX - rect.left}px`)
+    el.style.setProperty('--swarm-cursor-y', `${event.clientY - rect.top}px`)
+    el.style.setProperty('--swarm-cursor-opacity', '1')
+  }
+
+  const clearMapCursor = () => {
+    mapCanvasRef.current?.style.setProperty('--swarm-cursor-opacity', '0')
+  }
 
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden bg-[#08090b] lg:grid-cols-[minmax(0,1fr)_340px]">
       <div
+        ref={mapCanvasRef}
+        onPointerEnter={updateMapCursor}
+        onPointerMove={updateMapCursor}
+        onPointerLeave={clearMapCursor}
         className="relative min-h-[460px] overflow-hidden"
         style={{
           backgroundImage:
@@ -1467,6 +1505,19 @@ function SwarmMapView({
           backgroundSize: '24px 24px',
         }}
       >
+        <div
+          className="pointer-events-none absolute inset-0 transition-opacity duration-150"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle, rgba(255,255,255,0.38) 0, rgba(255,255,255,0.38) 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+            maskImage:
+              'radial-gradient(circle at var(--swarm-cursor-x, 50%) var(--swarm-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
+            opacity: 'var(--swarm-cursor-opacity, 0)',
+            WebkitMaskImage:
+              'radial-gradient(circle at var(--swarm-cursor-x, 50%) var(--swarm-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
+          }}
+        />
         <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
           {positions
             .filter((node) => node.agent.role !== 'architect')
@@ -1675,7 +1726,11 @@ function formatTimestampShort(value: string): string {
   })
 }
 
-function taskCardTone(task: SwarmTask): string {
+function taskCardTone(task: SwarmTask, claimed: boolean): string {
+  if (claimed) {
+    return 'bg-[#111216] hover:bg-[#17181d]'
+  }
+
   switch (task.status) {
     case 'done':
       return 'border-[#30d158]/45 bg-[#30d158]/10 shadow-[0_0_22px_rgba(48,209,88,0.08)] hover:border-[#30d158]/70 hover:bg-[#30d158]/14'
@@ -1686,6 +1741,35 @@ function taskCardTone(task: SwarmTask): string {
     default:
       return 'border-[#24252b] bg-[#111216] hover:border-[#303139] hover:bg-[#17181d]'
   }
+}
+
+function taskCardStyle(claimRole: SwarmRole | null): React.CSSProperties | undefined {
+  if (!claimRole) return undefined
+
+  const accent = swarmRoleAccent[claimRole]
+  return {
+    borderColor: hexToRgba(accent, 0.78),
+    background: `linear-gradient(135deg, ${hexToRgba(accent, 0.16)} 0%, ${hexToRgba(accent, 0.07)} 38%, rgba(17, 18, 22, 0.95) 100%)`,
+    boxShadow: `0 0 0 1px ${hexToRgba(accent, 0.2)}, 0 0 26px ${hexToRgba(accent, 0.25)}`,
+  }
+}
+
+function taskClaimBadgeStyle(claimRole: SwarmRole): React.CSSProperties {
+  const accent = swarmRoleAccent[claimRole]
+  return {
+    borderColor: hexToRgba(accent, 0.5),
+    backgroundColor: hexToRgba(accent, 0.14),
+    color: accent,
+    boxShadow: `0 0 14px ${hexToRgba(accent, 0.16)}`,
+  }
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const value = hex.replace('#', '')
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
 function runtimeTone(status: string): string {
@@ -1730,7 +1814,7 @@ function getTaskOwnerLabel(
     return rosterById[task.ownerAgentId]?.label ?? task.ownerAgentId
   }
 
-  return task.status === 'done' ? swarmRoleLabels[task.role] : 'Unclaimed'
+  return task.status === 'done' ? swarmRoleLabels[task.role] : 'No active worker'
 }
 
 function getRunPhase(swarmState: SwarmState, runtimeAgents: RuntimeAgentView[]): string {
