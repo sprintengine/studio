@@ -21,6 +21,11 @@ const swarmMapTab = () => ({
   name: 'Swarm Map',
   component: 'swarm-map',
 })
+const swarmTaskGraphTab = () => ({
+  type: 'tab',
+  name: 'Task Graph',
+  component: 'swarm-task-graph',
+})
 const swarmKanbanTab = () => ({
   type: 'tab',
   name: 'Kanban',
@@ -33,10 +38,11 @@ export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
   return {
     id: 'swarm-mode',
     name: 'Swarm Mode',
-    description: 'Map, Kanban, and explicit specialist terminals.',
+    description: 'Map, task graph, Kanban, and explicit specialist terminals.',
     previewSlots: [
-      editor('Map', 4, 4, 168, 49),
-      editor('Kanban', 4, 57, 168, 49),
+      editor('Map', 4, 4, 168, 31),
+      editor('Graph', 4, 39, 168, 31),
+      editor('Kanban', 4, 74, 168, 32),
       agent(`${roster.length} CLIs`, 178, 4, 118, 102),
     ],
     layout: {
@@ -50,6 +56,7 @@ export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
             weight: 58,
             children: [
               swarmMapTab(),
+              swarmTaskGraphTab(),
               swarmKanbanTab(),
             ],
           },

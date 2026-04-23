@@ -117,6 +117,7 @@ const swarmTabsLayoutModel = (swarmState: SwarmState | null): IJsonModel => ({
         weight: 58,
         children: [
           { type: 'tab', name: 'Swarm Map', component: 'swarm-map' },
+          { type: 'tab', name: 'Task Graph', component: 'swarm-task-graph' },
           { type: 'tab', name: 'Kanban', component: 'swarm-kanban' },
         ],
       },
@@ -139,9 +140,55 @@ function isLegacySwarmLayout(model: IJsonModel): boolean {
   return false
 }
 
+type LayoutTreeNode = {
+  type?: string
+  component?: string
+  name?: string
+  children?: LayoutTreeNode[]
+  [key: string]: unknown
+}
+
+function addTaskGraphTabToSwarmLayout(model: IJsonModel): IJsonModel {
+  const serialized = JSON.stringify(model)
+  if (serialized.includes('"component":"swarm-task-graph"')) return model
+
+  const nextModel = JSON.parse(serialized) as IJsonModel & { layout?: LayoutTreeNode }
+  let inserted = false
+
+  const visit = (node: LayoutTreeNode | undefined) => {
+    if (!node || inserted) return
+
+    const children = node.children
+    if (node.type === 'tabset' && Array.isArray(children)) {
+      const mapIndex = children.findIndex((child) => child.component === 'swarm-map')
+      const kanbanIndex = children.findIndex((child) => child.component === 'swarm-kanban')
+      if (mapIndex >= 0 || kanbanIndex >= 0) {
+        const insertIndex = mapIndex >= 0 ? mapIndex + 1 : kanbanIndex
+        children.splice(insertIndex, 0, {
+          type: 'tab',
+          name: 'Task Graph',
+          component: 'swarm-task-graph',
+        })
+        inserted = true
+        return
+      }
+    }
+
+    children?.forEach(visit)
+  }
+
+  visit(nextModel.layout)
+  return inserted ? nextModel : model
+}
+
 function migrateSwarmLayout(ws: Workspace): Workspace {
   if (ws.mode !== 'swarm' && !ws.swarmState) return ws
-  if (!isLegacySwarmLayout(ws.layoutModel)) return ws
+  if (!isLegacySwarmLayout(ws.layoutModel)) {
+    return {
+      ...ws,
+      layoutModel: addTaskGraphTabToSwarmLayout(ws.layoutModel),
+    }
+  }
 
   return {
     ...ws,
@@ -489,7 +536,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: 'free-ai-ide-workspaces',
-      version: 13,
+      version: 14,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -616,6 +663,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
             lastSelectedSpecialist: getSpecialistAction(selectedSpecialist).id,
           }
+        }
+        if (version < 14) {
+          state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
         }
         return state as never
       },

@@ -76,7 +76,7 @@ type PlanReviewState = {
   mode: 'preview' | 'source'
 }
 
-type SwarmView = 'map' | 'kanban'
+type SwarmView = 'map' | 'task-graph' | 'kanban'
 
 type SpawnDialogState = {
   agentId: string
@@ -645,6 +645,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {([
               { id: 'map' as const, label: 'Map' },
+              { id: 'task-graph' as const, label: 'Task Graph' },
               { id: 'kanban' as const, label: 'Kanban' },
             ]).map((view) => (
               <button
@@ -677,8 +678,17 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         />
       ) : null}
 
+      {effectiveView === 'task-graph' ? (
+        <SwarmTaskGraphView
+          swarmState={swarmState}
+          rosterById={rosterById}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={setSelectedTaskId}
+        />
+      ) : null}
+
       {effectiveView === 'kanban' ? (
-      <div className="grid flex-1 gap-3 overflow-x-auto overflow-y-hidden bg-[#08090b] p-4 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(280px,1fr))] gap-4 overflow-auto bg-[#08090b] p-4">
         {swarmState.tasks.length === 0 ? (
           <div className="col-span-full flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-[#24252b] bg-[#0d0e11] p-6 text-center">
             <div className="max-w-xl">
@@ -692,17 +702,17 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         {swarmState.tasks.length > 0 ? boardColumns.map((column) => (
           <section
             key={column.key}
-            className="flex min-w-[260px] flex-col rounded-2xl border border-[#1f2025] bg-[#0d0e11]"
+            className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-[#1f2025] bg-[#0d0e11]"
           >
-            <div className="flex items-center justify-between border-b border-[#1f2025] px-4 py-3">
-              <div className="text-sm font-semibold text-[#ececee]">{column.label}</div>
+            <div className="flex shrink-0 items-center justify-between border-b border-[#1f2025] px-4 py-3">
+              <div className="min-w-0 truncate text-sm font-semibold text-[#ececee]">{column.label}</div>
               <span
-                className={`rounded-full border border-[#24252b] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${column.tint}`}
+                className={`shrink-0 rounded-full border border-[#24252b] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${column.tint}`}
               >
                 {column.cards.length}
               </span>
             </div>
-            <div className="flex-1 space-y-3 overflow-y-auto p-3">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
               {column.cards.map((task) => {
                 const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
                 const claimRole = task.ownerAgentId ? ownerAgent?.role ?? task.role : null
@@ -1670,6 +1680,328 @@ function SwarmMapView({
   )
 }
 
+function SwarmTaskGraphView({
+  swarmState,
+  rosterById,
+  selectedTaskId,
+  onSelectTask,
+}: {
+  swarmState: SwarmState
+  rosterById: Record<string, RosterItem | undefined>
+  selectedTaskId: string | null
+  onSelectTask: (taskId: string) => void
+}) {
+  const graph = useMemo(() => buildTaskGraphLayout(swarmState.tasks), [swarmState.tasks])
+  const focusTaskId = useMemo(() => getTaskGraphFocusTaskId(swarmState.tasks), [swarmState.tasks])
+  const displayTaskId = selectedTaskId ?? focusTaskId
+  const displayTask = displayTaskId
+    ? swarmState.tasks.find((task) => task.id === displayTaskId) ?? null
+    : null
+  const graphCanvasRef = useRef<HTMLDivElement | null>(null)
+  const graphScrollRef = useRef<HTMLDivElement | null>(null)
+  const lastCenteredKeyRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const scrollEl = graphScrollRef.current
+    const focusNode = focusTaskId ? graph.nodesById[focusTaskId] : null
+    if (!scrollEl || !focusNode) return
+
+    const centerKey = `${focusTaskId}:${graph.canvasWidth}:${graph.canvasHeight}`
+    if (lastCenteredKeyRef.current === centerKey) return
+    lastCenteredKeyRef.current = centerKey
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollEl.scrollTo({
+        left: Math.max(0, focusNode.x - scrollEl.clientWidth / 2),
+        top: Math.max(0, focusNode.y - scrollEl.clientHeight / 2),
+        behavior: 'smooth',
+      })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [focusTaskId, graph])
+
+  const updateGraphCursor = (event: React.PointerEvent<HTMLDivElement>) => {
+    const el = graphCanvasRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    el.style.setProperty('--swarm-cursor-x', `${event.clientX - rect.left}px`)
+    el.style.setProperty('--swarm-cursor-y', `${event.clientY - rect.top}px`)
+    el.style.setProperty('--swarm-cursor-opacity', '1')
+  }
+
+  const clearGraphCursor = () => {
+    graphCanvasRef.current?.style.setProperty('--swarm-cursor-opacity', '0')
+  }
+
+  const readyCount = swarmState.tasks.filter(
+    (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready'
+  ).length
+  const blockedCount = swarmState.tasks.filter(
+    (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === 'todo' && task.dependsOn.length > 0
+  ).length
+  const inProgressCount = swarmState.tasks.filter((task) => task.status === 'in_progress').length
+  const terminalCount = graph.terminalTaskIds.length
+
+  return (
+    <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden bg-[#08090b] lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div
+        ref={graphScrollRef}
+        onPointerEnter={updateGraphCursor}
+        onPointerMove={updateGraphCursor}
+        onPointerLeave={clearGraphCursor}
+        className="min-h-[460px] overflow-auto"
+      >
+        <div
+          ref={graphCanvasRef}
+          className="relative"
+          style={{
+            width: graph.canvasWidth,
+            height: graph.canvasHeight,
+            backgroundImage:
+              'radial-gradient(circle, rgba(255,255,255,0.20) 0, rgba(255,255,255,0.20) 1px, transparent 1px)',
+            backgroundColor: '#08090b',
+            backgroundSize: '24px 24px',
+          }}
+        >
+          <div
+            className="pointer-events-none absolute inset-0 transition-opacity duration-150"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle, rgba(255,255,255,0.38) 0, rgba(255,255,255,0.38) 1px, transparent 1px)',
+              backgroundSize: '24px 24px',
+              maskImage:
+                'radial-gradient(circle at var(--swarm-cursor-x, 50%) var(--swarm-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
+              opacity: 'var(--swarm-cursor-opacity, 0)',
+              WebkitMaskImage:
+                'radial-gradient(circle at var(--swarm-cursor-x, 50%) var(--swarm-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
+            }}
+          />
+
+          {swarmState.tasks.length === 0 ? (
+            <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
+              <div className="max-w-xl rounded-2xl border border-dashed border-[#24252b] bg-[#0d0e11]/90 px-6 py-5">
+                <div className="text-sm font-semibold text-[#ececee]">Waiting for the architect plan</div>
+                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
+                  The dependency graph will appear as tasks are added through the swarm tool.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          <svg
+            className="pointer-events-none absolute inset-0"
+            width={graph.canvasWidth}
+            height={graph.canvasHeight}
+            viewBox={`0 0 ${graph.canvasWidth} ${graph.canvasHeight}`}
+          >
+            {graph.edges.map((edge) => {
+              const from = graph.nodesById[edge.fromId]
+              const to = graph.nodesById[edge.toId]
+              if (!from || !to) return null
+              const startX = from.x + from.width / 2
+              const startY = from.y
+              const endX = to.x - to.width / 2
+              const endY = to.y
+              const curve = Math.max(72, (endX - startX) * 0.42)
+              return (
+                <path
+                  key={edge.id}
+                  d={`M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${endY}, ${endX} ${endY}`}
+                  fill="none"
+                  stroke={edge.color}
+                  strokeWidth={edge.weight}
+                  strokeDasharray={edge.dashed ? '7 8' : undefined}
+                  opacity={edge.opacity}
+                />
+              )
+            })}
+          </svg>
+
+          {graph.nodes.map((node) => {
+            if (node.type === 'end') {
+              return (
+                <div
+                  key={node.id}
+                  className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-2xl border border-[#30d158]/55 bg-[#30d158]/12 px-5 py-4 text-center shadow-[0_0_34px_rgba(48,209,88,0.18)]"
+                  style={{
+                    left: node.x,
+                    top: node.y,
+                    width: node.width,
+                    minHeight: node.height,
+                  }}
+                >
+                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
+                    End Product
+                  </div>
+                  <div className="mt-2 text-sm font-semibold leading-5 text-[#d4ffdc]">
+                    {formatSwarmGoalPreview(swarmState.goal)}
+                  </div>
+                  <div className="mt-3 rounded-full border border-[#30d158]/35 bg-[#061210] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#b9f7c8]">
+                    {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
+                  </div>
+                </div>
+              )
+            }
+
+            const task = node.task
+            const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
+            const ownerRole = ownerAgent?.role ?? (task.ownerAgentId ? task.role : null)
+            const ownerLabel = task.ownerAgentId ? ownerAgent?.label ?? task.ownerAgentId : null
+            const isFocused = task.id === focusTaskId
+            const isSelected = task.id === selectedTaskId
+            const boardColumn = getSwarmTaskBoardColumn(task, swarmState.tasks)
+            const dependencyLabel = task.dependsOn.length > 0
+              ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
+              : 'root'
+
+            return (
+              <button
+                key={node.id}
+                onClick={() => onSelectTask(task.id)}
+                className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border p-3 text-left transition-transform hover:scale-[1.02] ${
+                  task.status === 'in_progress' ? 'animate-pulse' : ''
+                } ${isSelected || isFocused ? 'z-10' : 'z-0'}`}
+                style={{
+                  ...taskGraphNodeStyle(task, ownerRole, isFocused, isSelected),
+                  left: node.x,
+                  top: node.y,
+                  width: node.width,
+                  minHeight: node.height,
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
+                  style={{
+                    backgroundColor: swarmRoleAccent[task.role],
+                    boxShadow: `0 0 16px ${hexToRgba(swarmRoleAccent[task.role], 0.72)}`,
+                  }}
+                />
+                <div className="flex items-start justify-between gap-3 pl-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-[#ececee]">{task.title}</div>
+                    <div className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                      <span>{task.id}</span>
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: swarmRoleAccent[task.role],
+                          boxShadow: `0 0 8px ${swarmRoleAccent[task.role]}88`,
+                        }}
+                      />
+                      <span style={{ color: swarmRoleAccent[task.role] }}>
+                        {swarmRoleLabels[task.role]}
+                      </span>
+                    </div>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${taskGraphStatusTone(task.status, boardColumn)}`}
+                  >
+                    {boardColumn === 'ready' ? 'Ready' : taskStateLabel[task.status]}
+                  </span>
+                </div>
+
+                <p className="mt-3 line-clamp-2 pl-2 text-[12px] leading-5 text-[#9a9aa2]">
+                  {task.description || 'No description recorded.'}
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2 pl-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                  <span className="rounded-full border border-[#24252b] bg-[#0d0e11] px-2 py-1">
+                    {dependencyLabel}
+                  </span>
+                  <span className="rounded-full border border-[#24252b] bg-[#0d0e11] px-2 py-1">
+                    {task.acceptanceCriteria.length} checks
+                  </span>
+                  {ownerLabel && ownerRole ? (
+                    <span
+                      className="rounded-full border px-2 py-1"
+                      style={taskClaimBadgeStyle(ownerRole)}
+                    >
+                      {ownerLabel}
+                    </span>
+                  ) : null}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <aside className="border-t border-[#1f2025] bg-[#0d0e11] p-4 lg:border-l lg:border-t-0">
+        <div className="mb-5">
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Task Graph</div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <InfoCard label="Tasks" value={String(swarmState.tasks.length)} />
+            <InfoCard label="Ready" value={String(readyCount)} />
+            <InfoCard label="Active" value={String(inProgressCount)} />
+            <InfoCard label="Blocked" value={String(blockedCount)} />
+          </div>
+        </div>
+
+        {(graph.hasCycle || graph.missingDependencyCount > 0) ? (
+          <div className="mb-5 rounded-xl border border-[#ffbf2f]/45 bg-[#ffbf2f]/12 px-3 py-3 text-sm leading-6 text-[#ffe0a3] shadow-[0_0_20px_rgba(255,191,47,0.1)]">
+            {graph.hasCycle ? 'A dependency cycle was detected. ' : ''}
+            {graph.missingDependencyCount > 0
+              ? `${graph.missingDependencyCount} dependency ${graph.missingDependencyCount === 1 ? 'reference is' : 'references are'} missing.`
+              : ''}
+          </div>
+        ) : null}
+
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+          {selectedTaskId ? 'Selected Task' : 'Current Focus'}
+        </div>
+        {displayTask ? (
+          <div className="mt-4 space-y-4">
+            <div className="rounded-xl border bg-[#111216] px-4 py-3" style={taskCardStyle(displayTask.role)}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-lg font-semibold text-[#ececee]">{displayTask.title}</div>
+                  <div className="mt-1 text-sm text-[#9a9aa2]">
+                    {displayTask.id} - {swarmRoleLabels[displayTask.role]}
+                  </div>
+                </div>
+                <span
+                  className="h-3 w-3 shrink-0 rounded-full"
+                  style={{
+                    backgroundColor: swarmRoleAccent[displayTask.role],
+                    boxShadow: `0 0 12px ${swarmRoleAccent[displayTask.role]}99`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <InfoCard
+              label="Status"
+              value={getSwarmTaskBoardColumn(displayTask, swarmState.tasks) === 'ready'
+                ? 'Ready'
+                : taskStateLabel[displayTask.status]}
+            />
+            <InfoCard
+              label="Owner"
+              value={getTaskOwnerLabel(displayTask, rosterById)}
+            />
+            <InfoCard
+              label="Dependencies"
+              value={displayTask.dependsOn.join(', ') || 'None'}
+            />
+            <button
+              onClick={() => onSelectTask(displayTask.id)}
+              className="w-full rounded-xl border border-[#6ee7d8]/45 bg-[#6ee7d8]/12 px-4 py-2 text-sm font-semibold text-[#d8fffb] shadow-[0_0_18px_rgba(110,231,216,0.1)] transition-colors hover:border-[#6ee7d8]/70 hover:bg-[#6ee7d8]/16"
+            >
+              Open Task Details
+            </button>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-xl border border-dashed border-[#24252b] bg-[#111216] px-3 py-4 text-sm text-[#5a5a63]">
+            No tasks have been planned yet.
+          </div>
+        )}
+      </aside>
+    </div>
+  )
+}
+
 function buildMapPositions(roster: RosterItem[]): Array<{ agent: RosterItem; x: number; y: number }> {
   const architect = roster.find((agent) => agent.role === 'architect')
   const others = roster.filter((agent) => agent.role !== 'architect')
@@ -1698,6 +2030,263 @@ function buildMapPositions(roster: RosterItem[]): Array<{ agent: RosterItem; x: 
   })
 
   return positions
+}
+
+type TaskGraphLayoutNode =
+  | {
+      id: string
+      type: 'task'
+      task: SwarmTask
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+  | {
+      id: string
+      type: 'end'
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+
+type TaskGraphLayoutEdge = {
+  id: string
+  fromId: string
+  toId: string
+  color: string
+  opacity: number
+  weight: number
+  dashed: boolean
+}
+
+type TaskGraphLayout = {
+  nodes: TaskGraphLayoutNode[]
+  nodesById: Record<string, TaskGraphLayoutNode>
+  edges: TaskGraphLayoutEdge[]
+  canvasWidth: number
+  canvasHeight: number
+  terminalTaskIds: string[]
+  hasCycle: boolean
+  missingDependencyCount: number
+}
+
+function buildTaskGraphLayout(tasks: SwarmTask[]): TaskGraphLayout {
+  const nodeWidth = 272
+  const nodeHeight = 154
+  const endNodeWidth = 252
+  const endNodeHeight = 154
+  const levelGap = 420
+  const rowGap = 236
+  const paddingX = 220
+  const paddingY = 132
+  const minCanvasWidth = 1180
+  const minCanvasHeight = 720
+  const taskById = new Map(tasks.map((task) => [task.id, task]))
+  const validDepsByTask = new Map<string, string[]>()
+  const dependentsByTask = new Map<string, string[]>()
+  const indegreeByTask = new Map<string, number>()
+  let missingDependencyCount = 0
+
+  tasks.forEach((task) => {
+    validDepsByTask.set(task.id, [])
+    dependentsByTask.set(task.id, [])
+    indegreeByTask.set(task.id, 0)
+  })
+
+  tasks.forEach((task) => {
+    const uniqueDeps = Array.from(new Set(task.dependsOn))
+    uniqueDeps.forEach((depId) => {
+      if (depId === task.id || !taskById.has(depId)) {
+        missingDependencyCount += 1
+        return
+      }
+
+      validDepsByTask.get(task.id)?.push(depId)
+      dependentsByTask.get(depId)?.push(task.id)
+      indegreeByTask.set(task.id, (indegreeByTask.get(task.id) ?? 0) + 1)
+    })
+  })
+
+  const levelByTask = new Map<string, number>()
+  const queue = tasks
+    .filter((task) => (indegreeByTask.get(task.id) ?? 0) === 0)
+    .map((task) => task.id)
+  const visited = new Set<string>()
+
+  queue.forEach((taskId) => levelByTask.set(taskId, 0))
+
+  while (queue.length > 0) {
+    const taskId = queue.shift()!
+    visited.add(taskId)
+    const currentLevel = levelByTask.get(taskId) ?? 0
+
+    dependentsByTask.get(taskId)?.forEach((dependentId) => {
+      levelByTask.set(dependentId, Math.max(levelByTask.get(dependentId) ?? 0, currentLevel + 1))
+      const nextIndegree = (indegreeByTask.get(dependentId) ?? 0) - 1
+      indegreeByTask.set(dependentId, nextIndegree)
+      if (nextIndegree === 0) queue.push(dependentId)
+    })
+  }
+
+  const hasCycle = visited.size < tasks.length
+  if (hasCycle) {
+    const fallbackStart = Math.max(0, ...Array.from(levelByTask.values())) + 1
+    tasks.forEach((task, index) => {
+      if (visited.has(task.id)) return
+      const dependencyLevels = (validDepsByTask.get(task.id) ?? [])
+        .map((depId) => levelByTask.get(depId))
+        .filter((level): level is number => typeof level === 'number')
+      const nextLevel = dependencyLevels.length > 0
+        ? Math.max(...dependencyLevels) + 1
+        : fallbackStart + Math.floor(index / 3)
+      levelByTask.set(task.id, nextLevel)
+    })
+  }
+
+  const groups = new Map<number, SwarmTask[]>()
+  tasks.forEach((task) => {
+    const level = levelByTask.get(task.id) ?? 0
+    const group = groups.get(level) ?? []
+    group.push(task)
+    groups.set(level, group)
+  })
+
+  const maxTaskLevel = Math.max(0, ...Array.from(groups.keys()))
+  const endLevel = maxTaskLevel + 1
+  const maxRows = Math.max(1, ...Array.from(groups.values()).map((group) => group.length))
+  const canvasHeight = Math.max(minCanvasHeight, paddingY * 2 + nodeHeight + (maxRows - 1) * rowGap)
+  const canvasWidth = Math.max(minCanvasWidth, paddingX * 2 + endLevel * levelGap + endNodeWidth)
+  const nodes: TaskGraphLayoutNode[] = []
+
+  Array.from(groups.entries())
+    .sort(([a], [b]) => a - b)
+    .forEach(([level, group]) => {
+      const columnTop = canvasHeight / 2 - ((group.length - 1) * rowGap) / 2
+      group.forEach((task, index) => {
+        nodes.push({
+          id: task.id,
+          type: 'task',
+          task,
+          x: paddingX + level * levelGap,
+          y: columnTop + index * rowGap,
+          width: nodeWidth,
+          height: nodeHeight,
+        })
+      })
+    })
+
+  const endNode: TaskGraphLayoutNode = {
+    id: 'end-product',
+    type: 'end',
+    x: paddingX + endLevel * levelGap,
+    y: canvasHeight / 2,
+    width: endNodeWidth,
+    height: endNodeHeight,
+  }
+  nodes.push(endNode)
+
+  const terminalTaskIds = tasks
+    .filter((task) => (dependentsByTask.get(task.id) ?? []).length === 0)
+    .map((task) => task.id)
+  const fallbackTerminalTaskIds = terminalTaskIds.length > 0
+    ? terminalTaskIds
+    : tasks.filter((task) => (levelByTask.get(task.id) ?? 0) === maxTaskLevel).map((task) => task.id)
+
+  const edges: TaskGraphLayoutEdge[] = []
+  tasks.forEach((task) => {
+    ;(validDepsByTask.get(task.id) ?? []).forEach((depId) => {
+      const dependency = taskById.get(depId)
+      if (!dependency) return
+      edges.push({
+        id: `${depId}->${task.id}`,
+        fromId: depId,
+        toId: task.id,
+        ...taskGraphEdgeStyle(dependency, task),
+      })
+    })
+  })
+
+  fallbackTerminalTaskIds.forEach((taskId) => {
+    const task = taskById.get(taskId)
+    if (!task) return
+    edges.push({
+      id: `${taskId}->end-product`,
+      fromId: taskId,
+      toId: 'end-product',
+      ...taskGraphEndEdgeStyle(task),
+    })
+  })
+
+  const nodesById = Object.fromEntries(nodes.map((node) => [node.id, node]))
+
+  return {
+    nodes,
+    nodesById,
+    edges,
+    canvasWidth,
+    canvasHeight,
+    terminalTaskIds: fallbackTerminalTaskIds,
+    hasCycle,
+    missingDependencyCount,
+  }
+}
+
+function getTaskGraphFocusTaskId(tasks: SwarmTask[]): string | null {
+  const newestBy = (candidates: SwarmTask[], field: 'startedAt' | 'completedAt') =>
+    candidates
+      .map((task, index) => ({ task, index }))
+      .sort((a, b) => {
+        const timeDelta = timestampMs(b.task[field]) - timestampMs(a.task[field])
+        return timeDelta !== 0 ? timeDelta : b.index - a.index
+      })[0]?.task.id ?? null
+
+  return (
+    newestBy(tasks.filter((task) => task.status === 'in_progress'), 'startedAt')
+    ?? newestBy(tasks.filter((task) => task.status === 'needs_input'), 'startedAt')
+    ?? newestBy(tasks.filter((task) => task.status === 'done'), 'completedAt')
+    ?? tasks.find((task) => getSwarmTaskBoardColumn(task, tasks) === 'ready')?.id
+    ?? tasks[0]?.id
+    ?? null
+  )
+}
+
+function timestampMs(value: string | null): number {
+  if (!value) return 0
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function taskGraphEdgeStyle(
+  dependency: SwarmTask,
+  dependent: SwarmTask
+): Omit<TaskGraphLayoutEdge, 'id' | 'fromId' | 'toId'> {
+  const dependencyDone = dependency.status === 'done'
+  const active = dependent.status === 'in_progress' || dependent.status === 'needs_input'
+  const color = active
+    ? swarmRoleAccent[dependent.role]
+    : dependencyDone
+      ? '#30d158'
+      : swarmRoleAccent[dependency.role]
+
+  return {
+    color,
+    opacity: active ? 0.78 : dependencyDone ? 0.52 : 0.34,
+    weight: active ? 2.4 : 1.8,
+    dashed: !dependencyDone,
+  }
+}
+
+function taskGraphEndEdgeStyle(
+  task: SwarmTask
+): Omit<TaskGraphLayoutEdge, 'id' | 'fromId' | 'toId'> {
+  return {
+    color: task.status === 'done' ? '#30d158' : swarmRoleAccent[task.role],
+    opacity: task.status === 'done' ? 0.7 : 0.42,
+    weight: task.status === 'done' ? 2.3 : 1.8,
+    dashed: task.status !== 'done',
+  }
 }
 
 function statusColor(status: string): string {
@@ -1792,6 +2381,45 @@ function taskCardStyle(claimRole: SwarmRole | null): React.CSSProperties | undef
     borderColor: hexToRgba(accent, 0.78),
     background: `linear-gradient(135deg, ${hexToRgba(accent, 0.16)} 0%, ${hexToRgba(accent, 0.07)} 38%, rgba(17, 18, 22, 0.95) 100%)`,
     boxShadow: `0 0 0 1px ${hexToRgba(accent, 0.2)}, 0 0 26px ${hexToRgba(accent, 0.25)}`,
+  }
+}
+
+function taskGraphNodeStyle(
+  task: SwarmTask,
+  ownerRole: SwarmRole | null,
+  focused: boolean,
+  selected: boolean
+): React.CSSProperties {
+  const roleAccent = swarmRoleAccent[ownerRole ?? task.role]
+  const statusAccent =
+    task.status === 'done'
+      ? '#30d158'
+      : task.status === 'needs_input'
+        ? '#ffbf2f'
+        : task.status === 'in_progress'
+          ? '#ffa600'
+          : roleAccent
+  const emphasis = selected ? 0.46 : focused ? 0.36 : 0.18
+
+  return {
+    borderColor: hexToRgba(statusAccent, selected || focused ? 0.86 : 0.58),
+    background: `linear-gradient(135deg, ${hexToRgba(roleAccent, 0.15)} 0%, ${hexToRgba(statusAccent, 0.08)} 48%, rgba(17, 18, 22, 0.96) 100%)`,
+    boxShadow: `0 0 0 1px ${hexToRgba(statusAccent, selected ? 0.28 : 0.16)}, 0 0 ${selected ? 38 : focused ? 30 : 20}px ${hexToRgba(statusAccent, emphasis)}`,
+  }
+}
+
+function taskGraphStatusTone(taskStatus: SwarmTaskStatus, boardColumn: SwarmTaskBoardColumn): string {
+  if (boardColumn === 'ready') return 'border border-[#30d158]/35 bg-[#30d158]/12 text-[#b9f7c8]'
+
+  switch (taskStatus) {
+    case 'done':
+      return 'border border-[#30d158]/30 bg-[#30d158]/12 text-[#d4ffdc]'
+    case 'needs_input':
+      return 'border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 text-[#ffe0a3] shadow-[0_0_16px_rgba(255,191,47,0.12)]'
+    case 'in_progress':
+      return 'border border-[#ffa600]/45 bg-[#ffa600]/14 text-[#ffd58a]'
+    default:
+      return 'border border-[#24252b] bg-[#111216] text-[#9a9aa2]'
   }
 }
 
