@@ -57,6 +57,8 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
           )
         case 'swarm':
           return <SwarmBoardPanel workspaceId={workspaceId} />
+        case 'swarm-project':
+          return <SwarmBoardPanel workspaceId={workspaceId} fixedView="project" />
         case 'swarm-map':
           return <SwarmBoardPanel workspaceId={workspaceId} fixedView="map" />
         case 'swarm-task-graph':

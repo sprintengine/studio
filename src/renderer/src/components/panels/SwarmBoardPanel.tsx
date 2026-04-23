@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   AgentCli,
+  AgentState,
   SwarmRole,
   SwarmState,
   SwarmTask,
@@ -76,7 +77,7 @@ type PlanReviewState = {
   mode: 'preview' | 'source'
 }
 
-type SwarmView = 'map' | 'task-graph' | 'kanban'
+type SwarmView = 'project' | 'map' | 'task-graph' | 'kanban'
 
 type SpawnDialogState = {
   agentId: string
@@ -96,7 +97,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [activeView, setActiveView] = useState<SwarmView>('map')
+  const [activeView, setActiveView] = useState<SwarmView>('project')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
   const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
@@ -105,7 +106,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
   const [showRunSummary, setShowRunSummary] = useState(false)
-  const [goalExpanded, setGoalExpanded] = useState(false)
   const [planReview, setPlanReview] = useState<PlanReviewState>({
     open: false,
     status: 'idle',
@@ -125,10 +125,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const folderPath = workspace?.folderPath ?? null
   const agents = workspace?.agents ?? {}
   const swarmName = swarmState?.name ?? workspace?.name ?? 'Swarm Team'
-
-  useEffect(() => {
-    setGoalExpanded(false)
-  }, [swarmState?.goal])
 
   const roster = useMemo(
     () => buildSwarmAgentRosterForState(swarmState),
@@ -309,9 +305,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const selectedCliOption = cliOptions.find((option) => option.value === spawnDialog?.cli) ?? cliOptions[0]
   const selectedRecoveryCliOption =
     cliOptions.find((option) => option.value === recoveryDialog?.cli) ?? cliOptions[0]
-  const fullGoal = formatSwarmGoal(swarmState.goal)
-  const goalPreview = formatSwarmGoalPreview(swarmState.goal)
-  const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 120
   const hasPlannedTasks = swarmState.tasks.length > 0
   const showPlanningActions = !hasPlannedTasks
   const needsInputAgent = runtimeAgents.find((agent) => agent.status === 'needs_input')
@@ -685,48 +678,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
-              {swarmState.name}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (canExpandGoal) setGoalExpanded((current) => !current)
-              }}
-              aria-expanded={goalExpanded}
-              className={`mt-2 flex w-full max-w-5xl items-start justify-between gap-3 rounded-lg border border-[#24252b] bg-[#111216] px-3 py-2 text-left transition-colors ${
-                canExpandGoal ? 'cursor-pointer hover:border-[#303139] hover:bg-[#17181d]' : 'cursor-default'
-              } ${goalExpanded ? 'max-h-40 overflow-y-auto' : ''}`}
-            >
-              <span className={`min-w-0 flex-1 text-[13px] font-medium leading-5 text-[#ececee] ${goalExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>
-                {goalExpanded ? fullGoal : goalPreview}
-              </span>
-              {canExpandGoal ? (
-                <svg
-                  className={`mt-0.5 h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${goalExpanded ? 'rotate-180' : ''}`}
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  aria-hidden="true"
-                >
-                  <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              ) : null}
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#9a9aa2]">
-            <span><span className="text-[#5a5a63]">Phase</span> <span className="capitalize text-[#d7d7dc]">{runPhase}</span></span>
-            <span><span className="text-[#5a5a63]">Tasks</span> <span className="text-[#d7d7dc]">{swarmState.tasks.length}</span></span>
-            <span><span className="text-[#5a5a63]">Done</span> <span className="text-[#d7d7dc]">{doneCount}/{swarmState.tasks.length}</span></span>
-            <span><span className="text-[#5a5a63]">Active</span> <span className="text-[#d7d7dc]">{activeCount} running, {needsInputCount} waiting</span></span>
-          </div>
-        </div>
-
         {!fixedView ? (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {([
+              { id: 'project' as const, label: 'Project' },
               { id: 'map' as const, label: 'Map' },
               { id: 'task-graph' as const, label: 'Task Graph' },
               { id: 'kanban' as const, label: 'Kanban' },
@@ -747,6 +702,29 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         ) : null}
 
       </div>
+
+      {effectiveView === 'project' ? (
+        <SwarmProjectView
+          swarmState={swarmState}
+          roster={roster}
+          runtimeAgents={runtimeAgents}
+          agents={agents}
+          runPhase={runPhase}
+          doneCount={doneCount}
+          activeCount={activeCount}
+          needsInputCount={needsInputCount}
+          readyTasks={readyTasks}
+          onSelectAgent={(agentId) => {
+            if (agents[agentId]?.cliStartRequested) {
+              openAgentTerminal(agentId)
+            } else {
+              openSpawnDialog(agentId)
+            }
+          }}
+          onAddMember={openAddMemberDialog}
+          onReviewPlan={() => void loadPlanReview()}
+        />
+      ) : null}
 
       {effectiveView === 'map' ? (
         <SwarmMapView
@@ -1578,6 +1556,161 @@ type RuntimeAgentView = {
   role: SwarmRole
   status: string
   currentTaskId: string | null
+}
+
+function SwarmProjectView({
+  swarmState,
+  roster,
+  runtimeAgents,
+  agents,
+  runPhase,
+  doneCount,
+  activeCount,
+  needsInputCount,
+  readyTasks,
+  onSelectAgent,
+  onAddMember,
+  onReviewPlan,
+}: {
+  swarmState: SwarmState
+  roster: RosterItem[]
+  runtimeAgents: RuntimeAgentView[]
+  agents: Record<string, AgentState>
+  runPhase: string
+  doneCount: number
+  activeCount: number
+  needsInputCount: number
+  readyTasks: SwarmTask[]
+  onSelectAgent: (agentId: string) => void
+  onAddMember: () => void
+  onReviewPlan: () => void
+}) {
+  const tasksByRole = useMemo(() => {
+    const counts: Record<SwarmRole, { open: number; ready: number }> = {
+      architect: { open: 0, ready: 0 },
+      product: { open: 0, ready: 0 },
+      developer: { open: 0, ready: 0 },
+      frontend: { open: 0, ready: 0 },
+      tester: { open: 0, ready: 0 },
+      security: { open: 0, ready: 0 },
+    }
+
+    swarmState.tasks.forEach((task) => {
+      if (task.status !== 'done') counts[task.role].open += 1
+      if (readyTasks.some((readyTask) => readyTask.id === task.id)) counts[task.role].ready += 1
+    })
+
+    return counts
+  }, [readyTasks, swarmState.tasks])
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto bg-[#08090b] p-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <section className="rounded-lg border border-[#1f2025] bg-[#0d0e11]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] px-4 py-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Project Brief
+              </div>
+              <h2 className="mt-1 truncate text-lg font-semibold text-[#ececee]">
+                {swarmState.name}
+              </h2>
+            </div>
+            <button
+              onClick={onReviewPlan}
+              className="rounded-md border border-[#24252b] bg-[#111216] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+            >
+              Open Plan
+            </button>
+          </div>
+
+          <div className="space-y-4 px-4 py-4">
+            <p className="max-w-4xl whitespace-pre-wrap text-sm leading-6 text-[#d7d7dc]">
+              {formatSwarmGoal(swarmState.goal)}
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <InfoCard label="Phase" value={runPhase} />
+              <InfoCard label="Tasks" value={String(swarmState.tasks.length)} />
+              <InfoCard label="Done" value={`${doneCount}/${swarmState.tasks.length}`} />
+              <InfoCard label="Active" value={`${activeCount} running, ${needsInputCount} waiting`} />
+            </div>
+
+            <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Execution Notes
+              </div>
+              <div className="mt-2 text-sm leading-6 text-[#9a9aa2]">
+                Use the action strip above for immediate work. Planning review controls stay out of the main execution views once task cards exist.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-[#1f2025] bg-[#0d0e11]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] px-4 py-3">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Team
+              </div>
+              <div className="mt-1 text-sm font-semibold text-[#ececee]">
+                Specialist Roster
+              </div>
+            </div>
+            <button
+              onClick={onAddMember}
+              className="rounded-md border border-[#24252b] bg-[#111216] px-3 py-1.5 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+            >
+              More Roles
+            </button>
+          </div>
+
+          <div className="space-y-3 px-4 py-4">
+            {roster.map((agent) => {
+              const runtime = runtimeAgents.find((candidate) => candidate.agentId === agent.id)
+              const isLaunched = Boolean(agents[agent.id]?.cliStartRequested)
+              const counts = tasksByRole[agent.role]
+
+              return (
+                <div
+                  key={agent.id}
+                  className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[#24252b] bg-[#111216] px-3 py-3"
+                >
+                  <span
+                    className="flex h-10 w-10 items-center justify-center rounded-full border bg-[#0d0e11] text-[12px] font-bold text-[#ececee]"
+                    style={{
+                      borderColor: swarmRoleAccent[agent.role],
+                      boxShadow: `0 0 16px ${hexToRgba(swarmRoleAccent[agent.role], 0.25)}`,
+                    }}
+                  >
+                    {agent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-[#ececee]">{agent.label}</div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-[#5a5a63]">
+                      <span>{runtimeStatusLabel(runtime?.status ?? 'idle')}</span>
+                      <span>{counts.open} open</span>
+                      <span>{counts.ready} ready</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onSelectAgent(agent.id)}
+                    className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                      isLaunched
+                        ? 'border-[#30d158]/35 bg-[#30d158]/12 text-[#d4ffdc] hover:border-[#30d158]/60 hover:bg-[#30d158]/16'
+                        : 'border-[#6ee7d8]/35 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18'
+                    }`}
+                  >
+                    {isLaunched ? 'Focus CLI' : `Spawn ${swarmRoleLabels[agent.role]}`}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      </div>
+    </div>
+  )
 }
 
 function SwarmMapView({
