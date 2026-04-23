@@ -346,6 +346,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
     ? selectedTask.notes[0] || 'Worker is waiting for input.'
     : null
+  const selectedTaskCanSpawnWorker = selectedTaskBoardColumn === 'ready' && !selectedTask?.ownerAgentId
 
   const activateView = (view: SwarmView) => {
     if (fixedView) return
@@ -437,6 +438,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     if (!agent) return
 
     openSpawnDialog(agent.id)
+  }
+
+  const openReadyTaskWorker = (task: SwarmTask) => {
+    if (task.ownerAgentId) {
+      openAgentTerminal(task.ownerAgentId)
+      return
+    }
+
+    openReadySpawnDialogForRole(task.role)
   }
 
   const loadPlanReview = async () => {
@@ -819,14 +829,21 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   ? task.notes[0] || 'Worker is waiting for input.'
                   : task.status === 'done'
                     ? task.evidence.summary || 'Completed with no summary recorded.'
-                    : boardColumn === 'ready'
-                      ? `${swarmRoleLabels[task.role]} can claim this now.`
-                      : null
+                    : null
+                const showReadyTaskAction = boardColumn === 'ready' || Boolean(task.ownerAgentId)
                 return (
-                  <button
+                  <article
                     key={task.id}
                     onClick={() => setSelectedTaskId(task.id)}
-                    className={`relative w-full overflow-hidden rounded-lg border p-3 text-left transition-colors ${taskCardTone(task, Boolean(claimRole))}`}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedTaskId(task.id)
+                      }
+                    }}
+                    className={`relative w-full cursor-pointer overflow-hidden rounded-lg border p-3 text-left transition-colors ${taskCardTone(task, Boolean(claimRole))}`}
                     style={taskCardStyle(claimRole)}
                   >
                     {claimRole ? (
@@ -910,7 +927,25 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                         {attentionText}
                       </div>
                     ) : null}
-                  </button>
+                    {showReadyTaskAction ? (
+                      <div className="mt-3 flex justify-center border-t border-[#24252b] pt-3">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            openReadyTaskWorker(task)
+                          }}
+                          className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                            task.ownerAgentId
+                              ? 'border-[#30d158]/35 bg-[#30d158]/12 text-[#d4ffdc] hover:border-[#30d158]/60 hover:bg-[#30d158]/16'
+                              : 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/70 hover:bg-[#6ee7d8]/18'
+                          }`}
+                        >
+                          {task.ownerAgentId ? 'Focus Worker CLI' : `Spawn ${swarmRoleLabels[task.role]}`}
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
                 )
               })}
 
@@ -1296,6 +1331,28 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                     className="rounded-md border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#ececee] transition-colors hover:bg-[#17181d]"
                   >
                     Focus Worker CLI
+                  </button>
+                </div>
+              ) : null}
+
+              {selectedTaskCanSpawnWorker ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#6ee7d8]/35 bg-[#6ee7d8]/10 px-4 py-3 shadow-[0_0_22px_rgba(110,231,216,0.08)]">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ee7d8]">
+                      Ready To Claim
+                    </div>
+                    <div className="mt-1 text-sm text-[#d8fffb]">
+                      Start a {swarmRoleLabels[selectedTask.role]} for this ready task.
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      openReadyTaskWorker(selectedTask)
+                      setSelectedTaskId(null)
+                    }}
+                    className="rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+                  >
+                    Spawn {swarmRoleLabels[selectedTask.role]}
                   </button>
                 </div>
               ) : null}
