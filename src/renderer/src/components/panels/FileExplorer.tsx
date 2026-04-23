@@ -151,6 +151,30 @@ function FolderIcon({ expanded }: { expanded: boolean }) {
   )
 }
 
+function RefreshFilesIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function RevealActiveFileIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <circle cx="8" cy="8" r="4.75" stroke="currentColor" strokeWidth="1.35" />
+      <circle cx="8" cy="8" r="1.45" fill="currentColor" />
+      <path d="M8 1.75v2M8 12.25v2M14.25 8h-2M3.75 8h-2" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function remapPath(path: string, fromPath: string, toPath: string): string {
   if (path === fromPath) return toPath
   const separator = fromPath.includes('\\') && !fromPath.includes('/') ? '\\' : '/'
@@ -166,6 +190,21 @@ function isPathOrChild(path: string, parentPath: string): boolean {
 
 function pathSeparatorFor(path: string): '\\' | '/' {
   return path.includes('\\') && !path.includes('/') ? '\\' : '/'
+}
+
+function parentDirectoriesForPath(rootPath: string, filePath: string): string[] {
+  if (!isPathOrChild(filePath, rootPath) || filePath === rootPath) return []
+
+  const separator = pathSeparatorFor(rootPath)
+  const relativePath = filePath.slice(rootPath.length + separator.length)
+  const segments = relativePath.split(separator).filter(Boolean)
+  const parentSegments = segments.slice(0, -1)
+
+  return parentSegments.reduce<string[]>((directories, segment) => {
+    const parent = directories.at(-1) ?? rootPath
+    directories.push(`${parent}${separator}${segment}`)
+    return directories
+  }, [])
 }
 
 function relativeChildPath(parentPath: string, childPath: string): string | null {
@@ -315,14 +354,27 @@ interface ExplorerTreeProps {
   rootPath: string
   query: string
   refreshToken: number
+  revealPath: string | null
+  revealToken: number
   gitStatus: GitStatusSnapshot | null
   refreshGitStatus: () => Promise<void>
   onOpenFile: (path: string, name: string) => void
 }
 
-function ExplorerTree({ workspaceId, rootPath, query, refreshToken, gitStatus, refreshGitStatus, onOpenFile }: ExplorerTreeProps) {
+function ExplorerTree({
+  workspaceId,
+  rootPath,
+  query,
+  refreshToken,
+  revealPath,
+  revealToken,
+  gitStatus,
+  refreshGitStatus,
+  onOpenFile,
+}: ExplorerTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const openFile = useWorkspaceStore((s) => s.openFile)
   const remapOpenFiles = useWorkspaceStore((s) => s.remapOpenFiles)
   const removeOpenFilesForPath = useWorkspaceStore((s) => s.removeOpenFilesForPath)
@@ -682,6 +734,38 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, gitStatus, r
   }, [refreshGitStatus, refreshToken, refreshTree])
 
   useEffect(() => {
+    if (!revealToken || !revealPath || !isPathOrChild(revealPath, rootPath)) return
+
+    let cancelled = false
+
+    const revealFile = async () => {
+      const parentDirectories = parentDirectoriesForPath(rootPath, revealPath)
+
+      for (const directory of parentDirectories) {
+        await loadDirectory(directory)
+        if (cancelled) return
+      }
+
+      setExpandedPaths((current) => ({
+        ...current,
+        ...Object.fromEntries(parentDirectories.map((directory) => [directory, true])),
+      }))
+      setSelectedPath(revealPath)
+
+      window.setTimeout(() => {
+        if (cancelled) return
+        rowRefs.current[revealPath]?.scrollIntoView({ block: 'nearest' })
+      }, 0)
+    }
+
+    void revealFile()
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadDirectory, revealPath, revealToken, rootPath])
+
+  useEffect(() => {
     void refreshTree()
   }, [gitStatus?.updatedAt, refreshTree])
 
@@ -871,6 +955,9 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, gitStatus, r
         return (
           <div
             key={entry.path}
+            ref={(node) => {
+              rowRefs.current[entry.path] = node
+            }}
             role="treeitem"
             aria-selected={isSelected}
             aria-expanded={!isSearching && entry.isDir ? isExpanded : undefined}
@@ -963,9 +1050,14 @@ export default function FileExplorer({ workspaceId }: Props) {
   } = useWorkspaceFolderStatus(workspaceId)
   const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
   const openFile = useWorkspaceStore((s) => s.openFile)
+  const activeFilePath = useWorkspaceStore(
+    (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.editorState?.activeFilePath ?? null
+  )
   const [query, setQuery] = useState('')
   const [refreshToken, setRefreshToken] = useState(0)
+  const [revealToken, setRevealToken] = useState(0)
   const { status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderReadyPath)
+  const canRevealActiveFile = Boolean(folderReadyPath && activeFilePath && isPathOrChild(activeFilePath, folderReadyPath))
 
   const handleOpen = async () => {
     const dir = await window.api.openDir()
@@ -985,49 +1077,62 @@ export default function FileExplorer({ workspaceId }: Props) {
     focusOrAddEditorBesideExplorer(workspaceId)
   }
 
-  const rootName = folderPath?.split(/[/\\]/).filter(Boolean).pop() ?? ''
+  const revealActiveFile = () => {
+    if (!canRevealActiveFile) return
+    setQuery('')
+    setRevealToken((current) => current + 1)
+  }
+
+  const rootName = folderPath?.split(/[/\\]/).filter(Boolean).pop() ?? folderPath ?? ''
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#0d0e11] text-[#d7d7dc]">
-      <div className="border-b border-[#1f2025] bg-[#111216]">
-        <div className="flex h-9 shrink-0 items-center justify-between px-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Files</span>
-            {rootName && <span className="truncate font-mono text-[11px] text-[#9a9aa2]">{rootName}</span>}
-          </div>
-          <div className="flex items-center gap-1.5">
+      {rootName && (
+        <div className="border-b border-[#1f2025] bg-[#111216]">
+          <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-3">
+            <span className="min-w-0 truncate font-mono text-[11px] text-[#9a9aa2]" title={folderPath ?? undefined}>
+              {rootName}
+            </span>
             {folderReadyPath && (
-              <button
-                onClick={() => {
-                  setRefreshToken((current) => current + 1)
-                  void refreshGitStatus()
-                }}
-                className="h-6 rounded-md border border-[#24252b] bg-[#15161a] px-2 text-[10px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee]"
-                title="Refresh files"
-              >
-                Refresh
-              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={revealActiveFile}
+                  disabled={!canRevealActiveFile}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#838896]"
+                  title={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'}
+                  aria-label="Reveal active file"
+                >
+                  <RevealActiveFileIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRefreshToken((current) => current + 1)
+                    void refreshGitStatus()
+                  }}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139]"
+                  title="Refresh files"
+                  aria-label="Refresh files"
+                >
+                  <RefreshFilesIcon />
+                </button>
+              </div>
             )}
-            <button
-              onClick={handleOpen}
-              className="h-6 rounded-md border border-[#24252b] bg-[#15161a] px-2 text-[10px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee]"
-            >
-              Open
-            </button>
           </div>
-        </div>
 
-        {folderReadyPath && (
-          <div className="px-3 pb-2">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search files..."
-              className="h-8 w-full rounded-md border border-[#24252b] bg-[#090a0c] px-3 text-[12px] text-[#ececee] placeholder-[#5a5a63] outline-none transition-colors focus:border-[#303139]"
-            />
-          </div>
-        )}
-      </div>
+          {folderReadyPath && (
+            <div className="px-3 pb-2">
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search files..."
+                className="h-8 w-full rounded-md border border-[#24252b] bg-[#090a0c] px-3 text-[12px] text-[#ececee] placeholder-[#5a5a63] outline-none transition-colors focus:border-[#303139]"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {folderReadyPath ? (
@@ -1036,6 +1141,8 @@ export default function FileExplorer({ workspaceId }: Props) {
             rootPath={folderReadyPath}
             query={query}
             refreshToken={refreshToken}
+            revealPath={canRevealActiveFile ? activeFilePath : null}
+            revealToken={revealToken}
             gitStatus={gitStatus}
             refreshGitStatus={refreshGitStatus}
             onOpenFile={handleOpenFile}

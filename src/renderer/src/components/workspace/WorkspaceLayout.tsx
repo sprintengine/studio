@@ -7,6 +7,7 @@ import { buildSwarmAgentRosterForState } from '../../utils/swarm'
 import AgentPanel from '../panels/AgentPanel'
 import EditorPanel from '../panels/EditorPanel'
 import FileExplorer from '../panels/FileExplorer'
+import GitPanel from '../panels/GitPanel'
 import PlainTerminalPanel from '../panels/PlainTerminalPanel'
 import SwarmBoardPanel from '../panels/SwarmBoardPanel'
 
@@ -48,6 +49,8 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
           return <EditorPanel workspaceId={workspaceId} />
         case 'explorer':
           return <FileExplorer workspaceId={workspaceId} />
+        case 'git':
+          return <GitPanel workspaceId={workspaceId} />
         case 'terminal':
           return (
             <PlainTerminalPanel

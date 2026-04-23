@@ -21,6 +21,7 @@ const CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
   { value: 'claude', label: 'Claude Code' },
   { value: 'codex', label: 'Codex' },
 ]
+type WorkspacePanelComponent = 'explorer' | 'editor' | 'git'
 
 export default function WorkspaceManager() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
@@ -292,6 +293,13 @@ export default function WorkspaceManager() {
     )
   }
 
+  const addGitPanel = () => {
+    if (showTemplateSelector || !activeWorkspaceId) return
+    setCliMenuOpen(false)
+    setSpecialistMenuOpen(false)
+    toggleWorkspacePanel(activeWorkspaceId, 'git')
+  }
+
   const handleSelectCli = (cli: AgentCli) => {
     setLastSelectedCli(cli)
     setCliMenuOpen(false)
@@ -393,6 +401,23 @@ export default function WorkspaceManager() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {workspaceActionsEnabled ? (
+            <button
+              onClick={addGitPanel}
+              disabled={!activeWorkspaceId}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
+              title="Toggle Git panel"
+              aria-label="Toggle Git panel"
+            >
+              <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M7 5.5A2.5 2.5 0 1 0 7 10.5A2.5 2.5 0 0 0 7 5.5Z" stroke="currentColor" strokeWidth="1.7" />
+                <path d="M17 13.5A2.5 2.5 0 1 0 17 18.5A2.5 2.5 0 0 0 17 13.5Z" stroke="currentColor" strokeWidth="1.7" />
+                <path d="M7 10.5V12.25C7 14.18 8.57 15.75 10.5 15.75H14.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                <path d="M7 10.5V18.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+              </svg>
+            </button>
+          ) : null}
+
           {workspaceActionsEnabled ? (
             <button
               onClick={addNewTerminal}
@@ -626,7 +651,7 @@ function firstTabset(model: Model): TabSetNode | null {
   return found
 }
 
-function findPanelTab(model: Model, component: 'explorer' | 'editor'): TabNode | null {
+function findPanelTab(model: Model, component: WorkspacePanelComponent): TabNode | null {
   let found: TabNode | null = null
   model.visitNodes((node) => {
     if (found) return
@@ -637,7 +662,7 @@ function findPanelTab(model: Model, component: 'explorer' | 'editor'): TabNode |
   return found
 }
 
-function toggleWorkspacePanel(workspaceId: string, component: 'explorer' | 'editor'): void {
+function toggleWorkspacePanel(workspaceId: string, component: WorkspacePanelComponent): void {
   const model = getModel(workspaceId)
   if (!model) return
 
@@ -647,7 +672,7 @@ function toggleWorkspacePanel(workspaceId: string, component: 'explorer' | 'edit
     return
   }
 
-  const tabName = component === 'explorer' ? 'Files' : 'Editor'
+  const tabName = component === 'explorer' ? 'Files' : component === 'git' ? 'Git' : 'Editor'
   const target = getPreferredPanelTarget(model, component)
 
   model.doAction(
@@ -663,8 +688,19 @@ function toggleWorkspacePanel(workspaceId: string, component: 'explorer' | 'edit
 
 function getPreferredPanelTarget(
   model: Model,
-  component: 'explorer' | 'editor'
+  component: WorkspacePanelComponent
 ): { id: string; location: DockLocation } {
+  if (component === 'git') {
+    const explorerTab = findPanelTab(model, 'explorer')
+    const explorerParent = explorerTab?.getParent()
+    if (explorerParent instanceof TabSetNode) {
+      return {
+        id: explorerParent.getId(),
+        location: DockLocation.CENTER,
+      }
+    }
+  }
+
   if (component === 'explorer') {
     const targetTabset = model.getActiveTabset() ?? firstTabset(model)
     return {

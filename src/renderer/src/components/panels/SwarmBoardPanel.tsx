@@ -1847,7 +1847,7 @@ function SwarmProjectView({
           </div>
 
           <div className="space-y-4 px-4 py-4">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(128px,100%),1fr))] gap-3">
               <InfoCard label="Phase" value={runPhase} />
               <InfoCard label="Tasks" value={String(swarmState.tasks.length)} />
               <InfoCard label="Done" value={`${doneCount}/${swarmState.tasks.length}`} />
@@ -2792,9 +2792,9 @@ function statusColor(status: string): string {
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
+    <div className="min-w-0 rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
       <div className="text-[10px] uppercase tracking-[0.14em] text-[#5a5a63]">{label}</div>
-      <div className="mt-2 font-medium text-[#ececee]">{value}</div>
+      <div className="mt-2 font-medium text-[#ececee] [overflow-wrap:anywhere]">{value}</div>
     </div>
   )
 }
