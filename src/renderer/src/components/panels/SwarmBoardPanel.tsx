@@ -312,6 +312,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const focusAgent = needsInputAgent ?? runningAgent
   const focusAgentRoster = focusAgent ? rosterById[focusAgent.agentId] : undefined
   const focusAgentIsLaunched = focusAgent ? Boolean(agents[focusAgent.agentId]?.cliStartRequested) : false
+  const focusAgentRole = focusAgentRoster?.role ?? focusAgent?.role ?? null
   const readyTaskNoun = readyTasks.length === 1 ? 'task needs' : 'tasks need'
   const actionEyebrow = allTasksDone
     ? 'Run Complete'
@@ -424,6 +425,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const openSpawnDialogForRole = (role: SwarmRole) => {
     const existing = roster.find((agent) => agent.role === role && !agents[agent.id]?.cliStartRequested)
       ?? roster.find((agent) => agent.role === role)
+    const agent = existing ?? addSwarmMember(workspaceId, role)
+    if (!agent) return
+
+    openSpawnDialog(agent.id)
+  }
+
+  const openReadySpawnDialogForRole = (role: SwarmRole) => {
+    const existing = roster.find((agent) => agent.role === role && !agents[agent.id]?.cliStartRequested)
     const agent = existing ?? addSwarmMember(workspaceId, role)
     if (!agent) return
 
@@ -573,15 +582,26 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </button>
             ) : null}
             {readyRoleLaunches.map(({ role, agent }) => {
+              const duplicatesFocusRole = focusAgentRole === role
+              const availableAgent = roster.find((candidate) =>
+                candidate.role === role && !agents[candidate.id]?.cliStartRequested
+              )
+              const shouldSpawnAdditional = duplicatesFocusRole || Boolean(availableAgent)
               const isRunning = agent ? Boolean(agents[agent.id]?.cliStartRequested) : false
               const label = agent?.label ?? swarmRoleLabels[role]
               return (
                 <button
                   key={role}
-                  onClick={() => openSpawnDialogForRole(role)}
+                  onClick={() => {
+                    if (shouldSpawnAdditional) {
+                      openReadySpawnDialogForRole(role)
+                    } else {
+                      openSpawnDialogForRole(role)
+                    }
+                  }}
                   className="rounded-md border border-[#6ee7d8]/35 bg-[#6ee7d8]/12 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18"
                 >
-                  {isRunning ? `Focus ${label}` : `Spawn ${label}`}
+                  {isRunning && !shouldSpawnAdditional ? `Focus ${label}` : `Spawn ${swarmRoleLabels[role]}`}
                 </button>
               )
             })}
