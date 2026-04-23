@@ -101,6 +101,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
   const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
   const [cliPickerOpen, setCliPickerOpen] = useState(false)
+  const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
   const [showRunSummary, setShowRunSummary] = useState(false)
@@ -311,6 +312,36 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const fullGoal = formatSwarmGoal(swarmState.goal)
   const goalPreview = formatSwarmGoalPreview(swarmState.goal)
   const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 120
+  const hasPlannedTasks = swarmState.tasks.length > 0
+  const showPlanningActions = !hasPlannedTasks
+  const needsInputAgent = runtimeAgents.find((agent) => agent.status === 'needs_input')
+  const runningAgent = runtimeAgents.find((agent) => agent.status === 'running')
+  const focusAgent = needsInputAgent ?? runningAgent
+  const focusAgentRoster = focusAgent ? rosterById[focusAgent.agentId] : undefined
+  const focusAgentIsLaunched = focusAgent ? Boolean(agents[focusAgent.agentId]?.cliStartRequested) : false
+  const readyTaskNoun = readyTasks.length === 1 ? 'task needs' : 'tasks need'
+  const actionEyebrow = allTasksDone
+    ? 'Run Complete'
+    : readyRoleLaunches.length > 0
+      ? 'Ready Work'
+      : needsInputAgent
+        ? 'Needs Input'
+        : runningAgent
+          ? 'In Progress'
+          : hasPlannedTasks
+            ? 'Swarm Ready'
+            : 'Manual Swarm Launch'
+  const actionMessage = allTasksDone
+    ? 'All tasks are done. Review the run summary and validate the workspace.'
+    : readyRoleLaunches.length > 0
+      ? `${readyTasks.length} ready ${readyTaskNoun} specialist attention.`
+      : needsInputAgent
+        ? `${focusAgentRoster?.label ?? needsInputAgent.agentId} is waiting for input.`
+        : runningAgent
+          ? `${focusAgentRoster?.label ?? runningAgent.agentId} is actively working.`
+          : hasPlannedTasks
+            ? 'No ready specialist work right now. Verify progress if the board looks stale.'
+            : 'Review the architect plan, then spawn the specialists you want to run.'
 
   const activateView = (view: SwarmView) => {
     if (fixedView) return
@@ -323,6 +354,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       && !roster.some((agent) => agent.role === role)
     )
     setAddMemberRole(uncoveredRole ?? 'developer')
+    setActionMenuOpen(false)
     setAddMemberOpen(true)
   }
 
@@ -504,19 +536,39 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
-      <div className="border-b border-[#1f2025] bg-[#0d0e11] px-5 py-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2]">
-              {readyRoleLaunches.length > 0 ? 'Ready Work' : 'Manual Swarm Launch'}
+      <div className="border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <div className={`text-[10px] font-bold uppercase tracking-[0.14em] ${
+              needsInputAgent ? 'text-[#ffbf2f]' : allTasksDone ? 'text-[#30d158]' : 'text-[#9a9aa2]'
+            }`}>
+              {actionEyebrow}
             </div>
-            <div className="mt-1 text-sm font-medium text-[#ececee]">
-              {readyRoleLaunches.length > 0
-                ? `${readyTasks.length} ready ${readyTasks.length === 1 ? 'task needs' : 'tasks need'} specialist attention.`
-                : 'Review the architect plan, then spawn the specialists you want to run.'}
+            <div className="min-w-0 truncate text-sm font-medium text-[#ececee]">
+              {actionMessage}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {focusAgent ? (
+              <button
+                onClick={() => {
+                  if (focusAgentIsLaunched) {
+                    openAgentTerminal(focusAgent.agentId)
+                  } else {
+                    openSpawnDialog(focusAgent.agentId)
+                  }
+                }}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                  needsInputAgent
+                    ? 'border-[#ffbf2f]/55 bg-[#ffbf2f]/14 text-[#ffe0a3] hover:border-[#ffbf2f]/80 hover:bg-[#ffbf2f]/18'
+                    : 'border-[#6ee7d8]/35 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18'
+                }`}
+              >
+                {focusAgentIsLaunched
+                  ? `Focus ${focusAgentRoster?.label ?? focusAgent.agentId}`
+                  : `Spawn ${focusAgentRoster?.label ?? focusAgent.agentId}`}
+              </button>
+            ) : null}
             {readyRoleLaunches.map(({ role, agent }) => {
               const isRunning = agent ? Boolean(agents[agent.id]?.cliStartRequested) : false
               const label = agent?.label ?? swarmRoleLabels[role]
@@ -524,16 +576,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 <button
                   key={role}
                   onClick={() => openSpawnDialogForRole(role)}
-                  className="rounded-md border border-[#6ee7d8]/35 bg-[#6ee7d8]/12 px-4 py-2 text-sm font-semibold text-[#d8fffb] transition-colors hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18"
+                  className="rounded-md border border-[#6ee7d8]/35 bg-[#6ee7d8]/12 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18"
                 >
                   {isRunning ? `Focus ${label}` : `Spawn ${label}`}
                 </button>
               )
             })}
-            {architectAgentId && readyRoleLaunches.length === 0 ? (
+            {architectAgentId && showPlanningActions && readyRoleLaunches.length === 0 ? (
               <button
-                onClick={() => openAgentTerminal(architectAgentId)}
-                className="rounded-md border border-[#ffbf2f]/45 bg-[#ffbf2f]/12 px-4 py-2 text-sm font-semibold text-[#ffe0a3] shadow-[0_0_20px_rgba(255,191,47,0.1)] transition-colors hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/16"
+                onClick={() => openSpawnDialog(architectAgentId)}
+                className="rounded-md border border-[#ffbf2f]/45 bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/16"
               >
                 {agents[architectAgentId]?.cliStartRequested ? 'Focus Architect' : 'Spawn Architect'}
               </button>
@@ -541,33 +593,73 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             {architectAgentId ? (
               <button
                 onClick={openRecoveryDialog}
-                className="rounded-md border border-[#30d158]/40 bg-[#30d158]/12 px-4 py-2 text-sm font-semibold text-[#b9f7c8] shadow-[0_0_20px_rgba(48,209,88,0.08)] transition-colors hover:border-[#30d158]/65 hover:bg-[#30d158]/16"
+                className="rounded-md border border-[#30d158]/40 bg-[#30d158]/12 px-3 py-1.5 text-sm font-semibold text-[#b9f7c8] transition-colors hover:border-[#30d158]/65 hover:bg-[#30d158]/16"
               >
                 Verify Progress
               </button>
             ) : null}
-            <button
-              onClick={() => void loadPlanReview()}
-              className="rounded-md border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 px-4 py-2 text-sm font-semibold text-[#ffe0a3] shadow-[0_0_22px_rgba(255,191,47,0.12)] transition-colors hover:border-[#ffbf2f]/80 hover:bg-[#ffbf2f]/18"
-            >
-              Review Plan
-            </button>
-            <button
-              onClick={requestPlanReviews}
-              disabled={!folderPath || specialistReviewAgents.length === 0}
-              className="rounded-md border border-[#6ee7d8]/40 bg-[#6ee7d8]/12 px-4 py-2 text-sm font-semibold text-[#d8fffb] shadow-[0_0_20px_rgba(110,231,216,0.08)] transition-colors hover:border-[#6ee7d8]/65 hover:bg-[#6ee7d8]/16 disabled:opacity-45 disabled:hover:border-[#6ee7d8]/40 disabled:hover:bg-[#6ee7d8]/12"
-            >
-              Request Plan Reviews
-            </button>
-            {architectAgentId ? (
+            <div className="relative">
               <button
-                onClick={addressPlanReviews}
-                disabled={!folderPath}
-                className="rounded-md border border-[#ffbf2f]/45 bg-[#ffbf2f]/10 px-4 py-2 text-sm font-semibold text-[#ffe0a3] shadow-[0_0_20px_rgba(255,191,47,0.08)] transition-colors hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/15 disabled:opacity-45 disabled:hover:border-[#ffbf2f]/45 disabled:hover:bg-[#ffbf2f]/10"
+                onClick={() => setActionMenuOpen((open) => !open)}
+                className="rounded-md border border-[#24252b] bg-[#111216] px-3 py-1.5 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                aria-haspopup="menu"
+                aria-expanded={actionMenuOpen}
               >
-                Address Feedback
+                More
               </button>
-            ) : null}
+              {actionMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 overflow-hidden rounded-lg border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                >
+                  <button
+                    role="menuitem"
+                    onClick={openAddMemberDialog}
+                    className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                  >
+                    More Roles
+                  </button>
+                  {showPlanningActions ? (
+                    <>
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setActionMenuOpen(false)
+                          void loadPlanReview()
+                        }}
+                        className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                      >
+                        Review Plan
+                      </button>
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setActionMenuOpen(false)
+                          requestPlanReviews()
+                        }}
+                        disabled={!folderPath || specialistReviewAgents.length === 0}
+                        className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
+                      >
+                        Request Plan Reviews
+                      </button>
+                      {architectAgentId ? (
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            setActionMenuOpen(false)
+                            addressPlanReviews()
+                          }}
+                          disabled={!folderPath}
+                          className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
+                        >
+                          Address Feedback
+                        </button>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -593,7 +685,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
               {swarmState.name}
@@ -630,15 +722,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             <span><span className="text-[#5a5a63]">Done</span> <span className="text-[#d7d7dc]">{doneCount}/{swarmState.tasks.length}</span></span>
             <span><span className="text-[#5a5a63]">Active</span> <span className="text-[#d7d7dc]">{activeCount} running, {needsInputCount} waiting</span></span>
           </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            onClick={openAddMemberDialog}
-            className="rounded-md border border-[#24252b] bg-[#111216] px-3 py-1.5 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-          >
-            More Roles
-          </button>
         </div>
 
         {!fixedView ? (
