@@ -40,6 +40,22 @@ type SpecialistActionId =
 type SpecialistPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
+type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
+type GitStatusEntry = {
+  path: string
+  relativePath: string
+  status: GitFileStatus
+  staged: boolean
+  unstaged: boolean
+}
+type GitStatusSnapshot = {
+  repoRoot: string
+  files: Record<string, GitStatusEntry>
+  updatedAt: number
+}
+type GitFileBaseResult =
+  | { ok: true; content: string }
+  | { ok: false; message: string }
 
 declare interface Window {
   api: {
@@ -63,6 +79,9 @@ declare interface Window {
     openFile:  (options?: OpenDialogOptions) => Promise<string | null>
     showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>
     showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
+    getGitRepoRoot: (folderPath: string) => Promise<string | null>
+    getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
+    getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
 
     // Agent CLI Terminal
     terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => Promise<void>

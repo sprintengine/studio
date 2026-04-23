@@ -2,26 +2,39 @@ import React, { useEffect, useRef, useState } from 'react'
 import MonacoEditor, { OnMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { getGitEntry, useGitStatus } from '../../hooks/useGitStatus'
+import { getGitLineChanges, type GitLineChange } from '../../utils/gitDiff'
 import { renderMarkdown } from '../../utils/markdown'
 
 interface Props {
   workspaceId: string
 }
 
+type MonacoApi = Parameters<OnMount>[1]
+
 export default function EditorPanel({ workspaceId }: Props) {
   const editorState = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.editorState
+  )
+  const folderPath = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null
   )
   const setActiveFile     = useWorkspaceStore((s) => s.setActiveFile)
   const closeFile         = useWorkspaceStore((s) => s.closeFile)
   const updateFileContent = useWorkspaceStore((s) => s.updateFileContent)
   const markFileClean     = useWorkspaceStore((s) => s.markFileClean)
+  const { repoRoot, status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderPath)
 
   const openFiles = editorState?.openFiles ?? []
   const activeFilePath = editorState?.activeFilePath ?? null
   const activeFile = openFiles.find((f) => f.path === activeFilePath)
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  const monacoRef = useRef<MonacoApi | null>(null)
+  const gitDecorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
+  const [gitBaseContent, setGitBaseContent] = useState<{ path: string; content: string } | null>(null)
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
+  const isMarkdown = activeFile?.language === 'markdown'
+  const showPreview = isMarkdown && markdownMode === 'preview'
 
   useEffect(() => {
     if (activeFile?.language === 'markdown') {
@@ -46,6 +59,8 @@ export default function EditorPanel({ workspaceId }: Props) {
 
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor
+    monacoRef.current = monaco
+    gitDecorationsRef.current = editor.createDecorationsCollection()
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
       const state = useWorkspaceStore.getState()
       const ws = state.workspaces.find((w) => w.id === workspaceId)
@@ -53,6 +68,7 @@ export default function EditorPanel({ workspaceId }: Props) {
       if (!file) return
       await window.api.writefile(file.path, file.content)
       markFileClean(workspaceId, file.path)
+      void refreshGitStatus()
     })
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab, () => cycleOpenFiles(1))
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => cycleOpenFiles(-1))
@@ -85,6 +101,88 @@ export default function EditorPanel({ workspaceId }: Props) {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false
+
+    if (!activeFilePath || !repoRoot) {
+      setGitBaseContent(null)
+      return
+    }
+
+    const loadBaseContent = async () => {
+      const entry = getGitEntry(gitStatus, activeFilePath)
+      if (entry?.status === 'new') {
+        setGitBaseContent({ path: activeFilePath, content: '' })
+        return
+      }
+
+      if (typeof window.api.getGitFileBase !== 'function') {
+        setGitBaseContent(null)
+        return
+      }
+
+      const result = await window.api.getGitFileBase(repoRoot, activeFilePath)
+      if (cancelled) return
+
+      setGitBaseContent(result.ok ? { path: activeFilePath, content: result.content } : null)
+    }
+
+    void loadBaseContent()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeFilePath, gitStatus?.updatedAt, gitStatus, repoRoot])
+
+  useEffect(() => {
+    const editor = editorRef.current
+    const monaco = monacoRef.current
+    const decorations = gitDecorationsRef.current
+    const model = editor?.getModel()
+
+    if (!editor || !monaco || !decorations || !model || !activeFile || gitBaseContent?.path !== activeFile.path || showPreview) {
+      decorations?.clear()
+      return
+    }
+
+    const lineCount = Math.max(model.getLineCount(), 1)
+    const toDecoration = (change: GitLineChange): Monaco.editor.IModelDeltaDecoration => {
+      const startLine = Math.min(Math.max(change.startLine, 1), lineCount)
+      const endLine = Math.min(Math.max(change.endLine, startLine), lineCount)
+      const className = change.kind === 'added'
+        ? 'git-change-gutter git-change-added'
+        : change.kind === 'modified'
+          ? 'git-change-gutter git-change-modified'
+          : 'git-change-gutter git-change-deleted'
+      const color = change.kind === 'added'
+        ? '#35d07f'
+        : change.kind === 'modified'
+          ? '#f0a340'
+          : '#ff5a5f'
+      const label = change.kind === 'added'
+        ? 'Added lines'
+        : change.kind === 'modified'
+          ? 'Modified lines'
+          : `${change.deletedCount ?? 1} deleted line${change.deletedCount === 1 ? '' : 's'}`
+
+      return {
+        range: new monaco.Range(startLine, 1, endLine, 1),
+        options: {
+          isWholeLine: true,
+          glyphMarginClassName: className,
+          glyphMarginHoverMessage: { value: label },
+          overviewRuler: {
+            color,
+            position: monaco.editor.OverviewRulerLane.Left,
+          },
+          zIndex: 20,
+        },
+      }
+    }
+
+    decorations.set(getGitLineChanges(gitBaseContent.content, activeFile.content).map(toDecoration))
+  }, [activeFile, gitBaseContent, showPreview])
+
   if (openFiles.length === 0) {
     return (
       <div className="h-full flex items-center justify-center bg-[#08090b] text-[#5a5a63] text-[13px] font-mono">
@@ -93,8 +191,16 @@ export default function EditorPanel({ workspaceId }: Props) {
     )
   }
 
-  const isMarkdown = activeFile?.language === 'markdown'
-  const showPreview = isMarkdown && markdownMode === 'preview'
+  const markdownModeToggle = isMarkdown ? (
+    <button
+      onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}
+      className="absolute right-3 top-3 z-10 h-6 rounded-md border border-[#303139] bg-[#111216]/95 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2] shadow-[0_8px_24px_rgba(0,0,0,0.32)] transition-colors hover:border-[#3a3b43] hover:bg-[#17181d] hover:text-[#ececee]"
+      aria-label={showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
+      title={showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
+    >
+      {showPreview ? 'Edit' : 'Preview'}
+    </button>
+  ) : null
 
   return (
     <div className="flex flex-col h-full bg-[#08090b]">
@@ -122,23 +228,13 @@ export default function EditorPanel({ workspaceId }: Props) {
             </div>
           )
         })}
-
-        <div className="ml-auto mr-2 flex items-center gap-1.5 shrink-0">
-          {isMarkdown && (
-            <button
-              onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}
-              className="h-7 px-2.5 rounded-md text-[10px] uppercase tracking-[0.08em] text-[#5a5a63] hover:text-[#d7d7dc] hover:bg-[#17181d] transition-colors"
-            >
-              {showPreview ? 'Edit' : 'Preview'}
-            </button>
-          )}
-        </div>
       </div>
 
       {activeFile && (
-        <div className="flex-1 overflow-hidden">
+        <div className="relative flex-1 overflow-hidden">
+          {markdownModeToggle}
           {showPreview ? (
-            <div className="h-full overflow-y-auto px-8 py-8 bg-[#08090b]">
+            <div className="h-full overflow-y-auto bg-[#08090b] px-8 pb-8 pt-14">
               <div className="max-w-4xl mx-auto">
                 {renderMarkdown(activeFile.content)}
               </div>
@@ -156,12 +252,13 @@ export default function EditorPanel({ workspaceId }: Props) {
                   minimap: { enabled: false },
                   scrollBeyondLastLine: false,
                   renderLineHighlight: 'gutter',
+                  glyphMargin: true,
                   lineNumbers: 'on',
                   wordWrap: 'off',
                   tabSize: 2,
                   automaticLayout: true,
                   contextmenu: false,
-                  padding: { top: 12 },
+                  padding: { top: isMarkdown ? 44 : 12 },
                 }}
                 onChange={(value) => {
                   if (value !== undefined && activeFilePath) {

@@ -4,6 +4,7 @@ import { existsSync, watch, type FSWatcher } from 'fs'
 import { access, cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
+import { getGitFileBase, getGitRepoRoot, getGitStatus } from './git'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -865,6 +866,18 @@ ipcMain.handle('fs:delete', async (_, targetPath: string) => {
 ipcMain.handle('fs:show-item-in-folder', async (_, targetPath: string) => {
   await access(targetPath)
   shell.showItemInFolder(targetPath)
+})
+
+ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
+  return getGitRepoRoot(folderPath)
+})
+
+ipcMain.handle('git:get-status', async (_, repoRoot: string) => {
+  return getGitStatus(repoRoot)
+})
+
+ipcMain.handle('git:get-file-base', async (_, repoRoot: string, filePath: string) => {
+  return getGitFileBase(repoRoot, filePath)
 })
 
 ipcMain.handle('fs:dialog:opendir', async (event) => {

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { getGitEntry, normalizePathKey, useGitStatus } from '../../hooks/useGitStatus'
 import { focusOrAddEditorBesideExplorer } from '../../utils/modelRegistry'
 
 type Entry = {
@@ -7,6 +8,7 @@ type Entry = {
   isDir: boolean
   path: string
   parentPath: string
+  gitDeleted?: boolean
 }
 
 type TreeRow = {
@@ -161,6 +163,89 @@ function isPathOrChild(path: string, parentPath: string): boolean {
   return path.startsWith(`${parentPath}${separator}`)
 }
 
+function pathSeparatorFor(path: string): '\\' | '/' {
+  return path.includes('\\') && !path.includes('/') ? '\\' : '/'
+}
+
+function relativeChildPath(parentPath: string, childPath: string): string | null {
+  const normalizedParent = normalizePathKey(parentPath)
+  const normalizedChild = normalizePathKey(childPath)
+  if (normalizedChild === normalizedParent || !normalizedChild.startsWith(`${normalizedParent}/`)) return null
+  const separator = pathSeparatorFor(parentPath)
+  return childPath.slice(parentPath.length + separator.length)
+}
+
+function mergeGitDeletedEntries(entries: Entry[], dirPath: string, gitStatus: GitStatusSnapshot | null): Entry[] {
+  if (!gitStatus) return entries
+
+  const nextEntries = [...entries]
+  const seen = new Set(entries.map((entry) => normalizePathKey(entry.path)))
+
+  Object.values(gitStatus.files).forEach((status) => {
+    if (status.status !== 'deleted') return
+
+    const relativePath = relativeChildPath(dirPath, status.path)
+    if (!relativePath) return
+
+    const separatorMatch = relativePath.match(/[\\/]/)
+    const childName = separatorMatch ? relativePath.slice(0, separatorMatch.index) : relativePath
+    const childPath = `${dirPath}${pathSeparatorFor(dirPath)}${childName}`
+    const key = normalizePathKey(childPath)
+    if (seen.has(key)) return
+
+    seen.add(key)
+    nextEntries.push({
+      name: childName,
+      isDir: Boolean(separatorMatch),
+      path: childPath,
+      parentPath: dirPath,
+      gitDeleted: true,
+    })
+  })
+
+  return nextEntries.sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)))
+}
+
+function getDirectoryGitStatus(gitStatus: GitStatusSnapshot | null, dirPath: string): GitFileStatus | null {
+  if (!gitStatus) return null
+
+  const separator = pathSeparatorFor(dirPath)
+  const prefix = normalizePathKey(`${dirPath}${separator}`)
+  const childStatuses = Object.values(gitStatus.files)
+    .filter((entry) => normalizePathKey(entry.path).startsWith(prefix))
+    .map((entry) => entry.status)
+
+  if (!childStatuses.length) return null
+  if (childStatuses.some((status) => status === 'conflicted')) return 'conflicted'
+  if (childStatuses.some((status) => status === 'modified' || status === 'renamed' || status === 'deleted')) return 'modified'
+  if (childStatuses.some((status) => status === 'new')) return 'new'
+  return null
+}
+
+function getEntryGitStatus(gitStatus: GitStatusSnapshot | null, entry: Entry): GitFileStatus | null {
+  if (entry.gitDeleted) return 'deleted'
+  const exactStatus = getGitEntry(gitStatus, entry.path)?.status ?? null
+  if (exactStatus) return exactStatus
+  return entry.isDir ? getDirectoryGitStatus(gitStatus, entry.path) : null
+}
+
+function gitStatusAppearance(status: GitFileStatus | null): { textClass: string; badge: string | null } {
+  switch (status) {
+    case 'new':
+      return { textClass: 'text-[#43d17a] group-hover:text-[#6ee79a]', badge: 'A' }
+    case 'modified':
+      return { textClass: 'text-[#f2a84b] group-hover:text-[#ffc46f]', badge: 'M' }
+    case 'renamed':
+      return { textClass: 'text-[#f2a84b] group-hover:text-[#ffc46f]', badge: 'R' }
+    case 'deleted':
+      return { textClass: 'text-[#ff5a5f] line-through decoration-[#ff5a5f]/80 group-hover:text-[#ff787c]', badge: 'D' }
+    case 'conflicted':
+      return { textClass: 'text-[#ff5a5f] group-hover:text-[#ff787c]', badge: '!' }
+    default:
+      return { textClass: '', badge: null }
+  }
+}
+
 function remapChildrenByPath(
   childrenByPath: Record<string, Entry[]>,
   fromPath: string,
@@ -188,19 +273,31 @@ function remapExpandedPaths(
   )
 }
 
-async function searchFiles(rootPath: string, query: string, limit = 200): Promise<Entry[]> {
+async function searchFiles(
+  rootPath: string,
+  query: string,
+  gitStatus: GitStatusSnapshot | null,
+  limit = 200
+): Promise<Entry[]> {
   const matches: Entry[] = []
   const lowerQuery = query.toLowerCase().trim()
   if (!lowerQuery) return matches
+  const seen = new Set<string>()
 
   const visit = async (dirPath: string): Promise<void> => {
     if (matches.length >= limit) return
     const raw = await window.api.readdir(dirPath)
-    const entries = toEntries(raw, dirPath)
+    const entries = mergeGitDeletedEntries(toEntries(raw, dirPath), dirPath, gitStatus)
 
     for (const entry of entries) {
+      const key = normalizePathKey(entry.path)
+      if (seen.has(key)) continue
+      seen.add(key)
+
       if (entry.isDir) {
-        await visit(entry.path)
+        if (!entry.gitDeleted) {
+          await visit(entry.path)
+        }
       } else if (entry.name.toLowerCase().includes(lowerQuery) || entry.path.toLowerCase().includes(lowerQuery)) {
         matches.push(entry)
         if (matches.length >= limit) return
@@ -217,10 +314,12 @@ interface ExplorerTreeProps {
   rootPath: string
   query: string
   refreshToken: number
+  gitStatus: GitStatusSnapshot | null
+  refreshGitStatus: () => Promise<void>
   onOpenFile: (path: string, name: string) => void
 }
 
-function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }: ExplorerTreeProps) {
+function ExplorerTree({ workspaceId, rootPath, query, refreshToken, gitStatus, refreshGitStatus, onOpenFile }: ExplorerTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const openFile = useWorkspaceStore((s) => s.openFile)
@@ -241,6 +340,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
   const latestExpandedPathsRef = useRef<Record<string, boolean>>({})
   const latestSearchQueryRef = useRef('')
   const latestSearchingRef = useRef(false)
+  const latestGitStatusRef = useRef<GitStatusSnapshot | null>(gitStatus)
   const lastManualRefreshRef = useRef(refreshToken)
 
   const visibleRows = useMemo(
@@ -262,6 +362,10 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     latestSearchingRef.current = isSearching
   }, [query, isSearching])
 
+  useEffect(() => {
+    latestGitStatusRef.current = gitStatus
+  }, [gitStatus])
+
   const renamingPath = renameDraft?.entry.path ?? null
 
   useEffect(() => {
@@ -274,7 +378,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     const raw = await window.api.readdir(dirPath)
-    const entries = toEntries(raw, dirPath)
+    const entries = mergeGitDeletedEntries(toEntries(raw, dirPath), dirPath, latestGitStatusRef.current)
 
     if (dirPath === rootPath) {
       setRootEntries(entries)
@@ -332,7 +436,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     if (latestSearchingRef.current) {
       setSearching(true)
       try {
-        setSearchResults(await searchFiles(rootPath, latestSearchQueryRef.current))
+        setSearchResults(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
       } finally {
         setSearching(false)
       }
@@ -389,6 +493,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
         openFile(workspaceId, newPath, name, '')
         focusOrAddEditorBesideExplorer(workspaceId)
       }
+      void refreshGitStatus()
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
     }
@@ -427,11 +532,12 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
 
       await refreshParentDirectory(entry.parentPath)
       if (isSearching) {
-        setSearchResults(await searchFiles(rootPath, latestSearchQueryRef.current))
+        setSearchResults(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
       }
       setSelectedPath(nextPath)
       setRenameDraft(null)
       focusTree()
+      void refreshGitStatus()
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
     } finally {
@@ -447,6 +553,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
       setExpandedPaths((current) => ({ ...current, [targetDir]: true }))
       await refreshParentDirectory(targetDir)
       setSelectedPath(newPath)
+      void refreshGitStatus()
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
     }
@@ -476,6 +583,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
 
       await refreshParentDirectory(entry.parentPath)
       setSelectedPath(isSearching ? null : entry.parentPath)
+      void refreshGitStatus()
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
     }
@@ -491,20 +599,21 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     }
 
     const targetDir = entry ? (entry.isDir ? entry.path : entry.parentPath) : rootPath
-    const canDeletePath = typeof window.api.deletePath === 'function'
+    const canUsePathCommands = !entry?.gitDeleted
+    const canDeletePath = canUsePathCommands && typeof window.api.deletePath === 'function'
     const command = await window.api.showContextMenu([
-      ...(entry && !entry.isDir ? [{ id: 'open', label: 'Open' }] : []),
-      ...(entry && !entry.isDir ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
-      ...(entry?.isDir && !isSearching
+      ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
+      ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
+      ...(entry?.isDir && !isSearching && canUsePathCommands
         ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
         : []),
       ...(entry ? [{ type: 'separator' as const }] : []),
       { id: 'new-file', label: 'New File' },
       { id: 'new-folder', label: 'New Folder' },
       { type: 'separator' as const },
-      ...(entry ? [{ id: 'copy', label: 'Copy' }] : []),
+      ...(entry && canUsePathCommands ? [{ id: 'copy', label: 'Copy' }] : []),
       { id: 'paste', label: 'Paste', enabled: Boolean(clipboard) && !isSearching },
-      ...(entry ? [{ id: 'rename', label: 'Rename' }] : []),
+      ...(entry && canUsePathCommands ? [{ id: 'rename', label: 'Rename' }] : []),
       ...(entry ? [{ id: 'delete', label: canDeletePath ? 'Delete' : 'Delete (restart app)', enabled: canDeletePath }] : []),
       { type: 'separator' as const },
       { id: 'refresh', label: 'Refresh' },
@@ -546,6 +655,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
       } else {
         await refreshParentDirectory(targetDir)
       }
+      await refreshGitStatus()
     }
   }
 
@@ -567,7 +677,12 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     if (refreshToken === lastManualRefreshRef.current) return
     lastManualRefreshRef.current = refreshToken
     void refreshTree()
-  }, [refreshToken, refreshTree])
+    void refreshGitStatus()
+  }, [refreshGitStatus, refreshToken, refreshTree])
+
+  useEffect(() => {
+    void refreshTree()
+  }, [gitStatus?.updatedAt, refreshTree])
 
   useEffect(() => {
     let cancelled = false
@@ -579,7 +694,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     }
 
     setSearching(true)
-    searchFiles(rootPath, query)
+    searchFiles(rootPath, query, gitStatus)
       .then((results) => {
         if (!cancelled) {
           setSearchResults(results)
@@ -593,7 +708,7 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
     return () => {
       cancelled = true
     }
-  }, [rootPath, query, isSearching])
+  }, [gitStatus, rootPath, query, isSearching])
 
   useEffect(() => {
     let disposed = false
@@ -748,6 +863,9 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
         const isExpanded = entry.isDir && expandedPaths[entry.path]
         const isRenaming = renameDraft?.entry.path === entry.path
         const meta = entry.parentPath.slice(rootPath.length).replace(/^[\\/]+/, '')
+        const gitStatusKind = getEntryGitStatus(gitStatus, entry)
+        const gitAppearance = gitStatusAppearance(gitStatusKind)
+        const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[#d7d7dc] group-hover:text-[#fff7d7]' : '')
 
         return (
           <div
@@ -757,6 +875,11 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
             aria-expanded={!isSearching && entry.isDir ? isExpanded : undefined}
             onClick={() => {
               if (isRenaming) return
+              if (entry.gitDeleted) {
+                setSelectedPath(entry.path)
+                focusTree()
+                return
+              }
               setSelectedPath(entry.path)
               void activateEntry(entry)
               focusTree()
@@ -779,10 +902,13 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
                       'h-5 w-full rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
                     )
                   ) : (
-                    <div className="truncate">{entry.name}</div>
+                    <div className={`truncate ${gitAppearance.textClass}`}>{entry.name}</div>
                   )}
                   <div className="truncate text-[10px] text-[#5a5a63]">{meta || rootPath}</div>
                 </div>
+                {gitAppearance.badge && (
+                  <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
+                )}
               </>
             ) : entry.isDir ? (
               <>
@@ -793,7 +919,10 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
                     'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] font-medium text-[#ececee] outline-none focus:border-[#4f6ad7]'
                   )
                 ) : (
-                  <span className="truncate font-medium text-[#d7d7dc] group-hover:text-[#fff7d7]">{entry.name}</span>
+                  <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
+                )}
+                {gitAppearance.badge && (
+                  <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
                 )}
               </>
             ) : (
@@ -805,7 +934,10 @@ function ExplorerTree({ workspaceId, rootPath, query, refreshToken, onOpenFile }
                     'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
                   )
                 ) : (
-                  <span className="truncate">{entry.name}</span>
+                  <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
+                )}
+                {gitAppearance.badge && (
+                  <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
                 )}
               </>
             )}
@@ -826,6 +958,7 @@ export default function FileExplorer({ workspaceId }: Props) {
   const openFile = useWorkspaceStore((s) => s.openFile)
   const [query, setQuery] = useState('')
   const [refreshToken, setRefreshToken] = useState(0)
+  const { status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderPath)
 
   const handleOpen = async () => {
     const dir = await window.api.openDir()
@@ -858,7 +991,10 @@ export default function FileExplorer({ workspaceId }: Props) {
           <div className="flex items-center gap-1.5">
             {folderPath && (
               <button
-                onClick={() => setRefreshToken((current) => current + 1)}
+                onClick={() => {
+                  setRefreshToken((current) => current + 1)
+                  void refreshGitStatus()
+                }}
                 className="h-6 rounded-md border border-[#24252b] bg-[#15161a] px-2 text-[10px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee]"
                 title="Refresh files"
               >
@@ -893,6 +1029,8 @@ export default function FileExplorer({ workspaceId }: Props) {
             rootPath={folderPath}
             query={query}
             refreshToken={refreshToken}
+            gitStatus={gitStatus}
+            refreshGitStatus={refreshGitStatus}
             onOpenFile={handleOpenFile}
           />
         ) : (

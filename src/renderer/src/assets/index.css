@@ -218,3 +218,39 @@ body {
 .app-no-drag {
   -webkit-app-region: no-drag;
 }
+
+.git-change-gutter {
+  width: 4px !important;
+  margin-left: 3px;
+  border-radius: 999px;
+}
+
+.git-change-added {
+  background: #35d07f;
+  box-shadow: 0 0 8px rgba(53, 208, 127, 0.28);
+}
+
+.git-change-modified {
+  background: #f0a340;
+  box-shadow: 0 0 8px rgba(240, 163, 64, 0.24);
+}
+
+.git-change-deleted {
+  position: relative;
+  width: 0 !important;
+  margin-left: 0;
+  background: transparent;
+}
+
+.git-change-deleted::before {
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  content: "";
+  width: 0;
+  height: 0;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid #ff5a5f;
+  border-top: 5px solid transparent;
+  filter: drop-shadow(0 0 5px rgba(255, 90, 95, 0.35));
+}

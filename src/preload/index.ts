@@ -30,6 +30,22 @@ type SpecialistActionId =
 type SpecialistPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
+type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
+type GitStatusEntry = {
+  path: string
+  relativePath: string
+  status: GitFileStatus
+  staged: boolean
+  unstaged: boolean
+}
+type GitStatusSnapshot = {
+  repoRoot: string
+  files: Record<string, GitStatusEntry>
+  updatedAt: number
+}
+type GitFileBaseResult =
+  | { ok: true; content: string }
+  | { ok: false; message: string }
 
 const specialistPromptFiles: Record<SpecialistActionId, string> = {
   architect: 'architect-prompt.md',
@@ -118,6 +134,12 @@ contextBridge.exposeInMainWorld('api', {
   showContextMenu: (items: ContextMenuItem[])  => ipcRenderer.invoke('app:show-context-menu', items),
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) =>
     ipcRenderer.invoke('app:show-menubar-menu', label, position),
+  getGitRepoRoot: (folderPath: string): Promise<string | null> =>
+    ipcRenderer.invoke('git:get-repo-root', folderPath),
+  getGitStatus: (repoRoot: string): Promise<GitStatusSnapshot> =>
+    ipcRenderer.invoke('git:get-status', repoRoot),
+  getGitFileBase: (repoRoot: string, filePath: string): Promise<GitFileBaseResult> =>
+    ipcRenderer.invoke('git:get-file-base', repoRoot, filePath),
 
   // Agent CLI Terminal
   terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli, initialPrompt, cliRuntimes, shellOnly }),
