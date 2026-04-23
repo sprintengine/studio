@@ -2140,7 +2140,7 @@ function SwarmTaskGraphView({
               return (
                 <div
                   key={node.id}
-                  className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-2xl border border-[#30d158]/55 bg-[#30d158]/12 px-5 py-4 text-center shadow-[0_0_34px_rgba(48,209,88,0.18)]"
+                  className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden rounded-lg border border-[#30d158]/55 bg-[#30d158]/12 px-5 py-4 text-center shadow-[0_0_34px_rgba(48,209,88,0.18)]"
                   style={{
                     left: node.x,
                     top: node.y,
@@ -2151,7 +2151,7 @@ function SwarmTaskGraphView({
                   <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
                     End Product
                   </div>
-                  <div className="mt-2 text-sm font-semibold leading-5 text-[#d4ffdc]">
+                  <div className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[#d4ffdc]">
                     {formatSwarmGoalPreview(swarmState.goal)}
                   </div>
                   <div className="mt-3 rounded-full border border-[#30d158]/35 bg-[#061210] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#b9f7c8]">
@@ -2176,7 +2176,7 @@ function SwarmTaskGraphView({
               <button
                 key={node.id}
                 onClick={() => onSelectTask(task.id)}
-                className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border p-3 text-left transition-transform hover:scale-[1.02] ${
+                className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.02] ${
                   task.status === 'in_progress' ? 'animate-pulse' : ''
                 } ${isSelected || isFocused ? 'z-10' : 'z-0'}`}
                 style={{
@@ -2197,8 +2197,8 @@ function SwarmTaskGraphView({
                 />
                 <div className="flex items-start justify-between gap-3 pl-2">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-[#ececee]">{task.title}</div>
-                    <div className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                    <div className="line-clamp-2 text-sm font-semibold leading-5 text-[#ececee]">{task.title}</div>
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
                       <span>{task.id}</span>
                       <span
                         className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -2207,13 +2207,13 @@ function SwarmTaskGraphView({
                           boxShadow: `0 0 8px ${swarmRoleAccent[task.role]}88`,
                         }}
                       />
-                      <span style={{ color: swarmRoleAccent[task.role] }}>
+                      <span className="min-w-0 truncate" style={{ color: swarmRoleAccent[task.role] }}>
                         {swarmRoleLabels[task.role]}
                       </span>
                     </div>
                   </div>
                   <span
-                    className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${taskGraphStatusTone(task.status, boardColumn)}`}
+                    className={`max-w-[92px] shrink-0 truncate rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${taskGraphStatusTone(task.status, boardColumn)}`}
                   >
                     {boardColumn === 'ready' ? 'Ready' : taskStateLabel[task.status]}
                   </span>
@@ -2232,7 +2232,7 @@ function SwarmTaskGraphView({
                   </span>
                   {ownerLabel && ownerRole ? (
                     <span
-                      className="rounded-full border px-2 py-1"
+                      className="max-w-full truncate rounded-full border px-2 py-1"
                       style={taskClaimBadgeStyle(ownerRole)}
                     >
                       {ownerLabel}
@@ -2728,9 +2728,7 @@ function taskGraphNodeStyle(
       ? '#30d158'
       : task.status === 'needs_input'
         ? '#ffbf2f'
-        : task.status === 'in_progress'
-          ? '#ffa600'
-          : roleAccent
+        : roleAccent
   const emphasis = selected ? 0.46 : focused ? 0.36 : 0.18
 
   return {
