@@ -159,6 +159,7 @@ export type Workspace = {
   name: string
   mode: 'standard' | 'swarm'
   folderPath: string | null
+  folderMissing?: boolean
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>

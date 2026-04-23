@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type {
   AgentCli,
   AgentState,
@@ -122,6 +123,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
+  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
+  const {
+    folderPath: savedFolderPath,
+    folderReadyPath,
+    folderMissing,
+    checkingFolder,
+    recheckFolder,
+  } = useWorkspaceFolderStatus(workspaceId)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<SwarmView>('project')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
@@ -148,7 +157,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
   const swarmState = workspace?.swarmState ?? null
   const effectiveView = fixedView ?? activeView
-  const folderPath = workspace?.folderPath ?? null
+  const folderPath = folderReadyPath
   const agents = workspace?.agents ?? {}
   const swarmName = swarmState?.name ?? workspace?.name ?? 'Swarm Team'
 
@@ -163,10 +172,19 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   )
 
   useEffect(() => {
-    if (!folderPath) {
+    if (!savedFolderPath) {
       setSyncState({
         status: 'idle',
         message: 'Choose a workspace folder to watch agent-managed swarm state.',
+      })
+      return
+    }
+    if (!folderPath) {
+      setSyncState({
+        status: folderMissing ? 'error' : 'idle',
+        message: folderMissing
+          ? `Saved workspace folder is missing: ${savedFolderPath}`
+          : 'Checking workspace folder before watching swarm state.',
       })
       return
     }
@@ -198,7 +216,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     return () => {
       cancelled = true
     }
-  }, [folderPath, setSwarmState, swarmName, workspaceId])
+  }, [folderMissing, folderPath, savedFolderPath, setSwarmState, swarmName, workspaceId])
 
   useEffect(() => {
     if (!folderPath) return
@@ -304,6 +322,35 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const selectedRecoveryCliOption =
     cliOptions.find((option) => option.value === recoveryDialog?.cli) ?? cliOptions[0]
   const hasPlannedTasks = swarmState.tasks.length > 0
+  const relinkFolder = async () => {
+    const dir = await window.api.openDir()
+    if (dir) setFolderPath(workspaceId, dir)
+  }
+  const folderStatusBanner = savedFolderPath && !folderPath ? (
+    <div className="border-b border-[#24252b] bg-[#111216] px-4 py-2 text-[12px] text-[#9a9aa2]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="min-w-0 truncate">
+          {checkingFolder ? 'Checking workspace folder...' : `Saved folder is missing: ${savedFolderPath}`}
+        </span>
+        {folderMissing ? (
+          <span className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => void recheckFolder()}
+              className="rounded-md border border-[#303139] bg-[#17181d] px-2.5 py-1 text-[11px] font-semibold text-[#d7d7dc] transition-colors hover:bg-[#1d1e24] hover:text-[#ececee]"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => void relinkFolder()}
+              className="rounded-md border border-[#6ee7d8]/45 bg-[#6ee7d8]/10 px-2.5 py-1 text-[11px] font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/16"
+            >
+              Relink
+            </button>
+          </span>
+        ) : null}
+      </div>
+    </div>
+  ) : null
   const showPlanningActions = !hasPlannedTasks
   const needsInputAgent = runtimeAgents.find((agent) => agent.status === 'needs_input')
   const runningAgent = runtimeAgents.find((agent) => agent.status === 'running')
@@ -763,6 +810,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         ) : null}
 
       </div>
+
+      {folderStatusBanner}
 
       {effectiveView === 'project' ? (
         <SwarmProjectView
@@ -2349,7 +2398,6 @@ function SwarmTaskGraphView({
           })}
         </div>
       </div>
-
       <aside className="border-t border-[#1f2025] bg-[#0d0e11] p-4 lg:border-l lg:border-t-0">
         <div className="mb-5">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Task Graph</div>

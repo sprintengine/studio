@@ -45,6 +45,7 @@ interface WorkspaceStore {
   setActiveWorkspace: (id: WorkspaceId) => void
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
+  setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
   addSwarmMember: (
@@ -322,6 +323,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             name: options?.name?.trim() || fallbackName,
             mode: swarmState ? 'swarm' : 'standard',
             folderPath: options?.folderPath ?? null,
+            folderMissing: false,
             templateId: template.id,
             layoutModel: template.layout,
             agents,
@@ -360,7 +362,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       setFolderPath: (id, folderPath) =>
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === id)
-          if (ws) ws.folderPath = folderPath
+          if (ws) {
+            ws.folderPath = folderPath
+            ws.folderMissing = false
+          }
+        }),
+
+      setFolderMissing: (id, folderMissing) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === id)
+          if (ws) ws.folderMissing = folderMissing
         }),
 
       updateAgent: (workspaceId, agentId, update) =>
@@ -459,6 +470,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             name: `${ws.name} (imported)`,
             mode: ws.mode ?? (ws.swarmState ? 'swarm' : 'standard'),
             folderPath: ws.folderPath ?? null,
+            folderMissing: false,
             agents: Object.fromEntries(
               Object.entries(ws.agents).map(([k, v]) => [
                 k,
@@ -574,7 +586,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: 'free-ai-ide-workspaces',
-      version: 15,
+      version: 16,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -707,6 +719,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
         if (version < 15) {
           state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
+        }
+        if (version < 16) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            folderMissing: false,
+          }))
         }
         return state as never
       },

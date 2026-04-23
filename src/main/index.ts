@@ -4,7 +4,17 @@ import { existsSync, watch, type FSWatcher } from 'fs'
 import { access, cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
-import { getGitFileBase, getGitRepoRoot, getGitStatus } from './git'
+import {
+  commitGitChanges,
+  getGitBranches,
+  getGitFileBase,
+  getGitRepoRoot,
+  getGitStatus,
+  pushGitBranch,
+  stageGitPaths,
+  switchGitBranch,
+  unstageGitPaths,
+} from './git'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -754,7 +764,11 @@ ipcMain.handle('terminal:kill', (_, sessionId: string) => {
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
 
-ipcMain.handle('fs:watch-start', (event, dirPath: string) => {
+function isMissingPathError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+}
+
+ipcMain.handle('fs:watch-start', async (event, dirPath: string) => {
   if (!trackedWatcherSenders.has(event.sender.id)) {
     trackedWatcherSenders.add(event.sender.id)
     event.sender.once('destroyed', () => {
@@ -762,6 +776,8 @@ ipcMain.handle('fs:watch-start', (event, dirPath: string) => {
       disposeFileWatchersForSender(event.sender.id)
     })
   }
+
+  if (!(await pathExists(dirPath))) return null
 
   const watchId = `watch-${++nextFileWatcherId}`
   const recursive = process.platform === 'win32' || process.platform === 'darwin'
@@ -780,13 +796,19 @@ ipcMain.handle('fs:watch-start', (event, dirPath: string) => {
     fileWatchers.set(watchId, { watcher, senderId: event.sender.id })
     return watchId
   } catch (error) {
+    if (isMissingPathError(error)) return null
     if (!recursive) {
       throw error
     }
 
-    const watcher = createWatcher(false)
-    fileWatchers.set(watchId, { watcher, senderId: event.sender.id })
-    return watchId
+    try {
+      const watcher = createWatcher(false)
+      fileWatchers.set(watchId, { watcher, senderId: event.sender.id })
+      return watchId
+    } catch (fallbackError) {
+      if (isMissingPathError(fallbackError)) return null
+      throw fallbackError
+    }
   }
 })
 
@@ -801,6 +823,10 @@ ipcMain.handle('fs:readdir', async (_, dirPath: string) => {
 
 ipcMain.handle('fs:readfile', async (_, filePath: string) => {
   return readFile(filePath, 'utf-8')
+})
+
+ipcMain.handle('fs:path-exists', async (_, targetPath: string) => {
+  return pathExists(targetPath)
 })
 
 ipcMain.handle('specialist:read-prompt', async (_, specialistId: SpecialistActionId) => {
@@ -878,6 +904,30 @@ ipcMain.handle('git:get-status', async (_, repoRoot: string) => {
 
 ipcMain.handle('git:get-file-base', async (_, repoRoot: string, filePath: string) => {
   return getGitFileBase(repoRoot, filePath)
+})
+
+ipcMain.handle('git:get-branches', async (_, repoRoot: string) => {
+  return getGitBranches(repoRoot)
+})
+
+ipcMain.handle('git:stage', async (_, repoRoot: string, paths: string[]) => {
+  return stageGitPaths(repoRoot, paths)
+})
+
+ipcMain.handle('git:unstage', async (_, repoRoot: string, paths: string[]) => {
+  return unstageGitPaths(repoRoot, paths)
+})
+
+ipcMain.handle('git:commit', async (_, repoRoot: string, message: string) => {
+  return commitGitChanges(repoRoot, message)
+})
+
+ipcMain.handle('git:push', async (_, repoRoot: string) => {
+  return pushGitBranch(repoRoot)
+})
+
+ipcMain.handle('git:switch-branch', async (_, repoRoot: string, branchName: string) => {
+  return switchGitBranch(repoRoot, branchName)
 })
 
 ipcMain.handle('fs:dialog:opendir', async (event) => {

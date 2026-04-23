@@ -46,6 +46,23 @@ type GitStatusSnapshot = {
 type GitFileBaseResult =
   | { ok: true; content: string }
   | { ok: false; message: string }
+type GitBranch = {
+  name: string
+  current: boolean
+  upstream: string | null
+}
+type GitBranchSnapshot = {
+  current: string | null
+  branches: GitBranch[]
+  ahead: number
+  behind: number
+}
+type GitCommandResult = {
+  ok: boolean
+  stdout: string
+  stderr: string
+  message: string | null
+}
 
 const specialistPromptFiles: Record<SpecialistActionId, string> = {
   architect: 'architect-prompt.md',
@@ -109,6 +126,7 @@ contextBridge.exposeInMainWorld('api', {
   // File system
   readdir:   (path: string)                    => ipcRenderer.invoke('fs:readdir', path),
   readfile:  (path: string)                    => ipcRenderer.invoke('fs:readfile', path),
+  pathExists: (path: string)                   => ipcRenderer.invoke('fs:path-exists', path),
   readSpecialistPrompt,
   writefile: (path: string, content: string)   => ipcRenderer.invoke('fs:writefile', path, content),
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),
@@ -120,6 +138,9 @@ contextBridge.exposeInMainWorld('api', {
   showItemInFolder: (targetPath: string) => ipcRenderer.invoke('fs:show-item-in-folder', targetPath),
   watchPath:  async (path: string, cb: (event: FileWatchEvent) => void) => {
     const watchId = await ipcRenderer.invoke('fs:watch-start', path)
+    if (!watchId) {
+      throw new Error(`Cannot watch missing path: ${path}`)
+    }
     const ch = `fs:watch-event:${watchId}`
     const handler = (_: Electron.IpcRendererEvent, event: FileWatchEvent) => cb(event)
     ipcRenderer.on(ch, handler)
@@ -140,6 +161,18 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('git:get-status', repoRoot),
   getGitFileBase: (repoRoot: string, filePath: string): Promise<GitFileBaseResult> =>
     ipcRenderer.invoke('git:get-file-base', repoRoot, filePath),
+  getGitBranches: (repoRoot: string): Promise<GitBranchSnapshot> =>
+    ipcRenderer.invoke('git:get-branches', repoRoot),
+  stageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:stage', repoRoot, paths),
+  unstageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:unstage', repoRoot, paths),
+  commitGitChanges: (repoRoot: string, message: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:commit', repoRoot, message),
+  pushGitBranch: (repoRoot: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:push', repoRoot),
+  switchGitBranch: (repoRoot: string, branchName: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:switch-branch', repoRoot, branchName),
 
   // Agent CLI Terminal
   terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli, initialPrompt, cliRuntimes, shellOnly }),

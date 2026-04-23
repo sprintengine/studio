@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getGitEntry, normalizePathKey, useGitStatus } from '../../hooks/useGitStatus'
+import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { focusOrAddEditorBesideExplorer } from '../../utils/modelRegistry'
 
 type Entry = {
@@ -953,12 +954,18 @@ interface Props {
 }
 
 export default function FileExplorer({ workspaceId }: Props) {
-  const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
+  const {
+    folderPath,
+    folderReadyPath,
+    folderMissing,
+    checkingFolder,
+    recheckFolder,
+  } = useWorkspaceFolderStatus(workspaceId)
   const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const [query, setQuery] = useState('')
   const [refreshToken, setRefreshToken] = useState(0)
-  const { status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderPath)
+  const { status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderReadyPath)
 
   const handleOpen = async () => {
     const dir = await window.api.openDir()
@@ -989,7 +996,7 @@ export default function FileExplorer({ workspaceId }: Props) {
             {rootName && <span className="truncate font-mono text-[11px] text-[#9a9aa2]">{rootName}</span>}
           </div>
           <div className="flex items-center gap-1.5">
-            {folderPath && (
+            {folderReadyPath && (
               <button
                 onClick={() => {
                   setRefreshToken((current) => current + 1)
@@ -1010,7 +1017,7 @@ export default function FileExplorer({ workspaceId }: Props) {
           </div>
         </div>
 
-        {folderPath && (
+        {folderReadyPath && (
           <div className="px-3 pb-2">
             <input
               value={query}
@@ -1023,16 +1030,39 @@ export default function FileExplorer({ workspaceId }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {folderPath ? (
+        {folderReadyPath ? (
           <ExplorerTree
             workspaceId={workspaceId}
-            rootPath={folderPath}
+            rootPath={folderReadyPath}
             query={query}
             refreshToken={refreshToken}
             gitStatus={gitStatus}
             refreshGitStatus={refreshGitStatus}
             onOpenFile={handleOpenFile}
           />
+        ) : checkingFolder ? (
+          <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[#5a5a63]">
+            Checking workspace folder...
+          </div>
+        ) : folderMissing && folderPath ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center text-[#5a5a63]">
+            <p className="text-[12px]">Saved folder is missing.</p>
+            <p className="max-w-full truncate font-mono text-[11px] text-[#8a8a92]">{folderPath}</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void recheckFolder()}
+                className="rounded-md border border-[#24252b] bg-[#15161a] px-3 py-1.5 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20]"
+              >
+                Retry
+              </button>
+              <button
+                onClick={handleOpen}
+                className="rounded-md border border-[#6ee7d8]/45 bg-[#6ee7d8]/10 px-3 py-1.5 text-[11px] font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/16"
+              >
+                Relink
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-[#5a5a63]">
             <p className="px-4 text-center text-[12px]">No folder open</p>

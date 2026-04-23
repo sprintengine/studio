@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentCli, SwarmRole } from '../../types/workspace'
 import { loadSpecialistPrompt } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
@@ -63,9 +64,12 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const agent = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
-  const folderPath = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? undefined
-  )
+  const {
+    folderPath: savedFolderPath,
+    folderReadyPath,
+    folderMissing,
+    checkingFolder,
+  } = useWorkspaceFolderStatus(workspaceId)
   const swarmName = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.swarmState?.name
   )
@@ -95,6 +99,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    if (savedFolderPath && !folderReadyPath) return
 
     if (!agent?.cliSessionId) {
       updateAgent(workspaceId, agentId, {
@@ -320,12 +325,12 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       await ensureSpecialistStartupPrompt()
       if (disposed) return
 
-      const swarmStatePath = folderPath && swarmName ? getSwarmStateFilePath(folderPath, swarmName) : undefined
+      const swarmStatePath = folderReadyPath && swarmName ? getSwarmStateFilePath(folderReadyPath, swarmName) : undefined
       void window.api.terminalSpawn(
         sessionId,
         term.cols,
         term.rows,
-        folderPath,
+        folderReadyPath ?? undefined,
         shouldResume,
         swarmStatePath,
         cli,
@@ -376,16 +381,29 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agent?.specialistId,
     cli,
     cliRuntimes,
-    folderPath,
+    folderReadyPath,
+    savedFolderPath,
     swarmName,
     updateAgent,
   ])
+
+  const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
 
   return (
     <div
       ref={containerRef}
       tabIndex={0}
       className="absolute inset-0 overflow-hidden px-2 pb-2 cursor-text"
-    />
+    >
+      {folderBlocked ? (
+        <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[#5a5a63]">
+          {checkingFolder
+            ? 'Checking workspace folder before starting this terminal...'
+            : folderMissing
+              ? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'
+              : null}
+        </div>
+      ) : null}
+    </div>
   )
 }

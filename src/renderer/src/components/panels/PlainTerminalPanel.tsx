@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
 
 interface Props {
@@ -13,9 +14,12 @@ interface Props {
 export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(`terminal-${terminalId}`)
-  const folderPath = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? undefined
-  )
+  const {
+    folderPath: savedFolderPath,
+    folderReadyPath,
+    folderMissing,
+    checkingFolder,
+  } = useWorkspaceFolderStatus(workspaceId)
   const swarmName = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.swarmState?.name
   )
@@ -23,6 +27,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    if (savedFolderPath && !folderReadyPath) return
 
     const sessionId = sessionIdRef.current
     const term = new Terminal({
@@ -151,12 +156,12 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     container.addEventListener('keydown', handleKeyDown)
     container.addEventListener('contextmenu', handleContextMenu)
 
-    const swarmStatePath = folderPath && swarmName ? getSwarmStateFilePath(folderPath, swarmName) : undefined
+    const swarmStatePath = folderReadyPath && swarmName ? getSwarmStateFilePath(folderReadyPath, swarmName) : undefined
     void window.api.terminalSpawn(
       sessionId,
       term.cols,
       term.rows,
-      folderPath,
+      folderReadyPath ?? undefined,
       false,
       swarmStatePath,
       undefined,
@@ -187,7 +192,9 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
       onResizeDisposable.dispose()
       term.dispose()
     }
-  }, [folderPath, swarmName, terminalId, workspaceId])
+  }, [folderReadyPath, savedFolderPath, swarmName, terminalId, workspaceId])
+
+  const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
 
   return (
     <div className="relative h-full bg-[#09090b]">
@@ -195,7 +202,17 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
         ref={containerRef}
         tabIndex={0}
         className="absolute inset-0 cursor-text overflow-hidden px-2 pb-2"
-      />
+      >
+        {folderBlocked ? (
+          <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[#5a5a63]">
+            {checkingFolder
+              ? 'Checking workspace folder before starting this terminal...'
+              : folderMissing
+                ? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'
+                : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

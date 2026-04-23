@@ -38,12 +38,30 @@ declare global {
   type GitFileBaseResult =
     | { ok: true; content: string }
     | { ok: false; message: string }
+  type GitBranch = {
+    name: string
+    current: boolean
+    upstream: string | null
+  }
+  type GitBranchSnapshot = {
+    current: string | null
+    branches: GitBranch[]
+    ahead: number
+    behind: number
+  }
+  type GitCommandResult = {
+    ok: boolean
+    stdout: string
+    stderr: string
+    message: string | null
+  }
 
   interface Window {
     api: {
       platform: string
       readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>
       readfile:  (path: string) => Promise<string>
+      pathExists: (path: string) => Promise<boolean>
       readSpecialistPrompt: (specialistId: SpecialistActionId) => Promise<SpecialistPromptResult>
       writefile: (path: string, content: string) => Promise<void>
       createFile: (parentDir: string, name: string) => Promise<string>
@@ -60,6 +78,12 @@ declare global {
       getGitRepoRoot: (folderPath: string) => Promise<string | null>
       getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
       getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
+      getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>
+      stageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
+      unstageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
+      commitGitChanges: (repoRoot: string, message: string) => Promise<GitCommandResult>
+      pushGitBranch: (repoRoot: string) => Promise<GitCommandResult>
+      switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>
 
       terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => Promise<void>
       terminalWrite:  (sessionId: string, data: string) => Promise<void>

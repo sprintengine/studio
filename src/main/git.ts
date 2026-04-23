@@ -24,6 +24,26 @@ export type GitFileBaseResult =
   | { ok: true; content: string }
   | { ok: false; message: string }
 
+export type GitBranch = {
+  name: string
+  current: boolean
+  upstream: string | null
+}
+
+export type GitBranchSnapshot = {
+  current: string | null
+  branches: GitBranch[]
+  ahead: number
+  behind: number
+}
+
+export type GitCommandResult = {
+  ok: boolean
+  stdout: string
+  stderr: string
+  message: string | null
+}
+
 type GitStatusCode = {
   index: string
   worktree: string
@@ -37,6 +57,26 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
   })
 
   return stdout
+}
+
+async function runGitCommand(cwd: string, args: string[]): Promise<GitCommandResult> {
+  try {
+    const { stdout, stderr } = await execFileAsync('git', ['-C', cwd, ...args], {
+      encoding: 'utf8',
+      maxBuffer: 20 * 1024 * 1024,
+      windowsHide: true,
+    })
+
+    return { ok: true, stdout, stderr, message: null }
+  } catch (error) {
+    const execError = error as { stdout?: string; stderr?: string; message?: string }
+    return {
+      ok: false,
+      stdout: execError.stdout ?? '',
+      stderr: execError.stderr ?? '',
+      message: execError.stderr?.trim() || execError.message || 'Git command failed.',
+    }
+  }
 }
 
 export async function getGitRepoRoot(folderPath: string): Promise<string | null> {
@@ -85,7 +125,7 @@ function parseStatusEntry(repoRoot: string, code: GitStatusCode, relativePath: s
     relativePath,
     status: toFileStatus(code),
     staged: code.index !== ' ' && code.index !== '?',
-    unstaged: code.worktree !== ' ' && code.worktree !== '?',
+    unstaged: code.index === '?' || code.worktree !== ' ',
   }
 }
 
@@ -134,4 +174,69 @@ export async function getGitFileBase(repoRoot: string, filePath: string): Promis
     const message = error instanceof Error ? error.message : String(error)
     return { ok: false, message }
   }
+}
+
+export async function getGitBranches(repoRoot: string): Promise<GitBranchSnapshot> {
+  const branchOutput = await runGit(repoRoot, [
+    'branch',
+    '--format=%(refname:short)%09%(HEAD)%09%(upstream:short)',
+    '--sort=refname',
+  ])
+  const branches = branchOutput
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [name, head, upstream] = line.split('\t')
+      return {
+        name,
+        current: head === '*',
+        upstream: upstream || null,
+      }
+    })
+  const current = branches.find((branch) => branch.current)?.name ?? null
+  let ahead = 0
+  let behind = 0
+
+  try {
+    const counts = await runGit(repoRoot, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'])
+    const [aheadText, behindText] = counts.trim().split(/\s+/)
+    ahead = Number.parseInt(aheadText ?? '0', 10) || 0
+    behind = Number.parseInt(behindText ?? '0', 10) || 0
+  } catch {
+    // Repositories without an upstream simply have no ahead/behind counts.
+  }
+
+  return { current, branches, ahead, behind }
+}
+
+export async function stageGitPaths(repoRoot: string, paths: string[]): Promise<GitCommandResult> {
+  if (!paths.length) return runGitCommand(repoRoot, ['add', '-A'])
+  return runGitCommand(repoRoot, ['add', '--', ...paths.map((path) => getRelativeGitPath(repoRoot, path))])
+}
+
+export async function unstageGitPaths(repoRoot: string, paths: string[]): Promise<GitCommandResult> {
+  if (!paths.length) return runGitCommand(repoRoot, ['restore', '--staged', '.'])
+  return runGitCommand(repoRoot, ['restore', '--staged', '--', ...paths.map((path) => getRelativeGitPath(repoRoot, path))])
+}
+
+export async function commitGitChanges(repoRoot: string, message: string): Promise<GitCommandResult> {
+  const trimmedMessage = message.trim()
+  if (!trimmedMessage) {
+    return { ok: false, stdout: '', stderr: '', message: 'Enter a commit message.' }
+  }
+
+  return runGitCommand(repoRoot, ['commit', '-m', trimmedMessage])
+}
+
+export async function pushGitBranch(repoRoot: string): Promise<GitCommandResult> {
+  return runGitCommand(repoRoot, ['push'])
+}
+
+export async function switchGitBranch(repoRoot: string, branchName: string): Promise<GitCommandResult> {
+  const trimmedBranch = branchName.trim()
+  if (!trimmedBranch) {
+    return { ok: false, stdout: '', stderr: '', message: 'Choose a branch.' }
+  }
+
+  return runGitCommand(repoRoot, ['switch', trimmedBranch])
 }
