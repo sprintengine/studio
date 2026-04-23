@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
+import { focusOrAddComponentTab } from '../../utils/modelRegistry'
 
 type GitPanelMessage = {
   tone: 'neutral' | 'error' | 'success'
@@ -68,6 +69,7 @@ function resultMessage(result: GitCommandResult, fallback: string): GitPanelMess
 
 export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
+  const openFile = useWorkspaceStore((s) => s.openFile)
   const { repoRoot, status, refresh } = useGitStatus(folderPath)
   const [branches, setBranches] = useState<GitBranchSnapshot | null>(null)
   const [history, setHistory] = useState<GitHistoryState>({ status: 'loading' })
@@ -205,6 +207,23 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     )
   }
 
+  const handleOpenFile = async (entry: GitStatusEntry) => {
+    const name = entry.relativePath.split('/').filter(Boolean).pop() ?? entry.relativePath
+    let content = ''
+
+    try {
+      content = await window.api.readfile(entry.path)
+    } catch {
+      if (repoRoot && typeof window.api.getGitFileBase === 'function') {
+        const result = await window.api.getGitFileBase(repoRoot, entry.path)
+        content = result.ok ? result.content : ''
+      }
+    }
+
+    openFile(workspaceId, entry.path, name, content)
+    focusOrAddComponentTab(workspaceId, 'editor', 'Editor')
+  }
+
   if (!folderPath) {
     return (
       <div className="flex h-full items-center justify-center bg-[#0d0e11] px-6 text-center text-[12px] text-[#5a5a63]">
@@ -268,7 +287,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           <div className="px-2 py-3 text-[12px] text-[#5a5a63]">Working tree clean</div>
         ) : (
           groups.map((group) => (
-            <ChangeGroup key={group.title} group={group} busy={busy} />
+            <ChangeGroup
+              key={group.title}
+              group={group}
+              busy={busy}
+              onOpenFile={handleOpenFile}
+            />
           ))
         )}
         <CommitHistory history={history} />
@@ -311,7 +335,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         </div>
         {message ? (
           <div
-            className={`mt-2 rounded-md border px-2.5 py-2 text-[11px] ${
+            className={`mt-2 max-h-24 overflow-y-auto rounded-md border px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
               message.tone === 'error'
                 ? 'border-[#713036] bg-[#311417] text-[#ff8a8e]'
                 : message.tone === 'success'
@@ -327,7 +351,15 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   )
 }
 
-function ChangeGroup({ group, busy }: { group: GitChangeGroup; busy: string | null }) {
+function ChangeGroup({
+  group,
+  busy,
+  onOpenFile,
+}: {
+  group: GitChangeGroup
+  busy: string | null
+  onOpenFile: (entry: GitStatusEntry) => Promise<void>
+}) {
   return (
     <section className="mb-3">
       <div className="mb-1 flex h-6 items-center justify-between gap-2 px-1">
@@ -354,7 +386,17 @@ function ChangeGroup({ group, busy }: { group: GitChangeGroup; busy: string | nu
             return (
               <div
                 key={`${group.title}:${entry.path}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => void onOpenFile(entry)}
+                onKeyDown={(event) => {
+                  if (event.currentTarget !== event.target) return
+                  if (event.key !== 'Enter' && event.key !== ' ') return
+                  event.preventDefault()
+                  void onOpenFile(entry)
+                }}
                 className="group flex min-h-[26px] items-center gap-2 rounded-md px-2 py-1 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
+                title={`Open ${entry.relativePath}`}
               >
                 <span className={`min-w-0 flex-1 truncate font-mono ${appearance.textClass}`}>
                   {entry.relativePath}
@@ -364,7 +406,10 @@ function ChangeGroup({ group, busy }: { group: GitChangeGroup; busy: string | nu
                 </span>
                 <button
                   type="button"
-                  onClick={() => void group.action(entry.path)}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void group.action(entry.path)
+                  }}
                   disabled={Boolean(busy)}
                   className="h-6 rounded-md border border-[#24252b] bg-[#111216] px-2 text-[10px] text-[#8a8a92] opacity-0 transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-30 group-hover:opacity-100"
                 >

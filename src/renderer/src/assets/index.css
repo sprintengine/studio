@@ -126,6 +126,17 @@ body {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
+.flexlayout__tab_button.agent-tab-needs-input {
+  border-color: #ffbf2f;
+  color: #ffe0a3;
+  box-shadow: inset 0 0 0 1px rgba(255, 191, 47, 0.18);
+}
+
+.flexlayout__tab_button.agent-tab-needs-input.flexlayout__tab_button--selected {
+  background: #17181d;
+  border-color: #ffbf2f;
+}
+
 .flexlayout__tab_button_content {
   font-size: 12px;
 }

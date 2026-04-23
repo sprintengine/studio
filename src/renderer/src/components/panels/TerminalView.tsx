@@ -125,6 +125,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     const fitAddon = new FitAddon()
 
     const fitTerminal = () => {
+      if (container.clientWidth === 0 || container.clientHeight === 0) return
       fitAddon.fit()
       if (term.cols > 0 && term.rows > 0) {
         void window.api.terminalResize(sessionId, term.cols, term.rows)

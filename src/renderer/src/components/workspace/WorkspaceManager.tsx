@@ -23,6 +23,12 @@ const CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
 ]
 type WorkspacePanelComponent = 'explorer' | 'editor' | 'git'
 
+function workspaceNeedsInput(workspace: Workspace): boolean {
+  return Object.values(workspace.swarmState?.swarmAgents ?? {}).some(
+    (agent) => agent.status === 'needs_input'
+  )
+}
+
 export default function WorkspaceManager() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -346,6 +352,7 @@ export default function WorkspaceManager() {
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {workspaces.map((workspace) => {
             const active = !showTemplateSelector && workspace.id === activeWorkspaceId
+            const needsInput = workspaceNeedsInput(workspace)
             return (
               <div
                 key={workspace.id}
@@ -361,7 +368,17 @@ export default function WorkspaceManager() {
                     : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-[#30d158]' : 'bg-[#5a5a63]'}`} />
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    needsInput
+                      ? 'animate-pulse bg-[#ffbf2f] shadow-[0_0_10px_rgba(255,191,47,0.9)]'
+                      : active
+                        ? 'bg-[#30d158]'
+                        : 'bg-[#5a5a63]'
+                  }`}
+                  title={needsInput ? 'Workspace needs input' : undefined}
+                  aria-label={needsInput ? 'Workspace needs input' : undefined}
+                />
                 {renamingId === workspace.id ? (
                   <input
                     ref={renameInputRef}

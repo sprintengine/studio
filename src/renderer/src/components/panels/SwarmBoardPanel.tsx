@@ -69,7 +69,7 @@ type SyncState = {
 }
 
 
-type PlanReviewState = {
+type PlanReaderState = {
   open: boolean
   status: 'idle' | 'loading' | 'ready' | 'error'
   content: string
@@ -141,7 +141,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
   const [showRunSummary, setShowRunSummary] = useState(false)
-  const [planReview, setPlanReview] = useState<PlanReviewState>({
+  const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
     status: 'idle',
     content: '',
@@ -517,13 +517,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     openReadySpawnDialogForRole(task.role)
   }
 
-  const loadPlanReview = async () => {
+  const loadPlanReader = async () => {
     if (!swarmState || !folderPath) {
-      setPlanReview((current) => ({
+      setPlanReader((current) => ({
         ...current,
         open: true,
         status: 'error',
-        error: 'Choose a workspace folder before reviewing the swarm plan.',
+        error: 'Choose a workspace folder before reading the swarm plan.',
       }))
       return
     }
@@ -531,7 +531,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     const swarmRootDirectory = getSwarmRootDirectoryPath(folderPath)
     const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
     const nextPlanFilePath = getSwarmPlanFilePath(folderPath, swarmName)
-    setPlanReview((current) => ({
+    setPlanReader((current) => ({
       ...current,
       open: true,
       status: 'loading',
@@ -549,7 +549,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         content = ''
       }
 
-      setPlanReview((current) => ({
+      setPlanReader((current) => ({
         ...current,
         open: true,
         status: 'ready',
@@ -557,7 +557,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         error: null,
       }))
     } catch (error) {
-      setPlanReview((current) => ({
+      setPlanReader((current) => ({
         ...current,
         open: true,
         status: 'error',
@@ -569,7 +569,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
   const openPlanInEditor = async () => {
     if (!planFilePath) return
-    let content = planReview.content
+    let content = planReader.content
     if (!content) {
       try {
         content = await window.api.readfile(planFilePath)
@@ -579,7 +579,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     }
     openFile(workspaceId, planFilePath, 'plan.md', content)
     focusOrAddComponentTab(workspaceId, 'editor', 'Editor')
-    setPlanReview((current) => ({ ...current, open: false }))
+    setPlanReader((current) => ({ ...current, open: false }))
   }
 
   const openRecoveryDialog = () => {
@@ -726,16 +726,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                         role="menuitem"
                         onClick={() => {
                           setActionMenuOpen(false)
-                          void loadPlanReview()
-                        }}
-                        className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-                      >
-                        Review Plan
-                      </button>
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          setActionMenuOpen(false)
                           requestPlanReviews()
                         }}
                         disabled={!folderPath || specialistReviewAgents.length === 0}
@@ -832,7 +822,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             }
           }}
           onAddMember={openAddMemberDialog}
-          onReviewPlan={() => void loadPlanReview()}
+          onReadPlan={() => void loadPlanReader()}
         />
       ) : null}
 
@@ -1646,35 +1636,35 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         </div>
       ) : null}
 
-      {planReview.open ? (
+      {planReader.open ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
           <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-2xl border border-[#ffbf2f]/45 bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55),0_0_32px_rgba(255,191,47,0.12)]">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0 flex-1">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
-                  Architect Plan Review
+                  Architect Plan
                 </div>
                 <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
                   {planFilePath ?? 'swarm/plan.md'}
                 </h3>
                 <p className="mt-2 text-sm text-[#9a9aa2]">
-                  Review the architect-authored low-level design before spawning specialists.
+                  Read the architect-authored plan for this swarm run.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() =>
-                    setPlanReview((current) => ({
+                    setPlanReader((current) => ({
                       ...current,
                       mode: current.mode === 'preview' ? 'source' : 'preview',
                     }))
                   }
                   className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
-                  {planReview.mode === 'preview' ? 'Source' : 'Preview'}
+                  {planReader.mode === 'preview' ? 'Source' : 'Preview'}
                 </button>
                 <button
-                  onClick={() => void loadPlanReview()}
+                  onClick={() => void loadPlanReader()}
                   className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
                   Refresh
@@ -1688,7 +1678,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   </button>
                 ) : null}
                 <button
-                  onClick={() => setPlanReview((current) => ({ ...current, open: false }))}
+                  onClick={() => setPlanReader((current) => ({ ...current, open: false }))}
                   className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
                   Close
@@ -1697,37 +1687,37 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-              {planReview.status === 'loading' ? (
+              {planReader.status === 'loading' ? (
                 <div className="rounded-2xl border border-[#24252b] bg-[#111216] px-4 py-5 text-sm text-[#9a9aa2]">
                   Loading plan...
                 </div>
               ) : null}
-              {planReview.status === 'error' ? (
+              {planReader.status === 'error' ? (
                 <div className="rounded-2xl border border-[#ff1a3d]/45 bg-[#ff1a3d]/12 px-4 py-5 text-sm text-[#ffb3bf]">
-                  {planReview.error ?? 'Failed to load plan.'}
+                  {planReader.error ?? 'Failed to load plan.'}
                 </div>
               ) : null}
-              {planReview.status === 'ready' && planReview.mode === 'preview' ? (
+              {planReader.status === 'ready' && planReader.mode === 'preview' ? (
                 <div className="mx-auto max-w-4xl">
-                  {planReview.content
-                    ? renderMarkdown(planReview.content)
+                  {planReader.content
+                    ? renderMarkdown(planReader.content)
                     : (
                       <div className="rounded-lg border border-dashed border-[#303139] bg-[#111216] px-4 py-5 text-sm text-[#9a9aa2]">
                         No architect plan has been written yet.
                       </div>
-                    )}
+                  )}
                 </div>
               ) : null}
-              {planReview.status === 'ready' && planReview.mode === 'source' ? (
+              {planReader.status === 'ready' && planReader.mode === 'source' ? (
                 <pre className="min-h-[420px] overflow-x-auto rounded-2xl border border-[#24252b] bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]">
-                  <code>{planReview.content}</code>
+                  <code>{planReader.content}</code>
                 </pre>
               ) : null}
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
               <div className="text-[12px] text-[#5a5a63]">
-                Spawn specialists from the board header when this plan matches your intent.
+                This is a read-only view of the architect plan.
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {planFilePath ? (
@@ -1739,10 +1729,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   </button>
                 ) : null}
                 <button
-                  onClick={() => setPlanReview((current) => ({ ...current, open: false }))}
+                  onClick={() => setPlanReader((current) => ({ ...current, open: false }))}
                   className="rounded-xl border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 px-4 py-2 text-sm font-semibold text-[#ffe0a3] shadow-[0_0_22px_rgba(255,191,47,0.12)] transition-colors hover:border-[#ffbf2f]/80 hover:bg-[#ffbf2f]/18"
                 >
-                  Done Reviewing
+                  Done
                 </button>
               </div>
             </div>
@@ -1778,7 +1768,7 @@ function SwarmProjectView({
   readyTasks,
   onSelectAgent,
   onAddMember,
-  onReviewPlan,
+  onReadPlan,
 }: {
   swarmState: SwarmState
   roster: RosterItem[]
@@ -1791,7 +1781,7 @@ function SwarmProjectView({
   readyTasks: SwarmTask[]
   onSelectAgent: (agentId: string) => void
   onAddMember: () => void
-  onReviewPlan: () => void
+  onReadPlan: () => void
 }) {
   const [goalExpanded, setGoalExpanded] = useState(false)
   const fullGoal = formatSwarmGoal(swarmState.goal)
@@ -1839,10 +1829,10 @@ function SwarmProjectView({
               </h2>
             </div>
             <button
-              onClick={onReviewPlan}
+              onClick={onReadPlan}
               className="rounded-md border border-[#24252b] bg-[#111216] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
             >
-              Open Plan
+              Read Plan
             </button>
           </div>
 

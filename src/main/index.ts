@@ -212,9 +212,11 @@ type TerminalSession = {
   isReady: boolean
   hasExited: boolean
   isDisposed: boolean
+  outputBuffer: string
   pendingResize?: TerminalSize
 }
 
+const TERMINAL_REPLAY_BUFFER_LIMIT = 2 * 1024 * 1024
 const terminals = new Map<string, TerminalSession>()
 const fileWatchers = new Map<string, { watcher: FSWatcher; senderId: number }>()
 const trackedWatcherSenders = new Set<number>()
@@ -640,6 +642,13 @@ function flushPendingTerminalResize(sessionId: string, session: TerminalSession)
   safeResizeTerminal(sessionId, pendingResize.cols, pendingResize.rows)
 }
 
+function appendTerminalOutput(session: TerminalSession, data: string): void {
+  session.outputBuffer += data
+  if (session.outputBuffer.length > TERMINAL_REPLAY_BUFFER_LIMIT) {
+    session.outputBuffer = session.outputBuffer.slice(-TERMINAL_REPLAY_BUFFER_LIMIT)
+  }
+}
+
 function disposeTerminal(sessionId: string): void {
   const session = terminals.get(sessionId)
   if (!session) return
@@ -679,6 +688,9 @@ ipcMain.handle(
     if (existingSession && !existingSession.hasExited && !existingSession.isDisposed) {
       existingSession.sender = event.sender
       safeResizeTerminal(sessionId, cols, rows)
+      if (existingSession.outputBuffer) {
+        sendTerminalEvent(event.sender, `terminal:data:${sessionId}`, existingSession.outputBuffer)
+      }
       return
     }
 
@@ -711,6 +723,7 @@ ipcMain.handle(
         isReady: process.platform !== 'win32',
         hasExited: false,
         isDisposed: false,
+        outputBuffer: '',
       }
 
       terminals.set(sessionId, terminalSession)
@@ -720,6 +733,7 @@ ipcMain.handle(
           terminalSession.isReady = true
           flushPendingTerminalResize(sessionId, terminalSession)
         }
+        appendTerminalOutput(terminalSession, data)
         sendTerminalEvent(terminalSession.sender, `terminal:data:${sessionId}`, data)
       })
 

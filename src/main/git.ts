@@ -63,6 +63,14 @@ type GitStatusCode = {
   worktree: string
 }
 
+function removeLineEndingWarnings(output: string): string {
+  return output
+    .split(/\r?\n/)
+    .filter((line) => !/^warning: in the working copy of '.+', (?:LF|CRLF) will be replaced by (?:LF|CRLF) the next time Git touches it$/.test(line.trim()))
+    .join('\n')
+    .trim()
+}
+
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
@@ -81,14 +89,15 @@ async function runGitCommand(cwd: string, args: string[]): Promise<GitCommandRes
       windowsHide: true,
     })
 
-    return { ok: true, stdout, stderr, message: null }
+    return { ok: true, stdout, stderr: removeLineEndingWarnings(stderr), message: null }
   } catch (error) {
     const execError = error as { stdout?: string; stderr?: string; message?: string }
+    const stderr = removeLineEndingWarnings(execError.stderr ?? '')
     return {
       ok: false,
       stdout: execError.stdout ?? '',
-      stderr: execError.stderr ?? '',
-      message: execError.stderr?.trim() || execError.message || 'Git command failed.',
+      stderr,
+      message: stderr || removeLineEndingWarnings(execError.message ?? '') || 'Git command failed.',
     }
   }
 }
