@@ -687,8 +687,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       <div className="border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
-        <div className="mb-2 flex flex-wrap items-center justify-end gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <button
               type="button"
               role="switch"
@@ -717,6 +717,30 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 {autoStatusLabel}
               </span>
             </button>
+            {!fixedView ? (
+              <div className="ml-1 flex flex-wrap items-center gap-1">
+                {([
+                  { id: 'project' as const, label: 'Project' },
+                  { id: 'map' as const, label: 'Map' },
+                  { id: 'task-graph' as const, label: 'Task Graph' },
+                  { id: 'kanban' as const, label: 'Kanban' },
+                ]).map((view) => (
+                  <button
+                    key={view.id}
+                    onClick={() => activateView(view.id)}
+                    className={`rounded px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                      effectiveView === view.id
+                        ? 'text-[#ececee]'
+                        : 'text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
+                    }`}
+                  >
+                    {view.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
             {focusAgent ? (
               <button
                 onClick={() => {
@@ -726,10 +750,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                     openSpawnDialog(focusAgent.agentId)
                   }
                 }}
-                className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
                   needsInputAgent
-                    ? 'border-[#ffbf2f]/55 bg-[#ffbf2f]/14 text-[#ffe0a3] hover:border-[#ffbf2f]/80 hover:bg-[#ffbf2f]/18'
-                    : 'border-[#6ee7d8]/35 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18'
+                    ? 'bg-[#ffbf2f]/12 text-[#ffe0a3] hover:bg-[#ffbf2f]/18'
+                    : 'bg-[#6ee7d8]/10 text-[#d8fffb] hover:bg-[#6ee7d8]/16'
                 }`}
               >
                 {focusAgentIsLaunched
@@ -755,7 +779,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       openSpawnDialogForRole(role)
                     }
                   }}
-                  className="rounded-md border border-[#6ee7d8]/35 bg-[#6ee7d8]/12 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18"
+                  className="rounded-md bg-[#6ee7d8]/10 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/16"
                 >
                   {isRunning && !shouldSpawnAdditional ? `Focus ${label}` : `Spawn ${swarmRoleLabels[role]}`}
                 </button>
@@ -764,7 +788,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             {architectAgentId && showPlanningActions && readyRoleLaunches.length === 0 ? (
               <button
                 onClick={() => openSpawnDialog(architectAgentId)}
-                className="rounded-md border border-[#ffbf2f]/45 bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/16"
+                className="rounded-md bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/16"
               >
                 {agents[architectAgentId]?.cliStartRequested ? 'Focus Architect' : 'Spawn Architect'}
               </button>
@@ -772,7 +796,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             {architectAgentId ? (
               <button
                 onClick={openRecoveryDialog}
-                className="rounded-md border border-[#30d158]/40 bg-[#30d158]/12 px-3 py-1.5 text-sm font-semibold text-[#b9f7c8] transition-colors hover:border-[#30d158]/65 hover:bg-[#30d158]/16"
+                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Verify Progress
               </button>
@@ -780,7 +804,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             <div className="relative">
               <button
                 onClick={() => setActionMenuOpen((open) => !open)}
-                className="rounded-md border border-[#24252b] bg-[#111216] px-3 py-1.5 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 aria-haspopup="menu"
                 aria-expanded={actionMenuOpen}
               >
@@ -851,29 +875,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             >
               View Run Summary
             </button>
-          </div>
-        ) : null}
-
-        {!fixedView ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {([
-              { id: 'project' as const, label: 'Project' },
-              { id: 'map' as const, label: 'Map' },
-              { id: 'task-graph' as const, label: 'Task Graph' },
-              { id: 'kanban' as const, label: 'Kanban' },
-            ]).map((view) => (
-              <button
-                key={view.id}
-                onClick={() => activateView(view.id)}
-                className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
-                  effectiveView === view.id
-                    ? 'border-[#30d158]/45 bg-[#30d158]/15 text-[#ececee]'
-                    : 'border-[#24252b] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
-                }`}
-              >
-                {view.label}
-              </button>
-            ))}
           </div>
         ) : null}
 
