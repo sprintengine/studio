@@ -228,6 +228,11 @@ def set_agent_idle(agent: Dict[str, Any]) -> None:
     agent["currentTaskId"] = None
 
 
+def set_agent_done(agent: Dict[str, Any]) -> None:
+    agent["status"] = "done"
+    agent["currentTaskId"] = None
+
+
 def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any]) -> None:
     agent["status"] = "needs_input" if task.get("status") == "needs_input" else "running"
     agent["currentTaskId"] = task.get("id")
@@ -269,6 +274,10 @@ def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str
     if active_task:
         set_agent_active(agent, active_task)
         return {"agent": agent, "activeTask": active_task, "repairs": repairs}
+
+    if agent.get("status") == "done":
+        agent["currentTaskId"] = None
+        return {"agent": agent, "activeTask": None, "repairs": repairs}
 
     set_agent_idle(agent)
     return {"agent": agent, "activeTask": None, "repairs": repairs}
@@ -764,8 +773,12 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         runtime = reconcile_agent(state, args.id, args.role)
+        agent = runtime["agent"]
         active = runtime["activeTask"]
         ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
+
+        if not active and agent.get("status") == "done":
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "stop", "message": f"Agent '{args.id}' has already completed one task for this swarm run. Stop now; spawn a fresh {args.role} agent for additional work."}
 
         if not active and not ready:
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "stop", "message": f"No tasks are currently ready for the '{args.role}' role. Either all tasks are complete or dependencies are not yet resolved. Stop now."}
@@ -781,8 +794,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"You already have active task `{task_id}`: {task_title}.\n\n"
                 f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
                 f"This reconnects you to your existing active task instead of claiming a new one. "
-                f"Continue the task, log evidence, mark it done, then loop back to `swarm task next`. "
-                f"When no tasks remain, stop.\n\n"
+                f"Continue the task, log evidence, mark it done, then stop. "
+                f"Do not claim another task with this agent after marking the task done.\n\n"
                 "**IMPORTANT: Do not edit swarm/state.json directly. "
                 "All updates must go through the swarm tool.**"
             )
@@ -794,8 +807,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"You are agent `{args.id}` with role `{args.role}`.\n"
             f"There are **{len(ready)} task(s)** ready for your role.\n\n"
             f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
-            f"Complete the task, log evidence, mark it done, then loop back to `swarm task next`. "
-            f"When no tasks remain, stop.\n\n"
+            f"Complete exactly one task, log evidence, mark it done, then stop. "
+            f"Do not claim another task with this agent after marking the task done.\n\n"
             "**IMPORTANT: Do not edit swarm/state.json directly. "
             "All updates must go through the swarm tool.**"
         )
@@ -886,6 +899,8 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
         active = runtime["activeTask"]
         if active:
             return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent}
+        if agent.get("status") == "done":
+            return {"ok": True, "claimed": False, "reason": "agent_completed_single_task", "message": f"Agent '{args.id}' has already completed one task. Stop now; spawn a fresh {args.role} agent for additional work.", "agent": agent}
 
         for t in state.get("tasks", []):
             if t.get("role") != args.role or not task_is_ready(state, t):
@@ -904,6 +919,9 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
 def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
+        agent = ensure_agent(state, args.id, task.get("role"))
+        if agent.get("status") == "done":
+            return {"ok": False, "error": f"Agent '{args.id}' has already completed one task. Spawn a fresh agent for additional work.", "agent": agent, "write": False}
         if not task_is_ready(state, task):
             return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
         result = assign_task(state, task, args.id)
@@ -935,6 +953,8 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         cleared = []
         if args.status not in ACTIVE_TASK_STATUSES:
             cleared = clear_task_refs(state, args.task_id)
+        if args.status == "done" and task.get("ownerAgentId"):
+            set_agent_done(ensure_agent(state, task["ownerAgentId"], task.get("role")))
         recompute_phase(state)
         event = append_event(state, "task_status_changed", actor, f"{actor} moved {args.task_id} to {args.status}.")
         return {"ok": True, "task": task, "event": event, "clearedAgents": cleared}

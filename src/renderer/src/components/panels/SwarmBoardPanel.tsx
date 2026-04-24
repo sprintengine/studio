@@ -89,29 +89,13 @@ type RecoveryDialogState = {
 }
 
 function buildWorkerRespawnStartupPrompt(
-  task: SwarmTask,
   role: SwarmRole,
-  agentId: string,
-  label: string,
-  goal: string
+  agentId: string
 ): string {
-  const details = [
-    `Task: ${task.id} - ${task.title}`,
-    task.description ? `Description: ${task.description}` : null,
-    task.ownedPaths.length > 0 ? `Owned paths: ${task.ownedPaths.join(', ')}` : null,
-    task.acceptanceCriteria.length > 0 ? `Acceptance criteria: ${task.acceptanceCriteria.join('; ')}` : null,
-  ].filter(Boolean)
-
   return [
-    `You are respawning as ${label}.`,
-    `Agent id: ${agentId}`,
-    `Role: ${role} (${swarmRoleLabels[role]})`,
-    `Goal: ${goal || '(not set)'}`,
-    'Continue as the same swarm agent slot that was already assigned to this task. Do not pick a new agent id.',
-    ...details,
-    'First run:',
+    'Fetch the canonical swarm instructions from the Python tool.',
+    'Run:',
     `\`\`\`\nswarm join --role ${role} --id ${agentId}\n\`\`\``,
-    'Then follow the returned role prompt. If the tool reconnects you to an active task, continue that task and publish evidence before marking it done.',
   ].join('\n\n')
 }
 
@@ -270,6 +254,11 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     [roster, swarmState?.swarmAgents]
   )
 
+  const runtimeAgentById = useMemo(
+    () => Object.fromEntries(runtimeAgents.map((agent) => [agent.agentId, agent])),
+    [runtimeAgents]
+  )
+
   const boardColumns = useMemo(() => {
     if (!swarmState) return []
 
@@ -308,7 +297,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     .map((role) => ({
       role,
       tasks: readyTasks.filter((task) => task.role === role),
-      agent: roster.find((candidate) => candidate.role === role),
+      agent: roster.find((candidate) =>
+        candidate.role === role && runtimeAgentById[candidate.id]?.status !== 'done'
+      ),
     }))
     .filter((entry) => entry.tasks.length > 0)
   const specialistReviewAgents = roster.filter((agent) => agent.role !== 'architect')
@@ -450,8 +441,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   }
 
   const openSpawnDialogForRole = (role: SwarmRole) => {
-    const existing = roster.find((agent) => agent.role === role && !agents[agent.id]?.cliStartRequested)
-      ?? roster.find((agent) => agent.role === role)
+    const existing = roster.find((agent) =>
+      agent.role === role
+      && runtimeAgentById[agent.id]?.status !== 'done'
+      && !agents[agent.id]?.cliStartRequested
+    )
+      ?? roster.find((agent) => agent.role === role && runtimeAgentById[agent.id]?.status !== 'done')
     const agent = existing ?? addSwarmMember(workspaceId, role)
     if (!agent) return
 
@@ -459,7 +454,11 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   }
 
   const openReadySpawnDialogForRole = (role: SwarmRole) => {
-    const existing = roster.find((agent) => agent.role === role && !agents[agent.id]?.cliStartRequested)
+    const existing = roster.find((agent) =>
+      agent.role === role
+      && runtimeAgentById[agent.id]?.status !== 'done'
+      && !agents[agent.id]?.cliStartRequested
+    )
     const agent = existing ?? addSwarmMember(workspaceId, role)
     if (!agent) return
 
@@ -481,11 +480,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       startAgentTerminal(agentId, label, agents[agentId]?.cli ?? 'codex', {
         freshSession: true,
         startupPrompt: buildWorkerRespawnStartupPrompt(
-          task,
           agent?.role ?? task.role,
-          agentId,
-          label,
-          swarmState.goal
+          agentId
         ),
       })
       return
@@ -3017,39 +3013,22 @@ function formatSwarmGoalPreview(goal: string): string {
 
 function buildRecoveryAuditPrompt(): string {
   return [
-    'You are starting ALIENCODE Verify Progress recovery mode.',
-    '',
-    'Do not run `swarm init`.',
+    'Fetch the canonical recovery instructions from the Python tool.',
     'Run `swarm recover` now.',
-    '',
-    '`swarm recover` is the canonical recovery entrypoint. It backs up the active state file, returns the full recovery architect prompt, and defines the allowed audit-only commands.',
-    'Read the returned JSON `prompt` field and follow it exactly.',
-    'If `swarm recover` fails, stop and report the error instead of creating, deleting, or replanning tasks.',
   ].join('\n')
 }
 
 function buildPlanReviewStartupPrompt(role: SwarmRole, agentId: string): string {
   return [
-    'You are starting ALIENCODE specialist plan review mode.',
-    '',
-    'Do not claim tasks. Do not implement. Do not edit state.yaml.',
+    'Fetch the canonical plan review instructions from the Python tool.',
     `Run \`swarm plan start-review --role ${role} --id ${agentId}\` now.`,
-    '',
-    'Read the returned JSON `prompt` field and follow it exactly.',
-    'If the command fails, stop and report the error instead of creating a review by hand.',
   ].join('\n')
 }
 
 function buildAddressPlanReviewsPrompt(): string {
   return [
-    'You are starting ALIENCODE architect plan-review feedback mode.',
-    '',
-    'Do not run `swarm init`. Do not implement.',
+    'Fetch the canonical plan review feedback instructions from the Python tool.',
     'Run `swarm plan address-reviews --actor architect` now.',
-    '',
-    'Read the returned JSON `prompt` field and follow it exactly.',
-    'Update plan.md and task cards only through the instructions returned by the tool.',
-    'If the command fails, stop and report the error instead of manually gathering review files.',
   ].join('\n')
 }
 

@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentCli, SwarmRole } from '../../types/workspace'
 import { loadSpecialistPrompt } from '../../specialists/specialistActions'
-import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
+import { buildSwarmAgentRosterForState } from '../../utils/swarm'
 import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
 
 interface Props {
@@ -43,19 +43,13 @@ function looksLikeTrustPrompt(output: string, cli: AgentCli): boolean {
 
 
 function buildSwarmStartupPrompt(role: SwarmRole, agentId: string, goal: string): string {
-  const roleLabel = swarmRoleLabels[role]
-  const firstAction = role === 'architect'
+  const command = role === 'architect'
     ? `Run \`${SWARM_COMMAND} init --goal "${goal}"\` to receive your full prompt and instructions.`
     : `Run \`${SWARM_COMMAND} join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
 
   return [
-    `You are the ${roleLabel} specialist for this swarm run.`,
-    `Agent id: ${agentId}`,
-    `Goal: ${goal}`,
-    `Use \`${SWARM_COMMAND}\` as the shared coordination tool. This terminal predefines it and scopes it to this team's named state file.`,
-    `Do not call \`python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py\` or \`python3 scripts/swarm_tool.py\` directly; use the \`${SWARM_COMMAND}\` alias instead.`,
-    'Do NOT edit swarm/state.json directly. All state updates must go through the swarm tool.',
-    firstAction,
+    'Fetch the canonical swarm instructions from the Python tool.',
+    command,
   ].join('\n\n')
 }
 

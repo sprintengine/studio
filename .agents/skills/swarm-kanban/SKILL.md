@@ -30,7 +30,7 @@ Worker workflow:
 3. Run `swarm claim-next-task --role <your-role> --agent-id <your-agent-id>` to atomically claim the next ready task for your role.
 4. If this Claude process was restarted, reuse the same `--agent-id`; `claim-next-task` returns that slot's existing active task before claiming new work.
 5. Poll your mailbox about every 30 seconds with `swarm get-mailbox --agent-id <your-agent-id> --consume`.
-6. If no task is ready, stay idle and do not manually edit shared state.
+6. If no task is ready, stop and do not manually edit shared state.
 7. Update only your own task card with:
    - `swarm set-task-status`
    - `swarm add-note`
@@ -40,7 +40,7 @@ Worker workflow:
    - touched files
    - commands run
    - results
-9. After marking a task `done`, run `claim-next-task` again to pick up the next ready task for your role.
+9. After marking one task `done`, stop. A fresh agent must be spawned for additional work.
 
 Architect workflow:
 
@@ -103,6 +103,7 @@ Rules:
 - Prefer `claim-next-task` for normal worker execution because it claims under the swarm state lock.
 - Only update your own task card.
 - Append evidence before moving work to `done`.
+- Complete one task per agent, then stop.
 - Use `swarm run-summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
 - Use `send-and-receive` when the architect must pause for a specialist reply before continuing. Responders should include `--reply-to <request-message-id>` when answering.
