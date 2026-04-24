@@ -1,5 +1,5 @@
 {
-  "name": "free-ai-ide",
+  "name": "multicode",
   "version": "0.1.0",
   "description": "AI-first IDE and agent swarm command center",
   "main": "./out/main/index.js",
@@ -17,8 +17,8 @@
     "icons": "node scripts/generate-icons.js"
   },
   "build": {
-    "appId": "com.free-ai-ide",
-    "productName": "Free AI IDE",
+    "appId": "com.multicode",
+    "productName": "Multicode",
     "directories": {
       "output": "dist"
     },
@@ -71,7 +71,7 @@
     "publish": {
       "provider": "github",
       "owner": "REPLACE_WITH_GITHUB_USERNAME",
-      "repo": "free-ai-ide"
+      "repo": "multicode"
     }
   },
   "dependencies": {

@@ -55,6 +55,10 @@ export default function WorkspaceManager() {
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [windowState, setWindowState] = useState<WindowState>({
+    isMaximized: false,
+    isFullScreen: false,
+  })
   const renameInputRef = useRef<HTMLInputElement>(null)
   const cliMenuRef = useRef<HTMLDivElement>(null)
   const specialistMenuRef = useRef<HTMLDivElement>(null)
@@ -69,6 +73,21 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (workspaces.length === 0) setShowTemplateSelector(true)
   }, [workspaces.length])
+
+  useEffect(() => {
+    if (window.api.platform === 'darwin') return
+
+    let mounted = true
+    void window.api.getWindowState().then((state) => {
+      if (mounted && state) setWindowState(state)
+    })
+
+    const unsubscribe = window.api.onWindowStateChanged(setWindowState)
+    return () => {
+      mounted = false
+      unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     if (renamingId) renameInputRef.current?.select()
@@ -155,9 +174,7 @@ export default function WorkspaceManager() {
         if (workspaces.length > 0) setShowTemplateSelector(false)
       } else if (event.key === 'w' && activeWorkspaceId) {
         event.preventDefault()
-        const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
-        if (workspace) terminateWorkspaceTerminals(workspace)
-        removeWorkspace(activeWorkspaceId)
+        closeActiveLayoutTab(activeWorkspaceId)
       }
 
       const n = parseInt(event.key)
@@ -214,6 +231,7 @@ export default function WorkspaceManager() {
   }
 
   const handleCloseTab = (event: React.MouseEvent, id: string) => {
+    event.preventDefault()
     event.stopPropagation()
     const workspace = workspaces.find((candidate) => candidate.id === id)
     if (workspace) terminateWorkspaceTerminals(workspace)
@@ -341,18 +359,21 @@ export default function WorkspaceManager() {
     <div className="flex h-screen flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       {window.api.platform !== 'darwin' && (
         <div
-          className="app-drag flex h-[36px] shrink-0 items-center gap-1 border-b border-[#1f2025] bg-[#0d0e11] px-2"
-          style={{ paddingRight: 138 }}
+          className="app-drag flex h-[34px] shrink-0 items-stretch justify-between border-b border-[#1f2025] bg-[#0d0e11]"
         >
-          {MENU_BAR_ITEMS.map((label) => (
-            <button
-              key={label}
-              onClick={(event) => void handleShowMenubarMenu(event, label)}
-              className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-            >
-              {label}
-            </button>
-          ))}
+          <div className="flex min-w-0 items-center gap-1 px-2">
+            {MENU_BAR_ITEMS.map((label) => (
+              <button
+                key={label}
+                onClick={(event) => void handleShowMenubarMenu(event, label)}
+                className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <WindowControls isMaximized={windowState.isMaximized} />
         </div>
       )}
 
@@ -364,6 +385,10 @@ export default function WorkspaceManager() {
             return (
               <div
                 key={workspace.id}
+                onMouseDown={(event) => {
+                  if (event.button !== 1) return
+                  handleCloseTab(event, workspace.id)
+                }}
                 onClick={() => {
                   if (!renamingId) {
                     setShowTemplateSelector(false)
@@ -654,6 +679,67 @@ export default function WorkspaceManager() {
   )
 }
 
+function WindowControls({ isMaximized }: { isMaximized: boolean }) {
+  const minimizeWindow = () => {
+    void window.api.windowMinimize()
+  }
+
+  const toggleWindowSize = () => {
+    void window.api.windowToggleMaximize()
+  }
+
+  const closeWindow = () => {
+    void window.api.windowClose()
+  }
+
+  return (
+    <div className="app-no-drag flex shrink-0 items-stretch" aria-label="Window controls">
+      <button
+        type="button"
+        onClick={minimizeWindow}
+        className="inline-flex w-10 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:bg-[#17181d] focus:text-[#ececee] focus:outline-none"
+        aria-label="Minimize window"
+        title="Minimize"
+      >
+        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M3.5 8H12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        onClick={toggleWindowSize}
+        className="inline-flex w-10 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:bg-[#17181d] focus:text-[#ececee] focus:outline-none"
+        aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
+        title={isMaximized ? 'Restore' : 'Maximize'}
+      >
+        {isMaximized ? (
+          <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M5.5 6.5H11.5V12.5H5.5V6.5Z" stroke="currentColor" strokeWidth="1.2" />
+            <path d="M4.5 9.5H3.5V3.5H9.5V4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 4H12V12H4V4Z" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+        )}
+      </button>
+
+      <button
+        type="button"
+        onClick={closeWindow}
+        className="inline-flex w-10 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#c42b1c] hover:text-white focus:bg-[#c42b1c] focus:text-white focus:outline-none"
+        aria-label="Close window"
+        title="Close"
+      >
+        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 function getNextWorkspaceId(
   workspaces: Workspace[],
   activeWorkspaceId: string | null,
@@ -666,6 +752,19 @@ function getNextWorkspaceId(
 
   const nextIndex = (activeIndex + step + workspaces.length) % workspaces.length
   return workspaces[nextIndex].id
+}
+
+function closeActiveLayoutTab(workspaceId: string): boolean {
+  const model = getModel(workspaceId)
+  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
+  if (!model || !tabset) return false
+
+  const selectedIndex = tabset.getSelected()
+  const selectedNode = tabset.getChildren()[selectedIndex]
+  if (!(selectedNode instanceof TabNode) || !selectedNode.isEnableClose()) return false
+
+  model.doAction(Actions.deleteTab(selectedNode.getId()))
+  return true
 }
 
 function firstTabset(model: Model): TabSetNode | null {

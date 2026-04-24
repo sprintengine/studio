@@ -85,10 +85,21 @@ type GitCommandResult = {
   stderr: string
   message: string | null
 }
+type WindowState = {
+  isMaximized: boolean
+  isFullScreen: boolean
+}
 
 declare interface Window {
   api: {
     platform: string
+
+    // Window chrome
+    windowMinimize: () => Promise<void>
+    windowToggleMaximize: () => Promise<WindowState | null>
+    windowClose: () => Promise<void>
+    getWindowState: () => Promise<WindowState | null>
+    onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
 
     // File system
     readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>

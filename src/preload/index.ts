@@ -75,6 +75,10 @@ type GitCommandResult = {
   stderr: string
   message: string | null
 }
+type WindowState = {
+  isMaximized: boolean
+  isFullScreen: boolean
+}
 
 const specialistPromptFiles: Record<SpecialistActionId, string> = {
   architect: 'architect-prompt.md',
@@ -134,6 +138,18 @@ async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<S
 
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
+
+  // Window chrome
+  windowMinimize: () => ipcRenderer.invoke('window:minimize'),
+  windowToggleMaximize: (): Promise<WindowState | null> => ipcRenderer.invoke('window:toggle-maximize'),
+  windowClose: () => ipcRenderer.invoke('window:close'),
+  getWindowState: (): Promise<WindowState | null> => ipcRenderer.invoke('window:get-state'),
+  onWindowStateChanged: (cb: (state: WindowState) => void): (() => void) => {
+    const ch = 'window:state-changed'
+    const handler = (_: Electron.IpcRendererEvent, state: WindowState) => cb(state)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
 
   // File system
   readdir:   (path: string)                    => ipcRenderer.invoke('fs:readdir', path),

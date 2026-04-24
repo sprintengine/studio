@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useRef } from 'react'
-import { Actions, Layout, Model, TabNode, TabSetNode, type Action, type ITabRenderValues } from 'flexlayout-react'
+import {
+  Actions,
+  Layout,
+  Model,
+  TabNode,
+  TabSetNode,
+  type Action,
+  type ITabRenderValues,
+  type NodeMouseEvent,
+} from 'flexlayout-react'
 import 'flexlayout-react/style/dark.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
@@ -149,6 +158,21 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
     [killTerminalForNode]
   )
 
+  const handleAuxMouseClick = useCallback<NodeMouseEvent>((node, event) => {
+    if (event.button !== 1 || !(node instanceof TabNode) || !node.isEnableClose()) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+  }, [])
+
+  const handleMouseDownCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 1) return
+    if (event.target instanceof Element && event.target.closest('.flexlayout__tab_button')) {
+      event.preventDefault()
+    }
+  }, [])
+
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {
       if (node.getComponent() !== 'agent') return
@@ -186,11 +210,12 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
   )
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full" onMouseDownCapture={handleMouseDownCapture}>
       <Layout
         model={modelRef.current}
         factory={factory}
         onAction={handleAction}
+        onAuxMouseClick={handleAuxMouseClick}
         onRenderTab={renderTab}
         onModelChange={(model) => {
           updateLayout(workspaceId, model.toJson())

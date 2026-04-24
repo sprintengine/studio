@@ -31,6 +31,23 @@ import {
   normalizeSwarmState,
 } from '../utils/swarm'
 
+const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
+const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
+
+function migrateLegacyWorkspaceStorageKey(): void {
+  try {
+    if (typeof window === 'undefined') return
+    if (window.localStorage.getItem(WORKSPACE_STORAGE_KEY)) return
+
+    const legacyState = window.localStorage.getItem(LEGACY_WORKSPACE_STORAGE_KEY)
+    if (legacyState) window.localStorage.setItem(WORKSPACE_STORAGE_KEY, legacyState)
+  } catch {
+    // Persist will fall back to a fresh store if localStorage is unavailable.
+  }
+}
+
+migrateLegacyWorkspaceStorageKey()
+
 interface WorkspaceStore {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
@@ -631,7 +648,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }),
     })),
     {
-      name: 'free-ai-ide-workspaces',
+      name: WORKSPACE_STORAGE_KEY,
       version: 17,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {

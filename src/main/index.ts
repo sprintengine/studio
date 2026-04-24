@@ -26,12 +26,7 @@ function createWindow(): void {
     show: false,
     ...(process.platform !== 'darwin'
       ? {
-          titleBarStyle: 'hidden',
-          titleBarOverlay: {
-            color: '#101114',
-            symbolColor: '#a1a1aa',
-            height: 38,
-          },
+          frame: false,
         }
       : {}),
     autoHideMenuBar: process.platform !== 'darwin',
@@ -43,6 +38,10 @@ function createWindow(): void {
   })
 
   win.on('ready-to-show', () => win.show())
+  win.on('maximize', () => sendWindowState(win))
+  win.on('unmaximize', () => sendWindowState(win))
+  win.on('enter-full-screen', () => sendWindowState(win))
+  win.on('leave-full-screen', () => sendWindowState(win))
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
@@ -54,6 +53,24 @@ function createWindow(): void {
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+function getWindowState(win: BrowserWindow): { isMaximized: boolean; isFullScreen: boolean } {
+  return {
+    isMaximized: win.isMaximized(),
+    isFullScreen: win.isFullScreen(),
+  }
+}
+
+function sendWindowState(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  win.webContents.send('window:state-changed', getWindowState(win))
+}
+
+function getRequestWindow(event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win || win.isDestroyed()) return null
+  return win
 }
 
 function sendMenuCommand(win: Electron.BaseWindow | null, command: string): void {
@@ -125,7 +142,7 @@ function createAppMenu(): Menu {
       label: 'Help',
       submenu: [
         {
-          label: 'About ALIENCODE',
+          label: 'About Multicode',
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'show-about'),
         },
       ],
@@ -355,7 +372,7 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
   }
 
   if (shellBundledToolPath) {
-    lines.push(`export ALIENCODE_SWARM_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
+    lines.push(`export MULTICODE_SWARM_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
   }
 
   lines.push(
@@ -364,7 +381,7 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
       'local tool_path="";',
       'if [ -f "$SWARM_REPO_WRAPPER_PATH" ]; then tool_path="$SWARM_REPO_WRAPPER_PATH";',
       'elif [ -f "$SWARM_REPO_TOOL_PATH" ]; then tool_path="$SWARM_REPO_TOOL_PATH";',
-      'elif [ -n "${ALIENCODE_SWARM_TOOL_PATH:-}" ] && [ -f "$ALIENCODE_SWARM_TOOL_PATH" ]; then tool_path="$ALIENCODE_SWARM_TOOL_PATH";',
+      'elif [ -n "${MULTICODE_SWARM_TOOL_PATH:-}" ] && [ -f "$MULTICODE_SWARM_TOOL_PATH" ]; then tool_path="$MULTICODE_SWARM_TOOL_PATH";',
       'else echo "swarm tool not found" >&2; return 127; fi;',
       `python3 "$tool_path" ${stateArg} "$@";`,
       '}',
@@ -538,7 +555,7 @@ function buildAgentLaunchCommand(
 function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
   return [
     `if ! command -v ${quotePosixCommand(command)} >/dev/null 2>&1; then`,
-    `echo ${quotePosix(`${cli === 'codex' ? 'Codex' : 'Claude'} CLI was not found. Check the ${cli} command in ALIENCODE Settings.`)};`,
+    `echo ${quotePosix(`${cli === 'codex' ? 'Codex' : 'Claude'} CLI was not found. Check the ${cli} command in Multicode Settings.`)};`,
     'else',
   ].join(' ')
 }
@@ -680,6 +697,34 @@ function disposeFileWatchersForSender(senderId: number): void {
     }
   }
 }
+
+ipcMain.handle('window:minimize', (event) => {
+  getRequestWindow(event)?.minimize()
+})
+
+ipcMain.handle('window:toggle-maximize', (event) => {
+  const win = getRequestWindow(event)
+  if (!win) return null
+
+  if (win.isFullScreen()) {
+    win.setFullScreen(false)
+  } else if (win.isMaximized()) {
+    win.unmaximize()
+  } else {
+    win.maximize()
+  }
+
+  return getWindowState(win)
+})
+
+ipcMain.handle('window:close', (event) => {
+  getRequestWindow(event)?.close()
+})
+
+ipcMain.handle('window:get-state', (event) => {
+  const win = getRequestWindow(event)
+  return win ? getWindowState(win) : null
+})
 
 ipcMain.handle(
   'terminal:spawn',
@@ -1082,7 +1127,7 @@ async function buildCopyBaseName(
 app.whenReady().then(() => {
   if (process.platform === 'win32') {
     app.setAppUserModelId(
-      process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.aliencode'
+      process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.multicode'
     )
   }
 

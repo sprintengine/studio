@@ -29,7 +29,7 @@ export default function SettingsModal({ onClose }: Props) {
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h2 className="text-base font-semibold text-[#ececee]">Settings</h2>
-            <p className="mt-0.5 text-sm text-[#5a5a63]">Configure the CLIs ALIENCODE should launch.</p>
+            <p className="mt-0.5 text-sm text-[#5a5a63]">Configure the CLIs Multicode should launch.</p>
           </div>
           <button onClick={onClose} className="text-xl leading-none text-[#5a5a63] hover:text-[#d7d7dc]">
             x
