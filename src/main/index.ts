@@ -6,12 +6,14 @@ import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
 import {
   commitGitChanges,
+  discardUnstagedGitChanges,
   getGitBranches,
   getGitFileBase,
   getGitHistory,
   getGitRepoRoot,
   getGitStatus,
   pushGitBranch,
+  revertGitPaths,
   stageGitPaths,
   switchGitBranch,
   unstageGitPaths,
@@ -997,6 +999,14 @@ ipcMain.handle('git:stage', async (_, repoRoot: string, paths: string[]) => {
 
 ipcMain.handle('git:unstage', async (_, repoRoot: string, paths: string[]) => {
   return unstageGitPaths(repoRoot, paths)
+})
+
+ipcMain.handle('git:revert', async (_, repoRoot: string, paths: string[]) => {
+  return revertGitPaths(repoRoot, paths)
+})
+
+ipcMain.handle('git:discard-unstaged', async (_, repoRoot: string, paths: string[]) => {
+  return discardUnstagedGitChanges(repoRoot, paths)
 })
 
 ipcMain.handle('git:commit', async (_, repoRoot: string, message: string) => {

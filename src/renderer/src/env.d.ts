@@ -127,6 +127,8 @@ declare interface Window {
     getGitHistory: (repoRoot: string, limit?: number) => Promise<GitHistorySnapshot>
     stageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
     unstageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
+    revertGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
+    discardUnstagedGitChanges: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
     commitGitChanges: (repoRoot: string, message: string) => Promise<GitCommandResult>
     pushGitBranch: (repoRoot: string) => Promise<GitCommandResult>
     switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>

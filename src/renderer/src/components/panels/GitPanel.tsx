@@ -13,12 +13,20 @@ type GitChangeGroup = {
   empty: string
   actionLabel: string
   action: (path: string) => Promise<unknown>
-  bulkAction?: {
+  secondaryAction?: {
     label: string
     title: string
-    action: () => Promise<unknown>
+    action: (entry: GitStatusEntry) => Promise<unknown>
   }
+  bulkActions?: GitBulkAction[]
   entries: GitStatusEntry[]
+}
+
+type GitBulkAction = {
+  label: string
+  title: string
+  danger?: boolean
+  action: () => Promise<unknown>
 }
 
 type GitHistoryState =
@@ -178,6 +186,27 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     runAction('Staging file', () => window.api.stageGitPaths(repoRoot!, [path]), 'Staged file.')
   const unstagePath = (path: string) =>
     runAction('Unstaging file', () => window.api.unstageGitPaths(repoRoot!, [path]), 'Unstaged file.')
+  const revertPath = (entry: GitStatusEntry) => {
+    const confirmed = window.confirm(
+      `Revert all changes to ${entry.relativePath}? This cannot be undone from Multicode.`
+    )
+    if (!confirmed) return Promise.resolve(null)
+
+    return runAction('Reverting file', () => window.api.revertGitPaths(repoRoot!, [entry.path]), 'Reverted file.')
+  }
+  const discardUnstagedChanges = () => {
+    const confirmed = window.confirm(
+      'Roll back all unstaged changes? This will discard unstaged edits and remove untracked files.'
+    )
+    if (!confirmed) return Promise.resolve(null)
+
+    return runAction(
+      'Rolling back unstaged changes',
+      () => window.api.discardUnstagedGitChanges(repoRoot!, []),
+      'Rolled back unstaged changes.',
+      true
+    )
+  }
 
   const groups: GitChangeGroup[] = [
     {
@@ -185,6 +214,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       empty: 'No staged changes',
       actionLabel: 'Unstage',
       action: unstagePath,
+      secondaryAction: {
+        label: 'Revert',
+        title: 'Revert this file',
+        action: revertPath,
+      },
+      bulkActions: [
+        {
+          label: 'All',
+          title: 'Unstage all staged changes',
+          action: () => runAction('Unstaging all', () => window.api.unstageGitPaths(repoRoot!, []), 'Unstaged all files.'),
+        },
+      ],
       entries: stagedEntries,
     },
     {
@@ -192,11 +233,24 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       empty: 'No unstaged changes',
       actionLabel: 'Stage',
       action: stagePath,
-      bulkAction: {
-        label: '+',
-        title: 'Stage all changes',
-        action: () => runAction('Staging all', () => window.api.stageGitPaths(repoRoot!, []), 'Staged all changes.'),
+      secondaryAction: {
+        label: 'Revert',
+        title: 'Revert this file',
+        action: revertPath,
       },
+      bulkActions: [
+        {
+          label: '+',
+          title: 'Stage all changes',
+          action: () => runAction('Staging all', () => window.api.stageGitPaths(repoRoot!, []), 'Staged all changes.'),
+        },
+        {
+          label: 'Discard',
+          title: 'Roll back all unstaged changes',
+          danger: true,
+          action: discardUnstagedChanges,
+        },
+      ],
       entries: unstagedEntries,
     },
   ]
@@ -385,17 +439,26 @@ function ChangeGroup({
     <section className="mb-4">
       <div className="mb-1 flex h-6 items-center justify-between gap-2">
         <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">{group.title}</div>
-        {group.bulkAction && group.entries.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => void group.bulkAction?.action()}
-            disabled={Boolean(busy)}
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md font-mono text-[13px] leading-none text-[#8a8a92] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-30"
-            title={group.bulkAction.title}
-            aria-label={group.bulkAction.title}
-          >
-            {group.bulkAction.label}
-          </button>
+        {group.bulkActions && group.entries.length > 0 ? (
+          <div className="flex shrink-0 items-center gap-1">
+            {group.bulkActions.map((bulkAction) => (
+              <button
+                key={bulkAction.title}
+                type="button"
+                onClick={() => void bulkAction.action()}
+                disabled={Boolean(busy)}
+                className={`inline-flex h-5 shrink-0 items-center justify-center rounded-md px-1.5 font-mono text-[11px] leading-none transition-colors disabled:opacity-30 ${
+                  bulkAction.danger
+                    ? 'text-[#b97074] hover:bg-[#2a1518] hover:text-[#ff8a8e]'
+                    : 'text-[#8a8a92] hover:bg-[#1a1b20] hover:text-[#ececee]'
+                }`}
+                title={bulkAction.title}
+                aria-label={bulkAction.title}
+              >
+                {bulkAction.label}
+              </button>
+            ))}
+          </div>
         ) : null}
       </div>
       {group.entries.length === 0 ? (
@@ -436,6 +499,20 @@ function ChangeGroup({
                 >
                   {group.actionLabel}
                 </button>
+                {group.secondaryAction ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void group.secondaryAction?.action(entry)
+                    }}
+                    disabled={Boolean(busy)}
+                    className="h-6 rounded-md px-2 text-[10px] text-[#b97074] opacity-0 transition-colors hover:bg-[#2a1518] hover:text-[#ff8a8e] disabled:opacity-30 group-hover:opacity-100"
+                    title={group.secondaryAction.title}
+                  >
+                    {group.secondaryAction.label}
+                  </button>
+                ) : null}
               </div>
             )
           })}

@@ -197,6 +197,10 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('git:stage', repoRoot, paths),
   unstageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:unstage', repoRoot, paths),
+  revertGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:revert', repoRoot, paths),
+  discardUnstagedGitChanges: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:discard-unstaged', repoRoot, paths),
   commitGitChanges: (repoRoot: string, message: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:commit', repoRoot, message),
   pushGitBranch: (repoRoot: string): Promise<GitCommandResult> =>
