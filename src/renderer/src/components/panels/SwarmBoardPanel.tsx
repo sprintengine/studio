@@ -19,6 +19,7 @@ import {
 } from '../../utils/swarm'
 import { renderMarkdown } from '../../utils/markdown'
 import {
+  getExistingSwarmStateFilePath,
   getSwarmDirectoryPath,
   getSwarmPlanFilePath,
   getSwarmRootDirectoryPath,
@@ -48,6 +49,26 @@ const cliOptions: Array<{ value: AgentCli; label: string; description: string }>
   { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
   { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
 ]
+
+function RefreshSwarmIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function getParentDirectoryPath(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return separatorIndex >= 0 ? trimmed.slice(0, separatorIndex) : trimmed
+}
 
 const roleSummaries: Record<SwarmRole, string> = {
   architect: 'Plans the run and gates readiness.',
@@ -127,6 +148,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
   const [showRunSummary, setShowRunSummary] = useState(false)
+  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
   const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
     status: 'idle',
@@ -134,7 +156,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     error: null,
     mode: 'preview',
   })
-  const [, setSyncState] = useState<SyncState>({
+  const [syncState, setSyncState] = useState<SyncState>({
     status: 'idle',
     message: 'Waiting for a swarm workspace folder.',
   })
@@ -148,6 +170,29 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const swarmName = swarmState?.name ?? workspace?.name ?? 'Swarm Team'
   const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
   const autoPendingSpawn = workspace?.swarmAutoState?.pending ?? null
+
+  const resolveReadableSwarmStatePath = async (): Promise<string | null> => {
+    if (!folderPath) return null
+
+    const preferredPath = getSwarmStateFilePath(folderPath, swarmName)
+    if (await window.api.pathExists(preferredPath)) return preferredPath
+
+    const swarmRootDirectory = getSwarmRootDirectoryPath(folderPath)
+    try {
+      const entries = await window.api.readdir(swarmRootDirectory)
+      const statePaths = entries
+        .filter((entry) => entry.isDir)
+        .map((entry) => getExistingSwarmStateFilePath(folderPath, entry.name))
+
+      if (statePaths.length === 1 && await window.api.pathExists(statePaths[0])) {
+        return statePaths[0]
+      }
+    } catch {
+      // The swarm directory may not exist yet.
+    }
+
+    return preferredPath
+  }
 
   const roster = useMemo(
     () => buildSwarmAgentRosterForState(swarmState),
@@ -182,18 +227,22 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     let cancelled = false
 
     const loadStateFile = async () => {
-      const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
       setSyncState({ status: 'syncing', message: 'Loading agent-managed swarm state...' })
       try {
+        const stateFilePath = await resolveReadableSwarmStatePath()
+        if (!stateFilePath) throw new Error('No workspace folder is ready.')
         const content = await window.api.readfile(stateFilePath)
         if (cancelled) return
         const parsed = parseSwarmStateFile(content)
         lastSyncedContentRef.current = content
         setSwarmState(workspaceId, parsed)
         setSyncState({ status: 'live', message: `Watching agent-managed state at ${stateFilePath}` })
-      } catch {
+      } catch (error) {
         if (cancelled) return
-        setSyncState({ status: 'idle', message: `Waiting for agent-managed state at ${stateFilePath}` })
+        setSyncState({
+          status: 'idle',
+          message: error instanceof Error ? error.message : 'Waiting for agent-managed state.',
+        })
       } finally {
         initialReadDoneRef.current = true
       }
@@ -211,13 +260,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
     let disposed = false
     let stopWatching: (() => Promise<void>) | null = null
-    const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
-    const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
     let debounce: number | null = null
     let pollInterval: number | null = null
+    let activeStateFilePath: string | null = null
 
     const readExternalState = async () => {
       try {
+        const stateFilePath = activeStateFilePath ?? await resolveReadableSwarmStatePath()
+        if (!stateFilePath) return
+        activeStateFilePath = stateFilePath
         const content = await window.api.readfile(stateFilePath)
         if (disposed || content === lastSyncedContentRef.current) return
         const parsed = parseSwarmStateFile(content)
@@ -229,6 +280,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
     const startWatching = async () => {
       try {
+        const stateFilePath = await resolveReadableSwarmStatePath()
+        if (!stateFilePath || disposed) return
+        activeStateFilePath = stateFilePath
+        const swarmDirectory = getParentDirectoryPath(stateFilePath)
         // The renderer must never write `state.yaml`. We only watch the
         // agent-managed file and refresh local UI state when the swarm tool
         // changes it.
@@ -430,6 +485,31 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const relinkFolder = async () => {
     const dir = await window.api.openDir()
     if (dir) setFolderPath(workspaceId, dir)
+  }
+  const refreshSwarmState = async () => {
+    if (!folderPath || manualRefreshBusy) return
+
+    setManualRefreshBusy(true)
+    setSyncState({ status: 'syncing', message: 'Refreshing swarm state...' })
+    try {
+      const stateFilePath = await resolveReadableSwarmStatePath()
+      if (!stateFilePath) throw new Error('No workspace folder is ready.')
+      const content = await window.api.readfile(stateFilePath)
+      const parsed = parseSwarmStateFile(content)
+      lastSyncedContentRef.current = content
+      setSwarmState(workspaceId, parsed)
+      setSyncState({
+        status: 'live',
+        message: `Refreshed ${parsed.tasks.length} tasks from ${stateFilePath}`,
+      })
+    } catch (error) {
+      setSyncState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to refresh swarm state.',
+      })
+    } finally {
+      setManualRefreshBusy(false)
+    }
   }
   const folderStatusBanner = savedFolderPath && !folderPath ? (
     <div className="border-b border-[#24252b] bg-[#111216] px-4 py-2 text-[12px] text-[#9a9aa2]">
@@ -741,6 +821,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             ) : null}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => void refreshSwarmState()}
+              disabled={!folderPath || manualRefreshBusy}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#838896]"
+              title="Refresh swarm state"
+              aria-label="Refresh swarm state"
+            >
+              <RefreshSwarmIcon />
+            </button>
             {focusAgent ? (
               <button
                 onClick={() => {
@@ -854,6 +944,18 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               ) : null}
             </div>
           </div>
+        </div>
+        <div
+          className={`mt-2 truncate text-[11px] ${
+            syncState.status === 'error'
+              ? 'text-[#ff787c]'
+              : syncState.status === 'syncing'
+                ? 'text-[#ffd58a]'
+                : 'text-[#6f7480]'
+          }`}
+          title={syncState.message}
+        >
+          {syncState.message}
         </div>
 
         {allTasksDone ? (

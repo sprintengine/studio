@@ -11,6 +11,7 @@ import {
 } from 'flexlayout-react'
 import 'flexlayout-react/style/dark.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import type { AgentState, SwarmRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { buildSwarmAgentRosterForState } from '../../utils/swarm'
 import CliIcon from '../CliIcon'
@@ -26,6 +27,41 @@ interface Props {
 }
 
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
+type AgentTabActivity = 'needs-input' | 'running' | 'idle'
+
+type AgentTabActivityDot = {
+  className: string
+  label: string
+}
+
+function agentTabActivity(
+  agent: AgentState | undefined,
+  runtimeStatus: SwarmRuntimeAgentStatus | undefined
+): AgentTabActivity {
+  if (runtimeStatus === 'needs_input') return 'needs-input'
+  if (agent?.cliStartRequested || agent?.cliHasLaunched || agent?.cliTerminalId) return 'running'
+  return 'idle'
+}
+
+function agentTabActivityDot(
+  activity: AgentTabActivity,
+  currentTaskId: string | null | undefined
+): AgentTabActivityDot | null {
+  switch (activity) {
+    case 'needs-input':
+      return {
+        className: 'bg-[#ffbf2f] shadow-[0_0_8px_rgba(255,191,47,0.75)]',
+        label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
+      }
+    case 'running':
+      return {
+        className: 'bg-[#30d158]',
+        label: 'CLI running',
+      }
+    default:
+      return null
+  }
+}
 
 export default function WorkspaceLayout({ workspaceId }: Props) {
   const workspace    = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
@@ -182,12 +218,16 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
       const agent = workspace.agents[agentId]
       const cli = agent?.cli ?? 'codex'
       const cliLabel = cli === 'codex' ? 'Codex' : 'Claude'
-      const needsInput = workspace.swarmState?.swarmAgents[agentId]?.status === 'needs_input'
-      const currentTaskId = workspace.swarmState?.swarmAgents[agentId]?.currentTaskId
+      const runtimeAgent = workspace.swarmState?.swarmAgents[agentId]
+      const activity = agentTabActivity(agent, runtimeAgent?.status)
+      const currentTaskId = runtimeAgent?.currentTaskId
+      const activityDot = agentTabActivityDot(activity, currentTaskId)
 
       renderValues.leading = (
         <span
-          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${needsInput ? 'text-[#ffe0a3]' : 'text-[#9a9aa2]'}`}
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
+            activity === 'needs-input' ? 'text-[#ffe0a3]' : 'text-[#9a9aa2]'
+          }`}
           title={`${cliLabel} CLI`}
           aria-label={`${cliLabel} CLI`}
         >
@@ -195,14 +235,22 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
         </span>
       )
 
-      if (needsInput) {
-        renderValues.buttons.unshift(
-          <span
-            key="needs-input"
-            className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f] shadow-[0_0_8px_rgba(255,191,47,0.85)]"
-            title={currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input'}
-            aria-label={currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input'}
-          />
+      if (activityDot) {
+        renderValues.content = (
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate">{renderValues.content}</span>
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${activityDot.className}`}
+              title={activityDot.label}
+              aria-label={activityDot.label}
+            />
+          </span>
+        )
+      } else {
+        renderValues.content = (
+          <span className="min-w-0 truncate">
+            {renderValues.content}
+          </span>
         )
       }
     },

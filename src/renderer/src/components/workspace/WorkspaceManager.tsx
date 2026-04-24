@@ -22,11 +22,70 @@ const CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
   { value: 'codex', label: 'Codex' },
 ]
 type WorkspacePanelComponent = 'explorer' | 'editor' | 'git'
+type WorkspaceActivity = 'needs-input' | 'running' | 'idle'
+type ActivityLayoutNode = {
+  component?: string
+  config?: {
+    agentId?: string
+  }
+  children?: ActivityLayoutNode[]
+}
 
 function workspaceNeedsInput(workspace: Workspace): boolean {
   return Object.values(workspace.swarmState?.swarmAgents ?? {}).some(
     (agent) => agent.status === 'needs_input'
   )
+}
+
+function workspaceHasRunningAgent(workspace: Workspace): boolean {
+  const openAgentIds = new Set<string>()
+
+  const collectOpenAgentIds = (node: ActivityLayoutNode | undefined) => {
+    if (!node) return
+
+    if (node.component === 'agent') {
+      const agentId = node.config?.agentId
+      if (agentId) openAgentIds.add(agentId)
+    }
+
+    node.children?.forEach(collectOpenAgentIds)
+  }
+
+  collectOpenAgentIds(workspace.layoutModel.layout as ActivityLayoutNode)
+  workspace.layoutModel.borders?.forEach((border) => collectOpenAgentIds(border as ActivityLayoutNode))
+
+  return [...openAgentIds].some((agentId) => {
+    const agent = workspace.agents[agentId]
+    return Boolean(agent?.cliStartRequested || agent?.cliHasLaunched || agent?.cliTerminalId)
+  })
+}
+
+function getWorkspaceActivity(workspace: Workspace): WorkspaceActivity {
+  if (workspaceNeedsInput(workspace)) return 'needs-input'
+  if (workspaceHasRunningAgent(workspace)) return 'running'
+  return 'idle'
+}
+
+function workspaceActivityDotClass(activity: WorkspaceActivity): string {
+  switch (activity) {
+    case 'needs-input':
+      return 'animate-pulse bg-[#ffbf2f] shadow-[0_0_10px_rgba(255,191,47,0.9)]'
+    case 'running':
+      return 'bg-[#30d158] shadow-[0_0_8px_rgba(48,209,88,0.45)]'
+    default:
+      return 'bg-[#5a5a63]'
+  }
+}
+
+function workspaceActivityLabel(activity: WorkspaceActivity): string {
+  switch (activity) {
+    case 'needs-input':
+      return 'Workspace needs input'
+    case 'running':
+      return 'Workspace has running agents'
+    default:
+      return 'Workspace idle'
+  }
 }
 
 export default function WorkspaceManager() {
@@ -249,27 +308,6 @@ export default function WorkspaceManager() {
     setRenamingId(null)
   }
 
-  const addNewCLI = (cli: AgentCli = lastSelectedCli) => {
-    if (showTemplateSelector || !activeWorkspaceId || activeWorkspace?.mode === 'swarm') return
-    const model = getModel(activeWorkspaceId)
-    if (!model) return
-
-    const newId = `agent-${nanoid(6)}`
-    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-    if (!targetTabset) return
-
-    updateAgent(activeWorkspaceId, newId, { name: newId, cli })
-    model.doAction(
-      Actions.addNode(
-        { type: 'tab', name: newId, component: 'agent', config: { agentId: newId } },
-        targetTabset.getId(),
-        DockLocation.CENTER,
-        -1,
-        true
-      )
-    )
-  }
-
   const addNewSpecialist = async (specialistId: SpecialistActionId = lastSelectedSpecialist) => {
     if (showTemplateSelector || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
@@ -335,7 +373,6 @@ export default function WorkspaceManager() {
   const handleSelectCli = (cli: AgentCli) => {
     setLastSelectedCli(cli)
     setCliMenuOpen(false)
-    addNewCLI(cli)
   }
 
   const handleSelectSpecialist = (specialistId: SpecialistActionId) => {
@@ -381,7 +418,8 @@ export default function WorkspaceManager() {
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {workspaces.map((workspace) => {
             const active = !showTemplateSelector && workspace.id === activeWorkspaceId
-            const needsInput = workspaceNeedsInput(workspace)
+            const activity = getWorkspaceActivity(workspace)
+            const activityLabel = workspaceActivityLabel(activity)
             return (
               <div
                 key={workspace.id}
@@ -402,15 +440,9 @@ export default function WorkspaceManager() {
                 }`}
               >
                 <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    needsInput
-                      ? 'animate-pulse bg-[#ffbf2f] shadow-[0_0_10px_rgba(255,191,47,0.9)]'
-                      : active
-                        ? 'bg-[#30d158]'
-                        : 'bg-[#5a5a63]'
-                  }`}
-                  title={needsInput ? 'Workspace needs input' : undefined}
-                  aria-label={needsInput ? 'Workspace needs input' : undefined}
+                  className={`h-1.5 w-1.5 rounded-full ${workspaceActivityDotClass(activity)}`}
+                  title={activityLabel}
+                  aria-label={activityLabel}
                 />
                 {renamingId === workspace.id ? (
                   <input
@@ -566,11 +598,16 @@ export default function WorkspaceManager() {
             <div ref={cliMenuRef} className="relative inline-flex">
               <div className="inline-flex overflow-hidden rounded-md border border-[#24252b] bg-[#111216]">
                 <button
-                  onClick={() => addNewCLI()}
+                  onClick={() => {
+                    setCliMenuOpen((open) => !open)
+                    setSpecialistMenuOpen(false)
+                  }}
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-8 items-center justify-center text-[#30d158] transition-colors hover:bg-[#17181d] disabled:opacity-40 disabled:hover:bg-[#111216]"
-                  title={`Add a new ${selectedCliOption.label} pane to the active workspace`}
-                  aria-label={`Add ${selectedCliOption.label} pane`}
+                  title={`Base CLI: ${selectedCliOption.label}`}
+                  aria-haspopup="menu"
+                  aria-expanded={cliMenuOpen}
+                  aria-label={`Base CLI: ${selectedCliOption.label}`}
                 >
                   <CliIcon cli={selectedCliOption.value} className="h-[18px] w-[18px]" />
                 </button>
