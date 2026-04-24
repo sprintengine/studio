@@ -214,6 +214,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     const swarmDirectory = getSwarmDirectoryPath(folderPath, swarmName)
     const stateFilePath = getSwarmStateFilePath(folderPath, swarmName)
     let debounce: number | null = null
+    let pollInterval: number | null = null
 
     const readExternalState = async () => {
       try {
@@ -239,11 +240,17 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       } catch { /* directory may not exist yet */ }
     }
 
+    void readExternalState()
     void startWatching()
+    // WSL and network-backed folders can miss fs.watch events in Electron.
+    // Polling is a read-only fallback so the board still reflects claims and
+    // status changes written by the swarm tool.
+    pollInterval = window.setInterval(() => { void readExternalState() }, 2000)
 
     return () => {
       disposed = true
       if (debounce !== null) window.clearTimeout(debounce)
+      if (pollInterval !== null) window.clearInterval(pollInterval)
       if (stopWatching) void stopWatching()
     }
   }, [folderPath, setSwarmState, swarmName, workspaceId])
