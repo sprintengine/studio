@@ -10,6 +10,7 @@ import type {
   SwarmTaskBoardColumn,
   SwarmTaskStatus,
 } from '../../types/workspace'
+import { SwarmRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import {
   buildSwarmAgentRosterForState,
@@ -1739,9 +1740,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                       <span
-                        className="hidden h-2.5 w-2.5 shrink-0 rounded-full sm:mt-1.5 sm:block"
-                        style={{ backgroundColor: swarmRoleAccent[role] }}
-                      />
+                        className="hidden h-8 w-8 shrink-0 items-center justify-center rounded border bg-[#111216] sm:flex"
+                        style={{
+                          borderColor: selected ? swarmRoleAccent[role] : '#303139',
+                          color: '#9a9aa2',
+                        }}
+                      >
+                        <SwarmRoleIcon role={role} className="h-4 w-4" />
+                      </span>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold">
                           {swarmRoleLabels[role]}
@@ -2195,10 +2201,11 @@ function SwarmMapView({
                 className="relative flex h-16 w-16 items-center justify-center rounded-full border bg-[#111216] text-base font-semibold text-[#ececee]"
                 style={{
                   borderColor: selected ? swarmRoleAccent[node.agent.role] : '#303139',
+                  color: '#9a9aa2',
                   boxShadow: selected ? `0 0 0 3px ${hexToRgba(swarmRoleAccent[node.agent.role], 0.16)}` : undefined,
                 }}
               >
-                {node.agent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
+                <SwarmRoleIcon role={node.agent.role} className="h-7 w-7" />
                 <span
                   className="absolute -right-1 top-3 h-3 w-3 rounded-full border border-[#08090b]"
                   style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
@@ -2236,9 +2243,10 @@ function SwarmMapView({
                 className="flex h-14 w-14 items-center justify-center rounded-full border bg-[#111216] text-base font-semibold text-[#ececee]"
                 style={{
                   borderColor: swarmRoleAccent[selectedAgent.role],
+                  color: '#9a9aa2',
                 }}
               >
-                {selectedAgent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
+                <SwarmRoleIcon role={selectedAgent.role} className="h-7 w-7" />
               </span>
               <div className="min-w-0">
                 <div className="truncate text-lg font-semibold text-[#ececee]">{selectedAgent.label}</div>

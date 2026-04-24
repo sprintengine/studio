@@ -10,11 +10,12 @@ import {
   type NodeMouseEvent,
 } from 'flexlayout-react'
 import 'flexlayout-react/style/dark.css'
+import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentState, SwarmRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { buildSwarmAgentRosterForState } from '../../utils/swarm'
-import CliIcon from '../CliIcon'
+import { SpecialistActionIcon, StatusDot, SwarmRoleIcon } from '../AppIcons'
 import AgentPanel from '../panels/AgentPanel'
 import EditorPanel from '../panels/EditorPanel'
 import FileExplorer from '../panels/FileExplorer'
@@ -30,7 +31,7 @@ const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 type AgentTabActivity = 'needs-input' | 'running' | 'idle'
 
 type AgentTabActivityDot = {
-  className: string
+  tone: 'running' | 'needs-input'
   label: string
 }
 
@@ -50,12 +51,12 @@ function agentTabActivityDot(
   switch (activity) {
     case 'needs-input':
       return {
-        className: 'bg-[#ffbf2f] shadow-[0_0_8px_rgba(255,191,47,0.75)]',
+        tone: 'needs-input',
         label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
       }
     case 'running':
       return {
-        className: 'bg-[#30d158]',
+        tone: 'running',
         label: 'CLI running',
       }
     default:
@@ -216,34 +217,44 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
       const agent = workspace.agents[agentId]
-      const cli = agent?.cli ?? 'codex'
-      const cliLabel = cli === 'codex' ? 'Codex' : 'Claude'
       const runtimeAgent = workspace.swarmState?.swarmAgents[agentId]
       const activity = agentTabActivity(agent, runtimeAgent?.status)
       const currentTaskId = runtimeAgent?.currentTaskId
       const activityDot = agentTabActivityDot(activity, currentTaskId)
+      const specialist = agent?.kind === 'specialist' && agent.specialistId
+        ? getSpecialistAction(agent.specialistId)
+        : null
+      const swarmRole = agent?.kind === 'swarm' ? runtimeAgent?.role : null
 
-      renderValues.leading = (
-        <span
-          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
-            activity === 'needs-input' ? 'text-[#ffe0a3]' : 'text-[#9a9aa2]'
-          }`}
-          title={`${cliLabel} CLI`}
-          aria-label={`${cliLabel} CLI`}
-        >
-          <CliIcon cli={cli} className="h-3.5 w-3.5" />
-        </span>
-      )
+      if (specialist) {
+        renderValues.leading = (
+          <span
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[#9a9aa2]"
+            title={`${specialist.shortLabel} specialist`}
+            aria-label={`${specialist.shortLabel} specialist`}
+          >
+            <SpecialistActionIcon icon={specialist.icon} className="h-3.5 w-3.5" />
+          </span>
+        )
+      } else if (swarmRole) {
+        renderValues.leading = (
+          <span
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[#9a9aa2]"
+            title={`${swarmRole} swarm agent`}
+            aria-label={`${swarmRole} swarm agent`}
+          >
+            <SwarmRoleIcon role={swarmRole} className="h-3.5 w-3.5" />
+          </span>
+        )
+      } else {
+        renderValues.leading = null
+      }
 
       if (activityDot) {
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate">{renderValues.content}</span>
-            <span
-              className={`h-1.5 w-1.5 shrink-0 rounded-full ${activityDot.className}`}
-              title={activityDot.label}
-              aria-label={activityDot.label}
-            />
+            <StatusDot tone={activityDot.tone} label={activityDot.label} />
           </span>
         )
       } else {

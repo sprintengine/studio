@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
+import { SpecialistActionIcon, StatusDot, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import CommandPalette from '../CommandPalette'
 import SettingsModal from '../settings/SettingsModal'
@@ -9,7 +10,6 @@ import {
   SPECIALIST_ACTIONS,
   getSpecialistAction,
   loadSpecialistPrompt,
-  type SpecialistIcon,
 } from '../../specialists/specialistActions'
 import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '../../types/workspace'
 import { getModel } from '../../utils/modelRegistry'
@@ -66,14 +66,14 @@ function getWorkspaceActivity(workspace: Workspace): WorkspaceActivity {
   return 'idle'
 }
 
-function workspaceActivityDotClass(activity: WorkspaceActivity): string {
+function workspaceActivityTone(activity: WorkspaceActivity): 'running' | 'needs-input' | null {
   switch (activity) {
     case 'needs-input':
-      return 'animate-pulse bg-[#ffbf2f] shadow-[0_0_10px_rgba(255,191,47,0.9)]'
+      return 'needs-input'
     case 'running':
-      return 'bg-[#30d158] shadow-[0_0_8px_rgba(48,209,88,0.45)]'
+      return 'running'
     default:
-      return 'bg-[#5a5a63]'
+      return null
   }
 }
 
@@ -420,6 +420,7 @@ export default function WorkspaceManager() {
             const active = !showTemplateSelector && workspace.id === activeWorkspaceId
             const activity = getWorkspaceActivity(workspace)
             const activityLabel = workspaceActivityLabel(activity)
+            const activityTone = workspaceActivityTone(activity)
             return (
               <div
                 key={workspace.id}
@@ -433,16 +434,15 @@ export default function WorkspaceManager() {
                     setActiveWorkspace(workspace.id)
                   }
                 }}
-                className={`group inline-flex h-[30px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
+                className={`group inline-flex h-[30px] max-w-[260px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
                   active
                     ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
                     : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
                 }`}
               >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${workspaceActivityDotClass(activity)}`}
-                  title={activityLabel}
-                  aria-label={activityLabel}
+                <WorkspaceTypeIcon
+                  mode={workspace.mode}
+                  className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]"
                 />
                 {renamingId === workspace.id ? (
                   <input
@@ -459,8 +459,17 @@ export default function WorkspaceManager() {
                     className="w-32 rounded border border-[#303139] bg-[#090a0c] px-1.5 py-0 text-[13px] text-[#ececee] focus:outline-none"
                   />
                 ) : (
-                  <span onDoubleClick={(event) => startRename(event, workspace)}>{workspace.name}</span>
+                  <span
+                    onDoubleClick={(event) => startRename(event, workspace)}
+                    className="min-w-0 flex-1 truncate"
+                  >
+                    {workspace.name}
+                  </span>
                 )}
+
+                {activityTone ? (
+                  <StatusDot tone={activityTone} label={activityLabel} className="ml-0.5" />
+                ) : null}
 
                 <button
                   onClick={(event) => handleCloseTab(event, workspace.id)}
@@ -522,7 +531,7 @@ export default function WorkspaceManager() {
                 <button
                   onClick={() => void addNewSpecialist()}
                   disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-8 items-center justify-center text-[#6ee7d8] transition-colors hover:bg-[#17181d] disabled:opacity-40 disabled:hover:bg-[#111216]"
+                  className="inline-flex h-8 w-8 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
                   title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}`}
                   aria-label={`Spawn ${selectedSpecialistAction.label} specialist`}
                 >
@@ -569,7 +578,7 @@ export default function WorkspaceManager() {
                         <span
                           className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
                             selected
-                              ? 'border-[#6ee7d8]/40 bg-[#6ee7d8]/10 text-[#6ee7d8]'
+                              ? 'border-[#6ee7d8]/40 bg-[#6ee7d8]/10 text-[#9a9aa2]'
                               : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
                           }`}
                         >
@@ -926,48 +935,6 @@ function terminateWorkspaceTerminals(workspace: Workspace): void {
   sessionIds.forEach((sessionId) => {
     void window.api.terminalKill(sessionId).catch(() => {})
   })
-}
-
-function SpecialistActionIcon({ icon, className }: { icon: SpecialistIcon; className?: string }) {
-  if (icon === 'shield') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M12 3.75L18.75 6.25V11.15C18.75 15.35 16.08 19.08 12 20.25C7.92 19.08 5.25 15.35 5.25 11.15V6.25L12 3.75Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-        <path d="M9 12.05L11.05 14.1L15.25 9.9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    )
-  }
-
-  if (icon === 'design') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M4.5 17.5H19.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-        <path d="M7 17.5L9.4 7.2C9.65 6.13 10.52 5.35 11.55 5.35H12.45C13.48 5.35 14.35 6.13 14.6 7.2L17 17.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M8.4 12.75H15.6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      </svg>
-    )
-  }
-
-  if (icon === 'review') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M6.5 4.75H15.25L18.5 8V19.25H6.5V4.75Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-        <path d="M15.25 4.75V8H18.5" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-        <path d="M8.9 12.25L10.35 13.7L13.1 10.95" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M8.9 16.3H15.1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      </svg>
-    )
-  }
-
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5 18.75V13.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M10 18.75V9.25" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M15 18.75V11.75" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M20 18.75V5.25" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M4.5 19H20.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  )
 }
 
 function EmptyState({ onNew }: { onNew: () => void }) {
