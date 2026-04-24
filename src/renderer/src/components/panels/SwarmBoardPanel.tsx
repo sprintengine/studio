@@ -459,18 +459,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const selectedTaskOwnerCliRunning = selectedTask?.ownerAgentId
     ? Boolean(agents[selectedTask.ownerAgentId]?.cliStartRequested)
     : false
-  const autoStatusLabel = !autoEnabled
-    ? 'Off'
-    : needsInputAgent
-      ? 'Paused'
-      : runningAgent
-        ? 'Running'
-        : allTasksDone
-          ? 'Complete'
-          : readyTasks.some((task) => !task.ownerAgentId)
-            ? 'Armed'
-            : 'Waiting'
-
   const activateView = (view: SwarmView) => {
     if (fixedView) return
     setActiveView(view)
@@ -694,28 +682,25 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               role="switch"
               aria-checked={autoEnabled}
               onClick={toggleAuto}
-              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+              className={`flex items-center gap-3 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
                 autoEnabled
                   ? 'border-[#6ee7d8]/55 bg-[#6ee7d8]/14 text-[#d8fffb] hover:border-[#6ee7d8]/75 hover:bg-[#6ee7d8]/18'
                   : 'border-[#303139] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
               }`}
             >
               <span
-                className={`relative h-4 w-7 rounded-full transition-colors ${
+                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
                   autoEnabled ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
                 }`}
                 aria-hidden="true"
               >
                 <span
-                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-[#08090b] transition-transform ${
-                    autoEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+                    autoEnabled ? 'translate-x-4' : 'translate-x-0'
                   }`}
                 />
               </span>
               <span>Auto</span>
-              <span className="text-[11px] font-semibold uppercase tracking-normal opacity-70">
-                {autoStatusLabel}
-              </span>
             </button>
             {!fixedView ? (
               <div className="ml-1 flex flex-wrap items-center gap-1">
@@ -1115,9 +1100,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </div>
 
             <div className="space-y-4 px-5 py-5">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <InfoCard label="Tasks" value={`${swarmState.tasks.length} to check`} />
-                <InfoCard label="Backup" value="state-timestamp.yaml" />
+              <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+                <MetaItem label="Tasks" value={`${swarmState.tasks.length} to check`} />
+                <MetaItem label="Backup" value="state-timestamp.yaml" />
               </div>
 
               <div className="relative">
@@ -1205,9 +1190,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 ) : null}
               </div>
 
-              <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3 text-sm leading-6 text-[#d7d7dc]">
+              <p className="border-l border-[#303139] pl-3 text-sm leading-6 text-[#9a9aa2]">
                 No app-side recovery state is created. The Architect performs the audit in the terminal and updates the watched state file directly.
-              </div>
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
@@ -1216,14 +1201,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   setCliPickerOpen(false)
                   setRecoveryDialog(null)
                 }}
-                className="rounded-md border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmRecoveryAudit}
                 disabled={!folderPath || !architectAgentId}
-                className="rounded-md border border-[#30d158]/55 bg-[#30d158] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#69e783] disabled:opacity-45 disabled:hover:bg-[#30d158]"
+                className="rounded-md bg-[#30d158] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#69e783] disabled:opacity-45 disabled:hover:bg-[#30d158]"
               >
                 Start Audit
               </button>
@@ -1259,9 +1244,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </div>
 
             <div className="space-y-4 px-5 py-5">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <InfoCard label="Role" value={swarmRoleLabels[spawnDialogAgent.role]} />
-                <InfoCard label="Status" value={runtimeStatusLabel(spawnDialogRuntime?.status ?? 'idle')} />
+              <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+                <MetaItem label="Role" value={swarmRoleLabels[spawnDialogAgent.role]} />
+                <MetaItem label="Status" value={runtimeStatusLabel(spawnDialogRuntime?.status ?? 'idle')} />
               </div>
 
               <div className="relative">
@@ -1349,12 +1334,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 ) : null}
               </div>
 
-              <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3 text-sm leading-6 text-[#d7d7dc]">
+              <p className="border-l border-[#303139] pl-3 text-sm leading-6 text-[#9a9aa2]">
                 {cliOptions.find((option) => option.value === spawnDialog.cli)?.description}
                 {spawnDialogIsRunning ? (
                   <span className="text-[#5a5a63]"> A terminal already exists, so this will focus it unless you changed the CLI.</span>
                 ) : null}
-              </div>
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
@@ -1363,13 +1348,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   setCliPickerOpen(false)
                   setSpawnDialog(null)
                 }}
-                className="rounded-md border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmSpawnDialog}
-                className="rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+                className="rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
               >
                 {spawnDialogIsRunning ? 'Open Terminal' : 'Spawn'}
               </button>
@@ -1598,7 +1583,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {addMemberOpen ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-2xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div>
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -1610,13 +1595,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </div>
               <button
                 onClick={() => setAddMemberOpen(false)}
-                className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
             </div>
 
-            <div className="grid gap-3 px-5 py-5 sm:grid-cols-2">
+            <div className="space-y-1 px-5 py-5">
               {addableRoles.map((role) => {
                 const selected = role === addMemberRole
                 const activeForRole = roster.filter((agent) => agent.role === role).length
@@ -1628,39 +1613,30 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   <button
                     key={role}
                     onClick={() => setAddMemberRole(role)}
-                    className={`rounded-xl border p-4 text-left transition-colors ${
+                    aria-pressed={selected}
+                    className={`w-full rounded-lg border-l-2 px-3 py-3 text-left transition-colors ${
                       selected
-                        ? 'border-[#6ee7d8]/55 bg-[#6ee7d8]/12 text-[#ececee]'
-                        : 'border-[#24252b] bg-[#111216] text-[#d7d7dc] hover:border-[#303139] hover:bg-[#17181d]'
+                        ? 'border-l-[#6ee7d8] bg-[#6ee7d8]/10 text-[#ececee]'
+                        : 'border-l-transparent text-[#d7d7dc] hover:bg-[#17181d]'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                      <span
+                        className="hidden h-2.5 w-2.5 shrink-0 rounded-full sm:mt-1.5 sm:block"
+                        style={{ backgroundColor: swarmRoleAccent[role] }}
+                      />
+                      <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold">
                           {swarmRoleLabels[role]}
                         </div>
-                        <p className={`mt-2 text-[12px] leading-5 ${selected ? 'text-[#bff7f1]' : 'text-[#9a9aa2]'}`}>
+                        <p className={`mt-1 text-[12px] leading-5 ${selected ? 'text-[#bff7f1]' : 'text-[#9a9aa2]'}`}>
                           {roleSummaries[role]}
                         </p>
                       </div>
-                      <span
-                        className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: swarmRoleAccent[role] }}
-                      />
-                    </div>
-
-                    <div className={`mt-4 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.12em] ${
-                      selected ? 'text-[#bff7f1]' : 'text-[#5a5a63]'
-                    }`}>
-                      <span className={`rounded-full border px-2 py-1 ${
-                        selected ? 'border-[#6ee7d8]/40 bg-[#6ee7d8]/10' : 'border-[#303139] bg-[#0d0e11]'
+                      <span className={`shrink-0 pt-0.5 text-right text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                        selected ? 'text-[#bff7f1]' : 'text-[#5a5a63]'
                       }`}>
-                        {activeForRole} active
-                      </span>
-                      <span className={`rounded-full border px-2 py-1 ${
-                        selected ? 'border-[#6ee7d8]/40 bg-[#6ee7d8]/10' : 'border-[#303139] bg-[#0d0e11]'
-                      }`}>
-                        {openTasksForRole} open
+                        {activeForRole} active / {openTasksForRole} open
                       </span>
                     </div>
                   </button>
@@ -1671,13 +1647,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
               <button
                 onClick={() => setAddMemberOpen(false)}
-                className="rounded-xl border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmAddMember}
-                className="rounded-xl border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+                className="rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
               >
                 Spawn {swarmRoleLabels[addMemberRole]}
               </button>
@@ -1688,18 +1664,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {planReader.open ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-2xl border border-[#ffbf2f]/45 bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55),0_0_32px_rgba(255,191,47,0.12)]">
+          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0 flex-1">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Architect Plan
                 </div>
                 <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
                   {planFilePath ?? 'swarm/plan.md'}
                 </h3>
-                <p className="mt-2 text-sm text-[#9a9aa2]">
-                  Read the architect-authored plan for this swarm run.
-                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -1709,27 +1682,27 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       mode: current.mode === 'preview' ? 'source' : 'preview',
                     }))
                   }
-                  className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                  className="rounded-md px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
                   {planReader.mode === 'preview' ? 'Source' : 'Preview'}
                 </button>
                 <button
                   onClick={() => void loadPlanReader()}
-                  className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                  className="rounded-md px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
                   Refresh
                 </button>
                 {architectAgentId ? (
                   <button
                     onClick={() => openAgentTerminal(architectAgentId)}
-                    className="rounded-lg border border-[#ffbf2f]/45 bg-[#ffbf2f]/12 px-3 py-2 text-sm text-[#ffe0a3] transition-colors hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/16"
+                    className="rounded-md px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                   >
                     Focus Architect
                   </button>
                 ) : null}
                 <button
                   onClick={() => setPlanReader((current) => ({ ...current, open: false }))}
-                  className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                  className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
                   Close
                 </button>
@@ -1738,12 +1711,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
               {planReader.status === 'loading' ? (
-                <div className="rounded-2xl border border-[#24252b] bg-[#111216] px-4 py-5 text-sm text-[#9a9aa2]">
+                <div className="px-1 py-2 text-sm text-[#9a9aa2]">
                   Loading plan...
                 </div>
               ) : null}
               {planReader.status === 'error' ? (
-                <div className="rounded-2xl border border-[#ff1a3d]/45 bg-[#ff1a3d]/12 px-4 py-5 text-sm text-[#ffb3bf]">
+                <div className="border-l border-[#ff1a3d]/60 pl-3 text-sm leading-6 text-[#ffb3bf]">
                   {planReader.error ?? 'Failed to load plan.'}
                 </div>
               ) : null}
@@ -1752,14 +1725,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   {planReader.content
                     ? renderMarkdown(planReader.content)
                     : (
-                      <div className="rounded-lg border border-dashed border-[#303139] bg-[#111216] px-4 py-5 text-sm text-[#9a9aa2]">
+                      <div className="border-l border-[#303139] pl-3 text-sm leading-6 text-[#9a9aa2]">
                         No architect plan has been written yet.
                       </div>
                   )}
                 </div>
               ) : null}
               {planReader.status === 'ready' && planReader.mode === 'source' ? (
-                <pre className="min-h-[420px] overflow-x-auto rounded-2xl border border-[#24252b] bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]">
+                <pre className="min-h-[420px] overflow-x-auto rounded-lg bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]">
                   <code>{planReader.content}</code>
                 </pre>
               ) : null}
@@ -1773,14 +1746,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 {planFilePath ? (
                   <button
                     onClick={() => void openPlanInEditor()}
-                    className="rounded-xl border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d]"
+                    className="rounded-md px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                   >
                     Open in Editor
                   </button>
                 ) : null}
                 <button
                   onClick={() => setPlanReader((current) => ({ ...current, open: false }))}
-                  className="rounded-xl border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 px-4 py-2 text-sm font-semibold text-[#ffe0a3] shadow-[0_0_22px_rgba(255,191,47,0.12)] transition-colors hover:border-[#ffbf2f]/80 hover:bg-[#ffbf2f]/18"
+                  className="rounded-md bg-[#ffbf2f] px-4 py-2 text-sm font-semibold text-[#191306] transition-colors hover:bg-[#ffd166]"
                 >
                   Done
                 </button>
