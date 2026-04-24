@@ -128,23 +128,17 @@ export default function WorkspaceManager() {
       const ctrl = event.ctrlKey || event.metaKey
       if (!ctrl) return
 
-      if (event.shiftKey && (event.key === 'PageUp' || event.key === 'PageDown')) {
+      if (event.key === 'Tab') {
         event.preventDefault()
         const nextWorkspaceId = getNextWorkspaceId(
           workspaces,
           activeWorkspaceId,
-          event.key === 'PageUp' ? -1 : 1
+          event.shiftKey ? -1 : 1
         )
         if (nextWorkspaceId) {
           setShowTemplateSelector(false)
           setActiveWorkspace(nextWorkspaceId)
         }
-        return
-      }
-
-      if (event.key === 'Tab' && activeWorkspaceId && !showTemplateSelector) {
-        event.preventDefault()
-        cycleActiveTab(activeWorkspaceId, event.shiftKey ? -1 : 1)
         return
       }
 
@@ -672,19 +666,6 @@ function getNextWorkspaceId(
 
   const nextIndex = (activeIndex + step + workspaces.length) % workspaces.length
   return workspaces[nextIndex].id
-}
-
-function cycleActiveTab(workspaceId: string, step: 1 | -1): void {
-  const model = getModel(workspaceId)
-  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
-  if (!tabset) return
-
-  const tabs = tabset.getChildren().filter((node): node is TabNode => node instanceof TabNode)
-  if (tabs.length < 2) return
-
-  const selectedIndex = tabset.getSelected()
-  const nextIndex = (selectedIndex + step + tabs.length) % tabs.length
-  model?.doAction(Actions.selectTab(tabs[nextIndex].getId()))
 }
 
 function firstTabset(model: Model): TabSetNode | null {
