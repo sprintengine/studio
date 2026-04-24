@@ -1388,14 +1388,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 <h3 className="text-[20px] font-semibold leading-7 tracking-tight text-[#ececee]">
                   {selectedTask.title}
                 </h3>
-                <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                  <span className="rounded-full border border-[#303139] px-2 py-1">{selectedTask.id}</span>
-                  <span className="rounded-full border border-[#303139] px-2 py-1">
-                    {swarmRoleLabels[selectedTask.role]}
-                  </span>
-                  <span className={`rounded-full px-2 py-1 ${taskGraphStatusTone(selectedTask.status, selectedTaskBoardColumn ?? selectedTask.status)}`}>
-                    {selectedTaskStatusLabel}
-                  </span>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#5a5a63]">
+                  <span className="font-mono">{selectedTask.id}</span>
+                  <span>{swarmRoleLabels[selectedTask.role]}</span>
+                  <span className="font-semibold text-[#d7d7dc]">{selectedTaskStatusLabel}</span>
                 </div>
               </div>
               <button
@@ -1407,27 +1403,18 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </div>
 
             <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
-              <div className="grid gap-4 md:grid-cols-4">
-                <InfoCard
-                  label="Status"
-                  value={selectedTaskStatusLabel}
-                />
-                <InfoCard
-                  label="Owner"
-                  value={selectedTaskOwnerLabel}
-                />
-                <InfoCard
-                  label="Dependencies"
-                  value={selectedTask.dependsOn.join(', ') || 'None'}
-                />
-                <InfoCard
+              <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 md:grid-cols-4">
+                <MetaItem label="Status" value={selectedTaskStatusLabel} />
+                <MetaItem label="Owner" value={selectedTaskOwnerLabel} />
+                <MetaItem label="Dependencies" value={selectedTask.dependsOn.join(', ') || 'None'} />
+                <MetaItem
                   label={selectedTask.completedAt ? 'Completed' : 'Started'}
                   value={formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt)}
                 />
               </div>
 
               {selectedTaskNeedsInputNote ? (
-                <div className="rounded-lg border border-[#ffbf2f]/65 bg-[#ffbf2f]/12 px-4 py-3 text-sm text-[#ffe0a3] shadow-[0_0_24px_rgba(255,191,47,0.12)]">
+                <div className="border-l-2 border-[#ffbf2f] bg-[#ffbf2f]/8 px-4 py-3 text-sm text-[#ffe0a3]">
                   <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
                     Needs Input
                   </div>
@@ -1441,7 +1428,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               ) : null}
 
               {selectedTask.ownerAgentId && selectedTaskCanManageWorker ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] pb-5">
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                       Worker CLI
@@ -1465,7 +1452,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               ) : null}
 
               {selectedTaskCanSpawnWorker ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#6ee7d8]/35 bg-[#6ee7d8]/10 px-4 py-3 shadow-[0_0_22px_rgba(110,231,216,0.08)]">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] pb-5">
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ee7d8]">
                       Ready To Claim
@@ -1490,7 +1477,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Description
                 </div>
-                <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3 text-[#d7d7dc]">
+                <div className="text-[#d7d7dc]">
                   {selectedTask.description || 'No description recorded.'}
                 </div>
               </div>
@@ -1515,7 +1502,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Evidence Summary
                 </div>
-                <div className="rounded-xl border border-[#24252b] bg-[#111216] px-4 py-3 text-[#d7d7dc]">
+                <div className="text-[#d7d7dc]">
                   {selectedTask.evidence.summary || 'No completion summary recorded yet.'}
                 </div>
               </div>
@@ -2889,6 +2876,15 @@ function InfoCard({ label, value }: { label: string; value: string }) {
   )
 }
 
+function MetaItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] uppercase tracking-[0.14em] text-[#5a5a63]">{label}</div>
+      <div className="mt-1 font-medium text-[#ececee] [overflow-wrap:anywhere]">{value}</div>
+    </div>
+  )
+}
+
 function SectionList({
   title,
   items,
@@ -2902,15 +2898,16 @@ function SectionList({
     <div>
       <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">{title}</div>
       {items.length > 0 ? (
-        <ul className="space-y-2 text-[#d7d7dc]">
+        <ul className="space-y-1.5 text-[#d7d7dc]">
           {items.map((item) => (
-            <li key={item} className="rounded-lg border border-[#24252b] bg-[#111216] px-3 py-2">
-              {item}
+            <li key={item} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
+              <span className="mt-[0.65rem] h-1 w-1 rounded-full bg-[#5a5a63]" aria-hidden="true" />
+              <span className="[overflow-wrap:anywhere]">{item}</span>
             </li>
           ))}
         </ul>
       ) : (
-        <div className="rounded-lg border border-dashed border-[#24252b] bg-[#111216] px-3 py-3 text-[12px] text-[#5a5a63]">
+        <div className="text-[12px] text-[#5a5a63]">
           {emptyLabel}
         </div>
       )}
