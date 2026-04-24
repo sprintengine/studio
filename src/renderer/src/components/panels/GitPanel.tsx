@@ -59,12 +59,27 @@ function sortedEntries(entries: GitStatusEntry[]): GitStatusEntry[] {
   return [...entries].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
 }
 
-function resultMessage(result: GitCommandResult, fallback: string): GitPanelMessage {
+function resultMessage(result: GitCommandResult, fallback: string, preferFallback = false): GitPanelMessage {
   if (result.ok) {
-    return { tone: 'success', text: result.stdout.trim() || result.stderr.trim() || fallback }
+    const gitOutput = result.stdout.trim() || result.stderr.trim()
+    return { tone: 'success', text: preferFallback ? fallback : gitOutput || fallback }
   }
 
   return { tone: 'error', text: result.message || result.stderr.trim() || 'Git command failed.' }
+}
+
+function syncStatusLabel(branches: GitBranchSnapshot | null): string {
+  if (!branches) return 'Checking branch'
+  if (branches.ahead && branches.behind) return `Ahead ${branches.ahead}, behind ${branches.behind}`
+  if (branches.ahead) return `Ahead ${branches.ahead}`
+  if (branches.behind) return `Behind ${branches.behind}`
+  return 'Up to date'
+}
+
+function formatRemoteLabel(currentBranch: GitBranch | null): string {
+  if (!currentBranch) return 'Detached HEAD'
+  if (!currentBranch.upstream) return `${currentBranch.name} has no upstream`
+  return `${currentBranch.name} -> ${currentBranch.upstream}`
 }
 
 export default function GitPanel({ workspaceId }: { workspaceId: string }) {
@@ -132,18 +147,21 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   )
   const allEntries = useMemo(() => sortedEntries(Object.values(status?.files ?? {})), [status])
   const branchOptions = branches?.branches ?? []
+  const currentBranch = branchOptions.find((branch) => branch.current) ?? null
+  const readyToCommit = stagedEntries.length > 0 && Boolean(commitMessage.trim())
 
   const runAction = async (
     label: string,
     action: () => Promise<GitCommandResult>,
-    success: string
+    success: string,
+    preferSuccessMessage = false
   ): Promise<GitCommandResult | null> => {
     if (busy) return null
     setBusy(label)
     setMessage({ tone: 'neutral', text: `${label}...` })
     try {
       const result = await action()
-      setMessage(resultMessage(result, success))
+      setMessage(resultMessage(result, success, preferSuccessMessage))
       if (result.ok) {
         await refreshAll()
       }
@@ -195,7 +213,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const handlePush = async () => {
     if (!repoRoot) return
-    await runAction('Pushing', () => window.api.pushGitBranch(repoRoot), 'Pushed branch.')
+    await runAction('Pushing', () => window.api.pushGitBranch(repoRoot), 'Pushed branch.', true)
   }
 
   const handleSwitchBranch = async (branchName: string) => {
@@ -242,24 +260,30 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#0d0e11] text-[#d7d7dc]">
-      <div className="border-b border-[#1f2025] bg-[#111216]">
-        <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-3">
-          <select
-            value={branches?.current ?? ''}
-            onChange={(event) => void handleSwitchBranch(event.target.value)}
-            disabled={Boolean(busy) || branchOptions.length === 0}
-            className="h-6 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 font-mono text-[11px] text-[#9a9aa2] outline-none transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:border-[#303139] focus:bg-[#090a0c] disabled:opacity-50"
-            aria-label="Current branch"
-          >
-            {branchOptions.length === 0 ? (
-              <option value="">{branches?.current ?? 'detached'}</option>
-            ) : null}
-            {branchOptions.map((branch) => (
-              <option key={branch.name} value={branch.name}>
-                {branch.name}{branch.upstream ? ` -> ${branch.upstream}` : ''}
-              </option>
-            ))}
-          </select>
+      <div className="border-b border-[#1b1c21] bg-[#101115]">
+        <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
+          <div className="min-w-0 flex-1">
+            <select
+              value={branches?.current ?? ''}
+              onChange={(event) => void handleSwitchBranch(event.target.value)}
+              disabled={Boolean(busy) || branchOptions.length === 0}
+              className="block h-5 max-w-full rounded-md border border-transparent bg-transparent px-1 font-mono text-[12px] font-semibold text-[#ececee] outline-none transition-colors hover:bg-[#1a1b20] focus:border-[#303139] focus:bg-[#090a0c] disabled:opacity-50"
+              aria-label="Current branch"
+            >
+              {branchOptions.length === 0 ? (
+                <option value="">{branches?.current ?? 'detached'}</option>
+              ) : null}
+              {branchOptions.map((branch) => (
+                <option key={branch.name} value={branch.name}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#6f7480]">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#30d158]" aria-hidden="true" />
+              <span className="truncate">{syncStatusLabel(branches)}</span>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => void refreshAll()}
@@ -271,20 +295,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             <RefreshGitIcon />
           </button>
         </div>
-
-        <div className="flex items-center justify-between gap-2 px-3 pb-2">
-          <div className="flex min-w-0 items-center gap-2 text-[10px] text-[#8a8a92]">
-            {!branches ? <span>Checking branch</span> : null}
-            {branches?.ahead ? <span>Ahead {branches.ahead}</span> : null}
-            {branches?.behind ? <span>Behind {branches.behind}</span> : null}
-            {branches && !branches.ahead && !branches.behind ? <span>Up to date</span> : null}
-          </div>
-        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {allEntries.length === 0 ? (
-          <div className="px-2 py-3 text-[12px] text-[#5a5a63]">Working tree clean</div>
+          <div className="py-2 text-[12px] text-[#6f7480]">Working tree clean</div>
         ) : (
           groups.map((group) => (
             <ChangeGroup
@@ -295,19 +310,19 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             />
           ))
         )}
-        <section className="mt-3 border-t border-[#1f2025] pt-3">
+        <section className="mt-2 pt-2">
           <textarea
             value={commitMessage}
             onChange={(event) => setCommitMessage(event.target.value)}
-            placeholder="Commit message"
-            className="h-20 w-full resize-none rounded-md border border-[#24252b] bg-[#090a0c] px-2.5 py-2 text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#303139]"
+            placeholder="Describe your changes"
+            className="h-20 w-full resize-none rounded-md border border-[#1f2025] bg-[#090a0c] px-2.5 py-2 text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] transition-colors focus:border-[#3a3d49]"
           />
           <div className="mt-2 flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={() => void runAction('Staging all', () => window.api.stageGitPaths(repoRoot, []), 'Staged all changes.')}
               disabled={Boolean(busy) || unstagedEntries.length === 0}
-              className="h-8 rounded-md border border-[#24252b] bg-[#15161a] px-3 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-40"
+              className="h-8 rounded-md px-2.5 text-[11px] text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
             >
               Stage All
             </button>
@@ -315,8 +330,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               <button
                 type="button"
                 onClick={() => void handleCommit()}
-                disabled={Boolean(busy) || stagedEntries.length === 0 || !commitMessage.trim()}
-                className="h-8 rounded-md border border-[#3a3d49] bg-[#17181d] px-3 text-[11px] font-semibold text-[#ececee] transition-colors hover:bg-[#1d1e24] disabled:opacity-40"
+                disabled={Boolean(busy) || !readyToCommit}
+                className="h-8 rounded-md border border-[#3a3d49] bg-[#ececee] px-3 text-[11px] font-semibold text-[#111216] transition-colors hover:bg-white disabled:border-[#24252b] disabled:bg-[#15161a] disabled:text-[#5a5a63]"
               >
                 Commit
               </button>
@@ -324,20 +339,27 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                 type="button"
                 onClick={() => void handlePush()}
                 disabled={Boolean(busy)}
-                className="h-8 rounded-md border border-[#24252b] bg-[#15161a] px-3 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-40"
+                className="h-8 rounded-md px-2.5 text-[11px] text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
               >
                 Push
               </button>
             </div>
           </div>
+          <div className="mt-3 flex min-w-0 items-center justify-between gap-2 text-[10px] text-[#5f6570]">
+            <span className="shrink-0 uppercase tracking-[0.1em]">Remote</span>
+            <span className="min-w-0 truncate font-mono" title={formatRemoteLabel(currentBranch)}>
+              {formatRemoteLabel(currentBranch)}
+            </span>
+          </div>
           {message ? (
             <div
-              className={`mt-2 max-h-24 overflow-y-auto rounded-md border px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
+              role={message.tone === 'error' ? 'alert' : 'status'}
+              className={`mt-2 max-h-24 overflow-y-auto rounded-md px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
                 message.tone === 'error'
-                  ? 'border-[#713036] bg-[#311417] text-[#ff8a8e]'
+                  ? 'border border-[#713036] bg-[#311417] text-[#ff8a8e]'
                   : message.tone === 'success'
-                    ? 'border-[#3a3d49] bg-[#17181d] text-[#d7d7dc]'
-                    : 'border-[#303139] bg-[#15161a] text-[#9a9aa2]'
+                    ? 'bg-transparent text-[#8a8f9b]'
+                    : 'bg-[#15161a] text-[#9a9aa2]'
               }`}
             >
               {message.text}
@@ -360,15 +382,15 @@ function ChangeGroup({
   onOpenFile: (entry: GitStatusEntry) => Promise<void>
 }) {
   return (
-    <section className="mb-3">
-      <div className="mb-1 flex h-6 items-center justify-between gap-2 px-1">
+    <section className="mb-4">
+      <div className="mb-1 flex h-6 items-center justify-between gap-2">
         <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">{group.title}</div>
         {group.bulkAction && group.entries.length > 0 ? (
           <button
             type="button"
             onClick={() => void group.bulkAction?.action()}
             disabled={Boolean(busy)}
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] font-mono text-[13px] leading-none text-[#8a8a92] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-30"
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md font-mono text-[13px] leading-none text-[#8a8a92] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-30"
             title={group.bulkAction.title}
             aria-label={group.bulkAction.title}
           >
@@ -377,7 +399,7 @@ function ChangeGroup({
         ) : null}
       </div>
       {group.entries.length === 0 ? (
-        <div className="px-1 py-1.5 text-[11px] text-[#5a5a63]">{group.empty}</div>
+        <div className="py-1.5 text-[11px] text-[#5a5a63]">{group.empty}</div>
       ) : (
         <div className="space-y-1">
           {group.entries.map((entry) => {
@@ -410,7 +432,7 @@ function ChangeGroup({
                     void group.action(entry.path)
                   }}
                   disabled={Boolean(busy)}
-                  className="h-6 rounded-md border border-[#24252b] bg-[#111216] px-2 text-[10px] text-[#8a8a92] opacity-0 transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-30 group-hover:opacity-100"
+                  className="h-6 rounded-md px-2 text-[10px] text-[#8a8a92] opacity-0 transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-30 group-hover:opacity-100"
                 >
                   {group.actionLabel}
                 </button>
@@ -427,26 +449,26 @@ function CommitHistory({ history }: { history: GitHistoryState }) {
   const commits = history.status === 'ready' ? history.snapshot.commits : []
 
   return (
-    <section className="mt-4 border-t border-[#1f2025] pt-3">
-      <div className="mb-1 flex items-center justify-between gap-2 px-1">
+    <section className="mt-4 border-t border-[#1b1c21] pt-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">History</div>
         <div className="shrink-0 text-[10px] text-[#5a5a63]">{commits.length ? `${commits.length} recent` : ''}</div>
       </div>
       {history.status === 'loading' ? (
-        <div className="px-1 py-1.5 text-[11px] text-[#5a5a63]">Loading commits...</div>
+        <div className="py-1.5 text-[11px] text-[#5a5a63]">Loading commits...</div>
       ) : history.status === 'error' ? (
-        <div className="px-1 py-1.5 text-[11px] text-[#8a8a92]">{history.message}</div>
+        <div className="py-1.5 text-[11px] text-[#8a8a92]">{history.message}</div>
       ) : commits.length === 0 ? (
-        <div className="px-1 py-1.5 text-[11px] text-[#5a5a63]">No commits yet</div>
+        <div className="py-1.5 text-[11px] text-[#5a5a63]">No commits yet</div>
       ) : (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {commits.map((commit) => (
             <div
               key={commit.hash}
-              className="group flex min-h-[40px] items-start gap-2 rounded-md px-2 py-1.5 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
+              className="group flex min-h-[42px] items-start gap-2 rounded-md px-1.5 py-1.5 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
               title={commit.subject}
             >
-              <div className="mt-1 h-2 w-2 shrink-0 rounded-full border border-[#3a3d49] bg-[#17181d]" />
+              <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full border border-[#3a3d49]" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
                 <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#5a5a63]">
@@ -456,7 +478,7 @@ function CommitHistory({ history }: { history: GitHistoryState }) {
                 </div>
               </div>
               {commit.refs.length > 0 ? (
-                <span className="mt-0.5 max-w-[76px] shrink-0 truncate rounded-full border border-[#24252b] bg-[#0d0e11] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[#8a8a92]">
+                <span className="mt-0.5 max-w-[76px] shrink-0 truncate rounded-full bg-[#15161a] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[#8a8a92]">
                   {commit.refs[0].replace(/^HEAD -> /, '')}
                 </span>
               ) : null}
