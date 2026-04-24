@@ -857,7 +857,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         </div>
 
         {allTasksDone ? (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#30d158]/35 bg-[#30d158]/12 px-4 py-3 shadow-[0_0_30px_rgba(48,209,88,0.08)]">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-4 border-l-2 border-[#30d158] bg-[#30d158]/8 px-4 py-3">
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
                 Run Complete
@@ -871,7 +871,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </div>
             <button
               onClick={() => setShowRunSummary(true)}
-              className="rounded-md border border-[#30d158]/55 bg-[#30d158] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#69e783]"
+              className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d4ffdc] transition-colors hover:bg-[#30d158]/12"
             >
               View Run Summary
             </button>
@@ -1533,7 +1533,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {showRunSummary ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[980px] overflow-y-auto rounded-2xl border border-[#30d158]/35 bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55),0_0_28px_rgba(48,209,88,0.1)]">
+          <div className="max-h-[90vh] w-full max-w-[980px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div>
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
@@ -1555,11 +1555,11 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             </div>
 
             <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
-              <div className="grid gap-4 md:grid-cols-4">
-                <InfoCard label="Tasks Done" value={`${runSummary.completedTasks}/${runSummary.totalTasks}`} />
-                <InfoCard label="Files Touched" value={String(runSummary.touchedFiles.length)} />
-                <InfoCard label="Commands" value={String(runSummary.commandsRan.length)} />
-                <InfoCard label="Results" value={String(runSummary.results.length)} />
+              <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 md:grid-cols-4">
+                <MetaItem label="Tasks Done" value={`${runSummary.completedTasks}/${runSummary.totalTasks}`} />
+                <MetaItem label="Files Touched" value={String(runSummary.touchedFiles.length)} />
+                <MetaItem label="Commands" value={String(runSummary.commandsRan.length)} />
+                <MetaItem label="Results" value={String(runSummary.results.length)} />
               </div>
 
               <SectionList
@@ -1588,7 +1588,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 emptyLabel="No open questions remain."
               />
 
-              <div className="rounded-2xl border border-[#ffbf2f]/45 bg-[#ffbf2f]/10 px-4 py-3 text-sm text-[#ffe0a3] shadow-[0_0_22px_rgba(255,191,47,0.1)]">
+              <div className="border-l-2 border-[#ffbf2f] bg-[#ffbf2f]/8 px-4 py-3 text-sm text-[#ffe0a3]">
                 Next step: manually test the uncommitted changes in the workspace before committing or reverting.
               </div>
             </div>
