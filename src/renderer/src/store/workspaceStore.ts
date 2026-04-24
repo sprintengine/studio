@@ -105,6 +105,7 @@ const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'): Agen
   status: 'idle',
   messages: [],
   streamBuffer: '',
+  cliTerminalId: undefined,
   cliSessionId: undefined,
   cliStartRequested: false,
   cliRestartNonce: 0,
@@ -649,7 +650,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 17,
+      version: 18,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -793,6 +794,24 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.workspaces = state.workspaces.map((ws) => ({
             ...ws,
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
+          }))
+        }
+        if (version < 18) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            agents: Object.fromEntries(
+              Object.entries(ws.agents).map(([id, agent]) => {
+                const legacySessionId = agent.cliSessionId
+                return [
+                  id,
+                  {
+                    ...agent,
+                    cliTerminalId: agent.cliTerminalId ?? legacySessionId,
+                    cliSessionId: agent.cli === 'claude' ? legacySessionId : undefined,
+                  },
+                ]
+              })
+            ),
           }))
         }
         return state as never

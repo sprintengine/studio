@@ -246,7 +246,8 @@ type CliRuntimeSettings = {
 }
 
 type TerminalSpawnPayload = {
-  sessionId: string
+  terminalId: string
+  cliSessionId?: string
   cols: number
   rows: number
   cwd?: string
@@ -402,30 +403,32 @@ function buildUserShellStartup(): string {
 
 function buildWslShellScript(
   cwd: string,
-  sessionId: string,
+  terminalId: string,
   resume = false,
   swarmStatePath?: string,
   cli: AgentCli = 'codex',
   initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings
+  cliRuntime?: CliRuntimeSettings,
+  cliSessionId?: string
 ): string {
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSwarmShellBootstrap(swarmStatePath),
-    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime),
+    buildAgentLaunchCommand(cli, terminalId, resume, initialPrompt, cliRuntime, cliSessionId),
     'exec bash -li',
   ].join('; ')
 }
 
 function getShellLaunchConfig(
   cwd: string,
-  sessionId: string,
+  terminalId: string,
   resume = false,
   swarmStatePath?: string,
   cli: AgentCli = 'codex',
   initialPrompt?: string,
-  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
+  cliSessionId?: string
 ): ShellLaunchConfig {
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
 
@@ -439,11 +442,12 @@ function getShellLaunchConfig(
     }
     const commandLine = buildNativeAgentLaunchCommand(
       cli,
-      sessionId,
+      terminalId,
       resume,
       windowsCwd,
       initialPrompt,
-      cliRuntime
+      cliRuntime,
+      cliSessionId
     )
 
     return {
@@ -461,7 +465,7 @@ function getShellLaunchConfig(
         '-e',
         'bash',
         '-lic',
-        buildWslShellScript(cwd, sessionId, resume, swarmStatePath, cli, initialPrompt, cliRuntime),
+        buildWslShellScript(cwd, terminalId, resume, swarmStatePath, cli, initialPrompt, cliRuntime, cliSessionId),
       ],
     }
   }
@@ -473,7 +477,7 @@ function getShellLaunchConfig(
   return {
     command: shellPath,
     args,
-    initialInput: `${[buildSwarmShellBootstrap(swarmStatePath), buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime)].join('; ')}\r`,
+    initialInput: `${[buildSwarmShellBootstrap(swarmStatePath), buildAgentLaunchCommand(cli, terminalId, resume, initialPrompt, cliRuntime, cliSessionId)].join('; ')}\r`,
   }
 }
 
@@ -524,32 +528,38 @@ function getPlainShellLaunchConfig(
 
 function buildNativeAgentLaunchCommand(
   cli: AgentCli,
-  sessionId: string,
+  terminalId: string,
   resume: boolean,
   cwd: string,
   initialPrompt: string | undefined,
-  cliRuntime: CliRuntimeSettings
+  cliRuntime: CliRuntimeSettings,
+  cliSessionId?: string
 ): string {
   const command = quoteCmdIfNeeded(cliRuntime.command || cli)
 
   if (cli === 'codex') {
+    if (resume && cliSessionId) {
+      return `${command} resume ${quoteCmdIfNeeded(cliSessionId)}`
+    }
+
     const promptArg = initialPrompt ? ` ${quoteCmd(initialPrompt)}` : ''
     return `${command} -C ${quoteCmdIfNeeded(cwd)}${promptArg}`
   }
 
   const sessionFlag = resume ? '--resume' : '--session-id'
-  return `${command} ${sessionFlag} ${quoteCmdIfNeeded(sessionId)}`
+  return `${command} ${sessionFlag} ${quoteCmdIfNeeded(cliSessionId || terminalId)}`
 }
 
 function buildAgentLaunchCommand(
   cli: AgentCli,
-  sessionId: string,
+  terminalId: string,
   resume = false,
   initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings
+  cliRuntime?: CliRuntimeSettings,
+  cliSessionId?: string
 ): string {
-  if (cli === 'claude') return buildClaudeLaunchCommand(sessionId, resume, cliRuntime)
-  return buildCodexLaunchCommand(initialPrompt, cliRuntime)
+  if (cli === 'claude') return buildClaudeLaunchCommand(cliSessionId || terminalId, resume, cliRuntime)
+  return buildCodexLaunchCommand(initialPrompt, cliRuntime, resume, cliSessionId)
 }
 
 function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
@@ -562,14 +572,20 @@ function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
 
 function buildCodexLaunchCommand(
   initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings
+  cliRuntime?: CliRuntimeSettings,
+  resume = false,
+  cliSessionId?: string
 ): string {
   const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
   const configuredCommand = cliRuntime?.command?.trim()
+  const command = quotePosixCommand(configuredCommand || 'codex')
+  const codexCommand = resume && cliSessionId
+    ? `${command} resume ${quotePosix(cliSessionId)};`
+    : `${command}${promptArg};`
 
   return [
     buildCommandAvailabilityCheck('codex', configuredCommand || 'codex'),
-    `${quotePosixCommand(configuredCommand || 'codex')}${promptArg};`,
+    codexCommand,
     'fi',
   ].join(' ')
 }
@@ -728,18 +744,18 @@ ipcMain.handle('window:get-state', (event) => {
 
 ipcMain.handle(
   'terminal:spawn',
-  (event, { sessionId, cols, rows, cwd, resume, swarmStatePath, cli = 'codex', initialPrompt, cliRuntimes, shellOnly }: TerminalSpawnPayload) => {
-    const existingSession = terminals.get(sessionId)
+  (event, { terminalId, cliSessionId, cols, rows, cwd, resume, swarmStatePath, cli = 'codex', initialPrompt, cliRuntimes, shellOnly }: TerminalSpawnPayload) => {
+    const existingSession = terminals.get(terminalId)
     if (existingSession && !existingSession.hasExited && !existingSession.isDisposed) {
       existingSession.sender = event.sender
-      safeResizeTerminal(sessionId, cols, rows)
+      safeResizeTerminal(terminalId, cols, rows)
       if (existingSession.outputBuffer) {
-        sendTerminalEvent(event.sender, `terminal:data:${sessionId}`, existingSession.outputBuffer)
+        sendTerminalEvent(event.sender, `terminal:data:${terminalId}`, existingSession.outputBuffer)
       }
       return
     }
 
-    disposeTerminal(sessionId)
+    disposeTerminal(terminalId)
 
     try {
       const workingDirectory = cwd || process.cwd()
@@ -747,12 +763,13 @@ ipcMain.handle(
         ? getPlainShellLaunchConfig(workingDirectory, swarmStatePath)
         : getShellLaunchConfig(
           workingDirectory,
-          sessionId,
+          terminalId,
           resume,
           swarmStatePath,
           cli,
           initialPrompt,
-          cliRuntimes
+          cliRuntimes,
+          cliSessionId
         )
       const initialSize = getTerminalSize(cols, rows)
       const termProcess = pty.spawn(command, args, {
@@ -771,24 +788,24 @@ ipcMain.handle(
         outputBuffer: '',
       }
 
-      terminals.set(sessionId, terminalSession)
+      terminals.set(terminalId, terminalSession)
 
       termProcess.onData((data) => {
         if (!terminalSession.isReady) {
           terminalSession.isReady = true
-          flushPendingTerminalResize(sessionId, terminalSession)
+          flushPendingTerminalResize(terminalId, terminalSession)
         }
         appendTerminalOutput(terminalSession, data)
-        sendTerminalEvent(terminalSession.sender, `terminal:data:${sessionId}`, data)
+        sendTerminalEvent(terminalSession.sender, `terminal:data:${terminalId}`, data)
       })
 
       termProcess.onExit((e) => {
         terminalSession.hasExited = true
-        if (terminals.get(sessionId) === terminalSession) {
-          terminals.delete(sessionId)
+        if (terminals.get(terminalId) === terminalSession) {
+          terminals.delete(terminalId)
         }
         if (!terminalSession.isDisposed) {
-          sendTerminalEvent(terminalSession.sender, `terminal:exit:${sessionId}`, e.exitCode)
+          sendTerminalEvent(terminalSession.sender, `terminal:exit:${terminalId}`, e.exitCode)
         }
       })
 
@@ -797,8 +814,8 @@ ipcMain.handle(
         termProcess.write(initialInput)
       }
     } catch (error) {
-      sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, getTerminalErrorMessage(error))
-      sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, 1)
+      sendTerminalEvent(event.sender, `terminal:error:${terminalId}`, getTerminalErrorMessage(error))
+      sendTerminalEvent(event.sender, `terminal:exit:${terminalId}`, 1)
     }
   }
 )

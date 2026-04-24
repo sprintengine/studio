@@ -126,6 +126,7 @@ export type AgentState = {
   status: AgentStatus
   messages: AgentMessage[]
   streamBuffer: string
+  cliTerminalId?: string
   cliSessionId?: string
   cliStartRequested?: boolean
   cliRestartNonce?: number

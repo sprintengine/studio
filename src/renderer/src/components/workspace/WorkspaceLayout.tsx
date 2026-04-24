@@ -122,8 +122,8 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
       const config = node.getConfig() as { agentId?: string; terminalId?: string } | undefined
       if (node.getComponent() === 'agent') {
         const agentId = config?.agentId ?? node.getId()
-        const sessionId = workspace.agents[agentId]?.cliSessionId
-        if (sessionId) void window.api.terminalKill(sessionId).catch(() => {})
+        const terminalId = workspace.agents[agentId]?.cliTerminalId
+        if (terminalId) void window.api.terminalKill(terminalId).catch(() => {})
         return
       }
 

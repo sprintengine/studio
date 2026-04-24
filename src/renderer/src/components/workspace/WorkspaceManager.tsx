@@ -863,7 +863,7 @@ function terminateWorkspaceTerminals(workspace: Workspace): void {
   const sessionIds = new Set<string>()
 
   Object.values(workspace.agents).forEach((agent) => {
-    if (agent.cliSessionId) sessionIds.add(agent.cliSessionId)
+    if (agent.cliTerminalId) sessionIds.add(agent.cliTerminalId)
   })
 
   const collectLayoutSessions = (node: LayoutSessionNode | undefined) => {
@@ -871,8 +871,8 @@ function terminateWorkspaceTerminals(workspace: Workspace): void {
 
     if (node.component === 'agent') {
       const agentId = node.config?.agentId
-      const sessionId = agentId ? workspace.agents[agentId]?.cliSessionId : undefined
-      if (sessionId) sessionIds.add(sessionId)
+      const terminalId = agentId ? workspace.agents[agentId]?.cliTerminalId : undefined
+      if (terminalId) sessionIds.add(terminalId)
     }
 
     if (node.component === 'terminal') {

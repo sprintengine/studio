@@ -29,10 +29,17 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
     : ''
 
   const startAgent = (restart = false) => {
-    const existingSessionId = restart ? agent?.cliSessionId : undefined
+    const terminalId = restart ? agent?.cliTerminalId ?? crypto.randomUUID() : crypto.randomUUID()
+    const cliSessionId = cli === 'claude'
+      ? agent?.cliSessionId ?? terminalId
+      : restart
+        ? agent?.cliSessionId
+        : undefined
+
     updateAgent(workspaceId, agentId, {
       cliStartRequested: true,
-      cliSessionId: existingSessionId ?? crypto.randomUUID(),
+      cliTerminalId: terminalId,
+      cliSessionId,
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
       cliRestartNonce: (agent?.cliRestartNonce ?? 0) + 1,

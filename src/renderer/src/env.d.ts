@@ -132,7 +132,7 @@ declare interface Window {
     switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>
 
     // Agent CLI Terminal
-    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => Promise<void>
+    terminalSpawn:  (terminalId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, cliSessionId?: string) => Promise<void>
     terminalWrite:  (sessionId: string, data: string) => Promise<void>
     terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
     terminalKill:   (sessionId: string) => Promise<void>
