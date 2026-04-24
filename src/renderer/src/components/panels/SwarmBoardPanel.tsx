@@ -124,6 +124,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
+  const [autoEnabled, setAutoEnabled] = useState(false)
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
@@ -138,6 +139,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   })
   const lastSyncedContentRef = useRef<string | null>(null)
   const initialReadDoneRef = useRef(false)
+  const autoPendingSpawnRef = useRef<{ taskId: string; agentId: string } | null>(null)
 
   const swarmState = workspace?.swarmState ?? null
   const effectiveView = fixedView ?? activeView
@@ -259,6 +261,102 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     [runtimeAgents]
   )
 
+  const readyTasks = useMemo(() => (
+    swarmState?.tasks.filter(
+      (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready'
+    ) ?? []
+  ), [swarmState])
+
+  function startAgentTerminal(
+    agentId: string,
+    label: string,
+    cli?: AgentCli,
+    options?: { startupPrompt?: string; freshSession?: boolean }
+  ) {
+    const current = agents[agentId]
+    const selectedCli = cli ?? current?.cli ?? 'codex'
+    const hasLegacyLaunchedSession =
+      current?.cli === undefined
+      && Boolean(current?.cliStartRequested || current?.cliHasLaunched || current?.cliSessionId)
+    const shouldResetSession =
+      hasLegacyLaunchedSession || (current?.cli !== undefined && current.cli !== selectedCli)
+    const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession)
+    updateAgent(workspaceId, agentId, {
+      cliStartRequested: true,
+      cliSessionId: current?.cliStartRequested && current.cliSessionId && !shouldStartFresh
+        ? current.cliSessionId
+        : crypto.randomUUID(),
+      cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
+      cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
+      cli: selectedCli,
+      cliStartupPrompt: options?.startupPrompt,
+    })
+    focusOrAddAgentTab(workspaceId, agentId, label)
+  }
+
+  useEffect(() => {
+    if (!autoEnabled || !swarmState || !folderPath) return
+
+    const pending = autoPendingSpawnRef.current
+    if (pending) {
+      const pendingTask = swarmState.tasks.find((task) => task.id === pending.taskId)
+      const pendingTaskStillReady = pendingTask
+        ? getSwarmTaskBoardColumn(pendingTask, swarmState.tasks) === 'ready' && !pendingTask.ownerAgentId
+        : false
+      const pendingAgentStillLaunching = Boolean(agents[pending.agentId]?.cliStartRequested)
+
+      if (pendingTaskStillReady && pendingAgentStillLaunching) return
+      autoPendingSpawnRef.current = null
+    }
+
+    if (runtimeAgents.some((agent) => agent.status === 'needs_input')) {
+      setAutoEnabled(false)
+      return
+    }
+
+    if (runtimeAgents.some((agent) => agent.status === 'running')) return
+
+    if (swarmState.tasks.length > 0 && swarmState.tasks.every((task) => task.status === 'done')) {
+      setAutoEnabled(false)
+      return
+    }
+
+    const nextTask = readyTasks.find((task) => !task.ownerAgentId)
+    if (!nextTask) {
+      setAutoEnabled(false)
+      return
+    }
+
+    const existingAgent = roster.find((agent) =>
+      agent.role === nextTask.role
+      && runtimeAgentById[agent.id]?.status !== 'done'
+      && !agents[agent.id]?.cliStartRequested
+    )
+    const nextAgent = existingAgent ?? addSwarmMember(workspaceId, nextTask.role)
+    if (!nextAgent) {
+      setAutoEnabled(false)
+      return
+    }
+
+    autoPendingSpawnRef.current = { taskId: nextTask.id, agentId: nextAgent.id }
+    setSelectedAgentId(nextAgent.id)
+    startAgentTerminal(nextAgent.id, nextAgent.label, agents[nextAgent.id]?.cli ?? 'codex', {
+      freshSession: true,
+    })
+  }, [
+    addSwarmMember,
+    agents,
+    autoEnabled,
+    folderPath,
+    readyTasks,
+    roster,
+    runtimeAgentById,
+    runtimeAgents,
+    swarmState,
+    updateAgent,
+    workspaceId,
+  ])
+
   const boardColumns = useMemo(() => {
     if (!swarmState) return []
 
@@ -290,9 +388,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const planFilePath = folderPath ? getSwarmPlanFilePath(folderPath, swarmName) : null
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
   const workerRoles: SwarmRole[] = ['developer', 'frontend', 'product', 'tester', 'security']
-  const readyTasks = swarmState.tasks.filter(
-    (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready'
-  )
   const readyRoleLaunches = workerRoles
     .map((role) => ({
       role,
@@ -364,10 +459,29 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const selectedTaskOwnerCliRunning = selectedTask?.ownerAgentId
     ? Boolean(agents[selectedTask.ownerAgentId]?.cliStartRequested)
     : false
+  const autoStatusLabel = !autoEnabled
+    ? 'Off'
+    : needsInputAgent
+      ? 'Paused'
+      : runningAgent
+        ? 'Running'
+        : allTasksDone
+          ? 'Complete'
+          : readyTasks.some((task) => !task.ownerAgentId)
+            ? 'Armed'
+            : 'Waiting'
 
   const activateView = (view: SwarmView) => {
     if (fixedView) return
     setActiveView(view)
+  }
+
+  const toggleAuto = () => {
+    setAutoEnabled((current) => {
+      const next = !current
+      if (!next) autoPendingSpawnRef.current = null
+      return next
+    })
   }
 
   const openAddMemberDialog = () => {
@@ -387,33 +501,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     startAgentTerminal(addedAgent.id, addedAgent.label)
     setSelectedAgentId(addedAgent.id)
     setAddMemberOpen(false)
-  }
-
-  const startAgentTerminal = (
-    agentId: string,
-    label: string,
-    cli?: AgentCli,
-    options?: { startupPrompt?: string; freshSession?: boolean }
-  ) => {
-    const current = agents[agentId]
-    const selectedCli = cli ?? current?.cli ?? 'codex'
-    const hasLegacyLaunchedSession =
-      current?.cli === undefined
-      && Boolean(current?.cliStartRequested || current?.cliHasLaunched || current?.cliSessionId)
-    const shouldResetSession =
-      hasLegacyLaunchedSession || (current?.cli !== undefined && current.cli !== selectedCli)
-    const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession)
-    updateAgent(workspaceId, agentId, {
-      cliStartRequested: true,
-      cliSessionId: current?.cliStartRequested && current.cliSessionId && !shouldStartFresh
-        ? current.cliSessionId
-        : crypto.randomUUID(),
-      cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
-      cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
-      cli: selectedCli,
-      cliStartupPrompt: options?.startupPrompt,
-    })
-    focusOrAddAgentTab(workspaceId, agentId, label)
   }
 
   const openAgentTerminal = (agentId: string) => {
@@ -602,6 +689,34 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       <div className="border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
         <div className="mb-2 flex flex-wrap items-center justify-end gap-3">
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoEnabled}
+              onClick={toggleAuto}
+              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                autoEnabled
+                  ? 'border-[#6ee7d8]/55 bg-[#6ee7d8]/14 text-[#d8fffb] hover:border-[#6ee7d8]/75 hover:bg-[#6ee7d8]/18'
+                  : 'border-[#303139] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
+              }`}
+            >
+              <span
+                className={`relative h-4 w-7 rounded-full transition-colors ${
+                  autoEnabled ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+                }`}
+                aria-hidden="true"
+              >
+                <span
+                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-[#08090b] transition-transform ${
+                    autoEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+              <span>Auto</span>
+              <span className="text-[11px] font-semibold uppercase tracking-normal opacity-70">
+                {autoStatusLabel}
+              </span>
+            </button>
             {focusAgent ? (
               <button
                 onClick={() => {
