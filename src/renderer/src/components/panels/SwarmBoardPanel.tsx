@@ -358,29 +358,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const focusAgentRoster = focusAgent ? rosterById[focusAgent.agentId] : undefined
   const focusAgentIsLaunched = focusAgent ? Boolean(agents[focusAgent.agentId]?.cliStartRequested) : false
   const focusAgentRole = focusAgentRoster?.role ?? focusAgent?.role ?? null
-  const readyTaskNoun = readyTasks.length === 1 ? 'task needs' : 'tasks need'
-  const actionEyebrow = allTasksDone
-    ? 'Run Complete'
-    : readyRoleLaunches.length > 0
-      ? 'Ready Work'
-      : needsInputAgent
-        ? 'Needs Input'
-        : runningAgent
-          ? 'In Progress'
-          : hasPlannedTasks
-            ? 'Swarm Ready'
-            : 'Manual Swarm Launch'
-  const actionMessage = allTasksDone
-    ? 'All tasks are done. Review the run summary and validate the workspace.'
-    : readyRoleLaunches.length > 0
-      ? `${readyTasks.length} ready ${readyTaskNoun} specialist attention.`
-      : needsInputAgent
-        ? `${focusAgentRoster?.label ?? needsInputAgent.agentId} is waiting for input.`
-        : runningAgent
-          ? `${focusAgentRoster?.label ?? runningAgent.agentId} is actively working.`
-          : hasPlannedTasks
-            ? 'No ready specialist work right now. Verify progress if the board looks stale.'
-            : 'Review the architect plan, then spawn the specialists you want to run.'
   const selectedTaskBoardColumn = selectedTask
     ? getSwarmTaskBoardColumn(selectedTask, swarmState.tasks)
     : null
@@ -627,17 +604,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       <div className="border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-            <div className={`text-[10px] font-bold uppercase tracking-[0.14em] ${
-              needsInputAgent ? 'text-[#ffbf2f]' : allTasksDone ? 'text-[#30d158]' : 'text-[#9a9aa2]'
-            }`}>
-              {actionEyebrow}
-            </div>
-            <div className="min-w-0 truncate text-sm font-medium text-[#ececee]">
-              {actionMessage}
-            </div>
-          </div>
+        <div className="mb-2 flex flex-wrap items-center justify-end gap-3">
           <div className="flex flex-wrap items-center gap-2">
             {focusAgent ? (
               <button
