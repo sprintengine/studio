@@ -1867,8 +1867,8 @@ function SwarmProjectView({
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-[#08090b] p-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <section className="rounded-lg border border-[#1f2025] bg-[#0d0e11]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] px-4 py-3">
+        <section className="bg-[#0d0e11] px-4 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                 Project Brief
@@ -1885,12 +1885,12 @@ function SwarmProjectView({
             </button>
           </div>
 
-          <div className="space-y-4 px-4 py-4">
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(128px,100%),1fr))] gap-3">
-              <InfoCard label="Phase" value={runPhase} />
-              <InfoCard label="Tasks" value={String(swarmState.tasks.length)} />
-              <InfoCard label="Done" value={`${doneCount}/${swarmState.tasks.length}`} />
-              <InfoCard label="Active" value={`${activeCount} running, ${needsInputCount} waiting`} />
+          <div className="mt-4 space-y-5">
+            <div className="grid gap-x-6 gap-y-3 border-y border-[#1f2025] py-4 sm:grid-cols-4">
+              <MetaItem label="Phase" value={runPhase} />
+              <MetaItem label="Tasks" value={String(swarmState.tasks.length)} />
+              <MetaItem label="Done" value={`${doneCount}/${swarmState.tasks.length}`} />
+              <MetaItem label="Active" value={`${activeCount} running, ${needsInputCount} waiting`} />
             </div>
 
             <button
@@ -1899,8 +1899,8 @@ function SwarmProjectView({
                 if (canExpandGoal) setGoalExpanded((current) => !current)
               }}
               aria-expanded={goalExpanded}
-              className={`block w-full rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3 text-left transition-colors ${
-                canExpandGoal ? 'hover:border-[#303139] hover:bg-[#17181d]' : ''
+              className={`block w-full border-l-2 border-[#303139] pl-3 text-left transition-colors ${
+                canExpandGoal ? 'hover:border-[#6ee7d8]' : ''
               }`}
             >
               <div className="flex items-center justify-between gap-3">
@@ -1924,20 +1924,11 @@ function SwarmProjectView({
                 {goalExpanded ? fullGoal : goalPreview}
               </div>
             </button>
-
-            <div className="rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Execution Notes
-              </div>
-              <div className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                Use the action strip above for immediate work. Planning review controls stay out of the main execution views once task cards exist.
-              </div>
-            </div>
           </div>
         </section>
 
-        <section className="rounded-lg border border-[#1f2025] bg-[#0d0e11]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] px-4 py-3">
+        <section className="bg-[#0d0e11] px-4 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                 Team
@@ -1954,7 +1945,7 @@ function SwarmProjectView({
             </button>
           </div>
 
-          <div className="space-y-3 px-4 py-4">
+          <div className="mt-4 divide-y divide-[#1f2025] border-y border-[#1f2025]">
             {roster.map((agent) => {
               const runtime = runtimeAgents.find((candidate) => candidate.agentId === agent.id)
               const isLaunched = Boolean(agents[agent.id]?.cliStartRequested)
@@ -1965,13 +1956,12 @@ function SwarmProjectView({
               return (
                 <div
                   key={agent.id}
-                  className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-lg border border-[#24252b] bg-[#111216] px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+                  className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
                 >
                   <span
-                    className="flex h-10 w-10 items-center justify-center rounded-full border bg-[#0d0e11] text-[12px] font-bold text-[#ececee]"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border bg-[#111216] text-[11px] font-bold text-[#ececee]"
                     style={{
                       borderColor: swarmRoleAccent[agent.role],
-                      boxShadow: `0 0 16px ${hexToRgba(swarmRoleAccent[agent.role], 0.25)}`,
                     }}
                   >
                     {agent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
@@ -1989,10 +1979,10 @@ function SwarmProjectView({
                   </div>
                   <button
                     onClick={() => onSelectAgent(agent.id)}
-                    className={`col-span-2 rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors sm:col-span-1 ${
+                    className={`col-span-2 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors sm:col-span-1 ${
                       isLaunched
-                        ? 'border-[#30d158]/35 bg-[#30d158]/12 text-[#d4ffdc] hover:border-[#30d158]/60 hover:bg-[#30d158]/16'
-                        : 'border-[#6ee7d8]/35 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/60 hover:bg-[#6ee7d8]/18'
+                        ? 'text-[#d4ffdc] hover:bg-[#30d158]/12'
+                        : 'text-[#d8fffb] hover:bg-[#6ee7d8]/12'
                     }`}
                   >
                     {isLaunched ? 'Focus CLI' : `Spawn ${swarmRoleLabels[agent.role]}`}
