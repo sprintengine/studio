@@ -424,13 +424,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           <span className="flex shrink-0 items-center gap-2">
             <button
               onClick={() => void recheckFolder()}
-              className="rounded-md border border-[#303139] bg-[#17181d] px-2.5 py-1 text-[11px] font-semibold text-[#d7d7dc] transition-colors hover:bg-[#1d1e24] hover:text-[#ececee]"
+              className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
             >
               Retry
             </button>
             <button
               onClick={() => void relinkFolder()}
-              className="rounded-md border border-[#6ee7d8]/45 bg-[#6ee7d8]/10 px-2.5 py-1 text-[11px] font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/16"
+              className="rounded-md bg-[#6ee7d8]/10 px-2.5 py-1 text-[11px] font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/16"
             >
               Relink
             </button>
@@ -796,7 +796,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               {actionMenuOpen ? (
                 <div
                   role="menu"
-                  className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 overflow-hidden rounded-lg border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                  className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 overflow-hidden rounded-md bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
                 >
                   <button
                     role="menuitem"
@@ -1073,7 +1073,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {recoveryDialog ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
@@ -1112,9 +1112,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   onClick={() => setCliPickerOpen((open) => !open)}
                   aria-haspopup="listbox"
                   aria-expanded={cliPickerOpen}
-                  className="flex min-h-[58px] w-full items-center gap-3 rounded-lg border border-[#303139] bg-[#0d0e11] px-3 text-left text-[#ececee] outline-none transition-colors hover:border-[#3a3b44] hover:bg-[#17181d] focus:border-[#6ee7d8]/60"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#6ee7d8]/50"
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#303139] bg-[#111216] text-[#6ee7d8]">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#6ee7d8]">
                     <CliIcon cli={selectedRecoveryCliOption.value} className="h-5 w-5" />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -1139,7 +1139,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 {cliPickerOpen ? (
                   <div
                     role="listbox"
-                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
                   >
                     {cliOptions.map((option) => {
                       const selected = recoveryDialog.cli === option.value
@@ -1157,15 +1157,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                           }}
                           className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                             selected
-                              ? 'bg-[#6ee7d8]/12 text-[#ececee]'
+                              ? 'bg-[#6ee7d8]/8 text-[#ececee]'
                               : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
                           }`}
                         >
                           <span
-                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
                               selected
-                                ? 'border-[#6ee7d8]/40 bg-[#061210] text-[#6ee7d8]'
-                                : 'border-[#303139] bg-[#111216] text-[#5a5a63]'
+                                ? 'text-[#6ee7d8]'
+                                : 'text-[#5a5a63]'
                             }`}
                           >
                             <CliIcon cli={option.value} className="h-5 w-5" />
@@ -1189,7 +1189,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </div>
 
               <p className="border-l border-[#303139] pl-3 text-sm leading-6 text-[#9a9aa2]">
-                No app-side recovery state is created. The Architect performs the audit in the terminal and updates the watched state file directly.
+                The Architect runs the audit in a terminal and writes updates to the watched state file.
               </p>
             </div>
 
@@ -1217,7 +1217,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {spawnDialog && spawnDialogAgent ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ee7d8]">
@@ -1256,9 +1256,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   onClick={() => setCliPickerOpen((open) => !open)}
                   aria-haspopup="listbox"
                   aria-expanded={cliPickerOpen}
-                  className="flex min-h-[58px] w-full items-center gap-3 rounded-lg border border-[#303139] bg-[#0d0e11] px-3 text-left text-[#ececee] outline-none transition-colors hover:border-[#3a3b44] hover:bg-[#17181d] focus:border-[#6ee7d8]/60"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#6ee7d8]/50"
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#303139] bg-[#111216] text-[#6ee7d8]">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#6ee7d8]">
                     <CliIcon cli={selectedCliOption.value} className="h-5 w-5" />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -1283,7 +1283,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 {cliPickerOpen ? (
                   <div
                     role="listbox"
-                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
                   >
                     {cliOptions.map((option) => {
                       const selected = spawnDialog.cli === option.value
@@ -1301,15 +1301,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                           }}
                           className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                             selected
-                              ? 'bg-[#6ee7d8]/12 text-[#ececee]'
+                              ? 'bg-[#6ee7d8]/8 text-[#ececee]'
                               : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
                           }`}
                         >
                           <span
-                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
                               selected
-                                ? 'border-[#6ee7d8]/40 bg-[#061210] text-[#6ee7d8]'
-                                : 'border-[#303139] bg-[#111216] text-[#5a5a63]'
+                                ? 'text-[#6ee7d8]'
+                                : 'text-[#5a5a63]'
                             }`}
                           >
                             <CliIcon cli={option.value} className="h-5 w-5" />
@@ -1363,7 +1363,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {selectedTask && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[920px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+          <div className="max-h-[90vh] w-full max-w-[920px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -1398,7 +1398,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </div>
 
               {selectedTaskNeedsInputNote ? (
-                <div className="border-l-2 border-[#ffbf2f] bg-[#ffbf2f]/8 px-4 py-3 text-sm text-[#ffe0a3]">
+                <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
                   <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
                     Needs Input
                   </div>
@@ -1412,7 +1412,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               ) : null}
 
               {selectedTask.ownerAgentId && selectedTaskCanManageWorker ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] pb-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                       Worker CLI
@@ -1428,7 +1428,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       openReadyTaskWorker(selectedTask)
                       setSelectedTaskId(null)
                     }}
-                    className="rounded-md border border-[#303139] bg-[#111216] px-4 py-2 text-sm font-semibold text-[#ececee] transition-colors hover:bg-[#17181d]"
+                    className="rounded-md px-4 py-2 text-sm font-semibold text-[#ececee] transition-colors hover:bg-[#17181d]"
                   >
                     {selectedTaskOwnerCliRunning ? 'Focus' : 'Respawn'}
                   </button>
@@ -1436,7 +1436,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               ) : null}
 
               {selectedTaskCanSpawnWorker ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] pb-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ee7d8]">
                       Ready To Claim
@@ -1450,7 +1450,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                       openReadyTaskWorker(selectedTask)
                       setSelectedTaskId(null)
                     }}
-                    className="rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+                    className="rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
                   >
                     Spawn {swarmRoleLabels[selectedTask.role]}
                   </button>
@@ -1516,7 +1516,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {showRunSummary ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[980px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+          <div className="max-h-[90vh] w-full max-w-[980px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div>
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
@@ -1571,7 +1571,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 emptyLabel="No open questions remain."
               />
 
-              <div className="border-l-2 border-[#ffbf2f] bg-[#ffbf2f]/8 px-4 py-3 text-sm text-[#ffe0a3]">
+              <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
                 Next step: manually test the uncommitted changes in the workspace before committing or reverting.
               </div>
             </div>
@@ -1581,7 +1581,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {addMemberOpen ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div>
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -1612,9 +1612,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                     key={role}
                     onClick={() => setAddMemberRole(role)}
                     aria-pressed={selected}
-                    className={`w-full rounded-lg border-l-2 px-3 py-3 text-left transition-colors ${
+                    className={`w-full rounded-md border-l-2 px-3 py-3 text-left transition-colors ${
                       selected
-                        ? 'border-l-[#6ee7d8] bg-[#6ee7d8]/10 text-[#ececee]'
+                        ? 'border-l-[#6ee7d8] bg-[#6ee7d8]/8 text-[#ececee]'
                         : 'border-l-transparent text-[#d7d7dc] hover:bg-[#17181d]'
                     }`}
                   >
@@ -1662,7 +1662,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
       {planReader.open ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0 flex-1">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -1736,10 +1736,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
-              <div className="text-[12px] text-[#5a5a63]">
-                This is a read-only view of the architect plan.
-              </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
               <div className="flex flex-wrap items-center gap-2">
                 {planFilePath ? (
                   <button
@@ -1751,7 +1748,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 ) : null}
                 <button
                   onClick={() => setPlanReader((current) => ({ ...current, open: false }))}
-                  className="rounded-md bg-[#ffbf2f] px-4 py-2 text-sm font-semibold text-[#191306] transition-colors hover:bg-[#ffd166]"
+                  className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 >
                   Done
                 </button>
