@@ -295,57 +295,56 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             />
           ))
         )}
-        <CommitHistory history={history} />
-      </div>
-
-      <div className="border-t border-[#1f2025] bg-[#111216] p-3">
-        <textarea
-          value={commitMessage}
-          onChange={(event) => setCommitMessage(event.target.value)}
-          placeholder="Commit message"
-          className="h-20 w-full resize-none rounded-md border border-[#24252b] bg-[#090a0c] px-2.5 py-2 text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#303139]"
-        />
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => void runAction('Staging all', () => window.api.stageGitPaths(repoRoot, []), 'Staged all changes.')}
-            disabled={Boolean(busy) || unstagedEntries.length === 0}
-            className="h-8 rounded-md border border-[#24252b] bg-[#15161a] px-3 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-40"
-          >
-            Stage All
-          </button>
-          <div className="flex items-center gap-2">
+        <section className="mt-3 border-t border-[#1f2025] pt-3">
+          <textarea
+            value={commitMessage}
+            onChange={(event) => setCommitMessage(event.target.value)}
+            placeholder="Commit message"
+            className="h-20 w-full resize-none rounded-md border border-[#24252b] bg-[#090a0c] px-2.5 py-2 text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#303139]"
+          />
+          <div className="mt-2 flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={() => void handleCommit()}
-              disabled={Boolean(busy) || stagedEntries.length === 0 || !commitMessage.trim()}
-              className="h-8 rounded-md border border-[#3a3d49] bg-[#17181d] px-3 text-[11px] font-semibold text-[#ececee] transition-colors hover:bg-[#1d1e24] disabled:opacity-40"
-            >
-              Commit
-            </button>
-            <button
-              type="button"
-              onClick={() => void handlePush()}
-              disabled={Boolean(busy)}
+              onClick={() => void runAction('Staging all', () => window.api.stageGitPaths(repoRoot, []), 'Staged all changes.')}
+              disabled={Boolean(busy) || unstagedEntries.length === 0}
               className="h-8 rounded-md border border-[#24252b] bg-[#15161a] px-3 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-40"
             >
-              Push
+              Stage All
             </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCommit()}
+                disabled={Boolean(busy) || stagedEntries.length === 0 || !commitMessage.trim()}
+                className="h-8 rounded-md border border-[#3a3d49] bg-[#17181d] px-3 text-[11px] font-semibold text-[#ececee] transition-colors hover:bg-[#1d1e24] disabled:opacity-40"
+              >
+                Commit
+              </button>
+              <button
+                type="button"
+                onClick={() => void handlePush()}
+                disabled={Boolean(busy)}
+                className="h-8 rounded-md border border-[#24252b] bg-[#15161a] px-3 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-40"
+              >
+                Push
+              </button>
+            </div>
           </div>
-        </div>
-        {message ? (
-          <div
-            className={`mt-2 max-h-24 overflow-y-auto rounded-md border px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
-              message.tone === 'error'
-                ? 'border-[#713036] bg-[#311417] text-[#ff8a8e]'
-                : message.tone === 'success'
-                  ? 'border-[#3a3d49] bg-[#17181d] text-[#d7d7dc]'
-                  : 'border-[#303139] bg-[#15161a] text-[#9a9aa2]'
-            }`}
-          >
-            {message.text}
-          </div>
-        ) : null}
+          {message ? (
+            <div
+              className={`mt-2 max-h-24 overflow-y-auto rounded-md border px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
+                message.tone === 'error'
+                  ? 'border-[#713036] bg-[#311417] text-[#ff8a8e]'
+                  : message.tone === 'success'
+                    ? 'border-[#3a3d49] bg-[#17181d] text-[#d7d7dc]'
+                    : 'border-[#303139] bg-[#15161a] text-[#9a9aa2]'
+              }`}
+            >
+              {message.text}
+            </div>
+          ) : null}
+        </section>
+        <CommitHistory history={history} />
       </div>
     </div>
   )
