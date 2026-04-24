@@ -927,7 +927,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       ) : null}
 
       {effectiveView === 'kanban' ? (
-      <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(280px,1fr))] gap-4 overflow-auto bg-[#08090b] p-4">
+      <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(260px,1fr))] overflow-auto bg-[#08090b]">
         {swarmState.tasks.length === 0 ? (
           <div className="col-span-full flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-[#24252b] bg-[#0d0e11] p-6 text-center">
             <div className="max-w-xl">
@@ -941,17 +941,15 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         {swarmState.tasks.length > 0 ? boardColumns.map((column) => (
           <section
             key={column.key}
-            className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-[#1f2025] bg-[#0d0e11]"
+            className="flex min-h-0 min-w-0 flex-col border-r border-[#1f2025] bg-[#08090b] last:border-r-0"
           >
-            <div className="flex shrink-0 items-center justify-between border-b border-[#1f2025] px-4 py-3">
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-[#1f2025] bg-[#0d0e11] px-3">
               <div className="min-w-0 truncate text-sm font-semibold text-[#ececee]">{column.label}</div>
-              <span
-                className={`shrink-0 rounded-full border border-[#24252b] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${column.tint}`}
-              >
+              <span className="shrink-0 text-[11px] font-bold text-[#5a5a63]">
                 {column.cards.length}
               </span>
             </div>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
               {column.cards.map((task) => {
                 const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
                 const claimRole = task.ownerAgentId ? ownerAgent?.role ?? task.role : null
@@ -972,6 +970,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                     ? task.evidence.summary || 'Completed with no summary recorded.'
                     : null
                 const showTaskAction = boardColumn === 'ready' || task.status === 'in_progress' || task.status === 'needs_input'
+                const metadata = [
+                  ownerLabel ?? 'Unassigned',
+                  dependencyLabel,
+                  `${task.acceptanceCriteria.length} checks`,
+                ]
+                const actionLabel = task.ownerAgentId
+                  ? ownerCliRunning ? 'Focus' : 'Respawn'
+                  : `Spawn ${swarmRoleLabels[task.role]}`
                 return (
                   <article
                     key={task.id}
@@ -984,28 +990,29 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                         setSelectedTaskId(task.id)
                       }
                     }}
-                    className={`relative w-full cursor-pointer overflow-hidden rounded-lg border p-3 text-left transition-colors ${taskCardTone(task, Boolean(claimRole))}`}
-                    style={taskCardStyle(claimRole)}
+                    className="group relative w-full cursor-pointer overflow-hidden rounded-md px-2.5 py-2.5 text-left text-[#9a9aa2] transition-colors hover:bg-[#111216] focus:outline-none focus:ring-1 focus:ring-[#303139]"
                   >
-                    {claimRole ? (
+                    {claimRole || boardColumn === 'ready' || task.status === 'needs_input' ? (
                       <span
                         aria-hidden="true"
-                        className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
+                        className="pointer-events-none absolute inset-y-2 left-0 w-0.5 rounded-r-full"
                         style={{
-                          backgroundColor: swarmRoleAccent[claimRole],
-                          boxShadow: `0 0 14px ${hexToRgba(swarmRoleAccent[claimRole], 0.78)}`,
+                          backgroundColor: task.status === 'needs_input'
+                            ? '#ffbf2f'
+                            : boardColumn === 'ready'
+                              ? '#30d158'
+                              : swarmRoleAccent[claimRole ?? task.role],
                         }}
                       />
                     ) : null}
-                    <div className="mb-2 flex items-start justify-between gap-3">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
                           <span>{task.id}</span>
                           <span
                             className="h-1.5 w-1.5 shrink-0 rounded-full"
                             style={{
                               backgroundColor: swarmRoleAccent[task.role],
-                              boxShadow: `0 0 8px ${swarmRoleAccent[task.role]}88`,
                             }}
                           />
                           <span style={{ color: swarmRoleAccent[task.role] }}>
@@ -1015,76 +1022,53 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                         <div className="mt-1 text-sm font-semibold leading-5 text-[#ececee]">{task.title}</div>
                       </div>
                       <span
-                        className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${taskGraphStatusTone(task.status, boardColumn)}`}
+                        className={`shrink-0 text-[10px] font-bold uppercase tracking-[0.1em] ${
+                          task.status === 'needs_input'
+                            ? 'text-[#ffbf2f]'
+                            : boardColumn === 'ready'
+                              ? 'text-[#30d158]'
+                              : task.status === 'in_progress'
+                                ? 'text-[#ffd58a]'
+                                : task.status === 'done'
+                                  ? 'text-[#b9f7c8]'
+                                  : 'text-[#5a5a63]'
+                        }`}
                       >
                         {statusLabel}
                       </span>
                     </div>
 
-                    <div className="mb-3 flex flex-wrap gap-2">
-                      {ownerLabel && claimRole ? (
-                        <span
-                          className="rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.12em]"
-                          style={taskClaimBadgeStyle(claimRole)}
-                        >
-                          {ownerLabel}
-                        </span>
-                      ) : (
-                        <span className="rounded-full border border-[#24252b] bg-[#0d0e11] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                          No worker
-                        </span>
-                      )}
-                      <span className="rounded-full border border-[#24252b] bg-[#0d0e11] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                        {dependencyLabel}
-                      </span>
-                    </div>
-
-                    <p className="line-clamp-2 text-[12px] leading-5 text-[#9a9aa2]">
-                      {task.description || 'No description recorded.'}
-                    </p>
-
-                    <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                      <span className="rounded-full border border-[#24252b] px-2 py-1">
-                        {task.ownedPaths.length} paths
-                      </span>
-                      <span className="rounded-full border border-[#24252b] px-2 py-1">
-                        {task.acceptanceCriteria.length} checks
-                      </span>
-                      {task.status === 'done' && task.completedAt ? (
-                        <span className="rounded-full border border-[#30d158]/25 bg-[#30d158]/10 px-2 py-1 text-[#b9f7c8]">
-                          completed {formatTimestampShort(task.completedAt)}
-                        </span>
-                      ) : null}
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-[#5a5a63]">
+                      {metadata.map((item, index) => (
+                        <React.Fragment key={item}>
+                          {index > 0 ? <span className="shrink-0 text-[#3a3d49]">/</span> : null}
+                          <span className="min-w-0 truncate">{item}</span>
+                        </React.Fragment>
+                      ))}
                     </div>
 
                     {attentionText ? (
-                      <div className={`mt-3 rounded-lg border px-3 py-2 text-[11px] leading-5 ${
+                      <div className={`mt-2 line-clamp-2 border-l-2 pl-2 text-[11px] leading-5 ${
                         task.status === 'needs_input'
-                          ? 'border-[#ffbf2f]/45 bg-[#ffbf2f]/12 text-[#ffe0a3]'
+                          ? 'border-[#ffbf2f] text-[#ffe0a3]'
                           : task.status === 'done'
-                            ? 'border-[#30d158]/20 bg-[#30d158]/10 text-[#c8f8d3]'
-                            : 'border-[#6ee7d8]/20 bg-[#6ee7d8]/10 text-[#bff7f1]'
+                            ? 'border-[#30d158] text-[#9a9aa2]'
+                            : 'border-[#6ee7d8] text-[#bff7f1]'
                       }`}>
                         {attentionText}
                       </div>
                     ) : null}
                     {showTaskAction ? (
-                      <div className="mt-3 flex justify-center border-t border-[#24252b] pt-3">
+                      <div className="mt-2 flex justify-end">
                         <button
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation()
                             openReadyTaskWorker(task)
                           }}
-                          className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
-                            task.ownerAgentId
-                              ? ownerCliRunning
-                                ? 'border-[#30d158]/35 bg-[#30d158]/12 text-[#d4ffdc] hover:border-[#30d158]/60 hover:bg-[#30d158]/16'
-                                : 'border-[#ffbf2f]/45 bg-[#ffbf2f]/12 text-[#ffe0a3] hover:border-[#ffbf2f]/70 hover:bg-[#ffbf2f]/16'
-                              : 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/70 hover:bg-[#6ee7d8]/18'
-                          }`}
+                          className="rounded px-2 py-1 text-[11px] font-semibold text-[#8a8a92] opacity-0 transition-colors hover:bg-[#17181d] hover:text-[#ececee] group-hover:opacity-100 group-focus:opacity-100"
                         >
-                          {task.ownerAgentId ? ownerCliRunning ? 'Focus' : 'Respawn' : `Spawn ${swarmRoleLabels[task.role]}`}
+                          {actionLabel}
                         </button>
                       </div>
                     ) : null}
@@ -1093,7 +1077,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               })}
 
               {column.cards.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-[#24252b] bg-[#111216] px-3 py-4 text-[12px] leading-5 text-[#5a5a63]">
+                <div className="px-2 py-3 text-[12px] leading-5 text-[#5a5a63]">
                   {emptyKanbanColumnLabel(column.key)}
                 </div>
               ) : null}
@@ -2937,30 +2921,6 @@ function SectionList({
 function formatTimestamp(value: string | null): string {
   if (!value) return 'Not started'
   return new Date(value).toLocaleString()
-}
-
-function formatTimestampShort(value: string): string {
-  return new Date(value).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-function taskCardTone(task: SwarmTask, claimed: boolean): string {
-  if (claimed) {
-    return 'bg-[#111216] hover:bg-[#17181d]'
-  }
-
-  switch (task.status) {
-    case 'done':
-      return 'border-[#30d158]/45 bg-[#30d158]/10 shadow-[0_0_22px_rgba(48,209,88,0.08)] hover:border-[#30d158]/70 hover:bg-[#30d158]/14'
-    case 'needs_input':
-      return 'border-[#ffbf2f]/60 bg-[#ffbf2f]/12 shadow-[0_0_24px_rgba(255,191,47,0.12)] hover:border-[#ffbf2f]/80 hover:bg-[#ffbf2f]/16'
-    case 'in_progress':
-      return 'border-[#ffa600]/45 bg-[#ffa600]/10 shadow-[0_0_22px_rgba(255,166,0,0.09)] hover:border-[#ffa600]/70 hover:bg-[#ffa600]/14'
-    default:
-      return 'border-[#24252b] bg-[#111216] hover:border-[#303139] hover:bg-[#17181d]'
-  }
 }
 
 function taskCardStyle(claimRole: SwarmRole | null): React.CSSProperties | undefined {
