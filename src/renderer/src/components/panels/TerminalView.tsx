@@ -17,6 +17,8 @@ interface Props {
 const SWARM_COMMAND = 'swarm'
 const MAX_TERMINAL_READINESS_BUFFER = 5000
 const CODEX_SESSION_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i
+const CODEX_STATUS_COMMAND = '/status'
+const TERMINAL_ENTER = '\r'
 
 function plainTerminalText(data: string): string {
   return data
@@ -28,6 +30,10 @@ function plainTerminalText(data: string): string {
 function looksLikeCliReady(output: string, cli: AgentCli): boolean {
   if (cli === 'claude') {
     return /Claude Code|Welcome to Claude|cwd:|Bypassing Permissions|\/help|Try .*Claude/i.test(output)
+  }
+
+  if (/Select Model and Effort|Press enter to select reasoning effort|Access legacy models/i.test(output)) {
+    return false
   }
 
   return /Codex|OpenAI|GPT|\/help|model/i.test(output)
@@ -222,9 +228,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     let hasInjectedStartupPrompt = false
     let promptInjectionBlocked = false
     let terminalReadinessBuffer = ''
-    let promptInjectionTimer: number | null = null
-    let codexStatusTimer: number | null = null
-    let codexStatusEnterTimer: number | null = null
     let hasRequestedCodexStatus = false
     let discoveredCodexSessionId = cliSessionId ?? null
     let disposed = false
@@ -248,29 +251,26 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       void window.api.terminalWrite(terminalId, `\x1b[200~${normalizedPrompt}\x1b[201~\r`)
     }
 
-    const schedulePromptInjection = (delay: number) => {
-      if (promptInjectionBlocked || agent.cliOnboardingPromptSent || hasInjectedStartupPrompt) return
-      if (promptInjectionTimer !== null) return
-
-      promptInjectionTimer = window.setTimeout(() => {
-        promptInjectionTimer = null
-        injectStartupPrompt()
-      }, delay)
-    }
-
     const requestCodexSessionStatus = () => {
       if (cli !== 'codex' || discoveredCodexSessionId || hasRequestedCodexStatus) return
-      if (codexStatusTimer !== null) return
 
-      codexStatusTimer = window.setTimeout(() => {
-        codexStatusTimer = null
-        hasRequestedCodexStatus = true
-        void window.api.terminalWrite(terminalId, '/status')
-        codexStatusEnterTimer = window.setTimeout(() => {
-          codexStatusEnterTimer = null
-          void window.api.terminalWrite(terminalId, '\r')
-        }, 120)
-      }, 300)
+      hasRequestedCodexStatus = true
+      void window.api.terminalWrite(terminalId, CODEX_STATUS_COMMAND)
+      window.requestAnimationFrame(() => {
+        if (disposed) return
+        void window.api.terminalWrite(terminalId, TERMINAL_ENTER)
+      })
+    }
+
+    const maybeInjectStartupPrompt = () => {
+      if (!startupPromptRef.current) return
+
+      if (cli === 'codex' && !discoveredCodexSessionId) {
+        requestCodexSessionStatus()
+        return
+      }
+
+      injectStartupPrompt()
     }
 
     const disposeData = window.api.onTerminalData(terminalId, (data) => {
@@ -284,37 +284,21 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           if (parsedSessionId) {
             discoveredCodexSessionId = parsedSessionId
             updateAgent(workspaceId, agentId, { cliSessionId: parsedSessionId })
+            maybeInjectStartupPrompt()
           }
         }
 
         if (looksLikeLaunchBlocked(terminalReadinessBuffer)) {
           promptInjectionBlocked = true
-          if (promptInjectionTimer !== null) {
-            window.clearTimeout(promptInjectionTimer)
-            promptInjectionTimer = null
-          }
-          if (codexStatusTimer !== null) {
-            window.clearTimeout(codexStatusTimer)
-            codexStatusTimer = null
-          }
-          if (codexStatusEnterTimer !== null) {
-            window.clearTimeout(codexStatusEnterTimer)
-            codexStatusEnterTimer = null
-          }
           return
         }
 
         if (looksLikeTrustPrompt(plainData, cli)) {
-          if (promptInjectionTimer !== null) {
-            window.clearTimeout(promptInjectionTimer)
-            promptInjectionTimer = null
-          }
           return
         }
 
         if (looksLikeCliReady(terminalReadinessBuffer, cli)) {
-          requestCodexSessionStatus()
-          schedulePromptInjection(900)
+          maybeInjectStartupPrompt()
         }
       }
     })
@@ -397,15 +381,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     return () => {
       disposed = true
-      if (promptInjectionTimer !== null) {
-        window.clearTimeout(promptInjectionTimer)
-      }
-      if (codexStatusTimer !== null) {
-        window.clearTimeout(codexStatusTimer)
-      }
-      if (codexStatusEnterTimer !== null) {
-        window.clearTimeout(codexStatusEnterTimer)
-      }
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       container.removeEventListener('mousedown', focusTerminal)
