@@ -10,6 +10,8 @@ import type {
   AgentState,
   AgentId,
   EditorState,
+  SwarmAutoPendingSpawn,
+  SwarmAutoState,
   SwarmState,
   SwarmRole,
   AgentCli,
@@ -48,6 +50,8 @@ interface WorkspaceStore {
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
+  setSwarmAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
+  setSwarmAutoPending: (workspaceId: WorkspaceId, pending: SwarmAutoPendingSpawn | null) => void
   addSwarmMember: (
     workspaceId: WorkspaceId,
     role: SwarmRole
@@ -99,6 +103,21 @@ const defaultEditorState = (): EditorState => ({
   openFiles: [],
   activeFilePath: null,
 })
+
+const defaultSwarmAutoState = (): SwarmAutoState => ({
+  enabled: false,
+  pending: null,
+})
+
+function normalizeSwarmAutoState(input: Partial<SwarmAutoState> | null | undefined): SwarmAutoState {
+  const pending = input?.pending
+  return {
+    enabled: Boolean(input?.enabled),
+    pending: typeof pending?.taskId === 'string' && typeof pending.agentId === 'string'
+      ? { taskId: pending.taskId, agentId: pending.agentId }
+      : null,
+  }
+}
 
 const swarmAgentTab = (id: string, name: string) => ({
   type: 'tab',
@@ -329,6 +348,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             agents,
             editorState: defaultEditorState(),
             swarmState,
+            swarmAutoState: defaultSwarmAutoState(),
             createdAt: Date.now(),
           })
           state.activeWorkspaceId = id
@@ -390,6 +410,31 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.swarmState = normalized
           ws.mode = normalized ? 'swarm' : 'standard'
           ws.agents = reconcileSwarmAgents(ws.agents, normalized)
+          ws.swarmAutoState = normalized
+            ? normalizeSwarmAutoState(ws.swarmAutoState)
+            : defaultSwarmAutoState()
+        }),
+
+      setSwarmAutoEnabled: (workspaceId, enabled) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSwarmAutoState(ws.swarmAutoState)
+          ws.swarmAutoState = {
+            enabled,
+            pending: enabled ? current.pending : null,
+          }
+        }),
+
+      setSwarmAutoPending: (workspaceId, pending) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSwarmAutoState(ws.swarmAutoState)
+          ws.swarmAutoState = {
+            ...current,
+            pending,
+          }
         }),
 
       addSwarmMember: (workspaceId, role) => {
@@ -479,6 +524,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ),
             editorState: ws.editorState ?? defaultEditorState(),
             swarmState: normalizeSwarmState(ws.swarmState),
+            swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           } satisfies Workspace)
           const imported = state.workspaces.at(-1)
           if (imported) {
@@ -586,7 +632,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: 'free-ai-ide-workspaces',
-      version: 16,
+      version: 17,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -724,6 +770,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.workspaces = state.workspaces.map((ws) => ({
             ...ws,
             folderMissing: false,
+          }))
+        }
+        if (version < 17) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
         return state as never

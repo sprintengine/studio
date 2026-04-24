@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type {
@@ -88,72 +88,6 @@ type RecoveryDialogState = {
   cli: AgentCli
 }
 
-type AutoPendingSpawn = {
-  taskId: string
-  agentId: string
-}
-
-type SwarmAutoState = {
-  enabled: boolean
-  pending: AutoPendingSpawn | null
-}
-
-const defaultSwarmAutoState: SwarmAutoState = {
-  enabled: false,
-  pending: null,
-}
-const swarmAutoStates = new Map<string, SwarmAutoState>()
-const swarmAutoListeners = new Map<string, Set<() => void>>()
-
-function getSwarmAutoState(workspaceId: string): SwarmAutoState {
-  return swarmAutoStates.get(workspaceId) ?? defaultSwarmAutoState
-}
-
-function subscribeSwarmAutoState(workspaceId: string, listener: () => void): () => void {
-  const listeners = swarmAutoListeners.get(workspaceId) ?? new Set<() => void>()
-  listeners.add(listener)
-  swarmAutoListeners.set(workspaceId, listeners)
-
-  return () => {
-    listeners.delete(listener)
-    if (listeners.size === 0) swarmAutoListeners.delete(workspaceId)
-  }
-}
-
-function updateSwarmAutoState(
-  workspaceId: string,
-  updater: (current: SwarmAutoState) => SwarmAutoState
-) {
-  const current = getSwarmAutoState(workspaceId)
-  const next = updater(current)
-  if (next.enabled === current.enabled && next.pending === current.pending) return
-
-  swarmAutoStates.set(workspaceId, next)
-  swarmAutoListeners.get(workspaceId)?.forEach((listener) => listener())
-}
-
-function setSwarmAutoEnabled(workspaceId: string, enabled: boolean) {
-  updateSwarmAutoState(workspaceId, (current) => ({
-    enabled,
-    pending: enabled ? current.pending : null,
-  }))
-}
-
-function setSwarmAutoPending(workspaceId: string, pending: AutoPendingSpawn | null) {
-  updateSwarmAutoState(workspaceId, (current) => ({
-    ...current,
-    pending,
-  }))
-}
-
-function useSwarmAutoState(workspaceId: string): SwarmAutoState {
-  return useSyncExternalStore(
-    (listener) => subscribeSwarmAutoState(workspaceId, listener),
-    () => getSwarmAutoState(workspaceId),
-    () => getSwarmAutoState(workspaceId)
-  )
-}
-
 function buildWorkerRespawnStartupPrompt(
   role: SwarmRole,
   agentId: string
@@ -170,6 +104,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
   )
   const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
+  const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
+  const setSwarmAutoPending = useWorkspaceStore((s) => s.setSwarmAutoPending)
   const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
@@ -190,7 +126,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
-  const autoState = useSwarmAutoState(workspaceId)
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
@@ -211,8 +146,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const folderPath = folderReadyPath
   const agents = workspace?.agents ?? {}
   const swarmName = swarmState?.name ?? workspace?.name ?? 'Swarm Team'
-  const autoEnabled = autoState.enabled
-  const autoPendingSpawn = autoState.pending
+  const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
+  const autoPendingSpawn = workspace?.swarmAutoState?.pending ?? null
 
   const roster = useMemo(
     () => buildSwarmAgentRosterForState(swarmState),
@@ -389,10 +324,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     }
 
     const nextTask = readyTasks.find((task) => !task.ownerAgentId)
-    if (!nextTask) {
-      setSwarmAutoEnabled(workspaceId, false)
-      return
-    }
+    if (!nextTask) return
 
     const existingAgent = roster.find((agent) =>
       agent.role === nextTask.role
@@ -420,6 +352,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     roster,
     runtimeAgentById,
     runtimeAgents,
+    setSwarmAutoEnabled,
+    setSwarmAutoPending,
     swarmState,
     updateAgent,
     workspaceId,
@@ -533,13 +467,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   }
 
   const toggleAuto = () => {
-    updateSwarmAutoState(workspaceId, (current) => {
-      const enabled = !current.enabled
-      return {
-        enabled,
-        pending: enabled ? current.pending : null,
-      }
-    })
+    setSwarmAutoEnabled(workspaceId, !autoEnabled)
   }
 
   const openAddMemberDialog = () => {
@@ -983,18 +911,18 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       ) : null}
 
       {effectiveView === 'kanban' ? (
-      <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(260px,1fr))] overflow-auto bg-[#08090b]">
-        {swarmState.tasks.length === 0 ? (
-          <div className="col-span-full flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-[#24252b] bg-[#0d0e11] p-6 text-center">
-            <div className="max-w-xl">
-              <div className="text-sm font-semibold text-[#ececee]">Waiting for the architect plan</div>
-              <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                The board will populate as the architect adds tasks through the swarm tool.
-              </p>
+        <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(260px,1fr))] overflow-auto bg-[#08090b]">
+          {swarmState.tasks.length === 0 ? (
+            <div className="col-span-full flex h-full min-h-[320px] items-center justify-center p-6 text-center">
+              <div className="max-w-xl">
+                <div className="text-sm font-semibold text-[#ececee]">Waiting for the architect plan</div>
+                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
+                  The board will populate as the architect adds tasks through the swarm tool.
+                </p>
+              </div>
             </div>
-          </div>
-        ) : null}
-        {swarmState.tasks.length > 0 ? boardColumns.map((column) => (
+          ) : null}
+          {swarmState.tasks.length > 0 ? boardColumns.map((column) => (
           <section
             key={column.key}
             className="flex min-h-0 min-w-0 flex-col border-r border-[#1f2025] bg-[#08090b] last:border-r-0"
@@ -1163,7 +1091,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   setCliPickerOpen(false)
                   setRecoveryDialog(null)
                 }}
-                className="rounded-md border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
@@ -1307,7 +1235,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   setCliPickerOpen(false)
                   setSpawnDialog(null)
                 }}
-                className="rounded-md border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
@@ -1452,7 +1380,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </div>
               <button
                 onClick={() => setSelectedTaskId(null)}
-                className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
@@ -1603,7 +1531,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </div>
               <button
                 onClick={() => setShowRunSummary(false)}
-                className="rounded-lg border border-[#303139] bg-[#111216] px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Close
               </button>
@@ -1923,7 +1851,7 @@ function SwarmProjectView({
             </div>
             <button
               onClick={onReadPlan}
-              className="rounded-md border border-[#24252b] bg-[#111216] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
             >
               Read Plan
             </button>
@@ -1983,7 +1911,7 @@ function SwarmProjectView({
             </div>
             <button
               onClick={onAddMember}
-              className="rounded-md border border-[#24252b] bg-[#111216] px-3 py-1.5 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
             >
               More Roles
             </button>
@@ -3013,7 +2941,7 @@ function runtimeTone(status: string): string {
     case 'running':
       return 'bg-[#6ee7d8]/12 text-[#bff7f1]'
     case 'needs_input':
-      return 'border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 text-[#ffe0a3] shadow-[0_0_16px_rgba(255,191,47,0.12)]'
+      return 'bg-[#ffbf2f]/14 text-[#ffe0a3]'
     case 'planning':
       return 'bg-[#ffa600]/14 text-[#ffd58a]'
     case 'complete':

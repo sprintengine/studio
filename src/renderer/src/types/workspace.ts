@@ -52,6 +52,16 @@ export type SwarmRuntimeAgent = {
   currentTaskId: string | null
 }
 
+export type SwarmAutoPendingSpawn = {
+  taskId: string
+  agentId: string
+}
+
+export type SwarmAutoState = {
+  enabled: boolean
+  pending: SwarmAutoPendingSpawn | null
+}
+
 export type SwarmTask = {
   id: string
   title: string
@@ -165,5 +175,6 @@ export type Workspace = {
   agents: Record<AgentId, AgentState>
   editorState: EditorState
   swarmState: SwarmState | null
+  swarmAutoState: SwarmAutoState
   createdAt: number
 }
