@@ -128,6 +128,20 @@ export default function WorkspaceManager() {
       const ctrl = event.ctrlKey || event.metaKey
       if (!ctrl) return
 
+      if (event.shiftKey && (event.key === 'PageUp' || event.key === 'PageDown')) {
+        event.preventDefault()
+        const nextWorkspaceId = getNextWorkspaceId(
+          workspaces,
+          activeWorkspaceId,
+          event.key === 'PageUp' ? -1 : 1
+        )
+        if (nextWorkspaceId) {
+          setShowTemplateSelector(false)
+          setActiveWorkspace(nextWorkspaceId)
+        }
+        return
+      }
+
       if (event.key === 'Tab' && activeWorkspaceId && !showTemplateSelector) {
         event.preventDefault()
         cycleActiveTab(activeWorkspaceId, event.shiftKey ? -1 : 1)
@@ -644,6 +658,20 @@ export default function WorkspaceManager() {
       )}
     </div>
   )
+}
+
+function getNextWorkspaceId(
+  workspaces: Workspace[],
+  activeWorkspaceId: string | null,
+  step: 1 | -1
+): string | null {
+  if (workspaces.length < 2) return null
+
+  const activeIndex = workspaces.findIndex((workspace) => workspace.id === activeWorkspaceId)
+  if (activeIndex === -1) return workspaces[0].id
+
+  const nextIndex = (activeIndex + step + workspaces.length) % workspaces.length
+  return workspaces[nextIndex].id
 }
 
 function cycleActiveTab(workspaceId: string, step: 1 | -1): void {
