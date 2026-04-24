@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type {
@@ -88,6 +88,72 @@ type RecoveryDialogState = {
   cli: AgentCli
 }
 
+type AutoPendingSpawn = {
+  taskId: string
+  agentId: string
+}
+
+type SwarmAutoState = {
+  enabled: boolean
+  pending: AutoPendingSpawn | null
+}
+
+const defaultSwarmAutoState: SwarmAutoState = {
+  enabled: false,
+  pending: null,
+}
+const swarmAutoStates = new Map<string, SwarmAutoState>()
+const swarmAutoListeners = new Map<string, Set<() => void>>()
+
+function getSwarmAutoState(workspaceId: string): SwarmAutoState {
+  return swarmAutoStates.get(workspaceId) ?? defaultSwarmAutoState
+}
+
+function subscribeSwarmAutoState(workspaceId: string, listener: () => void): () => void {
+  const listeners = swarmAutoListeners.get(workspaceId) ?? new Set<() => void>()
+  listeners.add(listener)
+  swarmAutoListeners.set(workspaceId, listeners)
+
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) swarmAutoListeners.delete(workspaceId)
+  }
+}
+
+function updateSwarmAutoState(
+  workspaceId: string,
+  updater: (current: SwarmAutoState) => SwarmAutoState
+) {
+  const current = getSwarmAutoState(workspaceId)
+  const next = updater(current)
+  if (next.enabled === current.enabled && next.pending === current.pending) return
+
+  swarmAutoStates.set(workspaceId, next)
+  swarmAutoListeners.get(workspaceId)?.forEach((listener) => listener())
+}
+
+function setSwarmAutoEnabled(workspaceId: string, enabled: boolean) {
+  updateSwarmAutoState(workspaceId, (current) => ({
+    enabled,
+    pending: enabled ? current.pending : null,
+  }))
+}
+
+function setSwarmAutoPending(workspaceId: string, pending: AutoPendingSpawn | null) {
+  updateSwarmAutoState(workspaceId, (current) => ({
+    ...current,
+    pending,
+  }))
+}
+
+function useSwarmAutoState(workspaceId: string): SwarmAutoState {
+  return useSyncExternalStore(
+    (listener) => subscribeSwarmAutoState(workspaceId, listener),
+    () => getSwarmAutoState(workspaceId),
+    () => getSwarmAutoState(workspaceId)
+  )
+}
+
 function buildWorkerRespawnStartupPrompt(
   role: SwarmRole,
   agentId: string
@@ -124,7 +190,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
-  const [autoEnabled, setAutoEnabled] = useState(false)
+  const autoState = useSwarmAutoState(workspaceId)
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
@@ -139,13 +205,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   })
   const lastSyncedContentRef = useRef<string | null>(null)
   const initialReadDoneRef = useRef(false)
-  const autoPendingSpawnRef = useRef<{ taskId: string; agentId: string } | null>(null)
 
   const swarmState = workspace?.swarmState ?? null
   const effectiveView = fixedView ?? activeView
   const folderPath = folderReadyPath
   const agents = workspace?.agents ?? {}
   const swarmName = swarmState?.name ?? workspace?.name ?? 'Swarm Team'
+  const autoEnabled = autoState.enabled
+  const autoPendingSpawn = autoState.pending
 
   const roster = useMemo(
     () => buildSwarmAgentRosterForState(swarmState),
@@ -297,7 +364,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   useEffect(() => {
     if (!autoEnabled || !swarmState || !folderPath) return
 
-    const pending = autoPendingSpawnRef.current
+    const pending = autoPendingSpawn
     if (pending) {
       const pendingTask = swarmState.tasks.find((task) => task.id === pending.taskId)
       const pendingTaskStillReady = pendingTask
@@ -306,24 +373,24 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       const pendingAgentStillLaunching = Boolean(agents[pending.agentId]?.cliStartRequested)
 
       if (pendingTaskStillReady && pendingAgentStillLaunching) return
-      autoPendingSpawnRef.current = null
+      setSwarmAutoPending(workspaceId, null)
     }
 
     if (runtimeAgents.some((agent) => agent.status === 'needs_input')) {
-      setAutoEnabled(false)
+      setSwarmAutoEnabled(workspaceId, false)
       return
     }
 
     if (runtimeAgents.some((agent) => agent.status === 'running')) return
 
     if (swarmState.tasks.length > 0 && swarmState.tasks.every((task) => task.status === 'done')) {
-      setAutoEnabled(false)
+      setSwarmAutoEnabled(workspaceId, false)
       return
     }
 
     const nextTask = readyTasks.find((task) => !task.ownerAgentId)
     if (!nextTask) {
-      setAutoEnabled(false)
+      setSwarmAutoEnabled(workspaceId, false)
       return
     }
 
@@ -334,11 +401,11 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     )
     const nextAgent = existingAgent ?? addSwarmMember(workspaceId, nextTask.role)
     if (!nextAgent) {
-      setAutoEnabled(false)
+      setSwarmAutoEnabled(workspaceId, false)
       return
     }
 
-    autoPendingSpawnRef.current = { taskId: nextTask.id, agentId: nextAgent.id }
+    setSwarmAutoPending(workspaceId, { taskId: nextTask.id, agentId: nextAgent.id })
     setSelectedAgentId(nextAgent.id)
     startAgentTerminal(nextAgent.id, nextAgent.label, agents[nextAgent.id]?.cli ?? 'codex', {
       freshSession: true,
@@ -347,6 +414,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     addSwarmMember,
     agents,
     autoEnabled,
+    autoPendingSpawn,
     folderPath,
     readyTasks,
     roster,
@@ -465,10 +533,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   }
 
   const toggleAuto = () => {
-    setAutoEnabled((current) => {
-      const next = !current
-      if (!next) autoPendingSpawnRef.current = null
-      return next
+    updateSwarmAutoState(workspaceId, (current) => {
+      const enabled = !current.enabled
+      return {
+        enabled,
+        pending: enabled ? current.pending : null,
+      }
     })
   }
 
@@ -2025,7 +2095,7 @@ function SwarmMapView({
         className="relative min-h-[460px] overflow-hidden"
         style={{
           backgroundImage:
-            'radial-gradient(circle, rgba(255,255,255,0.20) 0, rgba(255,255,255,0.20) 1px, transparent 1px)',
+            'radial-gradient(circle, rgba(255,255,255,0.12) 0, rgba(255,255,255,0.12) 1px, transparent 1px)',
           backgroundColor: '#08090b',
           backgroundSize: '24px 24px',
         }}
@@ -2072,18 +2142,16 @@ function SwarmMapView({
             <button
               key={node.agent.id}
               onClick={() => onSelectAgent(node.agent.id)}
-              className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2 text-center transition-transform hover:scale-[1.03] ${
-                selected ? 'z-10 scale-[1.04]' : 'z-0'
+              className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2 text-center transition-transform hover:scale-[1.02] ${
+                selected ? 'z-10 scale-[1.03]' : 'z-0'
               }`}
               style={{ left: `${node.x}%`, top: `${node.y}%` }}
             >
               <span
-                className={`relative flex h-20 w-20 items-center justify-center rounded-full border bg-[#111216] text-lg font-semibold text-[#ececee] ${
-                  runtime?.status === 'running' ? 'animate-pulse' : ''
-                }`}
+                className="relative flex h-16 w-16 items-center justify-center rounded-full border bg-[#111216] text-base font-semibold text-[#ececee]"
                 style={{
-                  borderColor: swarmRoleAccent[node.agent.role],
-                  boxShadow: `0 0 ${selected ? 34 : 18}px ${swarmRoleAccent[node.agent.role]}55`,
+                  borderColor: selected ? swarmRoleAccent[node.agent.role] : '#303139',
+                  boxShadow: selected ? `0 0 0 3px ${hexToRgba(swarmRoleAccent[node.agent.role], 0.16)}` : undefined,
                 }}
               >
                 {node.agent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
@@ -2097,7 +2165,7 @@ function SwarmMapView({
                 {runtimeStatusLabel(runtime?.status ?? 'idle')}
               </span>
               {task ? (
-                <span className="max-w-[180px] truncate rounded-full border border-[#24252b] bg-[#111216] px-2 py-1 text-[10px] text-[#9a9aa2]">
+                <span className="max-w-[180px] truncate text-[10px] text-[#9a9aa2]">
                   {task.id}: {task.title}
                 </span>
               ) : null}
@@ -2109,11 +2177,11 @@ function SwarmMapView({
       <aside className="border-t border-[#1f2025] bg-[#0d0e11] p-4 lg:border-l lg:border-t-0">
         <div className="mb-5">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Swarm State</div>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-            <InfoCard label="Phase" value={runPhase} />
-            <InfoCard label="Board" value={`${swarmState.tasks.length} tasks`} />
-            <InfoCard label="Tasks" value={`${doneCount}/${swarmState.tasks.length} done`} />
-            <InfoCard label="Agents" value={`${activeCount} run, ${needsInputCount} wait`} />
+          <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <MetaItem label="Phase" value={runPhase} />
+            <MetaItem label="Board" value={`${swarmState.tasks.length} tasks`} />
+            <MetaItem label="Tasks" value={`${doneCount}/${swarmState.tasks.length} done`} />
+            <MetaItem label="Agents" value={`${activeCount} run, ${needsInputCount} wait`} />
           </div>
         </div>
         <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Selected Specialist</div>
@@ -2124,7 +2192,6 @@ function SwarmMapView({
                 className="flex h-14 w-14 items-center justify-center rounded-full border bg-[#111216] text-base font-semibold text-[#ececee]"
                 style={{
                   borderColor: swarmRoleAccent[selectedAgent.role],
-                  boxShadow: `0 0 22px ${swarmRoleAccent[selectedAgent.role]}55`,
                 }}
               >
                 {selectedAgent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
@@ -2135,17 +2202,17 @@ function SwarmMapView({
               </div>
             </div>
 
-            <InfoCard label="Status" value={runtimeStatusLabel(selectedRuntime?.status ?? 'idle')} />
-            <InfoCard label="Current Task" value={selectedTask ? `${selectedTask.id} - ${selectedTask.title}` : 'No active task'} />
+            <MetaItem label="Status" value={runtimeStatusLabel(selectedRuntime?.status ?? 'idle')} />
+            <MetaItem label="Current Task" value={selectedTask ? `${selectedTask.id} - ${selectedTask.title}` : 'No active task'} />
 
             {selectedAgent.role === 'product' ? (
-              <div className="rounded-xl border border-pink-300/20 bg-pink-950/10 px-3 py-3 text-sm leading-6 text-pink-100">
+              <div className="border-l border-pink-300/35 pl-3 text-sm leading-6 text-pink-100">
                 Product guides market fit, competitor context, audience needs, workflow risk, and prioritization before the plan hardens.
               </div>
             ) : null}
           </div>
         ) : (
-          <div className="mt-4 rounded-xl border border-dashed border-[#24252b] bg-[#111216] px-3 py-4 text-sm text-[#5a5a63]">
+          <div className="mt-4 border-l border-[#303139] pl-3 text-sm leading-6 text-[#5a5a63]">
             Select a specialist on the map.
           </div>
         )}
@@ -2233,7 +2300,7 @@ function SwarmTaskGraphView({
             width: graph.canvasWidth,
             height: graph.canvasHeight,
             backgroundImage:
-              'radial-gradient(circle, rgba(255,255,255,0.20) 0, rgba(255,255,255,0.20) 1px, transparent 1px)',
+              'radial-gradient(circle, rgba(255,255,255,0.12) 0, rgba(255,255,255,0.12) 1px, transparent 1px)',
             backgroundColor: '#08090b',
             backgroundSize: '24px 24px',
           }}
@@ -2254,7 +2321,7 @@ function SwarmTaskGraphView({
 
           {swarmState.tasks.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
-              <div className="max-w-xl rounded-2xl border border-dashed border-[#24252b] bg-[#0d0e11]/90 px-6 py-5">
+              <div className="max-w-xl">
                 <div className="text-sm font-semibold text-[#ececee]">Waiting for the architect plan</div>
                 <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
                   The dependency graph will appear as tasks are added through the swarm tool.
@@ -2305,7 +2372,7 @@ function SwarmTaskGraphView({
               return (
                 <div
                   key={node.id}
-                  className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden rounded-lg border border-[#2d5f70] bg-[#111216] px-5 py-4 text-center shadow-[0_0_0_1px_rgba(123,215,234,0.14),0_18px_34px_rgba(0,0,0,0.36)]"
+                  className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden rounded-lg border border-[#303139] bg-[#111216] px-5 py-4 text-center"
                   style={{
                     left: node.x,
                     top: node.y,
@@ -2319,7 +2386,7 @@ function SwarmTaskGraphView({
                   <div className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[#d4ffdc]">
                     {formatSwarmGoalPreview(swarmState.goal)}
                   </div>
-                  <div className="mt-3 rounded-full border border-[#2d5f70] bg-[#0d0e11] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#b9f7c8]">
+                  <div className="mt-3 text-[10px] uppercase tracking-[0.12em] text-[#9a9aa2]">
                     {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
                   </div>
                 </div>
@@ -2341,9 +2408,9 @@ function SwarmTaskGraphView({
               <button
                 key={node.id}
                 onClick={() => onSelectTask(task.id)}
-                className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.02] ${
-                  task.status === 'in_progress' ? 'animate-pulse' : ''
-                } ${isSelected || isFocused ? 'z-10' : 'z-0'}`}
+                className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] ${
+                  isSelected || isFocused ? 'z-10' : 'z-0'
+                }`}
                 style={{
                   ...taskGraphNodeStyle(task, ownerRole, isFocused, isSelected),
                   left: node.x,
@@ -2357,7 +2424,6 @@ function SwarmTaskGraphView({
                   className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
                   style={{
                     backgroundColor: swarmRoleAccent[task.role],
-                    boxShadow: `0 0 16px ${hexToRgba(swarmRoleAccent[task.role], 0.72)}`,
                   }}
                 />
                 <div className="flex items-start justify-between gap-3 pl-2">
@@ -2369,7 +2435,6 @@ function SwarmTaskGraphView({
                         className="h-1.5 w-1.5 shrink-0 rounded-full"
                         style={{
                           backgroundColor: swarmRoleAccent[task.role],
-                          boxShadow: `0 0 8px ${swarmRoleAccent[task.role]}88`,
                         }}
                       />
                       <span className="min-w-0 truncate" style={{ color: swarmRoleAccent[task.role] }}>
@@ -2388,20 +2453,21 @@ function SwarmTaskGraphView({
                   {task.description || 'No description recorded.'}
                 </p>
 
-                <div className="mt-3 flex flex-wrap gap-2 pl-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                  <span className="rounded-full border border-[#24252b] bg-[#0d0e11] px-2 py-1">
+                <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                  <span>
                     {dependencyLabel}
                   </span>
-                  <span className="rounded-full border border-[#24252b] bg-[#0d0e11] px-2 py-1">
+                  <span className="text-[#3a3d49]">/</span>
+                  <span>
                     {task.acceptanceCriteria.length} checks
                   </span>
                   {ownerLabel && ownerRole ? (
-                    <span
-                      className="max-w-full truncate rounded-full border px-2 py-1"
-                      style={taskClaimBadgeStyle(ownerRole)}
-                    >
-                      {ownerLabel}
-                    </span>
+                    <>
+                      <span className="text-[#3a3d49]">/</span>
+                      <span className="max-w-full truncate" style={{ color: swarmRoleAccent[ownerRole] }}>
+                        {ownerLabel}
+                      </span>
+                    </>
                   ) : null}
                 </div>
               </button>
@@ -2412,16 +2478,16 @@ function SwarmTaskGraphView({
       <aside className="border-t border-[#1f2025] bg-[#0d0e11] p-4 lg:border-l lg:border-t-0">
         <div className="mb-5">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Task Graph</div>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-            <InfoCard label="Tasks" value={String(swarmState.tasks.length)} />
-            <InfoCard label="Ready" value={String(readyCount)} />
-            <InfoCard label="Active" value={String(inProgressCount)} />
-            <InfoCard label="Blocked" value={String(blockedCount)} />
+          <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <MetaItem label="Tasks" value={String(swarmState.tasks.length)} />
+            <MetaItem label="Ready" value={String(readyCount)} />
+            <MetaItem label="Active" value={String(inProgressCount)} />
+            <MetaItem label="Blocked" value={String(blockedCount)} />
           </div>
         </div>
 
         {(graph.hasCycle || graph.missingDependencyCount > 0) ? (
-          <div className="mb-5 rounded-xl border border-[#ffbf2f]/45 bg-[#ffbf2f]/12 px-3 py-3 text-sm leading-6 text-[#ffe0a3] shadow-[0_0_20px_rgba(255,191,47,0.1)]">
+          <div className="mb-5 border-l border-[#ffbf2f]/60 pl-3 text-sm leading-6 text-[#ffe0a3]">
             {graph.hasCycle ? 'A dependency cycle was detected. ' : ''}
             {graph.missingDependencyCount > 0
               ? `${graph.missingDependencyCount} dependency ${graph.missingDependencyCount === 1 ? 'reference is' : 'references are'} missing.`
@@ -2434,7 +2500,7 @@ function SwarmTaskGraphView({
         </div>
         {displayTask ? (
           <div className="mt-4 space-y-4">
-            <div className="rounded-xl border bg-[#111216] px-4 py-3" style={taskCardStyle(displayTask.role)}>
+            <div className="border-l pl-3" style={taskCardStyle(displayTask.role)}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-lg font-semibold text-[#ececee]">{displayTask.title}</div>
@@ -2446,35 +2512,34 @@ function SwarmTaskGraphView({
                   className="h-3 w-3 shrink-0 rounded-full"
                   style={{
                     backgroundColor: swarmRoleAccent[displayTask.role],
-                    boxShadow: `0 0 12px ${swarmRoleAccent[displayTask.role]}99`,
                   }}
                 />
               </div>
             </div>
 
-            <InfoCard
+            <MetaItem
               label="Status"
               value={getSwarmTaskBoardColumn(displayTask, swarmState.tasks) === 'ready'
                 ? 'Ready'
                 : taskStateLabel[displayTask.status]}
             />
-            <InfoCard
+            <MetaItem
               label="Owner"
               value={getTaskOwnerLabel(displayTask, rosterById)}
             />
-            <InfoCard
+            <MetaItem
               label="Dependencies"
               value={displayTask.dependsOn.join(', ') || 'None'}
             />
             <button
               onClick={() => onSelectTask(displayTask.id)}
-              className="w-full rounded-xl border border-[#6ee7d8]/45 bg-[#6ee7d8]/12 px-4 py-2 text-sm font-semibold text-[#d8fffb] shadow-[0_0_18px_rgba(110,231,216,0.1)] transition-colors hover:border-[#6ee7d8]/70 hover:bg-[#6ee7d8]/16"
+              className="w-full rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
             >
               Open Task Details
             </button>
           </div>
         ) : (
-          <div className="mt-4 rounded-xl border border-dashed border-[#24252b] bg-[#111216] px-3 py-4 text-sm text-[#5a5a63]">
+          <div className="mt-4 border-l border-[#303139] pl-3 text-sm leading-6 text-[#5a5a63]">
             No tasks have been planned yet.
           </div>
         )}
@@ -2831,15 +2896,6 @@ function statusColor(status: string): string {
   }
 }
 
-function InfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-[#24252b] bg-[#111216] px-4 py-3">
-      <div className="text-[10px] uppercase tracking-[0.14em] text-[#5a5a63]">{label}</div>
-      <div className="mt-2 font-medium text-[#ececee] [overflow-wrap:anywhere]">{value}</div>
-    </div>
-  )
-}
-
 function MetaItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
@@ -2889,9 +2945,7 @@ function taskCardStyle(claimRole: SwarmRole | null): React.CSSProperties | undef
 
   const accent = swarmRoleAccent[claimRole]
   return {
-    borderColor: hexToRgba(accent, 0.78),
-    background: `linear-gradient(135deg, ${hexToRgba(accent, 0.16)} 0%, ${hexToRgba(accent, 0.07)} 38%, rgba(17, 18, 22, 0.95) 100%)`,
-    boxShadow: `0 0 0 1px ${hexToRgba(accent, 0.2)}, 0 0 26px ${hexToRgba(accent, 0.25)}`,
+    borderColor: hexToRgba(accent, 0.72),
   }
 }
 
@@ -2923,37 +2977,26 @@ function taskGraphNodeStyle(
       : task.status === 'needs_input'
         ? '#ffbf2f'
         : roleAccent
-  const emphasis = selected ? 0.46 : focused ? 0.36 : 0.18
 
   return {
-    borderColor: hexToRgba(statusAccent, selected || focused ? 0.86 : 0.58),
-    background: `linear-gradient(135deg, ${hexToRgba(roleAccent, 0.1)} 0%, ${hexToRgba(statusAccent, 0.05)} 46%, rgba(17, 18, 22, 0) 100%), #111216`,
-    boxShadow: `0 0 0 1px ${hexToRgba(statusAccent, selected ? 0.24 : 0.12)}, 0 16px ${selected ? 34 : focused ? 30 : 24}px rgba(0, 0, 0, ${selected ? 0.46 : 0.34}), 0 0 ${selected ? 30 : focused ? 22 : 0}px ${hexToRgba(statusAccent, emphasis)}`,
+    borderColor: selected || focused ? hexToRgba(statusAccent, 0.82) : '#303139',
+    backgroundColor: '#111216',
+    boxShadow: selected ? `0 0 0 3px ${hexToRgba(statusAccent, 0.14)}` : undefined,
   }
 }
 
 function taskGraphStatusTone(taskStatus: SwarmTaskStatus, boardColumn: SwarmTaskBoardColumn): string {
-  if (boardColumn === 'ready') return 'border border-[#30d158]/35 bg-[#30d158]/12 text-[#b9f7c8]'
+  if (boardColumn === 'ready') return 'text-[#b9f7c8]'
 
   switch (taskStatus) {
     case 'done':
-      return 'border border-[#30d158]/30 bg-[#30d158]/12 text-[#d4ffdc]'
+      return 'text-[#d4ffdc]'
     case 'needs_input':
-      return 'border border-[#ffbf2f]/55 bg-[#ffbf2f]/14 text-[#ffe0a3] shadow-[0_0_16px_rgba(255,191,47,0.12)]'
+      return 'text-[#ffe0a3]'
     case 'in_progress':
-      return 'border border-[#ffa600]/45 bg-[#ffa600]/14 text-[#ffd58a]'
+      return 'text-[#ffd58a]'
     default:
-      return 'border border-[#24252b] bg-[#111216] text-[#9a9aa2]'
-  }
-}
-
-function taskClaimBadgeStyle(claimRole: SwarmRole): React.CSSProperties {
-  const accent = swarmRoleAccent[claimRole]
-  return {
-    borderColor: hexToRgba(accent, 0.5),
-    backgroundColor: hexToRgba(accent, 0.14),
-    color: accent,
-    boxShadow: `0 0 14px ${hexToRgba(accent, 0.16)}`,
+      return 'text-[#9a9aa2]'
   }
 }
 
