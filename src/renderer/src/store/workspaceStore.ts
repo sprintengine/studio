@@ -287,7 +287,7 @@ function reconcileSwarmAgents(
     buildSwarmAgentRosterForState(swarmState).map((agent) => [
       agent.id,
       currentAgents[agent.id]
-        ? { ...currentAgents[agent.id], name: agent.label, kind: 'swarm' as const }
+        ? { ...currentAgents[agent.id], kind: 'swarm' as const }
         : defaultAgent(agent.id, agent.label, 'swarm'),
     ])
   )

@@ -37,6 +37,20 @@ export function focusAgentTab(workspaceId: string, agentId: string): boolean {
   return true
 }
 
+function renameAgentTab(model: Model, agentId: string, name: string): void {
+  let targetTabId: string | null = null
+  model.visitNodes((node) => {
+    if (targetTabId || !(node instanceof TabNode) || node.getComponent() !== 'agent') return
+
+    const config = node.getConfig() as { agentId?: string } | undefined
+    if (config?.agentId === agentId && node.getName() !== name) {
+      targetTabId = node.getId()
+    }
+  })
+
+  if (targetTabId) model.doAction(Actions.renameTab(targetTabId, name))
+}
+
 export function focusOrAddAgentTab(
   workspaceId: string,
   agentId: string,
@@ -44,7 +58,10 @@ export function focusOrAddAgentTab(
 ): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
-  if (focusAgentTab(workspaceId, agentId)) return true
+  if (focusAgentTab(workspaceId, agentId)) {
+    renameAgentTab(model, agentId, name)
+    return true
+  }
 
   let targetTabset: TabSetNode | null = null
   model.visitNodes((node) => {

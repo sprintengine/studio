@@ -8,6 +8,7 @@ import type { AgentCli, SwarmRole } from '../../types/workspace'
 import { loadSpecialistPrompt } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState } from '../../utils/swarm'
 import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
+import { prependAgentIdentifier } from '../../utils/agentPrompt'
 
 interface Props {
   workspaceId: string
@@ -76,12 +77,17 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
 
-    const role = buildSwarmAgentRosterForState(workspace.swarmState).find(
+    const rosterAgent = buildSwarmAgentRosterForState(workspace.swarmState).find(
       (candidate) => candidate.id === agentId
-    )?.role
+    )
 
-    if (!role) return null
-    return buildSwarmStartupPrompt(role, agentId, workspace.swarmState.goal)
+    if (!rosterAgent) return null
+
+    const basePrompt = buildSwarmStartupPrompt(rosterAgent.role, agentId, workspace.swarmState.goal)
+    const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
+      ? currentAgent.name
+      : ''
+    return customName ? prependAgentIdentifier(basePrompt, customName) : basePrompt
   })
   const startupPromptRef = useRef<string | null>(startupPrompt)
 

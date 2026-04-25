@@ -19,6 +19,7 @@ import {
   swarmRoleLabels,
 } from '../../utils/swarm'
 import { renderMarkdown } from '../../utils/markdown'
+import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
   getExistingSwarmStateFilePath,
   getSwarmDirectoryPath,
@@ -104,6 +105,7 @@ type SwarmView = 'project' | 'map' | 'task-graph' | 'kanban'
 type SpawnDialogState = {
   agentId: string
   cli: AgentCli
+  name: string
 }
 
 type RecoveryDialogState = {
@@ -336,10 +338,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     agentId: string,
     label: string,
     cli?: AgentCli,
-    options?: { startupPrompt?: string; freshSession?: boolean }
+    options?: { startupPrompt?: string; freshSession?: boolean; agentName?: string }
   ) {
     const current = agents[agentId]
     const selectedCli = cli ?? current?.cli ?? 'codex'
+    const startupPrompt = options?.startupPrompt && options.agentName
+      ? prependAgentIdentifier(options.startupPrompt, options.agentName)
+      : options?.startupPrompt
     const hasLegacyLaunchedSession =
       current?.cli === undefined
       && Boolean(current?.cliStartRequested || current?.cliHasLaunched || current?.cliSessionId)
@@ -348,6 +353,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession)
 
     updateAgent(workspaceId, agentId, {
+      name: label,
       cliStartRequested: true,
       cliSessionId: current?.cliStartRequested && current.cliSessionId && !shouldStartFresh
         ? current.cliSessionId
@@ -355,7 +361,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
       cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
       cli: selectedCli,
-      cliStartupPrompt: options?.startupPrompt,
+      cliStartupPrompt: startupPrompt,
     })
     focusOrAddAgentTab(workspaceId, agentId, label)
   }
@@ -403,7 +409,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
     setSwarmAutoPending(workspaceId, { taskId: nextTask.id, agentId: nextAgent.id })
     setSelectedAgentId(nextAgent.id)
-    startAgentTerminal(nextAgent.id, nextAgent.label, agents[nextAgent.id]?.cli ?? 'codex', {
+    const label = agents[nextAgent.id]?.name ?? nextAgent.label
+    startAgentTerminal(nextAgent.id, label, agents[nextAgent.id]?.cli ?? 'codex', {
       freshSession: true,
     })
   }, [
@@ -454,21 +461,31 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const planFilePath = folderPath ? getSwarmPlanFilePath(folderPath, swarmName) : null
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
   const workerRoles: SwarmRole[] = ['developer', 'frontend', 'product', 'tester', 'security']
-  const readyRoleLaunches = workerRoles
-    .map((role) => ({
-      role,
-      tasks: readyTasks.filter((task) => task.role === role),
-      agent: roster.find((candidate) =>
-        candidate.role === role && runtimeAgentById[candidate.id]?.status !== 'done'
-      ),
-    }))
-    .filter((entry) => entry.tasks.length > 0)
+  const roleTaskLaunches = workerRoles.flatMap((role) => {
+    const activeTask = swarmState.tasks.find((task) =>
+      task.role === role && (task.status === 'in_progress' || task.status === 'needs_input')
+    )
+    const readyTask = readyTasks.find((task) => task.role === role && !task.ownerAgentId)
+    const task = activeTask ?? readyTask
+    if (!task) return []
+
+    const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
+    const agent = ownerAgent ?? roster.find((candidate) =>
+      candidate.role === role && runtimeAgentById[candidate.id]?.status !== 'done'
+    )
+    return [{ role, task, agent }]
+  })
+  const roleTaskLaunchSet = new Set<SwarmRole>(roleTaskLaunches.map(({ role }) => role))
   const specialistReviewAgents = roster.filter((agent) => agent.role !== 'architect')
   const spawnDialogAgent = spawnDialog ? rosterById[spawnDialog.agentId] : undefined
   const spawnDialogRuntime = spawnDialog
     ? runtimeAgents.find((agent) => agent.agentId === spawnDialog.agentId)
     : undefined
   const spawnDialogAgentState = spawnDialog ? agents[spawnDialog.agentId] : undefined
+  const spawnDialogDefaultName = spawnDialogAgent?.label ?? spawnDialog?.agentId ?? ''
+  const spawnDialogDisplayName = spawnDialog
+    ? normalizeAgentIdentifier(spawnDialog.name) || spawnDialogDefaultName
+    : spawnDialogDefaultName
   const spawnDialogIsRunning = Boolean(spawnDialogAgentState?.cliStartRequested)
   const selectedCliOption = cliOptions.find((option) => option.value === spawnDialog?.cli) ?? cliOptions[0]
   const selectedRecoveryCliOption =
@@ -535,6 +552,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const focusAgentRoster = focusAgent ? rosterById[focusAgent.agentId] : undefined
   const focusAgentIsLaunched = focusAgent ? Boolean(agents[focusAgent.agentId]?.cliStartRequested) : false
   const focusAgentRole = focusAgentRoster?.role ?? focusAgent?.role ?? null
+  const showFocusAgentAction = Boolean(focusAgent)
+    && (!focusAgentRole || focusAgentRole === 'architect' || !roleTaskLaunchSet.has(focusAgentRole))
   const selectedTaskBoardColumn = selectedTask
     ? getSwarmTaskBoardColumn(selectedTask, swarmState.tasks)
     : null
@@ -559,6 +578,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setSwarmAutoEnabled(workspaceId, !autoEnabled)
   }
 
+  const getAgentName = (agentId: string, fallback: string) => agents[agentId]?.name ?? fallback
+
+  const getCustomAgentName = (agentId: string, fallback: string) => {
+    const name = agents[agentId]?.name
+    return name && name !== fallback ? name : ''
+  }
+
   const openAddMemberDialog = () => {
     const uncoveredRole = addableRoles.find((role) =>
       swarmState.tasks.some((task) => task.role === role && task.status !== 'done')
@@ -579,40 +605,33 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   }
 
   const openAgentTerminal = (agentId: string) => {
-    const label = rosterById[agentId]?.label ?? agentId
+    const fallbackLabel = rosterById[agentId]?.label ?? agentId
+    const label = getAgentName(agentId, fallbackLabel)
     setSelectedAgentId(agentId)
     startAgentTerminal(agentId, label)
   }
 
   const openSpawnDialog = (agentId: string) => {
     const agentState = agents[agentId]
+    const defaultName = rosterById[agentId]?.label ?? agentId
+    const savedName = agentState?.name && agentState.name !== defaultName ? agentState.name : ''
     setSelectedAgentId(agentId)
     setCliPickerOpen(false)
     setSpawnDialog({
       agentId,
       cli: agentState?.cliStartRequested ? agentState.cli ?? 'codex' : 'codex',
+      name: savedName,
     })
   }
 
   const confirmSpawnDialog = () => {
     if (!spawnDialog) return
-    const label = rosterById[spawnDialog.agentId]?.label ?? spawnDialog.agentId
-    startAgentTerminal(spawnDialog.agentId, label, spawnDialog.cli)
+    const defaultName = rosterById[spawnDialog.agentId]?.label ?? spawnDialog.agentId
+    const agentName = normalizeAgentIdentifier(spawnDialog.name)
+    const label = agentName || defaultName
+    startAgentTerminal(spawnDialog.agentId, label, spawnDialog.cli, { agentName })
     setCliPickerOpen(false)
     setSpawnDialog(null)
-  }
-
-  const openSpawnDialogForRole = (role: SwarmRole) => {
-    const existing = roster.find((agent) =>
-      agent.role === role
-      && runtimeAgentById[agent.id]?.status !== 'done'
-      && !agents[agent.id]?.cliStartRequested
-    )
-      ?? roster.find((agent) => agent.role === role && runtimeAgentById[agent.id]?.status !== 'done')
-    const agent = existing ?? addSwarmMember(workspaceId, role)
-    if (!agent) return
-
-    openSpawnDialog(agent.id)
   }
 
   const openReadySpawnDialogForRole = (role: SwarmRole) => {
@@ -621,6 +640,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       && runtimeAgentById[agent.id]?.status !== 'done'
       && !agents[agent.id]?.cliStartRequested
     )
+      ?? roster.find((agent) =>
+        agent.role === role
+        && runtimeAgentById[agent.id]?.status !== 'done'
+      )
     const agent = existing ?? addSwarmMember(workspaceId, role)
     if (!agent) return
 
@@ -631,7 +654,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     if (task.ownerAgentId) {
       const agentId = task.ownerAgentId
       const agent = rosterById[agentId]
-      const label = agent?.label ?? agentId
+      const fallbackLabel = agent?.label ?? agentId
+      const label = getAgentName(agentId, fallbackLabel)
 
       if (agents[agentId]?.cliStartRequested) {
         openAgentTerminal(agentId)
@@ -641,6 +665,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       setSelectedAgentId(agentId)
       startAgentTerminal(agentId, label, agents[agentId]?.cli ?? 'codex', {
         freshSession: true,
+        agentName: getCustomAgentName(agentId, fallbackLabel),
         startupPrompt: buildWorkerRespawnStartupPrompt(
           agent?.role ?? task.role,
           agentId
@@ -724,10 +749,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
   const confirmRecoveryAudit = () => {
     if (!recoveryDialog || !architectAgentId || !folderPath) return
-    const label = rosterById[architectAgentId]?.label ?? 'Architect'
+    const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
+    const label = getAgentName(architectAgentId, fallbackLabel)
 
     startAgentTerminal(architectAgentId, label, recoveryDialog.cli, {
       freshSession: true,
+      agentName: getCustomAgentName(architectAgentId, fallbackLabel),
       startupPrompt: buildRecoveryAuditPrompt(),
     })
     setSelectedAgentId(architectAgentId)
@@ -739,8 +766,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     if (!folderPath || specialistReviewAgents.length === 0) return
 
     specialistReviewAgents.forEach((agent) => {
-      startAgentTerminal(agent.id, agent.label, agents[agent.id]?.cli ?? 'codex', {
+      const label = getAgentName(agent.id, agent.label)
+      startAgentTerminal(agent.id, label, agents[agent.id]?.cli ?? 'codex', {
         freshSession: true,
+        agentName: getCustomAgentName(agent.id, agent.label),
         startupPrompt: buildPlanReviewStartupPrompt(agent.role, agent.id),
       })
     })
@@ -750,10 +779,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
   const addressPlanReviews = () => {
     if (!folderPath || !architectAgentId) return
-    const label = rosterById[architectAgentId]?.label ?? 'Architect'
+    const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
+    const label = getAgentName(architectAgentId, fallbackLabel)
 
     startAgentTerminal(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
       freshSession: true,
+      agentName: getCustomAgentName(architectAgentId, fallbackLabel),
       startupPrompt: buildAddressPlanReviewsPrompt(),
     })
     setSelectedAgentId(architectAgentId)
@@ -823,7 +854,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             >
               <RefreshSwarmIcon />
             </button>
-            {focusAgent ? (
+            {showFocusAgentAction && focusAgent ? (
               <button
                 onClick={() => {
                   if (focusAgentIsLaunched) {
@@ -843,31 +874,33 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   : `Spawn ${focusAgentRoster?.label ?? focusAgent.agentId}`}
               </button>
             ) : null}
-            {readyRoleLaunches.map(({ role, agent }) => {
-              const duplicatesFocusRole = focusAgentRole === role
-              const availableAgent = roster.find((candidate) =>
-                candidate.role === role && !agents[candidate.id]?.cliStartRequested
-              )
-              const shouldSpawnAdditional = duplicatesFocusRole || Boolean(availableAgent)
-              const isRunning = agent ? Boolean(agents[agent.id]?.cliStartRequested) : false
-              const label = agent?.label ?? swarmRoleLabels[role]
+            {roleTaskLaunches.map(({ role, task, agent }) => {
+              const ownerAgentId = task.ownerAgentId
+              const targetAgentId = ownerAgentId ?? agent?.id ?? null
+              const targetIsLaunched = targetAgentId ? Boolean(agents[targetAgentId]?.cliStartRequested) : false
+              const targetLabel = ownerAgentId
+                ? agent?.label ?? ownerAgentId
+                : agent?.label ?? swarmRoleLabels[role]
+              const actionLabel = ownerAgentId
+                ? targetIsLaunched ? `Focus ${targetLabel}` : `Respawn ${targetLabel}`
+                : targetIsLaunched ? `Focus ${targetLabel}` : `Spawn ${swarmRoleLabels[role]}`
               return (
                 <button
                   key={role}
                   onClick={() => {
-                    if (shouldSpawnAdditional) {
-                      openReadySpawnDialogForRole(role)
+                    if (!ownerAgentId && targetAgentId && targetIsLaunched) {
+                      openAgentTerminal(targetAgentId)
                     } else {
-                      openSpawnDialogForRole(role)
+                      openReadyTaskWorker(task)
                     }
                   }}
                   className="rounded-md bg-[#6ee7d8]/10 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/16"
                 >
-                  {isRunning && !shouldSpawnAdditional ? `Focus ${label}` : `Spawn ${swarmRoleLabels[role]}`}
+                  {actionLabel}
                 </button>
               )
             })}
-            {architectAgentId && showPlanningActions && readyRoleLaunches.length === 0 ? (
+            {architectAgentId && showPlanningActions && roleTaskLaunches.length === 0 ? (
               <button
                 onClick={() => openSpawnDialog(architectAgentId)}
                 className="rounded-md bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/16"
@@ -1335,10 +1368,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   Spawn Agent
                 </div>
                 <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  {spawnDialogAgent.label}
+                  {spawnDialogDisplayName}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                  Choose the CLI for this specialist, then open its terminal on the right.
+                  Choose the CLI and optional identifier for this specialist.
                 </p>
               </div>
               <button
@@ -1357,6 +1390,23 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 <MetaItem label="Role" value={swarmRoleLabels[spawnDialogAgent.role]} />
                 <MetaItem label="Status" value={runtimeStatusLabel(spawnDialogRuntime?.status ?? 'idle')} />
               </div>
+
+              <label className="block">
+                <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Name
+                </span>
+                <input
+                  type="text"
+                  value={spawnDialog.name}
+                  onChange={(event) => {
+                    setSpawnDialog((current) =>
+                      current ? { ...current, name: event.target.value } : current
+                    )
+                  }}
+                  placeholder={spawnDialogDefaultName}
+                  className="h-10 w-full rounded-md bg-[#111216] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#6ee7d8]/50"
+                />
+              </label>
 
               <div className="relative">
                 <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">

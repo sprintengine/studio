@@ -12,6 +12,7 @@ import {
   loadSpecialistPrompt,
 } from '../../specialists/specialistActions'
 import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '../../types/workspace'
+import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
 import WorkspaceLayout from './WorkspaceLayout'
@@ -112,6 +113,7 @@ export default function WorkspaceManager() {
   const [showPalette, setShowPalette] = useState(false)
   const [cliMenuOpen, setCliMenuOpen] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
+  const [specialistName, setSpecialistName] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [windowState, setWindowState] = useState<WindowState>({
@@ -308,22 +310,28 @@ export default function WorkspaceManager() {
     setRenamingId(null)
   }
 
-  const addNewSpecialist = async (specialistId: SpecialistActionId = lastSelectedSpecialist) => {
+  const addNewSpecialist = async (
+    specialistId: SpecialistActionId = lastSelectedSpecialist,
+    requestedName = specialistName
+  ) => {
     if (showTemplateSelector || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
     if (!model) return
 
     const specialist = getSpecialistAction(specialistId)
+    const agentName = normalizeAgentIdentifier(requestedName)
+    const tabName = agentName || specialist.shortLabel
     const newId = `specialist-${specialist.id}-${nanoid(6)}`
     const targetTabset = model.getActiveTabset() ?? firstTabset(model)
     if (!targetTabset) return
+    const prompt = await loadSpecialistPrompt(specialist.id)
 
     updateAgent(activeWorkspaceId, newId, {
-      name: specialist.shortLabel,
+      name: tabName,
       cli: lastSelectedCli,
       kind: 'specialist',
       specialistId: specialist.id,
-      cliStartupPrompt: await loadSpecialistPrompt(specialist.id),
+      cliStartupPrompt: agentName ? prependAgentIdentifier(prompt, agentName) : prompt,
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
     })
@@ -331,7 +339,7 @@ export default function WorkspaceManager() {
       Actions.addNode(
         {
           type: 'tab',
-          name: specialist.shortLabel,
+          name: tabName,
           component: 'agent',
           config: { agentId: newId },
         },
@@ -341,6 +349,7 @@ export default function WorkspaceManager() {
         true
       )
     )
+    setSpecialistName('')
   }
 
   const addNewTerminal = () => {
@@ -560,6 +569,18 @@ export default function WorkspaceManager() {
                   role="menu"
                   className="absolute right-0 top-9 z-40 w-72 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
                 >
+                  <label className="block px-2 py-2">
+                    <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                      Name
+                    </span>
+                    <input
+                      type="text"
+                      value={specialistName}
+                      onChange={(event) => setSpecialistName(event.target.value)}
+                      placeholder={selectedSpecialistAction.shortLabel}
+                      className="h-9 w-full rounded bg-[#111216] px-2.5 text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#6ee7d8]/50"
+                    />
+                  </label>
                   {SPECIALIST_ACTIONS.map((action) => {
                     const selected = action.id === selectedSpecialistAction.id
                     return (
