@@ -82,6 +82,13 @@ function sendMenuCommand(win: Electron.BaseWindow | null, command: string): void
   browserWindow.webContents.send('app-menu:command', command)
 }
 
+function zoomFocusedWindowIn(win: Electron.BaseWindow | null): void {
+  if (!win || win.isDestroyed()) return
+  const browserWindow = BrowserWindow.fromId(win.id)
+  if (!browserWindow || browserWindow.isDestroyed()) return
+  browserWindow.webContents.setZoomLevel(browserWindow.webContents.getZoomLevel() + 0.5)
+}
+
 function createAppMenu(): Menu {
   return Menu.buildFromTemplate([
     {
@@ -127,7 +134,11 @@ function createAppMenu(): Menu {
         { role: 'toggleDevTools' },
         { type: 'separator' },
         { role: 'resetZoom' },
-        { role: 'zoomIn' },
+        {
+          label: 'Zoom In',
+          accelerator: 'CmdOrCtrl+=',
+          click: (_, win) => zoomFocusedWindowIn(win ?? BrowserWindow.getFocusedWindow()),
+        },
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
