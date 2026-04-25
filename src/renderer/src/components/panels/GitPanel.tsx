@@ -67,10 +67,9 @@ function sortedEntries(entries: GitStatusEntry[]): GitStatusEntry[] {
   return [...entries].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
 }
 
-function resultMessage(result: GitCommandResult, fallback: string, preferFallback = false): GitPanelMessage {
+function resultMessage(result: GitCommandResult, fallback: string): GitPanelMessage {
   if (result.ok) {
-    const gitOutput = result.stdout.trim() || result.stderr.trim()
-    return { tone: 'success', text: preferFallback ? fallback : gitOutput || fallback }
+    return { tone: 'success', text: fallback }
   }
 
   return { tone: 'error', text: result.message || result.stderr.trim() || 'Git command failed.' }
@@ -84,12 +83,6 @@ function syncStatusLabel(branches: GitBranchSnapshot | null): string {
   return 'Up to date'
 }
 
-function formatRemoteLabel(currentBranch: GitBranch | null): string {
-  if (!currentBranch) return 'Detached HEAD'
-  if (!currentBranch.upstream) return `${currentBranch.name} has no upstream`
-  return `${currentBranch.name} -> ${currentBranch.upstream}`
-}
-
 export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
   const openFile = useWorkspaceStore((s) => s.openFile)
@@ -99,6 +92,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const refreshBranches = useCallback(async () => {
     if (!repoRoot || typeof window.api.getGitBranches !== 'function') {
@@ -155,21 +149,19 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   )
   const allEntries = useMemo(() => sortedEntries(Object.values(status?.files ?? {})), [status])
   const branchOptions = branches?.branches ?? []
-  const currentBranch = branchOptions.find((branch) => branch.current) ?? null
   const readyToCommit = stagedEntries.length > 0 && Boolean(commitMessage.trim())
 
   const runAction = async (
     label: string,
     action: () => Promise<GitCommandResult>,
-    success: string,
-    preferSuccessMessage = false
+    success: string
   ): Promise<GitCommandResult | null> => {
     if (busy) return null
     setBusy(label)
     setMessage({ tone: 'neutral', text: `${label}...` })
     try {
       const result = await action()
-      setMessage(resultMessage(result, success, preferSuccessMessage))
+      setMessage(resultMessage(result, success))
       if (result.ok) {
         await refreshAll()
       }
@@ -203,8 +195,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     return runAction(
       'Rolling back unstaged changes',
       () => window.api.discardUnstagedGitChanges(repoRoot!, []),
-      'Rolled back unstaged changes.',
-      true
+      'Rolled back unstaged changes.'
     )
   }
 
@@ -221,7 +212,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       },
       bulkActions: [
         {
-          label: 'All',
+          label: 'Unstage All',
           title: 'Unstage all staged changes',
           action: () => runAction('Unstaging all', () => window.api.unstageGitPaths(repoRoot!, []), 'Unstaged all files.'),
         },
@@ -240,7 +231,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       },
       bulkActions: [
         {
-          label: '+',
+          label: 'Stage All',
           title: 'Stage all changes',
           action: () => runAction('Staging all', () => window.api.stageGitPaths(repoRoot!, []), 'Staged all changes.'),
         },
@@ -267,7 +258,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const handlePush = async () => {
     if (!repoRoot) return
-    await runAction('Pushing', () => window.api.pushGitBranch(repoRoot), 'Pushed branch.', true)
+    await runAction('Pushing', () => window.api.pushGitBranch(repoRoot), 'Pushed branch.')
   }
 
   const handleSwitchBranch = async (branchName: string) => {
@@ -351,76 +342,38 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {allEntries.length === 0 ? (
-          <div className="py-2 text-[12px] text-[#6f7480]">Working tree clean</div>
-        ) : (
-          groups.map((group) => (
-            <ChangeGroup
-              key={group.title}
-              group={group}
-              busy={busy}
-              onOpenFile={handleOpenFile}
-            />
-          ))
-        )}
-        <section className="mt-2 pt-2">
-          <textarea
-            value={commitMessage}
-            onChange={(event) => setCommitMessage(event.target.value)}
-            placeholder="Describe your changes"
-            className="h-20 w-full resize-none rounded-md border border-[#1f2025] bg-[#090a0c] px-2.5 py-2 text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] transition-colors focus:border-[#3a3d49]"
-          />
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => void runAction('Staging all', () => window.api.stageGitPaths(repoRoot, []), 'Staged all changes.')}
-              disabled={Boolean(busy) || unstagedEntries.length === 0}
-              className="h-8 rounded-md px-2.5 text-[11px] text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
-            >
-              Stage All
-            </button>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void handleCommit()}
-                disabled={Boolean(busy) || !readyToCommit}
-                className="h-8 rounded-md border border-[#3a3d49] bg-[#ececee] px-3 text-[11px] font-semibold text-[#111216] transition-colors hover:bg-white disabled:border-[#24252b] disabled:bg-[#15161a] disabled:text-[#5a5a63]"
-              >
-                Commit
-              </button>
-              <button
-                type="button"
-                onClick={() => void handlePush()}
-                disabled={Boolean(busy)}
-                className="h-8 rounded-md px-2.5 text-[11px] text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
-              >
-                Push
-              </button>
-            </div>
-          </div>
-          <div className="mt-3 flex min-w-0 items-center justify-between gap-2 text-[10px] text-[#5f6570]">
-            <span className="shrink-0 uppercase tracking-[0.1em]">Remote</span>
-            <span className="min-w-0 truncate font-mono" title={formatRemoteLabel(currentBranch)}>
-              {formatRemoteLabel(currentBranch)}
-            </span>
-          </div>
-          {message ? (
-            <div
-              role={message.tone === 'error' ? 'alert' : 'status'}
-              className={`mt-2 max-h-24 overflow-y-auto rounded-md px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
-                message.tone === 'error'
-                  ? 'border border-[#713036] bg-[#311417] text-[#ff8a8e]'
-                  : message.tone === 'success'
-                    ? 'bg-transparent text-[#8a8f9b]'
-                    : 'bg-[#15161a] text-[#9a9aa2]'
-              }`}
-            >
-              {message.text}
-            </div>
-          ) : null}
-        </section>
-        <CommitHistory history={history} />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          {allEntries.length === 0 ? (
+            <div className="py-2 text-[12px] text-[#6f7480]">Working tree clean</div>
+          ) : (
+            groups.map((group) => (
+              <ChangeGroup
+                key={group.title}
+                group={group}
+                busy={busy}
+                onOpenFile={handleOpenFile}
+              />
+            ))
+          )}
+        </div>
+
+        <CommitHistory
+          history={history}
+          open={historyOpen}
+          onToggle={() => setHistoryOpen((open) => !open)}
+        />
+
+        <CommitComposer
+          busy={busy}
+          commitMessage={commitMessage}
+          message={message}
+          readyToCommit={readyToCommit}
+          stagedCount={stagedEntries.length}
+          onCommit={handleCommit}
+          onCommitMessageChange={setCommitMessage}
+          onPush={handlePush}
+        />
       </div>
     </div>
   )
@@ -447,7 +400,7 @@ function ChangeGroup({
                 type="button"
                 onClick={() => void bulkAction.action()}
                 disabled={Boolean(busy)}
-                className={`inline-flex h-5 shrink-0 items-center justify-center rounded-md px-1.5 font-mono text-[11px] leading-none transition-colors disabled:opacity-30 ${
+                className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md px-2 text-[11px] font-semibold leading-none transition-colors disabled:opacity-30 ${
                   bulkAction.danger
                     ? 'text-[#b97074] hover:bg-[#2a1518] hover:text-[#ff8a8e]'
                     : 'text-[#8a8a92] hover:bg-[#1a1b20] hover:text-[#ececee]'
@@ -522,23 +475,115 @@ function ChangeGroup({
   )
 }
 
-function CommitHistory({ history }: { history: GitHistoryState }) {
+function CommitComposer({
+  busy,
+  commitMessage,
+  message,
+  readyToCommit,
+  stagedCount,
+  onCommit,
+  onCommitMessageChange,
+  onPush,
+}: {
+  busy: string | null
+  commitMessage: string
+  message: GitPanelMessage | null
+  readyToCommit: boolean
+  stagedCount: number
+  onCommit: () => Promise<void>
+  onCommitMessageChange: (value: string) => void
+  onPush: () => Promise<void>
+}) {
+  return (
+    <section className="shrink-0 border-t border-[#1b1c21] bg-[#101115] px-3 py-3">
+      <textarea
+        value={commitMessage}
+        onChange={(event) => onCommitMessageChange(event.target.value)}
+        placeholder="Commit message"
+        className="h-16 w-full resize-none rounded-md border border-[#1f2025] bg-[#090a0c] px-2.5 py-2 text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] transition-colors focus:border-[#3a3d49]"
+      />
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="min-w-0 truncate text-[11px] text-[#6f7480]">
+          {stagedCount > 0 ? `${stagedCount} staged` : 'Nothing staged'}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void onPush()}
+            disabled={Boolean(busy)}
+            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
+          >
+            Push
+          </button>
+          <button
+            type="button"
+            onClick={() => void onCommit()}
+            disabled={Boolean(busy) || !readyToCommit}
+            className="h-8 rounded-md border border-[#3a3d49] bg-[#ececee] px-3 text-[11px] font-semibold text-[#111216] transition-colors hover:bg-white disabled:border-[#24252b] disabled:bg-[#15161a] disabled:text-[#5a5a63]"
+          >
+            Commit
+          </button>
+        </div>
+      </div>
+      {message ? (
+        <div
+          role={message.tone === 'error' ? 'alert' : 'status'}
+          className={`mt-2 max-h-20 overflow-y-auto rounded-md px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
+            message.tone === 'error'
+              ? 'border border-[#713036] bg-[#311417] text-[#ff8a8e]'
+              : message.tone === 'success'
+                ? 'bg-transparent px-0 py-0 text-[#8a8f9b]'
+                : 'bg-[#15161a] text-[#9a9aa2]'
+          }`}
+        >
+          {message.text}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function CommitHistory({
+  history,
+  open,
+  onToggle,
+}: {
+  history: GitHistoryState
+  open: boolean
+  onToggle: () => void
+}) {
   const commits = history.status === 'ready' ? history.snapshot.commits : []
 
   return (
-    <section className="mt-4 border-t border-[#1b1c21] pt-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">History</div>
-        <div className="shrink-0 text-[10px] text-[#5a5a63]">{commits.length ? `${commits.length} recent` : ''}</div>
-      </div>
-      {history.status === 'loading' ? (
-        <div className="py-1.5 text-[11px] text-[#5a5a63]">Loading commits...</div>
-      ) : history.status === 'error' ? (
-        <div className="py-1.5 text-[11px] text-[#8a8a92]">{history.message}</div>
-      ) : commits.length === 0 ? (
-        <div className="py-1.5 text-[11px] text-[#5a5a63]">No commits yet</div>
-      ) : (
-        <div className="space-y-1.5">
+    <section className="shrink-0 border-t border-[#1b1c21] bg-[#0d0e11]">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex h-9 w-full items-center justify-between gap-2 px-3 text-left transition-colors hover:bg-[#15161a]"
+        aria-expanded={open}
+      >
+        <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">History</span>
+        <span className="flex shrink-0 items-center gap-2 text-[10px] text-[#5a5a63]">
+          {commits.length ? `${commits.length} recent` : ''}
+          <svg
+            className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`}
+            viewBox="0 0 12 12"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      </button>
+      {open ? (
+        history.status === 'loading' ? (
+          <div className="px-3 pb-3 text-[11px] text-[#5a5a63]">Loading commits...</div>
+        ) : history.status === 'error' ? (
+          <div className="px-3 pb-3 text-[11px] text-[#8a8a92]">{history.message}</div>
+        ) : commits.length === 0 ? (
+          <div className="px-3 pb-3 text-[11px] text-[#5a5a63]">No commits yet</div>
+        ) : (
+          <div className="max-h-44 space-y-1.5 overflow-y-auto px-3 pb-3">
           {commits.map((commit) => (
             <div
               key={commit.hash}
@@ -561,8 +606,9 @@ function CommitHistory({ history }: { history: GitHistoryState }) {
               ) : null}
             </div>
           ))}
-        </div>
-      )}
+          </div>
+        )
+      ) : null}
     </section>
   )
 }
