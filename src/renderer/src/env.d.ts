@@ -29,6 +29,27 @@ type CliRuntimeSettings = {
   command: string
   useWsl: boolean
 }
+type TerminalKind = 'agent' | 'terminal'
+type TerminalSpawnMetadata = {
+  kind?: TerminalKind
+  workspaceId?: string
+  agentId?: string
+  terminalId?: string
+}
+type TerminalSessionSnapshot = {
+  sessionId: string
+  running: boolean
+  kind: TerminalKind
+  workspaceId?: string
+  agentId?: string
+  terminalId?: string
+  cli?: AgentCli
+  cwd?: string
+  swarmStatePath?: string
+  startedAt: number
+  lastOutputAt: number | null
+  outputBufferLength: number
+}
 type SpecialistActionId =
   | 'architect'
   | 'developer'
@@ -134,10 +155,11 @@ declare interface Window {
     switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>
 
     // Agent CLI Terminal
-    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => Promise<void>
+    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata) => Promise<void>
     terminalWrite:  (sessionId: string, data: string) => Promise<void>
     terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
     terminalStatus: (sessionId: string) => Promise<{ running: boolean }>
+    terminalList:   () => Promise<TerminalSessionSnapshot[]>
     terminalKill:   (sessionId: string) => Promise<void>
 
     onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void

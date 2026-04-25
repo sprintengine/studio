@@ -168,7 +168,12 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
       undefined,
       undefined,
       undefined,
-      true
+      true,
+      {
+        kind: 'terminal',
+        workspaceId,
+        terminalId,
+      }
     )
     const settleTimer = window.setTimeout(() => {
       fitTerminal()

@@ -13,7 +13,7 @@ import {
 } from '../../specialists/specialistActions'
 import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '../../types/workspace'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
-import { focusOrAddAgentTab, getModel } from '../../utils/modelRegistry'
+import { focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
@@ -25,23 +25,18 @@ const CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
 ]
 type WorkspacePanelComponent = 'explorer' | 'editor' | 'git'
 type WorkspaceActivity = 'needs-input' | 'running' | 'idle'
-type BackgroundAgentStatus = 'needs-input' | 'running'
-type BackgroundAgentItem = {
+type SessionStatus = 'needs-input' | 'running'
+type SessionItem = {
   workspace: Workspace
-  agentId: string
+  kind: TerminalKind
+  agentId: string | null
+  terminalId: string | null
   label: string
   cli: AgentCli
-  status: BackgroundAgentStatus
+  status: SessionStatus
   role: NonNullable<Workspace['swarmState']>['swarmAgents'][string]['role'] | null
   taskId: string | null
-  sessionId: string | null
-}
-type ActivityLayoutNode = {
-  component?: string
-  config?: {
-    agentId?: string
-  }
-  children?: ActivityLayoutNode[]
+  sessionId: string
 }
 
 function workspaceNeedsInput(workspace: Workspace): boolean {
@@ -50,38 +45,21 @@ function workspaceNeedsInput(workspace: Workspace): boolean {
   )
 }
 
-function workspaceHasRunningAgent(workspace: Workspace): boolean {
-  if (Object.values(workspace.agents).some((agent) =>
-    Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
-  )) {
-    return true
-  }
-
-  const openAgentIds = new Set<string>()
-
-  const collectOpenAgentIds = (node: ActivityLayoutNode | undefined) => {
-    if (!node) return
-
-    if (node.component === 'agent') {
-      const agentId = node.config?.agentId
-      if (agentId) openAgentIds.add(agentId)
-    }
-
-    node.children?.forEach(collectOpenAgentIds)
-  }
-
-  collectOpenAgentIds(workspace.layoutModel.layout as ActivityLayoutNode)
-  workspace.layoutModel.borders?.forEach((border) => collectOpenAgentIds(border as ActivityLayoutNode))
-
-  return [...openAgentIds].some((agentId) => {
-    const agent = workspace.agents[agentId]
-    return Boolean(agent?.cliStartRequested || agent?.cliHasLaunched || agent?.cliSessionId)
-  })
+function workspaceHasRunningAgent(
+  workspace: Workspace,
+  terminalSessions: TerminalSessionSnapshot[]
+): boolean {
+  return terminalSessions.some((session) =>
+    session.kind === 'agent' && session.workspaceId === workspace.id && session.running
+  )
 }
 
-function getWorkspaceActivity(workspace: Workspace): WorkspaceActivity {
+function getWorkspaceActivity(
+  workspace: Workspace,
+  terminalSessions: TerminalSessionSnapshot[]
+): WorkspaceActivity {
   if (workspaceNeedsInput(workspace)) return 'needs-input'
-  if (workspaceHasRunningAgent(workspace)) return 'running'
+  if (workspaceHasRunningAgent(workspace, terminalSessions)) return 'running'
   return 'idle'
 }
 
@@ -107,26 +85,53 @@ function workspaceActivityLabel(activity: WorkspaceActivity): string {
   }
 }
 
-function getBackgroundAgentItems(workspaces: Workspace[]): BackgroundAgentItem[] {
-  return workspaces.flatMap((workspace) =>
-    Object.entries(workspace.agents)
-      .filter(([, agent]) => Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId))
-      .map(([agentId, agent]) => {
-        const runtime = workspace.swarmState?.swarmAgents[agentId]
-        const status: BackgroundAgentStatus = runtime?.status === 'needs_input' ? 'needs-input' : 'running'
+function getSessionItems(
+  workspaces: Workspace[],
+  terminalSessions: TerminalSessionSnapshot[]
+): SessionItem[] {
+  return terminalSessions
+    .filter((session) => (
+      session.running
+      && typeof session.workspaceId === 'string'
+    ))
+    .flatMap((session): SessionItem[] => {
+      const workspace = workspaces.find((candidate) => candidate.id === session.workspaceId)
+      if (!workspace) return []
 
-        return {
+      if (session.kind === 'agent') {
+        if (!session.agentId) return []
+        const agent = workspace.agents[session.agentId]
+        const runtime = workspace.swarmState?.swarmAgents[session.agentId]
+        const status: SessionStatus = runtime?.status === 'needs_input' ? 'needs-input' : 'running'
+
+        return [{
           workspace,
-          agentId,
-          label: agent.name || agentId,
-          cli: agent.cli ?? 'codex',
+          kind: session.kind,
+          agentId: session.agentId,
+          terminalId: null,
+          label: agent?.name || session.agentId,
+          cli: session.cli ?? agent?.cli ?? 'codex',
           status,
           role: runtime?.role ?? null,
           taskId: runtime?.currentTaskId ?? null,
-          sessionId: agent.cliSessionId ?? null,
-        }
-      })
-  )
+          sessionId: session.sessionId,
+        }]
+      }
+
+      const terminalId = session.terminalId ?? session.sessionId.replace(/^terminal-/, '')
+      return [{
+        workspace,
+        kind: session.kind,
+        agentId: null,
+        terminalId,
+        label: 'Terminal',
+        cli: 'codex' as AgentCli,
+        status: 'running' as const,
+        role: null,
+        taskId: null,
+        sessionId: session.sessionId,
+      }]
+    })
 }
 
 export default function WorkspaceManager() {
@@ -154,10 +159,11 @@ export default function WorkspaceManager() {
   const [showPalette, setShowPalette] = useState(false)
   const [cliMenuOpen, setCliMenuOpen] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
-  const [backgroundAgentsOpen, setBackgroundAgentsOpen] = useState(false)
+  const [sessionsOpen, setSessionsOpen] = useState(false)
   const [specialistName, setSpecialistName] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSnapshot[]>([])
   const [windowState, setWindowState] = useState<WindowState>({
     isMaximized: false,
     isFullScreen: false,
@@ -165,9 +171,9 @@ export default function WorkspaceManager() {
   const renameInputRef = useRef<HTMLInputElement>(null)
   const cliMenuRef = useRef<HTMLDivElement>(null)
   const specialistMenuRef = useRef<HTMLDivElement>(null)
-  const backgroundAgentsRef = useRef<HTMLDivElement>(null)
+  const sessionsRef = useRef<HTMLDivElement>(null)
   const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
-  const backgroundAgents = getBackgroundAgentItems(workspaces)
+  const sessions = getSessionItems(workspaces, terminalSessions)
 
   const openTemplateSelector = () => {
     setShowTemplateSelector(true)
@@ -178,6 +184,25 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (workspaces.length === 0) setShowTemplateSelector(true)
   }, [workspaces.length])
+
+  useEffect(() => {
+    let disposed = false
+
+    const refreshTerminalSessions = async () => {
+      const sessions = await window.api.terminalList()
+      if (!disposed) setTerminalSessions(sessions)
+    }
+
+    void refreshTerminalSessions().catch(() => {})
+    const interval = window.setInterval(() => {
+      void refreshTerminalSessions().catch(() => {})
+    }, 1000)
+
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+    }
+  }, [])
 
   useEffect(() => {
     if (window.api.platform === 'darwin') return
@@ -241,16 +266,16 @@ export default function WorkspaceManager() {
   }, [specialistMenuOpen])
 
   useEffect(() => {
-    if (!backgroundAgentsOpen) return
+    if (!sessionsOpen) return
 
     const onPointerDown = (event: PointerEvent) => {
-      if (!backgroundAgentsRef.current?.contains(event.target as Node)) {
-        setBackgroundAgentsOpen(false)
+      if (!sessionsRef.current?.contains(event.target as Node)) {
+        setSessionsOpen(false)
       }
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setBackgroundAgentsOpen(false)
+      if (event.key === 'Escape') setSessionsOpen(false)
     }
 
     window.addEventListener('pointerdown', onPointerDown)
@@ -259,12 +284,12 @@ export default function WorkspaceManager() {
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [backgroundAgentsOpen])
+  }, [sessionsOpen])
 
   useEffect(() => {
     setCliMenuOpen(false)
     setSpecialistMenuOpen(false)
-    setBackgroundAgentsOpen(false)
+    setSessionsOpen(false)
   }, [activeWorkspaceId])
 
   useEffect(() => {
@@ -338,6 +363,8 @@ export default function WorkspaceManager() {
         toggleWorkspacePanel(activeWorkspaceId, 'explorer')
       } else if (command === 'toggle-editor') {
         toggleWorkspacePanel(activeWorkspaceId, 'editor')
+      } else if (command === 'toggle-git') {
+        toggleWorkspacePanel(activeWorkspaceId, 'git')
       }
     })
   }, [activeWorkspaceId])
@@ -438,13 +465,6 @@ export default function WorkspaceManager() {
     )
   }
 
-  const addGitPanel = () => {
-    if (showTemplateSelector || !activeWorkspaceId) return
-    setCliMenuOpen(false)
-    setSpecialistMenuOpen(false)
-    toggleWorkspacePanel(activeWorkspaceId, 'git')
-  }
-
   const handleSelectCli = (cli: AgentCli) => {
     setLastSelectedCli(cli)
     setCliMenuOpen(false)
@@ -456,27 +476,62 @@ export default function WorkspaceManager() {
     void addNewSpecialist(specialistId)
   }
 
-  const openBackgroundAgentTerminal = (item: BackgroundAgentItem) => {
+  const openSession = async (item: SessionItem) => {
+    const status = await window.api.terminalStatus(item.sessionId)
+    if (!status.running) {
+      setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
+      if (item.agentId) {
+        updateAgent(item.workspace.id, item.agentId, {
+          cliStartRequested: false,
+          cliHasLaunched: false,
+          cliOnboardingPromptSent: false,
+        })
+      }
+      return
+    }
+
+    if (item.agentId) {
+      updateAgent(item.workspace.id, item.agentId, {
+        name: item.label,
+        cli: item.cli,
+        cliSessionId: item.sessionId,
+        cliStartRequested: true,
+        cliHasLaunched: true,
+      })
+    }
+
     setShowTemplateSelector(false)
     setActiveWorkspace(item.workspace.id)
-    setBackgroundAgentsOpen(false)
+    setSessionsOpen(false)
 
     requestAnimationFrame(() => {
-      if (focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)) return
+      const opened = item.agentId
+        ? focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)
+        : item.terminalId
+          ? focusOrAddTerminalTab(item.workspace.id, item.terminalId)
+          : false
+      if (opened) return
       window.setTimeout(() => {
-        focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)
+        if (item.agentId) {
+          focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)
+        } else if (item.terminalId) {
+          focusOrAddTerminalTab(item.workspace.id, item.terminalId)
+        }
       }, 0)
     })
   }
 
-  const stopBackgroundAgent = (item: BackgroundAgentItem) => {
-    if (item.sessionId) void window.api.terminalKill(item.sessionId).catch(() => {})
+  const stopSession = (item: SessionItem) => {
+    void window.api.terminalKill(item.sessionId).catch(() => {})
+    setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
     if (item.workspace.mode === 'swarm') setSwarmAutoEnabled(item.workspace.id, false)
-    updateAgent(item.workspace.id, item.agentId, {
-      cliStartRequested: false,
-      cliHasLaunched: false,
-      cliOnboardingPromptSent: false,
-    })
+    if (item.agentId) {
+      updateAgent(item.workspace.id, item.agentId, {
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+      })
+    }
   }
 
   const handleShowMenubarMenu = async (
@@ -519,7 +574,7 @@ export default function WorkspaceManager() {
           {workspaces.map((workspace) => {
             const active = !showTemplateSelector && workspace.id === activeWorkspaceId
             const swarmWorkspace = workspace.mode === 'swarm'
-            const activity = getWorkspaceActivity(workspace)
+            const activity = getWorkspaceActivity(workspace, terminalSessions)
             const activityLabel = workspaceActivityLabel(activity)
             const activityTone = workspaceActivityTone(activity)
             return (
@@ -600,57 +655,40 @@ export default function WorkspaceManager() {
 
         <div className="flex shrink-0 items-center gap-1.5">
           {workspaces.length > 0 ? (
-            <div ref={backgroundAgentsRef} className="relative inline-flex">
+            <div ref={sessionsRef} className="relative inline-flex">
               <button
                 type="button"
                 onClick={() => {
-                  setBackgroundAgentsOpen((open) => !open)
+                  setSessionsOpen((open) => !open)
                   setCliMenuOpen(false)
                   setSpecialistMenuOpen(false)
                 }}
                 className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-                  backgroundAgentsOpen
+                  sessionsOpen
                     ? 'border-[#303139] bg-[#17181d] text-[#ececee]'
                     : 'border-[#24252b] bg-[#111216] text-[#9a9aa2] hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc]'
                 }`}
-                title="Background Agents"
-                aria-label="Background Agents"
+                title="Sessions"
+                aria-label="Sessions"
                 aria-haspopup="menu"
-                aria-expanded={backgroundAgentsOpen}
+                aria-expanded={sessionsOpen}
               >
-                <BackgroundAgentsIcon className="h-[18px] w-[18px]" />
-                {backgroundAgents.length > 0 ? (
+                <SessionsIcon className="h-[18px] w-[18px]" />
+                {sessions.length > 0 ? (
                   <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#0b0c0f] bg-[#30d158] px-1 text-[10px] font-bold leading-none text-[#061210]">
-                    {backgroundAgents.length > 9 ? '9+' : backgroundAgents.length}
+                    {sessions.length > 9 ? '9+' : sessions.length}
                   </span>
                 ) : null}
               </button>
 
-              {backgroundAgentsOpen ? (
-                <BackgroundAgentsPopover
-                  items={backgroundAgents}
-                  onOpenTerminal={openBackgroundAgentTerminal}
-                  onStop={stopBackgroundAgent}
+              {sessionsOpen ? (
+                <SessionsPopover
+                  items={sessions}
+                  onOpen={openSession}
+                  onStop={stopSession}
                 />
               ) : null}
             </div>
-          ) : null}
-
-          {workspaceActionsEnabled ? (
-            <button
-              onClick={addGitPanel}
-              disabled={!activeWorkspaceId}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-              title="Toggle Git panel"
-              aria-label="Toggle Git panel"
-            >
-              <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M7 5.5A2.5 2.5 0 1 0 7 10.5A2.5 2.5 0 0 0 7 5.5Z" stroke="currentColor" strokeWidth="1.7" />
-                <path d="M17 13.5A2.5 2.5 0 1 0 17 18.5A2.5 2.5 0 0 0 17 13.5Z" stroke="currentColor" strokeWidth="1.7" />
-                <path d="M7 10.5V12.25C7 14.18 8.57 15.75 10.5 15.75H14.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-                <path d="M7 10.5V18.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-              </svg>
-            </button>
           ) : null}
 
           {workspaceActionsEnabled ? (
@@ -881,16 +919,16 @@ export default function WorkspaceManager() {
   )
 }
 
-function BackgroundAgentsPopover({
+function SessionsPopover({
   items,
-  onOpenTerminal,
+  onOpen,
   onStop,
 }: {
-  items: BackgroundAgentItem[]
-  onOpenTerminal: (item: BackgroundAgentItem) => void
-  onStop: (item: BackgroundAgentItem) => void
+  items: SessionItem[]
+  onOpen: (item: SessionItem) => void | Promise<void>
+  onStop: (item: SessionItem) => void
 }) {
-  const groups = items.reduce<Array<{ workspace: Workspace; items: BackgroundAgentItem[] }>>((acc, item) => {
+  const groups = items.reduce<Array<{ workspace: Workspace; items: SessionItem[] }>>((acc, item) => {
     const group = acc.find((candidate) => candidate.workspace.id === item.workspace.id)
     if (group) {
       group.items.push(item)
@@ -907,7 +945,7 @@ function BackgroundAgentsPopover({
     >
       <div className="flex h-9 items-center justify-between border-b border-[#1f2025] px-2.5">
         <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#8a8a92]">
-          Background Agents
+          Sessions
         </span>
         {items.length > 0 ? (
           <span className="rounded bg-[#17181d] px-1.5 py-0.5 text-[11px] font-semibold text-[#9a9aa2]">
@@ -917,7 +955,7 @@ function BackgroundAgentsPopover({
       </div>
 
       {groups.length === 0 ? (
-        <div className="px-2.5 py-3 text-[13px] text-[#5a5a63]">No background agents</div>
+        <div className="px-2.5 py-3 text-[13px] text-[#5a5a63]">No sessions</div>
       ) : (
         <div className="max-h-[420px] overflow-y-auto py-1">
           {groups.map((group) => (
@@ -936,6 +974,8 @@ function BackgroundAgentsPopover({
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92]">
                         {item.role ? (
                           <SwarmRoleIcon role={item.role} className="h-[17px] w-[17px]" />
+                        ) : item.kind === 'terminal' ? (
+                          <TerminalSessionIcon className="h-[17px] w-[17px]" />
                         ) : (
                           <CliIcon cli={item.cli} className="h-[17px] w-[17px]" />
                         )}
@@ -949,17 +989,17 @@ function BackgroundAgentsPopover({
                           />
                         </span>
                         <span className="mt-0.5 block truncate text-[11px] text-[#7a7a83]">
-                          {item.taskId ?? item.cli}
+                          {item.kind === 'terminal' ? 'terminal' : item.taskId ?? item.cli}
                         </span>
                       </span>
                     </div>
 
                     <button
                       type="button"
-                      onClick={() => onOpenTerminal(item)}
+                      onClick={() => void onOpen(item)}
                       className="h-7 rounded border border-[#24252b] bg-[#111216] px-2.5 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#1b1c21] hover:text-[#ececee]"
                     >
-                      Open Terminal
+                      Open
                     </button>
 
                     <button
@@ -982,13 +1022,23 @@ function BackgroundAgentsPopover({
   )
 }
 
-function BackgroundAgentsIcon({ className }: { className?: string }) {
+function SessionsIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="5" width="16" height="12.5" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
       <path d="M7.5 9.25L10.25 12L7.5 14.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M12.5 14.75H16.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <path d="M8.5 20H15.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function TerminalSessionIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12.5 15H16.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   )
 }

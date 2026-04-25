@@ -88,6 +88,49 @@ export function focusOrAddAgentTab(
   return true
 }
 
+export function focusOrAddTerminalTab(
+  workspaceId: string,
+  terminalId: string,
+  name = 'Terminal'
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  let targetTabId: string | null = null
+  model.visitNodes((node) => {
+    if (targetTabId || !(node instanceof TabNode) || node.getComponent() !== 'terminal') return
+
+    const config = node.getConfig() as { terminalId?: string } | undefined
+    if ((config?.terminalId ?? node.getId()) === terminalId) {
+      targetTabId = node.getId()
+    }
+  })
+
+  if (targetTabId) {
+    model.doAction(Actions.selectTab(targetTabId))
+    return true
+  }
+
+  let targetTabset: TabSetNode | null = model.getActiveTabset() ?? null
+  if (!targetTabset) {
+    model.visitNodes((node) => {
+      if (!targetTabset && node instanceof TabSetNode) targetTabset = node
+    })
+  }
+  if (!targetTabset) return false
+
+  model.doAction(
+    Actions.addNode(
+      { type: 'tab', name, component: 'terminal', config: { terminalId } },
+      targetTabset.getId(),
+      DockLocation.CENTER,
+      -1,
+      true
+    )
+  )
+  return true
+}
+
 export function focusComponentTab(workspaceId: string, component: string): boolean {
   const model = models.get(workspaceId)
   if (!model) return false

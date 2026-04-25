@@ -190,7 +190,13 @@ async function superviseWorkspace(
       swarmStatePath,
       selectedCli,
       selectedCli === 'codex' ? startupPrompt : undefined,
-      cliRuntimes
+      cliRuntimes,
+      false,
+      {
+        kind: 'agent',
+        workspaceId: workspace.id,
+        agentId: nextRun.agentId,
+      }
     )
   } finally {
     inFlightSpawns.current.delete(spawnKey)

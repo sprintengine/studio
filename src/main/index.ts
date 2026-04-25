@@ -128,6 +128,11 @@ function createAppMenu(): Menu {
           accelerator: 'CmdOrCtrl+Shift+O',
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-editor'),
         },
+        {
+          label: 'Toggle Git Panel',
+          accelerator: 'CmdOrCtrl+Shift+G',
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-git'),
+        },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
@@ -236,13 +241,25 @@ type TerminalSize = {
   rows: number
 }
 
+type TerminalKind = 'agent' | 'terminal'
+
 type TerminalSession = {
+  sessionId: string
   process: pty.IPty
   sender: Electron.WebContents
   isReady: boolean
   hasExited: boolean
   isDisposed: boolean
   outputBuffer: string
+  kind: TerminalKind
+  workspaceId?: string
+  agentId?: string
+  terminalId?: string
+  cli?: AgentCli
+  cwd?: string
+  swarmStatePath?: string
+  startedAt: number
+  lastOutputAt: number | null
   pendingResize?: TerminalSize
 }
 
@@ -269,6 +286,25 @@ type TerminalSpawnPayload = {
   initialPrompt?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   shellOnly?: boolean
+  kind?: TerminalKind
+  workspaceId?: string
+  agentId?: string
+  terminalId?: string
+}
+
+type TerminalSessionSnapshot = {
+  sessionId: string
+  running: boolean
+  kind: TerminalKind
+  workspaceId?: string
+  agentId?: string
+  terminalId?: string
+  cli?: AgentCli
+  cwd?: string
+  swarmStatePath?: string
+  startedAt: number
+  lastOutputAt: number | null
+  outputBufferLength: number
 }
 
 type ShellLaunchConfig = {
@@ -674,8 +710,26 @@ function flushPendingTerminalResize(sessionId: string, session: TerminalSession)
 
 function appendTerminalOutput(session: TerminalSession, data: string): void {
   session.outputBuffer += data
+  session.lastOutputAt = Date.now()
   if (session.outputBuffer.length > TERMINAL_REPLAY_BUFFER_LIMIT) {
     session.outputBuffer = session.outputBuffer.slice(-TERMINAL_REPLAY_BUFFER_LIMIT)
+  }
+}
+
+function getTerminalSnapshot(session: TerminalSession): TerminalSessionSnapshot {
+  return {
+    sessionId: session.sessionId,
+    running: !session.hasExited && !session.isDisposed,
+    kind: session.kind,
+    workspaceId: session.workspaceId,
+    agentId: session.agentId,
+    terminalId: session.terminalId,
+    cli: session.cli,
+    cwd: session.cwd,
+    swarmStatePath: session.swarmStatePath,
+    startedAt: session.startedAt,
+    lastOutputAt: session.lastOutputAt,
+    outputBufferLength: session.outputBuffer.length,
   }
 }
 
@@ -741,10 +795,29 @@ ipcMain.handle('window:get-state', (event) => {
 
 ipcMain.handle(
   'terminal:spawn',
-  (event, { sessionId, cols, rows, cwd, resume, swarmStatePath, cli = 'codex', initialPrompt, cliRuntimes, shellOnly }: TerminalSpawnPayload) => {
+  (event, {
+    sessionId,
+    cols,
+    rows,
+    cwd,
+    resume,
+    swarmStatePath,
+    cli = 'codex',
+    initialPrompt,
+    cliRuntimes,
+    shellOnly,
+    kind,
+    workspaceId,
+    agentId,
+    terminalId,
+  }: TerminalSpawnPayload) => {
     const existingSession = terminals.get(sessionId)
     if (existingSession && !existingSession.hasExited && !existingSession.isDisposed) {
       existingSession.sender = event.sender
+      existingSession.workspaceId = workspaceId ?? existingSession.workspaceId
+      existingSession.agentId = agentId ?? existingSession.agentId
+      existingSession.terminalId = terminalId ?? existingSession.terminalId
+      existingSession.kind = kind ?? existingSession.kind
       safeResizeTerminal(sessionId, cols, rows)
       if (existingSession.outputBuffer) {
         sendTerminalEvent(event.sender, `terminal:data:${sessionId}`, existingSession.outputBuffer)
@@ -776,12 +849,22 @@ ipcMain.handle(
         env: env ?? getTerminalEnv(),
       })
       const terminalSession: TerminalSession = {
+        sessionId,
         process: termProcess,
         sender: event.sender,
         isReady: process.platform !== 'win32',
         hasExited: false,
         isDisposed: false,
         outputBuffer: '',
+        kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+        workspaceId,
+        agentId,
+        terminalId,
+        cli: shellOnly ? undefined : cli,
+        cwd: launchCwd ?? workingDirectory,
+        swarmStatePath,
+        startedAt: Date.now(),
+        lastOutputAt: null,
       }
 
       terminals.set(sessionId, terminalSession)
@@ -836,6 +919,12 @@ ipcMain.handle('terminal:status', (_, sessionId: string) => {
   return {
     running: Boolean(session && !session.hasExited && !session.isDisposed),
   }
+})
+
+ipcMain.handle('terminal:list', () => {
+  return [...terminals.values()]
+    .filter((session) => !session.hasExited && !session.isDisposed)
+    .map(getTerminalSnapshot)
 })
 
 ipcMain.handle('terminal:kill', (_, sessionId: string) => {
