@@ -342,25 +342,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     const selectedCli = cli ?? current?.cli ?? 'codex'
     const hasLegacyLaunchedSession =
       current?.cli === undefined
-      && Boolean(current?.cliStartRequested || current?.cliHasLaunched || current?.cliTerminalId || current?.cliSessionId)
+      && Boolean(current?.cliStartRequested || current?.cliHasLaunched || current?.cliSessionId)
     const shouldResetSession =
       hasLegacyLaunchedSession || (current?.cli !== undefined && current.cli !== selectedCli)
     const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession)
-    const terminalId = current?.cliStartRequested && current.cliTerminalId && !shouldStartFresh
-      ? current.cliTerminalId
-      : crypto.randomUUID()
-    const cliSessionId = selectedCli === 'claude'
-      ? current?.cliStartRequested && current.cliSessionId && !shouldStartFresh
-        ? current.cliSessionId
-        : terminalId
-      : current?.cliStartRequested && current.cliSessionId && !shouldStartFresh
-        ? current.cliSessionId
-        : undefined
 
     updateAgent(workspaceId, agentId, {
       cliStartRequested: true,
-      cliTerminalId: terminalId,
-      cliSessionId,
+      cliSessionId: current?.cliStartRequested && current.cliSessionId && !shouldStartFresh
+        ? current.cliSessionId
+        : crypto.randomUUID(),
       cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
       cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
       cli: selectedCli,

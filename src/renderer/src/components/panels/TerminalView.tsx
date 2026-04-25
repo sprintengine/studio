@@ -16,9 +16,6 @@ interface Props {
 
 const SWARM_COMMAND = 'swarm'
 const MAX_TERMINAL_READINESS_BUFFER = 5000
-const CODEX_SESSION_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i
-const CODEX_STATUS_COMMAND = '/status'
-const TERMINAL_ENTER = '\r'
 
 function plainTerminalText(data: string): string {
   return data
@@ -32,10 +29,6 @@ function looksLikeCliReady(output: string, cli: AgentCli): boolean {
     return /Claude Code|Welcome to Claude|cwd:|Bypassing Permissions|\/help|Try .*Claude/i.test(output)
   }
 
-  if (/Select Model and Effort|Press enter to select reasoning effort|Access legacy models/i.test(output)) {
-    return false
-  }
-
   return /Codex|OpenAI|GPT|\/help|model/i.test(output)
 }
 
@@ -46,15 +39,6 @@ function looksLikeLaunchBlocked(output: string): boolean {
 function looksLikeTrustPrompt(output: string, cli: AgentCli): boolean {
   if (cli !== 'claude') return false
   return /Do you trust the files|trust files in this folder/i.test(output)
-}
-
-function parseCodexSessionId(output: string): string | null {
-  const sessionLine = output
-    .split('\n')
-    .reverse()
-    .find((line) => /session/i.test(line) && CODEX_SESSION_ID_PATTERN.test(line))
-
-  return sessionLine?.match(CODEX_SESSION_ID_PATTERN)?.[0] ?? null
 }
 
 function buildSwarmStartupPrompt(role: SwarmRole, agentId: string, goal: string): string {
@@ -110,19 +94,16 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     if (!container) return
     if (savedFolderPath && !folderReadyPath) return
 
-    if (!agent?.cliTerminalId) {
-      const terminalId = crypto.randomUUID()
+    if (!agent?.cliSessionId) {
       updateAgent(workspaceId, agentId, {
-        cliTerminalId: terminalId,
-        cliSessionId: cli === 'claude' ? agent?.cliSessionId ?? terminalId : agent?.cliSessionId,
+        cliSessionId: crypto.randomUUID(),
         cliHasLaunched: false,
       })
       return
     }
 
-    const terminalId = agent.cliTerminalId
-    const cliSessionId = agent.cliSessionId
-    const shouldResume = Boolean(agent.cliHasLaunched && cliSessionId)
+    const sessionId = agent.cliSessionId
+    const shouldResume = agent.cliHasLaunched ?? false
     const term = new Terminal({
       theme: {
         background: '#09090b',
@@ -140,7 +121,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (container.clientWidth === 0 || container.clientHeight === 0) return
       fitAddon.fit()
       if (term.cols > 0 && term.rows > 0) {
-        void window.api.terminalResize(terminalId, term.cols, term.rows)
+        void window.api.terminalResize(sessionId, term.cols, term.rows)
       }
     }
 
@@ -156,7 +137,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     const pasteText = async (text: string) => {
       if (!text) return
-      await window.api.terminalWrite(terminalId, text.replace(/\r?\n/g, '\r'))
+      await window.api.terminalWrite(sessionId, text.replace(/\r?\n/g, '\r'))
       focusTerminal()
     }
 
@@ -216,7 +197,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     term.attachCustomKeyEventHandler((event) => {
       if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
         event.preventDefault()
-        void window.api.terminalWrite(terminalId, '\u001b[13;2u')
+        void window.api.terminalWrite(sessionId, '\u001b[13;2u')
         return false
       }
       return true
@@ -228,8 +209,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     let hasInjectedStartupPrompt = false
     let promptInjectionBlocked = false
     let terminalReadinessBuffer = ''
-    let hasRequestedCodexStatus = false
-    let discoveredCodexSessionId = cliSessionId ?? null
+    let promptInjectionTimer: number | null = null
     let disposed = false
 
     const injectStartupPrompt = () => {
@@ -248,62 +228,49 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       })
 
       const normalizedPrompt = prompt.replace(/\r?\n/g, '\n')
-      void window.api.terminalWrite(terminalId, `\x1b[200~${normalizedPrompt}\x1b[201~\r`)
+      void window.api.terminalWrite(sessionId, `\x1b[200~${normalizedPrompt}\x1b[201~\r`)
     }
 
-    const requestCodexSessionStatus = () => {
-      if (cli !== 'codex' || discoveredCodexSessionId || hasRequestedCodexStatus) return
+    const schedulePromptInjection = (delay: number) => {
+      if (promptInjectionBlocked || agent.cliOnboardingPromptSent || hasInjectedStartupPrompt) return
+      if (promptInjectionTimer !== null) return
 
-      hasRequestedCodexStatus = true
-      void window.api.terminalWrite(terminalId, CODEX_STATUS_COMMAND)
-      window.requestAnimationFrame(() => {
-        if (disposed) return
-        void window.api.terminalWrite(terminalId, TERMINAL_ENTER)
-      })
+      promptInjectionTimer = window.setTimeout(() => {
+        promptInjectionTimer = null
+        injectStartupPrompt()
+      }, delay)
     }
 
-    const maybeInjectStartupPrompt = () => {
-      if (!startupPromptRef.current) return
-
-      if (cli === 'codex' && !discoveredCodexSessionId) {
-        requestCodexSessionStatus()
-        return
-      }
-
-      injectStartupPrompt()
-    }
-
-    const disposeData = window.api.onTerminalData(terminalId, (data) => {
+    const disposeData = window.api.onTerminalData(sessionId, (data) => {
       term.write(data)
       if (data.trim().length > 0) {
         const plainData = plainTerminalText(data)
         terminalReadinessBuffer = `${terminalReadinessBuffer}${plainData}`.slice(-MAX_TERMINAL_READINESS_BUFFER)
 
-        if (cli === 'codex' && !discoveredCodexSessionId) {
-          const parsedSessionId = parseCodexSessionId(terminalReadinessBuffer)
-          if (parsedSessionId) {
-            discoveredCodexSessionId = parsedSessionId
-            updateAgent(workspaceId, agentId, { cliSessionId: parsedSessionId })
-            maybeInjectStartupPrompt()
-          }
-        }
-
         if (looksLikeLaunchBlocked(terminalReadinessBuffer)) {
           promptInjectionBlocked = true
+          if (promptInjectionTimer !== null) {
+            window.clearTimeout(promptInjectionTimer)
+            promptInjectionTimer = null
+          }
           return
         }
 
         if (looksLikeTrustPrompt(plainData, cli)) {
+          if (promptInjectionTimer !== null) {
+            window.clearTimeout(promptInjectionTimer)
+            promptInjectionTimer = null
+          }
           return
         }
 
         if (looksLikeCliReady(terminalReadinessBuffer, cli)) {
-          maybeInjectStartupPrompt()
+          schedulePromptInjection(900)
         }
       }
     })
 
-    const disposeExit = window.api.onTerminalExit(terminalId, (code) => {
+    const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
       updateAgent(workspaceId, agentId, {
         cliStartRequested: false,
@@ -312,16 +279,16 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       })
     })
 
-    const disposeError = window.api.onTerminalError(terminalId, (message) => {
+    const disposeError = window.api.onTerminalError(sessionId, (message) => {
       term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
     })
 
     const onDataDisposable = term.onData((data) => {
-      void window.api.terminalWrite(terminalId, data)
+      void window.api.terminalWrite(sessionId, data)
     })
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
-      void window.api.terminalResize(terminalId, cols, rows)
+      void window.api.terminalResize(sessionId, cols, rows)
     })
 
     const resizeObserver = new ResizeObserver(() => {
@@ -354,7 +321,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
       const swarmStatePath = folderReadyPath && swarmName ? getSwarmStateFilePath(folderReadyPath, swarmName) : undefined
       void window.api.terminalSpawn(
-        terminalId,
+        sessionId,
         term.cols,
         term.rows,
         folderReadyPath ?? undefined,
@@ -362,9 +329,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         swarmStatePath,
         cli,
         undefined,
-        cliRuntimes,
-        undefined,
-        cliSessionId
+        cliRuntimes
       )
       if (!shouldResume) {
         updateAgent(workspaceId, agentId, {
@@ -381,6 +346,9 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     return () => {
       disposed = true
+      if (promptInjectionTimer !== null) {
+        window.clearTimeout(promptInjectionTimer)
+      }
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       container.removeEventListener('mousedown', focusTerminal)
@@ -401,7 +369,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   }, [
     workspaceId,
     agentId,
-    agent?.cliTerminalId,
     agent?.cliSessionId,
     agent?.cliRestartNonce,
     agent?.kind,

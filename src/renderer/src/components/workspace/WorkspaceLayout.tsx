@@ -40,7 +40,7 @@ function agentTabActivity(
   runtimeStatus: SwarmRuntimeAgentStatus | undefined
 ): AgentTabActivity {
   if (runtimeStatus === 'needs_input') return 'needs-input'
-  if (agent?.cliStartRequested || agent?.cliHasLaunched || agent?.cliTerminalId) return 'running'
+  if (agent?.cliStartRequested || agent?.cliHasLaunched || agent?.cliSessionId) return 'running'
   return 'idle'
 }
 
@@ -159,8 +159,8 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
       const config = node.getConfig() as { agentId?: string; terminalId?: string } | undefined
       if (node.getComponent() === 'agent') {
         const agentId = config?.agentId ?? node.getId()
-        const terminalId = workspace.agents[agentId]?.cliTerminalId
-        if (terminalId) void window.api.terminalKill(terminalId).catch(() => {})
+        const sessionId = workspace.agents[agentId]?.cliSessionId
+        if (sessionId) void window.api.terminalKill(sessionId).catch(() => {})
         return
       }
 

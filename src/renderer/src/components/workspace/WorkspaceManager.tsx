@@ -56,7 +56,7 @@ function workspaceHasRunningAgent(workspace: Workspace): boolean {
 
   return [...openAgentIds].some((agentId) => {
     const agent = workspace.agents[agentId]
-    return Boolean(agent?.cliStartRequested || agent?.cliHasLaunched || agent?.cliTerminalId)
+    return Boolean(agent?.cliStartRequested || agent?.cliHasLaunched || agent?.cliSessionId)
   })
 }
 
@@ -909,7 +909,7 @@ function terminateWorkspaceTerminals(workspace: Workspace): void {
   const sessionIds = new Set<string>()
 
   Object.values(workspace.agents).forEach((agent) => {
-    if (agent.cliTerminalId) sessionIds.add(agent.cliTerminalId)
+    if (agent.cliSessionId) sessionIds.add(agent.cliSessionId)
   })
 
   const collectLayoutSessions = (node: LayoutSessionNode | undefined) => {
@@ -917,8 +917,8 @@ function terminateWorkspaceTerminals(workspace: Workspace): void {
 
     if (node.component === 'agent') {
       const agentId = node.config?.agentId
-      const terminalId = agentId ? workspace.agents[agentId]?.cliTerminalId : undefined
-      if (terminalId) sessionIds.add(terminalId)
+      const sessionId = agentId ? workspace.agents[agentId]?.cliSessionId : undefined
+      if (sessionId) sessionIds.add(sessionId)
     }
 
     if (node.component === 'terminal') {
