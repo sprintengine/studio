@@ -428,7 +428,7 @@ export default function WorkspaceManager() {
       cli: lastSelectedCli,
       kind: 'specialist',
       specialistId: specialist.id,
-      cliStartupPrompt: prependAgentIdentifier(prompt, tabName),
+      cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
     })

@@ -1,5 +1,4 @@
 import type { LayoutTemplate, PreviewSlot, SwarmMockConfig } from '../types/workspace'
-import { buildSwarmAgentRoster } from '../utils/swarm'
 
 // Helpers to keep preview slot definitions readable.
 // Previews are rendered in a 300×110 viewBox.
@@ -37,19 +36,16 @@ const swarmKanbanTab = () => ({
   component: 'swarm-kanban',
 })
 
-export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
-  const roster = buildSwarmAgentRoster(config.roleCounts)
-
+export function createSwarmTemplate(_config: SwarmMockConfig): LayoutTemplate {
   return {
     id: 'swarm-mode',
     name: 'Swarm Mode',
-    description: 'Project brief, map, task graph, Kanban, and explicit specialist terminals.',
+    description: 'Project brief, map, task graph, and Kanban.',
     previewSlots: [
       editor('Brief', 4, 4, 168, 22),
       editor('Map', 4, 30, 168, 22),
       editor('Graph', 4, 56, 168, 22),
       editor('Kanban', 4, 82, 168, 24),
-      agent(`${roster.length} CLIs`, 178, 4, 118, 102),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -59,18 +55,13 @@ export function createSwarmTemplate(config: SwarmMockConfig): LayoutTemplate {
         children: [
           {
             type: 'tabset',
-            weight: 58,
+            weight: 100,
             children: [
               swarmProjectTab(),
               swarmMapTab(),
               swarmTaskGraphTab(),
               swarmKanbanTab(),
             ],
-          },
-          {
-            type: 'tabset',
-            weight: 42,
-            children: roster.map((rosterAgent) => agentTab(rosterAgent.id, rosterAgent.label)),
           },
         ],
       },

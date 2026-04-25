@@ -340,8 +340,12 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   ) {
     const current = agents[agentId]
     const selectedCli = cli ?? current?.cli ?? 'codex'
+    const role = swarmState?.swarmAgents[agentId]?.role
+    const roleLabel = role
+      ? swarmRoleLabels[role]
+      : undefined
     const startupPrompt = options?.startupPrompt && options.agentName
-      ? prependAgentIdentifier(options.startupPrompt, options.agentName)
+      ? prependAgentIdentifier(options.startupPrompt, options.agentName, roleLabel)
       : options?.startupPrompt
     const hasLegacyLaunchedSession =
       current?.cli === undefined

@@ -2,16 +2,28 @@ export function normalizeAgentIdentifier(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
 }
 
-export function prependAgentIdentifier(prompt: string, identifier: string): string {
+function normalizeRoleLabel(value: string): string {
+  const normalized = normalizeAgentIdentifier(value)
+  if (!normalized) return ''
+
+  const [firstWord, ...rest] = normalized.split(' ')
+  return [firstWord, ...rest.map((word) => word.toLowerCase())].join(' ')
+}
+
+export function prependAgentIdentifier(
+  prompt: string,
+  identifier: string,
+  roleLabel?: string
+): string {
   const normalizedIdentifier = normalizeAgentIdentifier(identifier)
   if (!normalizedIdentifier) return prompt
 
-  return [
-    `Agent name: ${normalizedIdentifier}`,
-    'Use this exact name as your identifier in status updates, task claims, notes, and recovery context.',
-    '',
-    prompt,
-  ].join('\n')
+  const normalizedRole = roleLabel ? normalizeRoleLabel(roleLabel) : ''
+  const prefix = normalizedRole
+    ? `${normalizedIdentifier}: ${normalizedRole} - `
+    : `${normalizedIdentifier}: `
+
+  return `${prefix}${prompt}`
 }
 
 export function buildSwarmStartupPrompt(role: string, agentId: string, goal: string): string {

@@ -5,8 +5,8 @@ import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentCli } from '../../types/workspace'
-import { loadSpecialistPrompt } from '../../specialists/specialistActions'
-import { buildSwarmAgentRosterForState } from '../../utils/swarm'
+import { getSpecialistAction, loadSpecialistPrompt } from '../../specialists/specialistActions'
+import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
 import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
 import { buildSwarmStartupPrompt, prependAgentIdentifier } from '../../utils/agentPrompt'
 
@@ -75,7 +75,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
       ? currentAgent.name
       : ''
-    return customName ? prependAgentIdentifier(basePrompt, customName) : basePrompt
+    return customName ? prependAgentIdentifier(basePrompt, customName, swarmRoleLabels[rosterAgent.role]) : basePrompt
   })
   const startupPromptRef = useRef<string | null>(startupPrompt)
 
@@ -302,11 +302,13 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (startupPromptRef.current || agent.cliOnboardingPromptSent) return
       if (agent.kind !== 'specialist' || !agent.specialistId) return
 
-      const prompt = await loadSpecialistPrompt(agent.specialistId)
+      const specialist = getSpecialistAction(agent.specialistId)
+      const prompt = await loadSpecialistPrompt(specialist.id)
       if (disposed) return
 
-      startupPromptRef.current = prompt
-      updateAgent(workspaceId, agentId, { cliStartupPrompt: prompt })
+      const identifiedPrompt = prependAgentIdentifier(prompt, agent.name, specialist.shortLabel)
+      startupPromptRef.current = identifiedPrompt
+      updateAgent(workspaceId, agentId, { cliStartupPrompt: identifiedPrompt })
     }
 
     const launchTerminal = async () => {

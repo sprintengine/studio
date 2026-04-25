@@ -153,7 +153,8 @@ function pickWorkspaceAgentName(agents: Workspace['agents']): string {
 
 const swarmTabsLayoutModel = (
   swarmState: SwarmState | null,
-  agents: Workspace['agents'] = {}
+  agents: Workspace['agents'] = {},
+  options?: { includeAgentTabs?: boolean }
 ): IJsonModel => ({
   global: { tabSetEnableDrop: true, tabEnableClose: true },
   borders: [],
@@ -162,7 +163,7 @@ const swarmTabsLayoutModel = (
     children: [
       {
         type: 'tabset',
-        weight: 58,
+        weight: options?.includeAgentTabs === false ? 100 : 58,
         children: [
           { type: 'tab', name: 'Project', component: 'swarm-project' },
           { type: 'tab', name: 'Swarm Map', component: 'swarm-map' },
@@ -170,13 +171,15 @@ const swarmTabsLayoutModel = (
           { type: 'tab', name: 'Kanban', component: 'swarm-kanban' },
         ],
       },
-      {
-        type: 'tabset',
-        weight: 42,
-        children: buildSwarmAgentRosterForState(swarmState).map((agent) =>
-          swarmAgentTab(agent.id, agents[agent.id]?.name ?? agent.label)
-        ),
-      },
+      ...(options?.includeAgentTabs === false
+        ? []
+        : [{
+          type: 'tabset',
+          weight: 42,
+          children: buildSwarmAgentRosterForState(swarmState).map((agent) =>
+            swarmAgentTab(agent.id, agents[agent.id]?.name ?? agent.label)
+          ),
+        }]),
     ],
   },
 })
@@ -393,7 +396,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             folderPath: options?.folderPath ?? null,
             folderMissing: false,
             templateId: template.id,
-            layoutModel: swarmState ? swarmTabsLayoutModel(swarmState, agents) : template.layout,
+            layoutModel: swarmState
+              ? swarmTabsLayoutModel(swarmState, agents, { includeAgentTabs: false })
+              : template.layout,
             agents,
             editorState: defaultEditorState(),
             swarmState,

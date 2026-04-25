@@ -1,10 +1,11 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentCli, CliRuntimeSettings, SwarmState, Workspace } from '../../types/workspace'
-import { buildSwarmStartupPrompt } from '../../utils/agentPrompt'
+import type { AgentCli, CliRuntimeSettings, SwarmRole, SwarmState, Workspace } from '../../types/workspace'
+import { buildSwarmStartupPrompt, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
   buildSwarmAgentRosterForState,
   getSwarmTaskBoardColumn,
+  swarmRoleLabels,
 } from '../../utils/swarm'
 import {
   getExistingSwarmStateFilePath,
@@ -67,7 +68,7 @@ async function refreshAutoWorkspaceState(
 function pickNextAutoRun(
   workspace: Workspace,
   swarmState: SwarmState
-): { agentId: string; label: string; role: string; taskId: string } | null {
+): { agentId: string; label: string; role: SwarmRole; taskId: string } | null {
   const roster = buildSwarmAgentRosterForState(swarmState)
   const runtimeAgentById = Object.fromEntries(
     roster.map((agent) => [
@@ -159,7 +160,11 @@ async function superviseWorkspace(
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return
 
-  const startupPrompt = buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal)
+  const startupPrompt = prependAgentIdentifier(
+    buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal),
+    nextRun.label,
+    swarmRoleLabels[nextRun.role]
+  )
   const swarmStatePath = await resolveReadableSwarmStatePath(
     workspace.folderPath,
     swarmState.name || workspace.name
