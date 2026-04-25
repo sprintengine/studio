@@ -21,9 +21,9 @@ import type {
   SpecialistActionId,
 } from '../types/workspace'
 import { getSpecialistAction } from '../specialists/specialistActions'
+import { pickRandomAgentName } from '../utils/agentNames'
 import { detectLanguage } from '../utils/files'
 import {
-  buildSwarmAgentRoster,
   buildSwarmAgentRosterForState,
   createDefaultSwarmRoleCounts,
   createInitialSwarmState,
@@ -143,7 +143,18 @@ const swarmAgentTab = (id: string, name: string) => ({
   config: { agentId: id },
 })
 
-const swarmTabsLayoutModel = (swarmState: SwarmState | null): IJsonModel => ({
+function isDefaultSwarmAgentName(name: string | undefined, fallbackLabel: string): boolean {
+  return !name || name === fallbackLabel
+}
+
+function pickWorkspaceAgentName(agents: Workspace['agents']): string {
+  return pickRandomAgentName(Object.values(agents).map((agent) => agent.name))
+}
+
+const swarmTabsLayoutModel = (
+  swarmState: SwarmState | null,
+  agents: Workspace['agents'] = {}
+): IJsonModel => ({
   global: { tabSetEnableDrop: true, tabEnableClose: true },
   borders: [],
   layout: {
@@ -163,7 +174,7 @@ const swarmTabsLayoutModel = (swarmState: SwarmState | null): IJsonModel => ({
         type: 'tabset',
         weight: 42,
         children: buildSwarmAgentRosterForState(swarmState).map((agent) =>
-          swarmAgentTab(agent.id, agent.label)
+          swarmAgentTab(agent.id, agents[agent.id]?.name ?? agent.label)
         ),
       },
     ],
@@ -267,7 +278,20 @@ function migrateSwarmLayout(ws: Workspace): Workspace {
 
   return {
     ...ws,
-    layoutModel: swarmTabsLayoutModel(ws.swarmState),
+    layoutModel: swarmTabsLayoutModel(ws.swarmState, ws.agents),
+  }
+}
+
+function migrateSwarmAgentNames(ws: Workspace): Workspace {
+  const swarmState = normalizeSwarmState(ws.swarmState)
+  if (ws.mode !== 'swarm' && !swarmState) return ws
+
+  const agents = reconcileSwarmAgents(ws.agents ?? {}, swarmState)
+  return {
+    ...ws,
+    swarmState,
+    agents,
+    layoutModel: swarmTabsLayoutModel(swarmState, agents),
   }
 }
 
@@ -283,13 +307,19 @@ function reconcileSwarmAgents(
 ): Workspace['agents'] {
   if (!swarmState) return {}
 
+  const nextAgents: Workspace['agents'] = {}
   const rosterAgents = Object.fromEntries(
-    buildSwarmAgentRosterForState(swarmState).map((agent) => [
-      agent.id,
-      currentAgents[agent.id]
-        ? { ...currentAgents[agent.id], kind: 'swarm' as const }
-        : defaultAgent(agent.id, agent.label, 'swarm'),
-    ])
+    buildSwarmAgentRosterForState(swarmState).map((agent) => {
+      const current = currentAgents[agent.id]
+      const nextName = isDefaultSwarmAgentName(current?.name, agent.label)
+        ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
+        : current?.name ?? agent.label
+      const nextAgent = current
+        ? { ...current, name: nextName, kind: 'swarm' as const }
+        : defaultAgent(agent.id, nextName, 'swarm')
+      nextAgents[agent.id] = nextAgent
+      return [agent.id, nextAgent]
+    })
   )
 
   const specialistAgents = Object.fromEntries(
@@ -345,14 +375,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 roleCounts: options?.swarmState?.roleCounts ?? createDefaultSwarmRoleCounts(),
               })
             : null
-          const agents = swarmState
-            ? Object.fromEntries(
-                buildSwarmAgentRoster(swarmState.roleCounts).map((agent) => [
-                  agent.id,
-                  defaultAgent(agent.id, agent.label, 'swarm'),
-                ])
+          const agents: Workspace['agents'] = {}
+          if (swarmState) {
+            buildSwarmAgentRosterForState(swarmState).forEach((agent) => {
+              agents[agent.id] = defaultAgent(
+                agent.id,
+                pickWorkspaceAgentName(agents),
+                'swarm'
               )
-            : {}
+            })
+          }
 
           state.workspaces.push({
             id,
@@ -361,7 +393,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             folderPath: options?.folderPath ?? null,
             folderMissing: false,
             templateId: template.id,
-            layoutModel: template.layout,
+            layoutModel: swarmState ? swarmTabsLayoutModel(swarmState, agents) : template.layout,
             agents,
             editorState: defaultEditorState(),
             swarmState,
@@ -477,7 +509,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const rosterAgent = buildSwarmAgentRosterForState(ws.swarmState).find(
             (agent) => agent.id === agentId
           )
-          const agentLabel = rosterAgent?.label ?? agentId
+          const agentRoleLabel = rosterAgent?.label ?? agentId
+          const agentLabel = pickWorkspaceAgentName(ws.agents)
           ws.agents[agentId] = defaultAgent(agentId, agentLabel, 'swarm')
           ws.agents = reconcileSwarmAgents(ws.agents, ws.swarmState)
           ws.swarmState.events.push({
@@ -485,7 +518,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             timestamp: new Date().toISOString(),
             type: 'member_added',
             actor: 'user',
-            message: `${agentLabel} joined the swarm.`,
+            message: `${agentLabel} joined the swarm as ${agentRoleLabel}.`,
           })
 
           addedAgent = { id: agentId, label: agentLabel }
@@ -649,7 +682,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 17,
+      version: 18,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -687,7 +720,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         if (version < 7) {
           state.workspaces = state.workspaces.map((ws) =>
             ws.mode === 'swarm' || ws.swarmState
-              ? { ...ws, layoutModel: swarmTabsLayoutModel(ws.swarmState) }
+              ? { ...ws, layoutModel: swarmTabsLayoutModel(ws.swarmState, ws.agents) }
               : ws
           )
         }
@@ -794,6 +827,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...ws,
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
+        }
+        if (version < 18) {
+          state.workspaces = state.workspaces.map((ws) => migrateSwarmAgentNames(ws))
         }
         return state as never
       },

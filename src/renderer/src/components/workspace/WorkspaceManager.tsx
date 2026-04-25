@@ -12,6 +12,7 @@ import {
   loadSpecialistPrompt,
 } from '../../specialists/specialistActions'
 import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '../../types/workspace'
+import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
@@ -411,9 +412,12 @@ export default function WorkspaceManager() {
     const model = getModel(activeWorkspaceId)
     if (!model) return
 
+    const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     const specialist = getSpecialistAction(specialistId)
     const agentName = normalizeAgentIdentifier(requestedName)
-    const tabName = agentName || specialist.shortLabel
+    const tabName = agentName || pickRandomAgentName(
+      Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name)
+    )
     const newId = `specialist-${specialist.id}-${nanoid(6)}`
     const targetTabset = model.getActiveTabset() ?? firstTabset(model)
     if (!targetTabset) return
@@ -424,7 +428,7 @@ export default function WorkspaceManager() {
       cli: lastSelectedCli,
       kind: 'specialist',
       specialistId: specialist.id,
-      cliStartupPrompt: agentName ? prependAgentIdentifier(prompt, agentName) : prompt,
+      cliStartupPrompt: prependAgentIdentifier(prompt, tabName),
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
     })

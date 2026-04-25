@@ -14,6 +14,7 @@ import {
   createDefaultSwarmRoleCounts,
   createInitialSwarmState,
   swarmRoleLabels,
+  swarmRoleOrder,
 } from '../../utils/swarm'
 import {
   getExistingSwarmStateFilePath,
@@ -40,15 +41,13 @@ interface Props {
   allowClose?: boolean
 }
 
-const ROLES: SwarmRole[] = ['architect', 'product', 'developer', 'frontend', 'tester', 'security']
-
 const roleSummaries: Record<SwarmRole, string> = {
-  architect: 'Planning and gates',
-  product: 'Scope and tradeoffs',
-  developer: 'Implementation',
-  frontend: 'Interface work',
-  tester: 'Validation',
-  security: 'Trust boundaries',
+  architect: 'Turns the objective into a plan, dependencies, and review gates.',
+  product: 'Clarifies scope, tradeoffs, user value, and acceptance criteria.',
+  frontend: 'Designs and implements responsive UI, interaction states, and polish.',
+  developer: 'Builds core logic, integrations, refactors, and production code paths.',
+  tester: 'Runs acceptance checks, regression passes, and publishes evidence.',
+  security: 'Reviews trust boundaries, secrets, abuse cases, and hardening risks.',
 }
 
 const roleAccentClasses: Record<SwarmRole, string> = {
@@ -89,7 +88,13 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const [swarmTeamName, setSwarmTeamName] = useState('')
   const [swarmTeamNameTouched, setSwarmTeamNameTouched] = useState(false)
   const [swarmGoal, setSwarmGoal] = useState('')
-  const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(createDefaultSwarmRoleCounts())
+  const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(() => ({
+    ...createDefaultSwarmRoleCounts(),
+    product: 1,
+    frontend: 1,
+    tester: 1,
+    security: 1,
+  }))
   const [existingTeams, setExistingTeams] = useState<ExistingTeam[]>([])
   const [selectedExistingTeam, setSelectedExistingTeam] = useState<ExistingTeam | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -369,10 +374,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                     <div>
                       <div className="mb-3 text-xs font-medium text-[#9a9aa2]">Included specialists</div>
                       <div className="border-t border-[#303139]">
-                        {ROLES.filter((role) => swarmRoleCounts[role] > 0).map((role) => (
+                        {swarmRoleOrder.map((role) => (
                           <div
                             key={role}
-                            className="grid min-h-[58px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[#303139] px-3"
+                            className="grid min-h-[68px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[#303139] px-3 py-2"
                           >
                             <span className="flex min-w-0 items-center gap-3">
                               <span className={`h-2 w-2 shrink-0 rounded-full ${roleAccentClasses[role]}`} />
@@ -380,7 +385,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                                 <span className="block truncate text-sm font-semibold text-[#ececee]">
                                   {swarmRoleLabels[role]}
                                 </span>
-                                <span className="mt-1 block truncate text-[12px] text-[#9a9aa2]">
+                                <span className="mt-1 block text-[12px] leading-4 text-[#9a9aa2]">
                                   {roleSummaries[role]}
                                 </span>
                               </span>
@@ -488,7 +493,7 @@ function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
     >
       <rect x="0" y="0" width="300" height="110" rx="8" fill="#0d0e11" />
       <WorkspaceChrome />
-      <g transform="translate(0 17) scale(1 0.7)">
+      <g transform="translate(0 18) scale(1 0.82)">
         {slots.map((slot) => {
           const key = `${slot.type}-${slot.label}-${slot.x}-${slot.y}`
 
@@ -498,7 +503,6 @@ function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
           return <AgentPreview key={key} slot={slot} />
         })}
       </g>
-      <GitStrip y={96} />
     </svg>
   )
 }
@@ -507,20 +511,16 @@ function WorkspaceChrome() {
   return (
     <g>
       <rect x="0" y="0" width="300" height="18" rx="8" fill="#08090b" />
-      <rect x="8" y="5" width="54" height="8" rx="3" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
-      <rect x="68" y="5" width="46" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-      <rect x="120" y="5" width="8" height="8" rx="2" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-    </g>
-  )
-}
-
-function GitStrip({ y }: { y: number }) {
-  return (
-    <g>
-      <rect x="4" y={y} width="292" height="10" rx="4" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-      <rect x="12" y={y + 4} width="22" height="2" rx="1" fill="#6fbd85" />
-      <rect x="42" y={y + 4} width="16" height="2" rx="1" fill="#b88928" />
-      <rect x="66" y={y + 4} width="26" height="2" rx="1" fill="#64656d" />
+      <rect x="8" y="4" width="68" height="11" rx="4" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
+      <text x="16" y="12" fill="#d7d7dc" fontSize="5.8" fontWeight="600">
+        Workspace
+      </text>
+      <rect x="80" y="5" width="46" height="9" rx="3.5" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+      <text x="88" y="11.6" fill="#9a9aa2" fontSize="5.2" fontWeight="600">
+        Swarm
+      </text>
+      <rect x="132" y="5" width="12" height="9" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+      <path d="M138 7.5 V11.5 M136 9.5 H140" stroke="#9a9aa2" strokeWidth="0.9" strokeLinecap="round" />
     </g>
   )
 }
@@ -637,38 +637,56 @@ function SwarmWorkspacePreview() {
     >
       <rect x="0" y="0" width="300" height="110" rx="8" fill="#0d0e11" />
       <WorkspaceChrome />
-      <rect x="5" y="21" width="169" height="71" rx="5" fill="#101116" stroke="#3a3b43" strokeWidth="1" />
-      <rect x="12" y="28" width="48" height="8" rx="3" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
-      <rect x="66" y="28" width="50" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-      <rect x="122" y="28" width="42" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+      <rect x="5" y="21" width="171" height="84" rx="5" fill="#101116" stroke="#3a3b43" strokeWidth="1" />
+      <rect x="11" y="28" width="32" height="8" rx="3" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
+      <rect x="47" y="28" width="24" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+      <rect x="75" y="28" width="30" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+      <rect x="109" y="28" width="34" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+      <rect x="149" y="28" width="15" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+
+      <path d="M51 53 H75 M94 62 L78 75 M42 76 H56" stroke="#5f6068" strokeWidth="1" />
+      <rect x="18" y="45" width="34" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
+      <rect x="76" y="45" width="34" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
+      <rect x="55" y="72" width="38" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
+      <rect x="25" y="52" width="19" height="2" rx="1" fill="#ffbf2f" opacity="0.86" />
+      <rect x="83" y="52" width="19" height="2" rx="1" fill="#6ee7d8" opacity="0.88" />
+      <rect x="63" y="79" width="20" height="2" rx="1" fill="#6fbd85" opacity="0.88" />
 
       <g>
-        <rect x="15" y="47" width="54" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
-        <rect x="89" y="47" width="54" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
-        <rect x="52" y="72" width="54" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
-        <path d="M69 55 H89" stroke="#5f6068" strokeWidth="1" />
-        <path d="M116 63 L88 72" stroke="#5f6068" strokeWidth="1" />
-        <rect x="23" y="54" width="28" height="2" rx="1" fill="#ffbf2f" opacity="0.8" />
-        <rect x="97" y="54" width="30" height="2" rx="1" fill="#6ee7d8" opacity="0.85" />
-        <rect x="61" y="79" width="26" height="2" rx="1" fill="#6fbd85" opacity="0.85" />
-      </g>
-
-      <g>
-        <rect x="181" y="21" width="114" height="71" rx="5" fill="#101116" stroke="#3a3b43" strokeWidth="1" />
-        <rect x="187" y="28" width="36" height="8" rx="3" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
-        <rect x="229" y="28" width="28" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-        <rect x="187" y="48" width="29" height="34" rx="4" fill="#17181d" stroke="#303139" strokeWidth="0.9" />
-        <rect x="222" y="48" width="29" height="34" rx="4" fill="#17181d" stroke="#303139" strokeWidth="0.9" />
-        <rect x="257" y="48" width="29" height="34" rx="4" fill="#17181d" stroke="#303139" strokeWidth="0.9" />
-        {[193, 228, 263].map((x) => (
-          <g key={x}>
-            <rect x={x} y="56" width="14" height="2" rx="1" fill="#ffbf2f" opacity="0.75" />
-            <rect x={x} y="65" width="18" height="2" rx="1" fill="#64656d" />
-            <rect x={x} y="73" width="12" height="2" rx="1" fill="#64656d" />
+        <rect x="119" y="46" width="15" height="45" rx="3" fill="#14151a" stroke="#303139" strokeWidth="0.7" />
+        <rect x="139" y="46" width="15" height="45" rx="3" fill="#14151a" stroke="#303139" strokeWidth="0.7" />
+        <rect x="159" y="46" width="11" height="45" rx="3" fill="#14151a" stroke="#303139" strokeWidth="0.7" />
+        {[51, 62, 75].map((y, index) => (
+          <g key={y}>
+            <rect x={122 + index * 20} y={y} width="9" height="6" rx="2" fill={index === 0 ? '#3a3426' : '#17181d'} />
+            <rect x={122 + index * 20} y={y + 14} width="8" height="6" rx="2" fill="#17181d" />
           </g>
         ))}
       </g>
-      <GitStrip y={96} />
+
+      <g>
+        <rect x="183" y="21" width="112" height="84" rx="5" fill="#101116" stroke="#3a3b43" strokeWidth="1" />
+        {[
+          { x: 190, color: '#ffbf2f' },
+          { x: 207, color: '#8b5cf6' },
+          { x: 224, color: '#6ee7d8' },
+          { x: 241, color: '#30d158' },
+          { x: 258, color: '#64a8ff' },
+          { x: 275, color: '#ff6b6b' },
+        ].map((tab) => (
+          <g key={tab.x}>
+            <rect x={tab.x} y="28" width="13" height="8" rx="3" fill="#17181d" stroke="#303139" strokeWidth="0.75" />
+            <circle cx={tab.x + 6.5} cy="32" r="1.8" fill={tab.color} />
+          </g>
+        ))}
+        <rect x="191" y="47" width="94" height="47" rx="4" fill="#08090b" stroke="#24252b" strokeWidth="0.8" />
+        {[55, 65, 75, 85].map((y, index) => (
+          <g key={y}>
+            <rect x="199" y={y} width="5" height="2" rx="1" fill={index === 0 ? '#ffbf2f' : '#6ee7d8'} opacity="0.86" />
+            <rect x="210" y={y} width={index % 2 === 0 ? '48' : '62'} height="2" rx="1" fill="#64656d" />
+          </g>
+        ))}
+      </g>
     </svg>
   )
 }

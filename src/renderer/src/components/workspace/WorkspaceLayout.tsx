@@ -90,10 +90,14 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
 
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
+      const agent = workspace.agents[agentId]
       const currentClassName = node.getClassName() ?? ''
       const classNames = currentClassName.split(/\s+/).filter(Boolean)
       const hasClass = classNames.includes(AGENT_TAB_NEEDS_INPUT_CLASS)
       const needsInput = workspace.swarmState?.swarmAgents[agentId]?.status === 'needs_input'
+      if (agent?.name && node.getName() !== agent.name) {
+        model.doAction(Actions.renameTab(node.getId(), agent.name))
+      }
 
       if (needsInput && !hasClass) {
         model.doAction(Actions.updateNodeAttributes(node.getId(), {
@@ -109,7 +113,7 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
         }))
       }
     })
-  }, [workspace.swarmState?.swarmAgents])
+  }, [workspace.agents, workspace.swarmState?.swarmAgents])
 
   const factory = useCallback(
     (node: TabNode) => {
