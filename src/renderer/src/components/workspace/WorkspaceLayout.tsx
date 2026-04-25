@@ -14,7 +14,6 @@ import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentState, SwarmRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
-import { buildSwarmAgentRosterForState } from '../../utils/swarm'
 import { SpecialistActionIcon, StatusDot, SwarmRoleIcon } from '../AppIcons'
 import AgentPanel from '../panels/AgentPanel'
 import EditorPanel from '../panels/EditorPanel'
@@ -68,6 +67,7 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
   const workspace    = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
   // Keep a stable Model instance per workspace — re-creating it destroys drag/resize state
   const modelRef = useRef<Model | null>(null)
 
@@ -159,8 +159,15 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
       const config = node.getConfig() as { agentId?: string; terminalId?: string } | undefined
       if (node.getComponent() === 'agent') {
         const agentId = config?.agentId ?? node.getId()
-        const sessionId = workspace.agents[agentId]?.cliSessionId
+        const agent = workspace.agents[agentId]
+        const sessionId = agent?.cliSessionId
         if (sessionId) void window.api.terminalKill(sessionId).catch(() => {})
+        if (agent?.kind === 'swarm') setSwarmAutoEnabled(workspaceId, false)
+        updateAgent(workspaceId, agentId, {
+          cliStartRequested: false,
+          cliHasLaunched: false,
+          cliOnboardingPromptSent: false,
+        })
         return
       }
 
@@ -169,7 +176,7 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
         void window.api.terminalKill(`terminal-${terminalId}`).catch(() => {})
       }
     },
-    [workspace.agents]
+    [setSwarmAutoEnabled, updateAgent, workspace.agents, workspaceId]
   )
 
   const handleAction = useCallback(
@@ -278,26 +285,6 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
         onRenderTab={renderTab}
         onModelChange={(model) => {
           updateLayout(workspaceId, model.toJson())
-
-          if (workspace.mode !== 'swarm' || !workspace.swarmState) return
-
-          const liveAgentTabs = new Set<string>()
-          model.visitNodes((node) => {
-            if (!(node instanceof TabNode) || node.getComponent() !== 'agent') return
-            const config = node.getConfig() as { agentId?: string } | undefined
-            const agentId = config?.agentId ?? node.getId()
-            liveAgentTabs.add(agentId)
-          })
-
-          buildSwarmAgentRosterForState(workspace.swarmState).forEach((agent) => {
-            const agentState = workspace.agents[agent.id]
-            if (!agentState?.cliStartRequested || liveAgentTabs.has(agent.id)) return
-            updateAgent(workspaceId, agent.id, {
-              cliStartRequested: false,
-              cliHasLaunched: false,
-              cliOnboardingPromptSent: false,
-            })
-          })
         }}
       />
     </div>

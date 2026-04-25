@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createSwarmTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { WorkspaceTypeIcon } from '../AppIcons'
 import type {
   LayoutTemplate,
   PreviewSlot,
@@ -230,21 +231,40 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
             <div className="inline-flex rounded-md border border-[#24252b] bg-[#111216] p-1">
               {[
                 { id: 'standard' as const, label: 'Standard' },
-                { id: 'swarm' as const, label: 'Swarm' },
+                { id: 'swarm' as const, label: 'Swarm', premium: true },
               ].map((option) => {
                 const active = mode === option.id
+                const premiumSwarm = option.id === 'swarm'
                 return (
                   <button
                     key={option.id}
                     type="button"
                     onClick={() => handleModeChange(option.id)}
-                    className={`h-8 rounded px-3 text-sm font-semibold transition-colors ${
-                      active
-                        ? 'bg-[#6ee7d8]/12 text-[#bff7f1] shadow-[inset_0_-2px_0_#6ee7d8]'
-                        : 'text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
+                    className={`inline-flex h-8 items-center gap-2 rounded px-3 text-sm font-semibold transition-colors ${
+                      active && premiumSwarm
+                        ? 'bg-[#ffbf2f]/12 text-[#ffe0a3] shadow-[inset_0_-2px_0_#ffbf2f]'
+                        : active
+                          ? 'bg-[#6ee7d8]/12 text-[#bff7f1] shadow-[inset_0_-2px_0_#6ee7d8]'
+                          : premiumSwarm
+                            ? 'text-[#c7b27c] hover:bg-[#ffbf2f]/8 hover:text-[#ffe0a3]'
+                            : 'text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                     }`}
                   >
+                    {premiumSwarm ? (
+                      <WorkspaceTypeIcon mode="swarm" className="h-3.5 w-3.5 shrink-0 text-[#ffbf2f]" />
+                    ) : null}
                     {option.label}
+                    {option.premium ? (
+                      <span
+                        className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] ${
+                          active
+                            ? 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#ffdf9b]'
+                            : 'border-[#6f5520] bg-[#1a140a] text-[#d9b86b]'
+                        }`}
+                      >
+                        Pro
+                      </span>
+                    ) : null}
                   </button>
                 )
               })}

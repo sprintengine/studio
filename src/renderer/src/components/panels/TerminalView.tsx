@@ -4,18 +4,17 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
-import type { AgentCli, SwarmRole } from '../../types/workspace'
+import type { AgentCli } from '../../types/workspace'
 import { loadSpecialistPrompt } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState } from '../../utils/swarm'
 import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
-import { prependAgentIdentifier } from '../../utils/agentPrompt'
+import { buildSwarmStartupPrompt, prependAgentIdentifier } from '../../utils/agentPrompt'
 
 interface Props {
   workspaceId: string
   agentId: string
 }
 
-const SWARM_COMMAND = 'swarm'
 const MAX_TERMINAL_READINESS_BUFFER = 5000
 
 function plainTerminalText(data: string): string {
@@ -40,17 +39,6 @@ function looksLikeLaunchBlocked(output: string): boolean {
 function looksLikeTrustPrompt(output: string, cli: AgentCli): boolean {
   if (cli !== 'claude') return false
   return /Do you trust the files|trust files in this folder/i.test(output)
-}
-
-function buildSwarmStartupPrompt(role: SwarmRole, agentId: string, goal: string): string {
-  const command = role === 'architect'
-    ? `Run \`${SWARM_COMMAND} init --goal "${goal}"\` to receive your full prompt and instructions.`
-    : `Run \`${SWARM_COMMAND} join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
-
-  return [
-    'Fetch the canonical swarm instructions from the Python tool.',
-    command,
-  ].join('\n\n')
 }
 
 export default function TerminalView({ workspaceId, agentId }: Props) {

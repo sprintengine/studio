@@ -13,3 +13,14 @@ export function prependAgentIdentifier(prompt: string, identifier: string): stri
     prompt,
   ].join('\n')
 }
+
+export function buildSwarmStartupPrompt(role: string, agentId: string, goal: string): string {
+  const command = role === 'architect'
+    ? `Run \`swarm init --goal "${goal}"\` to receive your full prompt and instructions.`
+    : `Run \`swarm join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
+
+  return [
+    'Fetch the canonical swarm instructions from the Python tool.',
+    command,
+  ].join('\n\n')
+}

@@ -129,7 +129,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   )
   const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
   const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
-  const setSwarmAutoPending = useWorkspaceStore((s) => s.setSwarmAutoPending)
   const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
@@ -172,7 +171,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const agents = workspace?.agents ?? {}
   const swarmName = swarmState?.name ?? workspace?.name ?? 'Swarm Team'
   const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
-  const autoPendingSpawn = workspace?.swarmAutoState?.pending ?? null
 
   const resolveReadableSwarmStatePath = async (): Promise<string | null> => {
     if (!folderPath) return null
@@ -365,70 +363,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     })
     focusOrAddAgentTab(workspaceId, agentId, label)
   }
-
-  useEffect(() => {
-    if (!autoEnabled || !swarmState || !folderPath) return
-
-    const pending = autoPendingSpawn
-    if (pending) {
-      const pendingTask = swarmState.tasks.find((task) => task.id === pending.taskId)
-      const pendingTaskStillReady = pendingTask
-        ? getSwarmTaskBoardColumn(pendingTask, swarmState.tasks) === 'ready' && !pendingTask.ownerAgentId
-        : false
-      const pendingAgentStillLaunching = Boolean(agents[pending.agentId]?.cliStartRequested)
-
-      if (pendingTaskStillReady && pendingAgentStillLaunching) return
-      setSwarmAutoPending(workspaceId, null)
-    }
-
-    if (runtimeAgents.some((agent) => agent.status === 'needs_input')) {
-      setSwarmAutoEnabled(workspaceId, false)
-      return
-    }
-
-    if (runtimeAgents.some((agent) => agent.status === 'running')) return
-
-    if (swarmState.tasks.length > 0 && swarmState.tasks.every((task) => task.status === 'done')) {
-      setSwarmAutoEnabled(workspaceId, false)
-      return
-    }
-
-    const nextTask = readyTasks.find((task) => !task.ownerAgentId)
-    if (!nextTask) return
-
-    const existingAgent = roster.find((agent) =>
-      agent.role === nextTask.role
-      && runtimeAgentById[agent.id]?.status !== 'done'
-      && !agents[agent.id]?.cliStartRequested
-    )
-    const nextAgent = existingAgent ?? addSwarmMember(workspaceId, nextTask.role)
-    if (!nextAgent) {
-      setSwarmAutoEnabled(workspaceId, false)
-      return
-    }
-
-    setSwarmAutoPending(workspaceId, { taskId: nextTask.id, agentId: nextAgent.id })
-    setSelectedAgentId(nextAgent.id)
-    const label = agents[nextAgent.id]?.name ?? nextAgent.label
-    startAgentTerminal(nextAgent.id, label, agents[nextAgent.id]?.cli ?? 'codex', {
-      freshSession: true,
-    })
-  }, [
-    addSwarmMember,
-    agents,
-    autoEnabled,
-    autoPendingSpawn,
-    folderPath,
-    readyTasks,
-    roster,
-    runtimeAgentById,
-    runtimeAgents,
-    setSwarmAutoEnabled,
-    setSwarmAutoPending,
-    swarmState,
-    updateAgent,
-    workspaceId,
-  ])
 
   const boardColumns = useMemo(() => {
     if (!swarmState) return []

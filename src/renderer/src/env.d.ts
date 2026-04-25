@@ -137,6 +137,7 @@ declare interface Window {
     terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean) => Promise<void>
     terminalWrite:  (sessionId: string, data: string) => Promise<void>
     terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
+    terminalStatus: (sessionId: string) => Promise<{ running: boolean }>
     terminalKill:   (sessionId: string) => Promise<void>
 
     onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void

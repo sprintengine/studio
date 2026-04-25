@@ -831,6 +831,13 @@ ipcMain.handle('terminal:resize', (_, { sessionId, cols, rows }: { sessionId: st
   safeResizeTerminal(sessionId, cols, rows)
 })
 
+ipcMain.handle('terminal:status', (_, sessionId: string) => {
+  const session = terminals.get(sessionId)
+  return {
+    running: Boolean(session && !session.hasExited && !session.isDisposed),
+  }
+})
+
 ipcMain.handle('terminal:kill', (_, sessionId: string) => {
   disposeTerminal(sessionId)
 })

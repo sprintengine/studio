@@ -15,6 +15,7 @@ import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '..
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
+import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
@@ -39,6 +40,12 @@ function workspaceNeedsInput(workspace: Workspace): boolean {
 }
 
 function workspaceHasRunningAgent(workspace: Workspace): boolean {
+  if (Object.values(workspace.agents).some((agent) =>
+    Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
+  )) {
+    return true
+  }
+
   const openAgentIds = new Set<string>()
 
   const collectOpenAgentIds = (node: ActivityLayoutNode | undefined) => {
@@ -403,6 +410,8 @@ export default function WorkspaceManager() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
+      <SwarmAutoRunSupervisor />
+
       {window.api.platform !== 'darwin' && (
         <div
           className="app-drag flex h-[34px] shrink-0 items-stretch justify-between border-b border-[#1f2025] bg-[#0d0e11]"
@@ -427,6 +436,7 @@ export default function WorkspaceManager() {
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {workspaces.map((workspace) => {
             const active = !showTemplateSelector && workspace.id === activeWorkspaceId
+            const swarmWorkspace = workspace.mode === 'swarm'
             const activity = getWorkspaceActivity(workspace)
             const activityLabel = workspaceActivityLabel(activity)
             const activityTone = workspaceActivityTone(activity)
@@ -444,14 +454,20 @@ export default function WorkspaceManager() {
                   }
                 }}
                 className={`group inline-flex h-[30px] max-w-[260px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
-                  active
-                    ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
-                    : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
+                  active && swarmWorkspace
+                    ? 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#f4ead7] shadow-[inset_0_-2px_0_rgba(255,191,47,0.72)]'
+                    : active
+                      ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
+                      : swarmWorkspace
+                        ? 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
+                        : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
                 }`}
               >
                 <WorkspaceTypeIcon
                   mode={workspace.mode}
-                  className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]"
+                  className={`h-3.5 w-3.5 shrink-0 ${
+                    swarmWorkspace ? 'text-[#ffbf2f]' : 'text-[#9a9aa2]'
+                  }`}
                 />
                 {renamingId === workspace.id ? (
                   <input
