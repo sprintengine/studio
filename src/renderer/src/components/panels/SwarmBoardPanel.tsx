@@ -804,7 +804,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 }`}
               >
                 {focusAgentIsLaunched
-                  ? `Focus ${focusAgentRoster?.label ?? focusAgent.agentId}`
+                  ? `Open ${focusAgentRoster?.label ?? focusAgent.agentId}`
                   : `Spawn ${focusAgentRoster?.label ?? focusAgent.agentId}`}
               </button>
             ) : null}
@@ -816,8 +816,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 ? agent?.label ?? ownerAgentId
                 : agent?.label ?? swarmRoleLabels[role]
               const actionLabel = ownerAgentId
-                ? targetIsLaunched ? `Focus ${targetLabel}` : `Respawn ${targetLabel}`
-                : targetIsLaunched ? `Focus ${targetLabel}` : `Spawn ${swarmRoleLabels[role]}`
+                ? targetIsLaunched ? `Open ${targetLabel}` : `Respawn ${targetLabel}`
+                : targetIsLaunched ? `Open ${targetLabel}` : `Spawn ${swarmRoleLabels[role]}`
               return (
                 <button
                   key={role}
@@ -839,7 +839,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 onClick={() => openSpawnDialog(architectAgentId)}
                 className="rounded-md bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/16"
               >
-                {agents[architectAgentId]?.cliStartRequested ? 'Focus Architect' : 'Spawn Architect'}
+                {agents[architectAgentId]?.cliStartRequested ? 'Open Architect' : 'Spawn Architect'}
               </button>
             ) : null}
             {architectAgentId ? (
@@ -1038,7 +1038,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   `${task.acceptanceCriteria.length} checks`,
                 ]
                 const actionLabel = task.ownerAgentId
-                  ? ownerCliRunning ? 'Focus' : 'Respawn'
+                  ? ownerCliRunning ? 'Open Terminal' : 'Respawn'
                   : `Spawn ${swarmRoleLabels[task.role]}`
                 return (
                   <article
@@ -1525,7 +1525,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                     }}
                     className="rounded-md px-4 py-2 text-sm font-semibold text-[#ececee] transition-colors hover:bg-[#17181d]"
                   >
-                    {selectedTaskOwnerCliRunning ? 'Focus' : 'Respawn'}
+                    {selectedTaskOwnerCliRunning ? 'Open Terminal' : 'Respawn'}
                   </button>
                 </div>
               ) : null}
@@ -1795,7 +1795,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                     onClick={() => openAgentTerminal(architectAgentId)}
                     className="rounded-md px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                   >
-                    Focus Architect
+                    Open Architect
                   </button>
                 ) : null}
                 <button
@@ -2054,7 +2054,7 @@ function SwarmProjectView({
                         : 'text-[#d8fffb] hover:bg-[#6ee7d8]/12'
                     }`}
                   >
-                    {isLaunched ? 'Focus CLI' : `Spawn ${swarmRoleLabels[agent.role]}`}
+                    {isLaunched ? 'Open Terminal' : `Spawn ${swarmRoleLabels[agent.role]}`}
                   </button>
                 </div>
               )

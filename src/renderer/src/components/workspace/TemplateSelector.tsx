@@ -13,7 +13,6 @@ import {
   countSwarmAgents,
   createDefaultSwarmRoleCounts,
   createInitialSwarmState,
-  swarmRoleAccent,
   swarmRoleLabels,
 } from '../../utils/swarm'
 import {
@@ -44,12 +43,21 @@ interface Props {
 const ROLES: SwarmRole[] = ['architect', 'product', 'developer', 'frontend', 'tester', 'security']
 
 const roleSummaries: Record<SwarmRole, string> = {
-  architect: 'Plans the run and gates execution readiness.',
-  product: 'Clarifies audience, priority, and tradeoffs.',
-  developer: 'Ships implementation and integration changes.',
-  frontend: 'Owns interaction, layout, and visual polish.',
-  tester: 'Validates behavior and regression risk.',
-  security: 'Reviews trust boundaries and command safety.',
+  architect: 'Planning and gates',
+  product: 'Scope and tradeoffs',
+  developer: 'Implementation',
+  frontend: 'Interface work',
+  tester: 'Validation',
+  security: 'Trust boundaries',
+}
+
+const roleAccentClasses: Record<SwarmRole, string> = {
+  architect: 'bg-[#ffbf2f]',
+  product: 'bg-[#8b5cf6]',
+  developer: 'bg-[#30d158]',
+  frontend: 'bg-[#6ee7d8]',
+  tester: 'bg-[#64a8ff]',
+  security: 'bg-[#ff6b6b]',
 }
 
 function basename(p: string): string {
@@ -82,7 +90,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const [swarmTeamNameTouched, setSwarmTeamNameTouched] = useState(false)
   const [swarmGoal, setSwarmGoal] = useState('')
   const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(createDefaultSwarmRoleCounts())
-  const [selectedRole, setSelectedRole] = useState<SwarmRole>('architect')
   const [existingTeams, setExistingTeams] = useState<ExistingTeam[]>([])
   const [selectedExistingTeam, setSelectedExistingTeam] = useState<ExistingTeam | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -152,17 +159,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     if (nextMode === 'standard') setSelectedExistingTeam(null)
   }
 
-  const adjustRoleCount = (role: SwarmRole, delta: number) => {
-    setSelectedExistingTeam(null)
-    setSwarmRoleCounts((current) => {
-      const minimum = role === 'architect' ? 1 : 0
-      return {
-        ...current,
-        [role]: Math.max(minimum, current[role] + delta),
-      }
-    })
-  }
-
   const selectExistingTeam = (team: ExistingTeam) => {
     const isSelected = selectedExistingTeam?.slug === team.slug
     if (isSelected) {
@@ -199,11 +195,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
 
   return (
     <div className="h-full overflow-auto bg-[#08090b] text-[#ececee]">
-      <section className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-6 py-6">
+      <section className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-6 py-5">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-[#1f2025] pb-4">
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">Workspace</div>
-            <h1 className="mt-1 text-[22px] font-semibold text-[#ececee]">Create Workspace</h1>
+            <h1 className="text-[22px] font-semibold text-[#ececee]">New Workspace</h1>
           </div>
           <div className="flex items-center gap-2">
             {allowClose ? (
@@ -219,7 +214,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
               type="button"
               onClick={handleCreate}
               disabled={!canCreate}
-              className="h-9 rounded-md border border-[#ffbf2f]/55 bg-[#ffbf2f] px-4 text-sm font-semibold text-[#161006] shadow-[0_0_18px_rgba(255,191,47,0.12)] transition-colors hover:bg-[#ffd15c] disabled:opacity-40 disabled:hover:bg-[#ffbf2f]"
+              className="h-9 rounded-md border border-[#ececee] bg-[#ececee] px-4 text-sm font-semibold text-[#08090b] transition-colors hover:bg-white disabled:border-[#303139] disabled:bg-[#17181d] disabled:text-[#5a5a63]"
             >
               {selectedExistingTeam ? 'Load Team' : mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
             </button>
@@ -228,69 +223,61 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
 
         <div className="mt-5 min-h-0 flex-1">
           <main className="min-w-0 space-y-4">
-            <div className="inline-flex rounded-md border border-[#24252b] bg-[#111216] p-1">
+            <div className="inline-flex rounded-md bg-[#111216] p-1">
               {[
                 { id: 'standard' as const, label: 'Standard' },
-                { id: 'swarm' as const, label: 'Swarm', premium: true },
+                { id: 'swarm' as const, label: 'Swarm' },
               ].map((option) => {
                 const active = mode === option.id
-                const premiumSwarm = option.id === 'swarm'
+                const swarmOption = option.id === 'swarm'
                 return (
                   <button
                     key={option.id}
                     type="button"
+                    aria-pressed={active}
                     onClick={() => handleModeChange(option.id)}
-                    className={`inline-flex h-8 items-center gap-2 rounded px-3 text-sm font-semibold transition-colors ${
-                      active && premiumSwarm
-                        ? 'bg-[#ffbf2f]/12 text-[#ffe0a3] shadow-[inset_0_-2px_0_#ffbf2f]'
+                    className={`inline-flex h-8 items-center gap-2 rounded border px-3 text-sm font-semibold transition-colors ${
+                      active && swarmOption
+                        ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
                         : active
-                          ? 'bg-[#6ee7d8]/12 text-[#bff7f1] shadow-[inset_0_-2px_0_#6ee7d8]'
-                          : premiumSwarm
-                            ? 'text-[#c7b27c] hover:bg-[#ffbf2f]/8 hover:text-[#ffe0a3]'
-                            : 'text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
+                          ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
+                          : swarmOption
+                            ? 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
+                            : 'border-transparent text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                     }`}
                   >
-                    {premiumSwarm ? (
+                    {swarmOption ? (
                       <WorkspaceTypeIcon mode="swarm" className="h-3.5 w-3.5 shrink-0 text-[#ffbf2f]" />
                     ) : null}
                     {option.label}
-                    {option.premium ? (
-                      <span
-                        className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] ${
-                          active
-                            ? 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#ffdf9b]'
-                            : 'border-[#6f5520] bg-[#1a140a] text-[#d9b86b]'
-                        }`}
-                      >
-                        Pro
-                      </span>
-                    ) : null}
                   </button>
                 )
               })}
             </div>
 
-            <section className="rounded-lg border border-[#24252b] bg-[#111216] p-4">
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-                <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Folder</div>
-                  <div className="mt-2 flex min-h-[42px] items-center gap-3 rounded-md border border-[#303139] bg-[#0d0e11] px-3">
-                    <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-[#d7d7dc]">
-                      {folderPath ?? 'No folder selected'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handlePick}
-                      className="h-8 rounded-md border border-[#303139] bg-[#111216] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+            <section className="border-b border-[#1f2025] pb-5">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-2">
+                  <div className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">Folder</div>
+                  <button
+                    type="button"
+                    onClick={handlePick}
+                    className="flex h-[42px] w-full items-center gap-3 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-left transition-colors hover:bg-[#111216] focus:outline-none focus:ring-2 focus:ring-[#ececee]/25"
+                  >
+                    <span
+                      className={`min-w-0 flex-1 truncate text-sm ${
+                        folderPath ? 'text-[#d7d7dc]' : 'text-[#5a5a63]'
+                      }`}
                     >
-                      Browse
-                    </button>
-                  </div>
+                      {folderPath ?? 'Choose folder'}
+                    </span>
+                    <span className="shrink-0 text-sm font-semibold text-[#d7d7dc]">Browse</span>
+                  </button>
                 </div>
 
-                <label className="min-w-0">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-                    Workspace Name
+                <label className="flex min-w-0 flex-col gap-2">
+                  <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                    Workspace name
                   </span>
                   <input
                     value={name}
@@ -306,7 +293,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                       if (event.key === 'Enter') handleCreate()
                     }}
                     placeholder="my-workspace"
-                    className="mt-2 block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ffbf2f]/65"
+                    className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
                   />
                 </label>
               </div>
@@ -314,57 +301,55 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
 
             {mode === 'swarm' ? (
               <>
-                <section className="rounded-lg border border-[#24252b] bg-[#111216] p-4">
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-                    <label className="min-w-0">
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-                        Team Name
+                <section className="border-b border-[#1f2025] pb-5">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <label className="flex min-w-0 flex-col gap-2">
+                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                        Team name
                       </span>
-                      <div className="mt-2 grid gap-2 md:grid-cols-[minmax(0,1fr)_220px]">
-                        <input
-                          value={swarmTeamName}
-                          onChange={(event) => {
-                            setSelectedExistingTeam(null)
-                            setSwarmTeamName(event.target.value)
-                            setSwarmTeamNameTouched(true)
-                          }}
-                          placeholder="Interface Team"
-                          className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ffbf2f]/65"
-                        />
-                        <select
-                          value={selectedExistingTeam?.slug ?? ''}
-                          onChange={(event) => {
-                            const team = existingTeams.find((candidate) => candidate.slug === event.target.value)
-                            if (team) {
-                              selectExistingTeam(team)
-                            } else {
-                              setSelectedExistingTeam(null)
-                            }
-                          }}
-                          disabled={isScanning || existingTeams.length === 0}
-                          className="h-[42px] rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] outline-none transition-colors focus:border-[#6ee7d8]/65 disabled:text-[#5a5a63]"
-                        >
-                          <option value="">
-                            {isScanning ? 'Scanning teams...' : existingTeams.length > 0 ? 'Create new team' : 'No existing teams'}
-                          </option>
-                          {existingTeams.map((team) => (
-                            <option key={team.slug} value={team.slug}>
-                              {team.displayName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      <input
+                        value={swarmTeamName}
+                        onChange={(event) => {
+                          setSelectedExistingTeam(null)
+                          setSwarmTeamName(event.target.value)
+                          setSwarmTeamNameTouched(true)
+                        }}
+                        placeholder="Interface Team"
+                        className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
+                      />
                     </label>
-                    <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-                        Team Size
-                      </div>
-                      <div className="mt-1 text-[22px] font-semibold text-[#ececee]">{totalAgents}</div>
-                    </div>
+
+                    <label className="flex min-w-0 flex-col gap-2">
+                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                        Existing team
+                      </span>
+                      <select
+                        value={selectedExistingTeam?.slug ?? ''}
+                        onChange={(event) => {
+                          const team = existingTeams.find((candidate) => candidate.slug === event.target.value)
+                          if (team) {
+                            selectExistingTeam(team)
+                          } else {
+                            setSelectedExistingTeam(null)
+                          }
+                        }}
+                        disabled={isScanning || existingTeams.length === 0}
+                        className="h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] outline-none transition-colors focus:border-[#ececee]/70 disabled:text-[#5a5a63]"
+                      >
+                        <option value="">
+                          {isScanning ? 'Scanning teams...' : existingTeams.length > 0 ? 'Create new team' : 'No existing teams'}
+                        </option>
+                        {existingTeams.map((team) => (
+                          <option key={team.slug} value={team.slug}>
+                            {team.displayName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
 
                   <label className="mt-4 block">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+                    <span className="text-xs font-medium text-[#9a9aa2]">
                       Objective
                     </span>
                     <textarea
@@ -374,110 +359,110 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                         setSwarmGoal(event.target.value)
                       }}
                       placeholder="Describe the outcome this swarm should deliver..."
-                      className="mt-2 min-h-[168px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-3 text-[14px] leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ffbf2f]/65"
+                      className="mt-2 min-h-[140px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-3 text-[14px] leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
                     />
                   </label>
                 </section>
 
-                <section className="rounded-lg border border-[#24252b] bg-[#111216] p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-                      Team Composition
-                    </div>
-                    <div className="text-[12px] text-[#5a5a63]">{swarmRoleLabels[selectedRole]} selected</div>
-                  </div>
-                  <div className="grid gap-2 md:grid-cols-2">
-                    {ROLES.map((role) => {
-                      const selectedRoleRow = role === selectedRole
-                      return (
-                        <div
-                          key={role}
-                          onClick={() => setSelectedRole(role)}
-                          className={`flex min-w-0 items-center gap-3 rounded-md border px-3 py-2 transition-colors ${
-                            selectedRoleRow
-                              ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/10'
-                              : 'border-[#24252b] bg-[#0d0e11] hover:border-[#303139] hover:bg-[#17181d]'
-                          }`}
-                        >
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: swarmRoleAccent[role] }}
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold text-[#ececee]">
-                              {swarmRoleLabels[role]}
+                <section>
+                  <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+                    <div>
+                      <div className="mb-3 text-xs font-medium text-[#9a9aa2]">Included specialists</div>
+                      <div className="border-t border-[#303139]">
+                        {ROLES.filter((role) => swarmRoleCounts[role] > 0).map((role) => (
+                          <div
+                            key={role}
+                            className="grid min-h-[58px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[#303139] px-3"
+                          >
+                            <span className="flex min-w-0 items-center gap-3">
+                              <span className={`h-2 w-2 shrink-0 rounded-full ${roleAccentClasses[role]}`} />
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-semibold text-[#ececee]">
+                                  {swarmRoleLabels[role]}
+                                </span>
+                                <span className="mt-1 block truncate text-[12px] text-[#9a9aa2]">
+                                  {roleSummaries[role]}
+                                </span>
+                              </span>
                             </span>
-                            <span className="mt-0.5 block truncate text-[12px] text-[#9a9aa2]">
-                              {roleSummaries[role]}
-                            </span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                adjustRoleCount(role, -1)
-                              }}
-                              disabled={role === 'architect' && swarmRoleCounts[role] <= 1}
-                              className="flex h-7 w-7 items-center justify-center rounded-md border border-[#303139] bg-[#111216] text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:opacity-35"
-                              aria-label={`Remove ${swarmRoleLabels[role]}`}
-                            >
-                              -
-                            </button>
-                            <span className="min-w-7 text-center text-sm font-semibold text-[#ececee]">
+                            <span className="rounded border border-[#303139] bg-[#111216] px-2 py-1 text-[12px] font-semibold text-[#d7d7dc]">
                               {swarmRoleCounts[role]}
                             </span>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                adjustRoleCount(role, 1)
-                              }}
-                              className="flex h-7 w-7 items-center justify-center rounded-md border border-[#303139] bg-[#111216] text-[#d7d7dc] transition-colors hover:bg-[#17181d]"
-                              aria-label={`Add ${swarmRoleLabels[role]}`}
-                            >
-                              +
-                            </button>
-                          </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-[#24252b] bg-[#0d0e11] p-3">
+                      <div className="mb-3 flex items-baseline justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-[#ececee]">Swarm workspace</div>
+                          <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
+                            Task graph, Kanban, project brief, and specialist terminals
+                          </div>
                         </div>
-                      )
-                    })}
+                      </div>
+                      <div className="rounded-md border border-[#303139] bg-[#08090b] p-3">
+                        <SwarmWorkspacePreview />
+                      </div>
+                    </div>
                   </div>
                 </section>
               </>
             ) : (
-              <section className="rounded-lg border border-[#24252b] bg-[#111216] p-4">
-                <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-                  IDE Layout
-                </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                  {LAYOUT_TEMPLATES.map((template) => {
-                    const isSelected = template.id === selectedId
-                    return (
-                      <button
-                        key={template.id}
-                        type="button"
-                        onClick={() => setSelectedId(template.id)}
-                        className={`group flex min-h-[172px] flex-col rounded-lg border p-3 text-left transition-colors focus:outline-none ${
-                          isSelected
-                            ? 'border-[#6ee7d8]/55 bg-[#6ee7d8]/12'
-                            : 'border-[#24252b] bg-[#0d0e11] hover:border-[#303139] hover:bg-[#17181d]'
-                        }`}
-                      >
-                        <div className="rounded-md border border-[#24252b] bg-[#08090b] p-3">
-                          <LayoutPreview slots={template.previewSlots} />
+              <section>
+                <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+                  <div>
+                    <div className="mb-3 text-xs font-medium text-[#9a9aa2]">
+                      IDE layout
+                    </div>
+                    <div className="border-t border-[#303139]">
+                      {LAYOUT_TEMPLATES.map((template) => {
+                        const isSelected = template.id === selectedId
+                        return (
+                          <button
+                            key={template.id}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => setSelectedId(template.id)}
+                            className={`grid min-h-[64px] w-full grid-cols-[minmax(0,1fr)_18px] items-center gap-4 border-b border-[#303139] px-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#ececee]/25 ${
+                              isSelected ? 'bg-[#17181d]' : 'hover:bg-[#111216]'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-[#ececee]">{template.name}</div>
+                              <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
+                                {template.description}
+                              </div>
+                            </div>
+                            <span
+                              className={`h-4 w-4 rounded-full border ${
+                                isSelected ? 'border-[5px] border-[#ececee]' : 'border-[#303139]'
+                              }`}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-[#24252b] bg-[#0d0e11] p-3">
+                    <div className="mb-3 flex items-baseline justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-[#ececee]">{selected.name}</div>
+                        <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
+                          {selected.description}
                         </div>
-                        <div className="mt-3 flex items-center justify-between gap-3">
-                          <span className="min-w-0 truncate text-[15px] font-semibold text-[#ececee]">
-                            {template.name}
-                          </span>
-                          <span className="shrink-0 rounded-md border border-[#303139] bg-[#111216] px-2 py-1 text-[11px] font-semibold text-[#d7d7dc]">
-                            {agentCountLabel(template.previewSlots)}
-                          </span>
-                        </div>
-                      </button>
-                    )
-                  })}
+                      </div>
+                      <div className="shrink-0 text-[12px] font-medium text-[#9a9aa2]">
+                        {agentCountLabel(selected.previewSlots)}
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-[#303139] bg-[#08090b] p-3">
+                      <LayoutPreview slots={selected.previewSlots} />
+                    </div>
+                  </div>
                 </div>
               </section>
             )}
@@ -493,50 +478,197 @@ function agentCountLabel(slots: PreviewSlot[]): string {
   return n === 1 ? '1 agent' : `${n} agents`
 }
 
-function LayoutPreview({ slots, large = false }: { slots: PreviewSlot[]; large?: boolean }) {
-  const style: Record<PreviewSlot['type'], { fill: string; stroke: string; text: string }> = {
-    explorer: { fill: '#111216', stroke: '#ffa600', text: '#ffd58a' },
-    editor: { fill: '#111216', stroke: '#30d158', text: '#b9f7c8' },
-    agent: { fill: '#111216', stroke: '#6ee7d8', text: '#bff7f1' },
-  }
-
+function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
   return (
     <svg
       viewBox="0 0 300 110"
       preserveAspectRatio="xMidYMid meet"
-      className={`block w-full ${large ? 'h-[150px]' : 'h-[104px]'}`}
+      className="block aspect-[300/110] w-full"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect x="0" y="0" width="300" height="110" rx="8" fill="#08090b" />
-      <rect x="4" y="4" width="292" height="102" rx="6" fill="none" stroke="#24252b" />
-      {slots.map((slot, index) => {
-        const c = style[slot.type]
+      <rect x="0" y="0" width="300" height="110" rx="8" fill="#0d0e11" />
+      <WorkspaceChrome />
+      <g transform="translate(0 17) scale(1 0.7)">
+        {slots.map((slot) => {
+          const key = `${slot.type}-${slot.label}-${slot.x}-${slot.y}`
+
+          if (slot.type === 'explorer') return <ExplorerPreview key={key} slot={slot} />
+          if (slot.type === 'editor') return <EditorPreview key={key} slot={slot} />
+
+          return <AgentPreview key={key} slot={slot} />
+        })}
+      </g>
+      <GitStrip y={96} />
+    </svg>
+  )
+}
+
+function WorkspaceChrome() {
+  return (
+    <g>
+      <rect x="0" y="0" width="300" height="18" rx="8" fill="#08090b" />
+      <rect x="8" y="5" width="54" height="8" rx="3" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
+      <rect x="68" y="5" width="46" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+      <rect x="120" y="5" width="8" height="8" rx="2" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+    </g>
+  )
+}
+
+function GitStrip({ y }: { y: number }) {
+  return (
+    <g>
+      <rect x="4" y={y} width="292" height="10" rx="4" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+      <rect x="12" y={y + 4} width="22" height="2" rx="1" fill="#6fbd85" />
+      <rect x="42" y={y + 4} width="16" height="2" rx="1" fill="#b88928" />
+      <rect x="66" y={y + 4} width="26" height="2" rx="1" fill="#64656d" />
+    </g>
+  )
+}
+
+function PaneShell({ slot, children }: { slot: PreviewSlot; children: React.ReactNode }) {
+  return (
+    <g>
+      <rect
+        x={slot.x}
+        y={slot.y}
+        width={slot.w}
+        height={slot.h}
+        rx="5"
+        fill="#101116"
+        stroke="#3a3b43"
+        strokeWidth="1"
+      />
+      <rect
+        x={slot.x + 1}
+        y={slot.y + 1}
+        width={Math.max(0, slot.w - 2)}
+        height="11"
+        rx="4"
+        fill="#17181d"
+      />
+      {children}
+    </g>
+  )
+}
+
+function ExplorerPreview({ slot }: { slot: PreviewSlot }) {
+  const rows = previewRows(slot.h, 20, 10, 4)
+
+  return (
+    <PaneShell slot={slot}>
+      <rect x={slot.x + 6} y={slot.y + 6} width="10" height="2" rx="1" fill="#74757d" />
+      {rows.map((row) => {
+        const y = slot.y + 20 + row * 10
+        const width = Math.max(9, Math.min(slot.w - 16, slot.w * (row % 2 === 0 ? 0.62 : 0.48)))
         return (
-          <g key={index}>
-            <rect
-              x={slot.x}
-              y={slot.y}
-              width={slot.w}
-              height={slot.h}
-              rx="5"
-              fill={c.fill}
-              stroke={c.stroke}
-              strokeWidth="1"
-            />
-            <text
-              x={slot.x + slot.w / 2}
-              y={slot.y + slot.h / 2 + 3}
-              textAnchor="middle"
-              fontSize={slot.w < 70 ? '7' : '8'}
-              fontWeight="700"
-              fill={c.text}
-              fontFamily="ui-monospace, SFMono-Regular, Consolas, monospace"
-            >
-              {slot.label.toUpperCase()}
-            </text>
+          <rect
+            key={row}
+            x={slot.x + 8}
+            y={y}
+            width={width}
+            height="2"
+            rx="1"
+            fill={row === 0 ? '#b88928' : '#5a5b63'}
+          />
+        )
+      })}
+    </PaneShell>
+  )
+}
+
+function EditorPreview({ slot }: { slot: PreviewSlot }) {
+  const rows = previewRows(slot.h, 20, 9, 5)
+
+  return (
+    <PaneShell slot={slot}>
+      <rect x={slot.x + 7} y={slot.y + 6} width="20" height="2" rx="1" fill="#74757d" />
+      {rows.map((row) => {
+        const y = slot.y + 20 + row * 9
+        const indent = row === 2 || row === 3 ? 7 : 0
+        const width = Math.max(14, Math.min(slot.w - 22 - indent, slot.w * (row % 2 === 0 ? 0.66 : 0.46)))
+        return (
+          <rect
+            key={row}
+            x={slot.x + 8 + indent}
+            y={y}
+            width={width}
+            height="2"
+            rx="1"
+            fill={row === 0 ? '#6fbd85' : '#64656d'}
+          />
+        )
+      })}
+    </PaneShell>
+  )
+}
+
+function AgentPreview({ slot }: { slot: PreviewSlot }) {
+  const rows = previewRows(slot.h, 21, 9, 4)
+
+  return (
+    <PaneShell slot={slot}>
+      <circle cx={slot.x + 8} cy={slot.y + 7} r="1.5" fill="#6ee7d8" />
+      <rect x={slot.x + 13} y={slot.y + 6} width="18" height="2" rx="1" fill="#74757d" />
+      {rows.map((row) => {
+        const y = slot.y + 21 + row * 9
+        const width = Math.max(12, Math.min(slot.w - 19, slot.w * (row % 2 === 0 ? 0.58 : 0.42)))
+        return (
+          <g key={row}>
+            <rect x={slot.x + 8} y={y} width="4" height="2" rx="1" fill="#6ee7d8" />
+            <rect x={slot.x + 16} y={y} width={width} height="2" rx="1" fill="#62636b" />
           </g>
         )
       })}
+    </PaneShell>
+  )
+}
+
+function previewRows(height: number, firstY: number, gap: number, maxRows: number): number[] {
+  return Array.from({ length: maxRows }, (_, row) => row).filter((row) => firstY + row * gap + 2 <= height - 6)
+}
+
+function SwarmWorkspacePreview() {
+  return (
+    <svg
+      viewBox="0 0 300 110"
+      preserveAspectRatio="xMidYMid meet"
+      className="block aspect-[300/110] w-full"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect x="0" y="0" width="300" height="110" rx="8" fill="#0d0e11" />
+      <WorkspaceChrome />
+      <rect x="5" y="21" width="169" height="71" rx="5" fill="#101116" stroke="#3a3b43" strokeWidth="1" />
+      <rect x="12" y="28" width="48" height="8" rx="3" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
+      <rect x="66" y="28" width="50" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+      <rect x="122" y="28" width="42" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+
+      <g>
+        <rect x="15" y="47" width="54" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
+        <rect x="89" y="47" width="54" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
+        <rect x="52" y="72" width="54" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
+        <path d="M69 55 H89" stroke="#5f6068" strokeWidth="1" />
+        <path d="M116 63 L88 72" stroke="#5f6068" strokeWidth="1" />
+        <rect x="23" y="54" width="28" height="2" rx="1" fill="#ffbf2f" opacity="0.8" />
+        <rect x="97" y="54" width="30" height="2" rx="1" fill="#6ee7d8" opacity="0.85" />
+        <rect x="61" y="79" width="26" height="2" rx="1" fill="#6fbd85" opacity="0.85" />
+      </g>
+
+      <g>
+        <rect x="181" y="21" width="114" height="71" rx="5" fill="#101116" stroke="#3a3b43" strokeWidth="1" />
+        <rect x="187" y="28" width="36" height="8" rx="3" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
+        <rect x="229" y="28" width="28" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
+        <rect x="187" y="48" width="29" height="34" rx="4" fill="#17181d" stroke="#303139" strokeWidth="0.9" />
+        <rect x="222" y="48" width="29" height="34" rx="4" fill="#17181d" stroke="#303139" strokeWidth="0.9" />
+        <rect x="257" y="48" width="29" height="34" rx="4" fill="#17181d" stroke="#303139" strokeWidth="0.9" />
+        {[193, 228, 263].map((x) => (
+          <g key={x}>
+            <rect x={x} y="56" width="14" height="2" rx="1" fill="#ffbf2f" opacity="0.75" />
+            <rect x={x} y="65" width="18" height="2" rx="1" fill="#64656d" />
+            <rect x={x} y="73" width="12" height="2" rx="1" fill="#64656d" />
+          </g>
+        ))}
+      </g>
+      <GitStrip y={96} />
     </svg>
   )
 }

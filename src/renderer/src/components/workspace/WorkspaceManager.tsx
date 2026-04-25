@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
-import { SpecialistActionIcon, StatusDot, WorkspaceTypeIcon } from '../AppIcons'
+import { SpecialistActionIcon, StatusDot, SwarmRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import CommandPalette from '../CommandPalette'
 import SettingsModal from '../settings/SettingsModal'
@@ -13,7 +13,7 @@ import {
 } from '../../specialists/specialistActions'
 import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '../../types/workspace'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
-import { getModel } from '../../utils/modelRegistry'
+import { focusOrAddAgentTab, getModel } from '../../utils/modelRegistry'
 import TemplateSelector from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
@@ -25,6 +25,17 @@ const CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
 ]
 type WorkspacePanelComponent = 'explorer' | 'editor' | 'git'
 type WorkspaceActivity = 'needs-input' | 'running' | 'idle'
+type BackgroundAgentStatus = 'needs-input' | 'running'
+type BackgroundAgentItem = {
+  workspace: Workspace
+  agentId: string
+  label: string
+  cli: AgentCli
+  status: BackgroundAgentStatus
+  role: NonNullable<Workspace['swarmState']>['swarmAgents'][string]['role'] | null
+  taskId: string | null
+  sessionId: string | null
+}
 type ActivityLayoutNode = {
   component?: string
   config?: {
@@ -96,6 +107,28 @@ function workspaceActivityLabel(activity: WorkspaceActivity): string {
   }
 }
 
+function getBackgroundAgentItems(workspaces: Workspace[]): BackgroundAgentItem[] {
+  return workspaces.flatMap((workspace) =>
+    Object.entries(workspace.agents)
+      .filter(([, agent]) => Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId))
+      .map(([agentId, agent]) => {
+        const runtime = workspace.swarmState?.swarmAgents[agentId]
+        const status: BackgroundAgentStatus = runtime?.status === 'needs_input' ? 'needs-input' : 'running'
+
+        return {
+          workspace,
+          agentId,
+          label: agent.name || agentId,
+          cli: agent.cli ?? 'codex',
+          status,
+          role: runtime?.role ?? null,
+          taskId: runtime?.currentTaskId ?? null,
+          sessionId: agent.cliSessionId ?? null,
+        }
+      })
+  )
+}
+
 export default function WorkspaceManager() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -104,6 +137,7 @@ export default function WorkspaceManager() {
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'claude')
   const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
   const lastSelectedSpecialist = useWorkspaceStore(
@@ -120,6 +154,7 @@ export default function WorkspaceManager() {
   const [showPalette, setShowPalette] = useState(false)
   const [cliMenuOpen, setCliMenuOpen] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
+  const [backgroundAgentsOpen, setBackgroundAgentsOpen] = useState(false)
   const [specialistName, setSpecialistName] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -130,7 +165,9 @@ export default function WorkspaceManager() {
   const renameInputRef = useRef<HTMLInputElement>(null)
   const cliMenuRef = useRef<HTMLDivElement>(null)
   const specialistMenuRef = useRef<HTMLDivElement>(null)
+  const backgroundAgentsRef = useRef<HTMLDivElement>(null)
   const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
+  const backgroundAgents = getBackgroundAgentItems(workspaces)
 
   const openTemplateSelector = () => {
     setShowTemplateSelector(true)
@@ -204,8 +241,30 @@ export default function WorkspaceManager() {
   }, [specialistMenuOpen])
 
   useEffect(() => {
+    if (!backgroundAgentsOpen) return
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!backgroundAgentsRef.current?.contains(event.target as Node)) {
+        setBackgroundAgentsOpen(false)
+      }
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setBackgroundAgentsOpen(false)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [backgroundAgentsOpen])
+
+  useEffect(() => {
     setCliMenuOpen(false)
     setSpecialistMenuOpen(false)
+    setBackgroundAgentsOpen(false)
   }, [activeWorkspaceId])
 
   useEffect(() => {
@@ -397,6 +456,29 @@ export default function WorkspaceManager() {
     void addNewSpecialist(specialistId)
   }
 
+  const openBackgroundAgentTerminal = (item: BackgroundAgentItem) => {
+    setShowTemplateSelector(false)
+    setActiveWorkspace(item.workspace.id)
+    setBackgroundAgentsOpen(false)
+
+    requestAnimationFrame(() => {
+      if (focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)) return
+      window.setTimeout(() => {
+        focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)
+      }, 0)
+    })
+  }
+
+  const stopBackgroundAgent = (item: BackgroundAgentItem) => {
+    if (item.sessionId) void window.api.terminalKill(item.sessionId).catch(() => {})
+    if (item.workspace.mode === 'swarm') setSwarmAutoEnabled(item.workspace.id, false)
+    updateAgent(item.workspace.id, item.agentId, {
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliOnboardingPromptSent: false,
+    })
+  }
+
   const handleShowMenubarMenu = async (
     event: React.MouseEvent<HTMLButtonElement>,
     label: (typeof MENU_BAR_ITEMS)[number]
@@ -455,7 +537,7 @@ export default function WorkspaceManager() {
                 }}
                 className={`group inline-flex h-[30px] max-w-[260px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
                   active && swarmWorkspace
-                    ? 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#f4ead7] shadow-[inset_0_-2px_0_rgba(255,191,47,0.72)]'
+                    ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
                     : active
                       ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
                       : swarmWorkspace
@@ -517,6 +599,43 @@ export default function WorkspaceManager() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {workspaces.length > 0 ? (
+            <div ref={backgroundAgentsRef} className="relative inline-flex">
+              <button
+                type="button"
+                onClick={() => {
+                  setBackgroundAgentsOpen((open) => !open)
+                  setCliMenuOpen(false)
+                  setSpecialistMenuOpen(false)
+                }}
+                className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                  backgroundAgentsOpen
+                    ? 'border-[#303139] bg-[#17181d] text-[#ececee]'
+                    : 'border-[#24252b] bg-[#111216] text-[#9a9aa2] hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc]'
+                }`}
+                title="Background Agents"
+                aria-label="Background Agents"
+                aria-haspopup="menu"
+                aria-expanded={backgroundAgentsOpen}
+              >
+                <BackgroundAgentsIcon className="h-[18px] w-[18px]" />
+                {backgroundAgents.length > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#0b0c0f] bg-[#30d158] px-1 text-[10px] font-bold leading-none text-[#061210]">
+                    {backgroundAgents.length > 9 ? '9+' : backgroundAgents.length}
+                  </span>
+                ) : null}
+              </button>
+
+              {backgroundAgentsOpen ? (
+                <BackgroundAgentsPopover
+                  items={backgroundAgents}
+                  onOpenTerminal={openBackgroundAgentTerminal}
+                  onStop={stopBackgroundAgent}
+                />
+              ) : null}
+            </div>
+          ) : null}
+
           {workspaceActionsEnabled ? (
             <button
               onClick={addGitPanel}
@@ -759,6 +878,126 @@ export default function WorkspaceManager() {
         />
       )}
     </div>
+  )
+}
+
+function BackgroundAgentsPopover({
+  items,
+  onOpenTerminal,
+  onStop,
+}: {
+  items: BackgroundAgentItem[]
+  onOpenTerminal: (item: BackgroundAgentItem) => void
+  onStop: (item: BackgroundAgentItem) => void
+}) {
+  const groups = items.reduce<Array<{ workspace: Workspace; items: BackgroundAgentItem[] }>>((acc, item) => {
+    const group = acc.find((candidate) => candidate.workspace.id === item.workspace.id)
+    if (group) {
+      group.items.push(item)
+    } else {
+      acc.push({ workspace: item.workspace, items: [item] })
+    }
+    return acc
+  }, [])
+
+  return (
+    <div
+      role="menu"
+      className="absolute right-0 top-9 z-50 w-[420px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
+    >
+      <div className="flex h-9 items-center justify-between border-b border-[#1f2025] px-2.5">
+        <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#8a8a92]">
+          Background Agents
+        </span>
+        {items.length > 0 ? (
+          <span className="rounded bg-[#17181d] px-1.5 py-0.5 text-[11px] font-semibold text-[#9a9aa2]">
+            {items.length}
+          </span>
+        ) : null}
+      </div>
+
+      {groups.length === 0 ? (
+        <div className="px-2.5 py-3 text-[13px] text-[#5a5a63]">No background agents</div>
+      ) : (
+        <div className="max-h-[420px] overflow-y-auto py-1">
+          {groups.map((group) => (
+            <div key={group.workspace.id} className="py-1">
+              <div className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
+                <WorkspaceTypeIcon mode={group.workspace.mode} className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 truncate">{group.workspace.name}</span>
+              </div>
+              <div className="space-y-1">
+                {group.items.map((item) => (
+                  <div
+                    key={`${item.workspace.id}:${item.agentId}`}
+                    className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[#d7d7dc] hover:bg-[#15161a]"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92]">
+                        {item.role ? (
+                          <SwarmRoleIcon role={item.role} className="h-[17px] w-[17px]" />
+                        ) : (
+                          <CliIcon cli={item.cli} className="h-[17px] w-[17px]" />
+                        )}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate font-medium text-[#ececee]">{item.label}</span>
+                          <StatusDot
+                            tone={item.status}
+                            label={item.status === 'needs-input' ? 'Needs input' : 'Running'}
+                          />
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] text-[#7a7a83]">
+                          {item.taskId ?? item.cli}
+                        </span>
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenTerminal(item)}
+                      className="h-7 rounded border border-[#24252b] bg-[#111216] px-2.5 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#1b1c21] hover:text-[#ececee]"
+                    >
+                      Open Terminal
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onStop(item)}
+                      className="flex h-7 w-7 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92] transition-colors hover:border-[#4a2426] hover:bg-[#2a1214] hover:text-[#ff787c]"
+                      title="Stop"
+                      aria-label={`Stop ${item.label}`}
+                    >
+                      <StopIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BackgroundAgentsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="12.5" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M7.5 9.25L10.25 12L7.5 14.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12.5 14.75H16.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M8.5 20H15.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function StopIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="4.25" y="4.25" width="7.5" height="7.5" rx="1.2" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
   )
 }
 
