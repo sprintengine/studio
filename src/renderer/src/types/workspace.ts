@@ -153,6 +153,7 @@ export type AgentCli = 'codex' | 'claude'
 export type AgentKind = 'general' | 'specialist' | 'swarm'
 export type SpecialistActionId =
   | 'architect'
+  | 'product-strategist'
   | 'developer'
   | 'devops-infra'
   | 'qa-test'

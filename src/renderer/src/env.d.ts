@@ -55,6 +55,7 @@ type TerminalSpawnResult =
   | { ok: false; sessionId: string; message: string; exitCode: number }
 type SpecialistActionId =
   | 'architect'
+  | 'product-strategist'
   | 'developer'
   | 'devops-infra'
   | 'qa-test'

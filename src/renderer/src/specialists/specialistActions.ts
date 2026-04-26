@@ -1,6 +1,6 @@
 import type { SpecialistActionId } from '../types/workspace'
 
-export type SpecialistIcon = 'architecture' | 'code' | 'design' | 'review' | 'shield' | 'test' | 'infra'
+export type SpecialistIcon = 'architecture' | 'code' | 'design' | 'review' | 'shield' | 'test' | 'infra' | 'product'
 
 export type SpecialistAction = {
   id: SpecialistActionId
@@ -19,6 +19,14 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Create implementation plans, compare approaches, and shape system design.',
     icon: 'architecture',
     promptFile: 'architect-prompt.md',
+  },
+  {
+    id: 'product-strategist',
+    label: 'Product Strategist',
+    shortLabel: 'Product Strategist',
+    description: 'Research competitors, evaluate product value, sharpen positioning, and challenge weak strategy.',
+    icon: 'product',
+    promptFile: 'product-strategist-prompt.md',
   },
   {
     id: 'developer',

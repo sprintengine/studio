@@ -45,6 +45,7 @@ type TerminalSpawnResult =
   | { ok: false; sessionId: string; message: string; exitCode: number }
 type SpecialistActionId =
   | 'architect'
+  | 'product-strategist'
   | 'developer'
   | 'devops-infra'
   | 'qa-test'
@@ -247,6 +248,7 @@ type SessionSnapshot =
 
 const specialistPromptFiles: Record<SpecialistActionId, string> = {
   architect: 'architect-prompt.md',
+  'product-strategist': 'product-strategist-prompt.md',
   developer: 'developer-prompt.md',
   'devops-infra': 'devops-infra-prompt.md',
   'frontend-design-review': 'frontend-design-promt.md',

@@ -37,6 +37,7 @@ declare global {
   }
   type SpecialistActionId =
     | 'architect'
+    | 'product-strategist'
     | 'developer'
     | 'devops-infra'
     | 'qa-test'

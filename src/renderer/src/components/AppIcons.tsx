@@ -77,6 +77,8 @@ export function SpecialistActionIcon({ icon, className }: IconProps & { icon: Sp
       return <TestIcon className={className} />
     case 'infra':
       return <InfraIcon className={className} />
+    case 'product':
+      return <ProductIcon className={className} />
   }
 }
 
