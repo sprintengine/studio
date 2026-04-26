@@ -1,9 +1,10 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
-import { access, cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
+import { access, cp, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
 import { promisify } from 'util'
+import { createHash, randomBytes } from 'crypto'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
 import {
@@ -22,6 +23,811 @@ import {
 } from './git'
 
 const execFileAsync = promisify(execFile)
+
+const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || 'http://localhost:3000').replace(/\/+$/u, '')
+const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
+const MULTICODE_REDIRECT_URI = 'multicode://auth/callback' as const
+const MULTICODE_PRODUCT = 'multicode' as const
+const ENTITLEMENT_GRACE_MS = 72 * 60 * 60 * 1000
+
+type FeatureValue = boolean | number | string
+
+type SessionUser = {
+  id: string
+  email: string | null
+  displayName: string | null
+}
+
+type SessionOrganization = {
+  id: string
+  name: string
+  slug: string
+  type: 'personal' | 'team' | 'enterprise'
+}
+
+type SessionSnapshot =
+  | {
+    authenticated: true
+    user: SessionUser
+    selectedOrganization: SessionOrganization
+    session: {
+      id: string
+      expiresAt: string
+    }
+  }
+  | {
+    authenticated: false
+    user: null
+    selectedOrganization: null
+  }
+
+type EntitlementSnapshot = {
+  userId: string
+  organizationId: string
+  product: 'multicode'
+  roles: string[]
+  features: Record<string, FeatureValue>
+  limits: Record<string, number>
+  sources: Record<string, string>
+  plan: {
+    code: string
+    status: string
+  }
+  issuedAt: string
+  expiresAt: string
+  schemaVersion: 1
+}
+
+type UsageRequest = {
+  featureKey: string
+  amount?: number
+  actorType?: 'user' | 'organization' | 'api_key'
+  actorId?: string
+  idempotencyKey: string
+  window?: 'day' | 'month'
+}
+
+type UsageResult = {
+  allowed: boolean
+  featureKey: string
+  amount: number
+  used: number
+  remaining: number | null
+  limit: number | null
+  idempotencyKey: string
+  windowStart: string
+  windowEnd: string
+  replayed: boolean
+  reason: 'allowed' | 'missing_entitlement' | 'limit_exceeded' | 'released'
+}
+
+type ElectronRendererAuthState = {
+  authenticated: boolean
+  user: SessionUser | null
+  selectedOrganization: SessionOrganization | null
+  entitlements: EntitlementSnapshot | null
+}
+
+type TokenSet = {
+  accessToken: string
+  refreshToken: string
+  tokenType: 'Bearer'
+  expiresIn: number
+}
+
+type DesktopExchangeRequest = {
+  clientId: typeof MULTICODE_CLIENT_ID
+  redirectUri: typeof MULTICODE_REDIRECT_URI
+  code: string
+  codeVerifier: string
+}
+
+type SecureRefreshTokenStore = {
+  readRefreshToken(): Promise<string | null>
+  writeRefreshToken(refreshToken: string): Promise<void>
+  clearRefreshToken(): Promise<void>
+}
+
+type PremiumAccessRequest = {
+  featureKey: string
+  amount?: number
+  hostedCost?: boolean
+}
+
+type PremiumAccessDecision = {
+  allowed: boolean
+  featureKey: string
+  value: FeatureValue | undefined
+  status: 'fresh' | 'offline_grace' | 'expired' | 'signed_out' | 'missing' | 'error'
+  message: string
+  limit?: number
+  graceExpiresAt?: string
+}
+
+type MulticodeAuthState = ElectronRendererAuthState & {
+  status: 'checking' | 'signed_out' | 'signed_in' | 'error'
+  entitlementStatus: 'fresh' | 'offline_grace' | 'expired' | 'missing'
+  message: string | null
+  lastRefreshAt: string | null
+  graceExpiresAt: string | null
+}
+
+type CachedEntitlements = {
+  snapshot: EntitlementSnapshot
+  lastRefreshAt: string
+}
+
+type PendingDesktopLogin = {
+  state: string
+  nonce: string
+  codeVerifier: string
+  organizationId: string | null
+  createdAt: number
+}
+
+class MulticodeMultiauthClient {
+  private accessToken: string | null = null
+  private selectedOrganizationId: string | null = null
+  private entitlementCache: EntitlementSnapshot | null = null
+
+  constructor(
+    private readonly refreshTokenStore: SecureRefreshTokenStore
+  ) {}
+
+  async exchangeDesktopCode(input: DesktopExchangeRequest): Promise<TokenSet> {
+    const tokenSet = await this.request<TokenSet>('/api/auth/desktop/exchange', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+    await this.installTokens(tokenSet)
+    return tokenSet
+  }
+
+  async refresh(clientId: typeof MULTICODE_CLIENT_ID = MULTICODE_CLIENT_ID): Promise<TokenSet> {
+    const refreshToken = await this.refreshTokenStore.readRefreshToken()
+    if (!refreshToken) {
+      throw new Error('No desktop refresh token is available.')
+    }
+
+    const tokenSet = await this.request<TokenSet>('/api/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ clientId, refreshToken }),
+    })
+    await this.installTokens(tokenSet)
+    return tokenSet
+  }
+
+  async logout(): Promise<{ loggedOut: true }> {
+    const refreshToken = await this.refreshTokenStore.readRefreshToken()
+    const result = await this.request<{ loggedOut: true }>('/api/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    }).catch(async (error) => {
+      await this.refreshTokenStore.clearRefreshToken()
+      this.accessToken = null
+      this.entitlementCache = null
+      throw error
+    })
+    await this.refreshTokenStore.clearRefreshToken()
+    this.accessToken = null
+    this.entitlementCache = null
+    return result
+  }
+
+  async selectOrganization(organizationId: string): Promise<{ organizationId: string }> {
+    if (!organizationId.trim()) {
+      throw new Error('organizationId is required.')
+    }
+
+    this.selectedOrganizationId = organizationId
+    this.entitlementCache = null
+    return { organizationId }
+  }
+
+  async getEntitlements(options: { forceRefresh?: boolean } = {}): Promise<EntitlementSnapshot> {
+    if (!options.forceRefresh && this.entitlementCache && isSnapshotFresh(this.entitlementCache)) {
+      return this.entitlementCache
+    }
+
+    const snapshot = await this.request<EntitlementSnapshot>(
+      `/api/entitlements?product=${encodeURIComponent(MULTICODE_PRODUCT)}`,
+      { method: 'GET' }
+    )
+
+    if (this.selectedOrganizationId && snapshot.organizationId !== this.selectedOrganizationId) {
+      throw new Error('Selected organization does not match the authenticated desktop session.')
+    }
+
+    this.entitlementCache = snapshot
+    return snapshot
+  }
+
+  async checkUsage(input: UsageRequest): Promise<UsageResult> {
+    return this.usage('/api/usage/check', input)
+  }
+
+  async consumeUsage(input: UsageRequest): Promise<UsageResult> {
+    return this.usage('/api/usage/consume', input)
+  }
+
+  async releaseUsage(input: UsageRequest): Promise<UsageResult> {
+    return this.usage('/api/usage/release', input)
+  }
+
+  private async usage(path: string, input: UsageRequest): Promise<UsageResult> {
+    return this.request<UsageResult>(path, {
+      method: 'POST',
+      body: JSON.stringify({
+        product: MULTICODE_PRODUCT,
+        ...input,
+      }),
+    })
+  }
+
+  private async request<T>(path: string, init: RequestInit): Promise<T> {
+    const headers = new Headers(init.headers)
+    headers.set('accept', 'application/json')
+    if (init.body && !headers.has('content-type')) {
+      headers.set('content-type', 'application/json')
+    }
+    if (this.accessToken) {
+      headers.set('authorization', `Bearer ${this.accessToken}`)
+    }
+
+    const response = await fetch(new URL(path, `${MULTIAUTH_BASE_URL}/`), {
+      ...init,
+      headers,
+    })
+    const payload = await response.json().catch(() => ({})) as unknown
+
+    if (!response.ok) {
+      throw new Error(readMultiauthErrorMessage(payload))
+    }
+
+    return payload as T
+  }
+
+  private async installTokens(tokenSet: TokenSet): Promise<void> {
+    this.accessToken = tokenSet.accessToken
+    await this.refreshTokenStore.writeRefreshToken(tokenSet.refreshToken)
+  }
+}
+
+class ElectronSafeRefreshTokenStore implements SecureRefreshTokenStore {
+  private inMemoryRefreshToken: string | null = null
+
+  private get tokenPath(): string {
+    return join(app.getPath('userData'), 'multiauth-refresh-token.bin')
+  }
+
+  async readRefreshToken(): Promise<string | null> {
+    if (this.inMemoryRefreshToken) return this.inMemoryRefreshToken
+    if (!safeStorage.isEncryptionAvailable()) return null
+
+    try {
+      const encrypted = await readFile(this.tokenPath)
+      const refreshToken = safeStorage.decryptString(encrypted)
+      this.inMemoryRefreshToken = refreshToken
+      return refreshToken
+    } catch {
+      return null
+    }
+  }
+
+  async writeRefreshToken(refreshToken: string): Promise<void> {
+    this.inMemoryRefreshToken = refreshToken
+    if (!safeStorage.isEncryptionAvailable()) return
+
+    await mkdir(dirname(this.tokenPath), { recursive: true })
+    await writeFile(this.tokenPath, safeStorage.encryptString(refreshToken), { mode: 0o600 })
+  }
+
+  async clearRefreshToken(): Promise<void> {
+    this.inMemoryRefreshToken = null
+    await unlink(this.tokenPath).catch(() => {})
+  }
+}
+
+class MulticodeAuthBridge {
+  private readonly refreshTokenStore = new ElectronSafeRefreshTokenStore()
+  private readonly client = new MulticodeMultiauthClient(this.refreshTokenStore)
+  private state: MulticodeAuthState = signedOutAuthState('Checking account.')
+  private pendingLogin: PendingDesktopLogin | null = null
+  private cachedEntitlements: CachedEntitlements | null = null
+
+  async initialize(): Promise<MulticodeAuthState> {
+    this.setState({ ...this.state, status: 'checking', message: 'Checking account.' })
+
+    try {
+      await this.client.refresh(MULTICODE_CLIENT_ID)
+      return this.refreshEntitlements({ forceRefresh: true })
+    } catch {
+      const cache = this.cachedEntitlements ?? await this.readCachedEntitlements()
+      this.cachedEntitlements = cache
+      if (cache) {
+        const entitlementStatus = getEntitlementCacheStatus(cache)
+        this.setState({
+          ...this.state,
+          status: 'signed_in',
+          authenticated: true,
+          entitlements: cache.snapshot,
+          entitlementStatus,
+          message: entitlementStatus === 'offline_grace'
+            ? 'Using cached Multicode access while offline.'
+            : 'Sign in again to refresh Multicode access.',
+          lastRefreshAt: cache.lastRefreshAt,
+          graceExpiresAt: getGraceExpiresAt(cache),
+        })
+        return this.state
+      }
+
+      this.setState(signedOutAuthState(null))
+      return this.state
+    }
+  }
+
+  getState(): MulticodeAuthState {
+    return this.state
+  }
+
+  async login(organizationId?: string | null): Promise<{ state: string; authorizationUrl: string }> {
+    const state = randomBase64Url(24)
+    const nonce = randomBase64Url(24)
+    const codeVerifier = randomBase64Url(48)
+    const codeChallenge = pkceChallenge(codeVerifier)
+    const search = new URLSearchParams({
+      returnTo: 'desktop',
+      product: MULTICODE_PRODUCT,
+      client_id: MULTICODE_CLIENT_ID,
+      redirect_uri: MULTICODE_REDIRECT_URI,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      state,
+      nonce,
+      scope: 'openid profile entitlements:read',
+    })
+    const selectedOrganizationId = organizationId?.trim() || this.state.selectedOrganization?.id
+
+    if (selectedOrganizationId) {
+      search.set('organization_id', selectedOrganizationId)
+    }
+
+    this.pendingLogin = {
+      state,
+      nonce,
+      codeVerifier,
+      organizationId: selectedOrganizationId ?? null,
+      createdAt: Date.now(),
+    }
+    const authorizationUrl = `${MULTIAUTH_BASE_URL}/?${search.toString()}`
+    await shell.openExternal(authorizationUrl)
+    this.setState({ ...this.state, message: 'Complete sign-in in your browser.' })
+
+    return { state, authorizationUrl }
+  }
+
+  async handleCallback(callbackUrl: string): Promise<MulticodeAuthState> {
+    const url = new URL(callbackUrl)
+    if (url.protocol !== 'multicode:' || url.hostname !== 'auth' || url.pathname !== '/callback') {
+      throw new Error('Unsupported Multiauth callback URL.')
+    }
+
+    const code = url.searchParams.get('code')
+    const state = url.searchParams.get('state')
+    const pending = this.pendingLogin
+    if (!code || !state || !pending || pending.state !== state) {
+      throw new Error('Desktop sign-in state did not match.')
+    }
+
+    if (Date.now() - pending.createdAt > 10 * 60 * 1000) {
+      this.pendingLogin = null
+      throw new Error('Desktop sign-in expired. Start sign-in again.')
+    }
+
+    await this.client.exchangeDesktopCode({
+      clientId: MULTICODE_CLIENT_ID,
+      redirectUri: MULTICODE_REDIRECT_URI,
+      code,
+      codeVerifier: pending.codeVerifier,
+    })
+    this.pendingLogin = null
+    if (pending.organizationId) {
+      await this.client.selectOrganization(pending.organizationId)
+    }
+
+    return this.refreshEntitlements({ forceRefresh: true })
+  }
+
+  async logout(): Promise<{ loggedOut: true }> {
+    const result = await this.client.logout()
+    this.pendingLogin = null
+    this.cachedEntitlements = null
+    await unlink(this.cachePath).catch(() => {})
+    this.setState(signedOutAuthState(null))
+    return result
+  }
+
+  async selectOrganization(organizationId: string): Promise<{ organizationId: string }> {
+    const result = await this.client.selectOrganization(organizationId)
+    await this.refreshEntitlements({ forceRefresh: true })
+    return result
+  }
+
+  async refreshEntitlements(options: { forceRefresh?: boolean } = {}): Promise<MulticodeAuthState> {
+    try {
+      const entitlements = await this.client.getEntitlements({ forceRefresh: options.forceRefresh ?? true })
+      const session = await this.readSessionFromEntitlements(entitlements)
+      const cache = {
+        snapshot: entitlements,
+        lastRefreshAt: new Date().toISOString(),
+      }
+
+      this.cachedEntitlements = cache
+      await this.writeCachedEntitlements(cache)
+      this.setState({
+        authenticated: true,
+        user: session.user,
+        selectedOrganization: session.selectedOrganization,
+        entitlements,
+        status: 'signed_in',
+        entitlementStatus: isSnapshotFresh(entitlements) ? 'fresh' : 'expired',
+        message: null,
+        lastRefreshAt: cache.lastRefreshAt,
+        graceExpiresAt: getGraceExpiresAt(cache),
+      })
+    } catch (error) {
+      const cache = this.cachedEntitlements ?? await this.readCachedEntitlements()
+      this.cachedEntitlements = cache
+      if (cache) {
+        const entitlementStatus = getEntitlementCacheStatus(cache)
+        this.setState({
+          ...this.state,
+          authenticated: true,
+          entitlements: cache.snapshot,
+          status: 'signed_in',
+          entitlementStatus,
+          message: entitlementStatus === 'offline_grace'
+            ? 'Using cached Multicode access while offline.'
+            : getErrorMessage(error),
+          lastRefreshAt: cache.lastRefreshAt,
+          graceExpiresAt: getGraceExpiresAt(cache),
+        })
+        return this.state
+      }
+
+      this.setState({
+        ...signedOutAuthState(getErrorMessage(error)),
+        status: this.state.authenticated ? 'error' : 'signed_out',
+      })
+    }
+
+    return this.state
+  }
+
+  async getSession(): Promise<SessionSnapshot> {
+    if (!this.state.authenticated || !this.state.user || !this.state.selectedOrganization) {
+      return { authenticated: false, user: null, selectedOrganization: null }
+    }
+
+    return {
+      authenticated: true,
+      user: this.state.user,
+      selectedOrganization: this.state.selectedOrganization,
+      session: {
+        id: 'desktop',
+        expiresAt: this.state.entitlements?.expiresAt ?? new Date(0).toISOString(),
+      },
+    }
+  }
+
+  async getEntitlements(options?: { forceRefresh?: boolean }): Promise<EntitlementSnapshot> {
+    if (options?.forceRefresh) {
+      await this.refreshEntitlements({ forceRefresh: true })
+    }
+
+    if (!this.state.entitlements) {
+      throw new Error('No Multicode entitlement snapshot is available.')
+    }
+
+    return this.state.entitlements
+  }
+
+  async requireEntitlement(input: PremiumAccessRequest | string): Promise<FeatureValue> {
+    const decision = await this.checkPremiumAccess(
+      typeof input === 'string' ? { featureKey: input } : input
+    )
+
+    if (!decision.allowed) {
+      throw new Error(decision.message)
+    }
+
+    return decision.value ?? true
+  }
+
+  async checkPremiumAccess(input: PremiumAccessRequest): Promise<PremiumAccessDecision> {
+    if (!this.state.authenticated) {
+      return denied(input.featureKey, undefined, 'signed_out', 'Sign in to unlock this Multicode feature.')
+    }
+
+    const entitlements = this.state.entitlements
+    if (!entitlements || entitlements.schemaVersion !== 1 || entitlements.product !== MULTICODE_PRODUCT) {
+      return denied(input.featureKey, undefined, 'missing', 'Multicode access could not be verified.')
+    }
+
+    const cache = this.cachedEntitlements ?? {
+      snapshot: entitlements,
+      lastRefreshAt: this.state.lastRefreshAt ?? new Date(0).toISOString(),
+    }
+    const cacheStatus = getEntitlementCacheStatus(cache)
+    const value = entitlementValue(entitlements, input.featureKey)
+    const limit = typeof value === 'number' ? value : undefined
+
+    if (cacheStatus === 'expired') {
+      return denied(input.featureKey, value, 'expired', 'Multicode premium access needs a fresh entitlement check.', limit)
+    }
+
+    if (cacheStatus === 'offline_grace') {
+      if (input.hostedCost || !isAllowedDuringDesktopGrace(input.featureKey)) {
+        return denied(
+          input.featureKey,
+          value,
+          'offline_grace',
+          'This premium action needs online entitlement verification.',
+          limit,
+          getGraceExpiresAt(cache)
+        )
+      }
+    }
+
+    if (typeof value === 'boolean' && value) {
+      return allowed(input.featureKey, value, cacheStatus, getGraceExpiresAt(cache))
+    }
+
+    if (typeof value === 'number' && value > 0 && (input.amount === undefined || input.amount <= value)) {
+      return allowed(input.featureKey, value, cacheStatus, getGraceExpiresAt(cache), value)
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+      return allowed(input.featureKey, value, cacheStatus, getGraceExpiresAt(cache))
+    }
+
+    return denied(
+      input.featureKey,
+      value,
+      'missing',
+      'Upgrade this organization or switch to one with Multicode premium access.',
+      limit
+    )
+  }
+
+  async checkUsage(input: UsageRequest): Promise<UsageResult> {
+    return this.client.checkUsage(input)
+  }
+
+  async consumeUsage(input: UsageRequest): Promise<UsageResult> {
+    return this.client.consumeUsage(input)
+  }
+
+  async releaseUsage(input: UsageRequest): Promise<UsageResult> {
+    return this.client.releaseUsage(input)
+  }
+
+  async openUpgrade(reason?: string): Promise<{ opened: true; url: string }> {
+    const search = new URLSearchParams({
+      returnTo: 'checkout',
+      product: MULTICODE_PRODUCT,
+    })
+
+    if (reason?.trim()) search.set('reason', reason.trim())
+    if (this.state.selectedOrganization?.id) {
+      search.set('organizationId', this.state.selectedOrganization.id)
+    }
+
+    const url = `${MULTIAUTH_BASE_URL}/?${search.toString()}`
+    await shell.openExternal(url)
+    return { opened: true, url }
+  }
+
+  private async readSessionFromEntitlements(entitlements: EntitlementSnapshot): Promise<ElectronRendererAuthState> {
+    if (this.state.authenticated && this.state.selectedOrganization?.id === entitlements.organizationId) {
+      return {
+        authenticated: true,
+        user: this.state.user,
+        selectedOrganization: this.state.selectedOrganization,
+        entitlements,
+      }
+    }
+
+    return {
+      authenticated: true,
+      user: {
+        id: entitlements.userId,
+        email: null,
+        displayName: null,
+      },
+      selectedOrganization: {
+        id: entitlements.organizationId,
+        name: entitlements.organizationId,
+        slug: entitlements.organizationId,
+        type: 'team',
+      },
+      entitlements,
+    }
+  }
+
+  private get cachePath(): string {
+    return join(app.getPath('userData'), 'multiauth-entitlements-cache.json')
+  }
+
+  private async readCachedEntitlements(): Promise<CachedEntitlements | null> {
+    try {
+      const payload = JSON.parse(await readFile(this.cachePath, 'utf8')) as Partial<CachedEntitlements>
+      if (!payload.snapshot || typeof payload.lastRefreshAt !== 'string') return null
+      if (!isValidEntitlementSnapshot(payload.snapshot)) return null
+      return {
+        snapshot: payload.snapshot,
+        lastRefreshAt: payload.lastRefreshAt,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  private async writeCachedEntitlements(cache: CachedEntitlements): Promise<void> {
+    await mkdir(dirname(this.cachePath), { recursive: true })
+    await writeFile(this.cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
+  }
+
+  private setState(state: MulticodeAuthState): void {
+    this.state = state
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('auth:state-changed', state)
+      }
+    }
+  }
+}
+
+const multicodeAuth = new MulticodeAuthBridge()
+
+function signedOutAuthState(message: string | null): MulticodeAuthState {
+  return {
+    authenticated: false,
+    user: null,
+    selectedOrganization: null,
+    entitlements: null,
+    status: 'signed_out',
+    entitlementStatus: 'missing',
+    message,
+    lastRefreshAt: null,
+    graceExpiresAt: null,
+  }
+}
+
+function randomBase64Url(byteLength: number): string {
+  return randomBytes(byteLength).toString('base64url')
+}
+
+function pkceChallenge(codeVerifier: string): string {
+  return createHash('sha256').update(codeVerifier).digest('base64url')
+}
+
+function isValidEntitlementSnapshot(input: unknown): input is EntitlementSnapshot {
+  if (!input || typeof input !== 'object') return false
+  const snapshot = input as Partial<EntitlementSnapshot>
+  return snapshot.product === MULTICODE_PRODUCT
+    && snapshot.schemaVersion === 1
+    && typeof snapshot.userId === 'string'
+    && typeof snapshot.organizationId === 'string'
+    && typeof snapshot.features === 'object'
+    && typeof snapshot.limits === 'object'
+    && typeof snapshot.issuedAt === 'string'
+    && typeof snapshot.expiresAt === 'string'
+}
+
+function isSnapshotFresh(snapshot: EntitlementSnapshot): boolean {
+  const expiresAt = Date.parse(snapshot.expiresAt)
+  return Number.isFinite(expiresAt) && expiresAt > Date.now()
+}
+
+function getGraceExpiresAt(cache: CachedEntitlements): string | null {
+  const snapshotExpiresAt = Date.parse(cache.snapshot.expiresAt)
+  const lastRefreshAt = Date.parse(cache.lastRefreshAt)
+  if (!Number.isFinite(snapshotExpiresAt) || !Number.isFinite(lastRefreshAt)) return null
+
+  const graceExpiresAt = Math.min(
+    snapshotExpiresAt + ENTITLEMENT_GRACE_MS,
+    lastRefreshAt + ENTITLEMENT_GRACE_MS
+  )
+  return new Date(graceExpiresAt).toISOString()
+}
+
+function getEntitlementCacheStatus(cache: CachedEntitlements): 'fresh' | 'offline_grace' | 'expired' {
+  if (isSnapshotFresh(cache.snapshot)) return 'fresh'
+
+  const graceExpiresAt = getGraceExpiresAt(cache)
+  if (graceExpiresAt && Date.parse(graceExpiresAt) > Date.now()) {
+    return 'offline_grace'
+  }
+
+  return 'expired'
+}
+
+function entitlementValue(snapshot: EntitlementSnapshot, featureKey: string): FeatureValue | undefined {
+  if (featureKey in snapshot.features) return snapshot.features[featureKey]
+  if (featureKey in snapshot.limits) return snapshot.limits[featureKey]
+  return undefined
+}
+
+function isAllowedDuringDesktopGrace(featureKey: string): boolean {
+  return featureKey === 'multicode.swarm_mode' || featureKey === 'multicode.max_agent_slots'
+}
+
+function allowed(
+  featureKey: string,
+  value: FeatureValue,
+  status: 'fresh' | 'offline_grace',
+  graceExpiresAt: string | null,
+  limit?: number
+): PremiumAccessDecision {
+  return {
+    allowed: true,
+    featureKey,
+    value,
+    status,
+    message: status === 'offline_grace'
+      ? 'Using cached Multicode access while offline.'
+      : 'Access granted.',
+    ...(limit !== undefined ? { limit } : {}),
+    ...(graceExpiresAt ? { graceExpiresAt } : {}),
+  }
+}
+
+function denied(
+  featureKey: string,
+  value: FeatureValue | undefined,
+  status: PremiumAccessDecision['status'],
+  message: string,
+  limit?: number,
+  graceExpiresAt?: string | null
+): PremiumAccessDecision {
+  return {
+    allowed: false,
+    featureKey,
+    value,
+    status,
+    message,
+    ...(limit !== undefined ? { limit } : {}),
+    ...(graceExpiresAt ? { graceExpiresAt } : {}),
+  }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function readMultiauthErrorMessage(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return 'Multiauth request failed.'
+  const error = (payload as { error?: unknown }).error
+  if (!error || typeof error !== 'object') return 'Multiauth request failed.'
+  const message = (error as { message?: unknown }).message
+  return typeof message === 'string' && message.trim() ? message : 'Multiauth request failed.'
+}
+
+async function parseAuthCallbackFromArgv(argv: string[]): Promise<void> {
+  const callbackUrl = argv.find((arg) => /^multicode:\/\/auth\/callback/i.test(arg))
+  if (!callbackUrl) return
+
+  try {
+    await multicodeAuth.handleCallback(callbackUrl)
+  } catch (error) {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('auth:callback-error', getErrorMessage(error))
+      }
+    }
+  }
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -1151,9 +1957,35 @@ ipcMain.handle('window:get-state', (event) => {
   return win ? getWindowState(win) : null
 })
 
+ipcMain.handle('auth:get-state', () => multicodeAuth.initialize())
+
+ipcMain.handle('auth:login', (_, organizationId?: string | null) => multicodeAuth.login(organizationId))
+
+ipcMain.handle('auth:logout', () => multicodeAuth.logout())
+
+ipcMain.handle('auth:refresh-entitlements', () => multicodeAuth.refreshEntitlements({ forceRefresh: true }))
+
+ipcMain.handle('auth:select-organization', (_, organizationId: string) => multicodeAuth.selectOrganization(organizationId))
+
+ipcMain.handle('auth:open-upgrade', (_, reason?: string) => multicodeAuth.openUpgrade(reason))
+
+ipcMain.handle('auth:check-premium-access', (_, input: PremiumAccessRequest) => multicodeAuth.checkPremiumAccess(input))
+
+ipcMain.handle('auth:get-session', () => multicodeAuth.getSession())
+
+ipcMain.handle('auth:get-entitlements', (_, options?: { forceRefresh?: boolean }) => multicodeAuth.getEntitlements(options))
+
+ipcMain.handle('auth:require-entitlement', (_, input: PremiumAccessRequest | string) => multicodeAuth.requireEntitlement(input))
+
+ipcMain.handle('auth:check-usage', (_, input: UsageRequest) => multicodeAuth.checkUsage(input))
+
+ipcMain.handle('auth:consume-usage', (_, input: UsageRequest) => multicodeAuth.consumeUsage(input))
+
+ipcMain.handle('auth:release-usage', (_, input: UsageRequest) => multicodeAuth.releaseUsage(input))
+
 ipcMain.handle(
   'terminal:spawn',
-  (event, {
+  async (event, {
     sessionId,
     cols,
     rows,
@@ -1187,6 +2019,19 @@ ipcMain.handle(
 
     try {
       const workingDirectory = cwd || process.cwd()
+      if (swarmStatePath && (kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
+        // Local desktop gates improve UX only; hosted/cloud/model APIs must still
+        // enforce Multiauth entitlements before any cost-bearing work starts.
+        const accessDecision = await multicodeAuth.checkPremiumAccess({
+          featureKey: 'multicode.swarm_mode',
+        })
+        if (!accessDecision.allowed) {
+          sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, accessDecision.message)
+          sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, 1)
+          return
+        }
+      }
+
       const { command, args, cwd: launchCwd, initialInput, env } = shellOnly
         ? getPlainShellLaunchConfig(workingDirectory, swarmStatePath)
         : getShellLaunchConfig(
@@ -1703,15 +2548,36 @@ async function buildCopyBaseName(
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
+const singleInstanceLock = app.requestSingleInstanceLock()
+if (!singleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_, argv) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+    void parseAuthCallbackFromArgv(argv)
+  })
+}
+
+app.on('open-url', (event, callbackUrl) => {
+  event.preventDefault()
+  void parseAuthCallbackFromArgv([callbackUrl])
+})
+
 app.whenReady().then(() => {
   if (process.platform === 'win32') {
     app.setAppUserModelId(
       process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.multicode'
     )
   }
+  app.setAsDefaultProtocolClient('multicode')
 
   Menu.setApplicationMenu(createAppMenu())
   createWindow()
+  void parseAuthCallbackFromArgv(process.argv)
 
   // Check for updates in production only (no update server configured = silent no-op)
   if (!process.env['ELECTRON_RENDERER_URL']) {

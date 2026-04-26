@@ -58,6 +58,8 @@ interface WorkspaceStore {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   appSettings: AppSettings
+  authState: MulticodeAuthState
+  setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
@@ -109,6 +111,18 @@ const defaultAppSettings = (): AppSettings => ({
   },
   lastSelectedCli: 'claude',
   lastSelectedSpecialist: 'architect',
+})
+
+const defaultAuthState = (): MulticodeAuthState => ({
+  authenticated: false,
+  user: null,
+  selectedOrganization: null,
+  entitlements: null,
+  status: 'checking',
+  entitlementStatus: 'missing',
+  message: null,
+  lastRefreshAt: null,
+  graceExpiresAt: null,
 })
 
 const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'): AgentState => ({
@@ -385,6 +399,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       workspaces: [],
       activeWorkspaceId: null,
       appSettings: defaultAppSettings(),
+      authState: defaultAuthState(),
+
+      setAuthState: (authState) =>
+        set((state) => {
+          state.authState = authState
+        }),
 
       setCliRuntime: (cli, update) =>
         set((state) => {

@@ -11,6 +11,7 @@ interface Props {
 }
 
 type MonacoApi = Parameters<OnMount>[1]
+const EDITOR_FOCUS_EVENT = 'multicode:focus-editor'
 
 export default function EditorPanel({ workspaceId }: Props) {
   const editorState = useWorkspaceStore(
@@ -73,6 +74,22 @@ export default function EditorPanel({ workspaceId }: Props) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab, () => cycleOpenFiles(1))
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => cycleOpenFiles(-1))
   }
+
+  useEffect(() => {
+    if (showPreview) return
+
+    const handleFocusRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string }>).detail
+      if (detail?.workspaceId !== workspaceId) return
+
+      window.requestAnimationFrame(() => {
+        editorRef.current?.focus()
+      })
+    }
+
+    window.addEventListener(EDITOR_FOCUS_EVENT, handleFocusRequest)
+    return () => window.removeEventListener(EDITOR_FOCUS_EVENT, handleFocusRequest)
+  }, [showPreview, workspaceId])
 
   const showEditorContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
     if (showPreview || !editorRef.current) return

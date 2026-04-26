@@ -133,6 +133,95 @@ type SwarmArtifactListOptions = {
   kind?: SwarmArtifactKind
   status?: SwarmArtifactStatus
 }
+type SessionUser = {
+  id: string
+  email: string | null
+  displayName: string | null
+}
+type SessionOrganization = {
+  id: string
+  name: string
+  slug: string
+  type: 'personal' | 'team' | 'enterprise'
+}
+type FeatureValue = boolean | number | string
+type EntitlementSnapshot = {
+  userId: string
+  organizationId: string
+  product: 'multicode'
+  roles: string[]
+  features: Record<string, FeatureValue>
+  limits: Record<string, number>
+  sources: Record<string, string>
+  plan: {
+    code: string
+    status: string
+  }
+  issuedAt: string
+  expiresAt: string
+  schemaVersion: 1
+}
+type MulticodeAuthState = {
+  authenticated: boolean
+  user: SessionUser | null
+  selectedOrganization: SessionOrganization | null
+  entitlements: EntitlementSnapshot | null
+  status: 'checking' | 'signed_out' | 'signed_in' | 'error'
+  entitlementStatus: 'fresh' | 'offline_grace' | 'expired' | 'missing'
+  message: string | null
+  lastRefreshAt: string | null
+  graceExpiresAt: string | null
+}
+type PremiumAccessRequest = {
+  featureKey: string
+  amount?: number
+  hostedCost?: boolean
+}
+type PremiumAccessDecision = {
+  allowed: boolean
+  featureKey: string
+  value: FeatureValue | undefined
+  status: 'fresh' | 'offline_grace' | 'expired' | 'signed_out' | 'missing' | 'error'
+  message: string
+  limit?: number
+  graceExpiresAt?: string
+}
+type UsageRequest = {
+  featureKey: string
+  amount?: number
+  actorType?: 'user' | 'organization' | 'api_key'
+  actorId?: string
+  idempotencyKey: string
+  window?: 'day' | 'month'
+}
+type UsageResult = {
+  allowed: boolean
+  featureKey: string
+  amount: number
+  used: number
+  remaining: number | null
+  limit: number | null
+  idempotencyKey: string
+  windowStart: string
+  windowEnd: string
+  replayed: boolean
+  reason: 'allowed' | 'missing_entitlement' | 'limit_exceeded' | 'released'
+}
+type SessionSnapshot =
+  | {
+    authenticated: true
+    user: SessionUser
+    selectedOrganization: SessionOrganization
+    session: {
+      id: string
+      expiresAt: string
+    }
+  }
+  | {
+    authenticated: false
+    user: null
+    selectedOrganization: null
+  }
 
 declare interface Window {
   api: {
@@ -144,6 +233,21 @@ declare interface Window {
     windowClose: () => Promise<void>
     getWindowState: () => Promise<WindowState | null>
     onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
+    authGetState: () => Promise<MulticodeAuthState>
+    authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
+    authLogout: () => Promise<{ loggedOut: true }>
+    authRefreshEntitlements: () => Promise<MulticodeAuthState>
+    authSelectOrganization: (organizationId: string) => Promise<{ organizationId: string }>
+    authOpenUpgrade: (reason?: string) => Promise<{ opened: true; url: string }>
+    authCheckPremiumAccess: (input: PremiumAccessRequest) => Promise<PremiumAccessDecision>
+    authGetSession: () => Promise<SessionSnapshot>
+    authGetEntitlements: (options?: { forceRefresh?: boolean }) => Promise<EntitlementSnapshot>
+    authRequireEntitlement: (input: string | PremiumAccessRequest) => Promise<FeatureValue>
+    authCheckUsage: (input: UsageRequest) => Promise<UsageResult>
+    authConsumeUsage: (input: UsageRequest) => Promise<UsageResult>
+    authReleaseUsage: (input: UsageRequest) => Promise<UsageResult>
+    onAuthStateChanged: (cb: (state: MulticodeAuthState) => void) => () => void
+    onAuthCallbackError: (cb: (message: string) => void) => () => void
 
     // File system
     readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>
