@@ -237,7 +237,6 @@ export default function WorkspaceManager() {
     })
     const removeErrorListener = window.api.onAuthCallbackError((message) => {
       setAuthMessage(message)
-      setAccountOpen(true)
       publishDiagnosticSync({
         level: 'error',
         source: 'auth',
@@ -661,7 +660,11 @@ export default function WorkspaceManager() {
   }
 
   const startLogin = async () => {
-    setAuthMessage('Complete sign-in in your browser.')
+    setSessionsOpen(false)
+    setCliMenuOpen(false)
+    setSpecialistMenuOpen(false)
+    setNotificationsOpen(false)
+    setAccountOpen(false)
     await window.api.authLogin(authState.selectedOrganization?.id ?? null)
   }
 
@@ -938,40 +941,44 @@ export default function WorkspaceManager() {
           </div>
 
           <div ref={accountRef} className="relative inline-flex">
-            <button
-              type="button"
-              onClick={() => {
-                setAccountOpen((open) => !open)
-                setSessionsOpen(false)
-                setCliMenuOpen(false)
-                setSpecialistMenuOpen(false)
-                setNotificationsOpen(false)
-              }}
-              className={`inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] font-semibold transition-colors ${
-                accountOpen
-                  ? 'border-[#303139] bg-[#17181d] text-[#ececee]'
-                  : authState.authenticated
-                    ? 'border-[#25392c] bg-[#102016] text-[#b7f5c8] hover:border-[#30d158]/50 hover:bg-[#142819]'
-                    : 'border-[#24252b] bg-[#111216] text-[#9a9aa2] hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc]'
-              }`}
-              aria-haspopup="menu"
-              aria-expanded={accountOpen}
-            >
-              <AccountIcon className="h-4 w-4" />
-              <span className="max-w-[140px] truncate">
-                {authState.authenticated
-                  ? authState.selectedOrganization?.name ?? 'Signed in'
-                  : authState.status === 'checking'
-                    ? 'Checking'
-                    : 'Sign in'}
-              </span>
-            </button>
+            {authState.authenticated ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountOpen((open) => !open)
+                  setSessionsOpen(false)
+                  setCliMenuOpen(false)
+                  setSpecialistMenuOpen(false)
+                  setNotificationsOpen(false)
+                }}
+                className={`inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] font-semibold transition-colors ${
+                  accountOpen
+                    ? 'border-[#303139] bg-[#17181d] text-[#ececee]'
+                    : 'border-[#25392c] bg-[#102016] text-[#b7f5c8] hover:border-[#30d158]/50 hover:bg-[#142819]'
+                }`}
+                aria-haspopup="menu"
+                aria-expanded={accountOpen}
+              >
+                <AccountIcon className="h-4 w-4" />
+                <span className="max-w-[140px] truncate">
+                  {authState.selectedOrganization?.name ?? 'Signed in'}
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void startLogin()}
+                disabled={authState.status === 'checking'}
+                className="inline-flex h-8 items-center rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:opacity-60 disabled:hover:border-[#24252b] disabled:hover:bg-[#111216]"
+              >
+                {authState.status === 'checking' ? 'Checking' : 'Sign in'}
+              </button>
+            )}
 
-            {accountOpen ? (
+            {authState.authenticated && accountOpen ? (
               <AccountPopover
                 authState={authState}
                 message={authMessage}
-                onLogin={() => void startLogin()}
                 onRefresh={() => void refreshAuthState()}
                 onLogout={() => void logout()}
                 onSwitchOrganization={() => void switchOrganization()}
@@ -1690,7 +1697,6 @@ function closeActiveLayoutTab(workspaceId: string): boolean {
 function AccountPopover({
   authState,
   message,
-  onLogin,
   onRefresh,
   onLogout,
   onSwitchOrganization,
@@ -1698,7 +1704,6 @@ function AccountPopover({
 }: {
   authState: MulticodeAuthState
   message: string | null
-  onLogin: () => void
   onRefresh: () => void
   onLogout: () => void
   onSwitchOrganization: () => void
@@ -1708,48 +1713,28 @@ function AccountPopover({
     ? authState.entitlements.plan.code
     : authState.entitlementStatus === 'offline_grace'
       ? 'offline grace'
-      : authState.entitlements?.plan.status ?? 'free'
-  const swarmMode = authState.entitlements?.features['multicode.swarm_mode'] === true
-  const slotLimit = authState.entitlements?.limits['multicode.max_agent_slots']
-    ?? (typeof authState.entitlements?.features['multicode.max_agent_slots'] === 'number'
-      ? authState.entitlements.features['multicode.max_agent_slots']
-      : 1)
+      : authState.entitlements?.plan.status ?? null
 
   return (
     <div
       role="menu"
-      className="absolute right-0 top-9 z-50 w-80 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+      className="absolute right-0 top-9 z-50 w-72 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
     >
       <div className="space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-[#ececee]">
-              {authState.authenticated
-                ? authState.user?.displayName ?? authState.user?.email ?? 'Multicode account'
-                : 'Signed out'}
+              {authState.user?.displayName ?? authState.user?.email ?? 'Multicode account'}
             </div>
             <div className="mt-1 truncate text-[12px] text-[#8a8a92]">
               {authState.selectedOrganization?.name ?? 'No organization selected'}
             </div>
           </div>
-          <span className="shrink-0 rounded border border-[#303139] bg-[#111216] px-2 py-1 text-[11px] font-semibold text-[#d7d7dc]">
-            {planLabel}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 text-[12px]">
-          <AccessMetric label="Swarm" value={swarmMode ? 'Unlocked' : 'Locked'} active={swarmMode} />
-          <AccessMetric label="Agents" value={String(slotLimit)} active={slotLimit > 1} />
-          <AccessMetric
-            label="Frontier"
-            value={authState.entitlements?.features['multicode.frontier_models'] === true ? 'Unlocked' : 'Locked'}
-            active={authState.entitlements?.features['multicode.frontier_models'] === true}
-          />
-          <AccessMetric
-            label="Cloud"
-            value={authState.entitlements?.features['multicode.cloud_agents'] === true ? 'Online' : 'Locked'}
-            active={authState.entitlements?.features['multicode.cloud_agents'] === true}
-          />
+          {planLabel ? (
+            <span className="shrink-0 rounded border border-[#303139] bg-[#111216] px-2 py-1 text-[11px] font-semibold text-[#d7d7dc]">
+              {planLabel}
+            </span>
+          ) : null}
         </div>
 
         {message || authState.entitlementStatus === 'offline_grace' ? (
@@ -1759,58 +1744,35 @@ function AccountPopover({
         ) : null}
 
         <div className="flex flex-wrap gap-2 pt-1">
-          {authState.authenticated ? (
-            <>
-              <button
-                type="button"
-                onClick={onRefresh}
-                className="h-8 rounded-md border border-[#303139] bg-[#17181d] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#1f2025]"
-              >
-                Refresh
-              </button>
-              <button
-                type="button"
-                onClick={onSwitchOrganization}
-                className="h-8 rounded-md border border-[#303139] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#17181d]"
-              >
-                Switch org
-              </button>
-              <button
-                type="button"
-                onClick={onUpgrade}
-                className="h-8 rounded-md border border-[#ececee] bg-[#ececee] px-3 text-[12px] font-semibold text-[#08090b] hover:bg-white"
-              >
-                Upgrade
-              </button>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="h-8 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-[12px] font-semibold text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#d7d7dc]"
-              >
-                Sign out
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={onLogin}
-              className="h-8 rounded-md border border-[#ececee] bg-[#ececee] px-3 text-[12px] font-semibold text-[#08090b] hover:bg-white"
-            >
-              Sign in
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="h-8 rounded-md border border-[#303139] bg-[#17181d] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#1f2025]"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={onSwitchOrganization}
+            className="h-8 rounded-md border border-[#303139] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#17181d]"
+          >
+            Switch org
+          </button>
+          <button
+            type="button"
+            onClick={onUpgrade}
+            className="h-8 rounded-md border border-[#ececee] bg-[#ececee] px-3 text-[12px] font-semibold text-[#08090b] hover:bg-white"
+          >
+            Upgrade
+          </button>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="h-8 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-[12px] font-semibold text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#d7d7dc]"
+          >
+            Sign out
+          </button>
         </div>
-      </div>
-    </div>
-  )
-}
-
-function AccessMetric({ label, value, active }: { label: string; value: string; active: boolean }) {
-  return (
-    <div className="rounded border border-[#24252b] bg-[#111216] px-2.5 py-2">
-      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#5a5a63]">{label}</div>
-      <div className={`mt-1 truncate text-[12px] font-semibold ${active ? 'text-[#b7f5c8]' : 'text-[#9a9aa2]'}`}>
-        {value}
       </div>
     </div>
   )

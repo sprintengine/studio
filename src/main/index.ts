@@ -2770,7 +2770,7 @@ app.whenReady().then(() => {
       process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.multicode'
     )
   }
-  app.setAsDefaultProtocolClient('multicode')
+  registerMulticodeProtocol()
 
   Menu.setApplicationMenu(createAppMenu())
   createWindow()
@@ -2791,3 +2791,13 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+
+function registerMulticodeProtocol(): void {
+  if (process.defaultApp) {
+    const appEntry = process.argv[1] ? resolve(process.argv[1]) : app.getAppPath()
+    app.setAsDefaultProtocolClient('multicode', process.execPath, [appEntry])
+    return
+  }
+
+  app.setAsDefaultProtocolClient('multicode')
+}
