@@ -15,6 +15,7 @@ import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '..
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
+import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/swarmHandoff'
 import { slugifySwarmName } from '../../utils/swarmStateFile'
 import TemplateSelector from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
@@ -512,7 +513,7 @@ export default function WorkspaceManager() {
       return
     }
 
-    const prompt = buildSwarmHandoffPrompt(teamSlug)
+    const prompt = buildCurrentContextSwarmHandoffPrompt(teamSlug)
     await window.api.terminalWrite(
       target.sessionId,
       `\x1b[200~${prompt.replace(/\r?\n/g, '\n')}\x1b[201~\r`
@@ -1356,27 +1357,6 @@ function getActiveCliSession(
   ) ?? findRunningSession(terminalSessions, (candidate) =>
     candidate.workspaceId === workspace.id && candidate.kind === 'terminal'
   )
-}
-
-function buildSwarmHandoffPrompt(teamSlug: string): string {
-  return [
-    'Convert your current plan and context into a swarm handoff.',
-    `Team name: \`${teamSlug}\``,
-    'Do not run `swarm init`. Do not create task cards. Do not start implementation.',
-    'First derive a concise one-sentence swarm goal from your current plan.',
-    'Then write a complete markdown handover and pass it to the swarm tool as stdin. The Python tool must create `handover.md`; do not write that file directly.',
-    'Use this command shape:',
-    '```bash',
-    `swarm handover --name ${JSON.stringify(teamSlug)} --goal "<derived one-sentence goal>" --handover-stdin <<'SWARM_HANDOVER'`,
-    '# Handover',
-    '',
-    '<your complete markdown handover>',
-    'SWARM_HANDOVER',
-    '```',
-    'If the team already exists, stop and report that to the user instead of overwriting it.',
-    'The handover must include confirmed decisions, open questions, implementation approach, likely files to touch, task breakdown suggestions, risks, and validation notes.',
-    `When done, tell the user to open or create a swarm workspace and select team \`${teamSlug}\`.`,
-  ].join('\n\n')
 }
 
 function findPanelTab(model: Model, component: WorkspacePanelComponent): TabNode | null {

@@ -183,12 +183,10 @@ async function superviseWorkspace(
 
   const runtimeAgents = Object.values(swarmState.swarmAgents)
   if (runtimeAgents.some((agent) => agent.status === 'needs_input')) {
-    useWorkspaceStore.getState().setSwarmAutoEnabled(workspace.id, false)
     return
   }
 
   if (swarmState.tasks.some((task) => task.status === 'needs_input')) {
-    useWorkspaceStore.getState().setSwarmAutoEnabled(workspace.id, false)
     return
   }
 

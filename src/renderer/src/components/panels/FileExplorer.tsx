@@ -3,6 +3,11 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getGitEntry, normalizePathKey, useGitStatus } from '../../hooks/useGitStatus'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { focusOrAddEditorBesideExplorer } from '../../utils/modelRegistry'
+import {
+  createPlanSourcedSwarmWorkspace,
+  PlanSourcedSwarmWorkspaceError,
+} from '../../utils/swarmWorkspaceCreation'
+import { slugifySwarmName } from '../../utils/swarmStateFile'
 
 type Entry = {
   name: string
@@ -25,6 +30,35 @@ type ExplorerClipboard = {
 type RenameDraft = {
   entry: Entry
   value: string
+}
+
+type FuturePlanDialogError =
+  | 'missing-team'
+  | 'invalid-team'
+  | 'missing-goal'
+  | 'invalid-source'
+  | 'team-exists'
+  | 'read-failure'
+  | 'creation-failure'
+
+type FuturePlanDraft = {
+  sourcePath: string
+  sourceRelativePath: string
+  sourceContent: string | null
+  teamName: string
+  goal: string
+  error: FuturePlanDialogError | null
+  creating: boolean
+}
+
+const futurePlanErrorMessage: Record<FuturePlanDialogError, string> = {
+  'missing-team': 'Enter a team name.',
+  'invalid-team': 'Use a team name that can produce a swarm folder name.',
+  'missing-goal': 'Enter a goal.',
+  'invalid-source': 'Choose a markdown file in future-plans.',
+  'team-exists': 'A swarm team with this name already exists.',
+  'read-failure': 'Could not read the selected plan.',
+  'creation-failure': 'Could not create the swarm workspace.',
 }
 
 function toEntries(raw: { name: string; isDir: boolean }[], parent: string): Entry[] {
@@ -215,6 +249,57 @@ function relativeChildPath(parentPath: string, childPath: string): string | null
   return childPath.slice(parentPath.length + separator.length)
 }
 
+function repoRelativePath(rootPath: string, filePath: string): string | null {
+  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normalizedFile = filePath.replace(/\\/g, '/')
+  const rootKey = normalizePathKey(normalizedRoot)
+  const fileKey = normalizePathKey(normalizedFile)
+  if (fileKey === rootKey || !fileKey.startsWith(`${rootKey}/`)) return null
+  return normalizedFile.slice(normalizedRoot.length + 1)
+}
+
+function futurePlanRelativePath(rootPath: string, entry: Entry): string | null {
+  if (entry.isDir || entry.gitDeleted || !/\.md$/i.test(entry.name)) return null
+
+  const relativePath = repoRelativePath(rootPath, entry.path)
+  if (!relativePath) return null
+
+  const normalizedRelativePath = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  if (!normalizePathKey(normalizedRelativePath).startsWith('future-plans/')) return null
+
+  return normalizedRelativePath
+}
+
+function titleCasePlanName(value: string): string {
+  return value
+    .split(/[-_\s]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ')
+}
+
+function markdownTitle(content: string): string | null {
+  const heading = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#(?!#)\s+\S/.test(line))
+
+  return heading?.replace(/^#\s+/, '').trim() || null
+}
+
+function planBasename(entryName: string): string {
+  return entryName.replace(/\.md$/i, '')
+}
+
+function swarmSlugCandidate(teamName: string): string {
+  return teamName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 function mergeGitDeletedEntries(entries: Entry[], dirPath: string, gitStatus: GitStatusSnapshot | null): Entry[] {
   if (!gitStatus) return entries
 
@@ -388,8 +473,10 @@ function ExplorerTree({
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Entry[]>([])
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
+  const [futurePlanDraft, setFuturePlanDraft] = useState<FuturePlanDraft | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
   const committingRenameRef = useRef(false)
+  const futurePlanTeamInputRef = useRef<HTMLInputElement>(null)
   const latestExpandedPathsRef = useRef<Record<string, boolean>>({})
   const latestSearchQueryRef = useRef('')
   const latestSearchingRef = useRef(false)
@@ -428,6 +515,14 @@ function ExplorerTree({
       renameInputRef.current?.select()
     }, 0)
   }, [renamingPath])
+
+  useEffect(() => {
+    if (!futurePlanDraft) return
+    window.setTimeout(() => {
+      futurePlanTeamInputRef.current?.focus()
+      futurePlanTeamInputRef.current?.select()
+    }, 0)
+  }, [futurePlanDraft?.sourcePath])
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     const raw = await window.api.readdir(dirPath)
@@ -642,6 +737,125 @@ function ExplorerTree({
     }
   }
 
+  const validateFuturePlanDraft = (draft: FuturePlanDraft): FuturePlanDialogError | null => {
+    if (!draft.teamName.trim()) return 'missing-team'
+    if (!swarmSlugCandidate(draft.teamName)) return 'invalid-team'
+    if (!draft.goal.trim()) return 'missing-goal'
+    if (draft.sourceContent === null || !repoRelativePath(rootPath, draft.sourcePath)?.match(/^future-plans\/.+\.md$/i)) return 'invalid-source'
+    return null
+  }
+
+  const updateFuturePlanTeamName = (teamName: string) => {
+    setFuturePlanDraft((current) => {
+      if (!current) return current
+
+      const error = !teamName.trim()
+        ? 'missing-team'
+        : !swarmSlugCandidate(teamName)
+          ? 'invalid-team'
+          : ['missing-team', 'invalid-team', 'team-exists', 'creation-failure'].includes(current.error ?? '')
+            ? null
+            : current.error
+
+      return { ...current, teamName, error }
+    })
+  }
+
+  const updateFuturePlanGoal = (goal: string) => {
+    setFuturePlanDraft((current) => {
+      if (!current) return current
+
+      const error = !goal.trim()
+        ? 'missing-goal'
+        : ['missing-goal', 'creation-failure'].includes(current.error ?? '')
+          ? null
+          : current.error
+
+      return { ...current, goal, error }
+    })
+  }
+
+  const openFuturePlanDialog = async (entry: Entry) => {
+    const sourceRelativePath = futurePlanRelativePath(rootPath, entry)
+    if (!sourceRelativePath) {
+      setFuturePlanDraft({
+        sourcePath: entry.path,
+        sourceRelativePath: repoRelativePath(rootPath, entry.path) ?? entry.name,
+        sourceContent: null,
+        teamName: '',
+        goal: '',
+        error: 'invalid-source',
+        creating: false,
+      })
+      return
+    }
+
+    const basename = planBasename(entry.name)
+    const fallbackGoal = titleCasePlanName(basename)
+
+    try {
+      const sourceContent = await window.api.readfile(entry.path)
+      setFuturePlanDraft({
+        sourcePath: entry.path,
+        sourceRelativePath,
+        sourceContent,
+        teamName: slugifySwarmName(basename),
+        goal: markdownTitle(sourceContent) ?? fallbackGoal,
+        error: null,
+        creating: false,
+      })
+    } catch {
+      setFuturePlanDraft({
+        sourcePath: entry.path,
+        sourceRelativePath,
+        sourceContent: null,
+        teamName: slugifySwarmName(basename),
+        goal: fallbackGoal,
+        error: 'read-failure',
+        creating: false,
+      })
+    }
+  }
+
+  const closeFuturePlanDialog = () => {
+    setFuturePlanDraft((current) => current?.creating ? current : null)
+  }
+
+  const createFuturePlanSwarm = async () => {
+    if (!futurePlanDraft || futurePlanDraft.creating) return
+
+    const validationError = validateFuturePlanDraft(futurePlanDraft)
+    if (validationError) {
+      setFuturePlanDraft((current) => current ? { ...current, error: validationError } : current)
+      return
+    }
+
+    try {
+      setFuturePlanDraft((current) => current ? { ...current, creating: true, error: null } : current)
+      if (!(await window.api.pathExists(futurePlanDraft.sourcePath))) {
+        throw new PlanSourcedSwarmWorkspaceError('missing-source')
+      }
+      await createPlanSourcedSwarmWorkspace({
+        rootPath,
+        teamName: futurePlanDraft.teamName,
+        goal: futurePlanDraft.goal,
+        sourcePath: futurePlanDraft.sourceRelativePath,
+        sourceContent: futurePlanDraft.sourceContent ?? '',
+        pathExists: window.api.pathExists,
+      })
+      setFuturePlanDraft(null)
+    } catch (error) {
+      let nextError: FuturePlanDialogError = 'creation-failure'
+      if (error instanceof PlanSourcedSwarmWorkspaceError) {
+        if (error.code === 'missing-team') nextError = 'missing-team'
+        if (error.code === 'missing-goal') nextError = 'missing-goal'
+        if (error.code === 'missing-source') nextError = 'invalid-source'
+        if (error.code === 'team-exists') nextError = 'team-exists'
+      }
+      setFuturePlanDraft((current) => current ? { ...current, creating: false, error: nextError } : current)
+    }
+  }
+
   const showContextMenu = async (event: React.MouseEvent, entry?: Entry) => {
     event.preventDefault()
     event.stopPropagation()
@@ -654,9 +868,11 @@ function ExplorerTree({
     const targetDir = entry ? (entry.isDir ? entry.path : entry.parentPath) : rootPath
     const canUsePathCommands = !entry?.gitDeleted
     const canDeletePath = canUsePathCommands && typeof window.api.deletePath === 'function'
+    const canCreateFuturePlanSwarm = Boolean(entry && canUsePathCommands && futurePlanRelativePath(rootPath, entry))
     const command = await window.api.showContextMenu([
       ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
       ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
+      ...(canCreateFuturePlanSwarm ? [{ id: 'create-future-plan-swarm', label: 'Create Swarm From This Plan' }] : []),
       ...(entry?.isDir && !isSearching && canUsePathCommands
         ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
         : []),
@@ -682,6 +898,7 @@ function ExplorerTree({
       }
       return
     }
+    if (command === 'create-future-plan-swarm' && entry) return void openFuturePlanDialog(entry)
     if (command === 'expand' && entry?.isDir) {
       if (!expandedPaths[entry.path]) {
         await ensureDirectoryLoaded(entry.path)
@@ -710,6 +927,101 @@ function ExplorerTree({
       }
       await refreshGitStatus()
     }
+  }
+
+  const renderFuturePlanDialog = () => {
+    if (!futurePlanDraft) return null
+
+    const validationError = validateFuturePlanDraft(futurePlanDraft)
+    const visibleError = futurePlanDraft.error ? futurePlanErrorMessage[futurePlanDraft.error] : null
+    const canCreate = !futurePlanDraft.creating && !validationError && !futurePlanDraft.error
+
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4"
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closeFuturePlanDialog()
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            closeFuturePlanDialog()
+          }
+        }}
+      >
+        <form
+          className="w-full max-w-[420px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] shadow-2xl"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="future-plan-dialog-title"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (canCreate) void createFuturePlanSwarm()
+          }}
+        >
+          <div className="border-b border-[#1f2025] px-4 py-3">
+            <h2 id="future-plan-dialog-title" className="text-[13px] font-semibold text-[#ececee]">
+              Create Swarm From This Plan
+            </h2>
+          </div>
+
+          <div className="space-y-3 px-4 py-4">
+            <label className="block space-y-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#5a5a63]">Team Name</span>
+              <input
+                ref={futurePlanTeamInputRef}
+                value={futurePlanDraft.teamName}
+                disabled={futurePlanDraft.creating}
+                onChange={(event) => updateFuturePlanTeamName(event.target.value)}
+                className="h-8 w-full rounded-md border border-[#24252b] bg-[#111216] px-3 text-[13px] text-[#ececee] outline-none transition-colors focus:border-[#303139] disabled:opacity-60"
+              />
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#5a5a63]">Goal</span>
+              <input
+                value={futurePlanDraft.goal}
+                disabled={futurePlanDraft.creating}
+                onChange={(event) => updateFuturePlanGoal(event.target.value)}
+                className="h-8 w-full rounded-md border border-[#24252b] bg-[#111216] px-3 text-[13px] text-[#ececee] outline-none transition-colors focus:border-[#303139] disabled:opacity-60"
+              />
+            </label>
+
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-[#5a5a63]">Source File</div>
+              <div className="truncate rounded-md border border-[#1f2025] bg-[#090a0c] px-3 py-2 font-mono text-[11px] text-[#9a9aa2]">
+                {futurePlanDraft.sourceRelativePath}
+              </div>
+            </div>
+
+            {visibleError && (
+              <div className="border-l border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+                {visibleError}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 border-t border-[#1f2025] px-4 py-3">
+            <button
+              type="button"
+              disabled={futurePlanDraft.creating}
+              onClick={closeFuturePlanDialog}
+              className="rounded-md border border-[#24252b] bg-[#15161a] px-3 py-1.5 text-[12px] text-[#cfd2dd] transition-colors hover:bg-[#1a1b20] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-[#15161a]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canCreate}
+              className="rounded-md border border-[#f2c45f]/45 bg-[#f2c45f]/12 px-3 py-1.5 text-[12px] font-semibold text-[#ffe18a] transition-colors hover:bg-[#f2c45f]/18 disabled:cursor-default disabled:border-[#343742] disabled:bg-[#15161a] disabled:text-[#5a5a63]"
+            >
+              {futurePlanDraft.creating ? 'Creating...' : 'Create Swarm'}
+            </button>
+          </div>
+        </form>
+      </div>
+    )
   }
 
   useEffect(() => {
@@ -935,104 +1247,107 @@ function ExplorerTree({
   }
 
   return (
-    <div
-      ref={containerRef}
-      tabIndex={0}
-      role="tree"
-      onKeyDown={(event) => void handleKeyDown(event)}
-      onContextMenu={(event) => void showContextMenu(event)}
-      className="flex flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[#303139]"
-    >
-      {activeRows.map(({ entry, depth }) => {
-        const isSelected = entry.path === selectedPath
-        const isExpanded = entry.isDir && expandedPaths[entry.path]
-        const isRenaming = renameDraft?.entry.path === entry.path
-        const meta = entry.parentPath.slice(rootPath.length).replace(/^[\\/]+/, '')
-        const gitStatusKind = getEntryGitStatus(gitStatus, entry)
-        const gitAppearance = gitStatusAppearance(gitStatusKind)
-        const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[#d7d7dc] group-hover:text-[#fff7d7]' : '')
+    <>
+      {renderFuturePlanDialog()}
+      <div
+        ref={containerRef}
+        tabIndex={0}
+        role="tree"
+        onKeyDown={(event) => void handleKeyDown(event)}
+        onContextMenu={(event) => void showContextMenu(event)}
+        className="flex flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[#303139]"
+      >
+        {activeRows.map(({ entry, depth }) => {
+          const isSelected = entry.path === selectedPath
+          const isExpanded = entry.isDir && expandedPaths[entry.path]
+          const isRenaming = renameDraft?.entry.path === entry.path
+          const meta = entry.parentPath.slice(rootPath.length).replace(/^[\\/]+/, '')
+          const gitStatusKind = getEntryGitStatus(gitStatus, entry)
+          const gitAppearance = gitStatusAppearance(gitStatusKind)
+          const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[#d7d7dc] group-hover:text-[#fff7d7]' : '')
 
-        return (
-          <div
-            key={entry.path}
-            ref={(node) => {
-              rowRefs.current[entry.path] = node
-            }}
-            role="treeitem"
-            aria-selected={isSelected}
-            aria-expanded={!isSearching && entry.isDir ? isExpanded : undefined}
-            onClick={() => {
-              if (isRenaming) return
-              if (entry.gitDeleted) {
+          return (
+            <div
+              key={entry.path}
+              ref={(node) => {
+                rowRefs.current[entry.path] = node
+              }}
+              role="treeitem"
+              aria-selected={isSelected}
+              aria-expanded={!isSearching && entry.isDir ? isExpanded : undefined}
+              onClick={() => {
+                if (isRenaming) return
+                if (entry.gitDeleted) {
+                  setSelectedPath(entry.path)
+                  focusTree()
+                  return
+                }
                 setSelectedPath(entry.path)
+                void activateEntry(entry)
                 focusTree()
-                return
-              }
-              setSelectedPath(entry.path)
-              void activateEntry(entry)
-              focusTree()
-            }}
-            onContextMenu={(event) => void showContextMenu(event, entry)}
-            className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
-              isSelected
-                ? 'bg-[#17181d] text-[#ececee]'
-                : 'text-[#9a9aa2] hover:bg-[#15161a] hover:text-[#ececee]'
-            }`}
-            style={{ paddingLeft: `${8 + (isSearching ? 0 : depth * 14)}px` }}
-          >
-            {isSearching ? (
-              <>
-                <span className="w-3 shrink-0" />
-                <FileIcon name={entry.name} />
-                <div className="min-w-0 flex-1">
+              }}
+              onContextMenu={(event) => void showContextMenu(event, entry)}
+              className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
+                isSelected
+                  ? 'bg-[#17181d] text-[#ececee]'
+                  : 'text-[#9a9aa2] hover:bg-[#15161a] hover:text-[#ececee]'
+              }`}
+              style={{ paddingLeft: `${8 + (isSearching ? 0 : depth * 14)}px` }}
+            >
+              {isSearching ? (
+                <>
+                  <span className="w-3 shrink-0" />
+                  <FileIcon name={entry.name} />
+                  <div className="min-w-0 flex-1">
+                    {isRenaming ? (
+                      renderRenameInput(
+                        'h-5 w-full rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
+                      )
+                    ) : (
+                      <div className={`truncate ${gitAppearance.textClass}`}>{entry.name}</div>
+                    )}
+                    <div className="truncate text-[10px] text-[#5a5a63]">{meta || rootPath}</div>
+                  </div>
+                  {gitAppearance.badge && (
+                    <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
+                  )}
+                </>
+              ) : entry.isDir ? (
+                <>
+                  <ChevronIcon expanded={isExpanded} />
+                  <FolderIcon expanded={isExpanded} />
                   {isRenaming ? (
                     renderRenameInput(
-                      'h-5 w-full rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
+                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] font-medium text-[#ececee] outline-none focus:border-[#4f6ad7]'
                     )
                   ) : (
-                    <div className={`truncate ${gitAppearance.textClass}`}>{entry.name}</div>
+                    <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
                   )}
-                  <div className="truncate text-[10px] text-[#5a5a63]">{meta || rootPath}</div>
-                </div>
-                {gitAppearance.badge && (
-                  <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
-                )}
-              </>
-            ) : entry.isDir ? (
-              <>
-                <ChevronIcon expanded={isExpanded} />
-                <FolderIcon expanded={isExpanded} />
-                {isRenaming ? (
-                  renderRenameInput(
-                    'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] font-medium text-[#ececee] outline-none focus:border-[#4f6ad7]'
-                  )
-                ) : (
-                  <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
-                )}
-                {gitAppearance.badge && (
-                  <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
-                )}
-              </>
-            ) : (
-              <>
-                <span className="w-3 shrink-0" />
-                <FileIcon name={entry.name} />
-                {isRenaming ? (
-                  renderRenameInput(
-                    'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
-                  )
-                ) : (
-                  <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
-                )}
-                {gitAppearance.badge && (
-                  <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
-                )}
-              </>
-            )}
-          </div>
-        )
-      })}
-    </div>
+                  {gitAppearance.badge && (
+                    <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="w-3 shrink-0" />
+                  <FileIcon name={entry.name} />
+                  {isRenaming ? (
+                    renderRenameInput(
+                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
+                    )
+                  ) : (
+                    <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
+                  )}
+                  {gitAppearance.badge && (
+                    <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </>
   )
 }
 

@@ -86,23 +86,54 @@ type OpenedSwarmArtifact = {
   content: string
 }
 
-function parseOpenedSwarmArtifact(data: unknown): OpenedSwarmArtifact | null {
-  if (!data || typeof data !== 'object') return null
+function joinFilePath(basePath: string, childPath: string): string {
+  const separator = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/'
+  return `${basePath.replace(/[\\/]+$/, '')}${separator}${childPath.replace(/^[\\/]+/, '')}`
+}
 
-  const candidate = data as Partial<OpenedSwarmArtifact>
-  if (
-    typeof candidate.path !== 'string'
-    || typeof candidate.name !== 'string'
-    || typeof candidate.content !== 'string'
-  ) {
-    return null
+function isAbsoluteFilePath(path: string): boolean {
+  return path.startsWith('/') || path.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(path)
+}
+
+function normalizeComparablePath(path: string): string {
+  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
+}
+
+function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
+  const parent = normalizeComparablePath(parentPath)
+  const target = normalizeComparablePath(targetPath)
+  return target === parent || target.startsWith(`${parent}/`)
+}
+
+function resolveArtifactPathForEditor(statePath: string, artifactPathInput: string): string {
+  const artifactPath = artifactPathInput.trim()
+  if (!artifactPath) throw new Error('Artifact path is required.')
+  if (/^https?:\/\//i.test(artifactPath)) {
+    throw new Error('Remote artifact links cannot be opened in the editor.')
+  }
+  if (artifactPath.split(/[\\/]+/).includes('..')) {
+    throw new Error('Artifact path must stay inside the swarm team directory.')
+  }
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/i.test(artifactPath) && !isAbsoluteFilePath(artifactPath)) {
+    throw new Error('Only workspace artifact file paths can be opened.')
   }
 
-  return {
-    path: candidate.path,
-    name: candidate.name,
-    content: candidate.content,
+  const teamDirectory = getParentDirectoryPath(statePath)
+  const workspaceRoot = getParentDirectoryPath(getParentDirectoryPath(teamDirectory))
+  const targetPath = isAbsoluteFilePath(artifactPath)
+    ? artifactPath
+    : [
+        joinFilePath(workspaceRoot, artifactPath),
+        joinFilePath(teamDirectory, artifactPath),
+      ].find((candidate) => isPathInsideOrEqual(teamDirectory, candidate))
+        ?? joinFilePath(workspaceRoot, artifactPath)
+
+  if (!isPathInsideOrEqual(teamDirectory, targetPath)) {
+    throw new Error('Artifact path must stay inside the swarm team directory.')
   }
+
+  return targetPath
 }
 
 const roleSummaries: Record<SwarmRole, string> = {
@@ -536,30 +567,51 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     return swarmContext.statePath
   }
 
+  const readArtifactForEditor = async (
+    statePath: string,
+    artifact: SwarmArtifact
+  ): Promise<OpenedSwarmArtifact> => {
+    const artifactPath = resolveArtifactPathForEditor(statePath, artifact.path)
+    const exists = await window.api.pathExists(artifactPath)
+    if (!exists) {
+      throw new Error(`Artifact file does not exist: ${artifactPath}`)
+    }
+
+    const content = await window.api.readfile(artifactPath)
+    return {
+      path: artifactPath,
+      name: getBaseName(artifactPath) || artifact.title || artifact.id,
+      content,
+    }
+  }
+
   const openArtifact = async (artifact: SwarmArtifact) => {
     const statePath = requireArtifactStatePath()
     if (!statePath) return
 
     setArtifactAction(artifact.id, { kind: 'open', status: 'pending', message: 'Opening...' })
-    const result = await window.api.openSwarmArtifact(statePath, artifact.path)
-    if (result.ok) {
-      const openedArtifact = parseOpenedSwarmArtifact(result.data)
-      if (openedArtifact) {
-        openFile(workspaceId, openedArtifact.path, openedArtifact.name, openedArtifact.content)
-        focusOrAddComponentTab(workspaceId, 'editor', 'Editor')
-      }
+    try {
+      const openedArtifact = await readArtifactForEditor(statePath, artifact)
+      openFile(workspaceId, openedArtifact.path, openedArtifact.name, openedArtifact.content)
+      setSelectedTaskId(null)
+      focusOrAddComponentTab(workspaceId, 'editor', 'Editor')
       setArtifactAction(artifact.id, {
         kind: 'open',
         status: 'success',
-        message: openedArtifact ? 'Opened in editor.' : 'Opened.',
+        message: 'Opened in editor.',
       })
-      return
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to open artifact.'
+      setArtifactAction(artifact.id, {
+        kind: 'open',
+        status: 'error',
+        message,
+      })
+      setSyncState({
+        status: 'error',
+        message,
+      })
     }
-    setArtifactAction(artifact.id, {
-      kind: 'open',
-      status: 'error',
-      message: result.message || 'Failed to open artifact.',
-    })
   }
 
   const folderStatusBanner = savedFolderPath && !folderPath ? (

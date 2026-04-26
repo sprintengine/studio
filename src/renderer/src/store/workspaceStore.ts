@@ -69,7 +69,7 @@ interface WorkspaceStore {
       swarmState?: SwarmState | null
       swarmContext?: SwarmWorkspaceContext | null
     }
-  ) => void
+  ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setActiveWorkspace: (id: WorkspaceId) => void
@@ -407,9 +407,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.appSettings.lastSelectedSpecialist = specialistId
         }),
 
-      addWorkspace: (template, options) =>
+      addWorkspace: (template, options) => {
+        const id = nanoid()
+
         set((state) => {
-          const id = nanoid()
           const fallbackName = `${template.name} ${state.workspaces.length + 1}`
           const isSwarm = template.id === 'swarm-mode' || Boolean(options?.swarmState)
           const swarmState = isSwarm
@@ -453,7 +454,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             createdAt: Date.now(),
           })
           state.activeWorkspaceId = id
-        }),
+        })
+
+        return id
+      },
 
       removeWorkspace: (id) =>
         set((state) => {
