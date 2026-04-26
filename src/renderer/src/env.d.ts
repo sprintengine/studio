@@ -50,6 +50,9 @@ type TerminalSessionSnapshot = {
   lastOutputAt: number | null
   outputBufferLength: number
 }
+type TerminalSpawnResult =
+  | { ok: true; sessionId: string }
+  | { ok: false; sessionId: string; message: string; exitCode: number }
 type SpecialistActionId =
   | 'architect'
   | 'developer'
@@ -306,7 +309,7 @@ declare interface Window {
     ) => Promise<SwarmArtifactCommandResult>
 
     // Agent CLI Terminal
-    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata) => Promise<void>
+    terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata) => Promise<TerminalSpawnResult>
     terminalWrite:  (sessionId: string, data: string) => Promise<void>
     terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
     terminalStatus: (sessionId: string) => Promise<{ running: boolean }>

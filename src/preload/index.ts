@@ -40,6 +40,9 @@ type TerminalSessionSnapshot = {
   lastOutputAt: number | null
   outputBufferLength: number
 }
+type TerminalSpawnResult =
+  | { ok: true; sessionId: string }
+  | { ok: false; sessionId: string; message: string; exitCode: number }
 type SpecialistActionId =
   | 'architect'
   | 'developer'
@@ -405,7 +408,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('swarm:artifact:open', { statePath, artifactPath }),
 
   // Agent CLI Terminal
-  terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata) => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli, initialPrompt, cliRuntimes, shellOnly, ...metadata }),
+  terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata): Promise<TerminalSpawnResult> => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli, initialPrompt, cliRuntimes, shellOnly, ...metadata }),
   terminalWrite:  (sessionId: string, data: string) => ipcRenderer.invoke('terminal:write', { sessionId, data }),
   terminalResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
   terminalStatus: (sessionId: string): Promise<{ running: boolean }> => ipcRenderer.invoke('terminal:status', sessionId),

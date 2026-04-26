@@ -317,6 +317,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     const launchTerminal = async () => {
       await ensureSpecialistStartupPrompt()
       if (disposed) return
+      if (savedFolderPath && !folderReadyPath) return
 
       if (shouldResume) {
         const status = await window.api.terminalStatus(sessionId)
@@ -333,7 +334,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       }
 
       const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
-      void window.api.terminalSpawn(
+      const spawnResult = await window.api.terminalSpawn(
         sessionId,
         term.cols,
         term.rows,
@@ -350,6 +351,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           agentId,
         }
       )
+      if (disposed || !spawnResult.ok) return
+
       if (!shouldResume) {
         updateAgent(workspaceId, agentId, {
           cliHasLaunched: true,

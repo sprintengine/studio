@@ -1372,9 +1372,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   onClick={() => setCliPickerOpen((open) => !open)}
                   aria-haspopup="listbox"
                   aria-expanded={cliPickerOpen}
-                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#6ee7d8]/50"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#303139]"
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#6ee7d8]">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#9a9aa2]">
                     <CliIcon cli={selectedRecoveryCliOption.value} className="h-5 w-5" />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -1417,14 +1417,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                           }}
                           className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                             selected
-                              ? 'bg-[#6ee7d8]/8 text-[#ececee]'
+                              ? 'bg-[#17181d] text-[#ececee]'
                               : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
                           }`}
                         >
                           <span
                             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
                               selected
-                                ? 'text-[#6ee7d8]'
+                                ? 'text-[#9a9aa2]'
                                 : 'text-[#5a5a63]'
                             }`}
                           >
@@ -1437,7 +1437,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                             </span>
                           </span>
                           {selected ? (
-                            <svg className="h-4 w-4 shrink-0 text-[#6ee7d8]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                            <svg className="h-4 w-4 shrink-0 text-[#9a9aa2]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
                               <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                           ) : null}
@@ -1533,9 +1533,9 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   onClick={() => setCliPickerOpen((open) => !open)}
                   aria-haspopup="listbox"
                   aria-expanded={cliPickerOpen}
-                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#6ee7d8]/50"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#303139]"
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#6ee7d8]">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#9a9aa2]">
                     <CliIcon cli={selectedCliOption.value} className="h-5 w-5" />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -1578,14 +1578,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                           }}
                           className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                             selected
-                              ? 'bg-[#6ee7d8]/8 text-[#ececee]'
+                              ? 'bg-[#17181d] text-[#ececee]'
                               : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
                           }`}
                         >
                           <span
                             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
                               selected
-                                ? 'text-[#6ee7d8]'
+                                ? 'text-[#9a9aa2]'
                                 : 'text-[#5a5a63]'
                             }`}
                           >
@@ -1598,7 +1598,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                             </span>
                           </span>
                           {selected ? (
-                            <svg className="h-4 w-4 shrink-0 text-[#6ee7d8]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                            <svg className="h-4 w-4 shrink-0 text-[#9a9aa2]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
                               <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                           ) : null}

@@ -156,24 +156,26 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     container.addEventListener('keydown', handleKeyDown)
     container.addEventListener('contextmenu', handleContextMenu)
 
-    const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
-    void window.api.terminalSpawn(
-      sessionId,
-      term.cols,
-      term.rows,
-      folderReadyPath ?? undefined,
-      false,
-      swarmStatePath,
-      undefined,
-      undefined,
-      undefined,
-      true,
-      {
-        kind: 'terminal',
-        workspaceId,
-        terminalId,
-      }
-    )
+    if (!(savedFolderPath && !folderReadyPath)) {
+      const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
+      void window.api.terminalSpawn(
+        sessionId,
+        term.cols,
+        term.rows,
+        folderReadyPath ?? undefined,
+        false,
+        swarmStatePath,
+        undefined,
+        undefined,
+        undefined,
+        true,
+        {
+          kind: 'terminal',
+          workspaceId,
+          terminalId,
+        }
+      )
+    }
     const settleTimer = window.setTimeout(() => {
       fitTerminal()
       focusTerminal()

@@ -26,6 +26,10 @@ const CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
   { value: 'claude', label: 'Claude Code' },
   { value: 'codex', label: 'Codex' },
 ]
+const AGENT_SPAWN_CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
+  { value: 'codex', label: 'Codex' },
+  { value: 'claude', label: 'Claude Code' },
+]
 type WorkspacePanelComponent = 'explorer' | 'editor' | 'git'
 type WorkspaceActivity = 'needs-input' | 'running' | 'idle'
 type SessionStatus = 'needs-input' | 'running'
@@ -86,6 +90,15 @@ function workspaceActivityLabel(activity: WorkspaceActivity): string {
     default:
       return 'Workspace idle'
   }
+}
+
+function uniqueAgentName(baseName: string, agents: Workspace['agents']): string {
+  const existingNames = new Set(Object.values(agents).map((agent) => agent.name))
+  if (!existingNames.has(baseName)) return baseName
+
+  let suffix = 2
+  while (existingNames.has(`${baseName} ${suffix}`)) suffix += 1
+  return `${baseName} ${suffix}`
 }
 
 function getSessionItems(
@@ -170,7 +183,6 @@ export default function WorkspaceManager() {
   const [handoffOpen, setHandoffOpen] = useState(false)
   const [handoffTeamName, setHandoffTeamName] = useState('')
   const [handoffError, setHandoffError] = useState<string | null>(null)
-  const [specialistName, setSpecialistName] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSnapshot[]>([])
@@ -473,7 +485,7 @@ export default function WorkspaceManager() {
 
   const addNewSpecialist = async (
     specialistId: SpecialistActionId = lastSelectedSpecialist,
-    requestedName = specialistName
+    requestedName = ''
   ) => {
     if (showTemplateSelector || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
@@ -513,7 +525,43 @@ export default function WorkspaceManager() {
         true
       )
     )
-    setSpecialistName('')
+  }
+
+  const addNewCliAgent = (cli: AgentCli, label: string) => {
+    if (showTemplateSelector || !activeWorkspaceId) return
+    const model = getModel(activeWorkspaceId)
+    if (!model) return
+
+    const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    const tabName = uniqueAgentName(label, activeWorkspace?.agents ?? {})
+    const newId = `agent-${cli}-${nanoid(6)}`
+    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+    if (!targetTabset) return
+
+    updateAgent(activeWorkspaceId, newId, {
+      name: tabName,
+      cli,
+      kind: 'general',
+      specialistId: undefined,
+      cliStartupPrompt: undefined,
+      cliOnboardingPromptSent: false,
+      cliHasLaunched: false,
+    })
+    model.doAction(
+      Actions.addNode(
+        {
+          type: 'tab',
+          name: tabName,
+          component: 'agent',
+          config: { agentId: newId },
+        },
+        targetTabset.getId(),
+        DockLocation.CENTER,
+        -1,
+        true
+      )
+    )
+    setSpecialistMenuOpen(false)
   }
 
   const addNewTerminal = () => {
@@ -901,10 +949,10 @@ export default function WorkspaceManager() {
                   }}
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-6 items-center justify-center border-l border-[#24252b] text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-                  title="Choose specialist"
+                  title="Spawn agent"
                   aria-haspopup="menu"
                   aria-expanded={specialistMenuOpen}
-                  aria-label="Choose specialist"
+                  aria-label="Spawn agent"
                 >
                   <svg className={`h-3.5 w-3.5 transition-transform ${specialistMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
                     <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -917,18 +965,30 @@ export default function WorkspaceManager() {
                   role="menu"
                   className="absolute right-0 top-9 z-40 w-72 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
                 >
-                  <label className="block px-2 py-2">
-                    <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                      Name
-                    </span>
-                    <input
-                      type="text"
-                      value={specialistName}
-                      onChange={(event) => setSpecialistName(event.target.value)}
-                      placeholder={selectedSpecialistAction.shortLabel}
-                      className="h-9 w-full rounded bg-[#111216] px-2.5 text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#6ee7d8]/50"
-                    />
-                  </label>
+                  {AGENT_SPAWN_CLI_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => addNewCliAgent(option.value, option.label)}
+                      className="flex w-full items-center gap-3 rounded px-2.5 py-2 text-left text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                    >
+                      <span
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] ${
+                          option.value === 'codex' ? 'text-[#9a9aa2]' : 'text-[#d97757]'
+                        }`}
+                      >
+                        <CliIcon cli={option.value} className="h-[18px] w-[18px]" />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+                        {option.label}
+                      </span>
+                    </button>
+                  ))}
+                  <div className="my-1 border-t border-[#24252b]" />
+                  <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                    Specialist Agents
+                  </div>
                   {SPECIALIST_ACTIONS.map((action) => {
                     const selected = action.id === selectedSpecialistAction.id
                     return (
@@ -940,14 +1000,14 @@ export default function WorkspaceManager() {
                         onClick={() => handleSelectSpecialist(action.id)}
                         className={`flex w-full items-start gap-3 rounded px-2.5 py-2 text-left transition-colors ${
                           selected
-                            ? 'bg-[#6ee7d8]/10 text-[#ececee]'
-                            : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
+                            ? 'bg-[#ffbf2f]/8 text-[#ececee]'
+                            : 'text-[#d7d7dc] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
                         }`}
                       >
                         <span
                           className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
                             selected
-                              ? 'border-[#6ee7d8]/40 bg-[#6ee7d8]/10 text-[#9a9aa2]'
+                              ? 'border-[#ffbf2f]/40 bg-[#ffbf2f]/8 text-[#ffbf2f]'
                               : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
                           }`}
                         >
@@ -962,7 +1022,7 @@ export default function WorkspaceManager() {
                           </span>
                         </span>
                         {selected ? (
-                          <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#6ee7d8]" />
+                          <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f]" />
                         ) : null}
                       </button>
                     )
@@ -981,7 +1041,7 @@ export default function WorkspaceManager() {
                     setSpecialistMenuOpen(false)
                   }}
                   disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-8 items-center justify-center text-[#30d158] transition-colors hover:bg-[#17181d] disabled:opacity-40 disabled:hover:bg-[#111216]"
+                  className="inline-flex h-8 w-8 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#17181d] disabled:opacity-40 disabled:hover:bg-[#111216]"
                   title={`Base CLI: ${selectedCliOption.label}`}
                   aria-haspopup="menu"
                   aria-expanded={cliMenuOpen}
@@ -1023,14 +1083,14 @@ export default function WorkspaceManager() {
                         onClick={() => handleSelectCli(option.value)}
                         className={`flex w-full items-center gap-3 rounded px-2.5 py-2 text-left transition-colors ${
                           selected
-                            ? 'bg-[#30d158]/10 text-[#ececee]'
+                            ? 'bg-[#17181d] text-[#ececee]'
                             : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
                         }`}
                       >
                         <span
                           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
                             selected
-                                ? 'border-[#30d158]/35 bg-[#30d158]/10 text-[#30d158]'
+                                ? 'border-[#303139] bg-[#17181d] text-[#9a9aa2]'
                                 : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
                           }`}
                         >
@@ -1040,7 +1100,7 @@ export default function WorkspaceManager() {
                           {option.label}
                         </span>
                         {selected ? (
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#30d158]" />
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#9a9aa2]" />
                         ) : null}
                       </button>
                     )

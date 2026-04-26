@@ -217,6 +217,14 @@ async function superviseWorkspace(
   if (inFlightSpawns.current.has(spawnKey)) return
 
   const swarmStatePath = workspace.swarmContext.statePath
+  const folderExists = await window.api.pathExists(workspace.folderPath)
+  if (!folderExists) {
+    currentState.setFolderMissing(workspace.id, true)
+    currentState.setSwarmAutoPending(workspace.id, null)
+    currentState.setSwarmAutoEnabled(workspace.id, false)
+    return
+  }
+
   const startupPrompt = prependAgentIdentifier(
     buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal),
     nextRun.label,
@@ -239,7 +247,7 @@ async function superviseWorkspace(
   })
 
   try {
-    await window.api.terminalSpawn(
+    const spawnResult = await window.api.terminalSpawn(
       sessionId,
       BACKGROUND_TERMINAL_COLS,
       BACKGROUND_TERMINAL_ROWS,
@@ -256,6 +264,19 @@ async function superviseWorkspace(
         agentId: nextRun.agentId,
       }
     )
+    if (!spawnResult.ok) {
+      const latestState = useWorkspaceStore.getState()
+      latestState.setSwarmAutoEnabled(workspace.id, false)
+      latestState.setSwarmAutoPending(workspace.id, null)
+      latestState.updateAgent(workspace.id, nextRun.agentId, {
+        cliStartRequested: true,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+      })
+      revealAutoRunAgentTerminal(workspace.id, nextRun.agentId, nextRun.label)
+      return
+    }
+
     revealAutoRunAgentTerminal(workspace.id, nextRun.agentId, nextRun.label)
   } finally {
     inFlightSpawns.current.delete(spawnKey)

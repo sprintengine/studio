@@ -1117,6 +1117,10 @@ type TerminalSessionSnapshot = {
   outputBufferLength: number
 }
 
+type TerminalSpawnResult =
+  | { ok: true; sessionId: string }
+  | { ok: false; sessionId: string; message: string; exitCode: number }
+
 type ShellLaunchConfig = {
   command: string
   args: string[]
@@ -2012,7 +2016,7 @@ ipcMain.handle(
       if (existingSession.outputBuffer) {
         sendTerminalEvent(event.sender, `terminal:data:${sessionId}`, existingSession.outputBuffer)
       }
-      return
+      return { ok: true, sessionId } satisfies TerminalSpawnResult
     }
 
     disposeTerminal(sessionId)
@@ -2028,7 +2032,12 @@ ipcMain.handle(
         if (!accessDecision.allowed) {
           sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, accessDecision.message)
           sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, 1)
-          return
+          return {
+            ok: false,
+            sessionId,
+            message: accessDecision.message,
+            exitCode: 1,
+          } satisfies TerminalSpawnResult
         }
       }
 
@@ -2095,9 +2104,18 @@ ipcMain.handle(
         // Start the selected agent CLI inside the interactive shell so the user can keep using the terminal afterward.
         termProcess.write(initialInput)
       }
+
+      return { ok: true, sessionId } satisfies TerminalSpawnResult
     } catch (error) {
-      sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, getTerminalErrorMessage(error))
+      const message = getTerminalErrorMessage(error)
+      sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, message)
       sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, 1)
+      return {
+        ok: false,
+        sessionId,
+        message,
+        exitCode: 1,
+      } satisfies TerminalSpawnResult
     }
   }
 )

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
+import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddComponentTab } from '../../utils/modelRegistry'
 
 type GitPanelMessage = {
@@ -11,16 +12,19 @@ type GitPanelMessage = {
 type GitChangeGroup = {
   title: string
   empty: string
-  actionLabel: string
+  actionTitle: string
+  actionIcon: GitActionIconKind
   action: (path: string) => Promise<unknown>
   secondaryAction?: {
-    label: string
     title: string
+    icon: GitActionIconKind
     action: (entry: GitStatusEntry) => Promise<unknown>
   }
   bulkActions?: GitBulkAction[]
   entries: GitStatusEntry[]
 }
+
+type GitActionIconKind = 'stage' | 'unstage' | 'revert'
 
 type GitBulkAction = {
   label: string
@@ -48,23 +52,50 @@ function RefreshGitIcon() {
   )
 }
 
-function statusAppearance(status: GitFileStatus): { label: string; textClass: string } {
-  switch (status) {
-    case 'new':
-      return { label: 'A', textClass: 'text-[#7bd7ea] group-hover:text-[#a8edf5]' }
-    case 'modified':
-      return { label: 'M', textClass: 'text-[#f2a84b] group-hover:text-[#ffc46f]' }
-    case 'deleted':
-      return { label: 'D', textClass: 'text-[#ff5a5f] line-through decoration-[#ff5a5f]/80 group-hover:text-[#ff787c]' }
-    case 'renamed':
-      return { label: 'R', textClass: 'text-[#f2a84b] group-hover:text-[#ffc46f]' }
-    case 'conflicted':
-      return { label: '!', textClass: 'text-[#ff5a5f] group-hover:text-[#ff787c]' }
+function GitActionIcon({ kind }: { kind: GitActionIconKind }) {
+  if (kind === 'stage') {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+        <path d="M8 3.25V12.75M4.25 8H11.75" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
+      </svg>
+    )
   }
+
+  if (kind === 'unstage') {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+        <path d="M4.25 8H11.75" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M5.2 4.5H2.85V2.15M3.1 7.8A4.95 4.95 0 1 0 4.45 4.4L2.85 6"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
 }
 
 function sortedEntries(entries: GitStatusEntry[]): GitStatusEntry[] {
   return [...entries].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+}
+
+function splitGitPath(relativePath: string): { directory: string; filename: string } {
+  const lastSlashIndex = relativePath.lastIndexOf('/')
+  if (lastSlashIndex === -1) {
+    return { directory: '', filename: relativePath }
+  }
+
+  return {
+    directory: relativePath.slice(0, lastSlashIndex + 1),
+    filename: relativePath.slice(lastSlashIndex + 1),
+  }
 }
 
 function resultMessage(result: GitCommandResult, fallback: string): GitPanelMessage {
@@ -203,11 +234,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     {
       title: `Staged (${stagedEntries.length})`,
       empty: 'No staged changes',
-      actionLabel: 'Unstage',
+      actionTitle: 'Unstage this file',
+      actionIcon: 'unstage',
       action: unstagePath,
       secondaryAction: {
-        label: 'Revert',
         title: 'Revert this file',
+        icon: 'revert',
         action: revertPath,
       },
       bulkActions: [
@@ -222,11 +254,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     {
       title: `Unstaged (${unstagedEntries.length})`,
       empty: 'No unstaged changes',
-      actionLabel: 'Stage',
+      actionTitle: 'Stage this file',
+      actionIcon: 'stage',
       action: stagePath,
       secondaryAction: {
-        label: 'Revert',
         title: 'Revert this file',
+        icon: 'revert',
         action: revertPath,
       },
       bulkActions: [
@@ -419,7 +452,8 @@ function ChangeGroup({
       ) : (
         <div className="space-y-1">
           {group.entries.map((entry) => {
-            const appearance = statusAppearance(entry.status)
+            const appearance = getGitStatusAppearance(entry.status)
+            const pathParts = splitGitPath(entry.relativePath)
             return (
               <div
                 key={`${group.title}:${entry.path}`}
@@ -435,11 +469,13 @@ function ChangeGroup({
                 className="group flex min-h-[26px] items-center gap-2 rounded-md px-2 py-1 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
                 title={`Open ${entry.relativePath}`}
               >
-                <span className={`min-w-0 flex-1 truncate font-mono ${appearance.textClass}`}>
-                  {entry.relativePath}
-                </span>
-                <span className={`ml-auto shrink-0 font-mono text-[10px] font-bold ${appearance.textClass} opacity-80`}>
-                  {appearance.label}
+                <span className={`flex min-w-0 flex-1 items-baseline font-mono ${appearance.textClass}`}>
+                  {pathParts.directory ? (
+                    <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
+                      {pathParts.directory}
+                    </span>
+                  ) : null}
+                  <span className="min-w-0 max-w-full shrink-0 truncate">{pathParts.filename}</span>
                 </span>
                 <button
                   type="button"
@@ -448,9 +484,11 @@ function ChangeGroup({
                     void group.action(entry.path)
                   }}
                   disabled={Boolean(busy)}
-                  className="h-6 rounded-md px-2 text-[10px] text-[#8a8a92] opacity-0 transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] disabled:opacity-30 group-hover:opacity-100"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#8a8a92] opacity-70 transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:opacity-30 group-hover:opacity-100"
+                  title={group.actionTitle}
+                  aria-label={`${group.actionTitle}: ${entry.relativePath}`}
                 >
-                  {group.actionLabel}
+                  <GitActionIcon kind={group.actionIcon} />
                 </button>
                 {group.secondaryAction ? (
                   <button
@@ -460,10 +498,11 @@ function ChangeGroup({
                       void group.secondaryAction?.action(entry)
                     }}
                     disabled={Boolean(busy)}
-                    className="h-6 rounded-md px-2 text-[10px] text-[#b97074] opacity-0 transition-colors hover:bg-[#2a1518] hover:text-[#ff8a8e] disabled:opacity-30 group-hover:opacity-100"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#b97074] opacity-70 transition-colors hover:bg-[#2a1518] hover:text-[#ff8a8e] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[#713036] disabled:opacity-30 group-hover:opacity-100"
                     title={group.secondaryAction.title}
+                    aria-label={`${group.secondaryAction.title}: ${entry.relativePath}`}
                   >
-                    {group.secondaryAction.label}
+                    <GitActionIcon kind={group.secondaryAction.icon} />
                   </button>
                 ) : null}
               </div>

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getGitEntry, normalizePathKey, useGitStatus } from '../../hooks/useGitStatus'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
+import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddEditorBesideExplorer } from '../../utils/modelRegistry'
 import {
   createPlanSourcedSwarmWorkspace,
@@ -352,23 +353,6 @@ function getEntryGitStatus(gitStatus: GitStatusSnapshot | null, entry: Entry): G
   const exactStatus = getGitEntry(gitStatus, entry.path)?.status ?? null
   if (exactStatus) return exactStatus
   return entry.isDir ? getDirectoryGitStatus(gitStatus, entry.path) : null
-}
-
-function gitStatusAppearance(status: GitFileStatus | null): { textClass: string; badge: string | null } {
-  switch (status) {
-    case 'new':
-      return { textClass: 'text-[#43d17a] group-hover:text-[#6ee79a]', badge: 'A' }
-    case 'modified':
-      return { textClass: 'text-[#f2a84b] group-hover:text-[#ffc46f]', badge: 'M' }
-    case 'renamed':
-      return { textClass: 'text-[#f2a84b] group-hover:text-[#ffc46f]', badge: 'R' }
-    case 'deleted':
-      return { textClass: 'text-[#ff5a5f] line-through decoration-[#ff5a5f]/80 group-hover:text-[#ff787c]', badge: 'D' }
-    case 'conflicted':
-      return { textClass: 'text-[#ff5a5f] group-hover:text-[#ff787c]', badge: '!' }
-    default:
-      return { textClass: '', badge: null }
-  }
 }
 
 function remapChildrenByPath(
@@ -1263,7 +1247,7 @@ function ExplorerTree({
           const isRenaming = renameDraft?.entry.path === entry.path
           const meta = entry.parentPath.slice(rootPath.length).replace(/^[\\/]+/, '')
           const gitStatusKind = getEntryGitStatus(gitStatus, entry)
-          const gitAppearance = gitStatusAppearance(gitStatusKind)
+          const gitAppearance = getGitStatusAppearance(gitStatusKind)
           const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[#d7d7dc] group-hover:text-[#fff7d7]' : '')
 
           return (
