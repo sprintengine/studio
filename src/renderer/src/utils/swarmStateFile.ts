@@ -78,6 +78,7 @@ export function parseSwarmStateFile(content: string, fallbackName?: string): Swa
       : Object.fromEntries(buildSwarmAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
     events: Array.isArray(parsed.events) ? parsed.events as SwarmState['events'] : [],
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks as SwarmState['tasks'] : [],
+    artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts as SwarmState['artifacts'] : [],
   }
 
   return normalizeSwarmState(candidate) ?? candidate

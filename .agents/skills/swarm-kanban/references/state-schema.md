@@ -32,7 +32,8 @@ Use `swarm artifact add` to register a review artifact under the active team fol
 Use `swarm artifact ready --artifact-id <id> --id <agent-id>` to move an artifact to `ready_for_review` and the linked task to `needs_input`.
 Use `swarm artifact approve --artifact-id <id> --id <actor>` to approve an artifact and complete the linked task once all non-superseded linked artifacts are approved.
 Use `swarm artifact request-changes --artifact-id <id> --id <actor> --feedback "..."` to record feedback and reopen the linked task.
-The app does not call the Python tool; the user reviews `plan.md` and manually spawns specialists from the UI.
+Artifact-producing workers register artifacts and stop in `needs_input`; implementation workers wait for approved artifact dependencies before building.
+The app uses narrow IPC to request artifact review mutations through the Python tool; workers and renderer code must not edit state files directly.
 
 ## Task Card Fields
 
@@ -123,6 +124,10 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 - Workers should not rewrite the plan or change other workers' task cards.
 - Review artifact lifecycle mutations must go through `swarm artifact` commands.
 - `swarm init` creates or reuses an architect plan approval task and an `architect_plan` artifact for `plan.md`.
+- Architect plan tasks must register `plan.md` as an `architect_plan` artifact, move to `needs_input`, and block downstream work until approved.
+- Product strategy and requirements gate tasks should register `product_strategy` or `requirements` artifacts, move to `needs_input`, and block dependent implementation until approved.
+- Frontend mockup/design gate tasks should register `html_mockup` or `design_notes` artifacts, move to `needs_input`, and block production UI implementation until approved.
+- Downstream implementation tasks should depend on the producing gate task ids, not only mention artifact paths in notes.
 - `artifact ready` moves the linked producing task and owning agent to `needs_input`.
 - `artifact approve` marks the linked task `done` only when every non-superseded artifact for that task is `approved`.
 - `artifact request-changes` stores feedback in task notes and reopens the producing task without changing unrelated tasks.

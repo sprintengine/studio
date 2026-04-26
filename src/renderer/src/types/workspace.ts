@@ -29,12 +29,55 @@ export type SwarmTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'done'
 
 export type SwarmTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done'
 
+export type SwarmArtifactKind =
+  | 'architect_plan'
+  | 'product_strategy'
+  | 'requirements'
+  | 'html_mockup'
+  | 'design_notes'
+  | 'branding'
+  | 'security_review'
+  | 'validation_report'
+
+export type SwarmArtifactStatus =
+  | 'draft'
+  | 'ready_for_review'
+  | 'approved'
+  | 'changes_requested'
+  | 'superseded'
+
 export type SwarmEvent = {
   id: string
   timestamp: string
   type: string
   actor: string
   message: string
+}
+
+export type SwarmArtifactReviewHistoryEntry = {
+  action: string
+  actor: string
+  timestamp: string
+  note?: string
+}
+
+export type SwarmArtifact = {
+  id: string
+  kind: SwarmArtifactKind
+  title: string
+  path: string
+  status: SwarmArtifactStatus
+  createdBy: string
+  taskId: string
+  fingerprint: string | null
+  reviewHistory: SwarmArtifactReviewHistoryEntry[]
+  recommendedTasks: string[]
+  createdAt: string | null
+  updatedAt: string | null
+  approvedBy?: string | null
+  approvedAt?: string | null
+  changesRequestedBy?: string | null
+  changesRequestedAt?: string | null
 }
 
 export type SwarmTaskEvidence = {
@@ -94,6 +137,7 @@ export type SwarmState = {
   swarmAgents: Record<string, SwarmRuntimeAgent>
   events: SwarmEvent[]
   tasks: SwarmTask[]
+  artifacts: SwarmArtifact[]
 }
 
 export type SwarmMockConfig = Pick<SwarmState, 'name' | 'goal' | 'roleCounts'>

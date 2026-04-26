@@ -4,6 +4,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type {
   AgentCli,
   AgentState,
+  SwarmArtifact,
   SwarmRole,
   SwarmState,
   SwarmTask,
@@ -14,8 +15,13 @@ import { SwarmRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import {
   buildSwarmAgentRosterForState,
+  getReviewableSwarmArtifacts,
+  getSwarmArtifactDependencyBlockers,
+  getSwarmArtifactsByTaskId,
   getSwarmTaskBoardColumn,
   swarmRoleAccent,
+  swarmArtifactKindLabels,
+  swarmArtifactStatusLabels,
   swarmRoleLabels,
 } from '../../utils/swarm'
 import { renderMarkdown } from '../../utils/markdown'
@@ -114,6 +120,19 @@ type RecoveryDialogState = {
   cli: AgentCli
 }
 
+type ArtifactActionKind = 'open' | 'approve' | 'request'
+
+type ArtifactActionState = {
+  kind: ArtifactActionKind
+  status: 'pending' | 'success' | 'error'
+  message: string
+}
+
+type ChangeRequestDialogState = {
+  artifactId: string
+  feedback: string
+}
+
 function buildWorkerRespawnStartupPrompt(
   role: SwarmRole,
   agentId: string
@@ -153,6 +172,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
+  const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
+  const [changeRequestDialog, setChangeRequestDialog] = useState<ChangeRequestDialogState | null>(null)
   const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
     status: 'idle',
@@ -363,6 +384,31 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     }))
   }, [swarmState])
 
+  const reviewArtifacts = useMemo(
+    () => getReviewableSwarmArtifacts(swarmState?.artifacts ?? []),
+    [swarmState?.artifacts]
+  )
+
+  const artifactsByTaskId = useMemo(
+    () => getSwarmArtifactsByTaskId(reviewArtifacts),
+    [reviewArtifacts]
+  )
+
+  const artifactBlockersByTaskId = useMemo(() => {
+    if (!swarmState) return {}
+    return Object.fromEntries(
+      swarmState.tasks.map((task) => [
+        task.id,
+        getSwarmArtifactDependencyBlockers(task, swarmState.tasks, reviewArtifacts),
+      ])
+    )
+  }, [reviewArtifacts, swarmState])
+
+  const tasksById = useMemo(
+    () => Object.fromEntries((swarmState?.tasks ?? []).map((task) => [task.id, task])),
+    [swarmState?.tasks]
+  )
+
   const selectedTask = swarmState?.tasks.find((task) => task.id === selectedTaskId) ?? null
 
   if (!swarmState) {
@@ -444,6 +490,101 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       setManualRefreshBusy(false)
     }
   }
+
+  const setArtifactAction = (
+    artifactId: string,
+    state: ArtifactActionState | null
+  ) => {
+    setArtifactActions((current) => {
+      const next = { ...current }
+      if (state) {
+        next[artifactId] = state
+      } else {
+        delete next[artifactId]
+      }
+      return next
+    })
+  }
+
+  const requireArtifactStatePath = (): string | null => {
+    if (!swarmContext?.statePath) {
+      setSyncState({
+        status: 'error',
+        message: 'This swarm workspace is missing its selected team context.',
+      })
+      return null
+    }
+    return swarmContext.statePath
+  }
+
+  const openArtifact = async (artifact: SwarmArtifact) => {
+    const statePath = requireArtifactStatePath()
+    if (!statePath) return
+
+    setArtifactAction(artifact.id, { kind: 'open', status: 'pending', message: 'Opening...' })
+    const result = await window.api.openSwarmArtifact(statePath, artifact.path)
+    if (result.ok) {
+      setArtifactAction(artifact.id, { kind: 'open', status: 'success', message: 'Opened.' })
+      return
+    }
+    setArtifactAction(artifact.id, {
+      kind: 'open',
+      status: 'error',
+      message: result.message || 'Failed to open artifact.',
+    })
+  }
+
+  const approveArtifact = async (artifact: SwarmArtifact) => {
+    const statePath = requireArtifactStatePath()
+    if (!statePath) return
+
+    setArtifactAction(artifact.id, { kind: 'approve', status: 'pending', message: 'Approving...' })
+    const result = await window.api.approveSwarmArtifact(statePath, artifact.id, 'user')
+    if (result.ok) {
+      setArtifactAction(artifact.id, { kind: 'approve', status: 'success', message: 'Approved.' })
+      await refreshSwarmState()
+      return
+    }
+    setArtifactAction(artifact.id, {
+      kind: 'approve',
+      status: 'error',
+      message: result.message || 'Failed to approve artifact.',
+    })
+  }
+
+  const requestArtifactChanges = async (artifactId: string, feedback: string) => {
+    const statePath = requireArtifactStatePath()
+    const artifact = reviewArtifacts.find((candidate) => candidate.id === artifactId)
+    if (!statePath || !artifact) return
+
+    setArtifactAction(artifactId, {
+      kind: 'request',
+      status: 'pending',
+      message: 'Sending change request...',
+    })
+    const result = await window.api.requestSwarmArtifactChanges(
+      statePath,
+      artifactId,
+      'user',
+      feedback
+    )
+    if (result.ok) {
+      setArtifactAction(artifactId, {
+        kind: 'request',
+        status: 'success',
+        message: 'Change request sent.',
+      })
+      setChangeRequestDialog(null)
+      await refreshSwarmState()
+      return
+    }
+    setArtifactAction(artifactId, {
+      kind: 'request',
+      status: 'error',
+      message: result.message || 'Failed to request changes.',
+    })
+  }
+
   const folderStatusBanner = savedFolderPath && !folderPath ? (
     <div className="border-b border-[#24252b] bg-[#111216] px-4 py-2 text-[12px] text-[#9a9aa2]">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -493,6 +634,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const selectedTaskOwnerCliRunning = selectedTask?.ownerAgentId
     ? Boolean(agents[selectedTask.ownerAgentId]?.cliStartRequested)
     : false
+  const selectedTaskArtifacts = selectedTask ? artifactsByTaskId[selectedTask.id] ?? [] : []
+  const selectedTaskArtifactBlockers = selectedTask ? artifactBlockersByTaskId[selectedTask.id] ?? [] : []
   const activateView = (view: SwarmView) => {
     if (fixedView) return
     setActiveView(view)
@@ -946,6 +1089,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           activeCount={activeCount}
           needsInputCount={needsInputCount}
           readyTasks={readyTasks}
+          reviewArtifacts={reviewArtifacts}
+          artifactActions={artifactActions}
           onSelectAgent={(agentId) => {
             if (agents[agentId]?.cliStartRequested) {
               openAgentTerminal(agentId)
@@ -953,8 +1098,14 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               openSpawnDialog(agentId)
             }
           }}
+          onSelectTask={setSelectedTaskId}
           onAddMember={openAddMemberDialog}
           onReadPlan={() => void loadPlanReader()}
+          onOpenArtifact={(artifact) => void openArtifact(artifact)}
+          onApproveArtifact={(artifact) => void approveArtifact(artifact)}
+          onRequestArtifactChanges={(artifact) =>
+            setChangeRequestDialog({ artifactId: artifact.id, feedback: '' })
+          }
         />
       ) : null}
 
@@ -1029,6 +1180,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   dependencyLabel,
                   `${task.acceptanceCriteria.length} checks`,
                 ]
+                const taskArtifacts = artifactsByTaskId[task.id] ?? []
+                const taskArtifactBlockers = artifactBlockersByTaskId[task.id] ?? []
                 const actionLabel = task.ownerAgentId
                   ? ownerCliRunning ? 'Open Terminal' : 'Respawn'
                   : `Spawn ${swarmRoleLabels[task.role]}`
@@ -1110,6 +1263,18 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                             : 'border-[#6ee7d8] text-[#bff7f1]'
                       }`}>
                         {attentionText}
+                      </div>
+                    ) : null}
+                    {taskArtifacts.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        <span className="rounded bg-[#17181d] px-1.5 py-0.5 text-[10px] font-semibold text-[#d7d7dc]">
+                          {formatArtifactSummary(taskArtifacts)}
+                        </span>
+                      </div>
+                    ) : null}
+                    {taskArtifactBlockers.length > 0 ? (
+                      <div className="mt-2 line-clamp-2 border-l-2 border-[#ffbf2f]/70 pl-2 text-[11px] leading-5 text-[#ffe0a3]">
+                        Waiting on {formatArtifactBlockerSummary(taskArtifactBlockers)}
                       </div>
                     ) : null}
                     {showTaskAction ? (
@@ -1498,6 +1663,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 </div>
               ) : null}
 
+              {selectedTaskArtifactBlockers.length > 0 ? (
+                <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
+              ) : null}
+
               {selectedTask.ownerAgentId && selectedTaskCanManageWorker ? (
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -1569,6 +1738,19 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
               <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
 
+              <SwarmArtifactList
+                artifacts={selectedTaskArtifacts}
+                tasksById={tasksById}
+                actions={artifactActions}
+                emptyLabel="No review artifacts are attached to this task."
+                onSelectTask={(taskId) => setSelectedTaskId(taskId)}
+                onOpenArtifact={(artifact) => void openArtifact(artifact)}
+                onApproveArtifact={(artifact) => void approveArtifact(artifact)}
+                onRequestArtifactChanges={(artifact) =>
+                  setChangeRequestDialog({ artifactId: artifact.id, feedback: '' })
+                }
+              />
+
               <div>
                 <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Evidence Summary
@@ -1600,6 +1782,72 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           </div>
         </div>
       )}
+
+      {changeRequestDialog ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-[560px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
+              <div className="min-w-0">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
+                  Request Changes
+                </div>
+                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
+                  {reviewArtifacts.find((artifact) => artifact.id === changeRequestDialog.artifactId)?.title ?? changeRequestDialog.artifactId}
+                </h3>
+              </div>
+              <button
+                onClick={() => setChangeRequestDialog(null)}
+                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              >
+                Close
+              </button>
+            </div>
+            <div className="px-5 py-5">
+              <label className="block">
+                <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Feedback
+                </span>
+                <textarea
+                  value={changeRequestDialog.feedback}
+                  onChange={(event) =>
+                    setChangeRequestDialog((current) =>
+                      current ? { ...current, feedback: event.target.value } : current
+                    )
+                  }
+                  rows={5}
+                  className="w-full resize-none rounded-md bg-[#111216] px-3 py-2 text-sm leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#ffbf2f]/50"
+                  placeholder="Describe the specific changes needed before this artifact can unblock downstream work."
+                />
+              </label>
+              {artifactActions[changeRequestDialog.artifactId]?.status === 'error' ? (
+                <div className="mt-3 border-l border-[#ff1a3d]/60 pl-3 text-sm leading-6 text-[#ffb3bf]">
+                  {artifactActions[changeRequestDialog.artifactId].message}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
+              <button
+                onClick={() => setChangeRequestDialog(null)}
+                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void requestArtifactChanges(changeRequestDialog.artifactId, changeRequestDialog.feedback)}
+                disabled={
+                  !changeRequestDialog.feedback.trim()
+                  || artifactActions[changeRequestDialog.artifactId]?.status === 'pending'
+                }
+                className="rounded-md bg-[#ffbf2f] px-4 py-2 text-sm font-semibold text-[#161008] transition-colors hover:bg-[#ffd46e] disabled:opacity-45 disabled:hover:bg-[#ffbf2f]"
+              >
+                {artifactActions[changeRequestDialog.artifactId]?.status === 'pending'
+                  ? 'Sending...'
+                  : 'Send Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showRunSummary ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
@@ -1876,9 +2124,15 @@ function SwarmProjectView({
   activeCount,
   needsInputCount,
   readyTasks,
+  reviewArtifacts,
+  artifactActions,
   onSelectAgent,
+  onSelectTask,
   onAddMember,
   onReadPlan,
+  onOpenArtifact,
+  onApproveArtifact,
+  onRequestArtifactChanges,
 }: {
   swarmState: SwarmState
   roster: RosterItem[]
@@ -1889,9 +2143,15 @@ function SwarmProjectView({
   activeCount: number
   needsInputCount: number
   readyTasks: SwarmTask[]
+  reviewArtifacts: SwarmArtifact[]
+  artifactActions: Record<string, ArtifactActionState>
   onSelectAgent: (agentId: string) => void
+  onSelectTask: (taskId: string) => void
   onAddMember: () => void
   onReadPlan: () => void
+  onOpenArtifact: (artifact: SwarmArtifact) => void
+  onApproveArtifact: (artifact: SwarmArtifact) => void
+  onRequestArtifactChanges: (artifact: SwarmArtifact) => void
 }) {
   const [goalExpanded, setGoalExpanded] = useState(false)
   const fullGoal = formatSwarmGoal(swarmState.goal)
@@ -1924,6 +2184,18 @@ function SwarmProjectView({
       ])
     )
   }, [runtimeAgents, swarmState.tasks])
+  const tasksById = useMemo(
+    () => Object.fromEntries(swarmState.tasks.map((task) => [task.id, task])),
+    [swarmState.tasks]
+  )
+  const blockedByArtifacts = useMemo(() => (
+    swarmState.tasks
+      .map((task) => ({
+        task,
+        blockers: getSwarmArtifactDependencyBlockers(task, swarmState.tasks, reviewArtifacts),
+      }))
+      .filter(({ blockers }) => blockers.length > 0)
+  ), [reviewArtifacts, swarmState.tasks])
 
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-[#08090b] p-4">
@@ -1985,6 +2257,43 @@ function SwarmProjectView({
                 {goalExpanded ? fullGoal : goalPreview}
               </div>
             </button>
+
+            <SwarmArtifactList
+              artifacts={reviewArtifacts}
+              tasksById={tasksById}
+              actions={artifactActions}
+              emptyLabel="No review artifacts are registered for this swarm run."
+              onSelectTask={onSelectTask}
+              onOpenArtifact={onOpenArtifact}
+              onApproveArtifact={onApproveArtifact}
+              onRequestArtifactChanges={onRequestArtifactChanges}
+            />
+
+            {blockedByArtifacts.length > 0 ? (
+              <div>
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Blocked By Review
+                </div>
+                <div className="divide-y divide-[#1f2025] border-y border-[#1f2025]">
+                  {blockedByArtifacts.map(({ task, blockers }) => (
+                    <button
+                      key={task.id}
+                      onClick={() => onSelectTask(task.id)}
+                      className="block w-full px-1 py-3 text-left transition-colors hover:bg-[#111216]"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-[#ececee]">
+                          {task.id}: {task.title}
+                        </span>
+                        <span className="text-[11px] font-semibold text-[#ffe0a3]">
+                          Waiting on {formatArtifactBlockerSummary(blockers)}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -2883,6 +3192,156 @@ function SectionList({
   )
 }
 
+function SwarmArtifactList({
+  artifacts,
+  tasksById,
+  actions,
+  emptyLabel,
+  onSelectTask,
+  onOpenArtifact,
+  onApproveArtifact,
+  onRequestArtifactChanges,
+}: {
+  artifacts: SwarmArtifact[]
+  tasksById: Record<string, SwarmTask | undefined>
+  actions: Record<string, ArtifactActionState>
+  emptyLabel: string
+  onSelectTask: (taskId: string) => void
+  onOpenArtifact: (artifact: SwarmArtifact) => void
+  onApproveArtifact: (artifact: SwarmArtifact) => void
+  onRequestArtifactChanges: (artifact: SwarmArtifact) => void
+}) {
+  const sortedArtifacts = [...artifacts].sort((a, b) => {
+    const statusOrder = ['ready_for_review', 'changes_requested', 'draft', 'approved', 'superseded']
+    const statusDelta = statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status)
+    return statusDelta !== 0 ? statusDelta : a.title.localeCompare(b.title)
+  })
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+          Review Artifacts
+        </div>
+        {artifacts.length > 0 ? (
+          <span className="text-[11px] font-semibold text-[#5a5a63]">
+            {formatArtifactSummary(artifacts)}
+          </span>
+        ) : null}
+      </div>
+
+      {sortedArtifacts.length > 0 ? (
+        <div className="divide-y divide-[#1f2025] border-y border-[#1f2025]">
+          {sortedArtifacts.map((artifact) => {
+            const task = tasksById[artifact.taskId]
+            const action = actions[artifact.id]
+            const pending = action?.status === 'pending'
+            const canReview = artifact.status !== 'approved' && artifact.status !== 'superseded'
+
+            return (
+              <div key={artifact.id} className="grid gap-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-[#ececee]">{artifact.title}</span>
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] ${artifactStatusTone(artifact.status)}`}>
+                      {swarmArtifactStatusLabels[artifact.status]}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#5a5a63]">
+                    <span>{swarmArtifactKindLabels[artifact.kind]}</span>
+                    <button
+                      type="button"
+                      onClick={() => onSelectTask(artifact.taskId)}
+                      disabled={!task}
+                      className="font-mono text-[#9a9aa2] transition-colors hover:text-[#ececee] disabled:text-[#5a5a63]"
+                    >
+                      {artifact.taskId || 'No task'}
+                    </button>
+                    {task ? <span className="min-w-0 truncate">{task.title}</span> : null}
+                  </div>
+                  <div className="mt-1 text-[12px] text-[#9a9aa2] [overflow-wrap:anywhere]">
+                    {artifact.path || 'No file path recorded.'}
+                  </div>
+                  {action && action.status !== 'pending' ? (
+                    <div className={`mt-2 border-l pl-2 text-[12px] leading-5 ${
+                      action.status === 'error'
+                        ? 'border-[#ff1a3d]/60 text-[#ffb3bf]'
+                        : 'border-[#30d158]/60 text-[#b9f7c8]'
+                    }`}>
+                      {action.message}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => onOpenArtifact(artifact)}
+                    disabled={pending}
+                    className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
+                  >
+                    {pending && action?.kind === 'open' ? 'Opening...' : 'Open'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRequestArtifactChanges(artifact)}
+                    disabled={!canReview || pending}
+                    className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/12 disabled:opacity-45 disabled:hover:bg-transparent"
+                  >
+                    {pending && action?.kind === 'request' ? 'Sending...' : 'Request Changes'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onApproveArtifact(artifact)}
+                    disabled={!canReview || pending}
+                    className="rounded-md bg-[#30d158] px-3 py-1.5 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#69e783] disabled:opacity-45 disabled:hover:bg-[#30d158]"
+                  >
+                    {pending && action?.kind === 'approve' ? 'Approving...' : 'Approve'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="text-[12px] text-[#5a5a63]">
+          {emptyLabel}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ArtifactBlockerList({
+  blockers,
+}: {
+  blockers: ReturnType<typeof getSwarmArtifactDependencyBlockers>
+}) {
+  return (
+    <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
+      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
+        Artifact Gate
+      </div>
+      <div className="mt-2 space-y-2">
+        {blockers.map((blocker) => (
+          <div key={blocker.taskId}>
+            <div className="font-semibold text-[#ffe0a3]">
+              {blocker.taskId}: {blocker.title}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {blocker.artifacts.map((artifact) => (
+                <span key={artifact.id} className="rounded bg-[#17181d] px-1.5 py-0.5 text-[11px] text-[#d7d7dc]">
+                  {artifact.title} - {swarmArtifactStatusLabels[artifact.status]}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function formatTimestamp(value: string | null): string {
   if (!value) return 'Not started'
   return new Date(value).toLocaleString()
@@ -2900,6 +3359,44 @@ function emptyKanbanColumnLabel(column: SwarmTaskBoardColumn): string {
       return 'Completed work will collect here.'
     default:
       return 'Planned tasks that are waiting on dependencies appear here.'
+  }
+}
+
+function formatArtifactSummary(artifacts: SwarmArtifact[]): string {
+  const pendingCount = artifacts.filter((artifact) =>
+    artifact.status !== 'approved' && artifact.status !== 'superseded'
+  ).length
+  const approvedCount = artifacts.filter((artifact) => artifact.status === 'approved').length
+
+  if (pendingCount > 0 && approvedCount > 0) {
+    return `${pendingCount} pending, ${approvedCount} approved`
+  }
+  if (pendingCount > 0) {
+    return `${pendingCount} pending ${pendingCount === 1 ? 'artifact' : 'artifacts'}`
+  }
+  return `${approvedCount} approved ${approvedCount === 1 ? 'artifact' : 'artifacts'}`
+}
+
+function formatArtifactBlockerSummary(
+  blockers: ReturnType<typeof getSwarmArtifactDependencyBlockers>
+): string {
+  const artifactCount = blockers.reduce((total, blocker) => total + blocker.artifacts.length, 0)
+  const taskIds = blockers.map((blocker) => blocker.taskId).join(', ')
+  return `${artifactCount} ${artifactCount === 1 ? 'artifact' : 'artifacts'} from ${taskIds}`
+}
+
+function artifactStatusTone(status: SwarmArtifact['status']): string {
+  switch (status) {
+    case 'approved':
+      return 'bg-[#30d158]/12 text-[#d4ffdc]'
+    case 'ready_for_review':
+      return 'bg-[#6ee7d8]/12 text-[#bff7f1]'
+    case 'changes_requested':
+      return 'bg-[#ffbf2f]/14 text-[#ffe0a3]'
+    case 'superseded':
+      return 'bg-[#1a1b20] text-[#5a5a63]'
+    default:
+      return 'bg-[#1a1b20] text-[#9a9aa2]'
   }
 }
 

@@ -88,6 +88,29 @@ declare global {
     stderr: string
     message: string | null
   }
+  type SwarmArtifactKind =
+    | 'architect_plan'
+    | 'branding'
+    | 'design_notes'
+    | 'html_mockup'
+    | 'product_strategy'
+    | 'requirements'
+    | 'security_review'
+    | 'validation_report'
+  type SwarmArtifactStatus =
+    | 'approved'
+    | 'changes_requested'
+    | 'draft'
+    | 'ready_for_review'
+    | 'superseded'
+  type SwarmArtifactCommandResult =
+    | { ok: true; data: unknown }
+    | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
+  type SwarmArtifactListOptions = {
+    taskId?: string
+    kind?: SwarmArtifactKind
+    status?: SwarmArtifactStatus
+  }
 
   interface Window {
     api: {
@@ -120,6 +143,30 @@ declare global {
       commitGitChanges: (repoRoot: string, message: string) => Promise<GitCommandResult>
       pushGitBranch: (repoRoot: string) => Promise<GitCommandResult>
       switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>
+      listSwarmArtifacts: (
+        statePath: string,
+        options?: SwarmArtifactListOptions
+      ) => Promise<SwarmArtifactCommandResult>
+      markSwarmArtifactReady: (
+        statePath: string,
+        artifactId: string,
+        actorId: string
+      ) => Promise<SwarmArtifactCommandResult>
+      approveSwarmArtifact: (
+        statePath: string,
+        artifactId: string,
+        actorId: string
+      ) => Promise<SwarmArtifactCommandResult>
+      requestSwarmArtifactChanges: (
+        statePath: string,
+        artifactId: string,
+        actorId: string,
+        feedback: string
+      ) => Promise<SwarmArtifactCommandResult>
+      openSwarmArtifact: (
+        statePath: string,
+        artifactPath: string
+      ) => Promise<SwarmArtifactCommandResult>
 
       terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata) => Promise<void>
       terminalWrite:  (sessionId: string, data: string) => Promise<void>

@@ -1,5 +1,9 @@
 import type {
   AgentId,
+  SwarmArtifact,
+  SwarmArtifactKind,
+  SwarmArtifactReviewHistoryEntry,
+  SwarmArtifactStatus,
   SwarmMockConfig,
   SwarmRole,
   SwarmRoleCounts,
@@ -36,6 +40,25 @@ export const swarmRoleAccent: Record<SwarmRole, string> = {
   security: '#ff6b6b',
 }
 
+export const swarmArtifactKindLabels: Record<SwarmArtifactKind, string> = {
+  architect_plan: 'Architect Plan',
+  product_strategy: 'Product Strategy',
+  requirements: 'Requirements',
+  html_mockup: 'HTML Mockup',
+  design_notes: 'Design Notes',
+  branding: 'Branding',
+  security_review: 'Security Review',
+  validation_report: 'Validation Report',
+}
+
+export const swarmArtifactStatusLabels: Record<SwarmArtifactStatus, string> = {
+  draft: 'Draft',
+  ready_for_review: 'Ready For Review',
+  approved: 'Approved',
+  changes_requested: 'Changes Requested',
+  superseded: 'Superseded',
+}
+
 export const swarmRoleOrder: SwarmRole[] = [
   'architect',
   'product',
@@ -44,6 +67,40 @@ export const swarmRoleOrder: SwarmRole[] = [
   'tester',
   'security',
 ]
+
+const swarmArtifactKinds: readonly SwarmArtifactKind[] = [
+  'architect_plan',
+  'product_strategy',
+  'requirements',
+  'html_mockup',
+  'design_notes',
+  'branding',
+  'security_review',
+  'validation_report',
+]
+
+const swarmArtifactStatuses: readonly SwarmArtifactStatus[] = [
+  'draft',
+  'ready_for_review',
+  'approved',
+  'changes_requested',
+  'superseded',
+]
+
+const reviewGateArtifactKinds = new Set<SwarmArtifactKind>([
+  'architect_plan',
+  'product_strategy',
+  'requirements',
+  'html_mockup',
+  'design_notes',
+  'branding',
+])
+
+export type SwarmArtifactDependencyBlocker = {
+  taskId: string
+  title: string
+  artifacts: SwarmArtifact[]
+}
 
 function emptyEvidence(summary = ''): SwarmTaskEvidence {
   return { summary, touchedFiles: [], commandsRan: [], results: [] }
@@ -58,6 +115,84 @@ function isSwarmRole(value: unknown): value is SwarmRole {
     || value === 'tester'
     || value === 'security'
   )
+}
+
+function isSwarmArtifactKind(value: unknown): value is SwarmArtifactKind {
+  return swarmArtifactKinds.includes(value as SwarmArtifactKind)
+}
+
+function isSwarmArtifactStatus(value: unknown): value is SwarmArtifactStatus {
+  return swarmArtifactStatuses.includes(value as SwarmArtifactStatus)
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function normalizeSwarmArtifactReviewHistory(value: unknown): SwarmArtifactReviewHistoryEntry[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const record = entry as Record<string, unknown>
+    if (
+      typeof record.action !== 'string'
+      || typeof record.actor !== 'string'
+      || typeof record.timestamp !== 'string'
+    ) {
+      return []
+    }
+
+    return [{
+      action: record.action,
+      actor: record.actor,
+      timestamp: record.timestamp,
+      ...(typeof record.note === 'string' ? { note: record.note } : {}),
+    }]
+  })
+}
+
+function normalizeSwarmArtifacts(value: unknown): SwarmArtifact[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((artifact, index) => {
+    if (!artifact || typeof artifact !== 'object') return []
+    const record = artifact as Record<string, unknown>
+    if (
+      typeof record.id !== 'string'
+      || !isSwarmArtifactKind(record.kind)
+      || !isSwarmArtifactStatus(record.status)
+    ) {
+      return []
+    }
+
+    const fallbackTitle = typeof record.path === 'string' && record.path.trim()
+      ? record.path
+      : `Artifact ${index + 1}`
+
+    return [{
+      id: record.id,
+      kind: record.kind,
+      title: typeof record.title === 'string' && record.title.trim() ? record.title : fallbackTitle,
+      path: typeof record.path === 'string' ? record.path : '',
+      status: record.status,
+      createdBy: typeof record.createdBy === 'string' ? record.createdBy : '',
+      taskId: typeof record.taskId === 'string' ? record.taskId : '',
+      fingerprint: stringOrNull(record.fingerprint),
+      reviewHistory: normalizeSwarmArtifactReviewHistory(record.reviewHistory),
+      recommendedTasks: stringArray(record.recommendedTasks),
+      createdAt: stringOrNull(record.createdAt),
+      updatedAt: stringOrNull(record.updatedAt),
+      ...(record.approvedBy === undefined ? {} : { approvedBy: stringOrNull(record.approvedBy) }),
+      ...(record.approvedAt === undefined ? {} : { approvedAt: stringOrNull(record.approvedAt) }),
+      ...(record.changesRequestedBy === undefined ? {} : { changesRequestedBy: stringOrNull(record.changesRequestedBy) }),
+      ...(record.changesRequestedAt === undefined ? {} : { changesRequestedAt: stringOrNull(record.changesRequestedAt) }),
+    }]
+  })
 }
 
 export function createDefaultSwarmRoleCounts(): SwarmRoleCounts {
@@ -184,6 +319,7 @@ export function createInitialSwarmState(config: SwarmMockConfig): SwarmState {
     ),
     events: [],
     tasks: [],
+    artifacts: [],
   }
 }
 
@@ -198,6 +334,47 @@ export function getSwarmTaskBoardColumn(
     tasks.some((t) => t.id === depId && t.status === 'done')
   )
   return dependenciesDone ? 'ready' : 'todo'
+}
+
+export function getReviewableSwarmArtifacts(artifacts: SwarmArtifact[]): SwarmArtifact[] {
+  return artifacts.filter((artifact) =>
+    reviewGateArtifactKinds.has(artifact.kind) && artifact.status !== 'superseded'
+  )
+}
+
+export function getSwarmArtifactsByTaskId(
+  artifacts: SwarmArtifact[]
+): Record<string, SwarmArtifact[]> {
+  return artifacts.reduce<Record<string, SwarmArtifact[]>>((byTaskId, artifact) => {
+    if (!artifact.taskId) return byTaskId
+    byTaskId[artifact.taskId] = [...(byTaskId[artifact.taskId] ?? []), artifact]
+    return byTaskId
+  }, {})
+}
+
+export function getSwarmArtifactDependencyBlockers(
+  task: SwarmTask,
+  tasks: SwarmTask[],
+  artifacts: SwarmArtifact[]
+): SwarmArtifactDependencyBlocker[] {
+  const artifactsByTaskId = getSwarmArtifactsByTaskId(getReviewableSwarmArtifacts(artifacts))
+  const tasksById = new Map(tasks.map((candidate) => [candidate.id, candidate]))
+
+  return task.dependsOn.flatMap((dependencyId) => {
+    const dependency = tasksById.get(dependencyId)
+    if (!dependency || dependency.status === 'done') return []
+
+    const waitingArtifacts = (artifactsByTaskId[dependencyId] ?? []).filter((artifact) =>
+      artifact.status !== 'approved'
+    )
+    if (waitingArtifacts.length === 0) return []
+
+    return [{
+      taskId: dependency.id,
+      title: dependency.title,
+      artifacts: waitingArtifacts,
+    }]
+  })
 }
 
 export function normalizeSwarmState(input: SwarmState | null | undefined): SwarmState | null {
@@ -234,5 +411,6 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
       : Object.fromEntries(buildSwarmAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
     events: input.events ?? [],
     tasks,
+    artifacts: normalizeSwarmArtifacts(input.artifacts),
   }
 }
