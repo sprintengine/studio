@@ -2278,10 +2278,6 @@ function SwarmTaskGraphView({
 }) {
   const graph = useMemo(() => buildTaskGraphLayout(swarmState.tasks), [swarmState.tasks])
   const focusTaskId = useMemo(() => getTaskGraphFocusTaskId(swarmState.tasks), [swarmState.tasks])
-  const displayTaskId = selectedTaskId ?? focusTaskId
-  const displayTask = displayTaskId
-    ? swarmState.tasks.find((task) => task.id === displayTaskId) ?? null
-    : null
   const graphCanvasRef = useRef<HTMLDivElement | null>(null)
   const graphScrollRef = useRef<HTMLDivElement | null>(null)
   const lastCenteredKeyRef = useRef<string | null>(null)
@@ -2319,17 +2315,10 @@ function SwarmTaskGraphView({
     graphCanvasRef.current?.style.setProperty('--swarm-cursor-opacity', '0')
   }
 
-  const readyCount = swarmState.tasks.filter(
-    (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready'
-  ).length
-  const blockedCount = swarmState.tasks.filter(
-    (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === 'todo' && task.dependsOn.length > 0
-  ).length
-  const inProgressCount = swarmState.tasks.filter((task) => task.status === 'in_progress').length
   const terminalCount = graph.terminalTaskIds.length
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden bg-[#08090b] lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="min-h-0 flex-1 overflow-hidden bg-[#08090b]">
       <div
         ref={graphScrollRef}
         onPointerEnter={updateGraphCursor}
@@ -2362,6 +2351,15 @@ function SwarmTaskGraphView({
                 'radial-gradient(circle at var(--swarm-cursor-x, 50%) var(--swarm-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
             }}
           />
+
+          {(graph.hasCycle || graph.missingDependencyCount > 0) ? (
+            <div className="absolute left-4 top-4 z-20 max-w-md border-l border-[#ffbf2f]/60 bg-[#08090b]/88 px-3 py-2 text-sm leading-6 text-[#ffe0a3] backdrop-blur">
+              {graph.hasCycle ? 'A dependency cycle was detected. ' : ''}
+              {graph.missingDependencyCount > 0
+                ? `${graph.missingDependencyCount} dependency ${graph.missingDependencyCount === 1 ? 'reference is' : 'references are'} missing.`
+                : ''}
+            </div>
+          ) : null}
 
           {swarmState.tasks.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
@@ -2519,75 +2517,6 @@ function SwarmTaskGraphView({
           })}
         </div>
       </div>
-      <aside className="border-t border-[#1f2025] bg-[#0d0e11] p-4 lg:border-l lg:border-t-0">
-        <div className="mb-5">
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Task Graph</div>
-          <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-            <MetaItem label="Tasks" value={String(swarmState.tasks.length)} />
-            <MetaItem label="Ready" value={String(readyCount)} />
-            <MetaItem label="Active" value={String(inProgressCount)} />
-            <MetaItem label="Blocked" value={String(blockedCount)} />
-          </div>
-        </div>
-
-        {(graph.hasCycle || graph.missingDependencyCount > 0) ? (
-          <div className="mb-5 border-l border-[#ffbf2f]/60 pl-3 text-sm leading-6 text-[#ffe0a3]">
-            {graph.hasCycle ? 'A dependency cycle was detected. ' : ''}
-            {graph.missingDependencyCount > 0
-              ? `${graph.missingDependencyCount} dependency ${graph.missingDependencyCount === 1 ? 'reference is' : 'references are'} missing.`
-              : ''}
-          </div>
-        ) : null}
-
-        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-          {selectedTaskId ? 'Selected Task' : 'Current Focus'}
-        </div>
-        {displayTask ? (
-          <div className="mt-4 space-y-4">
-            <div className="border-l pl-3" style={taskCardStyle(displayTask.role)}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-lg font-semibold text-[#ececee]">{displayTask.title}</div>
-                  <div className="mt-1 text-sm text-[#9a9aa2]">
-                    {displayTask.id} - {swarmRoleLabels[displayTask.role]}
-                  </div>
-                </div>
-                <span
-                  className="h-3 w-3 shrink-0 rounded-full"
-                  style={{
-                    backgroundColor: swarmRoleAccent[displayTask.role],
-                  }}
-                />
-              </div>
-            </div>
-
-            <MetaItem
-              label="Status"
-              value={getSwarmTaskBoardColumn(displayTask, swarmState.tasks) === 'ready'
-                ? 'Ready'
-                : taskStateLabel[displayTask.status]}
-            />
-            <MetaItem
-              label="Owner"
-              value={getTaskOwnerLabel(displayTask, rosterById)}
-            />
-            <MetaItem
-              label="Dependencies"
-              value={displayTask.dependsOn.join(', ') || 'None'}
-            />
-            <button
-              onClick={() => onSelectTask(displayTask.id)}
-              className="w-full rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
-            >
-              Open Task Details
-            </button>
-          </div>
-        ) : (
-          <div className="mt-4 border-l border-[#303139] pl-3 text-sm leading-6 text-[#5a5a63]">
-            No tasks have been planned yet.
-          </div>
-        )}
-      </aside>
     </div>
   )
 }
