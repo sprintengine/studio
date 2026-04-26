@@ -751,7 +751,11 @@ function resolveArtifactFilePath(state: ValidSwarmStatePath, artifactPathInput: 
 
   const fullPath = isAbsolute(artifactPath)
     ? resolve(artifactPath)
-    : resolve(state.teamDirectory, artifactPath)
+    : [
+        resolve(state.workspaceRoot, artifactPath),
+        resolve(state.teamDirectory, artifactPath),
+      ].find((candidate) => isPathInsideOrEqual(state.teamDirectory, candidate))
+        ?? resolve(state.workspaceRoot, artifactPath)
   if (!isPathInsideOrEqual(state.teamDirectory, fullPath)) {
     throw new Error('Artifact path must stay inside the swarm team directory.')
   }
@@ -1376,12 +1380,8 @@ ipcMain.handle('swarm:artifact:open', async (_, payload: SwarmArtifactOpenPayloa
       return { ok: false, message: 'Artifact path must be a file.' }
     }
 
-    const errorMessage = await shell.openPath(targetPath)
-    if (errorMessage) {
-      return { ok: false, message: errorMessage }
-    }
-
-    return { ok: true, data: { path: targetPath } }
+    const content = await readFile(targetPath, 'utf8')
+    return { ok: true, data: { path: targetPath, name: basename(targetPath), content } }
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }

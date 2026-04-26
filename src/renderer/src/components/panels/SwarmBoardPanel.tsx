@@ -80,6 +80,31 @@ function getBaseName(path: string): string {
   return separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed
 }
 
+type OpenedSwarmArtifact = {
+  path: string
+  name: string
+  content: string
+}
+
+function parseOpenedSwarmArtifact(data: unknown): OpenedSwarmArtifact | null {
+  if (!data || typeof data !== 'object') return null
+
+  const candidate = data as Partial<OpenedSwarmArtifact>
+  if (
+    typeof candidate.path !== 'string'
+    || typeof candidate.name !== 'string'
+    || typeof candidate.content !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    path: candidate.path,
+    name: candidate.name,
+    content: candidate.content,
+  }
+}
+
 const roleSummaries: Record<SwarmRole, string> = {
   architect: 'Plans the run and gates readiness.',
   product: 'Shapes scope, positioning, audience fit, and priority tradeoffs.',
@@ -120,17 +145,12 @@ type RecoveryDialogState = {
   cli: AgentCli
 }
 
-type ArtifactActionKind = 'open' | 'approve' | 'request'
+type ArtifactActionKind = 'open'
 
 type ArtifactActionState = {
   kind: ArtifactActionKind
   status: 'pending' | 'success' | 'error'
   message: string
-}
-
-type ChangeRequestDialogState = {
-  artifactId: string
-  feedback: string
 }
 
 function buildWorkerRespawnStartupPrompt(
@@ -173,7 +193,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
   const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
-  const [changeRequestDialog, setChangeRequestDialog] = useState<ChangeRequestDialogState | null>(null)
   const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
     status: 'idle',
@@ -524,64 +543,22 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setArtifactAction(artifact.id, { kind: 'open', status: 'pending', message: 'Opening...' })
     const result = await window.api.openSwarmArtifact(statePath, artifact.path)
     if (result.ok) {
-      setArtifactAction(artifact.id, { kind: 'open', status: 'success', message: 'Opened.' })
+      const openedArtifact = parseOpenedSwarmArtifact(result.data)
+      if (openedArtifact) {
+        openFile(workspaceId, openedArtifact.path, openedArtifact.name, openedArtifact.content)
+        focusOrAddComponentTab(workspaceId, 'editor', 'Editor')
+      }
+      setArtifactAction(artifact.id, {
+        kind: 'open',
+        status: 'success',
+        message: openedArtifact ? 'Opened in editor.' : 'Opened.',
+      })
       return
     }
     setArtifactAction(artifact.id, {
       kind: 'open',
       status: 'error',
       message: result.message || 'Failed to open artifact.',
-    })
-  }
-
-  const approveArtifact = async (artifact: SwarmArtifact) => {
-    const statePath = requireArtifactStatePath()
-    if (!statePath) return
-
-    setArtifactAction(artifact.id, { kind: 'approve', status: 'pending', message: 'Approving...' })
-    const result = await window.api.approveSwarmArtifact(statePath, artifact.id, 'user')
-    if (result.ok) {
-      setArtifactAction(artifact.id, { kind: 'approve', status: 'success', message: 'Approved.' })
-      await refreshSwarmState()
-      return
-    }
-    setArtifactAction(artifact.id, {
-      kind: 'approve',
-      status: 'error',
-      message: result.message || 'Failed to approve artifact.',
-    })
-  }
-
-  const requestArtifactChanges = async (artifactId: string, feedback: string) => {
-    const statePath = requireArtifactStatePath()
-    const artifact = reviewArtifacts.find((candidate) => candidate.id === artifactId)
-    if (!statePath || !artifact) return
-
-    setArtifactAction(artifactId, {
-      kind: 'request',
-      status: 'pending',
-      message: 'Sending change request...',
-    })
-    const result = await window.api.requestSwarmArtifactChanges(
-      statePath,
-      artifactId,
-      'user',
-      feedback
-    )
-    if (result.ok) {
-      setArtifactAction(artifactId, {
-        kind: 'request',
-        status: 'success',
-        message: 'Change request sent.',
-      })
-      setChangeRequestDialog(null)
-      await refreshSwarmState()
-      return
-    }
-    setArtifactAction(artifactId, {
-      kind: 'request',
-      status: 'error',
-      message: result.message || 'Failed to request changes.',
     })
   }
 
@@ -1102,10 +1079,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           onAddMember={openAddMemberDialog}
           onReadPlan={() => void loadPlanReader()}
           onOpenArtifact={(artifact) => void openArtifact(artifact)}
-          onApproveArtifact={(artifact) => void approveArtifact(artifact)}
-          onRequestArtifactChanges={(artifact) =>
-            setChangeRequestDialog({ artifactId: artifact.id, feedback: '' })
-          }
         />
       ) : null}
 
@@ -1745,10 +1718,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 emptyLabel="No review artifacts are attached to this task."
                 onSelectTask={(taskId) => setSelectedTaskId(taskId)}
                 onOpenArtifact={(artifact) => void openArtifact(artifact)}
-                onApproveArtifact={(artifact) => void approveArtifact(artifact)}
-                onRequestArtifactChanges={(artifact) =>
-                  setChangeRequestDialog({ artifactId: artifact.id, feedback: '' })
-                }
               />
 
               <div>
@@ -1782,72 +1751,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           </div>
         </div>
       )}
-
-      {changeRequestDialog ? (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-[560px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-              <div className="min-w-0">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
-                  Request Changes
-                </div>
-                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  {reviewArtifacts.find((artifact) => artifact.id === changeRequestDialog.artifactId)?.title ?? changeRequestDialog.artifactId}
-                </h3>
-              </div>
-              <button
-                onClick={() => setChangeRequestDialog(null)}
-                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Close
-              </button>
-            </div>
-            <div className="px-5 py-5">
-              <label className="block">
-                <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Feedback
-                </span>
-                <textarea
-                  value={changeRequestDialog.feedback}
-                  onChange={(event) =>
-                    setChangeRequestDialog((current) =>
-                      current ? { ...current, feedback: event.target.value } : current
-                    )
-                  }
-                  rows={5}
-                  className="w-full resize-none rounded-md bg-[#111216] px-3 py-2 text-sm leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#ffbf2f]/50"
-                  placeholder="Describe the specific changes needed before this artifact can unblock downstream work."
-                />
-              </label>
-              {artifactActions[changeRequestDialog.artifactId]?.status === 'error' ? (
-                <div className="mt-3 border-l border-[#ff1a3d]/60 pl-3 text-sm leading-6 text-[#ffb3bf]">
-                  {artifactActions[changeRequestDialog.artifactId].message}
-                </div>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
-              <button
-                onClick={() => setChangeRequestDialog(null)}
-                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void requestArtifactChanges(changeRequestDialog.artifactId, changeRequestDialog.feedback)}
-                disabled={
-                  !changeRequestDialog.feedback.trim()
-                  || artifactActions[changeRequestDialog.artifactId]?.status === 'pending'
-                }
-                className="rounded-md bg-[#ffbf2f] px-4 py-2 text-sm font-semibold text-[#161008] transition-colors hover:bg-[#ffd46e] disabled:opacity-45 disabled:hover:bg-[#ffbf2f]"
-              >
-                {artifactActions[changeRequestDialog.artifactId]?.status === 'pending'
-                  ? 'Sending...'
-                  : 'Send Request'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {showRunSummary ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
@@ -2131,8 +2034,6 @@ function SwarmProjectView({
   onAddMember,
   onReadPlan,
   onOpenArtifact,
-  onApproveArtifact,
-  onRequestArtifactChanges,
 }: {
   swarmState: SwarmState
   roster: RosterItem[]
@@ -2150,8 +2051,6 @@ function SwarmProjectView({
   onAddMember: () => void
   onReadPlan: () => void
   onOpenArtifact: (artifact: SwarmArtifact) => void
-  onApproveArtifact: (artifact: SwarmArtifact) => void
-  onRequestArtifactChanges: (artifact: SwarmArtifact) => void
 }) {
   const [goalExpanded, setGoalExpanded] = useState(false)
   const fullGoal = formatSwarmGoal(swarmState.goal)
@@ -2265,8 +2164,6 @@ function SwarmProjectView({
               emptyLabel="No review artifacts are registered for this swarm run."
               onSelectTask={onSelectTask}
               onOpenArtifact={onOpenArtifact}
-              onApproveArtifact={onApproveArtifact}
-              onRequestArtifactChanges={onRequestArtifactChanges}
             />
 
             {blockedByArtifacts.length > 0 ? (
@@ -3199,8 +3096,6 @@ function SwarmArtifactList({
   emptyLabel,
   onSelectTask,
   onOpenArtifact,
-  onApproveArtifact,
-  onRequestArtifactChanges,
 }: {
   artifacts: SwarmArtifact[]
   tasksById: Record<string, SwarmTask | undefined>
@@ -3208,8 +3103,6 @@ function SwarmArtifactList({
   emptyLabel: string
   onSelectTask: (taskId: string) => void
   onOpenArtifact: (artifact: SwarmArtifact) => void
-  onApproveArtifact: (artifact: SwarmArtifact) => void
-  onRequestArtifactChanges: (artifact: SwarmArtifact) => void
 }) {
   const sortedArtifacts = [...artifacts].sort((a, b) => {
     const statusOrder = ['ready_for_review', 'changes_requested', 'draft', 'approved', 'superseded']
@@ -3236,7 +3129,6 @@ function SwarmArtifactList({
             const task = tasksById[artifact.taskId]
             const action = actions[artifact.id]
             const pending = action?.status === 'pending'
-            const canReview = artifact.status !== 'approved' && artifact.status !== 'superseded'
 
             return (
               <div key={artifact.id} className="grid gap-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
@@ -3281,22 +3173,6 @@ function SwarmArtifactList({
                     className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
                   >
                     {pending && action?.kind === 'open' ? 'Opening...' : 'Open'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRequestArtifactChanges(artifact)}
-                    disabled={!canReview || pending}
-                    className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/12 disabled:opacity-45 disabled:hover:bg-transparent"
-                  >
-                    {pending && action?.kind === 'request' ? 'Sending...' : 'Request Changes'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onApproveArtifact(artifact)}
-                    disabled={!canReview || pending}
-                    className="rounded-md bg-[#30d158] px-3 py-1.5 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#69e783] disabled:opacity-45 disabled:hover:bg-[#30d158]"
-                  >
-                    {pending && action?.kind === 'approve' ? 'Approving...' : 'Approve'}
                   </button>
                 </div>
               </div>
