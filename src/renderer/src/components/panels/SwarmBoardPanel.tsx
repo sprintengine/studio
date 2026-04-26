@@ -1056,7 +1056,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               type="button"
               role="switch"
               aria-checked={autoApproveArtifacts}
-              aria-label="Auto-approve eligible artifacts"
+              aria-label="Auto-approve artifacts"
               aria-describedby={!autoEnabled ? 'artifact-auto-approval-disabled' : undefined}
               onClick={toggleArtifactAutoApproval}
               disabled={!autoEnabled}
@@ -1065,7 +1065,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/65 hover:bg-[#6ee7d8]/16'
                   : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
               } disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]`}
-              title={autoEnabled ? 'Auto-approve eligible artifacts' : 'Enable Auto before artifact auto-approval can run'}
+              title={autoEnabled ? 'Auto-approve artifacts' : 'Enable Auto before artifact auto-approval can run'}
             >
               <span
                 className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
@@ -1082,7 +1082,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               <span>Artifacts</span>
             </button>
             <span id="artifact-auto-approval-disabled" className="sr-only">
-              Auto must be enabled before eligible artifacts can be auto-approved.
+              Auto must be enabled before artifacts can be auto-approved.
             </span>
             {!fixedView ? (
               <div className="ml-1 flex flex-wrap items-center gap-1">

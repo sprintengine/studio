@@ -94,14 +94,8 @@ const reviewGateArtifactKinds = new Set<SwarmArtifactKind>([
   'html_mockup',
   'design_notes',
   'branding',
-])
-
-const autoApprovableSwarmArtifactKinds = new Set<SwarmArtifactKind>([
-  'product_strategy',
-  'requirements',
-  'html_mockup',
-  'design_notes',
-  'branding',
+  'security_review',
+  'validation_report',
 ])
 
 export type SwarmArtifactDependencyBlocker = {
@@ -357,7 +351,7 @@ export function getReviewableSwarmArtifacts(artifacts: SwarmArtifact[]): SwarmAr
 }
 
 export function isSwarmArtifactAutoApprovableKind(kind: SwarmArtifactKind): boolean {
-  return autoApprovableSwarmArtifactKinds.has(kind)
+  return reviewGateArtifactKinds.has(kind)
 }
 
 export function getSwarmArtifactAutoApprovalEligibility(
@@ -382,23 +376,15 @@ export function getSwarmArtifactAutoApprovalEligibility(
   if (isSwarmArtifactAutoApprovableKind(artifact.kind)) {
     return {
       eligible: true,
-      label: 'Auto-eligible',
+      label: 'Auto-approval ready',
       reason: null,
-    }
-  }
-
-  if (artifact.kind === 'architect_plan') {
-    return {
-      eligible: false,
-      label: 'Manual approval required',
-      reason: 'Architect plan artifacts are manual gates.',
     }
   }
 
   return {
     eligible: false,
-    label: 'Manual review gate',
-    reason: 'This artifact type requires manual review.',
+    label: '',
+    reason: 'Unknown artifact type.',
   }
 }
 
