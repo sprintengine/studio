@@ -62,6 +62,13 @@ export type SwarmAutoState = {
   pending: SwarmAutoPendingSpawn | null
 }
 
+export type SwarmWorkspaceContext = {
+  teamName: string
+  teamSlug: string
+  teamDirectoryPath: string
+  statePath: string
+}
+
 export type SwarmTask = {
   id: string
   title: string
@@ -170,6 +177,7 @@ export type Workspace = {
   mode: 'standard' | 'swarm'
   folderPath: string | null
   folderMissing?: boolean
+  swarmContext?: SwarmWorkspaceContext | null
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>

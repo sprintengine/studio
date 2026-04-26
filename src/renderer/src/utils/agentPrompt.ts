@@ -33,13 +33,11 @@ function quoteShellArg(value: string): string {
 export function buildSwarmStartupPrompt(
   role: string,
   agentId: string,
-  goal: string,
-  statePath?: string | null
+  goal: string
 ): string {
-  const statePrefix = statePath ? ` --state ${quoteShellArg(statePath)}` : ''
   const command = role === 'architect'
-    ? `Run \`swarm${statePrefix} init --goal ${quoteShellArg(goal)}\` to receive your full prompt and instructions.`
-    : `Run \`swarm${statePrefix} join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
+    ? `Run \`swarm init --goal ${quoteShellArg(goal)}\` to receive your full prompt and instructions.`
+    : `Run \`swarm join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
 
   return [
     'Fetch the canonical swarm instructions from the Python tool.',

@@ -8,6 +8,7 @@ import type {
   SwarmRole,
   SwarmRoleCounts,
   SwarmState,
+  SwarmWorkspaceContext,
 } from '../../types/workspace'
 import {
   countSwarmAgents,
@@ -16,7 +17,9 @@ import {
   swarmRoleOrder,
 } from '../../utils/swarm'
 import {
+  getSwarmDirectoryPath,
   getExistingSwarmStateFilePath,
+  getSwarmStateFilePath,
   parseSwarmStateFile,
   slugifySwarmName,
 } from '../../utils/swarmStateFile'
@@ -24,6 +27,7 @@ import {
 type ExistingTeam = {
   slug: string
   displayName: string
+  context: SwarmWorkspaceContext
   state: SwarmState
 }
 
@@ -35,6 +39,7 @@ interface Props {
     name: string
     folderPath: string | null
     swarmState?: SwarmState | null
+    swarmContext?: SwarmWorkspaceContext | null
   }) => void
   onClose: () => void
   allowClose?: boolean
@@ -85,6 +90,15 @@ function getExistingTeamDisplayName(slug: string, state: SwarmState): string {
   return slugifySwarmName(stateName) === slug.toLowerCase()
     ? stateName
     : toTitleName(slug)
+}
+
+function buildSwarmContext(folderPath: string, teamName: string, teamSlug: string): SwarmWorkspaceContext {
+  return {
+    teamName,
+    teamSlug,
+    teamDirectoryPath: getSwarmDirectoryPath(folderPath, teamSlug),
+    statePath: getSwarmStateFilePath(folderPath, teamSlug),
+  }
 }
 
 export default function TemplateSelector({ onCreate, onClose, allowClose = true }: Props) {
@@ -146,9 +160,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
         try {
           const content = await window.api.readfile(getExistingSwarmStateFilePath(dir, entry.name))
           const state = parseSwarmStateFile(content, entry.name)
+          const displayName = getExistingTeamDisplayName(entry.name, state)
           teams.push({
             slug: entry.name,
-            displayName: getExistingTeamDisplayName(entry.name, state),
+            displayName,
+            context: buildSwarmContext(dir, displayName, entry.name),
             state,
           })
         } catch {
@@ -184,20 +200,23 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     if (!canCreate) return
 
     if (selectedExistingTeam) {
-      const { displayName, state } = selectedExistingTeam
+      const { displayName, state, context } = selectedExistingTeam
       const loadedState = { ...state, name: displayName }
       const template = createSwarmTemplate({
         name: loadedState.name,
         goal: loadedState.goal,
         roleCounts: loadedState.roleCounts,
       })
-      onCreate({ template, name: name.trim(), folderPath, swarmState: loadedState })
+      onCreate({ template, name: name.trim(), folderPath, swarmState: loadedState, swarmContext: context })
       return
     }
 
     const swarmState = mode === 'swarm' ? createInitialSwarmState(swarmConfig) : null
     const template = mode === 'swarm' ? createSwarmTemplate(swarmConfig) : selected
-    onCreate({ template, name: name.trim(), folderPath, swarmState })
+    const swarmContext = mode === 'swarm' && folderPath && swarmState
+      ? buildSwarmContext(folderPath, swarmState.name, slugifySwarmName(swarmState.name))
+      : null
+    onCreate({ template, name: name.trim(), folderPath, swarmState, swarmContext })
   }
 
   return (

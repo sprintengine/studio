@@ -397,13 +397,15 @@ export default function WorkspaceManager() {
     name,
     folderPath,
     swarmState,
+    swarmContext,
   }: {
     template: LayoutTemplate
     name: string
     folderPath: string | null
     swarmState?: Workspace['swarmState']
+    swarmContext?: Workspace['swarmContext']
   }) => {
-    addWorkspace(template, { name, folderPath, swarmState })
+    addWorkspace(template, { name, folderPath, swarmState, swarmContext })
     setShowTemplateSelector(false)
   }
 
@@ -1252,6 +1254,31 @@ function getNextWorkspaceId(
   return workspaces[nextIndex].id
 }
 
+function killTerminalForLayoutTab(workspaceId: string, node: TabNode): void {
+  const state = useWorkspaceStore.getState()
+  const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
+  if (!workspace) return
+
+  const config = node.getConfig() as { agentId?: string; terminalId?: string } | undefined
+  if (node.getComponent() === 'agent') {
+    const agentId = config?.agentId ?? node.getId()
+    const agent = workspace.agents[agentId]
+    if (agent?.cliSessionId) void window.api.terminalKill(agent.cliSessionId).catch(() => {})
+    if (agent?.kind === 'swarm') state.setSwarmAutoEnabled(workspaceId, false)
+    state.updateAgent(workspaceId, agentId, {
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliOnboardingPromptSent: false,
+    })
+    return
+  }
+
+  if (node.getComponent() === 'terminal') {
+    const terminalId = config?.terminalId ?? node.getId()
+    void window.api.terminalKill(`terminal-${terminalId}`).catch(() => {})
+  }
+}
+
 function closeActiveLayoutTab(workspaceId: string): boolean {
   const model = getModel(workspaceId)
   const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
@@ -1261,6 +1288,7 @@ function closeActiveLayoutTab(workspaceId: string): boolean {
   const selectedNode = tabset.getChildren()[selectedIndex]
   if (!(selectedNode instanceof TabNode) || !selectedNode.isEnableClose()) return false
 
+  killTerminalForLayoutTab(workspaceId, selectedNode)
   model.doAction(Actions.deleteTab(selectedNode.getId()))
   return true
 }

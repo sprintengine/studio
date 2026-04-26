@@ -7,7 +7,6 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentCli } from '../../types/workspace'
 import { getSpecialistAction, loadSpecialistPrompt } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
-import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
 import { buildSwarmStartupPrompt, prependAgentIdentifier } from '../../utils/agentPrompt'
 
 interface Props {
@@ -52,8 +51,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     folderMissing,
     checkingFolder,
   } = useWorkspaceFolderStatus(workspaceId)
-  const swarmName = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.swarmState?.name
+  const swarmContext = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.swarmContext ?? null
   )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cli = agent?.cli ?? 'codex'
@@ -71,14 +70,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     if (!rosterAgent) return null
 
-    const swarmStatePath = workspace.folderPath
-      ? getSwarmStateFilePath(workspace.folderPath, workspace.swarmState.name || workspace.name)
-      : null
     const basePrompt = buildSwarmStartupPrompt(
       rosterAgent.role,
       agentId,
-      workspace.swarmState.goal,
-      swarmStatePath
+      workspace.swarmState.goal
     )
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
       ? currentAgent.name
@@ -337,7 +332,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         }
       }
 
-      const swarmStatePath = folderReadyPath && swarmName ? getSwarmStateFilePath(folderReadyPath, swarmName) : undefined
+      const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
       void window.api.terminalSpawn(
         sessionId,
         term.cols,
@@ -401,7 +396,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     cliRuntimes,
     folderReadyPath,
     savedFolderPath,
-    swarmName,
+    swarmContext?.statePath,
     updateAgent,
   ])
 

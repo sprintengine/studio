@@ -13,6 +13,7 @@ import type {
   SwarmAutoPendingSpawn,
   SwarmAutoState,
   SwarmState,
+  SwarmWorkspaceContext,
   SwarmRole,
   AgentCli,
   AppSettings,
@@ -30,6 +31,11 @@ import {
   getNextSwarmAgentId,
   normalizeSwarmState,
 } from '../utils/swarm'
+import {
+  getSwarmDirectoryPath,
+  getSwarmStateFilePath,
+  slugifySwarmName,
+} from '../utils/swarmStateFile'
 
 const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
@@ -57,13 +63,19 @@ interface WorkspaceStore {
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   addWorkspace: (
     template: LayoutTemplate,
-    options?: { name?: string; folderPath?: string | null; swarmState?: SwarmState | null }
+    options?: {
+      name?: string
+      folderPath?: string | null
+      swarmState?: SwarmState | null
+      swarmContext?: SwarmWorkspaceContext | null
+    }
   ) => void
   removeWorkspace: (id: WorkspaceId) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setActiveWorkspace: (id: WorkspaceId) => void
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
+  setSwarmContext: (id: WorkspaceId, swarmContext: SwarmWorkspaceContext | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
@@ -134,6 +146,36 @@ function normalizeSwarmAutoState(input: Partial<SwarmAutoState> | null | undefin
       ? { taskId: pending.taskId, agentId: pending.agentId }
       : null,
   }
+}
+
+function createSwarmWorkspaceContext(
+  folderPath: string | null | undefined,
+  teamName: string | null | undefined,
+  teamSlug?: string | null
+): SwarmWorkspaceContext | null {
+  if (!folderPath || !teamName?.trim()) return null
+
+  const slug = teamSlug?.trim() || slugifySwarmName(teamName)
+  return {
+    teamName: teamName.trim(),
+    teamSlug: slug,
+    teamDirectoryPath: getSwarmDirectoryPath(folderPath, slug),
+    statePath: getSwarmStateFilePath(folderPath, slug),
+  }
+}
+
+function normalizeSwarmWorkspaceContext(
+  input: Partial<SwarmWorkspaceContext> | null | undefined,
+  folderPath: string | null | undefined,
+  swarmState: SwarmState | null
+): SwarmWorkspaceContext | null {
+  if (!swarmState) return null
+
+  if (input?.teamSlug && input.teamName) {
+    return createSwarmWorkspaceContext(folderPath, input.teamName, input.teamSlug)
+  }
+
+  return createSwarmWorkspaceContext(folderPath, swarmState?.name)
 }
 
 const swarmAgentTab = (id: string, name: string) => ({
@@ -395,6 +437,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             mode: swarmState ? 'swarm' : 'standard',
             folderPath: options?.folderPath ?? null,
             folderMissing: false,
+            swarmContext: normalizeSwarmWorkspaceContext(
+              options?.swarmContext,
+              options?.folderPath ?? null,
+              swarmState
+            ),
             templateId: template.id,
             layoutModel: swarmState
               ? swarmTabsLayoutModel(swarmState, agents, { includeAgentTabs: false })
@@ -439,7 +486,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (ws) {
             ws.folderPath = folderPath
             ws.folderMissing = false
+            ws.swarmContext = normalizeSwarmWorkspaceContext(
+              ws.swarmContext,
+              folderPath,
+              normalizeSwarmState(ws.swarmState)
+            )
           }
+        }),
+
+      setSwarmContext: (id, swarmContext) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === id)
+          if (ws) ws.swarmContext = swarmContext
         }),
 
       setFolderMissing: (id, folderMissing) =>
@@ -463,6 +521,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const normalized = normalizeSwarmState(swarmState)
           ws.swarmState = normalized
           ws.mode = normalized ? 'swarm' : 'standard'
+          ws.swarmContext = normalizeSwarmWorkspaceContext(
+            ws.swarmContext,
+            ws.folderPath,
+            normalized
+          )
           ws.agents = reconcileSwarmAgents(ws.agents, normalized)
           ws.swarmAutoState = normalized
             ? normalizeSwarmAutoState(ws.swarmAutoState)
@@ -687,7 +750,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 18,
+      version: 19,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -835,6 +898,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
         if (version < 18) {
           state.workspaces = state.workspaces.map((ws) => migrateSwarmAgentNames(ws))
+        }
+        if (version < 19) {
+          state.workspaces = state.workspaces.map((ws) => {
+            const swarmState = normalizeSwarmState(ws.swarmState)
+            return {
+              ...ws,
+              swarmState,
+              swarmContext: normalizeSwarmWorkspaceContext(
+                (ws as Workspace & { swarmContext?: SwarmWorkspaceContext | null }).swarmContext,
+                ws.folderPath,
+                swarmState
+              ),
+            }
+          })
         }
         return state as never
       },

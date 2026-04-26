@@ -4,7 +4,6 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
-import { getSwarmStateFilePath } from '../../utils/swarmStateFile'
 
 interface Props {
   workspaceId: string
@@ -20,8 +19,8 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     folderMissing,
     checkingFolder,
   } = useWorkspaceFolderStatus(workspaceId)
-  const swarmName = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.swarmState?.name
+  const swarmContext = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.swarmContext ?? null
   )
 
   useEffect(() => {
@@ -157,7 +156,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     container.addEventListener('keydown', handleKeyDown)
     container.addEventListener('contextmenu', handleContextMenu)
 
-    const swarmStatePath = folderReadyPath && swarmName ? getSwarmStateFilePath(folderReadyPath, swarmName) : undefined
+    const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
     void window.api.terminalSpawn(
       sessionId,
       term.cols,
@@ -198,7 +197,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
       onResizeDisposable.dispose()
       term.dispose()
     }
-  }, [folderReadyPath, savedFolderPath, swarmName, terminalId, workspaceId])
+  }, [folderReadyPath, savedFolderPath, swarmContext?.statePath, terminalId, workspaceId])
 
   const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
 

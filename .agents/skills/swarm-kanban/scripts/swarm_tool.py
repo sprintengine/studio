@@ -93,6 +93,18 @@ def default_state_path(start: Optional[Path] = None) -> Path:
     return fallback
 
 
+def reject_invalid_posix_state_path(path: Path) -> None:
+    raw = str(path)
+    if os.name == "nt":
+        return
+    if re.match(r"^[A-Za-z]:[\\/]", raw):
+        raise SystemExit(
+            "Invalid POSIX state path: "
+            f"{raw}\n"
+            "This looks like a Windows path. Use the mounted WSL path, for example /mnt/c/..."
+        )
+
+
 def specialist_prompt_dir_candidates() -> List[Path]:
     script_path = Path(__file__).resolve()
     candidates = [
@@ -1557,8 +1569,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "uses_state", True):
-        args.state = (args.state or default_state_path()).resolve()
+        state_path = args.state or default_state_path()
+        reject_invalid_posix_state_path(state_path)
+        args.state = state_path.resolve()
     elif args.state is not None:
+        reject_invalid_posix_state_path(args.state)
         args.state = args.state.resolve()
     result = args.handler(args)
     print(json.dumps(result, indent=2))

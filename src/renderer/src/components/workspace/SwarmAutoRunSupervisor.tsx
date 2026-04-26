@@ -7,59 +7,26 @@ import {
   getSwarmTaskBoardColumn,
   swarmRoleLabels,
 } from '../../utils/swarm'
-import {
-  getExistingSwarmStateFilePath,
-  getSwarmRootDirectoryPath,
-  getSwarmStateFilePath,
-  parseSwarmStateFile,
-} from '../../utils/swarmStateFile'
+import { parseSwarmStateFile } from '../../utils/swarmStateFile'
 
 const AUTO_RUN_POLL_MS = 2000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
 
-async function resolveReadableSwarmStatePath(
-  folderPath: string,
-  swarmName: string
-): Promise<string> {
-  const preferredPath = getSwarmStateFilePath(folderPath, swarmName)
-  if (await window.api.pathExists(preferredPath)) return preferredPath
-
-  const swarmRootDirectory = getSwarmRootDirectoryPath(folderPath)
-  try {
-    const entries = await window.api.readdir(swarmRootDirectory)
-    const existingStatePaths = await Promise.all(
-      entries
-        .filter((entry) => entry.isDir)
-        .map(async (entry) => {
-          const statePath = getExistingSwarmStateFilePath(folderPath, entry.name)
-          return await window.api.pathExists(statePath) ? statePath : null
-        })
-    )
-    const statePaths = existingStatePaths.filter((path): path is string => Boolean(path))
-    if (statePaths.length === 1) return statePaths[0]
-  } catch {
-    // The swarm directory may not exist yet.
-  }
-
-  return preferredPath
-}
-
 async function refreshAutoWorkspaceState(
   workspace: Workspace,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
-  if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !workspace.swarmState) return
+  if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !workspace.swarmState || !workspace.swarmContext) return
 
-  const swarmName = workspace.swarmState.name || workspace.name
-  const stateFilePath = await resolveReadableSwarmStatePath(workspace.folderPath, swarmName)
+  const stateFilePath = workspace.swarmContext.statePath
 
   try {
     const content = await window.api.readfile(stateFilePath)
     if (lastContentByWorkspace.current.get(workspace.id) === content) return
 
     lastContentByWorkspace.current.set(workspace.id, content)
-    useWorkspaceStore.getState().setSwarmState(workspace.id, parseSwarmStateFile(content, swarmName))
+    useWorkspaceStore.getState().setSwarmState(workspace.id, parseSwarmStateFile(content, workspace.swarmContext.teamSlug))
   } catch {
     // Auto mode can be enabled before the agent-managed state file exists.
   }
@@ -82,6 +49,7 @@ function pickNextAutoRun(
   const readyTasks = swarmState.tasks.filter((task) =>
     getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready'
   )
+
   const nextTask = readyTasks.find((task) => !task.ownerAgentId)
   if (!nextTask) return null
 
@@ -103,13 +71,67 @@ function pickNextAutoRun(
   }
 }
 
+async function agentHasRunningProcess(workspace: Workspace, agentId: string): Promise<boolean> {
+  const agent = workspace.agents[agentId]
+  if (agent?.cliStartRequested && agent.cliHasLaunched && agent.cliSessionId) {
+    const status = await window.api.terminalStatus(agent.cliSessionId)
+    if (status.running) return true
+  }
+
+  const sessions = await window.api.terminalList()
+  const runningSession = sessions.find((session) =>
+    session.running
+    && session.kind === 'agent'
+    && session.workspaceId === workspace.id
+    && session.agentId === agentId
+    && (!workspace.swarmContext || session.swarmStatePath === workspace.swarmContext.statePath)
+  )
+
+  if (!runningSession) return false
+
+  useWorkspaceStore.getState().updateAgent(workspace.id, agentId, {
+    cliSessionId: runningSession.sessionId,
+    cliStartRequested: true,
+    cliHasLaunched: true,
+    cli: runningSession.cli ?? agent?.cli ?? 'codex',
+  })
+  return true
+}
+
+async function pickOrphanedActiveRun(
+  workspace: Workspace,
+  swarmState: SwarmState
+): Promise<{ agentId: string; label: string; role: SwarmRole; taskId: string } | null> {
+  const roster = buildSwarmAgentRosterForState(swarmState)
+  const rosterById = Object.fromEntries(roster.map((agent) => [agent.id, agent]))
+  const activeTasks = swarmState.tasks.filter((task) =>
+    task.status === 'in_progress' && Boolean(task.ownerAgentId)
+  )
+
+  for (const task of activeTasks) {
+    const agentId = task.ownerAgentId
+    if (!agentId) continue
+    if (await agentHasRunningProcess(workspace, agentId)) return null
+
+    const rosterAgent = rosterById[agentId]
+    return {
+      agentId,
+      label: workspace.agents[agentId]?.name ?? rosterAgent?.label ?? agentId,
+      role: rosterAgent?.role ?? task.role,
+      taskId: task.id,
+    }
+  }
+
+  return null
+}
+
 async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   inFlightSpawns: MutableRefObject<Set<string>>
 ): Promise<void> {
   const swarmState = workspace.swarmState
-  if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !swarmState) return
+  if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !swarmState || !workspace.swarmContext) return
 
   const pending = workspace.swarmAutoState.pending
   if (pending) {
@@ -118,10 +140,7 @@ async function superviseWorkspace(
       ? getSwarmTaskBoardColumn(pendingTask, swarmState.tasks) === 'ready' && !pendingTask.ownerAgentId
       : false
     const pendingAgent = workspace.agents[pending.agentId]
-    const pendingAgentHasProcess =
-      pendingAgent?.cliStartRequested && pendingAgent.cliHasLaunched && pendingAgent.cliSessionId
-        ? (await window.api.terminalStatus(pendingAgent.cliSessionId)).running
-        : false
+    const pendingAgentHasProcess = await agentHasRunningProcess(workspace, pending.agentId)
 
     if (pendingTaskStillReady && pendingAgentHasProcess) return
     if (pendingAgent && pendingAgent.cliStartRequested && !pendingAgentHasProcess) {
@@ -140,15 +159,26 @@ async function superviseWorkspace(
     return
   }
 
-  if (runtimeAgents.some((agent) => agent.status === 'running')) return
+  if (swarmState.tasks.some((task) => task.status === 'needs_input')) {
+    useWorkspaceStore.getState().setSwarmAutoEnabled(workspace.id, false)
+    return
+  }
+
+  const runningAgents = Object.entries(swarmState.swarmAgents)
+    .filter(([, agent]) => agent.status === 'running')
+  for (const [agentId] of runningAgents) {
+    if (await agentHasRunningProcess(workspace, agentId)) return
+  }
 
   if (swarmState.tasks.length > 0 && swarmState.tasks.every((task) => task.status === 'done')) {
     useWorkspaceStore.getState().setSwarmAutoEnabled(workspace.id, false)
     return
   }
 
-  const nextRun = pickNextAutoRun(workspace, swarmState)
+  const nextRun = await pickOrphanedActiveRun(workspace, swarmState)
+    ?? pickNextAutoRun(workspace, swarmState)
   if (!nextRun) return
+  if (await agentHasRunningProcess(workspace, nextRun.agentId)) return
 
   const currentState = useWorkspaceStore.getState()
   const currentWorkspace = currentState.workspaces.find((candidate) => candidate.id === workspace.id)
@@ -160,12 +190,9 @@ async function superviseWorkspace(
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return
 
-  const swarmStatePath = await resolveReadableSwarmStatePath(
-    workspace.folderPath,
-    swarmState.name || workspace.name
-  )
+  const swarmStatePath = workspace.swarmContext.statePath
   const startupPrompt = prependAgentIdentifier(
-    buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal, swarmStatePath),
+    buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal),
     nextRun.label,
     swarmRoleLabels[nextRun.role]
   )

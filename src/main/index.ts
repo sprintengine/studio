@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { basename, dirname, join, parse } from 'path'
-import { existsSync, watch, type FSWatcher } from 'fs'
+import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { access, cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
@@ -331,11 +331,62 @@ function withSwarmEnv(
   cwd: string,
   swarmStatePath?: string
 ): Record<string, string> {
-  return {
+  const bundledToolPath = getBundledSwarmToolPath()
+  const nextEnv = {
     ...env,
     SWARM_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
     SWARM_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'swarm_tool.py'),
+    ...(bundledToolPath ? { MULTICODE_SWARM_TOOL_PATH: bundledToolPath } : {}),
     ...(swarmStatePath ? { SWARM_STATE_PATH: swarmStatePath } : {}),
+  }
+
+  if (process.platform !== 'win32') return nextEnv
+
+  const shimDirectory = ensureWindowsSwarmShimDirectory()
+  if (!shimDirectory) return nextEnv
+
+  const pathKey = Object.keys(nextEnv).find((key) => key.toLowerCase() === 'path') ?? 'Path'
+  return {
+    ...nextEnv,
+    [pathKey]: `${shimDirectory};${nextEnv[pathKey] ?? ''}`,
+  }
+}
+
+function ensureWindowsSwarmShimDirectory(): string | null {
+  if (process.platform !== 'win32') return null
+
+  try {
+    const shimDirectory = join(app.getPath('userData'), 'swarm-bin')
+    const shimPath = join(shimDirectory, 'swarm.cmd')
+    mkdirSync(shimDirectory, { recursive: true })
+    writeFileSync(
+      shimPath,
+      [
+        '@echo off',
+        'setlocal',
+        'set "TOOL=%SWARM_REPO_WRAPPER_PATH%"',
+        'if exist "%TOOL%" goto run',
+        'set "TOOL=%SWARM_REPO_TOOL_PATH%"',
+        'if exist "%TOOL%" goto run',
+        'set "TOOL=%MULTICODE_SWARM_TOOL_PATH%"',
+        'if exist "%TOOL%" goto run',
+        'echo swarm tool not found 1>&2',
+        'exit /b 127',
+        ':run',
+        'where python >nul 2>nul',
+        'if %errorlevel%==0 goto python',
+        'py -3 "%TOOL%" %*',
+        'exit /b %errorlevel%',
+        ':python',
+        'python "%TOOL%" %*',
+        'exit /b %errorlevel%',
+        '',
+      ].join('\r\n'),
+      'utf8'
+    )
+    return shimDirectory
+  } catch {
+    return null
   }
 }
 
@@ -410,7 +461,6 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
   const bundledToolPath = getBundledSwarmToolPath()
   const shellBundledToolPath =
     bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
-  const stateArg = shellStatePath ? `--state ${quotePosix(shellStatePath)}` : ''
   const lines = [
     'export SWARM_REPO_TOOL_PATH="$PWD/.agents/skills/swarm-kanban/scripts/swarm_tool.py"',
     'export SWARM_REPO_WRAPPER_PATH="$PWD/scripts/swarm_tool.py"',
@@ -432,7 +482,7 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
       'elif [ -f "$SWARM_REPO_TOOL_PATH" ]; then tool_path="$SWARM_REPO_TOOL_PATH";',
       'elif [ -n "${MULTICODE_SWARM_TOOL_PATH:-}" ] && [ -f "$MULTICODE_SWARM_TOOL_PATH" ]; then tool_path="$MULTICODE_SWARM_TOOL_PATH";',
       'else echo "swarm tool not found" >&2; return 127; fi;',
-      `python3 "$tool_path" ${stateArg} "$@";`,
+      'python3 "$tool_path" "$@";',
       '}',
     ].join(' '),
     'export -f swarm >/dev/null 2>&1 || true',
@@ -566,8 +616,8 @@ function getPlainShellLaunchConfig(
   return {
     command: shellPath,
     args,
-    env: withSwarmEnv(getTerminalEnv(), cwd, swarmStatePath),
     cwd,
+    initialInput: `${buildSwarmShellBootstrap(swarmStatePath)}\r`,
   }
 }
 

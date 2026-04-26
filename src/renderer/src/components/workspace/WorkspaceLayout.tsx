@@ -211,8 +211,9 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
 
     event.preventDefault()
     event.stopPropagation()
+    killTerminalForNode(node)
     modelRef.current?.doAction(Actions.deleteTab(node.getId()))
-  }, [])
+  }, [killTerminalForNode])
 
   const handleMouseDownCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 1) return
