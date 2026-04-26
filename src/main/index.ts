@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
-import { access, cp, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
+import { access, appendFile, cp, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
 import { promisify } from 'util'
 import { createHash, randomBytes } from 'crypto'
@@ -100,6 +100,45 @@ type UsageResult = {
   replayed: boolean
   reason: 'allowed' | 'missing_entitlement' | 'limit_exceeded' | 'released'
 }
+
+type DiagnosticLevel = 'info' | 'warning' | 'error'
+type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'swarm' | 'terminal' | 'workspace'
+
+type DiagnosticLogInput = {
+  level: DiagnosticLevel
+  source: DiagnosticSource
+  title: string
+  message: string
+  details?: string
+  workspaceId?: string
+  workspaceName?: string
+  agentId?: string
+  taskId?: string
+  sessionId?: string
+}
+
+type DiagnosticLogEntry = DiagnosticLogInput & {
+  id: string
+  timestamp: string
+  logPath?: string
+}
+
+type WorkspaceFolderCheckResult =
+  | {
+      ok: true
+      status: 'ready'
+      path: string
+      checkedPath: string
+      message: string
+    }
+  | {
+      ok: false
+      status: 'missing' | 'inaccessible' | 'timeout'
+      path: string
+      checkedPath: string
+      message: string
+      code?: string
+    }
 
 type ElectronRendererAuthState = {
   authenticated: boolean
@@ -2317,6 +2356,18 @@ ipcMain.handle('fs:path-exists', async (_, targetPath: string) => {
   return pathExists(targetPath)
 })
 
+ipcMain.handle('fs:check-workspace-folder', async (_, targetPath: string) => {
+  return checkWorkspaceFolder(targetPath)
+})
+
+ipcMain.handle('diagnostics:log', async (_, input: DiagnosticLogInput) => {
+  return writeDiagnosticLog(input)
+})
+
+ipcMain.handle('diagnostics:open-logs-folder', async () => {
+  return openDiagnosticsLogsFolder()
+})
+
 ipcMain.handle('specialist:read-prompt', async (_, specialistId: SpecialistActionId) => {
   return readSpecialistPrompt(specialistId)
 })
@@ -2517,12 +2568,129 @@ ipcMain.handle('app:show-menubar-menu', async (
 })
 
 async function pathExists(targetPath: string): Promise<boolean> {
+  const result = await checkWorkspaceFolder(targetPath)
+  return result.ok
+}
+
+function getFsErrorCode(error: unknown): string | undefined {
+  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : undefined
+}
+
+async function checkPathAccess(targetPath: string): Promise<{ ok: true } | { ok: false; code?: string }> {
   try {
     await access(targetPath)
-    return true
-  } catch {
-    return false
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, code: getFsErrorCode(error) }
   }
+}
+
+async function accessWithTimeout(targetPath: string, timeoutMs = 5000): Promise<WorkspaceFolderCheckResult> {
+  let timeoutId: NodeJS.Timeout | null = null
+  try {
+    const result = await Promise.race([
+      checkPathAccess(targetPath),
+      new Promise<'timeout'>((resolve) => {
+        timeoutId = setTimeout(() => resolve('timeout'), timeoutMs)
+      }),
+    ])
+
+    if (result === 'timeout') {
+      return {
+        ok: false,
+        status: 'timeout',
+        path: targetPath,
+        checkedPath: targetPath,
+        message: `Timed out checking workspace folder: ${targetPath}`,
+      }
+    }
+
+    if (result.ok) {
+      return {
+        ok: true,
+        status: 'ready',
+        path: targetPath,
+        checkedPath: targetPath,
+        message: `Workspace folder is ready: ${targetPath}`,
+      }
+    }
+
+    return {
+      ok: false,
+      status: result.code === 'EACCES' || result.code === 'EPERM' ? 'inaccessible' : 'missing',
+      path: targetPath,
+      checkedPath: targetPath,
+      message: result.code === 'EACCES' || result.code === 'EPERM'
+        ? `Workspace folder is not accessible: ${targetPath}`
+        : `Workspace folder does not exist: ${targetPath}`,
+      code: result.code,
+    }
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
+async function checkWorkspaceFolder(targetPath: string): Promise<WorkspaceFolderCheckResult> {
+  const trimmedPath = targetPath?.trim()
+  if (!trimmedPath) {
+    return {
+      ok: false,
+      status: 'missing',
+      path: '',
+      checkedPath: '',
+      message: 'Workspace folder path is empty.',
+    }
+  }
+
+  const direct = await accessWithTimeout(trimmedPath)
+  if (direct.ok || process.platform !== 'win32') return direct
+
+  const windowsPath = toWindowsPath(trimmedPath)
+  if (windowsPath === trimmedPath) return direct
+
+  const normalized = await accessWithTimeout(windowsPath)
+  return {
+    ...normalized,
+    path: trimmedPath,
+    checkedPath: windowsPath,
+    message: normalized.ok
+      ? `Workspace folder is ready: ${trimmedPath}`
+      : normalized.message,
+  }
+}
+
+function getDiagnosticsLogDirectory(): string {
+  return app.getPath('logs')
+}
+
+function getDiagnosticsLogPath(timestamp = new Date()): string {
+  const day = timestamp.toISOString().slice(0, 10)
+  return join(getDiagnosticsLogDirectory(), `diagnostics-${day}.jsonl`)
+}
+
+async function writeDiagnosticLog(input: DiagnosticLogInput): Promise<DiagnosticLogEntry> {
+  const timestamp = new Date()
+  const logPath = getDiagnosticsLogPath(timestamp)
+  const entry: DiagnosticLogEntry = {
+    ...input,
+    id: `diag-${timestamp.getTime()}-${randomBytes(4).toString('hex')}`,
+    timestamp: timestamp.toISOString(),
+    logPath,
+  }
+
+  await mkdir(dirname(logPath), { recursive: true })
+  await appendFile(logPath, `${JSON.stringify(entry)}\n`, 'utf-8')
+  return entry
+}
+
+async function openDiagnosticsLogsFolder(): Promise<{ opened: true; path: string }> {
+  const logDirectory = getDiagnosticsLogDirectory()
+  await mkdir(logDirectory, { recursive: true })
+  const errorMessage = await shell.openPath(logDirectory)
+  if (errorMessage) throw new Error(errorMessage)
+  return { opened: true, path: logDirectory }
 }
 
 async function getUniqueCopyPath(
@@ -2586,6 +2754,8 @@ app.on('open-url', (event, callbackUrl) => {
 })
 
 app.whenReady().then(() => {
+  app.setAppLogsPath()
+
   if (process.platform === 'win32') {
     app.setAppUserModelId(
       process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.multicode'

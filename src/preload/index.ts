@@ -99,6 +99,35 @@ type GitCommandResult = {
   stderr: string
   message: string | null
 }
+type DiagnosticLevel = 'info' | 'warning' | 'error'
+type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'swarm' | 'terminal' | 'workspace'
+type DiagnosticLogInput = {
+  level: DiagnosticLevel
+  source: DiagnosticSource
+  title: string
+  message: string
+  details?: string
+  workspaceId?: string
+  workspaceName?: string
+  agentId?: string
+  taskId?: string
+  sessionId?: string
+}
+type DiagnosticLogEntry = DiagnosticLogInput & {
+  id: string
+  timestamp: string
+  logPath?: string
+}
+type WorkspaceFolderCheckResult =
+  | { ok: true; status: 'ready'; path: string; checkedPath: string; message: string }
+  | {
+    ok: false
+    status: 'missing' | 'inaccessible' | 'timeout'
+    path: string
+    checkedPath: string
+    message: string
+    code?: string
+  }
 type WindowState = {
   isMaximized: boolean
   isFullScreen: boolean
@@ -325,6 +354,12 @@ contextBridge.exposeInMainWorld('api', {
   readdir:   (path: string)                    => ipcRenderer.invoke('fs:readdir', path),
   readfile:  (path: string)                    => ipcRenderer.invoke('fs:readfile', path),
   pathExists: (path: string)                   => ipcRenderer.invoke('fs:path-exists', path),
+  checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>
+    ipcRenderer.invoke('fs:check-workspace-folder', path),
+  logDiagnostic: (input: DiagnosticLogInput): Promise<DiagnosticLogEntry> =>
+    ipcRenderer.invoke('diagnostics:log', input),
+  openDiagnosticsLogsFolder: (): Promise<{ opened: true; path: string }> =>
+    ipcRenderer.invoke('diagnostics:open-logs-folder'),
   readSpecialistPrompt,
   writefile: (path: string, content: string)   => ipcRenderer.invoke('fs:writefile', path, content),
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),

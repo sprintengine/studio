@@ -109,6 +109,35 @@ type GitCommandResult = {
   stderr: string
   message: string | null
 }
+type DiagnosticLevel = 'info' | 'warning' | 'error'
+type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'swarm' | 'terminal' | 'workspace'
+type DiagnosticLogInput = {
+  level: DiagnosticLevel
+  source: DiagnosticSource
+  title: string
+  message: string
+  details?: string
+  workspaceId?: string
+  workspaceName?: string
+  agentId?: string
+  taskId?: string
+  sessionId?: string
+}
+type DiagnosticLogEntry = DiagnosticLogInput & {
+  id: string
+  timestamp: string
+  logPath?: string
+}
+type WorkspaceFolderCheckResult =
+  | { ok: true; status: 'ready'; path: string; checkedPath: string; message: string }
+  | {
+    ok: false
+    status: 'missing' | 'inaccessible' | 'timeout'
+    path: string
+    checkedPath: string
+    message: string
+    code?: string
+  }
 type WindowState = {
   isMaximized: boolean
   isFullScreen: boolean
@@ -256,6 +285,9 @@ declare interface Window {
     readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>
     readfile:  (path: string) => Promise<string>
     pathExists: (path: string) => Promise<boolean>
+    checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
+    logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
+    openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
     readSpecialistPrompt: (specialistId: SpecialistActionId) => Promise<SpecialistPromptResult>
     writefile: (path: string, content: string) => Promise<void>
     createFile: (parentDir: string, name: string) => Promise<string>

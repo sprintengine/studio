@@ -3,7 +3,9 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 
 type FolderCheckState = {
   path: string | null
-  status: 'idle' | 'checking' | 'ready' | 'missing'
+  status: 'idle' | 'checking' | 'ready' | 'missing' | 'inaccessible' | 'timeout'
+  message?: string
+  checkedPath?: string
 }
 
 export type WorkspaceFolderStatus = {
@@ -11,6 +13,9 @@ export type WorkspaceFolderStatus = {
   folderReadyPath: string | null
   folderMissing: boolean
   checkingFolder: boolean
+  status: FolderCheckState['status']
+  message: string | null
+  checkedPath: string | null
   recheckFolder: () => Promise<boolean>
 }
 
@@ -28,9 +33,14 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
   })
 
   const applyCheckResult = useCallback(
-    (path: string, exists: boolean) => {
-      setCheckState({ path, status: exists ? 'ready' : 'missing' })
-      setFolderMissing(workspaceId, !exists)
+    (path: string, result: WorkspaceFolderCheckResult) => {
+      setCheckState({
+        path,
+        status: result.ok ? 'ready' : result.status,
+        message: result.message,
+        checkedPath: result.checkedPath,
+      })
+      setFolderMissing(workspaceId, !result.ok)
     },
     [setFolderMissing, workspaceId]
   )
@@ -44,11 +54,17 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
 
     setCheckState({ path: folderPath, status: 'checking' })
     try {
-      const exists = await window.api.pathExists(folderPath)
-      applyCheckResult(folderPath, exists)
-      return exists
-    } catch {
-      applyCheckResult(folderPath, false)
+      const result = await window.api.checkWorkspaceFolder(folderPath)
+      applyCheckResult(folderPath, result)
+      return result.ok
+    } catch (error) {
+      applyCheckResult(folderPath, {
+        ok: false,
+        status: 'inaccessible',
+        path: folderPath,
+        checkedPath: folderPath,
+        message: error instanceof Error ? error.message : 'Failed to check workspace folder.',
+      })
       return false
     }
   }, [applyCheckResult, folderPath, setFolderMissing, workspaceId])
@@ -63,12 +79,20 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
     }
 
     setCheckState({ path: folderPath, status: 'checking' })
-    window.api.pathExists(folderPath)
-      .then((exists) => {
-        if (!cancelled) applyCheckResult(folderPath, exists)
+    window.api.checkWorkspaceFolder(folderPath)
+      .then((result) => {
+        if (!cancelled) applyCheckResult(folderPath, result)
       })
-      .catch(() => {
-        if (!cancelled) applyCheckResult(folderPath, false)
+      .catch((error) => {
+        if (!cancelled) {
+          applyCheckResult(folderPath, {
+            ok: false,
+            status: 'inaccessible',
+            path: folderPath,
+            checkedPath: folderPath,
+            message: error instanceof Error ? error.message : 'Failed to check workspace folder.',
+          })
+        }
       })
 
     return () => {
@@ -79,7 +103,8 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
   return useMemo(() => {
     const checkedCurrentPath = checkState.path === folderPath
     const status = checkedCurrentPath ? checkState.status : folderPath ? 'checking' : 'idle'
-    const folderMissing = Boolean(folderPath) && (status === 'missing' || persistedMissing)
+    const folderMissing = Boolean(folderPath)
+      && (status === 'missing' || status === 'inaccessible' || status === 'timeout' || persistedMissing)
     const checkingFolder = Boolean(folderPath) && status === 'checking'
     const folderReadyPath = Boolean(folderPath) && status === 'ready' && !folderMissing
       ? folderPath
@@ -90,6 +115,9 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
       folderReadyPath,
       folderMissing,
       checkingFolder,
+      status,
+      message: checkedCurrentPath ? checkState.message ?? null : null,
+      checkedPath: checkedCurrentPath ? checkState.checkedPath ?? null : null,
       recheckFolder,
     }
   }, [checkState, folderPath, persistedMissing, recheckFolder])

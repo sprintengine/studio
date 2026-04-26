@@ -8,6 +8,7 @@ import type { AgentCli } from '../../types/workspace'
 import { getSpecialistAction, loadSpecialistPrompt } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
 import { buildSwarmStartupPrompt, prependAgentIdentifier } from '../../utils/agentPrompt'
+import { publishDiagnosticSync } from '../../utils/diagnostics'
 
 interface Props {
   workspaceId: string
@@ -45,11 +46,15 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const agent = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
+  const workspaceName = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.name
+  )
   const {
     folderPath: savedFolderPath,
     folderReadyPath,
     folderMissing,
     checkingFolder,
+    message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
   const swarmContext = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.swarmContext ?? null
@@ -208,6 +213,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     let terminalReadinessBuffer = ''
     let promptInjectionTimer: number | null = null
     let disposed = false
+    let reportedTerminalFailure = false
 
     const injectStartupPrompt = () => {
       const prompt = startupPromptRef.current
@@ -269,6 +275,20 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
+      if (code !== 0 && !reportedTerminalFailure) {
+        reportedTerminalFailure = true
+        publishDiagnosticSync({
+          level: 'error',
+          source: 'terminal',
+          title: `${agent?.name ?? agentId} exited`,
+          message: `Terminal exited with code ${code}.`,
+          details: `Session: ${sessionId}`,
+          workspaceId,
+          workspaceName,
+          agentId,
+          sessionId,
+        })
+      }
       updateAgent(workspaceId, agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
@@ -278,6 +298,18 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     const disposeError = window.api.onTerminalError(sessionId, (message) => {
       term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
+      reportedTerminalFailure = true
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'terminal',
+        title: `${agent?.name ?? agentId} failed to start`,
+        message,
+        details: `Session: ${sessionId}`,
+        workspaceId,
+        workspaceName,
+        agentId,
+        sessionId,
+      })
     })
 
     const onDataDisposable = term.onData((data) => {
@@ -350,8 +382,40 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           workspaceId,
           agentId,
         }
-      )
-      if (disposed || !spawnResult.ok) return
+      ).catch((error): TerminalSpawnResult => ({
+        ok: false,
+        sessionId,
+        message: error instanceof Error ? error.message : 'Failed to start terminal.',
+        exitCode: 1,
+      }))
+      if (disposed) return
+      if (!spawnResult.ok) {
+        updateAgent(workspaceId, agentId, {
+          cliStartRequested: false,
+          cliHasLaunched: false,
+          cliOnboardingPromptSent: false,
+        })
+        if (!reportedTerminalFailure) {
+          reportedTerminalFailure = true
+          publishDiagnosticSync({
+            level: 'error',
+            source: 'terminal',
+            title: `${agent?.name ?? agentId} was not started`,
+            message: spawnResult.message,
+            details: [
+              `Session: ${sessionId}`,
+              `CLI: ${cli}`,
+              `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
+              swarmStatePath ? `Swarm state: ${swarmStatePath}` : null,
+            ].filter(Boolean).join('\n'),
+            workspaceId,
+            workspaceName,
+            agentId,
+            sessionId,
+          })
+        }
+        return
+      }
 
       if (!shouldResume) {
         updateAgent(workspaceId, agentId, {
@@ -394,10 +458,12 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agent?.cliSessionId,
     agent?.cliRestartNonce,
     agent?.kind,
+    agent?.name,
     agent?.specialistId,
     cli,
     cliRuntimes,
     folderReadyPath,
+    workspaceName,
     savedFolderPath,
     swarmContext?.statePath,
     updateAgent,
@@ -416,7 +482,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           {checkingFolder
             ? 'Checking workspace folder before starting this terminal...'
             : folderMissing
-              ? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'
+              ? folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'
               : null}
         </div>
       ) : null}

@@ -9,6 +9,7 @@ import {
 } from '../../utils/swarm'
 import { parseSwarmStateFile } from '../../utils/swarmStateFile'
 import { ensureAgentTabInLayoutModel, focusOrAddAgentTab } from '../../utils/modelRegistry'
+import { publishDiagnostic } from '../../utils/diagnostics'
 
 const AUTO_RUN_POLL_MS = 2000
 const BACKGROUND_TERMINAL_COLS = 100
@@ -222,6 +223,21 @@ async function superviseWorkspace(
     currentState.setFolderMissing(workspace.id, true)
     currentState.setSwarmAutoPending(workspace.id, null)
     currentState.setSwarmAutoEnabled(workspace.id, false)
+    await publishDiagnostic({
+      level: 'error',
+      source: 'filesystem',
+      title: 'Auto-run stopped',
+      message: `Workspace folder could not be found: ${workspace.folderPath}`,
+      details: [
+        `Workspace: ${workspace.name}`,
+        `Agent: ${nextRun.agentId}`,
+        `Task: ${nextRun.taskId}`,
+      ].join('\n'),
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId: nextRun.agentId,
+      taskId: nextRun.taskId,
+    })
     return
   }
 
@@ -263,7 +279,12 @@ async function superviseWorkspace(
         workspaceId: workspace.id,
         agentId: nextRun.agentId,
       }
-    )
+    ).catch((error): TerminalSpawnResult => ({
+      ok: false,
+      sessionId,
+      message: error instanceof Error ? error.message : 'Failed to start terminal.',
+      exitCode: 1,
+    }))
     if (!spawnResult.ok) {
       const latestState = useWorkspaceStore.getState()
       latestState.setSwarmAutoEnabled(workspace.id, false)
@@ -272,6 +293,24 @@ async function superviseWorkspace(
         cliStartRequested: true,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
+      })
+      await publishDiagnostic({
+        level: 'error',
+        source: 'terminal',
+        title: `${nextRun.label} was not started`,
+        message: spawnResult.message,
+        details: [
+          `Workspace: ${workspace.name}`,
+          `CLI: ${selectedCli}`,
+          `Task: ${nextRun.taskId}`,
+          `Session: ${sessionId}`,
+          `Swarm state: ${swarmStatePath}`,
+        ].join('\n'),
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: nextRun.agentId,
+        taskId: nextRun.taskId,
+        sessionId,
       })
       revealAutoRunAgentTerminal(workspace.id, nextRun.agentId, nextRun.label)
       return

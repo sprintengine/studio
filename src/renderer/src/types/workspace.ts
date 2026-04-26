@@ -171,6 +171,38 @@ export type AppSettings = {
   lastSelectedSpecialist: SpecialistActionId
 }
 
+export type DiagnosticLevel = 'info' | 'warning' | 'error'
+export type DiagnosticSource =
+  | 'auth'
+  | 'filesystem'
+  | 'git'
+  | 'swarm'
+  | 'terminal'
+  | 'workspace'
+
+export type DiagnosticLogInput = {
+  level: DiagnosticLevel
+  source: DiagnosticSource
+  title: string
+  message: string
+  details?: string
+  workspaceId?: string
+  workspaceName?: string
+  agentId?: string
+  taskId?: string
+  sessionId?: string
+}
+
+export type DiagnosticLogEntry = DiagnosticLogInput & {
+  id: string
+  timestamp: string
+  logPath?: string
+}
+
+export type AppNotification = DiagnosticLogEntry & {
+  read: boolean
+}
+
 export type AgentState = {
   id: AgentId
   name: string

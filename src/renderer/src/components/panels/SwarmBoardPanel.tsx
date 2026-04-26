@@ -32,6 +32,7 @@ import {
   parseSwarmStateFile,
 } from '../../utils/swarmStateFile'
 import { focusOrAddAgentTab, focusOrAddComponentTab } from '../../utils/modelRegistry'
+import { publishDiagnostic } from '../../utils/diagnostics'
 
 const columnMeta: { key: SwarmTaskBoardColumn; label: string; tint: string }[] = [
   { key: 'todo', label: 'Todo', tint: 'bg-[#111216] text-[#9a9aa2]' },
@@ -210,6 +211,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     folderReadyPath,
     folderMissing,
     checkingFolder,
+    message: folderStatusMessage,
+    checkedPath: folderCheckedPath,
     recheckFolder,
   } = useWorkspaceFolderStatus(workspaceId)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
@@ -421,6 +424,50 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       cliStartupPrompt: startupPrompt,
     })
     focusOrAddAgentTab(workspaceId, agentId, label)
+  }
+
+  async function ensureWorkspaceFolderReadyForLaunch(agentId: string, label: string): Promise<boolean> {
+    if (!savedFolderPath) return true
+
+    const result = folderPath
+      ? { ok: true as const, checkedPath: folderPath, message: `Workspace folder is ready: ${folderPath}` }
+      : await window.api.checkWorkspaceFolder(savedFolderPath).catch((error): WorkspaceFolderCheckResult => ({
+          ok: false,
+          status: 'inaccessible',
+          path: savedFolderPath,
+          checkedPath: savedFolderPath,
+          message: error instanceof Error ? error.message : 'Failed to check workspace folder.',
+        }))
+
+    if (result.ok) return true
+
+    void recheckFolder()
+    await publishDiagnostic({
+      level: 'error',
+      source: 'filesystem',
+      title: `${label} was not started`,
+      message: result.message || folderStatusMessage || 'Workspace folder could not be verified.',
+      details: [
+        `Saved path: ${savedFolderPath}`,
+        `Checked path: ${result.checkedPath || folderCheckedPath || savedFolderPath}`,
+        `Agent: ${agentId}`,
+      ].join('\n'),
+      workspaceId,
+      workspaceName: workspace?.name,
+      agentId,
+    })
+    return false
+  }
+
+  async function startAgentTerminalWhenReady(
+    agentId: string,
+    label: string,
+    cli?: AgentCli,
+    options?: { startupPrompt?: string; freshSession?: boolean; agentName?: string }
+  ): Promise<boolean> {
+    if (!(await ensureWorkspaceFolderReadyForLaunch(agentId, label))) return false
+    startAgentTerminal(agentId, label, cli, options)
+    return true
   }
 
   const boardColumns = useMemo(() => {
@@ -695,7 +742,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     const addedAgent = addSwarmMember(workspaceId, addMemberRole)
     if (!addedAgent) return
 
-    startAgentTerminal(addedAgent.id, addedAgent.label)
+    void startAgentTerminalWhenReady(addedAgent.id, addedAgent.label)
     setSelectedAgentId(addedAgent.id)
     setAddMemberOpen(false)
   }
@@ -704,7 +751,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     const fallbackLabel = rosterById[agentId]?.label ?? agentId
     const label = getAgentName(agentId, fallbackLabel)
     setSelectedAgentId(agentId)
-    startAgentTerminal(agentId, label)
+    void startAgentTerminalWhenReady(agentId, label)
   }
 
   const openSpawnDialog = (agentId: string) => {
@@ -720,12 +767,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     })
   }
 
-  const confirmSpawnDialog = () => {
+  const confirmSpawnDialog = async () => {
     if (!spawnDialog) return
     const defaultName = rosterById[spawnDialog.agentId]?.label ?? spawnDialog.agentId
     const agentName = normalizeAgentIdentifier(spawnDialog.name)
     const label = agentName || defaultName
-    startAgentTerminal(spawnDialog.agentId, label, spawnDialog.cli, { agentName })
+    const started = await startAgentTerminalWhenReady(spawnDialog.agentId, label, spawnDialog.cli, { agentName })
+    if (!started) return
     setCliPickerOpen(false)
     setSpawnDialog(null)
   }
@@ -759,7 +807,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       }
 
       setSelectedAgentId(agentId)
-      startAgentTerminal(agentId, label, agents[agentId]?.cli ?? 'codex', {
+      void startAgentTerminalWhenReady(agentId, label, agents[agentId]?.cli ?? 'codex', {
         freshSession: true,
         agentName: getCustomAgentName(agentId, fallbackLabel),
         startupPrompt: buildWorkerRespawnStartupPrompt(
@@ -845,16 +893,17 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setRecoveryDialog({ cli: 'codex' })
   }
 
-  const confirmRecoveryAudit = () => {
+  const confirmRecoveryAudit = async () => {
     if (!recoveryDialog || !architectAgentId || !folderPath) return
     const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
     const label = getAgentName(architectAgentId, fallbackLabel)
 
-    startAgentTerminal(architectAgentId, label, recoveryDialog.cli, {
+    const started = await startAgentTerminalWhenReady(architectAgentId, label, recoveryDialog.cli, {
       freshSession: true,
       agentName: getCustomAgentName(architectAgentId, fallbackLabel),
       startupPrompt: buildRecoveryAuditPrompt(),
     })
+    if (!started) return
     setSelectedAgentId(architectAgentId)
     setCliPickerOpen(false)
     setRecoveryDialog(null)
@@ -865,7 +914,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
     specialistReviewAgents.forEach((agent) => {
       const label = getAgentName(agent.id, agent.label)
-      startAgentTerminal(agent.id, label, agents[agent.id]?.cli ?? 'codex', {
+      void startAgentTerminalWhenReady(agent.id, label, agents[agent.id]?.cli ?? 'codex', {
         freshSession: true,
         agentName: getCustomAgentName(agent.id, agent.label),
         startupPrompt: buildPlanReviewStartupPrompt(agent.role, agent.id),
@@ -880,7 +929,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
     const label = getAgentName(architectAgentId, fallbackLabel)
 
-    startAgentTerminal(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
+    void startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
       freshSession: true,
       agentName: getCustomAgentName(architectAgentId, fallbackLabel),
       startupPrompt: buildAddressPlanReviewsPrompt(),

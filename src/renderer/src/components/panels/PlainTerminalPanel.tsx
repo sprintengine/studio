@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
+import { publishDiagnosticSync } from '../../utils/diagnostics'
 
 interface Props {
   workspaceId: string
@@ -18,9 +19,13 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     folderReadyPath,
     folderMissing,
     checkingFolder,
+    message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
   const swarmContext = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.swarmContext ?? null
+  )
+  const workspaceName = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.name
   )
 
   useEffect(() => {
@@ -122,6 +127,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     term.open(container)
     fitTerminal()
     focusTerminal()
+    let reportedTerminalFailure = false
 
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
       term.write(data)
@@ -129,10 +135,34 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
+      if (code !== 0 && !reportedTerminalFailure) {
+        reportedTerminalFailure = true
+        publishDiagnosticSync({
+          level: 'error',
+          source: 'terminal',
+          title: 'Terminal exited',
+          message: `Terminal exited with code ${code}.`,
+          details: `Session: ${sessionId}`,
+          workspaceId,
+          workspaceName,
+          sessionId,
+        })
+      }
     })
 
     const disposeError = window.api.onTerminalError(sessionId, (message) => {
       term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
+      reportedTerminalFailure = true
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'terminal',
+        title: 'Terminal failed to start',
+        message,
+        details: `Session: ${sessionId}`,
+        workspaceId,
+        workspaceName,
+        sessionId,
+      })
     })
 
     const onDataDisposable = term.onData((data) => {
@@ -174,7 +204,39 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
           workspaceId,
           terminalId,
         }
-      )
+      ).then((spawnResult) => {
+        if (spawnResult.ok) return
+        if (!reportedTerminalFailure) {
+          reportedTerminalFailure = true
+          publishDiagnosticSync({
+            level: 'error',
+            source: 'terminal',
+            title: 'Terminal was not started',
+            message: spawnResult.message,
+            details: [
+              `Session: ${sessionId}`,
+              `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
+              swarmStatePath ? `Swarm state: ${swarmStatePath}` : null,
+            ].filter(Boolean).join('\n'),
+            workspaceId,
+            workspaceName,
+            sessionId,
+          })
+        }
+      }).catch((error) => {
+        if (reportedTerminalFailure) return
+        reportedTerminalFailure = true
+        publishDiagnosticSync({
+          level: 'error',
+          source: 'terminal',
+          title: 'Terminal was not started',
+          message: error instanceof Error ? error.message : 'Failed to start terminal.',
+          details: `Session: ${sessionId}`,
+          workspaceId,
+          workspaceName,
+          sessionId,
+        })
+      })
     }
     const settleTimer = window.setTimeout(() => {
       fitTerminal()
@@ -199,7 +261,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
       onResizeDisposable.dispose()
       term.dispose()
     }
-  }, [folderReadyPath, savedFolderPath, swarmContext?.statePath, terminalId, workspaceId])
+  }, [folderReadyPath, savedFolderPath, swarmContext?.statePath, terminalId, workspaceId, workspaceName])
 
   const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
 
@@ -215,7 +277,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
             {checkingFolder
               ? 'Checking workspace folder before starting this terminal...'
               : folderMissing
-                ? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'
+                ? folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'
                 : null}
           </div>
         ) : null}
