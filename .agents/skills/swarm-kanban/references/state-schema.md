@@ -39,6 +39,8 @@ The app does not call the Python tool; the user reviews `plan.md` and manually s
 - `id`
 - `title`
 - `description`
+  - Concrete worker brief copied from the architect plan.
+  - Should describe exactly what changes, target behavior, important constraints, and non-goals.
 - `role`
 - `status`
   - `todo`
@@ -48,8 +50,11 @@ The app does not call the Python tool; the user reviews `plan.md` and manually s
 - `ownerAgentId`
 - `dependsOn`
 - `ownedPaths`
+  - Files or directories the worker is expected to own for this task.
 - `acceptanceCriteria`
+  - Repeatable verifiable outcomes for completion.
 - `implementationNotes`
+  - Repeatable low-level details distilled from `plan.md`, such as functions to update, state transitions, API contracts, edge cases, migration constraints, compatibility requirements, and rollback notes.
 - `evidence`
   - `summary`
   - `touchedFiles`
@@ -103,6 +108,7 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 
 - `handover.md` is incoming context from a previous planning agent. The architect validates it before writing `plan.md`.
 - `plan.md` is architect-owned final execution context for workers and reviewers.
+- Task cards should contain the relevant distilled plan context. Workers should not need to search `plan.md` to understand the concrete change assigned to them.
 - Board `Ready` is derived, not stored as a separate task status.
 - A task is ready when:
   - `status` is `todo`

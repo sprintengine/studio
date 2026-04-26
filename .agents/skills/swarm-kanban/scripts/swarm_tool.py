@@ -29,6 +29,18 @@ except ImportError as exc:
 VALID_TASK_STATUSES = {"todo", "in_progress", "needs_input", "done"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
 VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security"}
+VALID_ARTIFACT_KINDS = {
+    "architect_plan",
+    "product_strategy",
+    "requirements",
+    "html_mockup",
+    "design_notes",
+    "branding",
+    "security_review",
+    "validation_report",
+}
+VALID_ARTIFACT_STATUSES = {"draft", "ready_for_review", "approved", "changes_requested", "superseded"}
+APPROVAL_BLOCKING_ARTIFACT_STATUSES = VALID_ARTIFACT_STATUSES - {"superseded"}
 PLAN_REVIEW_ROLES = VALID_ROLES - {"architect"}
 PLAN_REVIEW_FOCUS = {
     "product": "scope fit, user value, prioritization, adoption risk, and missing requirements",
@@ -538,6 +550,298 @@ def unique_strings(values: List[Any]) -> List[str]:
     return result
 
 
+def path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def repository_root_for_state(state_path: Path) -> Path:
+    starts = [Path.cwd().resolve(), state_path.parent.resolve()]
+    seen = set()
+    for start in starts:
+        for candidate in [start, *start.parents]:
+            key = str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            if (candidate / ".git").exists():
+                return candidate
+    if state_path.parent.parent.name == "swarm":
+        return state_path.parent.parent.parent.resolve()
+    return state_path.parent.resolve()
+
+
+def artifact_absolute_path(state_path: Path, value: str) -> Path:
+    raw = Path(value)
+    if raw.is_absolute():
+        return raw.resolve()
+
+    team_dir = state_path.parent.resolve()
+    repo_root = repository_root_for_state(state_path)
+    candidates = [(repo_root / raw).resolve(), (team_dir / raw).resolve()]
+    for candidate in candidates:
+        if path_is_relative_to(candidate, team_dir):
+            return candidate
+    return candidates[0]
+
+
+def normalize_artifact_path(state_path: Path, value: str, require_file: bool = False) -> Dict[str, Any]:
+    raw = str(value).strip()
+    if not raw:
+        raise SystemExit("Artifact path cannot be empty.")
+
+    team_dir = state_path.parent.resolve()
+    repo_root = repository_root_for_state(state_path)
+    absolute = artifact_absolute_path(state_path, raw)
+    if not path_is_relative_to(absolute, team_dir):
+        raise SystemExit(
+            "Artifact path must stay under the active swarm team folder: "
+            f"{team_dir}"
+        )
+    if absolute.exists() and not absolute.is_file():
+        raise SystemExit(f"Artifact path must be a file, not a directory: {absolute}")
+    if require_file and not absolute.is_file():
+        raise SystemExit(f"Artifact file not found: {absolute}")
+
+    if path_is_relative_to(absolute, repo_root):
+        stored = absolute.relative_to(repo_root).as_posix()
+    else:
+        stored = absolute.relative_to(team_dir).as_posix()
+    return {"path": stored, "absolutePath": absolute}
+
+
+def file_fingerprint(path: Path) -> Optional[str]:
+    if not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def next_artifact_id(artifacts: List[Dict[str, Any]]) -> str:
+    used = {str(a.get("id", "")) for a in artifacts if isinstance(a, dict)}
+    index = 1
+    while f"A{index}" in used:
+        index += 1
+    return f"A{index}"
+
+
+def find_artifact(state: Dict[str, Any], artifact_id: str) -> Dict[str, Any]:
+    for artifact in state.get("artifacts", []):
+        if isinstance(artifact, dict) and artifact.get("id") == artifact_id:
+            return artifact
+    raise SystemExit(f"Artifact not found: {artifact_id}")
+
+
+def artifacts_for_task(state: Dict[str, Any], task_id: str) -> List[Dict[str, Any]]:
+    return [
+        artifact
+        for artifact in state.get("artifacts", [])
+        if isinstance(artifact, dict) and artifact.get("taskId") == task_id
+    ]
+
+
+def blocking_artifacts_for_task(state: Dict[str, Any], task_id: str) -> List[Dict[str, Any]]:
+    return [
+        artifact
+        for artifact in artifacts_for_task(state, task_id)
+        if artifact.get("status", "draft") in APPROVAL_BLOCKING_ARTIFACT_STATUSES
+    ]
+
+
+def ensure_artifact_history(artifact: Dict[str, Any]) -> List[Dict[str, Any]]:
+    history = artifact.setdefault("reviewHistory", [])
+    if not isinstance(history, list):
+        artifact["reviewHistory"] = []
+    return artifact["reviewHistory"]
+
+
+def append_artifact_history(
+    artifact: Dict[str, Any],
+    action: str,
+    actor: str,
+    note: Optional[str] = None,
+) -> Dict[str, Any]:
+    entry = {"action": action, "actor": actor, "timestamp": now_iso()}
+    if note:
+        entry["note"] = note
+    ensure_artifact_history(artifact).append(entry)
+    return entry
+
+
+def build_artifact_from_args(args: argparse.Namespace, state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
+    task = find_task(state, args.task_id)
+    artifact_id = args.artifact_id or next_artifact_id(state.setdefault("artifacts", []))
+    if any(isinstance(a, dict) and a.get("id") == artifact_id for a in state.get("artifacts", [])):
+        raise SystemExit(f"Artifact id already exists: {artifact_id}")
+
+    path_info = normalize_artifact_path(state_path, args.path)
+    absolute_path = path_info["absolutePath"]
+    created_by = args.created_by or task.get("ownerAgentId") or args.actor
+    now = now_iso()
+    return {
+        "id": artifact_id,
+        "kind": args.kind,
+        "title": args.title.strip(),
+        "path": path_info["path"],
+        "status": "draft",
+        "createdBy": created_by,
+        "taskId": args.task_id,
+        "fingerprint": file_fingerprint(absolute_path),
+        "reviewHistory": [{"action": "created", "actor": args.actor, "timestamp": now}],
+        "recommendedTasks": unique_strings(args.recommended_task or []),
+        "createdAt": now,
+        "updatedAt": now,
+    }
+
+
+def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, Any]) -> None:
+    task["status"] = "needs_input"
+    task["completedAt"] = None
+    owner_id = task.get("ownerAgentId")
+    if owner_id:
+        agent = ensure_agent(state, owner_id, task.get("role"))
+        agent["status"] = "needs_input"
+        agent["currentTaskId"] = task.get("id")
+
+
+def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
+    linked_artifacts = blocking_artifacts_for_task(state, str(task.get("id")))
+    if not linked_artifacts or any(a.get("status") != "approved" for a in linked_artifacts):
+        return False
+
+    task["status"] = "done"
+    task["completedAt"] = now_iso()
+    cleared = clear_task_refs(state, str(task.get("id")))
+    owner_id = task.get("ownerAgentId")
+    if owner_id:
+        set_agent_done(ensure_agent(state, owner_id, task.get("role")))
+    for agent_id in cleared:
+        if agent_id != owner_id:
+            set_agent_idle(ensure_agent(state, agent_id))
+    return True
+
+
+def reopen_task_for_artifact_changes(state: Dict[str, Any], task: Dict[str, Any]) -> str:
+    task["completedAt"] = None
+    owner_id = task.get("ownerAgentId")
+    owner = state.get("agents", {}).get(owner_id) if owner_id else None
+    owner_still_active = (
+        bool(owner_id)
+        and isinstance(owner, dict)
+        and owner.get("currentTaskId") == task.get("id")
+        and owner.get("status") in {"running", "needs_input"}
+    )
+
+    if owner_still_active:
+        task["status"] = "in_progress"
+        agent = ensure_agent(state, str(owner_id), task.get("role"))
+        agent["status"] = "running"
+        agent["currentTaskId"] = task.get("id")
+        return "in_progress"
+
+    clear_task_refs(state, str(task.get("id")))
+    task["ownerAgentId"] = None
+    task["status"] = "todo"
+    return "todo"
+
+
+def plan_path_artifact_value(state_path: Path) -> str:
+    return normalize_artifact_path(state_path, "plan.md")["path"]
+
+
+def ensure_plan_approval_gate(state: Dict[str, Any], state_path: Path, actor: str = "architect") -> Dict[str, Any]:
+    plan_path_value = plan_path_artifact_value(state_path)
+    plan_task = None
+    plan_artifact = None
+
+    for artifact in state.setdefault("artifacts", []):
+        if not isinstance(artifact, dict):
+            continue
+        if (
+            artifact.get("kind") == "architect_plan"
+            and artifact.get("path") == plan_path_value
+            and artifact.get("status") != "superseded"
+        ):
+            plan_artifact = artifact
+            plan_task = find_task_by_id(state, artifact.get("taskId"))
+            break
+
+    if plan_task is None:
+        plan_task = find_task_by_id(state, "T0")
+
+    if plan_task is None:
+        task_id = "T0" if "T0" not in task_ids(state) else next_task_id(state.get("tasks", []))
+        plan_task = normalize_task({
+            "id": task_id,
+            "title": "Review architect plan artifact",
+            "description": "Architect-authored plan.md and task graph approval gate.",
+            "role": "architect",
+            "status": "in_progress",
+            "ownerAgentId": actor,
+            "dependsOn": [],
+            "ownedPaths": [plan_path_value],
+            "acceptanceCriteria": [
+                "Architect plan describes the execution approach and task graph.",
+                "Plan is reviewed by the user and either approved to done or sent back for changes.",
+            ],
+            "implementationNotes": [],
+            "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": []},
+            "notes": [],
+            "startedAt": now_iso(),
+            "completedAt": None,
+        })
+        state.setdefault("tasks", []).append(plan_task)
+        append_event(state, "task_added", actor, f"{actor} added {plan_task['id']}: {plan_task['title']}.")
+    elif plan_task.get("status") != "done":
+        plan_task["status"] = "in_progress"
+        plan_task["ownerAgentId"] = plan_task.get("ownerAgentId") or actor
+        plan_task["startedAt"] = plan_task.get("startedAt") or now_iso()
+        plan_task["completedAt"] = None
+
+    if plan_task.get("status") in ACTIVE_TASK_STATUSES:
+        set_agent_active(ensure_agent(state, actor, "architect"), plan_task)
+
+    if plan_artifact is None:
+        now = now_iso()
+        absolute_path = artifact_absolute_path(state_path, plan_path_value)
+        initial_status = "approved" if plan_task.get("status") == "done" else "draft"
+        history = [{"action": "created", "actor": actor, "timestamp": now}]
+        if initial_status == "approved":
+            history.append({"action": "approved", "actor": actor, "timestamp": now, "note": "Imported from completed architect plan task."})
+        plan_artifact = {
+            "id": next_artifact_id(state.setdefault("artifacts", [])),
+            "kind": "architect_plan",
+            "title": "Architect Plan",
+            "path": plan_path_value,
+            "status": initial_status,
+            "createdBy": actor,
+            "taskId": plan_task.get("id"),
+            "fingerprint": file_fingerprint(absolute_path),
+            "reviewHistory": history,
+            "recommendedTasks": [],
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        if initial_status == "approved":
+            plan_artifact["approvedBy"] = actor
+            plan_artifact["approvedAt"] = now
+        state.setdefault("artifacts", []).append(plan_artifact)
+        append_event(state, "artifact_added", actor, f"{actor} registered architect plan artifact {plan_artifact['id']}.")
+    else:
+        plan_artifact["taskId"] = plan_task.get("id")
+        plan_artifact["path"] = plan_path_value
+        plan_artifact.setdefault("title", "Architect Plan")
+        plan_artifact.setdefault("createdBy", actor)
+        plan_artifact.setdefault("reviewHistory", [])
+        plan_artifact.setdefault("recommendedTasks", [])
+        plan_artifact.setdefault("createdAt", now_iso())
+        plan_artifact["updatedAt"] = now_iso()
+
+    return {"task": plan_task, "artifact": plan_artifact}
+
+
 def plan_path_for_state(state_path: Path) -> Path:
     return state_path.parent / "plan.md"
 
@@ -914,16 +1218,27 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         }
         save_state(state_path, initial)
 
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        swarm = state.setdefault("swarm", {})
+        if not swarm.get("name"):
+            swarm["name"] = default_name
+        if getattr(args, "goal", None) and not swarm.get("goal"):
+            swarm["goal"] = args.goal
+        gate = ensure_plan_approval_gate(state, state_path, "architect")
+        recompute_phase(state)
+        return {"ok": True, "gate": gate}
+
+    init_state = with_locked_state(state_path, run)
     state = load_state(state_path)
     swarm = state.setdefault("swarm", {})
-    if not swarm.get("name"):
-        swarm["name"] = default_name
-        save_state(state_path, state)
     plan_path = state_path.parent / "plan.md"
     handover_path = handover_path_for_state(state_path)
     handover_exists = handover_path.exists()
     plan_exists = plan_path.exists()
     goal = swarm.get("goal") or "(not set — read the codebase for context)"
+    plan_gate = init_state["gate"]
+    artifact_id = plan_gate["artifact"]["id"]
+    plan_task_id = plan_gate["task"]["id"]
     prompt = load_prompt("architect")
     existing_plan_step = "Review and update the existing plan" if plan_exists else "Write a compact plan"
     handover_step = (
@@ -940,13 +1255,23 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         "## Steps\n"
         f"{handover_step}"
         f"{next_step_number}. {existing_plan_step} at `{plan_path}` as the architect-owned final execution plan\n"
-        f"{next_step_number + 1}. Build the task board one task at a time with `swarm plan add-task`\n"
-        f"{next_step_number + 2}. During review, revise tasks with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`\n"
-        f"{next_step_number + 3}. Tell the user to review the plan and spawn the specialists they want to run\n\n"
+        f"{next_step_number + 1}. Use architect plan task `{plan_task_id}` and artifact `{artifact_id}` as the approval gate for `plan.md`\n"
+        f"{next_step_number + 2}. Build the task board one task at a time with `swarm plan add-task`, making downstream tasks depend on `{plan_task_id}` when they require approved plan context\n"
+        f"{next_step_number + 3}. For every task card, translate the relevant `plan.md` details into `--description`, repeatable `--note`, `--path`, and `--acceptance` values so workers receive a self-contained implementation brief\n"
+        f"{next_step_number + 4}. During review, revise tasks with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`\n"
+        f"{next_step_number + 5}. When `plan.md` is ready, run `swarm artifact ready --artifact-id {artifact_id} --id architect` so `{plan_task_id}` moves to `needs_input`\n"
+        f"{next_step_number + 6}. Tell the user to review the plan artifact and approve it or request changes before spawning downstream specialists\n\n"
         "**IMPORTANT: Do not edit swarm/state.json directly. "
         "All updates must go through the swarm tool.**"
     )
-    return {"ok": True, "role": "architect", "action": "plan", "prompt": prompt + directive}
+    return {
+        "ok": True,
+        "role": "architect",
+        "action": "plan",
+        "planTask": plan_gate["task"],
+        "planArtifact": plan_gate["artifact"],
+        "prompt": prompt + directive,
+    }
 
 
 def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
@@ -1284,6 +1609,10 @@ def cmd_plan_list(args: argparse.Namespace) -> Dict[str, Any]:
                 "role": t.get("role"),
                 "status": t.get("status"),
                 "dependsOn": t.get("dependsOn", []),
+                "descriptionPresent": bool(str(t.get("description", "")).strip()),
+                "pathCount": len(t.get("ownedPaths", []) if isinstance(t.get("ownedPaths"), list) else []),
+                "acceptanceCount": len(t.get("acceptanceCriteria", []) if isinstance(t.get("acceptanceCriteria"), list) else []),
+                "noteCount": len(t.get("implementationNotes", []) if isinstance(t.get("implementationNotes"), list) else []),
             }
             for t in tasks
             if isinstance(t, dict)
@@ -1361,6 +1690,138 @@ def cmd_plan_address_reviews(args: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
+def cmd_artifact_add(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        artifact = build_artifact_from_args(args, state, args.state)
+        state.setdefault("artifacts", []).append(artifact)
+        event = append_event(state, "artifact_added", args.actor, f"{args.actor} registered artifact {artifact['id']} for {artifact['taskId']}.")
+        ready_result = None
+        if args.ready:
+            ready_result = set_artifact_ready(state, artifact, args.actor, args.state)
+        recompute_phase(state)
+        return {"ok": True, "artifact": artifact, "ready": ready_result, "event": event}
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_artifact_list(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        artifacts = []
+        for artifact in state.get("artifacts", []):
+            if not isinstance(artifact, dict):
+                continue
+            if args.task_id and artifact.get("taskId") != args.task_id:
+                continue
+            if args.kind and artifact.get("kind") != args.kind:
+                continue
+            if args.status and artifact.get("status") != args.status:
+                continue
+            artifacts.append(artifact)
+        return {"ok": True, "artifacts": artifacts, "write": False}
+
+    return with_locked_state(args.state, run)
+
+
+def set_artifact_ready(
+    state: Dict[str, Any],
+    artifact: Dict[str, Any],
+    actor: str,
+    state_path: Path,
+) -> Dict[str, Any]:
+    if artifact.get("status") == "superseded":
+        raise SystemExit("Superseded artifacts cannot be marked ready for review.")
+    if artifact.get("status") == "approved":
+        raise SystemExit("Approved artifacts cannot be marked ready for review.")
+
+    task = find_task(state, str(artifact.get("taskId")))
+    path_info = normalize_artifact_path(state_path, str(artifact.get("path", "")), require_file=True)
+    artifact["path"] = path_info["path"]
+    artifact["fingerprint"] = file_fingerprint(path_info["absolutePath"])
+    artifact["status"] = "ready_for_review"
+    artifact["updatedAt"] = now_iso()
+    artifact.pop("approvedBy", None)
+    artifact.pop("approvedAt", None)
+    artifact.pop("changesRequestedBy", None)
+    artifact.pop("changesRequestedAt", None)
+    append_artifact_history(artifact, "ready_for_review", actor)
+    mark_task_needs_input_for_artifact(state, task)
+    return {"taskId": task.get("id"), "taskStatus": task.get("status"), "artifactStatus": artifact.get("status")}
+
+
+def cmd_artifact_ready(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        artifact = find_artifact(state, args.artifact_id)
+        ready_result = set_artifact_ready(state, artifact, args.id, args.state)
+        recompute_phase(state)
+        event = append_event(state, "artifact_ready_for_review", args.id, f"{args.id} marked artifact {args.artifact_id} ready for review.")
+        return {"ok": True, "artifact": artifact, "transition": ready_result, "event": event}
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        artifact = find_artifact(state, args.artifact_id)
+        if artifact.get("status") == "superseded":
+            raise SystemExit("Superseded artifacts cannot be approved.")
+        if artifact.get("status") == "draft":
+            raise SystemExit("Draft artifacts must be marked ready before approval.")
+
+        task = find_task(state, str(artifact.get("taskId")))
+        artifact["status"] = "approved"
+        artifact["approvedBy"] = args.id
+        artifact["approvedAt"] = now_iso()
+        artifact["updatedAt"] = artifact["approvedAt"]
+        append_artifact_history(artifact, "approved", args.id)
+        task_completed = mark_task_done_if_artifacts_approved(state, task)
+        recompute_phase(state)
+        event = append_event(state, "artifact_approved", args.id, f"{args.id} approved artifact {args.artifact_id}.")
+        return {
+            "ok": True,
+            "artifact": artifact,
+            "task": task,
+            "taskCompleted": task_completed,
+            "event": event,
+        }
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
+    feedback = args.feedback.strip()
+    if not feedback:
+        raise SystemExit("Change request feedback cannot be empty.")
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        artifact = find_artifact(state, args.artifact_id)
+        if artifact.get("status") == "superseded":
+            raise SystemExit("Superseded artifacts cannot receive change requests.")
+
+        task = find_task(state, str(artifact.get("taskId")))
+        artifact["status"] = "changes_requested"
+        artifact["changesRequestedBy"] = args.id
+        artifact["changesRequestedAt"] = now_iso()
+        artifact["updatedAt"] = artifact["changesRequestedAt"]
+        artifact.pop("approvedBy", None)
+        artifact.pop("approvedAt", None)
+        append_artifact_history(artifact, "changes_requested", args.id, feedback)
+
+        note = f"Changes requested for artifact {artifact.get('id')} ({artifact.get('title')}): {feedback}"
+        task.setdefault("notes", []).append(note)
+        reopened_status = reopen_task_for_artifact_changes(state, task)
+        recompute_phase(state)
+        event = append_event(state, "artifact_changes_requested", args.id, f"{args.id} requested changes for artifact {args.artifact_id}.")
+        return {
+            "ok": True,
+            "artifact": artifact,
+            "task": task,
+            "reopenedStatus": reopened_status,
+            "event": event,
+        }
+
+    return with_locked_state(args.state, run)
+
+
 def cmd_summary(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": True, "summary": build_run_summary(state), "write": False}
@@ -1389,8 +1850,8 @@ Task commands:
   swarm task list   --role developer
 
 Plan commands (architect only):
-  swarm plan add-task --title "..." --role developer --path src/foo --acceptance "..."
-  swarm plan update-task --task-id T1 --title "..." --path src/foo --acceptance "..."
+  swarm plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
+  swarm plan update-task --task-id T1 --title "..." --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
   swarm plan add-dependency --task-id T2 --depends-on T1
   swarm plan remove-dependency --task-id T2 --depends-on T1
   swarm plan delete-task --task-id T3 --unlink-dependents
@@ -1398,6 +1859,13 @@ Plan commands (architect only):
   swarm plan review-status
   swarm plan address-reviews --actor architect
   swarm plan list
+
+Artifact commands:
+  swarm artifact add --task-id T1 --kind product_strategy --title "Strategy" --path swarm/team/documents/strategy.md --created-by product
+  swarm artifact list --task-id T1
+  swarm artifact ready --artifact-id A1 --id product
+  swarm artifact approve --artifact-id A1 --id user
+  swarm artifact request-changes --artifact-id A1 --id user --feedback "Tighten the scope."
 
 Run summary:
   swarm summary
@@ -1498,26 +1966,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--actor", default="architect")
     p.add_argument("--task-id")
     p.add_argument("--title", required=True)
-    p.add_argument("--description", default="")
+    p.add_argument("--description", default="", help="Concrete task brief for the worker.")
     p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
     p.add_argument("--depends-on", action="append", default=[])
     p.add_argument("--path", action="append", default=[], help="Owned path or directory.")
     p.add_argument("--acceptance", action="append", default=[], help="Acceptance criterion.")
-    p.add_argument("--note", action="append", default=[], help="Implementation note.")
+    p.add_argument("--note", action="append", default=[], help="Repeatable implementation detail from the plan.")
     p.set_defaults(handler=cmd_plan_add_task)
 
     p = plan_sub.add_parser("update-task", help="Edit an existing planned task.")
     p.add_argument("--actor", default="architect")
     p.add_argument("--task-id", required=True)
     p.add_argument("--title")
-    p.add_argument("--description")
+    p.add_argument("--description", help="Concrete task brief for the worker.")
     p.add_argument("--clear-description", action="store_true")
     p.add_argument("--role", choices=sorted(VALID_ROLES))
     p.add_argument("--path", action="append", help="Replace owned paths with this repeatable list.")
     p.add_argument("--clear-paths", action="store_true")
     p.add_argument("--acceptance", action="append", help="Replace acceptance criteria with this repeatable list.")
     p.add_argument("--clear-acceptance", action="store_true")
-    p.add_argument("--note", action="append", help="Replace implementation notes with this repeatable list.")
+    p.add_argument("--note", action="append", help="Replace implementation notes with this repeatable list of details from the plan.")
     p.add_argument("--clear-notes", action="store_true")
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=cmd_plan_update_task)
@@ -1557,6 +2025,44 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = plan_sub.add_parser("list", help="List planned tasks.")
     p.set_defaults(handler=cmd_plan_list)
+
+    # artifact
+    artifact_p = sub.add_parser("artifact", help="Review artifact operations.")
+    artifact_sub = artifact_p.add_subparsers(dest="action", required=True)
+
+    p = artifact_sub.add_parser("add", help="Register a review artifact linked to a producing task.")
+    p.add_argument("--actor", default="agent", help="Actor recording the artifact registration.")
+    p.add_argument("--artifact-id", help="Stable artifact id. Defaults to the next A<number> id.")
+    p.add_argument("--task-id", required=True, help="Producing task id.")
+    p.add_argument("--kind", required=True, choices=sorted(VALID_ARTIFACT_KINDS))
+    p.add_argument("--title", required=True, help="Human-readable review title.")
+    p.add_argument("--path", required=True, help="Artifact file path under the active swarm team folder.")
+    p.add_argument("--created-by", help="Agent or actor that produced the artifact.")
+    p.add_argument("--recommended-task", action="append", default=[], help="Optional downstream task recommendation.")
+    p.add_argument("--ready", action="store_true", help="Immediately mark the artifact ready for review.")
+    p.set_defaults(handler=cmd_artifact_add)
+
+    p = artifact_sub.add_parser("list", help="List review artifacts.")
+    p.add_argument("--task-id", help="Filter by linked producing task id.")
+    p.add_argument("--kind", choices=sorted(VALID_ARTIFACT_KINDS), help="Filter by artifact kind.")
+    p.add_argument("--status", choices=sorted(VALID_ARTIFACT_STATUSES), help="Filter by artifact status.")
+    p.set_defaults(handler=cmd_artifact_list)
+
+    p = artifact_sub.add_parser("ready", help="Mark an artifact ready for human review and move its task to needs_input.")
+    p.add_argument("--artifact-id", required=True)
+    p.add_argument("--id", required=True, help="Actor or agent id.")
+    p.set_defaults(handler=cmd_artifact_ready)
+
+    p = artifact_sub.add_parser("approve", help="Approve an artifact and complete its task when all linked artifacts are approved.")
+    p.add_argument("--artifact-id", required=True)
+    p.add_argument("--id", required=True, help="Approving actor id.")
+    p.set_defaults(handler=cmd_artifact_approve)
+
+    p = artifact_sub.add_parser("request-changes", help="Request artifact changes, record feedback, and reopen the linked task.")
+    p.add_argument("--artifact-id", required=True)
+    p.add_argument("--id", required=True, help="Reviewing actor id.")
+    p.add_argument("--feedback", required=True, help="Feedback to append to the linked task.")
+    p.set_defaults(handler=cmd_artifact_request_changes)
 
     # summary
     p = sub.add_parser("summary", help="Print final run summary.")
