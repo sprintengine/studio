@@ -28,6 +28,10 @@ Use `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependen
 Use `swarm plan start-review --role <role> --id <agent-id>` when a specialist should critique the architect plan before execution.
 Use `swarm plan review-status` to summarize expected, missing, stale, and unexpected plan review files.
 Use `swarm plan address-reviews --actor architect` when the architect is ready to revise the plan from specialist feedback.
+Use `swarm artifact add` to register a review artifact under the active team folder.
+Use `swarm artifact ready --artifact-id <id> --id <agent-id>` to move an artifact to `ready_for_review` and the linked task to `needs_input`.
+Use `swarm artifact approve --artifact-id <id> --id <actor>` to approve an artifact and complete the linked task once all non-superseded linked artifacts are approved.
+Use `swarm artifact request-changes --artifact-id <id> --id <actor> --feedback "..."` to record feedback and reopen the linked task.
 The app does not call the Python tool; the user reviews `plan.md` and manually spawns specialists from the UI.
 
 ## Task Card Fields
@@ -55,6 +59,46 @@ The app does not call the Python tool; the user reviews `plan.md` and manually s
 - `startedAt`
 - `completedAt`
 
+## Artifact Fields
+
+Top-level `artifacts` is optional for compatibility. Missing artifact arrays are treated as empty.
+
+- `id`
+- `kind`
+  - `architect_plan`
+  - `product_strategy`
+  - `requirements`
+  - `html_mockup`
+  - `design_notes`
+  - `branding`
+  - `security_review`
+  - `validation_report`
+- `title`
+- `path`
+  - Stored as a repository-relative path when possible.
+  - Must resolve under the active `swarm/<team-slug>/` folder.
+- `status`
+  - `draft`
+  - `ready_for_review`
+  - `approved`
+  - `changes_requested`
+  - `superseded`
+- `createdBy`
+- `taskId`
+- `fingerprint`
+- `reviewHistory`
+  - `action`
+  - `actor`
+  - `timestamp`
+  - `note`
+- `recommendedTasks`
+- `createdAt`
+- `updatedAt`
+- `approvedBy`
+- `approvedAt`
+- `changesRequestedBy`
+- `changesRequestedAt`
+
 ## Coordination Rules
 
 - `handover.md` is incoming context from a previous planning agent. The architect validates it before writing `plan.md`.
@@ -71,6 +115,11 @@ The app does not call the Python tool; the user reviews `plan.md` and manually s
 - The architect builds and revises the task graph during planning with `swarm plan` commands.
 - Product strategist tasks and consultations should capture market, competitor, audience, positioning, workflow, and adoption-risk guidance.
 - Workers should not rewrite the plan or change other workers' task cards.
+- Review artifact lifecycle mutations must go through `swarm artifact` commands.
+- `swarm init` creates or reuses an architect plan approval task and an `architect_plan` artifact for `plan.md`.
+- `artifact ready` moves the linked producing task and owning agent to `needs_input`.
+- `artifact approve` marks the linked task `done` only when every non-superseded artifact for that task is `approved`.
+- `artifact request-changes` stores feedback in task notes and reopens the producing task without changing unrelated tasks.
 
 ## Consultation Flow
 

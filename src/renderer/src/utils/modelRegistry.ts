@@ -1,4 +1,4 @@
-import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
+import { Actions, DockLocation, Model, TabNode, TabSetNode, type IJsonModel } from 'flexlayout-react'
 
 // Ephemeral registry of live flexlayout Model instances, keyed by workspace id.
 // Lets components outside of WorkspaceLayout (e.g. the workspace action bar)
@@ -86,6 +86,59 @@ export function focusOrAddAgentTab(
     )
   )
   return true
+}
+
+export function ensureAgentTabInLayoutModel(
+  layoutModel: IJsonModel,
+  agentId: string,
+  name: string
+): IJsonModel {
+  const model = Model.fromJson(layoutModel)
+
+  let targetTabId: string | null = null
+  model.visitNodes((node) => {
+    if (targetTabId || !(node instanceof TabNode) || node.getComponent() !== 'agent') return
+
+    const config = node.getConfig() as { agentId?: string } | undefined
+    if (config?.agentId === agentId) {
+      targetTabId = node.getId()
+    }
+  })
+
+  if (targetTabId) {
+    const node = model.getNodeById(targetTabId)
+    if (node instanceof TabNode && node.getName() !== name) {
+      model.doAction(Actions.renameTab(targetTabId, name))
+    }
+    model.doAction(Actions.selectTab(targetTabId))
+    return model.toJson()
+  }
+
+  let targetTabset: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (targetTabset || !(node instanceof TabSetNode)) return
+    const hasAgentTab = node.getChildren().some((child) =>
+      child instanceof TabNode && child.getComponent() === 'agent'
+    )
+    if (hasAgentTab) targetTabset = node
+  })
+
+  const targetId = targetTabset
+    ? (targetTabset as TabSetNode).getId()
+    : model.getRoot().getId()
+  const targetLocation = targetTabset ? DockLocation.CENTER : DockLocation.RIGHT
+
+  model.doAction(
+    Actions.addNode(
+      { type: 'tab', name, component: 'agent', config: { agentId } },
+      targetId,
+      targetLocation,
+      -1,
+      true
+    )
+  )
+
+  return model.toJson()
 }
 
 export function focusOrAddTerminalTab(

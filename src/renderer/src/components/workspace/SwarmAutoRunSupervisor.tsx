@@ -8,10 +8,41 @@ import {
   swarmRoleLabels,
 } from '../../utils/swarm'
 import { parseSwarmStateFile } from '../../utils/swarmStateFile'
+import { ensureAgentTabInLayoutModel, focusOrAddAgentTab } from '../../utils/modelRegistry'
 
 const AUTO_RUN_POLL_MS = 2000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
+
+function revealAutoRunAgentTerminal(workspaceId: string, agentId: string, label: string): void {
+  if (focusOrAddAgentTab(workspaceId, agentId, label)) return
+
+  const state = useWorkspaceStore.getState()
+  const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
+  if (!workspace) return
+
+  try {
+    state.updateLayout(
+      workspaceId,
+      ensureAgentTabInLayoutModel(workspace.layoutModel, agentId, label)
+    )
+  } catch {
+    // The running session remains available in the session manager if the
+    // serialized layout cannot be adjusted before the workspace mounts.
+  }
+}
+
+function isMatchingWorkspaceAgentSession(
+  session: TerminalSessionSnapshot,
+  workspace: Workspace,
+  agentId: string
+): boolean {
+  return session.running
+    && session.kind === 'agent'
+    && session.workspaceId === workspace.id
+    && session.agentId === agentId
+    && (!workspace.swarmContext || session.swarmStatePath === workspace.swarmContext.statePath)
+}
 
 async function refreshAutoWorkspaceState(
   workspace: Workspace,
@@ -73,18 +104,14 @@ function pickNextAutoRun(
 
 async function agentHasRunningProcess(workspace: Workspace, agentId: string): Promise<boolean> {
   const agent = workspace.agents[agentId]
+  const sessions = await window.api.terminalList()
   if (agent?.cliStartRequested && agent.cliHasLaunched && agent.cliSessionId) {
-    const status = await window.api.terminalStatus(agent.cliSessionId)
-    if (status.running) return true
+    const storedSession = sessions.find((session) => session.sessionId === agent.cliSessionId)
+    if (storedSession && isMatchingWorkspaceAgentSession(storedSession, workspace, agentId)) return true
   }
 
-  const sessions = await window.api.terminalList()
   const runningSession = sessions.find((session) =>
-    session.running
-    && session.kind === 'agent'
-    && session.workspaceId === workspace.id
-    && session.agentId === agentId
-    && (!workspace.swarmContext || session.swarmStatePath === workspace.swarmContext.statePath)
+    isMatchingWorkspaceAgentSession(session, workspace, agentId)
   )
 
   if (!runningSession) return false
@@ -95,6 +122,7 @@ async function agentHasRunningProcess(workspace: Workspace, agentId: string): Pr
     cliHasLaunched: true,
     cli: runningSession.cli ?? agent?.cli ?? 'codex',
   })
+  revealAutoRunAgentTerminal(workspace.id, agentId, agent?.name ?? agentId)
   return true
 }
 
@@ -230,6 +258,7 @@ async function superviseWorkspace(
         agentId: nextRun.agentId,
       }
     )
+    revealAutoRunAgentTerminal(workspace.id, nextRun.agentId, nextRun.label)
   } finally {
     inFlightSpawns.current.delete(spawnKey)
   }
