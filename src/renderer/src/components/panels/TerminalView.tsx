@@ -71,7 +71,15 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     if (!rosterAgent) return null
 
-    const basePrompt = buildSwarmStartupPrompt(rosterAgent.role, agentId, workspace.swarmState.goal)
+    const swarmStatePath = workspace.folderPath
+      ? getSwarmStateFilePath(workspace.folderPath, workspace.swarmState.name || workspace.name)
+      : null
+    const basePrompt = buildSwarmStartupPrompt(
+      rosterAgent.role,
+      agentId,
+      workspace.swarmState.goal,
+      swarmStatePath
+    )
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
       ? currentAgent.name
       : ''

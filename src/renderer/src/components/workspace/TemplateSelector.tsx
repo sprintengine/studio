@@ -145,7 +145,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
         if (!entry.isDir) continue
         try {
           const content = await window.api.readfile(getExistingSwarmStateFilePath(dir, entry.name))
-          const state = parseSwarmStateFile(content)
+          const state = parseSwarmStateFile(content, entry.name)
           teams.push({
             slug: entry.name,
             displayName: getExistingTeamDisplayName(entry.name, state),

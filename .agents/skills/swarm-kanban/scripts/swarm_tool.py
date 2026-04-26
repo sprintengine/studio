@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -533,6 +534,20 @@ def plan_reviews_dir_for_state(state_path: Path) -> Path:
     return state_path.parent / "plan-reviews"
 
 
+def default_swarm_name_for_state(state_path: Path) -> str:
+    team_dir_name = state_path.parent.name
+    return "Swarm Team" if team_dir_name == "swarm" else team_dir_name
+
+
+def slugify_team_name(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+    return slug or "swarm-team"
+
+
+def handover_path_for_state(state_path: Path) -> Path:
+    return state_path.parent / "handover.md"
+
+
 def safe_review_filename(agent_id: str) -> str:
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", agent_id.strip()).strip(".-")
     return f"{name or 'agent'}.md"
@@ -805,12 +820,80 @@ def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
 # Command handlers
 # ---------------------------------------------------------------------------
 
+def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
+    team_slug = slugify_team_name(args.name)
+    state_path = (args.state or (Path.cwd() / "swarm" / team_slug / "state.yaml")).resolve()
+    team_dir = state_path.parent
+    handover_path = handover_path_for_state(state_path)
+
+    existing = [path for path in [state_path, handover_path] if path.exists()]
+    if existing and not args.force:
+        return {
+            "ok": False,
+            "error": "Team already has bootstrap files. Use --force only if you intend to replace the state/handover bootstrap.",
+            "existing": [str(path) for path in existing],
+            "write": False,
+        }
+
+    handover_text = ""
+    if args.handover:
+        handover_text = args.handover.read_text(encoding="utf-8")
+    elif getattr(args, "handover_stdin", False):
+        handover_text = sys.stdin.read()
+    elif args.handover_text:
+        handover_text = args.handover_text
+
+    team_dir.mkdir(parents=True, exist_ok=True)
+    initial: Dict[str, Any] = {
+        "swarm": {"name": team_slug, "goal": args.goal or "", "status": "planning"},
+        "tasks": [],
+        "agents": {},
+        "events": [
+            {
+                "id": "EVT-001",
+                "timestamp": now_iso(),
+                "type": "handover_created",
+                "actor": args.actor,
+                "message": f"{args.actor} created swarm handover for team {team_slug}.",
+            }
+        ],
+        "artifacts": [],
+        "roles": {},
+    }
+    save_state(state_path, initial)
+
+    wrote_handover = False
+    if handover_text.strip():
+        handover_path.write_text(handover_text.rstrip() + "\n", encoding="utf-8")
+        wrote_handover = True
+
+    init_command = f"swarm --state {json.dumps(str(state_path))} init"
+    architect_startup_prompt = "\n\n".join([
+        f"Use the existing swarm team `{team_slug}`.",
+        "Fetch the canonical architect instructions from the Python tool.",
+        "Run:",
+        f"```bash\n{init_command}\n```",
+        "Then follow the returned prompt. If `handover.md` exists, treat it as incoming context, not as the final plan.",
+    ])
+
+    return {
+        "ok": True,
+        "action": "handover",
+        "team": team_slug,
+        "statePath": str(state_path),
+        "handoverPath": str(handover_path) if wrote_handover else None,
+        "planPath": str(plan_path_for_state(state_path)),
+        "architectStartupPrompt": architect_startup_prompt,
+    }
+
+
 def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     state_path = args.state
+    default_name = default_swarm_name_for_state(state_path)
     if not state_path.exists():
         state_path.parent.mkdir(parents=True, exist_ok=True)
         initial: Dict[str, Any] = {
-            "swarm": {"goal": getattr(args, "goal", "") or "", "status": "planning"},
+            "swarm": {"name": default_name, "goal": getattr(args, "goal", "") or "", "status": "planning"},
             "tasks": [],
             "agents": {},
             "events": [],
@@ -820,21 +903,34 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         save_state(state_path, initial)
 
     state = load_state(state_path)
+    swarm = state.setdefault("swarm", {})
+    if not swarm.get("name"):
+        swarm["name"] = default_name
+        save_state(state_path, state)
     plan_path = state_path.parent / "plan.md"
+    handover_path = handover_path_for_state(state_path)
+    handover_exists = handover_path.exists()
     plan_exists = plan_path.exists()
-    goal = state.get("swarm", {}).get("goal") or "(not set — read the codebase for context)"
+    goal = swarm.get("goal") or "(not set — read the codebase for context)"
     prompt = load_prompt("architect")
     existing_plan_step = "Review and update the existing plan" if plan_exists else "Write a compact plan"
+    handover_step = (
+        f"1. Read `{handover_path}` as incoming handoff context, not final truth\n"
+        "2. Read the codebase and validate the handoff against the repository and current user instructions\n"
+    ) if handover_exists else (
+        "1. Read the codebase and understand what needs to be done\n"
+    )
+    next_step_number = 3 if handover_exists else 2
     directive = (
         "\n\n---\n"
         "## Your Goal\n"
         f"{goal}\n\n"
         "## Steps\n"
-        f"1. Read the codebase and understand what needs to be done\n"
-        f"2. {existing_plan_step} at `{plan_path}`\n"
-        f"3. Build the task board one task at a time with `swarm plan add-task`\n"
-        f"4. During review, revise tasks with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`\n"
-        f"5. Tell the user to review the plan and spawn the specialists they want to run\n\n"
+        f"{handover_step}"
+        f"{next_step_number}. {existing_plan_step} at `{plan_path}` as the architect-owned final execution plan\n"
+        f"{next_step_number + 1}. Build the task board one task at a time with `swarm plan add-task`\n"
+        f"{next_step_number + 2}. During review, revise tasks with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`\n"
+        f"{next_step_number + 3}. Tell the user to review the plan and spawn the specialists they want to run\n\n"
         "**IMPORTANT: Do not edit swarm/state.json directly. "
         "All updates must go through the swarm tool.**"
     )
@@ -1267,6 +1363,7 @@ TOP_LEVEL_HELP = """\
 Swarm tool — all state mutations go through here. Never edit state.json directly.
 
 Entry points (return full system prompt for the agent):
+  swarm handover --name my-team --goal "..." --handover handover.md
   swarm init [--goal "..."]
   swarm recover
   swarm join --role developer --id developer-1
@@ -1295,6 +1392,19 @@ Run summary:
 """
 
 
+def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: str) -> None:
+    p = sub.add_parser(name, help=help_text)
+    p.add_argument("--name", required=True, help="Team name; converted to a stable folder slug.")
+    p.add_argument("--goal", default="", help="Goal for the future architect/swarm run.")
+    handover = p.add_mutually_exclusive_group()
+    handover.add_argument("--handover", type=Path, help="Path to markdown handover context to copy into handover.md.")
+    handover.add_argument("--handover-text", help="Inline handover context to write to handover.md.")
+    handover.add_argument("--handover-stdin", action="store_true", help="Read markdown handover context from stdin.")
+    p.add_argument("--actor", default="handoff", help="Actor name for the team creation event.")
+    p.add_argument("--force", action="store_true", help="Replace existing state/handover bootstrap files.")
+    p.set_defaults(handler=cmd_handover, uses_state=False)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Swarm coordination tool",
@@ -1309,6 +1419,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="group", required=True)
+
+    # handover
+    add_handover_parser(sub, "handover", "Create a swarm team bootstrap and canonical handover.md.")
 
     # init
     p = sub.add_parser("init", help="Start swarm as architect, returns full prompt.")
@@ -1443,7 +1556,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    args.state = (args.state or default_state_path()).resolve()
+    if getattr(args, "uses_state", True):
+        args.state = (args.state or default_state_path()).resolve()
+    elif args.state is not None:
+        args.state = args.state.resolve()
     result = args.handler(args)
     print(json.dumps(result, indent=2))
     return 0

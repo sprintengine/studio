@@ -59,7 +59,7 @@ async function refreshAutoWorkspaceState(
     if (lastContentByWorkspace.current.get(workspace.id) === content) return
 
     lastContentByWorkspace.current.set(workspace.id, content)
-    useWorkspaceStore.getState().setSwarmState(workspace.id, parseSwarmStateFile(content))
+    useWorkspaceStore.getState().setSwarmState(workspace.id, parseSwarmStateFile(content, swarmName))
   } catch {
     // Auto mode can be enabled before the agent-managed state file exists.
   }
@@ -160,14 +160,14 @@ async function superviseWorkspace(
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return
 
-  const startupPrompt = prependAgentIdentifier(
-    buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal),
-    nextRun.label,
-    swarmRoleLabels[nextRun.role]
-  )
   const swarmStatePath = await resolveReadableSwarmStatePath(
     workspace.folderPath,
     swarmState.name || workspace.name
+  )
+  const startupPrompt = prependAgentIdentifier(
+    buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal, swarmStatePath),
+    nextRun.label,
+    swarmRoleLabels[nextRun.role]
   )
 
   inFlightSpawns.current.add(spawnKey)

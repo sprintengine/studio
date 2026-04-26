@@ -62,14 +62,14 @@ function countRolesFromAgents(agents: Record<string, { role: SwarmRole }> | unde
   return Object.values(counts).some((c) => c > 0) ? counts : null
 }
 
-export function parseSwarmStateFile(content: string): SwarmState {
+export function parseSwarmStateFile(content: string, fallbackName?: string): SwarmState {
   const parsed = JSON.parse(content) as Record<string, unknown>
   const swarm = (parsed.swarm ?? {}) as Record<string, unknown>
   const agents = (parsed.agents ?? {}) as Record<string, SwarmRuntimeAgent>
   const roleCounts = countRolesFromAgents(agents) ?? createDefaultSwarmRoleCounts()
 
   const candidate: SwarmState = {
-    name: (swarm.name as string) ?? 'Swarm Team',
+    name: (swarm.name as string) ?? fallbackName ?? 'Swarm Team',
     goal: (swarm.goal as string) ?? '',
     updatedAt: typeof swarm.updatedAt === 'string' ? swarm.updatedAt : null,
     roleCounts,

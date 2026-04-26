@@ -72,6 +72,12 @@ function getParentDirectoryPath(path: string): string {
   return separatorIndex >= 0 ? trimmed.slice(0, separatorIndex) : trimmed
 }
 
+function getBaseName(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed
+}
+
 const roleSummaries: Record<SwarmRole, string> = {
   architect: 'Plans the run and gates readiness.',
   product: 'Shapes scope, positioning, audience fit, and priority tradeoffs.',
@@ -112,14 +118,19 @@ type RecoveryDialogState = {
   cli: AgentCli
 }
 
+function commandStatePrefix(statePath?: string | null): string {
+  return statePath ? ` --state ${JSON.stringify(statePath)}` : ''
+}
+
 function buildWorkerRespawnStartupPrompt(
   role: SwarmRole,
-  agentId: string
+  agentId: string,
+  statePath?: string | null
 ): string {
   return [
     'Fetch the canonical swarm instructions from the Python tool.',
     'Run:',
-    `\`\`\`\nswarm join --role ${role} --id ${agentId}\n\`\`\``,
+    `\`\`\`\nswarm${commandStatePrefix(statePath)} join --role ${role} --id ${agentId}\n\`\`\``,
   ].join('\n\n')
 }
 
@@ -234,7 +245,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         if (!stateFilePath) throw new Error('No workspace folder is ready.')
         const content = await window.api.readfile(stateFilePath)
         if (cancelled) return
-        const parsed = parseSwarmStateFile(content)
+        const parsed = parseSwarmStateFile(content, getBaseName(getParentDirectoryPath(stateFilePath)))
         lastSyncedContentRef.current = content
         setSwarmState(workspaceId, parsed)
         setSyncState({ status: 'live', message: `Watching agent-managed state at ${stateFilePath}` })
@@ -272,7 +283,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         activeStateFilePath = stateFilePath
         const content = await window.api.readfile(stateFilePath)
         if (disposed || content === lastSyncedContentRef.current) return
-        const parsed = parseSwarmStateFile(content)
+        const parsed = parseSwarmStateFile(content, getBaseName(getParentDirectoryPath(stateFilePath)))
         lastSyncedContentRef.current = content
         setSwarmState(workspaceId, parsed)
         setSyncState({ status: 'live', message: `Watching agent-managed state at ${stateFilePath}` })
@@ -396,6 +407,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const allTasksDone = swarmState.tasks.length > 0 && doneCount === swarmState.tasks.length
   const runSummary = buildRunSummary(swarmState.tasks)
   const architectAgentId = roster.find((agent) => agent.role === 'architect')?.id ?? null
+  const swarmStateFilePath = folderPath ? getSwarmStateFilePath(folderPath, swarmName) : null
   const planFilePath = folderPath ? getSwarmPlanFilePath(folderPath, swarmName) : null
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
   const workerRoles: SwarmRole[] = ['developer', 'frontend', 'product', 'tester', 'security']
@@ -442,7 +454,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       const stateFilePath = await resolveReadableSwarmStatePath()
       if (!stateFilePath) throw new Error('No workspace folder is ready.')
       const content = await window.api.readfile(stateFilePath)
-      const parsed = parseSwarmStateFile(content)
+      const parsed = parseSwarmStateFile(content, getBaseName(getParentDirectoryPath(stateFilePath)))
       lastSyncedContentRef.current = content
       setSwarmState(workspaceId, parsed)
       setSyncState({
@@ -606,7 +618,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         agentName: getCustomAgentName(agentId, fallbackLabel),
         startupPrompt: buildWorkerRespawnStartupPrompt(
           agent?.role ?? task.role,
-          agentId
+          agentId,
+          swarmStateFilePath
         ),
       })
       return
@@ -693,7 +706,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     startAgentTerminal(architectAgentId, label, recoveryDialog.cli, {
       freshSession: true,
       agentName: getCustomAgentName(architectAgentId, fallbackLabel),
-      startupPrompt: buildRecoveryAuditPrompt(),
+      startupPrompt: buildRecoveryAuditPrompt(swarmStateFilePath),
     })
     setSelectedAgentId(architectAgentId)
     setCliPickerOpen(false)
@@ -708,7 +721,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       startAgentTerminal(agent.id, label, agents[agent.id]?.cli ?? 'codex', {
         freshSession: true,
         agentName: getCustomAgentName(agent.id, agent.label),
-        startupPrompt: buildPlanReviewStartupPrompt(agent.role, agent.id),
+        startupPrompt: buildPlanReviewStartupPrompt(agent.role, agent.id, swarmStateFilePath),
       })
     })
 
@@ -723,7 +736,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     startAgentTerminal(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
       freshSession: true,
       agentName: getCustomAgentName(architectAgentId, fallbackLabel),
-      startupPrompt: buildAddressPlanReviewsPrompt(),
+      startupPrompt: buildAddressPlanReviewsPrompt(swarmStateFilePath),
     })
     setSelectedAgentId(architectAgentId)
   }
@@ -3121,24 +3134,24 @@ function formatSwarmGoalPreview(goal: string): string {
   return firstSentence || firstLine
 }
 
-function buildRecoveryAuditPrompt(): string {
+function buildRecoveryAuditPrompt(statePath?: string | null): string {
   return [
     'Fetch the canonical recovery instructions from the Python tool.',
-    'Run `swarm recover` now.',
+    `Run \`swarm${commandStatePrefix(statePath)} recover\` now.`,
   ].join('\n')
 }
 
-function buildPlanReviewStartupPrompt(role: SwarmRole, agentId: string): string {
+function buildPlanReviewStartupPrompt(role: SwarmRole, agentId: string, statePath?: string | null): string {
   return [
     'Fetch the canonical plan review instructions from the Python tool.',
-    `Run \`swarm plan start-review --role ${role} --id ${agentId}\` now.`,
+    `Run \`swarm${commandStatePrefix(statePath)} plan start-review --role ${role} --id ${agentId}\` now.`,
   ].join('\n')
 }
 
-function buildAddressPlanReviewsPrompt(): string {
+function buildAddressPlanReviewsPrompt(statePath?: string | null): string {
   return [
     'Fetch the canonical plan review feedback instructions from the Python tool.',
-    'Run `swarm plan address-reviews --actor architect` now.',
+    `Run \`swarm${commandStatePrefix(statePath)} plan address-reviews --actor architect\` now.`,
   ].join('\n')
 }
 

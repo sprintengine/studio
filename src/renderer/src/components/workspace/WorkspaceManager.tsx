@@ -15,6 +15,7 @@ import type { AgentCli, LayoutTemplate, SpecialistActionId, Workspace } from '..
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
+import { slugifySwarmName } from '../../utils/swarmStateFile'
 import TemplateSelector from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
@@ -161,6 +162,9 @@ export default function WorkspaceManager() {
   const [cliMenuOpen, setCliMenuOpen] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
+  const [handoffOpen, setHandoffOpen] = useState(false)
+  const [handoffTeamName, setHandoffTeamName] = useState('')
+  const [handoffError, setHandoffError] = useState<string | null>(null)
   const [specialistName, setSpecialistName] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -173,6 +177,7 @@ export default function WorkspaceManager() {
   const cliMenuRef = useRef<HTMLDivElement>(null)
   const specialistMenuRef = useRef<HTMLDivElement>(null)
   const sessionsRef = useRef<HTMLDivElement>(null)
+  const handoffDialogRef = useRef<HTMLDivElement>(null)
   const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
   const sessions = getSessionItems(workspaces, terminalSessions)
 
@@ -180,6 +185,7 @@ export default function WorkspaceManager() {
     setShowTemplateSelector(true)
     setCliMenuOpen(false)
     setSpecialistMenuOpen(false)
+    setHandoffOpen(false)
   }
 
   useEffect(() => {
@@ -267,6 +273,21 @@ export default function WorkspaceManager() {
   }, [specialistMenuOpen])
 
   useEffect(() => {
+    if (!handoffOpen) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHandoffOpen(false)
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.setTimeout(() => {
+      const input = handoffDialogRef.current?.querySelector('input')
+      if (input instanceof HTMLInputElement) input.select()
+    }, 0)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [handoffOpen])
+
+  useEffect(() => {
     if (!sessionsOpen) return
 
     const onPointerDown = (event: PointerEvent) => {
@@ -291,6 +312,7 @@ export default function WorkspaceManager() {
     setCliMenuOpen(false)
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
+    setHandoffOpen(false)
   }, [activeWorkspaceId])
 
   useEffect(() => {
@@ -467,6 +489,33 @@ export default function WorkspaceManager() {
         true
       )
     )
+  }
+
+  const openHandoffDialog = () => {
+    if (!activeWorkspace) return
+    setHandoffTeamName(slugifySwarmName(activeWorkspace.name))
+    setHandoffError(null)
+    setSessionsOpen(false)
+    setCliMenuOpen(false)
+    setSpecialistMenuOpen(false)
+    setHandoffOpen(true)
+  }
+
+  const confirmHandoff = async () => {
+    if (!activeWorkspaceId || !activeWorkspace) return
+    const teamSlug = slugifySwarmName(handoffTeamName)
+    const target = getActiveCliSession(activeWorkspace, terminalSessions)
+    if (!target) {
+      setHandoffError('Open or focus a running CLI session before handing off.')
+      return
+    }
+
+    const prompt = buildSwarmHandoffPrompt(teamSlug)
+    await window.api.terminalWrite(
+      target.sessionId,
+      `\x1b[200~${prompt.replace(/\r?\n/g, '\n')}\x1b[201~\r`
+    )
+    setHandoffOpen(false)
   }
 
   const handleSelectCli = (cli: AgentCli) => {
@@ -697,6 +746,19 @@ export default function WorkspaceManager() {
 
           {workspaceActionsEnabled ? (
             <button
+              type="button"
+              onClick={openHandoffDialog}
+              disabled={!activeWorkspaceId}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#ffbf2f] transition-colors hover:border-[#3a3426] hover:bg-[#ffbf2f]/8 hover:text-[#ffe0a3] disabled:opacity-40 disabled:hover:bg-[#111216]"
+              title="Handoff current plan to swarm"
+              aria-label="Handoff current plan to swarm"
+            >
+              <WorkspaceTypeIcon mode="swarm" className="h-[18px] w-[18px]" />
+            </button>
+          ) : null}
+
+          {workspaceActionsEnabled ? (
+            <button
               onClick={addNewTerminal}
               disabled={!activeWorkspaceId}
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
@@ -910,6 +972,66 @@ export default function WorkspaceManager() {
           </>
         )}
       </div>
+
+      {handoffOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div
+            ref={handoffDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="handoff-title"
+            className="w-full max-w-sm rounded-md border border-[#303139] bg-[#0d0e11] shadow-[0_18px_60px_rgba(0,0,0,0.5)]"
+          >
+            <div className="border-b border-[#1f2025] px-4 py-3">
+              <div id="handoff-title" className="text-sm font-semibold text-[#ececee]">
+                Handoff To Swarm
+              </div>
+            </div>
+            <div className="space-y-3 px-4 py-4">
+              <label className="block">
+                <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Team Name
+                </span>
+                <input
+                  value={handoffTeamName}
+                  onChange={(event) => {
+                    setHandoffTeamName(event.target.value)
+                    setHandoffError(null)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void confirmHandoff()
+                  }}
+                  className="h-9 w-full rounded bg-[#111216] px-2.5 text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#ffbf2f]/45"
+                  placeholder="swarm-improvements"
+                />
+              </label>
+              {handoffError ? (
+                <div className="border-l border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+                  {handoffError}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-[#1f2025] px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setHandoffOpen(false)}
+                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmHandoff()}
+                disabled={!handoffTeamName.trim()}
+                className="inline-flex items-center gap-2 rounded-md bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/18 disabled:opacity-45 disabled:hover:bg-[#ffbf2f]/12"
+              >
+                <WorkspaceTypeIcon mode="swarm" className="h-4 w-4" />
+                Handoff
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
@@ -1150,6 +1272,83 @@ function firstTabset(model: Model): TabSetNode | null {
     if (node instanceof TabSetNode) found = node
   })
   return found
+}
+
+function getActiveTab(model: Model | undefined): TabNode | null {
+  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
+  if (!tabset) return null
+  const selectedNode = tabset.getChildren()[tabset.getSelected()]
+  return selectedNode instanceof TabNode ? selectedNode : null
+}
+
+function findRunningSession(
+  terminalSessions: TerminalSessionSnapshot[],
+  predicate: (session: TerminalSessionSnapshot) => boolean
+): TerminalSessionSnapshot | null {
+  return terminalSessions.find((session) => session.running && predicate(session)) ?? null
+}
+
+function getActiveCliSession(
+  workspace: Workspace,
+  terminalSessions: TerminalSessionSnapshot[]
+): TerminalSessionSnapshot | null {
+  const model = getModel(workspace.id)
+  const activeTab = getActiveTab(model)
+
+  if (activeTab?.getComponent() === 'agent') {
+    const config = activeTab.getConfig() as { agentId?: string } | undefined
+    const agentId = config?.agentId
+    const session = agentId
+      ? findRunningSession(terminalSessions, (candidate) =>
+        candidate.kind === 'agent'
+        && candidate.workspaceId === workspace.id
+        && candidate.agentId === agentId
+      )
+      : null
+    if (session) return session
+  }
+
+  if (activeTab?.getComponent() === 'terminal') {
+    const config = activeTab.getConfig() as { terminalId?: string } | undefined
+    const terminalId = config?.terminalId ?? activeTab.getId()
+    const session = findRunningSession(terminalSessions, (candidate) =>
+      candidate.kind === 'terminal'
+      && candidate.workspaceId === workspace.id
+      && (
+        candidate.terminalId === terminalId
+        || candidate.sessionId === terminalId
+        || candidate.sessionId === `terminal-${terminalId}`
+      )
+    )
+    if (session) return session
+  }
+
+  return findRunningSession(terminalSessions, (candidate) =>
+    candidate.workspaceId === workspace.id && candidate.kind === 'agent'
+  ) ?? findRunningSession(terminalSessions, (candidate) =>
+    candidate.workspaceId === workspace.id && candidate.kind === 'terminal'
+  )
+}
+
+function buildSwarmHandoffPrompt(teamSlug: string): string {
+  return [
+    'Convert your current plan and context into a swarm handoff.',
+    `Team name: \`${teamSlug}\``,
+    'Do not run `swarm init`. Do not create task cards. Do not start implementation.',
+    'First derive a concise one-sentence swarm goal from your current plan.',
+    'Then write a complete markdown handover and pass it to the swarm tool as stdin. The Python tool must create `handover.md`; do not write that file directly.',
+    'Use this command shape:',
+    '```bash',
+    `swarm handover --name ${JSON.stringify(teamSlug)} --goal "<derived one-sentence goal>" --handover-stdin <<'SWARM_HANDOVER'`,
+    '# Handover',
+    '',
+    '<your complete markdown handover>',
+    'SWARM_HANDOVER',
+    '```',
+    'If the team already exists, stop and report that to the user instead of overwriting it.',
+    'The handover must include confirmed decisions, open questions, implementation approach, likely files to touch, task breakdown suggestions, risks, and validation notes.',
+    `When done, tell the user to open or create a swarm workspace and select team \`${teamSlug}\`.`,
+  ].join('\n\n')
 }
 
 function findPanelTab(model: Model, component: WorkspacePanelComponent): TabNode | null {

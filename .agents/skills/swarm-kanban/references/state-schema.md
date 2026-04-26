@@ -6,6 +6,10 @@ The shared swarm coordination files are:
   - architect-authored low-level design and task plan
 - `swarm/<team-slug>/state.yaml`
   - machine-readable kanban board and run state
+- `swarm/<team-slug>/handover.md`
+  - optional incoming planning context created before the swarm architect starts
+- `swarm/<team-slug>/plan.md`
+  - architect-authored final execution plan for that named team
 - `swarm/<team-slug>/plan-reviews/<agent-id>.md`
   - specialist-authored markdown review of the current architect plan
 - `swarm/<team-slug>/mailboxes/<agent-id>/*.json`
@@ -13,6 +17,8 @@ The shared swarm coordination files are:
 
 The Python tool is the preferred write path for `swarm/state.yaml`.
 
+Use `swarm handover --name <team> --goal "..." --handover <path>` to create a named team bootstrap and canonical `handover.md`.
+Use `swarm handover --name <team> --goal "..." --handover-stdin` when an active planning agent should stream its full handover through the Python tool.
 Use `swarm run-summary` to print a read-only completion summary from task evidence.
 Use `swarm get-mailbox --agent-id <agent-id> --consume` to read and consume mailbox messages.
 Use `swarm send-message` or `swarm broadcast-message` to route instructions or updates to agent mailboxes.
@@ -51,6 +57,8 @@ The app does not call the Python tool; the user reviews `plan.md` and manually s
 
 ## Coordination Rules
 
+- `handover.md` is incoming context from a previous planning agent. The architect validates it before writing `plan.md`.
+- `plan.md` is architect-owned final execution context for workers and reviewers.
 - Board `Ready` is derived, not stored as a separate task status.
 - A task is ready when:
   - `status` is `todo`

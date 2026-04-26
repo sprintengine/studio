@@ -26,10 +26,20 @@ export function prependAgentIdentifier(
   return `${prefix}${prompt}`
 }
 
-export function buildSwarmStartupPrompt(role: string, agentId: string, goal: string): string {
+function quoteShellArg(value: string): string {
+  return JSON.stringify(value)
+}
+
+export function buildSwarmStartupPrompt(
+  role: string,
+  agentId: string,
+  goal: string,
+  statePath?: string | null
+): string {
+  const statePrefix = statePath ? ` --state ${quoteShellArg(statePath)}` : ''
   const command = role === 'architect'
-    ? `Run \`swarm init --goal "${goal}"\` to receive your full prompt and instructions.`
-    : `Run \`swarm join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
+    ? `Run \`swarm${statePrefix} init --goal ${quoteShellArg(goal)}\` to receive your full prompt and instructions.`
+    : `Run \`swarm${statePrefix} join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
 
   return [
     'Fetch the canonical swarm instructions from the Python tool.',
