@@ -325,6 +325,14 @@ export default function WorkspaceManager() {
 
       if (event.key === 'Tab') {
         event.preventDefault()
+        event.stopPropagation()
+        if (activeWorkspaceId) cycleActiveLayoutTab(activeWorkspaceId, event.shiftKey ? -1 : 1)
+        return
+      }
+
+      if (event.code === 'Backquote') {
+        event.preventDefault()
+        event.stopPropagation()
         const nextWorkspaceId = getNextWorkspaceId(
           workspaces,
           activeWorkspaceId,
@@ -337,18 +345,20 @@ export default function WorkspaceManager() {
         return
       }
 
-      if (event.key === 'p') {
+      const key = event.key.toLowerCase()
+
+      if (key === 'p') {
         event.preventDefault()
         setShowPalette(true)
       }
-      if (event.key === 't') {
+      if (key === 't') {
         event.preventDefault()
         openTemplateSelector()
       }
-      if (event.key === 'w' && showTemplateSelector) {
+      if (key === 'w' && showTemplateSelector) {
         event.preventDefault()
         if (workspaces.length > 0) setShowTemplateSelector(false)
-      } else if (event.key === 'w' && activeWorkspaceId) {
+      } else if (key === 'w' && activeWorkspaceId) {
         event.preventDefault()
         closeActiveLayoutTab(activeWorkspaceId)
       }
@@ -361,8 +371,8 @@ export default function WorkspaceManager() {
       }
     }
 
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [
     workspaces,
     activeWorkspaceId,
@@ -1291,6 +1301,23 @@ function closeActiveLayoutTab(workspaceId: string): boolean {
 
   killTerminalForLayoutTab(workspaceId, selectedNode)
   model.doAction(Actions.deleteTab(selectedNode.getId()))
+  return true
+}
+
+function cycleActiveLayoutTab(workspaceId: string, step: 1 | -1): boolean {
+  const model = getModel(workspaceId)
+  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
+  if (!model || !tabset) return false
+
+  const tabs = tabset.getChildren().filter((node): node is TabNode => node instanceof TabNode)
+  if (tabs.length < 2) return false
+
+  const selectedNode = tabset.getSelectedNode()
+  const selectedIndex = selectedNode instanceof TabNode
+    ? tabs.findIndex((tab) => tab.getId() === selectedNode.getId())
+    : -1
+  const nextIndex = ((selectedIndex === -1 ? 0 : selectedIndex) + step + tabs.length) % tabs.length
+  model.doAction(Actions.selectTab(tabs[nextIndex].getId()))
   return true
 }
 
