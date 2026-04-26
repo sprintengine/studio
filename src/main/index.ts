@@ -1789,6 +1789,10 @@ function buildNativeAgentLaunchCommand(
   const command = quoteCmdIfNeeded(cliRuntime.command || cli)
 
   if (cli === 'codex') {
+    if (resume) {
+      return `${command} resume -C ${quoteCmdIfNeeded(cwd)}`
+    }
+
     const promptArg = initialPrompt ? ` ${quoteCmd(initialPrompt)}` : ''
     return `${command} -C ${quoteCmdIfNeeded(cwd)}${promptArg}`
   }
@@ -1805,7 +1809,7 @@ function buildAgentLaunchCommand(
   cliRuntime?: CliRuntimeSettings
 ): string {
   if (cli === 'claude') return buildClaudeLaunchCommand(sessionId, resume, cliRuntime)
-  return buildCodexLaunchCommand(initialPrompt, cliRuntime)
+  return buildCodexLaunchCommand(resume, initialPrompt, cliRuntime)
 }
 
 function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
@@ -1817,6 +1821,7 @@ function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
 }
 
 function buildCodexLaunchCommand(
+  resume = false,
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings
 ): string {
@@ -1825,7 +1830,9 @@ function buildCodexLaunchCommand(
 
   return [
     buildCommandAvailabilityCheck('codex', configuredCommand || 'codex'),
-    `${quotePosixCommand(configuredCommand || 'codex')}${promptArg};`,
+    resume
+      ? `${quotePosixCommand(configuredCommand || 'codex')} resume;`
+      : `${quotePosixCommand(configuredCommand || 'codex')}${promptArg};`,
     'fi',
   ].join(' ')
 }

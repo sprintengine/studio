@@ -351,20 +351,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (disposed) return
       if (savedFolderPath && !folderReadyPath) return
 
-      if (shouldResume) {
-        const status = await window.api.terminalStatus(sessionId)
-        if (disposed) return
-
-        if (!status.running) {
-          updateAgent(workspaceId, agentId, {
-            cliStartRequested: false,
-            cliHasLaunched: false,
-            cliOnboardingPromptSent: false,
-          })
-          return
-        }
-      }
-
       const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
       const spawnResult = await window.api.terminalSpawn(
         sessionId,

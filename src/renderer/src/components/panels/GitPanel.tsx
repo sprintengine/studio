@@ -93,7 +93,7 @@ function splitGitPath(relativePath: string): { directory: string; filename: stri
   }
 
   return {
-    directory: relativePath.slice(0, lastSlashIndex + 1),
+    directory: relativePath.slice(0, lastSlashIndex),
     filename: relativePath.slice(lastSlashIndex + 1),
   }
 }
@@ -471,9 +471,12 @@ function ChangeGroup({
               >
                 <span className={`flex min-w-0 flex-1 items-baseline font-mono ${appearance.textClass}`}>
                   {pathParts.directory ? (
-                    <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
-                      {pathParts.directory}
-                    </span>
+                    <>
+                      <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
+                        {pathParts.directory}
+                      </span>
+                      <span className="shrink-0 opacity-60">/</span>
+                    </>
                   ) : null}
                   <span className="min-w-0 max-w-full shrink-0 truncate">{pathParts.filename}</span>
                 </span>
