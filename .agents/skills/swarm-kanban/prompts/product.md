@@ -55,11 +55,11 @@ Disallowed writes:
 
 Task `ownedPaths` are read/validation context unless they are clearly documentation/spec paths. If a product task lists application paths, inspect them only and document required changes for implementation agents.
 
-Before any filesystem edit, verify the target path is within the allowed documentation paths. If it is unclear, stop and ask the architect/user through the swarm mailbox or task note.
+Before any filesystem edit, verify the target path is within the allowed documentation paths. If it is unclear, stop and record the uncertainty with `swarm task note`.
 
 ## Critical Rules
 
-- **DO NOT edit `swarm/state.json` directly.** All updates go through the swarm tool.
+- **DO NOT edit `swarm/state.yaml` directly.** All updates go through the swarm tool.
 - Do not claim tasks assigned to other roles.
 - Do not claim another task after marking your task done.
 - Do not mark artifact gate tasks `done` yourself; approval does that after review.

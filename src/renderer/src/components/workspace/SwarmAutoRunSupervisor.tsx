@@ -1,9 +1,10 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentCli, CliRuntimeSettings, SwarmRole, SwarmState, Workspace } from '../../types/workspace'
+import type { AgentCli, CliRuntimeSettings, SwarmArtifact, SwarmRole, SwarmState, Workspace } from '../../types/workspace'
 import { buildSwarmStartupPrompt, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
   buildSwarmAgentRosterForState,
+  getAutoApprovableReadySwarmArtifacts,
   getSwarmTaskBoardColumn,
   swarmRoleLabels,
 } from '../../utils/swarm'
@@ -14,6 +15,7 @@ import { publishDiagnostic } from '../../utils/diagnostics'
 const AUTO_RUN_POLL_MS = 2000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
+const AUTO_APPROVAL_ACTOR_ID = 'auto-run'
 
 function revealAutoRunAgentTerminal(workspaceId: string, agentId: string, label: string): void {
   if (focusOrAddAgentTab(workspaceId, agentId, label)) return
@@ -47,20 +49,183 @@ function isMatchingWorkspaceAgentSession(
 
 async function refreshAutoWorkspaceState(
   workspace: Workspace,
-  lastContentByWorkspace: MutableRefObject<Map<string, string>>
-): Promise<void> {
-  if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !workspace.swarmState || !workspace.swarmContext) return
+  lastContentByWorkspace: MutableRefObject<Map<string, string>>,
+  options: { force?: boolean } = {}
+): Promise<SwarmState | null> {
+  if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !workspace.swarmState || !workspace.swarmContext) {
+    return null
+  }
 
   const stateFilePath = workspace.swarmContext.statePath
 
   try {
     const content = await window.api.readfile(stateFilePath)
-    if (lastContentByWorkspace.current.get(workspace.id) === content) return
+    if (!options.force && lastContentByWorkspace.current.get(workspace.id) === content) {
+      return workspace.swarmState
+    }
 
     lastContentByWorkspace.current.set(workspace.id, content)
-    useWorkspaceStore.getState().setSwarmState(workspace.id, parseSwarmStateFile(content, workspace.swarmContext.teamSlug))
+    const parsedState = parseSwarmStateFile(content, workspace.swarmContext.teamSlug)
+    useWorkspaceStore.getState().setSwarmState(workspace.id, parsedState)
+    return parsedState
   } catch {
     // Auto mode can be enabled before the agent-managed state file exists.
+    return null
+  }
+}
+
+function getParentDirectoryPath(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return separatorIndex >= 0 ? trimmed.slice(0, separatorIndex) : trimmed
+}
+
+function joinFilePath(basePath: string, childPath: string): string {
+  const separator = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/'
+  return `${basePath.replace(/[\\/]+$/, '')}${separator}${childPath.replace(/^[\\/]+/, '')}`
+}
+
+function isAbsoluteFilePath(path: string): boolean {
+  return path.startsWith('/') || path.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(path)
+}
+
+function normalizeComparablePath(path: string): string {
+  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
+}
+
+function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
+  const parent = normalizeComparablePath(parentPath)
+  const target = normalizeComparablePath(targetPath)
+  return target === parent || target.startsWith(`${parent}/`)
+}
+
+function resolveArtifactPathForAutoApproval(workspace: Workspace, artifact: SwarmArtifact): string {
+  const artifactPath = artifact.path.trim()
+  if (!artifactPath) throw new Error('Artifact path is missing.')
+  if (/^https?:\/\//i.test(artifactPath)) throw new Error('Remote artifact links cannot be auto-approved.')
+  if (artifactPath.split(/[\\/]+/).includes('..')) {
+    throw new Error('Artifact path must stay inside the swarm team directory.')
+  }
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/i.test(artifactPath) && !isAbsoluteFilePath(artifactPath)) {
+    throw new Error('Only workspace artifact file paths can be auto-approved.')
+  }
+
+  const teamDirectory = workspace.swarmContext?.teamDirectoryPath
+    ?? getParentDirectoryPath(workspace.swarmContext?.statePath ?? '')
+  const workspaceRoot = workspace.folderPath || getParentDirectoryPath(getParentDirectoryPath(teamDirectory))
+  const targetPath = isAbsoluteFilePath(artifactPath)
+    ? artifactPath
+    : [
+        joinFilePath(workspaceRoot, artifactPath),
+        joinFilePath(teamDirectory, artifactPath),
+      ].find((candidate) => isPathInsideOrEqual(teamDirectory, candidate))
+        ?? joinFilePath(workspaceRoot, artifactPath)
+
+  if (!isPathInsideOrEqual(teamDirectory, targetPath)) {
+    throw new Error('Artifact path must stay inside the swarm team directory.')
+  }
+
+  return targetPath
+}
+
+function assertSwarmArtifactCommandSucceeded(result: SwarmArtifactCommandResult): void {
+  if (!result.ok) {
+    throw new Error(result.message || 'Swarm artifact command failed.')
+  }
+}
+
+async function pauseAutoRunForArtifactApprovalFailure(
+  workspace: Workspace,
+  artifact: SwarmArtifact,
+  message: string,
+  extraDetails: string[] = []
+): Promise<void> {
+  const task = workspace.swarmState?.tasks.find((candidate) => candidate.id === artifact.taskId)
+  const state = useWorkspaceStore.getState()
+  state.setSwarmAutoEnabled(workspace.id, false)
+  state.setSwarmAutoPending(workspace.id, null)
+
+  await publishDiagnostic({
+    level: 'error',
+    source: 'swarm',
+    title: 'Artifact auto-approval stopped',
+    message,
+    details: [
+      `Workspace: ${workspace.name}`,
+      `Swarm state: ${workspace.swarmContext?.statePath ?? 'Unavailable'}`,
+      `Artifact: ${artifact.id} - ${artifact.title}`,
+      `Artifact kind: ${artifact.kind}`,
+      `Artifact status: ${artifact.status}`,
+      `Artifact path: ${artifact.path || 'No file path recorded'}`,
+      `Task: ${artifact.taskId || 'No task'}${task ? ` - ${task.title}` : ''}`,
+      ...extraDetails,
+    ].join('\n'),
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    taskId: artifact.taskId || undefined,
+  })
+}
+
+async function approveNextEligibleArtifact(
+  workspace: Workspace,
+  swarmState: SwarmState,
+  inFlightArtifactApprovals: MutableRefObject<Set<string>>
+): Promise<'approved' | 'failed' | 'none'> {
+  if (!workspace.swarmAutoState.enabled || !workspace.swarmAutoState.autoApproveArtifacts || !workspace.swarmContext) {
+    return 'none'
+  }
+
+  const artifact = getAutoApprovableReadySwarmArtifacts(swarmState)[0]
+  if (!artifact) return 'none'
+
+  const approvalKey = `${workspace.id}:${artifact.id}`
+  if (inFlightArtifactApprovals.current.has(approvalKey)) return 'none'
+
+  inFlightArtifactApprovals.current.add(approvalKey)
+  try {
+    const artifactPath = resolveArtifactPathForAutoApproval(workspace, artifact)
+    if (!(await window.api.pathExists(artifactPath))) {
+      await pauseAutoRunForArtifactApprovalFailure(
+        workspace,
+        artifact,
+        'Cannot approve: artifact file is missing.',
+        [`Resolved path: ${artifactPath}`]
+      )
+      return 'failed'
+    }
+
+    try {
+      await window.api.readfile(artifactPath)
+    } catch (error) {
+      await pauseAutoRunForArtifactApprovalFailure(
+        workspace,
+        artifact,
+        'Cannot approve: artifact file is unreadable.',
+        [
+          `Resolved path: ${artifactPath}`,
+          `Error: ${error instanceof Error ? error.message : String(error)}`,
+        ]
+      )
+      return 'failed'
+    }
+
+    const result = await window.api.approveSwarmArtifact(
+      workspace.swarmContext.statePath,
+      artifact.id,
+      AUTO_APPROVAL_ACTOR_ID
+    )
+    assertSwarmArtifactCommandSucceeded(result)
+    return 'approved'
+  } catch (error) {
+    await pauseAutoRunForArtifactApprovalFailure(
+      workspace,
+      artifact,
+      error instanceof Error ? error.message : 'Approval failed. Review manually or retry.'
+    )
+    return 'failed'
+  } finally {
+    inFlightArtifactApprovals.current.delete(approvalKey)
   }
 }
 
@@ -157,9 +322,11 @@ async function pickOrphanedActiveRun(
 async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
-  inFlightSpawns: MutableRefObject<Set<string>>
+  inFlightSpawns: MutableRefObject<Set<string>>,
+  inFlightArtifactApprovals: MutableRefObject<Set<string>>,
+  lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
-  const swarmState = workspace.swarmState
+  let swarmState = workspace.swarmState
   if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !swarmState || !workspace.swarmContext) return
 
   const pending = workspace.swarmAutoState.pending
@@ -180,6 +347,35 @@ async function superviseWorkspace(
       })
     }
     useWorkspaceStore.getState().setSwarmAutoPending(workspace.id, null)
+  }
+
+  while (workspace.swarmAutoState.enabled && workspace.swarmAutoState.autoApproveArtifacts) {
+    const approvalResult = await approveNextEligibleArtifact(workspace, swarmState, inFlightArtifactApprovals)
+    if (approvalResult === 'none') break
+    if (approvalResult === 'failed') return
+
+    const refreshedSwarmState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
+    if (!refreshedSwarmState) {
+      const approvedArtifactIds = new Set(
+        getAutoApprovableReadySwarmArtifacts(swarmState).map((artifact) => artifact.id)
+      )
+      const artifact = swarmState.artifacts.find((candidate) => approvedArtifactIds.has(candidate.id))
+      if (artifact) {
+        await pauseAutoRunForArtifactApprovalFailure(
+          workspace,
+          artifact,
+          'Could not refresh swarm state. Auto has paused.'
+        )
+      } else {
+        useWorkspaceStore.getState().setSwarmAutoEnabled(workspace.id, false)
+      }
+      return
+    }
+
+    const refreshedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+    if (!refreshedWorkspace) return
+    workspace = refreshedWorkspace
+    swarmState = refreshedWorkspace.swarmState ?? refreshedSwarmState
   }
 
   const runtimeAgents = Object.values(swarmState.swarmAgents)
@@ -217,8 +413,10 @@ async function superviseWorkspace(
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return
 
+  if (!workspace.folderPath || !workspace.swarmContext) return
+  const workspaceFolderPath = workspace.folderPath
   const swarmStatePath = workspace.swarmContext.statePath
-  const folderExists = await window.api.pathExists(workspace.folderPath)
+  const folderExists = await window.api.pathExists(workspaceFolderPath)
   if (!folderExists) {
     currentState.setFolderMissing(workspace.id, true)
     currentState.setSwarmAutoPending(workspace.id, null)
@@ -227,7 +425,7 @@ async function superviseWorkspace(
       level: 'error',
       source: 'filesystem',
       title: 'Auto-run stopped',
-      message: `Workspace folder could not be found: ${workspace.folderPath}`,
+      message: `Workspace folder could not be found: ${workspaceFolderPath}`,
       details: [
         `Workspace: ${workspace.name}`,
         `Agent: ${nextRun.agentId}`,
@@ -267,7 +465,7 @@ async function superviseWorkspace(
       sessionId,
       BACKGROUND_TERMINAL_COLS,
       BACKGROUND_TERMINAL_ROWS,
-      workspace.folderPath,
+      workspaceFolderPath,
       false,
       swarmStatePath,
       selectedCli,
@@ -339,6 +537,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
 
 export default function SwarmAutoRunSupervisor() {
   const inFlightSpawns = useRef(new Set<string>())
+  const inFlightArtifactApprovals = useRef(new Set<string>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
   const tickInProgress = useRef(false)
 
@@ -367,7 +566,13 @@ export default function SwarmAutoRunSupervisor() {
         const reconciledState = useWorkspaceStore.getState()
         for (const workspace of reconciledState.workspaces) {
           if (disposed) return
-          await superviseWorkspace(workspace, appSettings.cliRuntimes, inFlightSpawns)
+          await superviseWorkspace(
+            workspace,
+            appSettings.cliRuntimes,
+            inFlightSpawns,
+            inFlightArtifactApprovals,
+            lastContentByWorkspace
+          )
         }
       } finally {
         tickInProgress.current = false

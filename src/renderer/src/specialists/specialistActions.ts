@@ -1,6 +1,15 @@
 import type { SpecialistActionId } from '../types/workspace'
 
-export type SpecialistIcon = 'architecture' | 'code' | 'design' | 'review' | 'shield' | 'test' | 'infra' | 'product'
+export type SpecialistIcon =
+  | 'architecture'
+  | 'code'
+  | 'design'
+  | 'review'
+  | 'shield'
+  | 'test'
+  | 'infra'
+  | 'product'
+  | 'performance'
 
 export type SpecialistAction = {
   id: SpecialistActionId
@@ -43,6 +52,14 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Review deployment, infrastructure, observability, reliability, and operations.',
     icon: 'infra',
     promptFile: 'devops-infra-prompt.md',
+  },
+  {
+    id: 'performance',
+    label: 'Performance Engineer',
+    shortLabel: 'Performance Engineer',
+    description: 'Profile runtime behavior, memory use, CPU hot spots, bundle size, latency, and resource leaks.',
+    icon: 'performance',
+    promptFile: 'performance-engineer-prompt.md',
   },
   {
     id: 'frontend-design-review',

@@ -58,6 +58,7 @@ type SpecialistActionId =
   | 'product-strategist'
   | 'developer'
   | 'devops-infra'
+  | 'performance'
   | 'qa-test'
   | 'security-review'
   | 'frontend-design-review'

@@ -15,6 +15,7 @@ import { SwarmRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import {
   buildSwarmAgentRosterForState,
+  getSwarmArtifactAutoApprovalEligibility,
   getReviewableSwarmArtifacts,
   getSwarmArtifactDependencyBlockers,
   getSwarmArtifactsByTaskId,
@@ -173,16 +174,27 @@ type SpawnDialogState = {
   name: string
 }
 
+type RequestChangesDialogState = {
+  artifact: SwarmArtifact
+  feedback: string
+}
+
 type RecoveryDialogState = {
   cli: AgentCli
 }
 
-type ArtifactActionKind = 'open'
+type ArtifactActionKind = 'open' | 'approve' | 'requestChanges' | 'autoApprove'
 
 type ArtifactActionState = {
   kind: ArtifactActionKind
   status: 'pending' | 'success' | 'error'
   message: string
+}
+
+function assertSwarmArtifactCommandSucceeded(result: SwarmArtifactCommandResult): void {
+  if (!result.ok) {
+    throw new Error(result.message || 'Swarm artifact command failed.')
+  }
 }
 
 function buildWorkerRespawnStartupPrompt(
@@ -202,6 +214,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   )
   const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
   const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
+  const setSwarmAutoApproveArtifacts = useWorkspaceStore((s) => s.setSwarmAutoApproveArtifacts)
   const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
@@ -219,6 +232,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [activeView, setActiveView] = useState<SwarmView>('project')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
+  const [requestChangesDialog, setRequestChangesDialog] = useState<RequestChangesDialogState | null>(null)
   const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
   const [cliPickerOpen, setCliPickerOpen] = useState(false)
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
@@ -247,6 +261,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const folderPath = folderReadyPath
   const agents = workspace?.agents ?? {}
   const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
+  const autoApproveArtifacts = workspace?.swarmAutoState?.autoApproveArtifacts ?? false
 
   const resolveReadableSwarmStatePath = async (): Promise<string | null> => {
     if (!folderPath) return null
@@ -661,6 +676,71 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     }
   }
 
+  const approveArtifact = async (artifact: SwarmArtifact) => {
+    const statePath = requireArtifactStatePath()
+    if (!statePath) return
+
+    setArtifactAction(artifact.id, { kind: 'approve', status: 'pending', message: 'Approving...' })
+    try {
+      const result = await window.api.approveSwarmArtifact(statePath, artifact.id, 'user')
+      assertSwarmArtifactCommandSucceeded(result)
+      setArtifactAction(artifact.id, {
+        kind: 'approve',
+        status: 'success',
+        message: 'Approved.',
+      })
+      await refreshSwarmState()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Approval failed. Review manually or retry.'
+      setArtifactAction(artifact.id, {
+        kind: 'approve',
+        status: 'error',
+        message,
+      })
+      setSyncState({
+        status: 'error',
+        message,
+      })
+    }
+  }
+
+  const submitArtifactChangeRequest = async () => {
+    if (!requestChangesDialog) return
+    const feedback = requestChangesDialog.feedback.trim()
+    if (!feedback) return
+    const statePath = requireArtifactStatePath()
+    if (!statePath) return
+
+    const { artifact } = requestChangesDialog
+    setArtifactAction(artifact.id, {
+      kind: 'requestChanges',
+      status: 'pending',
+      message: 'Requesting changes...',
+    })
+    try {
+      const result = await window.api.requestSwarmArtifactChanges(statePath, artifact.id, 'user', feedback)
+      assertSwarmArtifactCommandSucceeded(result)
+      setArtifactAction(artifact.id, {
+        kind: 'requestChanges',
+        status: 'success',
+        message: 'Changes requested.',
+      })
+      setRequestChangesDialog(null)
+      await refreshSwarmState()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to request changes.'
+      setArtifactAction(artifact.id, {
+        kind: 'requestChanges',
+        status: 'error',
+        message,
+      })
+      setSyncState({
+        status: 'error',
+        message,
+      })
+    }
+  }
+
   const folderStatusBanner = savedFolderPath && !folderPath ? (
     <div className="border-b border-[#24252b] bg-[#111216] px-4 py-2 text-[12px] text-[#9a9aa2]">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -719,6 +799,11 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
   const toggleAuto = () => {
     setSwarmAutoEnabled(workspaceId, !autoEnabled)
+  }
+
+  const toggleArtifactAutoApproval = () => {
+    if (!autoEnabled) return
+    setSwarmAutoApproveArtifacts(workspaceId, !autoApproveArtifacts)
   }
 
   const getAgentName = (agentId: string, fallback: string) => agents[agentId]?.name ?? fallback
@@ -967,6 +1052,38 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </span>
               <span>Auto</span>
             </button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoApproveArtifacts}
+              aria-label="Auto-approve eligible artifacts"
+              aria-describedby={!autoEnabled ? 'artifact-auto-approval-disabled' : undefined}
+              onClick={toggleArtifactAutoApproval}
+              disabled={!autoEnabled}
+              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                autoEnabled && autoApproveArtifacts
+                  ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/65 hover:bg-[#6ee7d8]/16'
+                  : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
+              } disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]`}
+              title={autoEnabled ? 'Auto-approve eligible artifacts' : 'Enable Auto before artifact auto-approval can run'}
+            >
+              <span
+                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                  autoEnabled && autoApproveArtifacts ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+                }`}
+                aria-hidden="true"
+              >
+                <span
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+                    autoApproveArtifacts ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </span>
+              <span>Artifacts</span>
+            </button>
+            <span id="artifact-auto-approval-disabled" className="sr-only">
+              Auto must be enabled before eligible artifacts can be auto-approved.
+            </span>
             {!fixedView ? (
               <div className="ml-1 flex flex-wrap items-center gap-1">
                 {([
@@ -1180,6 +1297,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           onAddMember={openAddMemberDialog}
           onReadPlan={() => void loadPlanReader()}
           onOpenArtifact={(artifact) => void openArtifact(artifact)}
+          onApproveArtifact={(artifact) => void approveArtifact(artifact)}
+          onRequestArtifactChanges={(artifact) => setRequestChangesDialog({ artifact, feedback: '' })}
         />
       ) : null}
 
@@ -1524,6 +1643,72 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         </div>
       ) : null}
 
+      {requestChangesDialog ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
+              <div className="min-w-0">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ff787c]">
+                  Review Artifact
+                </div>
+                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
+                  Request Changes
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
+                  {requestChangesDialog.artifact.title}
+                </p>
+              </div>
+              <button
+                onClick={() => setRequestChangesDialog(null)}
+                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="px-5 py-5">
+              <label className="block">
+                <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Feedback
+                </span>
+                <textarea
+                  value={requestChangesDialog.feedback}
+                  onChange={(event) => {
+                    setRequestChangesDialog((current) =>
+                      current ? { ...current, feedback: event.target.value } : current
+                    )
+                  }}
+                  rows={5}
+                  className="w-full resize-none rounded-md bg-[#111216] px-3 py-2 text-sm leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#ff787c]/55"
+                  placeholder="Describe what must change before approval."
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
+              <button
+                onClick={() => setRequestChangesDialog(null)}
+                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void submitArtifactChangeRequest()}
+                disabled={
+                  !requestChangesDialog.feedback.trim()
+                  || artifactActions[requestChangesDialog.artifact.id]?.status === 'pending'
+                }
+                className="rounded-md bg-[#ff1a3d] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#ff465f] disabled:opacity-45 disabled:hover:bg-[#ff1a3d]"
+              >
+                {artifactActions[requestChangesDialog.artifact.id]?.status === 'pending'
+                  ? 'Requesting changes...'
+                  : 'Request changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {spawnDialog && spawnDialogAgent ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
           <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
@@ -1819,6 +2004,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 emptyLabel="No review artifacts are attached to this task."
                 onSelectTask={(taskId) => setSelectedTaskId(taskId)}
                 onOpenArtifact={(artifact) => void openArtifact(artifact)}
+                onApproveArtifact={(artifact) => void approveArtifact(artifact)}
+                onRequestArtifactChanges={(artifact) => setRequestChangesDialog({ artifact, feedback: '' })}
               />
 
               <div>
@@ -2135,6 +2322,8 @@ function SwarmProjectView({
   onAddMember,
   onReadPlan,
   onOpenArtifact,
+  onApproveArtifact,
+  onRequestArtifactChanges,
 }: {
   swarmState: SwarmState
   roster: RosterItem[]
@@ -2152,6 +2341,8 @@ function SwarmProjectView({
   onAddMember: () => void
   onReadPlan: () => void
   onOpenArtifact: (artifact: SwarmArtifact) => void
+  onApproveArtifact: (artifact: SwarmArtifact) => void
+  onRequestArtifactChanges: (artifact: SwarmArtifact) => void
 }) {
   const [goalExpanded, setGoalExpanded] = useState(false)
   const fullGoal = formatSwarmGoal(swarmState.goal)
@@ -2265,6 +2456,8 @@ function SwarmProjectView({
               emptyLabel="No review artifacts are registered for this swarm run."
               onSelectTask={onSelectTask}
               onOpenArtifact={onOpenArtifact}
+              onApproveArtifact={onApproveArtifact}
+              onRequestArtifactChanges={onRequestArtifactChanges}
             />
 
             {blockedByArtifacts.length > 0 ? (
@@ -3197,6 +3390,8 @@ function SwarmArtifactList({
   emptyLabel,
   onSelectTask,
   onOpenArtifact,
+  onApproveArtifact,
+  onRequestArtifactChanges,
 }: {
   artifacts: SwarmArtifact[]
   tasksById: Record<string, SwarmTask | undefined>
@@ -3204,6 +3399,8 @@ function SwarmArtifactList({
   emptyLabel: string
   onSelectTask: (taskId: string) => void
   onOpenArtifact: (artifact: SwarmArtifact) => void
+  onApproveArtifact: (artifact: SwarmArtifact) => void
+  onRequestArtifactChanges: (artifact: SwarmArtifact) => void
 }) {
   const sortedArtifacts = [...artifacts].sort((a, b) => {
     const statusOrder = ['ready_for_review', 'changes_requested', 'draft', 'approved', 'superseded']
@@ -3230,6 +3427,8 @@ function SwarmArtifactList({
             const task = tasksById[artifact.taskId]
             const action = actions[artifact.id]
             const pending = action?.status === 'pending'
+            const readyForReview = artifact.status === 'ready_for_review'
+            const autoApprovalEligibility = getSwarmArtifactAutoApprovalEligibility(artifact)
 
             return (
               <div key={artifact.id} className="grid gap-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
@@ -3255,6 +3454,13 @@ function SwarmArtifactList({
                   <div className="mt-1 text-[12px] text-[#9a9aa2] [overflow-wrap:anywhere]">
                     {artifact.path || 'No file path recorded.'}
                   </div>
+                  {readyForReview && autoApprovalEligibility.label ? (
+                    <div className={`mt-2 text-[11px] font-semibold ${
+                      autoApprovalEligibility.eligible ? 'text-[#6ee7d8]' : 'text-[#ffd58a]'
+                    }`}>
+                      {autoApprovalEligibility.label}
+                    </div>
+                  ) : null}
                   {action && action.status !== 'pending' ? (
                     <div className={`mt-2 border-l pl-2 text-[12px] leading-5 ${
                       action.status === 'error'
@@ -3275,6 +3481,28 @@ function SwarmArtifactList({
                   >
                     {pending && action?.kind === 'open' ? 'Opening...' : 'Open'}
                   </button>
+                  {readyForReview ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onApproveArtifact(artifact)}
+                        disabled={pending}
+                        className="rounded-md bg-[#6ee7d8]/14 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/20 disabled:opacity-45 disabled:hover:bg-[#6ee7d8]/14"
+                      >
+                        {pending && action?.kind === 'approve' ? 'Approving...' : 'Approve'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRequestArtifactChanges(artifact)}
+                        disabled={pending}
+                        className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#ff1a3d]/10 hover:text-[#ffb3bf] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
+                      >
+                        {pending && action?.kind === 'requestChanges'
+                          ? 'Requesting changes...'
+                          : 'Request changes'}
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             )

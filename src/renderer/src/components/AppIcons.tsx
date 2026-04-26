@@ -79,6 +79,8 @@ export function SpecialistActionIcon({ icon, className }: IconProps & { icon: Sp
       return <InfraIcon className={className} />
     case 'product':
       return <ProductIcon className={className} />
+    case 'performance':
+      return <PerformanceIcon className={className} />
   }
 }
 
@@ -175,6 +177,18 @@ function ProductIcon({ className }: IconProps) {
       <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={iconStroke} />
       <path d="M14.75 9.25L13.1 13.1L9.25 14.75L10.9 10.9L14.75 9.25Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
       <circle cx="12" cy="12" r="0.8" fill="currentColor" />
+    </svg>
+  )
+}
+
+function PerformanceIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 15.5C5 11.35 8.15 8 12 8C15.85 8 19 11.35 19 15.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M8.25 15.5H5M19 15.5H15.75M7.35 10.85L9.25 12.75M16.65 10.85L14.75 12.75M12 8V10.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M12 15.25L15.2 12.05" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="12" cy="15.5" r="1.35" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M7 19.25H17" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
     </svg>
   )
 }

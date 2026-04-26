@@ -96,10 +96,24 @@ const reviewGateArtifactKinds = new Set<SwarmArtifactKind>([
   'branding',
 ])
 
+const autoApprovableSwarmArtifactKinds = new Set<SwarmArtifactKind>([
+  'product_strategy',
+  'requirements',
+  'html_mockup',
+  'design_notes',
+  'branding',
+])
+
 export type SwarmArtifactDependencyBlocker = {
   taskId: string
   title: string
   artifacts: SwarmArtifact[]
+}
+
+export type SwarmArtifactAutoApprovalEligibility = {
+  eligible: boolean
+  label: string
+  reason: string | null
 }
 
 function emptyEvidence(summary = ''): SwarmTaskEvidence {
@@ -340,6 +354,76 @@ export function getReviewableSwarmArtifacts(artifacts: SwarmArtifact[]): SwarmAr
   return artifacts.filter((artifact) =>
     reviewGateArtifactKinds.has(artifact.kind) && artifact.status !== 'superseded'
   )
+}
+
+export function isSwarmArtifactAutoApprovableKind(kind: SwarmArtifactKind): boolean {
+  return autoApprovableSwarmArtifactKinds.has(kind)
+}
+
+export function getSwarmArtifactAutoApprovalEligibility(
+  artifact: SwarmArtifact
+): SwarmArtifactAutoApprovalEligibility {
+  if (artifact.status !== 'ready_for_review') {
+    return {
+      eligible: false,
+      label: '',
+      reason: 'Only artifacts ready for review can be auto-approved.',
+    }
+  }
+
+  if (!artifact.path.trim()) {
+    return {
+      eligible: false,
+      label: 'Cannot auto-approve: file unavailable',
+      reason: 'Artifact file path is missing.',
+    }
+  }
+
+  if (isSwarmArtifactAutoApprovableKind(artifact.kind)) {
+    return {
+      eligible: true,
+      label: 'Auto-eligible',
+      reason: null,
+    }
+  }
+
+  if (artifact.kind === 'architect_plan') {
+    return {
+      eligible: false,
+      label: 'Manual approval required',
+      reason: 'Architect plan artifacts are manual gates.',
+    }
+  }
+
+  return {
+    eligible: false,
+    label: 'Manual review gate',
+    reason: 'This artifact type requires manual review.',
+  }
+}
+
+export function getAutoApprovableReadySwarmArtifacts(
+  swarmState: Pick<SwarmState, 'tasks' | 'artifacts'>
+): SwarmArtifact[] {
+  const reviewArtifacts = getReviewableSwarmArtifacts(swarmState.artifacts)
+  const reviewArtifactsByTaskId = getSwarmArtifactsByTaskId(reviewArtifacts)
+  const tasksById = new Map(swarmState.tasks.map((task) => [task.id, task]))
+
+  return reviewArtifacts.filter((artifact) => {
+    if (!getSwarmArtifactAutoApprovalEligibility(artifact).eligible) return false
+
+    const task = tasksById.get(artifact.taskId)
+    if (!task || task.status !== 'needs_input') return false
+
+    const blockingArtifacts = (reviewArtifactsByTaskId[task.id] ?? []).filter((candidate) =>
+      candidate.status !== 'approved' && candidate.status !== 'superseded'
+    )
+    if (blockingArtifacts.length === 0) return false
+
+    return blockingArtifacts.every((candidate) =>
+      getSwarmArtifactAutoApprovalEligibility(candidate).eligible
+    )
+  })
 }
 
 export function getSwarmArtifactsByTaskId(

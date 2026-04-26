@@ -82,6 +82,7 @@ interface WorkspaceStore {
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
   setSwarmAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
+  setSwarmAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
   setSwarmAutoPending: (workspaceId: WorkspaceId, pending: SwarmAutoPendingSpawn | null) => void
   addSwarmMember: (
     workspaceId: WorkspaceId,
@@ -149,6 +150,7 @@ const defaultEditorState = (): EditorState => ({
 
 const defaultSwarmAutoState = (): SwarmAutoState => ({
   enabled: false,
+  autoApproveArtifacts: false,
   pending: null,
 })
 
@@ -156,6 +158,7 @@ function normalizeSwarmAutoState(input: Partial<SwarmAutoState> | null | undefin
   const pending = input?.pending
   return {
     enabled: Boolean(input?.enabled),
+    autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
     pending: typeof pending?.taskId === 'string' && typeof pending.agentId === 'string'
       ? { taskId: pending.taskId, agentId: pending.agentId }
       : null,
@@ -562,8 +565,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (!ws) return
           const current = normalizeSwarmAutoState(ws.swarmAutoState)
           ws.swarmAutoState = {
+            ...current,
             enabled,
             pending: enabled ? current.pending : null,
+          }
+        }),
+
+      setSwarmAutoApproveArtifacts: (workspaceId, autoApproveArtifacts) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSwarmAutoState(ws.swarmAutoState)
+          ws.swarmAutoState = {
+            ...current,
+            autoApproveArtifacts,
           }
         }),
 
@@ -774,7 +789,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 19,
+      version: 20,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -936,6 +951,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ),
             }
           })
+        }
+        if (version < 20) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
+          }))
         }
         return state as never
       },

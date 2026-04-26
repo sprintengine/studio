@@ -12,17 +12,15 @@ The shared swarm coordination files are:
   - architect-authored final execution plan for that named team
 - `swarm/<team-slug>/plan-reviews/<agent-id>.md`
   - specialist-authored markdown review of the current architect plan
-- `swarm/<team-slug>/mailboxes/<agent-id>/*.json`
-  - durable agent-to-agent messages
 
 The Python tool is the preferred write path for `swarm/state.yaml`.
 
 Use `swarm handover --name <team> --goal "..." --handover <path>` to create a named team bootstrap and canonical `handover.md`.
 Use `swarm handover --name <team> --goal "..." --handover-stdin` when an active planning agent should stream its full handover through the Python tool.
-Use `swarm run-summary` to print a read-only completion summary from task evidence.
-Use `swarm get-mailbox --agent-id <agent-id> --consume` to read and consume mailbox messages.
-Use `swarm send-message` or `swarm broadcast-message` to route instructions or updates to agent mailboxes.
-Use `swarm claim-next-task --role <role> --agent-id <agent-id>` for normal worker task claiming.
+Use `swarm summary` to print a read-only completion summary from task evidence.
+Use `swarm task next --role <role> --id <agent-id>` for normal worker task claiming.
+Use `swarm task claim --task-id <id> --id <agent-id>` when a specific ready task must be claimed.
+Use `swarm task status`, `swarm task note`, and `swarm task log` to update task status, notes, and evidence.
 Use `swarm plan add-task` to build the task board one task at a time while planning.
 Use `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency` to revise the board during user review.
 Use `swarm plan start-review --role <role> --id <agent-id>` when a specialist should critique the architect plan before execution.
@@ -115,12 +113,9 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
   - `status` is `todo`
   - all dependencies are `done`
   - `ownerAgentId` is empty
-- Only one task should be claimed by a worker at a time; `claim-next-task` returns the existing active task instead of claiming another one.
-- Consultations are stored as artifacts and events.
-- Agents should poll their mailbox about every 30 seconds while active.
-- Consumed mailbox messages are moved into the agent mailbox `read/` folder.
+- Only one task should be claimed by a worker at a time; `swarm task next` returns the existing active task instead of claiming another one.
 - The architect builds and revises the task graph during planning with `swarm plan` commands.
-- Product strategist tasks and consultations should capture market, competitor, audience, positioning, workflow, and adoption-risk guidance.
+- Product strategist tasks should capture market, competitor, audience, positioning, workflow, and adoption-risk guidance.
 - Workers should not rewrite the plan or change other workers' task cards.
 - Review artifact lifecycle mutations must go through `swarm artifact` commands.
 - `swarm init` creates or reuses an architect plan approval task and an `architect_plan` artifact for `plan.md`.
@@ -131,12 +126,6 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 - `artifact ready` moves the linked producing task and owning agent to `needs_input`.
 - `artifact approve` marks the linked task `done` only when every non-superseded artifact for that task is `approved`.
 - `artifact request-changes` stores feedback in task notes and reopens the producing task without changing unrelated tasks.
-
-## Consultation Flow
-
-1. Architect creates a structured consultation request.
-2. Specialist completes the consultation response.
-3. Architect updates `swarm/plan.md`.
 
 ## Plan Review Flow
 

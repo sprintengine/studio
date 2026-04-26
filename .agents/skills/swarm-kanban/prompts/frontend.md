@@ -39,7 +39,7 @@ If no tasks are ready, stop.
 
 ## Critical Rules
 
-- **DO NOT edit `swarm/state.json` directly.** All updates go through the swarm tool.
+- **DO NOT edit `swarm/state.yaml` directly.** All updates go through the swarm tool.
 - Do not claim tasks assigned to other roles.
 - Do not claim another task after marking your task done.
 - Do not mark mockup artifact gate tasks `done` yourself; approval does that after review.

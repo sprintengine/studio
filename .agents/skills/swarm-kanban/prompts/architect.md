@@ -67,5 +67,5 @@ swarm plan list
 
 ## Critical Rules
 
-- **DO NOT edit `swarm/state.json` directly.** All updates go through the swarm tool.
+- **DO NOT edit `swarm/state.yaml` directly.** All updates go through the swarm tool.
 - Do not start implementing. Your job ends when the user has a plan and task board to review.

@@ -1029,6 +1029,7 @@ type SpecialistActionId =
   | 'product-strategist'
   | 'developer'
   | 'devops-infra'
+  | 'performance'
   | 'qa-test'
   | 'security-review'
   | 'frontend-design-review'
@@ -1043,6 +1044,7 @@ const specialistPromptFiles: Record<SpecialistActionId, string> = {
   'product-strategist': 'product-strategist-prompt.md',
   developer: 'developer-prompt.md',
   'devops-infra': 'devops-infra-prompt.md',
+  performance: 'performance-engineer-prompt.md',
   'frontend-design-review': 'frontend-design-promt.md',
   'qa-test': 'qa-test-prompt.md',
   'security-review': 'security-review-prompt.md',

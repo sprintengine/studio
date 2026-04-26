@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Swarm coordination tool for specialist agents.
 
-WARNING: Do not edit swarm/state.json directly.
+WARNING: Do not edit swarm/state.yaml directly.
 All updates must go through this tool.
 """
 
@@ -1261,7 +1261,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         f"{next_step_number + 4}. During review, revise tasks with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`\n"
         f"{next_step_number + 5}. When `plan.md` is ready, run `swarm artifact ready --artifact-id {artifact_id} --id architect` so `{plan_task_id}` moves to `needs_input`\n"
         f"{next_step_number + 6}. Tell the user to review the plan artifact and approve it or request changes before spawning downstream specialists\n\n"
-        "**IMPORTANT: Do not edit swarm/state.json directly. "
+        "**IMPORTANT: Do not edit swarm/state.yaml directly. "
         "All updates must go through the swarm tool.**"
     )
     return {
@@ -1303,7 +1303,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"This reconnects you to your existing active task instead of claiming a new one. "
                 f"Continue the task, log evidence, mark it done, then stop. "
                 f"Do not claim another task with this agent after marking the task done.\n\n"
-                "**IMPORTANT: Do not edit swarm/state.json directly. "
+                "**IMPORTANT: Do not edit swarm/state.yaml directly. "
                 "All updates must go through the swarm tool.**"
             )
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "prompt": prompt + directive}
@@ -1316,7 +1316,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
             f"Complete exactly one task, log evidence, mark it done, then stop. "
             f"Do not claim another task with this agent after marking the task done.\n\n"
-            "**IMPORTANT: Do not edit swarm/state.json directly. "
+            "**IMPORTANT: Do not edit swarm/state.yaml directly. "
             "All updates must go through the swarm tool.**"
         )
         return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "prompt": prompt + directive}
@@ -1833,7 +1833,7 @@ def cmd_summary(args: argparse.Namespace) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 TOP_LEVEL_HELP = """\
-Swarm tool — all state mutations go through here. Never edit state.json directly.
+Swarm tool - all state mutations go through here. Never edit state.yaml directly.
 
 Entry points (return full system prompt for the agent):
   swarm handover --name my-team --goal "..." --handover handover.md

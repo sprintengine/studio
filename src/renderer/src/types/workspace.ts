@@ -102,6 +102,7 @@ export type SwarmAutoPendingSpawn = {
 
 export type SwarmAutoState = {
   enabled: boolean
+  autoApproveArtifacts: boolean
   pending: SwarmAutoPendingSpawn | null
 }
 
@@ -156,6 +157,7 @@ export type SpecialistActionId =
   | 'product-strategist'
   | 'developer'
   | 'devops-infra'
+  | 'performance'
   | 'qa-test'
   | 'security-review'
   | 'frontend-design-review'
