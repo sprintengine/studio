@@ -2913,15 +2913,6 @@ function formatTimestamp(value: string | null): string {
   return new Date(value).toLocaleString()
 }
 
-function taskCardStyle(claimRole: SwarmRole | null): React.CSSProperties | undefined {
-  if (!claimRole) return undefined
-
-  const accent = swarmRoleAccent[claimRole]
-  return {
-    borderColor: hexToRgba(accent, 0.72),
-  }
-}
-
 function emptyKanbanColumnLabel(column: SwarmTaskBoardColumn): string {
   switch (column) {
     case 'ready':
