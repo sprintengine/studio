@@ -94,6 +94,10 @@ function workspaceActivityLabel(activity: WorkspaceActivity): string {
   }
 }
 
+function hasActiveProPlan(authState: MulticodeAuthState): boolean {
+  return authState.entitlements?.plan.status === 'active' && authState.entitlements.plan.code.toLowerCase() === 'pro'
+}
+
 function uniqueAgentName(baseName: string, agents: Workspace['agents']): string {
   const existingNames = new Set(Object.values(agents).map((agent) => agent.name))
   if (!existingNames.has(baseName)) return baseName
@@ -177,6 +181,7 @@ export default function WorkspaceManager() {
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
   const selectedCliOption = CLI_OPTIONS.find((option) => option.value === lastSelectedCli) ?? CLI_OPTIONS[0]
   const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
+  const proAccount = hasActiveProPlan(authState)
 
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -941,53 +946,6 @@ export default function WorkspaceManager() {
             ) : null}
           </div>
 
-          <div ref={accountRef} className="relative inline-flex">
-            {authState.authenticated ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setAccountOpen((open) => !open)
-                  setSessionsOpen(false)
-                  setCliMenuOpen(false)
-                  setSpecialistMenuOpen(false)
-                  setNotificationsOpen(false)
-                }}
-                className={`inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] font-semibold transition-colors ${
-                  accountOpen
-                    ? 'border-[#303139] bg-[#17181d] text-[#ececee]'
-                    : 'border-[#25392c] bg-[#102016] text-[#b7f5c8] hover:border-[#30d158]/50 hover:bg-[#142819]'
-                }`}
-                aria-haspopup="menu"
-                aria-expanded={accountOpen}
-              >
-                <AccountIcon className="h-4 w-4" />
-                <span className="max-w-[140px] truncate">
-                  {authState.selectedOrganization?.name ?? 'Signed in'}
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void startLogin()}
-                disabled={authState.status === 'checking'}
-                className="inline-flex h-8 items-center rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:opacity-60 disabled:hover:border-[#24252b] disabled:hover:bg-[#111216]"
-              >
-                {authState.status === 'checking' ? 'Checking' : 'Sign in'}
-              </button>
-            )}
-
-            {authState.authenticated && accountOpen ? (
-              <AccountPopover
-                authState={authState}
-                message={authMessage}
-                onRefresh={() => void refreshAuthState()}
-                onLogout={() => void logout()}
-                onSwitchOrganization={() => void switchOrganization()}
-                onUpgrade={() => void window.api.authOpenUpgrade('swarm_mode')}
-              />
-            ) : null}
-          </div>
-
           {workspaceActionsEnabled ? (
             <button
               type="button"
@@ -1196,6 +1154,58 @@ export default function WorkspaceManager() {
               ) : null}
             </div>
           )}
+
+          <div ref={accountRef} className="relative inline-flex">
+            {authState.authenticated ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountOpen((open) => !open)
+                  setSessionsOpen(false)
+                  setCliMenuOpen(false)
+                  setSpecialistMenuOpen(false)
+                  setNotificationsOpen(false)
+                }}
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                  proAccount
+                    ? accountOpen
+                      ? 'border-[#3a3426] bg-[#ffbf2f]/8 text-[#ffe0a3]'
+                      : 'border-transparent text-[#ffbf2f] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
+                    : accountOpen
+                      ? 'border-[#303139] bg-[#17181d] text-[#30d158]'
+                      : 'border-[#25392c] bg-[#102016] text-[#30d158] hover:border-[#30d158]/50 hover:bg-[#142819]'
+                }`}
+                title={proAccount ? 'Multicode Pro account' : 'Multicode account'}
+                aria-label={proAccount ? 'Multicode Pro account' : 'Multicode account'}
+                aria-haspopup="menu"
+                aria-expanded={accountOpen}
+              >
+                <AccountIcon className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void startLogin()}
+                disabled={authState.status === 'checking'}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#8a8a92] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:cursor-default disabled:opacity-60 disabled:hover:border-[#24252b] disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]"
+                title={authState.status === 'checking' ? 'Checking sign-in status' : 'Sign in'}
+                aria-label={authState.status === 'checking' ? 'Checking sign-in status' : 'Sign in'}
+              >
+                <AccountIcon className="h-4 w-4" />
+              </button>
+            )}
+
+            {authState.authenticated && accountOpen ? (
+              <AccountPopover
+                authState={authState}
+                message={authMessage}
+                onRefresh={() => void refreshAuthState()}
+                onLogout={() => void logout()}
+                onSwitchOrganization={() => void switchOrganization()}
+                onUpgrade={() => void window.api.authOpenUpgrade('swarm_mode')}
+              />
+            ) : null}
+          </div>
         </div>
       </div>
 
