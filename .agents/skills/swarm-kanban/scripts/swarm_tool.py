@@ -55,6 +55,7 @@ PLAN_REVIEW_FOCUS = {
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 SPECIALIST_PROMPT_FILES = {
     "architect": "architect-prompt.md",
+    "product": "product-strategist-prompt.md",
     "developer": "developer-prompt.md",
     "frontend": "frontend-design-promt.md",
     "tester": "qa-test-prompt.md",
@@ -143,25 +144,26 @@ def load_specialist_prompt(role: str) -> Optional[str]:
 
 
 def compose_prompt(
-    base_heading: str,
-    base_prompt: str,
+    swarm_heading: str,
+    swarm_prompt: str,
     specialist_prompt: Optional[str],
     priority_text: str,
 ) -> str:
     if not specialist_prompt:
-        return base_prompt
+        return "\n\n".join([
+            swarm_heading,
+            swarm_prompt,
+            "---",
+            "# Rule Priority",
+            priority_text,
+        ])
 
     return "\n\n".join([
-        base_heading,
-        base_prompt,
-        "---",
-        "# Specialist Operating Prompt",
-        (
-            "Apply this role-specific expertise while following the swarm coordination rules above. "
-            "If these sections conflict, the swarm coordination rules, task card, owned paths, and "
-            "current user instructions take precedence."
-        ),
+        "# Specialist Personality And Quality Bar",
         specialist_prompt,
+        "---",
+        swarm_heading,
+        swarm_prompt,
         "---",
         "# Rule Priority",
         priority_text,
@@ -178,9 +180,12 @@ def load_prompt(role: str) -> str:
         swarm_prompt,
         load_specialist_prompt(role),
         (
-            "The swarm rules remain mandatory: coordinate through the swarm tool, do not edit swarm "
-            "state files directly, respect task ownership, log evidence, and stop when your swarm role "
-            "instructions tell you to stop."
+            "Use the specialist prompt above for role personality, judgment, and quality bar. "
+            "The swarm coordination rules below override it for tool mechanics: coordinate through "
+            "the swarm tool, do not edit swarm state files directly, respect task ownership and owned "
+            "paths, log evidence, create artifacts through the artifact commands, and stop when your "
+            "swarm role instructions tell you to stop. Current user and task instructions override both "
+            "when they are more specific and do not violate swarm coordination rules."
         ),
     )
 
@@ -1154,8 +1159,9 @@ def build_plan_review_prompt(
         review_prompt,
         load_specialist_prompt(role),
         (
-            "The plan review rules remain mandatory: do not claim tasks, do not implement, do not edit "
-            "state files, write only the assigned review file, and keep feedback concrete for the architect."
+            "Use the specialist prompt above for review perspective and quality bar. The plan review "
+            "rules below override it for swarm mechanics: do not claim tasks, do not implement, do not "
+            "edit state files, write only the assigned review file, and keep feedback concrete for the architect."
         ),
     )
 
