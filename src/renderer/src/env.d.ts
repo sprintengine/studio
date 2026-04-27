@@ -189,30 +189,9 @@ type WindowState = {
   isMaximized: boolean
   isFullScreen: boolean
 }
-type SwarmArtifactKind =
-  | 'architect_plan'
-  | 'branding'
-  | 'design_notes'
-  | 'html_mockup'
-  | 'product_strategy'
-  | 'requirements'
-  | 'security_review'
-  | 'code_review'
-  | 'validation_report'
-type SwarmArtifactStatus =
-  | 'approved'
-  | 'changes_requested'
-  | 'draft'
-  | 'ready_for_review'
-  | 'superseded'
 type SwarmArtifactCommandResult =
   | { ok: true; data: unknown }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
-type SwarmArtifactListOptions = {
-  taskId?: string
-  kind?: SwarmArtifactKind
-  status?: SwarmArtifactStatus
-}
 type SessionUser = {
   id: string
   email: string | null
@@ -371,26 +350,6 @@ declare interface Window {
     copyGitWorktreeIncludedFiles: (
       input: GitWorktreeCopyIncludedInput
     ) => Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>>
-    listSwarmArtifacts: (
-      statePath: string,
-      options?: SwarmArtifactListOptions
-    ) => Promise<SwarmArtifactCommandResult>
-    markSwarmArtifactReady: (
-      statePath: string,
-      artifactId: string,
-      actorId: string
-    ) => Promise<SwarmArtifactCommandResult>
-    approveSwarmArtifact: (
-      statePath: string,
-      artifactId: string,
-      actorId: string
-    ) => Promise<SwarmArtifactCommandResult>
-    requestSwarmArtifactChanges: (
-      statePath: string,
-      artifactId: string,
-      actorId: string,
-      feedback: string
-    ) => Promise<SwarmArtifactCommandResult>
     openSwarmArtifact: (
       statePath: string,
       artifactPath: string

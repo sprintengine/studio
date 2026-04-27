@@ -186,30 +186,9 @@ type WindowState = {
   isMaximized: boolean
   isFullScreen: boolean
 }
-type SwarmArtifactKind =
-  | 'architect_plan'
-  | 'branding'
-  | 'design_notes'
-  | 'html_mockup'
-  | 'product_strategy'
-  | 'requirements'
-  | 'security_review'
-  | 'code_review'
-  | 'validation_report'
-type SwarmArtifactStatus =
-  | 'approved'
-  | 'changes_requested'
-  | 'draft'
-  | 'ready_for_review'
-  | 'superseded'
 type SwarmArtifactCommandResult =
   | { ok: true; data: unknown }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
-type SwarmArtifactListOptions = {
-  taskId?: string
-  kind?: SwarmArtifactKind
-  status?: SwarmArtifactStatus
-}
 type SessionUser = {
   id: string
   email: string | null
@@ -483,30 +462,6 @@ contextBridge.exposeInMainWorld('api', {
     input: GitWorktreeCopyIncludedInput
   ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> =>
     ipcRenderer.invoke('git:worktree:copy-included', input),
-  listSwarmArtifacts: (
-    statePath: string,
-    options?: SwarmArtifactListOptions
-  ): Promise<SwarmArtifactCommandResult> =>
-    ipcRenderer.invoke('swarm:artifact:list', { statePath, ...options }),
-  markSwarmArtifactReady: (
-    statePath: string,
-    artifactId: string,
-    actorId: string
-  ): Promise<SwarmArtifactCommandResult> =>
-    ipcRenderer.invoke('swarm:artifact:ready', { statePath, artifactId, actorId }),
-  approveSwarmArtifact: (
-    statePath: string,
-    artifactId: string,
-    actorId: string
-  ): Promise<SwarmArtifactCommandResult> =>
-    ipcRenderer.invoke('swarm:artifact:approve', { statePath, artifactId, actorId }),
-  requestSwarmArtifactChanges: (
-    statePath: string,
-    artifactId: string,
-    actorId: string,
-    feedback: string
-  ): Promise<SwarmArtifactCommandResult> =>
-    ipcRenderer.invoke('swarm:artifact:request-changes', { statePath, artifactId, actorId, feedback }),
   openSwarmArtifact: (
     statePath: string,
     artifactPath: string

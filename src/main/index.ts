@@ -1,9 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from 'electron'
-import { execFile } from 'child_process'
 import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { access, appendFile, cp, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
-import { promisify } from 'util'
 import { createHash, randomBytes } from 'crypto'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
@@ -27,8 +25,6 @@ import {
   switchGitBranch,
   unstageGitPaths,
 } from './git'
-
-const execFileAsync = promisify(execFile)
 
 const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || 'http://localhost:3000').replace(/\/+$/u, '')
 const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
@@ -1328,44 +1324,9 @@ function getBundledSwarmToolPath(): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
-type SwarmArtifactKind =
-  | 'architect_plan'
-  | 'branding'
-  | 'design_notes'
-  | 'html_mockup'
-  | 'product_strategy'
-  | 'requirements'
-  | 'security_review'
-  | 'code_review'
-  | 'validation_report'
-
-type SwarmArtifactStatus =
-  | 'approved'
-  | 'changes_requested'
-  | 'draft'
-  | 'ready_for_review'
-  | 'superseded'
-
 type SwarmArtifactCommandResult =
   | { ok: true; data: unknown }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
-
-type SwarmArtifactListPayload = {
-  statePath: string
-  taskId?: string
-  kind?: SwarmArtifactKind
-  status?: SwarmArtifactStatus
-}
-
-type SwarmArtifactActionPayload = {
-  statePath: string
-  artifactId: string
-  actorId: string
-}
-
-type SwarmArtifactRequestChangesPayload = SwarmArtifactActionPayload & {
-  feedback: string
-}
 
 type SwarmArtifactOpenPayload = {
   statePath: string
@@ -1377,26 +1338,6 @@ type ValidSwarmStatePath = {
   teamDirectory: string
   workspaceRoot: string
 }
-
-const swarmArtifactKinds = new Set<SwarmArtifactKind>([
-  'architect_plan',
-  'branding',
-  'design_notes',
-  'html_mockup',
-  'product_strategy',
-  'requirements',
-  'security_review',
-  'code_review',
-  'validation_report',
-])
-
-const swarmArtifactStatuses = new Set<SwarmArtifactStatus>([
-  'approved',
-  'changes_requested',
-  'draft',
-  'ready_for_review',
-  'superseded',
-])
 
 function validateSwarmStatePath(input: unknown): ValidSwarmStatePath {
   if (typeof input !== 'string' || !input.trim()) {
@@ -1444,166 +1385,6 @@ function isSwarmStateFilePath(input: string): boolean {
 function assertNotDirectSwarmStateMutation(targetPath: string): void {
   if (isSwarmStateFilePath(targetPath)) {
     throw new Error('Swarm state files must be updated through the swarm tool.')
-  }
-}
-
-function validateSwarmIdentifier(value: unknown, label: string): string {
-  if (typeof value !== 'string') {
-    throw new Error(`${label} is required.`)
-  }
-
-  const trimmed = value.trim()
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(trimmed)) {
-    throw new Error(`${label} must use letters, numbers, dots, underscores, or hyphens.`)
-  }
-
-  return trimmed
-}
-
-function validateOptionalSwarmIdentifier(value: unknown, label: string): string | undefined {
-  if (value === undefined || value === null || value === '') return undefined
-  return validateSwarmIdentifier(value, label)
-}
-
-function validateArtifactKind(value: unknown): SwarmArtifactKind | undefined {
-  if (value === undefined || value === null || value === '') return undefined
-  if (typeof value !== 'string' || !swarmArtifactKinds.has(value as SwarmArtifactKind)) {
-    throw new Error('Unknown artifact kind.')
-  }
-  return value as SwarmArtifactKind
-}
-
-function validateArtifactStatus(value: unknown): SwarmArtifactStatus | undefined {
-  if (value === undefined || value === null || value === '') return undefined
-  if (typeof value !== 'string' || !swarmArtifactStatuses.has(value as SwarmArtifactStatus)) {
-    throw new Error('Unknown artifact status.')
-  }
-  return value as SwarmArtifactStatus
-}
-
-function validateArtifactFeedback(value: unknown): string {
-  if (typeof value !== 'string') {
-    throw new Error('Change-request feedback is required.')
-  }
-
-  const feedback = value.trim()
-  if (!feedback) {
-    throw new Error('Change-request feedback is required.')
-  }
-  if (feedback.length > 5000) {
-    throw new Error('Change-request feedback must be 5000 characters or fewer.')
-  }
-
-  return feedback
-}
-
-function getSwarmToolPathForWorkspace(workspaceRoot: string): string {
-  const candidates = [
-    join(workspaceRoot, 'scripts', 'swarm_tool.py'),
-    join(workspaceRoot, '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
-    getBundledSwarmToolPath(),
-  ].filter((candidate): candidate is string => Boolean(candidate))
-
-  const toolPath = candidates.find((candidate) => existsSync(candidate))
-  if (!toolPath) {
-    throw new Error('Swarm tool not found.')
-  }
-
-  return toolPath
-}
-
-function parseSwarmToolOutput(stdout: string): unknown {
-  const output = stdout.trim()
-  if (!output) return null
-
-  try {
-    return JSON.parse(output)
-  } catch {
-    return { stdout: output }
-  }
-}
-
-function getExecFileError(error: unknown): {
-  message: string
-  stdout?: string
-  stderr?: string
-  code?: number | string
-  enoent: boolean
-} {
-  if (!error || typeof error !== 'object') {
-    return { message: String(error), enoent: false }
-  }
-
-  const candidate = error as { message?: string; stdout?: string; stderr?: string; code?: number | string }
-  return {
-    message: candidate.message ?? 'Swarm tool failed.',
-    stdout: candidate.stdout,
-    stderr: candidate.stderr,
-    code: candidate.code,
-    enoent: candidate.code === 'ENOENT',
-  }
-}
-
-async function execPythonSwarmTool(
-  workspaceRoot: string,
-  statePath: string,
-  args: string[]
-): Promise<SwarmArtifactCommandResult> {
-  const toolPath = getSwarmToolPathForWorkspace(workspaceRoot)
-  const attempts = process.platform === 'win32'
-    ? [
-        { command: 'python', args: [toolPath] },
-        { command: 'py', args: ['-3', toolPath] },
-      ]
-    : [{ command: 'python3', args: [toolPath] }]
-
-  for (const [index, attempt] of attempts.entries()) {
-    try {
-      const { stdout, stderr } = await execFileAsync(
-        attempt.command,
-        [...attempt.args, '--state', statePath, ...args],
-        {
-          cwd: workspaceRoot,
-          env: withSwarmEnv(getTerminalEnv(), workspaceRoot, statePath),
-          maxBuffer: 2 * 1024 * 1024,
-          windowsHide: true,
-        }
-      )
-
-      return {
-        ok: true,
-        data: parseSwarmToolOutput(stdout || stderr),
-      }
-    } catch (error) {
-      const details = getExecFileError(error)
-      const canRetry = details.enoent && index < attempts.length - 1
-      if (canRetry) continue
-
-      return {
-        ok: false,
-        message: details.stderr?.trim() || details.message,
-        stdout: details.stdout,
-        stderr: details.stderr,
-        exitCode: details.code,
-      }
-    }
-  }
-
-  return { ok: false, message: 'Python is not available to run the swarm tool.' }
-}
-
-async function runSwarmArtifactCommand(
-  statePathInput: unknown,
-  args: string[]
-): Promise<SwarmArtifactCommandResult> {
-  try {
-    const state = validateSwarmStatePath(statePathInput)
-    if (!(await pathExists(state.statePath))) {
-      return { ok: false, message: `Swarm state file does not exist: ${state.statePath}` }
-    }
-    return await execPythonSwarmTool(state.workspaceRoot, state.statePath, args)
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
 }
 
@@ -2233,80 +2014,9 @@ ipcMain.handle('terminal:kill', (_, sessionId: string) => {
 })
 
 // ── Swarm artifact IPC handlers ──────────────────────────────────────────────
-
-ipcMain.handle('swarm:artifact:list', async (_, payload: SwarmArtifactListPayload) => {
-  try {
-    const taskId = validateOptionalSwarmIdentifier(payload?.taskId, 'Task id')
-    const kind = validateArtifactKind(payload?.kind)
-    const status = validateArtifactStatus(payload?.status)
-    const args = ['artifact', 'list']
-
-    if (taskId) args.push('--task-id', taskId)
-    if (kind) args.push('--kind', kind)
-    if (status) args.push('--status', status)
-
-    return runSwarmArtifactCommand(payload?.statePath, args)
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-})
-
-ipcMain.handle('swarm:artifact:ready', async (_, payload: SwarmArtifactActionPayload) => {
-  try {
-    const artifactId = validateSwarmIdentifier(payload?.artifactId, 'Artifact id')
-    const actorId = validateSwarmIdentifier(payload?.actorId, 'Actor id')
-
-    return runSwarmArtifactCommand(payload?.statePath, [
-      'artifact',
-      'ready',
-      '--artifact-id',
-      artifactId,
-      '--id',
-      actorId,
-    ])
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-})
-
-ipcMain.handle('swarm:artifact:approve', async (_, payload: SwarmArtifactActionPayload) => {
-  try {
-    const artifactId = validateSwarmIdentifier(payload?.artifactId, 'Artifact id')
-    const actorId = validateSwarmIdentifier(payload?.actorId, 'Actor id')
-
-    return runSwarmArtifactCommand(payload?.statePath, [
-      'artifact',
-      'approve',
-      '--artifact-id',
-      artifactId,
-      '--id',
-      actorId,
-    ])
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-})
-
-ipcMain.handle('swarm:artifact:request-changes', async (_, payload: SwarmArtifactRequestChangesPayload) => {
-  try {
-    const artifactId = validateSwarmIdentifier(payload?.artifactId, 'Artifact id')
-    const actorId = validateSwarmIdentifier(payload?.actorId, 'Actor id')
-    const feedback = validateArtifactFeedback(payload?.feedback)
-
-    return runSwarmArtifactCommand(payload?.statePath, [
-      'artifact',
-      'request-changes',
-      '--artifact-id',
-      artifactId,
-      '--id',
-      actorId,
-      '--feedback',
-      feedback,
-    ])
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-})
+// Renderer IPC must not invoke swarm Python mutation commands. User review
+// decisions are handed to the producing agent terminal, and agents update swarm
+// state through their own tool flow.
 
 ipcMain.handle('swarm:artifact:open', async (_, payload: SwarmArtifactOpenPayload): Promise<SwarmArtifactCommandResult> => {
   try {

@@ -15,8 +15,6 @@ import { publishDiagnostic } from '../../utils/diagnostics'
 const AUTO_RUN_POLL_MS = 2000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
-const AUTO_APPROVAL_ACTOR_ID = 'auto-run'
-
 type AutoRunWorktreeSpec = {
   id: string
   name: string
@@ -220,12 +218,6 @@ function resolveArtifactPathForAutoApproval(workspace: Workspace, artifact: Swar
   return targetPath
 }
 
-function assertSwarmArtifactCommandSucceeded(result: SwarmArtifactCommandResult): void {
-  if (!result.ok) {
-    throw new Error(result.message || 'Swarm artifact command failed.')
-  }
-}
-
 async function pauseAutoRunForArtifactApprovalFailure(
   workspace: Workspace,
   artifact: SwarmArtifact,
@@ -402,22 +394,83 @@ async function ensureAutoRunWorktree(
   return { ok: true, spec, path: createResult.data.path, branch: createResult.data.branch }
 }
 
-async function approveNextEligibleArtifact(
+function resolveArtifactProducerAgentId(
   workspace: Workspace,
   swarmState: SwarmState,
-  inFlightArtifactApprovals: MutableRefObject<Set<string>>
-): Promise<'approved' | 'failed' | 'none'> {
+  artifact: SwarmArtifact
+): string | null {
+  const roster = buildSwarmAgentRosterForState(swarmState)
+  const rosterById = Object.fromEntries(roster.map((agent) => [agent.id, agent]))
+  const task = swarmState.tasks.find((candidate) => candidate.id === artifact.taskId)
+  const createdBy = artifact.createdBy.trim()
+
+  if (createdBy && (rosterById[createdBy] || workspace.agents[createdBy] || swarmState.swarmAgents[createdBy])) {
+    return createdBy
+  }
+
+  if (task?.ownerAgentId) return task.ownerAgentId
+
+  if (task) {
+    const runningRoleAgents = roster.filter((agent) =>
+      agent.role === task.role && Boolean(workspace.agents[agent.id]?.cliStartRequested)
+    )
+    if (runningRoleAgents.length === 1) return runningRoleAgents[0].id
+  }
+
+  return null
+}
+
+function artifactApprovalMessageKey(workspace: Workspace, artifact: SwarmArtifact): string {
+  return [
+    workspace.id,
+    artifact.id,
+    artifact.fingerprint ?? '',
+    artifact.updatedAt ?? '',
+  ].join(':')
+}
+
+async function findRunningAgentSession(
+  workspace: Workspace,
+  agentId: string
+): Promise<TerminalSessionSnapshot | null> {
+  const agent = workspace.agents[agentId]
+  const sessions = await window.api.terminalList()
+  if (agent?.cliStartRequested && agent.cliHasLaunched && agent.cliSessionId) {
+    const storedSession = sessions.find((session) => session.sessionId === agent.cliSessionId)
+    if (storedSession && isMatchingWorkspaceAgentSession(storedSession, workspace, agentId)) return storedSession
+  }
+
+  const runningSession = sessions.find((session) =>
+    isMatchingWorkspaceAgentSession(session, workspace, agentId)
+  )
+
+  if (!runningSession) return null
+
+  useWorkspaceStore.getState().updateAgent(workspace.id, agentId, {
+    cliSessionId: runningSession.sessionId,
+    cliStartRequested: true,
+    cliHasLaunched: true,
+    cli: runningSession.cli ?? agent?.cli ?? 'codex',
+  })
+  revealAutoRunAgentTerminal(workspace.id, agentId, agent?.name ?? agentId)
+  return runningSession
+}
+
+async function sendApprovalToNextEligibleArtifactProducer(
+  workspace: Workspace,
+  swarmState: SwarmState,
+  sentArtifactApprovalMessages: MutableRefObject<Set<string>>
+): Promise<'sent' | 'failed' | 'none'> {
   if (!workspace.swarmAutoState.enabled || !workspace.swarmAutoState.autoApproveArtifacts || !workspace.swarmContext) {
     return 'none'
   }
 
-  const artifact = getAutoApprovableReadySwarmArtifacts(swarmState)[0]
+  const artifact = getAutoApprovableReadySwarmArtifacts(swarmState).find((candidate) =>
+    !sentArtifactApprovalMessages.current.has(artifactApprovalMessageKey(workspace, candidate))
+  )
   if (!artifact) return 'none'
 
-  const approvalKey = `${workspace.id}:${artifact.id}`
-  if (inFlightArtifactApprovals.current.has(approvalKey)) return 'none'
-
-  inFlightArtifactApprovals.current.add(approvalKey)
+  const approvalKey = artifactApprovalMessageKey(workspace, artifact)
   try {
     const artifactPath = resolveArtifactPathForAutoApproval(workspace, artifact)
     if (!(await window.api.pathExists(artifactPath))) {
@@ -445,13 +498,30 @@ async function approveNextEligibleArtifact(
       return 'failed'
     }
 
-    const result = await window.api.approveSwarmArtifact(
-      workspace.swarmContext.statePath,
-      artifact.id,
-      AUTO_APPROVAL_ACTOR_ID
-    )
-    assertSwarmArtifactCommandSucceeded(result)
-    return 'approved'
+    const producerAgentId = resolveArtifactProducerAgentId(workspace, swarmState, artifact)
+    if (!producerAgentId) {
+      await pauseAutoRunForArtifactApprovalFailure(
+        workspace,
+        artifact,
+        'Cannot approve: no producer terminal is linked to this artifact.'
+      )
+      return 'failed'
+    }
+
+    const producerSession = await findRunningAgentSession(workspace, producerAgentId)
+    if (!producerSession) {
+      await pauseAutoRunForArtifactApprovalFailure(
+        workspace,
+        artifact,
+        'Cannot approve: the producer CLI is not running.',
+        [`Producer agent: ${producerAgentId}`]
+      )
+      return 'failed'
+    }
+
+    await window.api.terminalWrite(producerSession.sessionId, 'i approve\r')
+    sentArtifactApprovalMessages.current.add(approvalKey)
+    return 'sent'
   } catch (error) {
     await pauseAutoRunForArtifactApprovalFailure(
       workspace,
@@ -459,8 +529,6 @@ async function approveNextEligibleArtifact(
       error instanceof Error ? error.message : 'Approval failed. Review manually or retry.'
     )
     return 'failed'
-  } finally {
-    inFlightArtifactApprovals.current.delete(approvalKey)
   }
 }
 
@@ -504,27 +572,7 @@ function pickNextAutoRun(
 }
 
 async function agentHasRunningProcess(workspace: Workspace, agentId: string): Promise<boolean> {
-  const agent = workspace.agents[agentId]
-  const sessions = await window.api.terminalList()
-  if (agent?.cliStartRequested && agent.cliHasLaunched && agent.cliSessionId) {
-    const storedSession = sessions.find((session) => session.sessionId === agent.cliSessionId)
-    if (storedSession && isMatchingWorkspaceAgentSession(storedSession, workspace, agentId)) return true
-  }
-
-  const runningSession = sessions.find((session) =>
-    isMatchingWorkspaceAgentSession(session, workspace, agentId)
-  )
-
-  if (!runningSession) return false
-
-  useWorkspaceStore.getState().updateAgent(workspace.id, agentId, {
-    cliSessionId: runningSession.sessionId,
-    cliStartRequested: true,
-    cliHasLaunched: true,
-    cli: runningSession.cli ?? agent?.cli ?? 'codex',
-  })
-  revealAutoRunAgentTerminal(workspace.id, agentId, agent?.name ?? agentId)
-  return true
+  return Boolean(await findRunningAgentSession(workspace, agentId))
 }
 
 async function pickOrphanedActiveRun(
@@ -558,7 +606,7 @@ async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   inFlightSpawns: MutableRefObject<Set<string>>,
-  inFlightArtifactApprovals: MutableRefObject<Set<string>>,
+  sentArtifactApprovalMessages: MutableRefObject<Set<string>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
   let swarmState = workspace.swarmState
@@ -585,16 +633,20 @@ async function superviseWorkspace(
   }
 
   while (workspace.swarmAutoState.enabled && workspace.swarmAutoState.autoApproveArtifacts) {
-    const approvalResult = await approveNextEligibleArtifact(workspace, swarmState, inFlightArtifactApprovals)
+    const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
+      workspace,
+      swarmState,
+      sentArtifactApprovalMessages
+    )
     if (approvalResult === 'none') break
     if (approvalResult === 'failed') return
 
     const refreshedSwarmState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
     if (!refreshedSwarmState) {
-      const approvedArtifactIds = new Set(
+      const messageSentArtifactIds = new Set(
         getAutoApprovableReadySwarmArtifacts(swarmState).map((artifact) => artifact.id)
       )
-      const artifact = swarmState.artifacts.find((candidate) => approvedArtifactIds.has(candidate.id))
+      const artifact = swarmState.artifacts.find((candidate) => messageSentArtifactIds.has(candidate.id))
       if (artifact) {
         await pauseAutoRunForArtifactApprovalFailure(
           workspace,
@@ -810,7 +862,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
 
 export default function SwarmAutoRunSupervisor() {
   const inFlightSpawns = useRef(new Set<string>())
-  const inFlightArtifactApprovals = useRef(new Set<string>())
+  const sentArtifactApprovalMessages = useRef(new Set<string>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
   const tickInProgress = useRef(false)
 
@@ -843,7 +895,7 @@ export default function SwarmAutoRunSupervisor() {
             workspace,
             appSettings.cliRuntimes,
             inFlightSpawns,
-            inFlightArtifactApprovals,
+            sentArtifactApprovalMessages,
             lastContentByWorkspace
           )
         }

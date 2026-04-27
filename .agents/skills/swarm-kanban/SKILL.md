@@ -98,6 +98,7 @@ Rules:
 - Plan reviewers write only their own markdown file in `plan-reviews/`; they do not update `state.yaml`, claim tasks, or change the task graph.
 - Architects address plan reviews with `swarm plan address-reviews --actor architect`, then revise `plan.md` directly and task cards through `swarm plan` commands.
 - The app does not call the Python tool. The Python tool is for agents; the user manually spawns specialists from the UI.
+- Renderer, preload, and main-process UI IPC must not expose direct swarm Python mutations such as `swarm artifact approve`, `swarm artifact request-changes`, `swarm artifact ready`, `swarm task status`, or `swarm plan` updates. UI review actions should focus or message the relevant agent terminal; that agent then uses the swarm tool.
 - If `python3` or `PyYAML` is unavailable, report the blocker instead of silently hand-editing shared state.
 
 If you need the exact state layout, read `references/state-schema.md`.

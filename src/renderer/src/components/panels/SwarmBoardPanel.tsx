@@ -175,27 +175,16 @@ type SpawnDialogState = {
   name: string
 }
 
-type RequestChangesDialogState = {
-  artifact: SwarmArtifact
-  feedback: string
-}
-
 type RecoveryDialogState = {
   cli: AgentCli
 }
 
-type ArtifactActionKind = 'open' | 'approve' | 'requestChanges' | 'autoApprove'
+type ArtifactActionKind = 'open' | 'approve' | 'requestChanges'
 
 type ArtifactActionState = {
   kind: ArtifactActionKind
   status: 'pending' | 'success' | 'error'
   message: string
-}
-
-function assertSwarmArtifactCommandSucceeded(result: SwarmArtifactCommandResult): void {
-  if (!result.ok) {
-    throw new Error(result.message || 'Swarm artifact command failed.')
-  }
 }
 
 function buildWorkerRespawnStartupPrompt(
@@ -233,7 +222,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const [activeView, setActiveView] = useState<SwarmView>('project')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
-  const [requestChangesDialog, setRequestChangesDialog] = useState<RequestChangesDialogState | null>(null)
   const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
   const [cliPickerOpen, setCliPickerOpen] = useState(false)
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
@@ -677,69 +665,108 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     }
   }
 
-  const approveArtifact = async (artifact: SwarmArtifact) => {
-    const statePath = requireArtifactStatePath()
-    if (!statePath) return
+  const resolveArtifactProducerAgentId = (artifact: SwarmArtifact): string | null => {
+    const linkedTask = tasksById[artifact.taskId]
+    const createdBy = artifact.createdBy.trim()
+    if (createdBy && (rosterById[createdBy] || agents[createdBy] || swarmState?.swarmAgents[createdBy])) {
+      return createdBy
+    }
 
-    setArtifactAction(artifact.id, { kind: 'approve', status: 'pending', message: 'Approving...' })
+    if (linkedTask?.ownerAgentId) return linkedTask.ownerAgentId
+
+    if (linkedTask) {
+      const runningRoleAgents = roster.filter((agent) =>
+        agent.role === linkedTask.role && Boolean(agents[agent.id]?.cliStartRequested)
+      )
+      if (runningRoleAgents.length === 1) return runningRoleAgents[0].id
+    }
+
+    return null
+  }
+
+  const focusArtifactProducerTerminal = (artifact: SwarmArtifact): { agentId: string; label: string } | null => {
+    const agentId = resolveArtifactProducerAgentId(artifact)
+    if (!agentId) {
+      setArtifactAction(artifact.id, {
+        kind: 'requestChanges',
+        status: 'error',
+        message: 'No producer terminal is linked to this artifact.',
+      })
+      return null
+    }
+
+    const fallbackLabel = rosterById[agentId]?.label ?? agentId
+    const label = getAgentName(agentId, fallbackLabel)
+    setSelectedAgentId(agentId)
+    focusOrAddAgentTab(workspaceId, agentId, label)
+    return { agentId, label }
+  }
+
+  const runningArtifactProducerSessionId = async (agentId: string): Promise<string | null> => {
+    const sessionId = agents[agentId]?.cliSessionId
+    if (sessionId) {
+      const status = await window.api.terminalStatus(sessionId).catch(() => ({ running: false }))
+      if (status.running) return sessionId
+    }
+
+    const sessions = await window.api.terminalList().catch(() => [])
+    const runningSession = sessions.find((session) =>
+      session.running
+      && session.kind === 'agent'
+      && session.workspaceId === workspaceId
+      && session.agentId === agentId
+      && (!swarmContext || session.swarmStatePath === swarmContext.statePath)
+    )
+    if (!runningSession) return null
+
+    updateAgent(workspaceId, agentId, {
+      cliSessionId: runningSession.sessionId,
+      cliStartRequested: true,
+      cliHasLaunched: true,
+      cli: runningSession.cli ?? agents[agentId]?.cli ?? 'codex',
+    })
+    return runningSession.sessionId
+  }
+
+  // Review actions are terminal handoffs. The renderer must not invoke swarm
+  // Python mutation commands; the producing agent receives the user's decision
+  // and updates swarm state through its own tool flow.
+  const approveArtifact = async (artifact: SwarmArtifact) => {
+    setArtifactAction(artifact.id, { kind: 'approve', status: 'pending', message: 'Sending approval...' })
     try {
-      const result = await window.api.approveSwarmArtifact(statePath, artifact.id, 'user')
-      assertSwarmArtifactCommandSucceeded(result)
+      const target = focusArtifactProducerTerminal(artifact)
+      if (!target) return
+
+      const sessionId = await runningArtifactProducerSessionId(target.agentId)
+      if (!sessionId) {
+        throw new Error(`Opened ${target.label}. Start or wait for the producer CLI before approving.`)
+      }
+
+      await window.api.terminalWrite(sessionId, 'i approve\r')
       setArtifactAction(artifact.id, {
         kind: 'approve',
         status: 'success',
-        message: 'Approved.',
+        message: `Sent approval to ${target.label}.`,
       })
-      await refreshSwarmState()
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Approval failed. Review manually or retry.'
+      const message = error instanceof Error ? error.message : 'Failed to send approval.'
       setArtifactAction(artifact.id, {
         kind: 'approve',
-        status: 'error',
-        message,
-      })
-      setSyncState({
         status: 'error',
         message,
       })
     }
   }
 
-  const submitArtifactChangeRequest = async () => {
-    if (!requestChangesDialog) return
-    const feedback = requestChangesDialog.feedback.trim()
-    if (!feedback) return
-    const statePath = requireArtifactStatePath()
-    if (!statePath) return
+  const requestArtifactChanges = (artifact: SwarmArtifact) => {
+    const target = focusArtifactProducerTerminal(artifact)
+    if (!target) return
 
-    const { artifact } = requestChangesDialog
     setArtifactAction(artifact.id, {
       kind: 'requestChanges',
-      status: 'pending',
-      message: 'Requesting changes...',
+      status: 'success',
+      message: `Focused ${target.label}. Type your change request in the terminal.`,
     })
-    try {
-      const result = await window.api.requestSwarmArtifactChanges(statePath, artifact.id, 'user', feedback)
-      assertSwarmArtifactCommandSucceeded(result)
-      setArtifactAction(artifact.id, {
-        kind: 'requestChanges',
-        status: 'success',
-        message: 'Changes requested.',
-      })
-      setRequestChangesDialog(null)
-      await refreshSwarmState()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to request changes.'
-      setArtifactAction(artifact.id, {
-        kind: 'requestChanges',
-        status: 'error',
-        message,
-      })
-      setSyncState({
-        status: 'error',
-        message,
-      })
-    }
   }
 
   const folderStatusBanner = savedFolderPath && !folderPath ? (
@@ -1299,7 +1326,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
           onReadPlan={() => void loadPlanReader()}
           onOpenArtifact={(artifact) => void openArtifact(artifact)}
           onApproveArtifact={(artifact) => void approveArtifact(artifact)}
-          onRequestArtifactChanges={(artifact) => setRequestChangesDialog({ artifact, feedback: '' })}
+          onRequestArtifactChanges={requestArtifactChanges}
         />
       ) : null}
 
@@ -1644,72 +1671,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         </div>
       ) : null}
 
-      {requestChangesDialog ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-              <div className="min-w-0">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ff787c]">
-                  Review Artifact
-                </div>
-                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  Request Changes
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                  {requestChangesDialog.artifact.title}
-                </p>
-              </div>
-              <button
-                onClick={() => setRequestChangesDialog(null)}
-                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="px-5 py-5">
-              <label className="block">
-                <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Feedback
-                </span>
-                <textarea
-                  value={requestChangesDialog.feedback}
-                  onChange={(event) => {
-                    setRequestChangesDialog((current) =>
-                      current ? { ...current, feedback: event.target.value } : current
-                    )
-                  }}
-                  rows={5}
-                  className="w-full resize-none rounded-md bg-[#111216] px-3 py-2 text-sm leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#ff787c]/55"
-                  placeholder="Describe what must change before approval."
-                />
-              </label>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
-              <button
-                onClick={() => setRequestChangesDialog(null)}
-                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void submitArtifactChangeRequest()}
-                disabled={
-                  !requestChangesDialog.feedback.trim()
-                  || artifactActions[requestChangesDialog.artifact.id]?.status === 'pending'
-                }
-                className="rounded-md bg-[#ff1a3d] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#ff465f] disabled:opacity-45 disabled:hover:bg-[#ff1a3d]"
-              >
-                {artifactActions[requestChangesDialog.artifact.id]?.status === 'pending'
-                  ? 'Requesting changes...'
-                  : 'Request changes'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {spawnDialog && spawnDialogAgent ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
           <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
@@ -2006,7 +1967,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 onSelectTask={(taskId) => setSelectedTaskId(taskId)}
                 onOpenArtifact={(artifact) => void openArtifact(artifact)}
                 onApproveArtifact={(artifact) => void approveArtifact(artifact)}
-                onRequestArtifactChanges={(artifact) => setRequestChangesDialog({ artifact, feedback: '' })}
+                onRequestArtifactChanges={requestArtifactChanges}
               />
 
               <div>
