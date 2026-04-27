@@ -111,6 +111,51 @@ type GitCommandResult = {
   stderr: string
   message: string | null
 }
+type GitWorktreeEntry = {
+  path: string
+  head: string | null
+  branch: string | null
+  branchRef: string | null
+  detached: boolean
+  bare: boolean
+  locked: boolean
+  lockedReason: string | null
+  prunable: boolean
+  prunableReason: string | null
+}
+type GitWorktreeListSnapshot = {
+  repoRoot: string
+  worktrees: GitWorktreeEntry[]
+  updatedAt: number
+}
+type GitWorktreeCopyIncludedResult = {
+  copied: string[]
+  skipped: { path: string; reason: string }[]
+}
+type GitWorktreeOperationResult<T> =
+  | { ok: true; data: T; message: string | null; stdout?: string; stderr?: string }
+  | { ok: false; message: string; stdout?: string; stderr?: string }
+type GitWorktreeCreateInput = {
+  repoRoot: string
+  containerPath: string
+  destinationPath: string
+  branchName: string
+  baseRef: string
+  copyIncludedFiles?: boolean
+}
+type GitWorktreeRemoveInput = {
+  repoRoot: string
+  path: string
+  force?: boolean
+}
+type GitWorktreeRepairInput = {
+  repoRoot: string
+  path?: string
+}
+type GitWorktreeCopyIncludedInput = {
+  repoRoot: string
+  worktreePath: string
+}
 type DiagnosticLevel = 'info' | 'warning' | 'error'
 type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'swarm' | 'terminal' | 'workspace'
 type DiagnosticLogInput = {
@@ -317,6 +362,14 @@ declare interface Window {
     commitGitChanges: (repoRoot: string, message: string) => Promise<GitCommandResult>
     pushGitBranch: (repoRoot: string) => Promise<GitCommandResult>
     switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>
+    listGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>>
+    createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
+    removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
+    pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
+    repairGitWorktrees: (input: GitWorktreeRepairInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
+    copyGitWorktreeIncludedFiles: (
+      input: GitWorktreeCopyIncludedInput
+    ) => Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>>
     listSwarmArtifacts: (
       statePath: string,
       options?: SwarmArtifactListOptions

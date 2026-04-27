@@ -15,6 +15,7 @@ type FileWatchEvent = {
   path: string | null
 }
 type AgentCli = 'codex' | 'claude'
+type AgentExecutionMode = 'current_workspace' | 'worktree'
 type CliRuntimeSettings = {
   command: string
   useWsl: boolean
@@ -25,6 +26,9 @@ type TerminalSpawnMetadata = {
   workspaceId?: string
   agentId?: string
   terminalId?: string
+  executionMode?: AgentExecutionMode
+  worktreeId?: string
+  worktreePath?: string
 }
 type TerminalSessionSnapshot = {
   sessionId: string
@@ -36,6 +40,9 @@ type TerminalSessionSnapshot = {
   cli?: AgentCli
   cwd?: string
   swarmStatePath?: string
+  executionMode?: AgentExecutionMode
+  worktreeId?: string
+  worktreePath?: string
   startedAt: number
   lastOutputAt: number | null
   outputBufferLength: number
@@ -100,6 +107,51 @@ type GitCommandResult = {
   stdout: string
   stderr: string
   message: string | null
+}
+type GitWorktreeEntry = {
+  path: string
+  head: string | null
+  branch: string | null
+  branchRef: string | null
+  detached: boolean
+  bare: boolean
+  locked: boolean
+  lockedReason: string | null
+  prunable: boolean
+  prunableReason: string | null
+}
+type GitWorktreeListSnapshot = {
+  repoRoot: string
+  worktrees: GitWorktreeEntry[]
+  updatedAt: number
+}
+type GitWorktreeCopyIncludedResult = {
+  copied: string[]
+  skipped: { path: string; reason: string }[]
+}
+type GitWorktreeOperationResult<T> =
+  | { ok: true; data: T; message: string | null; stdout?: string; stderr?: string }
+  | { ok: false; message: string; stdout?: string; stderr?: string }
+type GitWorktreeCreateInput = {
+  repoRoot: string
+  containerPath: string
+  destinationPath: string
+  branchName: string
+  baseRef: string
+  copyIncludedFiles?: boolean
+}
+type GitWorktreeRemoveInput = {
+  repoRoot: string
+  path: string
+  force?: boolean
+}
+type GitWorktreeRepairInput = {
+  repoRoot: string
+  path?: string
+}
+type GitWorktreeCopyIncludedInput = {
+  repoRoot: string
+  worktreePath: string
 }
 type DiagnosticLevel = 'info' | 'warning' | 'error'
 type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'swarm' | 'terminal' | 'workspace'
@@ -416,6 +468,20 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('git:push', repoRoot),
   switchGitBranch: (repoRoot: string, branchName: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:switch-branch', repoRoot, branchName),
+  listGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> =>
+    ipcRenderer.invoke('git:worktree:list', repoRoot),
+  createGitWorktree: (input: GitWorktreeCreateInput): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> =>
+    ipcRenderer.invoke('git:worktree:create', input),
+  removeGitWorktree: (input: GitWorktreeRemoveInput): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
+    ipcRenderer.invoke('git:worktree:remove', input),
+  pruneGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
+    ipcRenderer.invoke('git:worktree:prune', repoRoot),
+  repairGitWorktrees: (input: GitWorktreeRepairInput): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
+    ipcRenderer.invoke('git:worktree:repair', input),
+  copyGitWorktreeIncludedFiles: (
+    input: GitWorktreeCopyIncludedInput
+  ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> =>
+    ipcRenderer.invoke('git:worktree:copy-included', input),
   listSwarmArtifacts: (
     statePath: string,
     options?: SwarmArtifactListOptions

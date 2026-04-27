@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
-import type { AgentCli } from '../../types/workspace'
+import type { AgentCli, AgentExecution, AgentExecutionMode } from '../../types/workspace'
 import { getSpecialistAction, loadSpecialistPrompt } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
 import { buildSwarmStartupPrompt, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -16,6 +16,37 @@ interface Props {
 }
 
 const MAX_TERMINAL_READINESS_BUFFER = 5000
+
+type AgentExecutionRoot = {
+  cwd: string | undefined
+  mode: AgentExecutionMode
+  worktreeId: string | undefined
+  worktreePath: string | undefined
+}
+
+function resolveAgentExecutionRoot(
+  execution: AgentExecution | undefined,
+  storedWorktreePath: string | undefined,
+  workspaceReadyPath: string | null
+): AgentExecutionRoot {
+  if (execution?.mode !== 'worktree') {
+    return {
+      cwd: workspaceReadyPath ?? undefined,
+      mode: 'current_workspace',
+      worktreeId: undefined,
+      worktreePath: undefined,
+    }
+  }
+
+  const worktreePath = execution.cwd ?? storedWorktreePath
+
+  return {
+    cwd: worktreePath ?? workspaceReadyPath ?? undefined,
+    mode: 'worktree',
+    worktreeId: execution.worktreeId ?? undefined,
+    worktreePath,
+  }
+}
 
 function plainTerminalText(data: string): string {
   return data
@@ -59,6 +90,11 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const swarmContext = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.swarmContext ?? null
   )
+  const storedExecutionWorktreePath = useWorkspaceStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId)
+    const worktreeId = workspace?.agents[agentId]?.execution.worktreeId
+    return worktreeId ? workspace?.worktreeState.entries[worktreeId]?.path : undefined
+  })
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cli = agent?.cli ?? 'codex'
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
@@ -214,6 +250,11 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     let promptInjectionTimer: number | null = null
     let disposed = false
     let reportedTerminalFailure = false
+    let terminalLaunchDetails = [
+      `Session: ${sessionId}`,
+      `CLI: ${cli}`,
+      `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
+    ].join('\n')
 
     const injectStartupPrompt = () => {
       const prompt = startupPromptRef.current
@@ -282,7 +323,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           source: 'terminal',
           title: `${agent?.name ?? agentId} exited`,
           message: `Terminal exited with code ${code}.`,
-          details: `Session: ${sessionId}`,
+          details: terminalLaunchDetails,
           workspaceId,
           workspaceName,
           agentId,
@@ -304,7 +345,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         source: 'terminal',
         title: `${agent?.name ?? agentId} failed to start`,
         message,
-        details: `Session: ${sessionId}`,
+        details: terminalLaunchDetails,
         workspaceId,
         workspaceName,
         agentId,
@@ -352,22 +393,41 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (savedFolderPath && !folderReadyPath) return
 
       const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
+      const executionRoot = resolveAgentExecutionRoot(
+        agent.execution,
+        storedExecutionWorktreePath,
+        folderReadyPath
+      )
+      terminalLaunchDetails = [
+        `Session: ${sessionId}`,
+        `CLI: ${cli}`,
+        `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
+        executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
+        swarmStatePath ? `Swarm state: ${swarmStatePath}` : null,
+      ].filter(Boolean).join('\n')
       const spawnResult = await window.api.terminalSpawn(
         sessionId,
         term.cols,
         term.rows,
-        folderReadyPath ?? undefined,
+        executionRoot.cwd,
         shouldResume,
         swarmStatePath,
         cli,
         undefined,
         cliRuntimes,
         false,
-        {
+        ({
           kind: 'agent',
           workspaceId,
           agentId,
-        }
+          executionMode: executionRoot.mode,
+          worktreeId: executionRoot.worktreeId,
+          worktreePath: executionRoot.worktreePath,
+        } as TerminalSpawnMetadata & {
+          executionMode: AgentExecutionMode
+          worktreeId?: string
+          worktreePath?: string
+        })
       ).catch((error): TerminalSpawnResult => ({
         ok: false,
         sessionId,
@@ -388,12 +448,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
             source: 'terminal',
             title: `${agent?.name ?? agentId} was not started`,
             message: spawnResult.message,
-            details: [
-              `Session: ${sessionId}`,
-              `CLI: ${cli}`,
-              `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
-              swarmStatePath ? `Swarm state: ${swarmStatePath}` : null,
-            ].filter(Boolean).join('\n'),
+            details: terminalLaunchDetails,
             workspaceId,
             workspaceName,
             agentId,
@@ -446,12 +501,16 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agent?.kind,
     agent?.name,
     agent?.specialistId,
+    agent?.execution.mode,
+    agent?.execution.worktreeId,
+    agent?.execution.cwd,
     cli,
     cliRuntimes,
     folderReadyPath,
     workspaceName,
     savedFolderPath,
     swarmContext?.statePath,
+    storedExecutionWorktreePath,
     updateAgent,
   ])
 

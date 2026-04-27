@@ -17,6 +17,22 @@ const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
 const AUTO_APPROVAL_ACTOR_ID = 'auto-run'
 
+type AutoRunWorktreeSpec = {
+  id: string
+  name: string
+  branch: string
+  containerPath: string
+  destinationPath: string
+}
+
+type AutoRunWorktreeResult =
+  | { ok: true; spec: AutoRunWorktreeSpec; path: string; branch: string | null }
+  | { ok: false; spec: AutoRunWorktreeSpec; message: string; details?: string[] }
+
+type SwarmAutoStateWithWorktreeIsolation = Workspace['swarmAutoState'] & {
+  isolateWorkersInWorktrees?: boolean
+}
+
 function revealAutoRunAgentTerminal(workspaceId: string, agentId: string, label: string): void {
   if (focusOrAddAgentTab(workspaceId, agentId, label)) return
 
@@ -40,11 +56,30 @@ function isMatchingWorkspaceAgentSession(
   workspace: Workspace,
   agentId: string
 ): boolean {
-  return session.running
-    && session.kind === 'agent'
-    && session.workspaceId === workspace.id
-    && session.agentId === agentId
-    && (!workspace.swarmContext || session.swarmStatePath === workspace.swarmContext.statePath)
+  if (
+    !session.running
+    || session.kind !== 'agent'
+    || session.workspaceId !== workspace.id
+    || session.agentId !== agentId
+    || (workspace.swarmContext && session.swarmStatePath !== workspace.swarmContext.statePath)
+  ) {
+    return false
+  }
+
+  const agentExecution = workspace.agents[agentId]?.execution
+  const sessionExecution = session as TerminalSessionSnapshot & {
+    executionMode?: 'current_workspace' | 'worktree'
+    worktreeId?: string
+    worktreePath?: string
+  }
+
+  if (agentExecution?.mode === 'worktree') {
+    return sessionExecution.executionMode === 'worktree'
+      && (!agentExecution.worktreeId || sessionExecution.worktreeId === agentExecution.worktreeId)
+      && (!agentExecution.cwd || normalizeComparablePath(sessionExecution.worktreePath ?? session.cwd ?? '') === normalizeComparablePath(agentExecution.cwd))
+  }
+
+  return sessionExecution.executionMode !== 'worktree'
 }
 
 async function refreshAutoWorkspaceState(
@@ -80,9 +115,33 @@ function getParentDirectoryPath(path: string): string {
   return separatorIndex >= 0 ? trimmed.slice(0, separatorIndex) : trimmed
 }
 
+function getBaseName(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed
+}
+
 function joinFilePath(basePath: string, childPath: string): string {
   const separator = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/'
   return `${basePath.replace(/[\\/]+$/, '')}${separator}${childPath.replace(/^[\\/]+/, '')}`
+}
+
+function defaultWorktreeContainerPath(repoRoot: string): string {
+  return joinFilePath(
+    joinFilePath(getParentDirectoryPath(repoRoot), '.multicode-worktrees'),
+    getBaseName(repoRoot)
+  )
+}
+
+function slugifyWorktreeToken(value: string, fallback: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '')
+
+  return slug || fallback
 }
 
 function isAbsoluteFilePath(path: string): boolean {
@@ -98,6 +157,38 @@ function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
   const parent = normalizeComparablePath(parentPath)
   const target = normalizeComparablePath(targetPath)
   return target === parent || target.startsWith(`${parent}/`)
+}
+
+function sameFilePath(firstPath: string, secondPath: string): boolean {
+  return normalizeComparablePath(firstPath) === normalizeComparablePath(secondPath)
+}
+
+function isSwarmWorktreeIsolationEnabled(workspace: Workspace): boolean {
+  return Boolean((workspace.swarmAutoState as SwarmAutoStateWithWorktreeIsolation).isolateWorkersInWorktrees)
+}
+
+function buildAutoRunWorktreeSpec(
+  workspace: Workspace,
+  nextRun: { agentId: string; taskId: string }
+): AutoRunWorktreeSpec {
+  if (!workspace.folderPath || !workspace.swarmContext) {
+    throw new Error('Workspace folder and swarm context are required.')
+  }
+
+  const teamSlug = slugifyWorktreeToken(workspace.swarmContext.teamSlug, 'swarm')
+  const taskSlug = slugifyWorktreeToken(nextRun.taskId, 'task')
+  const agentSlug = slugifyWorktreeToken(nextRun.agentId, 'agent')
+  const name = `${taskSlug}-${agentSlug}`
+  const containerPath = workspace.worktreeState?.containerPath
+    ?? defaultWorktreeContainerPath(workspace.folderPath)
+
+  return {
+    id: `swarm-${teamSlug}-${name}`,
+    name,
+    branch: `multicode/${teamSlug}/${name}`,
+    containerPath,
+    destinationPath: joinFilePath(containerPath, name),
+  }
 }
 
 function resolveArtifactPathForAutoApproval(workspace: Workspace, artifact: SwarmArtifact): string {
@@ -165,6 +256,150 @@ async function pauseAutoRunForArtifactApprovalFailure(
     workspaceName: workspace.name,
     taskId: artifact.taskId || undefined,
   })
+}
+
+async function pauseAutoRunForWorktreeFailure(
+  workspace: Workspace,
+  nextRun: { agentId: string; label: string; taskId: string },
+  result: Extract<AutoRunWorktreeResult, { ok: false }>
+): Promise<void> {
+  const state = useWorkspaceStore.getState()
+  state.setSwarmAutoEnabled(workspace.id, false)
+  state.setSwarmAutoPending(workspace.id, null)
+  state.updateAgent(workspace.id, nextRun.agentId, {
+    cliStartRequested: false,
+    cliHasLaunched: false,
+    cliOnboardingPromptSent: false,
+  })
+
+  await publishDiagnostic({
+    level: 'error',
+    source: 'git',
+    title: `${nextRun.label} was not started`,
+    message: result.message,
+    details: [
+      `Workspace: ${workspace.name}`,
+      `Agent: ${nextRun.agentId}`,
+      `Task: ${nextRun.taskId}`,
+      `Worktree id: ${result.spec.id}`,
+      `Worktree path: ${result.spec.destinationPath}`,
+      `Branch: ${result.spec.branch}`,
+      ...(result.details ?? []),
+    ].join('\n'),
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    agentId: nextRun.agentId,
+    taskId: nextRun.taskId,
+  })
+}
+
+async function ensureAutoRunWorktree(
+  workspace: Workspace,
+  nextRun: { agentId: string; taskId: string }
+): Promise<AutoRunWorktreeResult> {
+  const spec = buildAutoRunWorktreeSpec(workspace, nextRun)
+  const repoRoot = workspace.folderPath
+  if (!repoRoot) {
+    return { ok: false, spec, message: 'Workspace folder is not available.' }
+  }
+
+  const state = useWorkspaceStore.getState()
+  state.setWorkspaceWorktreeState(workspace.id, { containerPath: spec.containerPath })
+
+  const listedResult = await window.api.listGitWorktrees(repoRoot)
+  if (!listedResult.ok) {
+    return {
+      ok: false,
+      spec,
+      message: listedResult.message,
+      details: [
+        listedResult.stderr ? `stderr: ${listedResult.stderr}` : '',
+        listedResult.stdout ? `stdout: ${listedResult.stdout}` : '',
+      ].filter(Boolean),
+    }
+  }
+
+  const listedWorktree = listedResult.data.worktrees.find((worktree) =>
+    sameFilePath(worktree.path, spec.destinationPath) || worktree.branch === spec.branch
+  )
+
+  if (listedWorktree) {
+    const worktreeExists = await window.api.pathExists(listedWorktree.path).catch(() => false)
+    const now = Date.now()
+    if (!worktreeExists) {
+      state.upsertWorktreeEntry(workspace.id, {
+        id: spec.id,
+        path: listedWorktree.path,
+        branch: listedWorktree.branch,
+        ownerAgentId: nextRun.agentId,
+        status: 'missing',
+        createdAt: now,
+        updatedAt: now,
+        missingAt: now,
+      })
+      return {
+        ok: false,
+        spec,
+        message: `Worktree path is missing: ${listedWorktree.path}. Run worktree prune or remove the stale worktree before retrying auto-run.`,
+      }
+    }
+
+    state.upsertWorktreeEntry(workspace.id, {
+      id: spec.id,
+      path: listedWorktree.path,
+      branch: listedWorktree.branch,
+      ownerAgentId: nextRun.agentId,
+      status: 'assigned',
+      createdAt: now,
+      updatedAt: now,
+      missingAt: null,
+    })
+    return { ok: true, spec, path: listedWorktree.path, branch: listedWorktree.branch }
+  }
+
+  const destinationExists = await window.api.pathExists(spec.destinationPath).catch(() => false)
+  if (destinationExists) {
+    return {
+      ok: false,
+      spec,
+      message: `Worktree destination already exists but is not registered with Git: ${spec.destinationPath}`,
+    }
+  }
+
+  const createResult = await window.api.createGitWorktree({
+    repoRoot,
+    containerPath: spec.containerPath,
+    destinationPath: spec.destinationPath,
+    branchName: spec.branch,
+    baseRef: 'HEAD',
+    copyIncludedFiles: true,
+  })
+
+  if (!createResult.ok) {
+    return {
+      ok: false,
+      spec,
+      message: createResult.message,
+      details: [
+        createResult.stderr ? `stderr: ${createResult.stderr}` : '',
+        createResult.stdout ? `stdout: ${createResult.stdout}` : '',
+      ].filter(Boolean),
+    }
+  }
+
+  const now = Date.now()
+  state.upsertWorktreeEntry(workspace.id, {
+    id: spec.id,
+    path: createResult.data.path,
+    branch: createResult.data.branch,
+    ownerAgentId: nextRun.agentId,
+    status: 'assigned',
+    createdAt: now,
+    updatedAt: now,
+    missingAt: null,
+  })
+
+  return { ok: true, spec, path: createResult.data.path, branch: createResult.data.branch }
 }
 
 async function approveNextEligibleArtifact(
@@ -416,67 +651,103 @@ async function superviseWorkspace(
   if (!workspace.folderPath || !workspace.swarmContext) return
   const workspaceFolderPath = workspace.folderPath
   const swarmStatePath = workspace.swarmContext.statePath
-  const folderExists = await window.api.pathExists(workspaceFolderPath)
-  if (!folderExists) {
-    currentState.setFolderMissing(workspace.id, true)
-    currentState.setSwarmAutoPending(workspace.id, null)
-    currentState.setSwarmAutoEnabled(workspace.id, false)
-    await publishDiagnostic({
-      level: 'error',
-      source: 'filesystem',
-      title: 'Auto-run stopped',
-      message: `Workspace folder could not be found: ${workspaceFolderPath}`,
-      details: [
-        `Workspace: ${workspace.name}`,
-        `Agent: ${nextRun.agentId}`,
-        `Task: ${nextRun.taskId}`,
-      ].join('\n'),
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      agentId: nextRun.agentId,
-      taskId: nextRun.taskId,
-    })
-    return
-  }
-
-  const startupPrompt = prependAgentIdentifier(
-    buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal),
-    nextRun.label,
-    swarmRoleLabels[nextRun.role]
-  )
-
   inFlightSpawns.current.add(spawnKey)
-  currentState.setSwarmAutoPending(workspace.id, {
-    taskId: nextRun.taskId,
-    agentId: nextRun.agentId,
-  })
-  currentState.updateAgent(workspace.id, nextRun.agentId, {
-    name: nextRun.label,
-    cliStartRequested: true,
-    cliSessionId: sessionId,
-    cliHasLaunched: true,
-    cliOnboardingPromptSent: selectedCli === 'codex',
-    cli: selectedCli,
-    cliStartupPrompt: selectedCli === 'codex' ? undefined : startupPrompt,
-  })
 
   try {
+    const folderExists = await window.api.pathExists(workspaceFolderPath)
+    if (!folderExists) {
+      currentState.setFolderMissing(workspace.id, true)
+      currentState.setSwarmAutoPending(workspace.id, null)
+      currentState.setSwarmAutoEnabled(workspace.id, false)
+      await publishDiagnostic({
+        level: 'error',
+        source: 'filesystem',
+        title: 'Auto-run stopped',
+        message: `Workspace folder could not be found: ${workspaceFolderPath}`,
+        details: [
+          `Workspace: ${workspace.name}`,
+          `Agent: ${nextRun.agentId}`,
+          `Task: ${nextRun.taskId}`,
+        ].join('\n'),
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: nextRun.agentId,
+        taskId: nextRun.taskId,
+      })
+      return
+    }
+
+    let executionCwd = workspaceFolderPath
+    let executionMode: 'current_workspace' | 'worktree' = 'current_workspace'
+    let worktreeId: string | undefined
+    let worktreePath: string | undefined
+
+    if (isSwarmWorktreeIsolationEnabled(workspace)) {
+      const worktreeResult = await ensureAutoRunWorktree(workspace, nextRun)
+      if (!worktreeResult.ok) {
+        await pauseAutoRunForWorktreeFailure(workspace, nextRun, worktreeResult)
+        return
+      }
+
+      executionCwd = worktreeResult.path
+      executionMode = 'worktree'
+      worktreeId = worktreeResult.spec.id
+      worktreePath = worktreeResult.path
+    }
+
+    const startupPrompt = prependAgentIdentifier(
+      buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal, {
+        executionCwd,
+        swarmStatePath,
+      }),
+      nextRun.label,
+      swarmRoleLabels[nextRun.role]
+    )
+
+    currentState.setSwarmAutoPending(workspace.id, {
+      taskId: nextRun.taskId,
+      agentId: nextRun.agentId,
+    })
+    currentState.updateAgent(workspace.id, nextRun.agentId, {
+      name: nextRun.label,
+      execution: {
+        mode: executionMode,
+        worktreeId: worktreeId ?? null,
+        cwd: executionMode === 'worktree' ? executionCwd : null,
+      },
+      cliStartRequested: true,
+      cliSessionId: sessionId,
+      cliHasLaunched: true,
+      cliOnboardingPromptSent: selectedCli === 'codex',
+      cli: selectedCli,
+      cliStartupPrompt: selectedCli === 'codex' ? undefined : startupPrompt,
+    })
+
+    const terminalMetadata = {
+      kind: 'agent',
+      workspaceId: workspace.id,
+      agentId: nextRun.agentId,
+      executionMode,
+      worktreeId,
+      worktreePath,
+    } as TerminalSpawnMetadata & {
+      executionMode: 'current_workspace' | 'worktree'
+      worktreeId?: string
+      worktreePath?: string
+    }
+
     const spawnResult = await window.api.terminalSpawn(
       sessionId,
       BACKGROUND_TERMINAL_COLS,
       BACKGROUND_TERMINAL_ROWS,
-      workspaceFolderPath,
+      executionCwd,
       false,
       swarmStatePath,
       selectedCli,
       selectedCli === 'codex' ? startupPrompt : undefined,
       cliRuntimes,
       false,
-      {
-        kind: 'agent',
-        workspaceId: workspace.id,
-        agentId: nextRun.agentId,
-      }
+      terminalMetadata
     ).catch((error): TerminalSpawnResult => ({
       ok: false,
       sessionId,
@@ -502,8 +773,10 @@ async function superviseWorkspace(
           `CLI: ${selectedCli}`,
           `Task: ${nextRun.taskId}`,
           `Session: ${sessionId}`,
+          `Cwd: ${executionCwd}`,
+          executionMode === 'worktree' ? `Worktree: ${worktreePath ?? 'Unavailable'}` : null,
           `Swarm state: ${swarmStatePath}`,
-        ].join('\n'),
+        ].filter(Boolean).join('\n'),
         workspaceId: workspace.id,
         workspaceName: workspace.name,
         agentId: nextRun.agentId,

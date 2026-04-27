@@ -20,6 +20,9 @@ import type {
   CliRuntimeSettings,
   AgentKind,
   SpecialistActionId,
+  AgentExecution,
+  WorkspaceWorktreeState,
+  WorktreeEntry,
 } from '../types/workspace'
 import { getSpecialistAction } from '../specialists/specialistActions'
 import { pickRandomAgentName } from '../utils/agentNames'
@@ -80,9 +83,22 @@ interface WorkspaceStore {
   setSwarmContext: (id: WorkspaceId, swarmContext: SwarmWorkspaceContext | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
+  setAgentExecution: (
+    workspaceId: WorkspaceId,
+    agentId: AgentId,
+    execution: Partial<AgentExecution>
+  ) => void
+  setWorkspaceWorktreeState: (
+    workspaceId: WorkspaceId,
+    worktreeState: Partial<WorkspaceWorktreeState> | null
+  ) => void
+  upsertWorktreeEntry: (workspaceId: WorkspaceId, entry: WorktreeEntry) => void
+  markWorktreeMissing: (workspaceId: WorkspaceId, worktreeId: string, missingAt?: number) => void
+  removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
   setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
   setSwarmAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setSwarmAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
+  setSwarmAutoWorktreeIsolation: (workspaceId: WorkspaceId, isolateWorkersInWorktrees: boolean) => void
   setSwarmAutoPending: (workspaceId: WorkspaceId, pending: SwarmAutoPendingSpawn | null) => void
   addSwarmMember: (
     workspaceId: WorkspaceId,
@@ -126,10 +142,99 @@ const defaultAuthState = (): MulticodeAuthState => ({
   graceExpiresAt: null,
 })
 
+const defaultAgentExecution = (): AgentExecution => ({
+  mode: 'current_workspace',
+  worktreeId: null,
+  cwd: null,
+})
+
+type SwarmAutoStateWithWorktreeIsolation = SwarmAutoState & {
+  isolateWorkersInWorktrees: boolean
+}
+
+function normalizeAgentExecution(input: Partial<AgentExecution> | null | undefined): AgentExecution {
+  const mode = input?.mode === 'worktree' ? 'worktree' : 'current_workspace'
+  const worktreeId = typeof input?.worktreeId === 'string' && input.worktreeId.trim()
+    ? input.worktreeId.trim()
+    : null
+  const cwd = typeof input?.cwd === 'string' && input.cwd.trim()
+    ? input.cwd
+    : null
+
+  if (mode === 'current_workspace') return defaultAgentExecution()
+
+  return {
+    mode,
+    worktreeId,
+    cwd,
+  }
+}
+
+const defaultWorkspaceWorktreeState = (): WorkspaceWorktreeState => ({
+  containerPath: null,
+  entries: {},
+  updatedAt: null,
+})
+
+function normalizeWorktreeEntry(input: Partial<WorktreeEntry> | null | undefined): WorktreeEntry | null {
+  if (!input || typeof input.id !== 'string' || !input.id.trim()) return null
+  if (typeof input.path !== 'string' || !input.path.trim()) return null
+
+  const status = (
+    input.status === 'assigned'
+    || input.status === 'missing'
+    || input.status === 'removing'
+    || input.status === 'error'
+  )
+    ? input.status
+    : 'available'
+  const now = Date.now()
+
+  return {
+    id: input.id.trim(),
+    path: input.path,
+    branch: typeof input.branch === 'string' && input.branch.trim() ? input.branch : null,
+    ownerAgentId:
+      typeof input.ownerAgentId === 'string' && input.ownerAgentId.trim()
+        ? input.ownerAgentId
+        : null,
+    status,
+    createdAt: typeof input.createdAt === 'number' ? input.createdAt : now,
+    updatedAt: typeof input.updatedAt === 'number' ? input.updatedAt : now,
+    missingAt:
+      status === 'missing'
+        ? typeof input.missingAt === 'number'
+          ? input.missingAt
+          : now
+        : null,
+  }
+}
+
+function normalizeWorkspaceWorktreeState(
+  input: Partial<WorkspaceWorktreeState> | null | undefined
+): WorkspaceWorktreeState {
+  const entries = Object.fromEntries(
+    Object.values(input?.entries ?? {})
+      .map((entry) => normalizeWorktreeEntry(entry))
+      .filter((entry): entry is WorktreeEntry => Boolean(entry))
+      .map((entry) => [entry.id, entry])
+  )
+
+  return {
+    containerPath:
+      typeof input?.containerPath === 'string' && input.containerPath.trim()
+        ? input.containerPath
+        : null,
+    entries,
+    updatedAt: typeof input?.updatedAt === 'number' ? input.updatedAt : null,
+  }
+}
+
 const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'): AgentState => ({
   id,
   name,
   status: 'idle',
+  execution: defaultAgentExecution(),
   messages: [],
   streamBuffer: '',
   cliSessionId: undefined,
@@ -148,17 +253,21 @@ const defaultEditorState = (): EditorState => ({
   activeFilePath: null,
 })
 
-const defaultSwarmAutoState = (): SwarmAutoState => ({
+const defaultSwarmAutoState = (): SwarmAutoStateWithWorktreeIsolation => ({
   enabled: false,
   autoApproveArtifacts: false,
+  isolateWorkersInWorktrees: false,
   pending: null,
 })
 
-function normalizeSwarmAutoState(input: Partial<SwarmAutoState> | null | undefined): SwarmAutoState {
+function normalizeSwarmAutoState(
+  input: (Partial<SwarmAutoState> & { isolateWorkersInWorktrees?: boolean }) | null | undefined
+): SwarmAutoStateWithWorktreeIsolation {
   const pending = input?.pending
   return {
     enabled: Boolean(input?.enabled),
     autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
+    isolateWorkersInWorktrees: Boolean(input?.isolateWorkersInWorktrees),
     pending: typeof pending?.taskId === 'string' && typeof pending.agentId === 'string'
       ? { taskId: pending.taskId, agentId: pending.agentId }
       : null,
@@ -208,6 +317,13 @@ function isDefaultSwarmAgentName(name: string | undefined, fallbackLabel: string
 
 function pickWorkspaceAgentName(agents: Workspace['agents']): string {
   return pickRandomAgentName(Object.values(agents).map((agent) => agent.name))
+}
+
+function normalizeAgentState(agent: AgentState): AgentState {
+  return {
+    ...agent,
+    execution: normalizeAgentExecution(agent.execution),
+  }
 }
 
 const swarmTabsLayoutModel = (
@@ -377,7 +493,7 @@ function reconcileSwarmAgents(
         ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
         : current?.name ?? agent.label
       const nextAgent = current
-        ? { ...current, name: nextName, kind: 'swarm' as const }
+        ? normalizeAgentState({ ...current, name: nextName, kind: 'swarm' as const })
         : defaultAgent(agent.id, nextName, 'swarm')
       nextAgents[agent.id] = nextAgent
       return [agent.id, nextAgent]
@@ -387,7 +503,7 @@ function reconcileSwarmAgents(
   const specialistAgents = Object.fromEntries(
     Object.entries(currentAgents).filter(([id, agent]) =>
       agent.kind === 'specialist' && !rosterAgents[id]
-    )
+    ).map(([id, agent]) => [id, normalizeAgentState(agent)])
   )
 
   return {
@@ -471,6 +587,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ? swarmTabsLayoutModel(swarmState, agents, { includeAgentTabs: false })
               : template.layout,
             agents,
+            worktreeState: defaultWorkspaceWorktreeState(),
             editorState: defaultEditorState(),
             swarmState,
             swarmAutoState: defaultSwarmAutoState(),
@@ -539,6 +656,64 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (!ws) return
           if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
           Object.assign(ws.agents[agentId], update)
+          ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
+        }),
+
+      setAgentExecution: (workspaceId, agentId, execution) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
+          ws.agents[agentId].execution = normalizeAgentExecution({
+            ...ws.agents[agentId].execution,
+            ...execution,
+          })
+        }),
+
+      setWorkspaceWorktreeState: (workspaceId, worktreeState) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeWorkspaceWorktreeState(ws.worktreeState)
+          ws.worktreeState = normalizeWorkspaceWorktreeState(
+            worktreeState
+              ? {
+                ...current,
+                ...worktreeState,
+                entries: worktreeState.entries ?? current.entries,
+              }
+              : null
+          )
+        }),
+
+      upsertWorktreeEntry: (workspaceId, entry) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          ws.worktreeState = normalizeWorkspaceWorktreeState(ws.worktreeState)
+          const normalized = normalizeWorktreeEntry(entry)
+          if (!normalized) return
+          ws.worktreeState.entries[normalized.id] = normalized
+          ws.worktreeState.updatedAt = normalized.updatedAt
+        }),
+
+      markWorktreeMissing: (workspaceId, worktreeId, missingAt = Date.now()) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          const entry = ws?.worktreeState?.entries[worktreeId]
+          if (!ws || !entry) return
+          entry.status = 'missing'
+          entry.missingAt = missingAt
+          entry.updatedAt = missingAt
+          ws.worktreeState.updatedAt = missingAt
+        }),
+
+      removeWorktreeEntry: (workspaceId, worktreeId) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws?.worktreeState?.entries[worktreeId]) return
+          delete ws.worktreeState.entries[worktreeId]
+          ws.worktreeState.updatedAt = Date.now()
         }),
 
       setSwarmState: (workspaceId, swarmState) =>
@@ -580,6 +755,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...current,
             autoApproveArtifacts,
           }
+        }),
+
+      setSwarmAutoWorktreeIsolation: (workspaceId, isolateWorkersInWorktrees) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSwarmAutoState(ws.swarmAutoState)
+          ws.swarmAutoState = {
+            ...current,
+            isolateWorkersInWorktrees,
+          } as SwarmAutoState
         }),
 
       setSwarmAutoPending: (workspaceId, pending) =>
@@ -676,9 +862,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             agents: Object.fromEntries(
               Object.entries(ws.agents).map(([k, v]) => [
                 k,
-                { ...v, streamBuffer: '', status: 'idle' as const, cliStartupPrompt: undefined },
+                normalizeAgentState({
+                  ...v,
+                  streamBuffer: '',
+                  status: 'idle' as const,
+                  cliStartupPrompt: undefined,
+                }),
               ])
             ),
+            worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
             editorState: ws.editorState ?? defaultEditorState(),
             swarmState: normalizeSwarmState(ws.swarmState),
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
@@ -789,7 +981,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 20,
+      version: 21,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -958,6 +1150,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
+        if (version < 21) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            agents: Object.fromEntries(
+              Object.entries(ws.agents ?? {}).map(([id, agent]) => [
+                id,
+                normalizeAgentState(agent),
+              ])
+            ),
+            worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
+          }))
+        }
         return state as never
       },
       partialize: (s) => ({
@@ -972,10 +1176,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
               return [
                 id,
-                { ...a, streamBuffer: '', status: 'idle' as const, cliStartupPrompt },
+                normalizeAgentState({
+                  ...a,
+                  streamBuffer: '',
+                  status: 'idle' as const,
+                  cliStartupPrompt,
+                }),
               ]
             })
           ),
+          worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
           // Keep file list + active file, drop content so we don't resurrect stale edits
           editorState: {
             openFiles: (ws.editorState?.openFiles ?? []).map((f) => ({

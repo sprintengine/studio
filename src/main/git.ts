@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import { cp, mkdir, readFile, stat } from 'fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'path'
 import { promisify } from 'util'
 
@@ -56,6 +57,59 @@ export type GitCommandResult = {
   stdout: string
   stderr: string
   message: string | null
+}
+
+export type GitWorktreeEntry = {
+  path: string
+  head: string | null
+  branch: string | null
+  branchRef: string | null
+  detached: boolean
+  bare: boolean
+  locked: boolean
+  lockedReason: string | null
+  prunable: boolean
+  prunableReason: string | null
+}
+
+export type GitWorktreeListSnapshot = {
+  repoRoot: string
+  worktrees: GitWorktreeEntry[]
+  updatedAt: number
+}
+
+export type GitWorktreeCopyIncludedResult = {
+  copied: string[]
+  skipped: { path: string; reason: string }[]
+}
+
+export type GitWorktreeOperationResult<T> =
+  | { ok: true; data: T; message: string | null; stdout?: string; stderr?: string }
+  | { ok: false; message: string; stdout?: string; stderr?: string }
+
+export type GitWorktreeCreateInput = {
+  repoRoot: string
+  containerPath: string
+  destinationPath: string
+  branchName: string
+  baseRef: string
+  copyIncludedFiles?: boolean
+}
+
+export type GitWorktreeRemoveInput = {
+  repoRoot: string
+  path: string
+  force?: boolean
+}
+
+export type GitWorktreeRepairInput = {
+  repoRoot: string
+  path?: string
+}
+
+export type GitWorktreeCopyIncludedInput = {
+  repoRoot: string
+  worktreePath: string
 }
 
 type GitStatusCode = {
@@ -127,6 +181,478 @@ function getRelativeGitPath(repoRoot: string, filePath: string): string {
 function isInsideRepo(repoRoot: string, filePath: string): boolean {
   const relativePath = relative(repoRoot, filePath)
   return Boolean(relativePath) && !relativePath.startsWith('..') && !isAbsolute(relativePath)
+}
+
+function isInsideDirectory(parentPath: string, childPath: string): boolean {
+  const relativePath = relative(parentPath, childPath)
+  return Boolean(relativePath) && !relativePath.startsWith('..') && !isAbsolute(relativePath)
+}
+
+async function pathExists(pathValue: string): Promise<boolean> {
+  try {
+    await stat(pathValue)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function normalizeWorktreeBranch(refName: string): { branch: string; branchRef: string } {
+  const branchPrefix = 'refs/heads/'
+  return {
+    branch: refName.startsWith(branchPrefix) ? refName.slice(branchPrefix.length) : refName,
+    branchRef: refName,
+  }
+}
+
+function createEmptyWorktree(pathValue: string): GitWorktreeEntry {
+  return {
+    path: pathValue,
+    head: null,
+    branch: null,
+    branchRef: null,
+    detached: false,
+    bare: false,
+    locked: false,
+    lockedReason: null,
+    prunable: false,
+    prunableReason: null,
+  }
+}
+
+export function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
+  const lines = output
+    .split('\0')
+    .flatMap((record) => record.split(/\r?\n/))
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+  const worktrees: GitWorktreeEntry[] = []
+  let current: GitWorktreeEntry | null = null
+
+  for (const line of lines) {
+    if (line.startsWith('worktree ')) {
+      if (current) worktrees.push(current)
+      current = createEmptyWorktree(line.slice('worktree '.length))
+      continue
+    }
+
+    if (!current) continue
+
+    if (line.startsWith('HEAD ')) {
+      current.head = line.slice('HEAD '.length)
+    } else if (line.startsWith('branch ')) {
+      const branch = normalizeWorktreeBranch(line.slice('branch '.length))
+      current.branch = branch.branch
+      current.branchRef = branch.branchRef
+    } else if (line === 'detached') {
+      current.detached = true
+    } else if (line === 'bare') {
+      current.bare = true
+    } else if (line === 'locked' || line.startsWith('locked ')) {
+      current.locked = true
+      current.lockedReason = line === 'locked' ? null : line.slice('locked '.length)
+    } else if (line === 'prunable' || line.startsWith('prunable ')) {
+      current.prunable = true
+      current.prunableReason = line === 'prunable' ? null : line.slice('prunable '.length)
+    }
+  }
+
+  if (current) worktrees.push(current)
+  return worktrees
+}
+
+async function resolveRepoRoot(repoRoot: string): Promise<GitWorktreeOperationResult<string>> {
+  const resolvedRoot = resolve(repoRoot)
+  const actualRoot = await getGitRepoRoot(resolvedRoot)
+
+  if (!actualRoot) {
+    return { ok: false, message: 'Choose a folder inside a Git repository before managing worktrees.' }
+  }
+
+  return { ok: true, data: actualRoot, message: null }
+}
+
+function resolveWorktreeDestination(containerPath: string, destinationPath: string): GitWorktreeOperationResult<{
+  containerPath: string
+  destinationPath: string
+}> {
+  const resolvedContainer = resolve(containerPath)
+  const resolvedDestination = isAbsolute(destinationPath)
+    ? resolve(destinationPath)
+    : resolve(resolvedContainer, destinationPath)
+
+  if (!isInsideDirectory(resolvedContainer, resolvedDestination)) {
+    return {
+      ok: false,
+      message: 'Worktree destination must be inside the configured worktree container.',
+    }
+  }
+
+  return {
+    ok: true,
+    data: {
+      containerPath: resolvedContainer,
+      destinationPath: resolvedDestination,
+    },
+    message: null,
+  }
+}
+
+async function validateBranchName(repoRoot: string, branchName: string): Promise<GitWorktreeOperationResult<string>> {
+  const trimmedBranch = branchName.trim()
+
+  if (!trimmedBranch) {
+    return { ok: false, message: 'Enter a branch name for the worktree.' }
+  }
+
+  if (trimmedBranch.startsWith('-')) {
+    return { ok: false, message: 'Branch names cannot start with a dash.' }
+  }
+
+  const result = await runGitCommand(repoRoot, ['check-ref-format', '--branch', trimmedBranch])
+  if (!result.ok) {
+    return {
+      ok: false,
+      message: `Branch name "${trimmedBranch}" is not valid for Git.`,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    }
+  }
+
+  return { ok: true, data: result.stdout.trim() || trimmedBranch, message: null }
+}
+
+async function validateBaseRef(repoRoot: string, baseRef: string): Promise<GitWorktreeOperationResult<string>> {
+  const trimmedBaseRef = baseRef.trim()
+
+  if (!trimmedBaseRef) {
+    return { ok: false, message: 'Choose a base ref for the worktree.' }
+  }
+
+  if (trimmedBaseRef.startsWith('-')) {
+    return { ok: false, message: 'Base refs cannot start with a dash.' }
+  }
+
+  const result = await runGitCommand(repoRoot, ['rev-parse', '--verify', '--quiet', `${trimmedBaseRef}^{commit}`])
+  if (!result.ok) {
+    return {
+      ok: false,
+      message: `Base ref "${trimmedBaseRef}" does not resolve to a commit.`,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    }
+  }
+
+  return { ok: true, data: trimmedBaseRef, message: null }
+}
+
+function toWorktreeResult<T>(
+  result: GitCommandResult,
+  data: T,
+  successMessage: string | null = null
+): GitWorktreeOperationResult<T> {
+  if (result.ok) {
+    return { ok: true, data, message: successMessage, stdout: result.stdout, stderr: result.stderr }
+  }
+
+  return {
+    ok: false,
+    message: result.message ?? 'Git worktree command failed.',
+    stdout: result.stdout,
+    stderr: result.stderr,
+  }
+}
+
+export async function listGitWorktrees(repoRoot: string): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> {
+  const root = await resolveRepoRoot(repoRoot)
+  if (!root.ok) return root
+
+  const result = await runGitCommand(root.data, ['worktree', 'list', '--porcelain', '-z'])
+  if (!result.ok) {
+    return {
+      ok: false,
+      message: result.message ?? 'Unable to list Git worktrees.',
+      stdout: result.stdout,
+      stderr: result.stderr,
+    }
+  }
+
+  return {
+    ok: true,
+    data: {
+      repoRoot: root.data,
+      worktrees: parseGitWorktreePorcelain(result.stdout),
+      updatedAt: Date.now(),
+    },
+    message: null,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  }
+}
+
+export async function copyGitWorktreeIncludedFiles(
+  input: GitWorktreeCopyIncludedInput
+): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> {
+  const root = await resolveRepoRoot(input.repoRoot)
+  if (!root.ok) return root
+
+  const worktreePath = resolve(input.worktreePath)
+  const worktrees = await listGitWorktrees(root.data)
+  if (!worktrees.ok) return worktrees
+
+  const registeredWorktree = worktrees.data.worktrees.find((worktree) => resolve(worktree.path) === worktreePath)
+  if (!registeredWorktree) {
+    return {
+      ok: false,
+      message: `Worktree is not registered for this repository: ${worktreePath}`,
+    }
+  }
+
+  if (!(await pathExists(worktreePath))) {
+    return {
+      ok: false,
+      message: `Worktree path is missing: ${worktreePath}. Run worktree prune to clean up stale Git metadata.`,
+    }
+  }
+
+  const includeFilePath = join(root.data, '.worktreeinclude')
+  const result: GitWorktreeCopyIncludedResult = {
+    copied: [],
+    skipped: [],
+  }
+
+  let includeFile = ''
+  try {
+    includeFile = await readFile(includeFilePath, 'utf8')
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (code && code !== 'ENOENT') {
+      return {
+        ok: false,
+        message: `Unable to read .worktreeinclude: ${includeFilePath}`,
+      }
+    }
+
+    return {
+      ok: true,
+      data: result,
+      message: 'No .worktreeinclude file found.',
+    }
+  }
+
+  const entries = includeFile
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+
+  for (const entry of entries) {
+    if (isAbsolute(entry) || entry.split(/[\\/]/).includes('..')) {
+      result.skipped.push({ path: entry, reason: 'Only repository-relative include paths are allowed.' })
+      continue
+    }
+
+    if (/[*?[\]{}]/.test(entry)) {
+      result.skipped.push({ path: entry, reason: 'Glob patterns are not supported; list explicit files or directories.' })
+      continue
+    }
+
+    const sourcePath = resolve(root.data, entry)
+    const destinationPath = resolve(worktreePath, entry)
+
+    if (!isInsideDirectory(root.data, sourcePath) || !isInsideDirectory(worktreePath, destinationPath)) {
+      result.skipped.push({ path: entry, reason: 'Include path must stay inside the repository and target worktree.' })
+      continue
+    }
+
+    if (!(await pathExists(sourcePath))) {
+      result.skipped.push({ path: entry, reason: 'Source path does not exist.' })
+      continue
+    }
+
+    try {
+      await mkdir(dirname(destinationPath), { recursive: true })
+      await cp(sourcePath, destinationPath, {
+        recursive: true,
+        force: true,
+        errorOnExist: false,
+      })
+      result.copied.push(entry)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      result.skipped.push({ path: entry, reason: message })
+    }
+  }
+
+  return {
+    ok: true,
+    data: result,
+    message: null,
+  }
+}
+
+export async function createGitWorktree(
+  input: GitWorktreeCreateInput
+): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> {
+  const root = await resolveRepoRoot(input.repoRoot)
+  if (!root.ok) return root
+
+  const destination = resolveWorktreeDestination(input.containerPath, input.destinationPath)
+  if (!destination.ok) return destination
+
+  const branch = await validateBranchName(root.data, input.branchName)
+  if (!branch.ok) return branch
+
+  const baseRef = await validateBaseRef(root.data, input.baseRef)
+  if (!baseRef.ok) return baseRef
+
+  if (await pathExists(destination.data.destinationPath)) {
+    return {
+      ok: false,
+      message: `Worktree destination already exists: ${destination.data.destinationPath}`,
+    }
+  }
+
+  const existingWorktrees = await listGitWorktrees(root.data)
+  if (!existingWorktrees.ok) return existingWorktrees
+
+  const matchingWorktree = existingWorktrees.data.worktrees.find((worktree) => worktree.branch === branch.data)
+  if (matchingWorktree) {
+    return {
+      ok: false,
+      message: `Branch "${branch.data}" is already checked out at ${matchingWorktree.path}. Choose a different branch name or remove that worktree first.`,
+    }
+  }
+
+  await mkdir(destination.data.containerPath, { recursive: true })
+  const addResult = await runGitCommand(root.data, [
+    'worktree',
+    'add',
+    '-b',
+    branch.data,
+    destination.data.destinationPath,
+    baseRef.data,
+  ])
+
+  if (!addResult.ok) {
+    return {
+      ok: false,
+      message: addResult.message ?? 'Unable to create Git worktree.',
+      stdout: addResult.stdout,
+      stderr: addResult.stderr,
+    }
+  }
+
+  if (input.copyIncludedFiles) {
+    const copyResult = await copyGitWorktreeIncludedFiles({
+      repoRoot: root.data,
+      worktreePath: destination.data.destinationPath,
+    })
+    if (!copyResult.ok) return copyResult
+  }
+
+  const nextWorktrees = await listGitWorktrees(root.data)
+  if (!nextWorktrees.ok) return nextWorktrees
+
+  const createdWorktree = nextWorktrees.data.worktrees.find(
+    (worktree) => resolve(worktree.path) === destination.data.destinationPath
+  )
+
+  if (!createdWorktree) {
+    return {
+      ok: false,
+      message: `Git created the worktree, but it was not reported by "git worktree list": ${destination.data.destinationPath}`,
+      stdout: addResult.stdout,
+      stderr: addResult.stderr,
+    }
+  }
+
+  return {
+    ok: true,
+    data: createdWorktree,
+    message: null,
+    stdout: addResult.stdout,
+    stderr: addResult.stderr,
+  }
+}
+
+export async function removeGitWorktree(
+  input: GitWorktreeRemoveInput
+): Promise<GitWorktreeOperationResult<GitCommandResult>> {
+  const root = await resolveRepoRoot(input.repoRoot)
+  if (!root.ok) return root
+
+  const worktreePath = resolve(input.path)
+  const worktrees = await listGitWorktrees(root.data)
+  if (!worktrees.ok) return worktrees
+
+  const registeredWorktree = worktrees.data.worktrees.find((worktree) => resolve(worktree.path) === worktreePath)
+  if (!registeredWorktree) {
+    return {
+      ok: false,
+      message: `Worktree is not registered for this repository: ${worktreePath}`,
+    }
+  }
+
+  if (!(await pathExists(worktreePath))) {
+    return {
+      ok: false,
+      message: `Worktree path is missing: ${worktreePath}. Run worktree prune to clean up stale Git metadata.`,
+    }
+  }
+
+  if (!input.force) {
+    const statusResult = await runGitCommand(worktreePath, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+    if (!statusResult.ok) {
+      return {
+        ok: false,
+        message: statusResult.message ?? 'Unable to check whether the worktree is clean.',
+        stdout: statusResult.stdout,
+        stderr: statusResult.stderr,
+      }
+    }
+
+    if (statusResult.stdout.length > 0) {
+      return {
+        ok: false,
+        message: `Worktree has uncommitted changes: ${worktreePath}. Commit, stash, discard changes, or retry with force.`,
+        stdout: statusResult.stdout,
+        stderr: statusResult.stderr,
+      }
+    }
+  }
+
+  const removeResult = await runGitCommand(root.data, [
+    'worktree',
+    'remove',
+    ...(input.force ? ['--force'] : []),
+    worktreePath,
+  ])
+
+  return toWorktreeResult(removeResult, removeResult)
+}
+
+export async function pruneGitWorktrees(repoRoot: string): Promise<GitWorktreeOperationResult<GitCommandResult>> {
+  const root = await resolveRepoRoot(repoRoot)
+  if (!root.ok) return root
+
+  const result = await runGitCommand(root.data, ['worktree', 'prune'])
+  return toWorktreeResult(result, result)
+}
+
+export async function repairGitWorktrees(
+  input: GitWorktreeRepairInput
+): Promise<GitWorktreeOperationResult<GitCommandResult>> {
+  const root = await resolveRepoRoot(input.repoRoot)
+  if (!root.ok) return root
+
+  const worktreePath = input.path?.trim() ? resolve(input.path) : null
+  const result = await runGitCommand(root.data, [
+    'worktree',
+    'repair',
+    ...(worktreePath ? [worktreePath] : []),
+  ])
+
+  return toWorktreeResult(result, result)
 }
 
 function isConflictStatus({ index, worktree }: GitStatusCode): boolean {

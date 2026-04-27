@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
-import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
-import { focusOrAddComponentTab } from '../../utils/modelRegistry'
+import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils/gitStatusAppearance'
+import { focusOrAddComponentTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
+import WorktreeManager from '../worktree/WorktreeManager'
 
 type GitPanelMessage = {
   tone: 'neutral' | 'error' | 'success'
@@ -37,6 +38,25 @@ type GitHistoryState =
   | { status: 'loading' }
   | { status: 'ready'; snapshot: GitHistorySnapshot }
   | { status: 'error'; message: string }
+
+type GitScopeKind = 'main' | 'worktree'
+
+type GitScopeOption = {
+  id: string
+  kind: GitScopeKind
+  label: string
+  path: string
+  branch: string | null
+  head: string | null
+  missing: boolean
+  locked: boolean
+  prunable: boolean
+}
+
+type ReviewDiffTarget = {
+  baseRef: string
+  reason: string
+}
 
 function RefreshGitIcon() {
   return (
@@ -86,6 +106,62 @@ function sortedEntries(entries: GitStatusEntry[]): GitStatusEntry[] {
   return [...entries].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
 }
 
+function trimPath(pathValue: string): string {
+  return pathValue.replace(/[\\/]+$/, '')
+}
+
+function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false
+  return trimPath(a).toLowerCase() === trimPath(b).toLowerCase()
+}
+
+function basename(pathValue: string): string {
+  const parts = trimPath(pathValue).split(/[\\/]+/).filter(Boolean)
+  return parts.at(-1) ?? pathValue
+}
+
+function branchOrHeadLabel(branch: string | null, head: string | null): string {
+  if (branch) return branch
+  if (head) return head.slice(0, 8)
+  return 'detached'
+}
+
+function scopeId(kind: GitScopeKind, pathValue: string): string {
+  return `${kind}:${trimPath(pathValue).toLowerCase()}`
+}
+
+function formatScopeOptionLabel(scope: GitScopeOption): string {
+  const suffix = scope.missing ? ' missing' : scope.prunable ? ' prunable' : scope.locked ? ' locked' : ''
+  return scope.kind === 'main'
+    ? `Main checkout - ${basename(scope.path)}${suffix}`
+    : `${branchOrHeadLabel(scope.branch, scope.head)} - ${basename(scope.path)}${suffix}`
+}
+
+function isSafeGitRefForShell(ref: string): boolean {
+  return /^[A-Za-z0-9._/@{}~^:-]+$/.test(ref)
+}
+
+function resolveReviewDiffTarget(branches: GitBranchSnapshot | null, activeScope: GitScopeOption | null): ReviewDiffTarget {
+  const currentBranch = branches?.branches.find((branch) => branch.current) ?? null
+  if (currentBranch?.upstream) {
+    return { baseRef: currentBranch.upstream, reason: 'using the current branch upstream' }
+  }
+
+  const fallbackBranches = ['main', 'master', 'develop', 'trunk']
+  const fallback = branches?.branches.find((branch) =>
+    fallbackBranches.includes(branch.name) && branch.name !== branches.current
+  )
+  if (fallback) {
+    return { baseRef: fallback.name, reason: 'using the nearest standard local base branch' }
+  }
+
+  if (activeScope?.kind === 'worktree') {
+    return { baseRef: 'HEAD~1', reason: 'using HEAD~1 because no upstream or standard base branch is available' }
+  }
+
+  return { baseRef: 'HEAD~1', reason: 'using HEAD~1' }
+}
+
 function splitGitPath(relativePath: string): { directory: string; filename: string } {
   const lastSlashIndex = relativePath.lastIndexOf('/')
   if (lastSlashIndex === -1) {
@@ -115,15 +191,101 @@ function syncStatusLabel(branches: GitBranchSnapshot | null): string {
 }
 
 export default function GitPanel({ workspaceId }: { workspaceId: string }) {
-  const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
+  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
+  const folderPath = workspace?.folderPath ?? null
   const openFile = useWorkspaceStore((s) => s.openFile)
-  const { repoRoot, status, refresh } = useGitStatus(folderPath)
+  const mainGit = useGitStatus(folderPath)
+  const mainRepoRoot = mainGit.repoRoot
+  const [scopeOptions, setScopeOptions] = useState<GitScopeOption[]>([])
+  const [activeScopeId, setActiveScopeId] = useState('main')
+  const activeScope = useMemo(
+    () => scopeOptions.find((scope) => scope.id === activeScopeId) ?? scopeOptions[0] ?? null,
+    [activeScopeId, scopeOptions]
+  )
+  const activeRootPath = activeScope?.path ?? folderPath
+  const { repoRoot, status, refresh } = useGitStatus(activeRootPath)
   const [branches, setBranches] = useState<GitBranchSnapshot | null>(null)
   const [history, setHistory] = useState<GitHistoryState>({ status: 'loading' })
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+
+  const refreshWorktreeScopes = useCallback(async () => {
+    if (!mainRepoRoot || typeof window.api.listGitWorktrees !== 'function') {
+      setScopeOptions([])
+      return
+    }
+
+    const fallbackMainScope: GitScopeOption = {
+      id: 'main',
+      kind: 'main',
+      label: `Main checkout - ${basename(mainRepoRoot)}`,
+      path: mainRepoRoot,
+      branch: null,
+      head: null,
+      missing: false,
+      locked: false,
+      prunable: false,
+    }
+
+    try {
+      const result = await window.api.listGitWorktrees(mainRepoRoot)
+      if (!result.ok) {
+        setScopeOptions([fallbackMainScope])
+        return
+      }
+
+      const listedMain = result.data.worktrees.find((worktree) => samePath(worktree.path, mainRepoRoot)) ?? null
+      const mainScope: GitScopeOption = {
+        ...fallbackMainScope,
+        branch: listedMain?.branch ?? null,
+        head: listedMain?.head ?? null,
+        locked: listedMain?.locked ?? false,
+        prunable: listedMain?.prunable ?? false,
+      }
+
+      const worktreeScopes = await Promise.all(
+        result.data.worktrees
+          .filter((worktree) => !samePath(worktree.path, mainRepoRoot))
+          .map(async (worktree): Promise<GitScopeOption> => {
+            const missing = !(await window.api.pathExists(worktree.path).catch(() => false))
+            const scope: GitScopeOption = {
+              id: scopeId('worktree', worktree.path),
+              kind: 'worktree',
+              label: '',
+              path: worktree.path,
+              branch: worktree.branch,
+              head: worktree.head,
+              missing,
+              locked: worktree.locked,
+              prunable: worktree.prunable,
+            }
+            return { ...scope, label: formatScopeOptionLabel(scope) }
+          })
+      )
+
+      setScopeOptions([mainScope, ...worktreeScopes])
+    } catch {
+      setScopeOptions([fallbackMainScope])
+    }
+  }, [mainRepoRoot])
+
+  useEffect(() => {
+    void refreshWorktreeScopes()
+  }, [refreshWorktreeScopes])
+
+  useEffect(() => {
+    if (scopeOptions.length === 0) return
+    if (scopeOptions.some((scope) => scope.id === activeScopeId)) return
+    setActiveScopeId('main')
+  }, [activeScopeId, scopeOptions])
+
+  useEffect(() => {
+    if (!activeScope || activeScope.kind === 'main') return
+    if (!activeScope.missing && !activeScope.locked && !activeScope.prunable) return
+    setActiveScopeId('main')
+  }, [activeScope])
 
   const refreshBranches = useCallback(async () => {
     if (!repoRoot || typeof window.api.getGitBranches !== 'function') {
@@ -162,8 +324,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   }, [repoRoot])
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([refresh(), refreshBranches(), refreshHistory()])
-  }, [refresh, refreshBranches, refreshHistory])
+    await Promise.all([refresh(), refreshBranches(), refreshHistory(), refreshWorktreeScopes()])
+  }, [refresh, refreshBranches, refreshHistory, refreshWorktreeScopes])
 
   useEffect(() => {
     void refreshBranches()
@@ -181,6 +343,13 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const allEntries = useMemo(() => sortedEntries(Object.values(status?.files ?? {})), [status])
   const branchOptions = branches?.branches ?? []
   const readyToCommit = stagedEntries.length > 0 && Boolean(commitMessage.trim())
+  const activeScopeLabel = activeScope?.label ?? 'Current checkout'
+  const activeScopePath = repoRoot ?? activeRootPath ?? ''
+  const activeScopeAppearance = getGitScopeStatusAppearance(activeScope)
+  const reviewDiffTarget = useMemo(
+    () => resolveReviewDiffTarget(branches, activeScope),
+    [activeScope, branches]
+  )
 
   const runAction = async (
     label: string,
@@ -211,7 +380,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     runAction('Unstaging file', () => window.api.unstageGitPaths(repoRoot!, [path]), 'Unstaged file.')
   const revertPath = (entry: GitStatusEntry) => {
     const confirmed = window.confirm(
-      `Revert all changes to ${entry.relativePath}? This cannot be undone from Multicode.`
+      `Revert all changes to ${entry.relativePath} in ${activeScopeLabel}? This cannot be undone from Multicode.\n\nScope path: ${activeScopePath}`
     )
     if (!confirmed) return Promise.resolve(null)
 
@@ -219,7 +388,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   }
   const discardUnstagedChanges = () => {
     const confirmed = window.confirm(
-      'Roll back all unstaged changes? This will discard unstaged edits and remove untracked files.'
+      `Roll back all unstaged changes in ${activeScopeLabel}? This will discard unstaged edits and remove untracked files.\n\nScope path: ${activeScopePath}`
     )
     if (!confirmed) return Promise.resolve(null)
 
@@ -296,11 +465,70 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const handleSwitchBranch = async (branchName: string) => {
     if (!repoRoot || !branchName || branchName === branches?.current) return
+    const checkedOutElsewhere = scopeOptions.find((scope) =>
+      scope.branch === branchName && !samePath(scope.path, repoRoot)
+    )
+    if (checkedOutElsewhere) {
+      const confirmed = window.confirm(
+        `Branch "${branchName}" is already checked out in another worktree.\n\n${checkedOutElsewhere.path}\n\nGit may refuse to switch to it here. Continue?`
+      )
+      if (!confirmed) {
+        setMessage({ tone: 'neutral', text: `Branch switch cancelled. ${branchName} is checked out at ${checkedOutElsewhere.path}.` })
+        return
+      }
+    }
     await runAction(
       'Switching branch',
       () => window.api.switchGitBranch(repoRoot, branchName),
       `Switched to ${branchName}.`
     )
+  }
+
+  const handleReviewDiff = async () => {
+    if (!repoRoot || !activeScope || activeScope.kind !== 'worktree') return
+    if (!isSafeGitRefForShell(reviewDiffTarget.baseRef)) {
+      setMessage({
+        tone: 'error',
+        text: `Cannot open review diff because the base ref needs manual shell escaping: ${reviewDiffTarget.baseRef}`,
+      })
+      return
+    }
+
+    const terminalId = `git-review-${Date.now()}`
+    const range = `${reviewDiffTarget.baseRef}...HEAD`
+    const command = [
+      'git status --short --branch',
+      `git diff --stat --find-renames ${range} -- .`,
+      `git diff --find-renames ${range} -- .`,
+      '',
+    ].join('\n')
+
+    const result = await window.api.terminalSpawn(
+      `terminal-${terminalId}`,
+      100,
+      30,
+      repoRoot,
+      false,
+      workspace?.swarmContext?.statePath,
+      undefined,
+      undefined,
+      undefined,
+      true,
+      {
+        kind: 'terminal',
+        workspaceId,
+        terminalId,
+      }
+    )
+
+    if (!result.ok) {
+      setMessage({ tone: 'error', text: result.message })
+      return
+    }
+
+    await window.api.terminalWrite(`terminal-${terminalId}`, command)
+    focusOrAddTerminalTab(workspaceId, terminalId, `Diff ${branchOrHeadLabel(activeScope.branch, activeScope.head)}`)
+    setMessage({ tone: 'neutral', text: `Opened review diff: ${range} (${reviewDiffTarget.reason}).` })
   }
 
   const handleOpenFile = async (entry: GitStatusEntry) => {
@@ -339,8 +567,37 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#0d0e11] text-[#d7d7dc]">
       <div className="border-b border-[#1b1c21] bg-[#101115]">
-        <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
+        <div className="flex min-h-[72px] shrink-0 items-center justify-between gap-2 px-3 py-2">
           <div className="min-w-0 flex-1">
+            <div className="mb-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+              <select
+                value={activeScope?.id ?? 'main'}
+                onChange={(event) => setActiveScopeId(event.target.value)}
+                disabled={Boolean(busy) || scopeOptions.length <= 1}
+                className="block h-6 max-w-full rounded-md border border-[#25262c] bg-[#090a0c] px-1.5 text-[11px] font-semibold text-[#d7d7dc] outline-none transition-colors hover:border-[#303139] focus:border-[#4b5563] disabled:opacity-50"
+                aria-label="Git scope"
+                title={activeScopePath}
+              >
+                {scopeOptions.length === 0 ? (
+                  <option value="main">Current checkout</option>
+                ) : (
+                  scopeOptions.map((scope) => (
+                    <option key={scope.id} value={scope.id} disabled={scope.missing || scope.locked || scope.prunable}>
+                      {scope.label}
+                    </option>
+                  ))
+                )}
+              </select>
+              <button
+                type="button"
+                onClick={() => void handleReviewDiff()}
+                disabled={Boolean(busy) || activeScope?.kind !== 'worktree' || !repoRoot}
+                className="h-6 rounded-md px-2 text-[11px] font-semibold text-[#8a8a92] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#8a8a92]"
+                title={activeScope?.kind === 'worktree' ? `Review diff against ${reviewDiffTarget.baseRef}` : 'Select a worktree to review its diff'}
+              >
+                Review Diff
+              </button>
+            </div>
             <select
               value={branches?.current ?? ''}
               onChange={(event) => void handleSwitchBranch(event.target.value)}
@@ -358,8 +615,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               ))}
             </select>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#6f7480]">
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#30d158]" aria-hidden="true" />
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activeScopeAppearance.dotClass}`} aria-hidden="true" />
+              <span className="shrink-0">{activeScopeAppearance.label}</span>
+              <span className="shrink-0 text-[#3f444d]" aria-hidden="true">/</span>
               <span className="truncate">{syncStatusLabel(branches)}</span>
+              <span className="shrink-0 text-[#3f444d]" aria-hidden="true">/</span>
+              <span className="truncate font-mono" title={activeScopePath}>{activeScopePath}</span>
             </div>
           </div>
           <button
@@ -377,6 +638,14 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <WorktreeManager
+            workspaceId={workspaceId}
+            repoRoot={mainRepoRoot ?? repoRoot}
+            currentBranch={branches?.current ?? null}
+            branchOptions={branchOptions.map((branch) => branch.name)}
+            onChanged={refreshAll}
+          />
+
           {allEntries.length === 0 ? (
             <div className="py-2 text-[12px] text-[#6f7480]">Working tree clean</div>
           ) : (
@@ -406,6 +675,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           onCommit={handleCommit}
           onCommitMessageChange={setCommitMessage}
           onPush={handlePush}
+          scopeLabel={activeScopeLabel}
+          scopePath={activeScopePath}
         />
       </div>
     </div>
@@ -526,6 +797,8 @@ function CommitComposer({
   onCommit,
   onCommitMessageChange,
   onPush,
+  scopeLabel,
+  scopePath,
 }: {
   busy: string | null
   commitMessage: string
@@ -535,9 +808,16 @@ function CommitComposer({
   onCommit: () => Promise<void>
   onCommitMessageChange: (value: string) => void
   onPush: () => Promise<void>
+  scopeLabel: string
+  scopePath: string
 }) {
   return (
     <section className="shrink-0 border-t border-[#1b1c21] bg-[#101115] px-3 py-3">
+      <div className="mb-2 min-w-0 text-[10px] text-[#6f7480]">
+        <span className="font-semibold uppercase tracking-[0.08em] text-[#8a8f9b]">Commit scope</span>
+        <span className="mx-1.5 text-[#3f444d]" aria-hidden="true">/</span>
+        <span className="font-mono" title={scopePath}>{scopeLabel}</span>
+      </div>
       <textarea
         value={commitMessage}
         onChange={(event) => onCommitMessageChange(event.target.value)}

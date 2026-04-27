@@ -41,13 +41,16 @@ export function useGitStatus(rootPath: string | null): UseGitStatusResult {
   const repoRootRef = useRef<string | null>(null)
   const refreshTimerRef = useRef<number | null>(null)
   const statusSignatureRef = useRef('')
+  const statusRepoRootRef = useRef<string | null>(null)
 
   const applyStatus = useCallback((nextStatus: GitStatusSnapshot | null) => {
     const normalized = nextStatus ? normalizeStatusSnapshot(nextStatus) : null
     const nextSignature = getStatusSignature(normalized)
-    if (nextSignature === statusSignatureRef.current) return
+    const nextRepoRoot = normalized?.repoRoot ?? null
+    if (nextSignature === statusSignatureRef.current && nextRepoRoot === statusRepoRootRef.current) return
 
     statusSignatureRef.current = nextSignature
+    statusRepoRootRef.current = nextRepoRoot
     setStatus(normalized)
   }, [])
 
@@ -78,6 +81,7 @@ export function useGitStatus(rootPath: string | null): UseGitStatusResult {
 
     repoRootRef.current = null
     statusSignatureRef.current = ''
+    statusRepoRootRef.current = null
     setRepoRoot(null)
     setStatus(null)
 
@@ -101,6 +105,7 @@ export function useGitStatus(rootPath: string | null): UseGitStatusResult {
         if (!cancelled) {
           repoRootRef.current = null
           statusSignatureRef.current = ''
+          statusRepoRootRef.current = null
           setRepoRoot(null)
           setStatus(null)
         }

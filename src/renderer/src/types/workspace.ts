@@ -152,6 +152,8 @@ export type AgentMessage = {
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 export type AgentCli = 'codex' | 'claude'
 export type AgentKind = 'general' | 'specialist' | 'swarm'
+export type AgentExecutionMode = 'current_workspace' | 'worktree'
+export type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
 export type SpecialistActionId =
   | 'architect'
   | 'product-strategist'
@@ -166,6 +168,29 @@ export type SpecialistActionId =
 export type CliRuntimeSettings = {
   command: string
   useWsl: boolean
+}
+
+export type AgentExecution = {
+  mode: AgentExecutionMode
+  worktreeId: string | null
+  cwd: string | null
+}
+
+export type WorktreeEntry = {
+  id: string
+  path: string
+  branch: string | null
+  ownerAgentId: AgentId | null
+  status: WorktreeEntryStatus
+  createdAt: number
+  updatedAt: number
+  missingAt?: number | null
+}
+
+export type WorkspaceWorktreeState = {
+  containerPath: string | null
+  entries: Record<string, WorktreeEntry>
+  updatedAt: number | null
 }
 
 export type AppSettings = {
@@ -210,6 +235,7 @@ export type AgentState = {
   id: AgentId
   name: string
   status: AgentStatus
+  execution: AgentExecution
   messages: AgentMessage[]
   streamBuffer: string
   cliSessionId?: string
@@ -260,6 +286,7 @@ export type Workspace = {
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>
+  worktreeState: WorkspaceWorktreeState
   editorState: EditorState
   swarmState: SwarmState | null
   swarmAutoState: SwarmAutoState

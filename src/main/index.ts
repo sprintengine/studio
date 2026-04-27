@@ -9,12 +9,18 @@ import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
 import {
   commitGitChanges,
+  copyGitWorktreeIncludedFiles,
+  createGitWorktree,
   discardUnstagedGitChanges,
   getGitBranches,
   getGitFileBase,
   getGitHistory,
   getGitRepoRoot,
   getGitStatus,
+  listGitWorktrees,
+  pruneGitWorktrees,
+  removeGitWorktree,
+  repairGitWorktrees,
   pushGitBranch,
   revertGitPaths,
   stageGitPaths,
@@ -1111,6 +1117,9 @@ type TerminalSession = {
   cli?: AgentCli
   cwd?: string
   swarmStatePath?: string
+  executionMode?: AgentExecutionMode
+  worktreeId?: string
+  worktreePath?: string
   startedAt: number
   lastOutputAt: number | null
   pendingResize?: TerminalSize
@@ -1123,6 +1132,7 @@ const trackedWatcherSenders = new Set<number>()
 let nextFileWatcherId = 0
 
 type AgentCli = 'codex' | 'claude'
+type AgentExecutionMode = 'current_workspace' | 'worktree'
 type CliRuntimeSettings = {
   command: string
   useWsl: boolean
@@ -1143,6 +1153,9 @@ type TerminalSpawnPayload = {
   workspaceId?: string
   agentId?: string
   terminalId?: string
+  executionMode?: AgentExecutionMode
+  worktreeId?: string
+  worktreePath?: string
 }
 
 type TerminalSessionSnapshot = {
@@ -1155,6 +1168,9 @@ type TerminalSessionSnapshot = {
   cli?: AgentCli
   cwd?: string
   swarmStatePath?: string
+  executionMode?: AgentExecutionMode
+  worktreeId?: string
+  worktreePath?: string
   startedAt: number
   lastOutputAt: number | null
   outputBufferLength: number
@@ -1945,6 +1961,9 @@ function getTerminalSnapshot(session: TerminalSession): TerminalSessionSnapshot 
     cli: session.cli,
     cwd: session.cwd,
     swarmStatePath: session.swarmStatePath,
+    executionMode: session.executionMode,
+    worktreeId: session.worktreeId,
+    worktreePath: session.worktreePath,
     startedAt: session.startedAt,
     lastOutputAt: session.lastOutputAt,
     outputBufferLength: session.outputBuffer.length,
@@ -2054,6 +2073,9 @@ ipcMain.handle(
     workspaceId,
     agentId,
     terminalId,
+    executionMode,
+    worktreeId,
+    worktreePath,
   }: TerminalSpawnPayload) => {
     const existingSession = terminals.get(sessionId)
     if (existingSession && !existingSession.hasExited && !existingSession.isDisposed) {
@@ -2062,6 +2084,9 @@ ipcMain.handle(
       existingSession.agentId = agentId ?? existingSession.agentId
       existingSession.terminalId = terminalId ?? existingSession.terminalId
       existingSession.kind = kind ?? existingSession.kind
+      existingSession.executionMode = executionMode ?? existingSession.executionMode
+      existingSession.worktreeId = worktreeId ?? existingSession.worktreeId
+      existingSession.worktreePath = worktreePath ?? existingSession.worktreePath
       safeResizeTerminal(sessionId, cols, rows)
       if (existingSession.outputBuffer) {
         sendTerminalEvent(event.sender, `terminal:data:${sessionId}`, existingSession.outputBuffer)
@@ -2125,6 +2150,9 @@ ipcMain.handle(
         cli: shellOnly ? undefined : cli,
         cwd: launchCwd ?? workingDirectory,
         swarmStatePath,
+        executionMode,
+        worktreeId,
+        worktreePath,
         startedAt: Date.now(),
         lastOutputAt: null,
       }
@@ -2496,6 +2524,30 @@ ipcMain.handle('git:push', async (_, repoRoot: string) => {
 
 ipcMain.handle('git:switch-branch', async (_, repoRoot: string, branchName: string) => {
   return switchGitBranch(repoRoot, branchName)
+})
+
+ipcMain.handle('git:worktree:list', async (_, repoRoot: string) => {
+  return listGitWorktrees(repoRoot)
+})
+
+ipcMain.handle('git:worktree:create', async (_, input) => {
+  return createGitWorktree(input)
+})
+
+ipcMain.handle('git:worktree:remove', async (_, input) => {
+  return removeGitWorktree(input)
+})
+
+ipcMain.handle('git:worktree:prune', async (_, repoRoot: string) => {
+  return pruneGitWorktrees(repoRoot)
+})
+
+ipcMain.handle('git:worktree:repair', async (_, input) => {
+  return repairGitWorktrees(input)
+})
+
+ipcMain.handle('git:worktree:copy-included', async (_, input) => {
+  return copyGitWorktreeIncludedFiles(input)
 })
 
 ipcMain.handle('fs:dialog:opendir', async (event) => {

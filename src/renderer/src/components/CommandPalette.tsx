@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { focusOrAddComponentTab } from '../utils/modelRegistry'
 
 interface Command {
   id: string
@@ -60,6 +61,19 @@ export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
           },
         }))
       : []),
+    ...(activeWorkspace
+      ? [
+          {
+            id: 'git-worktrees',
+            label: 'Git: Manage Worktrees',
+            description: activeWorkspace.folderPath ?? 'Open the Git panel',
+            run: () => {
+              focusOrAddComponentTab(activeWorkspace.id, 'git', 'Git')
+              onClose()
+            },
+          },
+        ]
+      : []),
     {
       id: 'new-workspace',
       label: 'New Workspace...',
@@ -69,7 +83,7 @@ export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
         onClose()
       },
     },
-  ], [workspaces, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspace, setActiveFile, onClose, onNewWorkspace])
+  ], [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspace, setActiveFile, onClose, onNewWorkspace])
 
   const filtered = query.trim()
     ? commands.filter((command) => {

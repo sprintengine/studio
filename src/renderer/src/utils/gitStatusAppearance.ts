@@ -3,6 +3,17 @@ export type GitStatusAppearance = {
   textClass: string
 }
 
+type GitScopeStatusInput = {
+  missing?: boolean
+  prunable?: boolean
+  locked?: boolean
+} | null
+
+export type GitScopeStatusAppearance = {
+  dotClass: string
+  label: string
+}
+
 export function getGitStatusAppearance(status: GitFileStatus | null): GitStatusAppearance {
   switch (status) {
     case 'new':
@@ -18,4 +29,12 @@ export function getGitStatusAppearance(status: GitFileStatus | null): GitStatusA
     default:
       return { badge: null, textClass: '' }
   }
+}
+
+export function getGitScopeStatusAppearance(scope: GitScopeStatusInput): GitScopeStatusAppearance {
+  if (!scope) return { dotClass: 'bg-[#6f7480]', label: 'Unknown' }
+  if (scope.missing) return { dotClass: 'bg-[#ff5a5f]', label: 'Missing' }
+  if (scope.prunable) return { dotClass: 'bg-[#ff5a5f]', label: 'Prunable' }
+  if (scope.locked) return { dotClass: 'bg-[#f2a84b]', label: 'Locked' }
+  return { dotClass: 'bg-[#30d158]', label: 'Ready' }
 }
