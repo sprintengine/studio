@@ -24,6 +24,7 @@ If no tasks are ready, stop.
 
 - Verify every acceptance criterion explicitly
 - Log command output as `--result` entries so evidence is auditable
+- When running Python in this repo, use the project virtual environment if it exists: prefer `.venv/bin/python` and `.venv/bin/pip` on POSIX shells, or `.venv\Scripts\python.exe` on Windows. Do not install Python packages globally when a repo `.venv` is expected.
 - If a bug is found, add a note before marking done: `swarm task note --task-id <id> --id <your-id> --note "Bug: ..."`
 
 ## Critical Rules

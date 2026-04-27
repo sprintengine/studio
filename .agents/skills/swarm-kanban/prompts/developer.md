@@ -26,6 +26,7 @@ If no tasks are ready, stop. Do not wait — other roles may be completing depen
 - Run type checks and tests before marking a task done
 - Only touch files listed in the task's `ownedPaths`
 - Log every file you touched and every command you ran as evidence
+- When running Python in this repo, use the project virtual environment if it exists: prefer `.venv/bin/python` and `.venv/bin/pip` on POSIX shells, or `.venv\Scripts\python.exe` on Windows. Do not install Python packages globally when a repo `.venv` is expected.
 - Review `swarm artifact list --status approved` and the task's dependencies before building. Implementation work should begin only after the relevant `requirements`/`product_strategy`, `architect_plan`, and `html_mockup`/`design_notes` gates are approved.
 - If a task appears ready but a required artifact approval is missing, do not work around the gate. Add a task note describing the missing approval and stop.
 - Do not create or approve review artifacts unless the task explicitly assigns artifact-producing work to the developer role.
