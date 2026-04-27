@@ -190,32 +190,40 @@ export default function WorktreeManager({
       )
 
       const listedPaths = new Set(listedRows.map((row) => trimPath(row.path).toLowerCase()))
-      const orphanedRows = await Promise.all(
+      const orphanedRows = (await Promise.all(
         storedEntries
           .filter((entry) => !listedPaths.has(trimPath(entry.path).toLowerCase()))
-          .map(async (entry): Promise<WorktreeRow> => ({
+          .map(async (entry): Promise<WorktreeRow | null> => {
+            const exists = await window.api.pathExists(entry.path).catch(() => false)
+            if (!exists) {
+              removeWorktreeEntry(workspaceId, entry.id)
+              return null
+            }
+
+            return {
             id: entry.id,
             path: entry.path,
             branch: entry.branch,
             head: null,
             isMain: samePath(entry.path, repoRoot),
-            missing: !(await window.api.pathExists(entry.path).catch(() => false)),
+            missing: true,
             locked: false,
             lockedReason: null,
-            prunable: true,
+            prunable: false,
             prunableReason: 'Stored worktree is not listed by Git.',
             dirtyCount: null,
             ownerAgentId: entry.ownerAgentId,
             storedEntry: entry,
             listedEntry: null,
-          }))
-      )
+            }
+          })
+      )).filter((row): row is WorktreeRow => Boolean(row))
 
       setRows([...listedRows, ...orphanedRows].sort((a, b) => Number(b.isMain) - Number(a.isMain) || branchLabel(a).localeCompare(branchLabel(b))))
     } finally {
       setLoading(false)
     }
-  }, [repoRoot, storedEntries])
+  }, [removeWorktreeEntry, repoRoot, storedEntries, workspaceId])
 
   useEffect(() => {
     void refreshWorktrees()
@@ -277,7 +285,10 @@ export default function WorktreeManager({
     await runWorktreeAction('Pruning stale worktrees', async () => {
       const result = await window.api.pruneGitWorktrees(repoRoot)
       setMessage(messageFromResult(result, 'Pruned stale worktree metadata.'))
-      if (result.ok) await refreshWorktrees()
+      if (result.ok) {
+        await refreshWorktrees()
+        await onChanged()
+      }
     })
   }
 
