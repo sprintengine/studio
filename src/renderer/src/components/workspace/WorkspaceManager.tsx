@@ -287,7 +287,8 @@ export default function WorkspaceManager() {
   }, [])
 
   useEffect(() => {
-    if (renamingId) renameInputRef.current?.select()
+    if (!renamingId) return
+    renameInputRef.current?.focus()
   }, [renamingId])
 
   useEffect(() => {

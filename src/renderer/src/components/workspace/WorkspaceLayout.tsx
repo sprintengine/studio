@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Actions,
   Layout,
@@ -63,23 +63,72 @@ function agentTabActivityDot(
   }
 }
 
-export default function WorkspaceLayout({ workspaceId }: Props) {
+function WorkspaceLayout({ workspaceId }: Props) {
   const workspace    = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
   // Keep a stable Model instance per workspace — re-creating it destroys drag/resize state
   const modelRef = useRef<Model | null>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+  const skipNextRenameCommitRef = useRef(false)
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   if (!workspace) return null
   if (!modelRef.current) {
     modelRef.current = Model.fromJson(workspace.layoutModel)
+    modelRef.current.doAction(Actions.updateModelAttributes({ tabEnableRename: false }))
   }
 
   useEffect(() => {
     if (modelRef.current) registerModel(workspaceId, modelRef.current)
     return () => unregisterModel(workspaceId)
   }, [workspaceId])
+
+  useEffect(() => {
+    if (!renamingTabId) return
+
+    const input = renameInputRef.current
+    if (!input) return
+
+    input.focus()
+    const caretPosition = input.value.length
+    input.setSelectionRange(caretPosition, caretPosition)
+  }, [renamingTabId])
+
+  const startRename = useCallback((event: React.MouseEvent, node: TabNode) => {
+    event.preventDefault()
+    event.stopPropagation()
+    skipNextRenameCommitRef.current = false
+    setRenamingTabId(node.getId())
+    setRenameValue(node.getName())
+  }, [])
+
+  const commitRename = useCallback(() => {
+    if (!renamingTabId) return
+
+    if (skipNextRenameCommitRef.current) {
+      skipNextRenameCommitRef.current = false
+      setRenamingTabId(null)
+      return
+    }
+
+    const nextName = renameValue.trim()
+    const model = modelRef.current
+    const node = model?.getNodeById(renamingTabId)
+
+    if (nextName && node instanceof TabNode) {
+      model?.doAction(Actions.renameTab(node.getId(), nextName))
+
+      if (node.getComponent() === 'agent') {
+        const config = node.getConfig() as { agentId?: string } | undefined
+        updateAgent(workspaceId, config?.agentId ?? node.getId(), { name: nextName })
+      }
+    }
+
+    setRenamingTabId(null)
+  }, [renameValue, renamingTabId, updateAgent, workspaceId])
 
   useEffect(() => {
     const model = modelRef.current
@@ -190,6 +239,16 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
         if (node instanceof TabNode) killTerminalForNode(node)
       }
 
+      if (action.type === Actions.RENAME_TAB) {
+        const node = modelRef.current?.getNodeById(action.data.node)
+        if (node instanceof TabNode && node.getComponent() === 'agent') {
+          const config = node.getConfig() as { agentId?: string } | undefined
+          const agentId = config?.agentId ?? node.getId()
+          const nextName = String(action.data.text ?? '').trim()
+          if (nextName) updateAgent(workspaceId, agentId, { name: nextName })
+        }
+      }
+
       if (action.type === Actions.DELETE_TABSET) {
         const node = modelRef.current?.getNodeById(action.data.node)
         if (node instanceof TabSetNode) {
@@ -203,7 +262,7 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
 
       return action
     },
-    [killTerminalForNode]
+    [killTerminalForNode, updateAgent, workspaceId]
   )
 
   const handleAuxMouseClick = useCallback<NodeMouseEvent>((node, event) => {
@@ -224,7 +283,48 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
 
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {
-      if (node.getComponent() !== 'agent') return
+      if (renamingTabId === node.getId()) {
+        renderValues.content = (
+          <input
+            ref={renameInputRef}
+            className="flexlayout__tab_button_textbox"
+            type="text"
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onBlur={commitRename}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                commitRename()
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                skipNextRenameCommitRef.current = true
+                event.currentTarget.blur()
+                setRenamingTabId(null)
+              }
+              event.stopPropagation()
+            }}
+          />
+        )
+        return
+      }
+
+      const tabContent = (
+        <span
+          className="min-w-0 truncate"
+          onDoubleClick={(event) => startRename(event, node)}
+        >
+          {renderValues.content}
+        </span>
+      )
+
+      if (node.getComponent() !== 'agent') {
+        renderValues.content = tabContent
+        return
+      }
 
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
@@ -265,19 +365,15 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
       if (activityDot) {
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 truncate">{renderValues.content}</span>
+            {tabContent}
             <StatusDot tone={activityDot.tone} label={activityDot.label} />
           </span>
         )
       } else {
-        renderValues.content = (
-          <span className="min-w-0 truncate">
-            {renderValues.content}
-          </span>
-        )
+        renderValues.content = tabContent
       }
     },
-    [workspace.agents, workspace.swarmState]
+    [commitRename, renameValue, renamingTabId, startRename, workspace.agents, workspace.swarmState]
   )
 
   return (
@@ -295,3 +391,5 @@ export default function WorkspaceLayout({ workspaceId }: Props) {
     </div>
   )
 }
+
+export default React.memo(WorkspaceLayout)

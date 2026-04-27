@@ -897,7 +897,29 @@ export async function commitGitChanges(repoRoot: string, message: string): Promi
 }
 
 export async function pushGitBranch(repoRoot: string): Promise<GitCommandResult> {
-  return runGitCommand(repoRoot, ['push'])
+  const branchSnapshot = await getGitBranches(repoRoot)
+  const currentBranch = branchSnapshot.current
+
+  if (!currentBranch) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: '',
+      message: 'Cannot push while HEAD is detached. Check out a branch first.',
+    }
+  }
+
+  const branch = branchSnapshot.branches.find((candidate) => candidate.current)
+  if (branch?.upstream) {
+    return runGitCommand(repoRoot, ['push'])
+  }
+
+  return {
+    ok: false,
+    stdout: '',
+    stderr: '',
+    message: `Branch "${currentBranch}" has no upstream. Set an upstream branch first, for example: git push --set-upstream origin ${currentBranch}`,
+  }
 }
 
 export async function switchGitBranch(repoRoot: string, branchName: string): Promise<GitCommandResult> {
