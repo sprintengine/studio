@@ -1,3 +1,5 @@
+import type { SwarmState } from '../types/workspace'
+
 export function normalizeAgentIdentifier(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
 }
@@ -37,9 +39,11 @@ export function buildSwarmStartupPrompt(
   options: {
     executionCwd?: string
     swarmStatePath?: string
+    commandMode?: 'init' | 'join'
   } = {}
 ): string {
-  const command = role === 'architect'
+  const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
+  const command = commandMode === 'init'
     ? `Run \`swarm init --goal ${quoteShellArg(goal)}\` to receive your full prompt and instructions.`
     : `Run \`swarm join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
 
@@ -53,4 +57,18 @@ export function buildSwarmStartupPrompt(
     context.length > 0 ? context.join('\n') : null,
     command,
   ].filter(Boolean).join('\n\n')
+}
+
+export function getSwarmStartupCommandMode(
+  role: string,
+  agentId: string,
+  swarmState: Pick<SwarmState, 'tasks'> | null | undefined
+): 'init' | 'join' {
+  if (role !== 'architect') return 'join'
+  if (agentId !== 'architect') return 'join'
+
+  const hasCompletedArchitectTask = swarmState?.tasks.some((task) =>
+    task.role === 'architect' && task.status === 'done'
+  )
+  return hasCompletedArchitectTask ? 'join' : 'init'
 }

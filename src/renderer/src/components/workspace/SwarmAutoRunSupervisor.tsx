@@ -1,7 +1,7 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli, CliRuntimeSettings, SwarmArtifact, SwarmRole, SwarmState, Workspace } from '../../types/workspace'
-import { buildSwarmStartupPrompt, prependAgentIdentifier } from '../../utils/agentPrompt'
+import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
   buildSwarmAgentRosterForState,
   getAutoApprovableReadySwarmArtifacts,
@@ -572,6 +572,40 @@ function pickNextAutoRun(
   }
 }
 
+function sessionBelongsToWorkspaceSwarm(
+  session: TerminalSessionSnapshot,
+  workspace: Workspace
+): boolean {
+  return Boolean(
+    session.running
+    && session.kind === 'agent'
+    && session.workspaceId === workspace.id
+    && (!workspace.swarmContext || session.swarmStatePath === workspace.swarmContext.statePath)
+  )
+}
+
+function agentIdMatchesRole(agentId: string | undefined, role: SwarmRole): boolean {
+  return Boolean(agentId && (agentId === role || agentId.startsWith(`${role}-`)))
+}
+
+async function findRunningUnfinishedRoleSession(
+  workspace: Workspace,
+  swarmState: SwarmState,
+  role: SwarmRole
+): Promise<TerminalSessionSnapshot | null> {
+  const sessions = await window.api.terminalList()
+  return sessions.find((session) => {
+    if (!sessionBelongsToWorkspaceSwarm(session, workspace)) return false
+    const agentId = session.agentId
+    if (!agentId) return false
+
+    const runtimeAgent = swarmState.swarmAgents[agentId]
+    if (runtimeAgent?.role && runtimeAgent.role !== role) return false
+    if (!runtimeAgent?.role && !agentIdMatchesRole(agentId, role)) return false
+    return runtimeAgent?.status !== 'done'
+  }) ?? null
+}
+
 async function agentHasRunningProcess(workspace: Workspace, agentId: string): Promise<boolean> {
   return Boolean(await findRunningAgentSession(workspace, agentId))
 }
@@ -681,6 +715,31 @@ async function superviseWorkspace(
     if (await agentHasRunningProcess(workspace, agentId)) return
   }
 
+  const nextReadyUnownedTask = swarmState.tasks.find((task) =>
+    getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready' && !task.ownerAgentId
+  )
+  if (nextReadyUnownedTask) {
+    const runningRoleSession = await findRunningUnfinishedRoleSession(
+      workspace,
+      swarmState,
+      nextReadyUnownedTask.role
+    )
+    if (runningRoleSession?.agentId) {
+      useWorkspaceStore.getState().updateAgent(workspace.id, runningRoleSession.agentId, {
+        cliSessionId: runningRoleSession.sessionId,
+        cliStartRequested: true,
+        cliHasLaunched: true,
+        cli: runningRoleSession.cli ?? workspace.agents[runningRoleSession.agentId]?.cli ?? 'codex',
+      })
+      revealAutoRunAgentTerminal(
+        workspace.id,
+        runningRoleSession.agentId,
+        workspace.agents[runningRoleSession.agentId]?.name ?? runningRoleSession.agentId
+      )
+      return
+    }
+  }
+
   if (swarmState.tasks.length > 0 && swarmState.tasks.every((task) => task.status === 'done')) {
     useWorkspaceStore.getState().setSwarmAutoEnabled(workspace.id, false)
     return
@@ -752,6 +811,7 @@ async function superviseWorkspace(
       buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal, {
         executionCwd,
         swarmStatePath,
+        commandMode: getSwarmStartupCommandMode(nextRun.role, nextRun.agentId, swarmState),
       }),
       nextRun.label,
       swarmRoleLabels[nextRun.role]

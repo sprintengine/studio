@@ -7,7 +7,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentCli, AgentExecution, AgentExecutionMode } from '../../types/workspace'
 import { getSpecialistAction, loadSpecialistPrompt } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
-import { buildSwarmStartupPrompt, prependAgentIdentifier } from '../../utils/agentPrompt'
+import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 
 interface Props {
@@ -114,7 +114,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     const basePrompt = buildSwarmStartupPrompt(
       rosterAgent.role,
       agentId,
-      workspace.swarmState.goal
+      workspace.swarmState.goal,
+      {
+        commandMode: getSwarmStartupCommandMode(rosterAgent.role, agentId, workspace.swarmState),
+      }
     )
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
       ? currentAgent.name

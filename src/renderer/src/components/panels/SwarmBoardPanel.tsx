@@ -417,13 +417,19 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     const shouldResetSession =
       hasLegacyLaunchedSession || (current?.cli !== undefined && current.cli !== selectedCli)
     const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession)
+    const previousSessionId = current?.cliSessionId
+    const nextSessionId = current?.cliStartRequested && previousSessionId && !shouldStartFresh
+      ? previousSessionId
+      : crypto.randomUUID()
+
+    if (shouldStartFresh && previousSessionId && previousSessionId !== nextSessionId) {
+      void window.api.terminalKill(previousSessionId).catch(() => {})
+    }
 
     updateAgent(workspaceId, agentId, {
       name: label,
       cliStartRequested: true,
-      cliSessionId: current?.cliStartRequested && current.cliSessionId && !shouldStartFresh
-        ? current.cliSessionId
-        : crypto.randomUUID(),
+      cliSessionId: nextSessionId,
       cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
       cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
       cli: selectedCli,

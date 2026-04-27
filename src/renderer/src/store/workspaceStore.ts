@@ -786,11 +786,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           if (!ws?.swarmState) return
 
-          const existingArchitect = Object.values(ws.swarmState.swarmAgents).some(
-            (agent) => agent.role === 'architect'
-          )
-          if (role === 'architect' && existingArchitect) return
-
           const agentId = getNextSwarmAgentId(role, ws.swarmState.swarmAgents)
           ws.swarmState.swarmAgents[agentId] = {
             role,
