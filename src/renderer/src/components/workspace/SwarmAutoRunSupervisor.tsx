@@ -5,6 +5,7 @@ import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdenti
 import {
   buildSwarmAgentRosterForState,
   getAutoApprovableReadySwarmArtifacts,
+  getNextSwarmAgentId,
   getSwarmTaskBoardColumn,
   swarmRoleLabels,
 } from '../../utils/swarm'
@@ -14,6 +15,7 @@ import { publishDiagnostic } from '../../utils/diagnostics'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 
 const AUTO_RUN_POLL_MS = 2000
+const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
 type AutoRunWorktreeSpec = {
@@ -559,10 +561,11 @@ function pickNextAutoRun(
     && runtimeAgentById[agent.id]?.status !== 'done'
     && !workspace.agents[agent.id]?.cliStartRequested
   )
-  const agent = existingAgent
-    ?? useWorkspaceStore.getState().addSwarmMember(workspace.id, nextTask.role)
-
-  if (!agent) return null
+  const agent = existingAgent ?? {
+    id: getNextSwarmAgentId(nextTask.role, swarmState.swarmAgents),
+    label: swarmRoleLabels[nextTask.role],
+    role: nextTask.role,
+  }
 
   return {
     agentId: agent.id,
@@ -655,8 +658,11 @@ async function superviseWorkspace(
       : false
     const pendingAgent = workspace.agents[pending.agentId]
     const pendingAgentHasProcess = await agentHasRunningProcess(workspace, pending.agentId)
+    const pendingStartedAt = pending.startedAt ?? 0
+    const pendingStillInGrace = Date.now() - pendingStartedAt < AUTO_RUN_PENDING_SPAWN_GRACE_MS
 
     if (pendingTaskStillReady && pendingAgentHasProcess) return
+    if (pendingTaskStillReady && pendingStillInGrace) return
     if (pendingAgent && pendingAgent.cliStartRequested && !pendingAgentHasProcess) {
       useWorkspaceStore.getState().updateAgent(workspace.id, pending.agentId, {
         cliStartRequested: false,
@@ -820,6 +826,7 @@ async function superviseWorkspace(
     currentState.setSwarmAutoPending(workspace.id, {
       taskId: nextRun.taskId,
       agentId: nextRun.agentId,
+      startedAt: Date.now(),
     })
     currentState.updateAgent(workspace.id, nextRun.agentId, {
       name: nextRun.label,

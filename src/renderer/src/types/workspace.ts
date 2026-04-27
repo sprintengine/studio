@@ -123,6 +123,7 @@ export type SwarmRuntimeAgent = {
 export type SwarmAutoPendingSpawn = {
   taskId: string
   agentId: string
+  startedAt?: number
 }
 
 export type SwarmAutoState = {

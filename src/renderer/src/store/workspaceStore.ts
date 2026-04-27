@@ -269,7 +269,11 @@ function normalizeSwarmAutoState(
     autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
     isolateWorkersInWorktrees: Boolean(input?.isolateWorkersInWorktrees),
     pending: typeof pending?.taskId === 'string' && typeof pending.agentId === 'string'
-      ? { taskId: pending.taskId, agentId: pending.agentId }
+      ? {
+        taskId: pending.taskId,
+        agentId: pending.agentId,
+        ...(typeof pending.startedAt === 'number' ? { startedAt: pending.startedAt } : {}),
+      }
       : null,
   }
 }
@@ -505,9 +509,17 @@ function reconcileSwarmAgents(
       agent.kind === 'specialist' && !rosterAgents[id]
     ).map(([id, agent]) => [id, normalizeAgentState(agent)])
   )
+  const transientSwarmAgents = Object.fromEntries(
+    Object.entries(currentAgents).filter(([id, agent]) =>
+      agent.kind === 'swarm'
+      && !rosterAgents[id]
+      && Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
+    ).map(([id, agent]) => [id, normalizeAgentState(agent)])
+  )
 
   return {
     ...specialistAgents,
+    ...transientSwarmAgents,
     ...rosterAgents,
   }
 }
