@@ -3,7 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getGitEntry, normalizePathKey, useGitStatus } from '../../hooks/useGitStatus'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
-import { focusOrAddEditorBesideExplorer } from '../../utils/modelRegistry'
+import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import {
   createPlanSourcedSwarmWorkspace,
   PlanSourcedSwarmWorkspaceError,
@@ -31,6 +31,11 @@ type ExplorerClipboard = {
 type RenameDraft = {
   entry: Entry
   value: string
+}
+
+type CreateEntryRequest = {
+  kind: 'file' | 'dir'
+  token: number
 }
 
 type MarkdownSwarmDialogError =
@@ -206,6 +211,34 @@ function RevealActiveFileIcon() {
       <circle cx="8" cy="8" r="4.75" stroke="currentColor" strokeWidth="1.35" />
       <circle cx="8" cy="8" r="1.45" fill="currentColor" />
       <path d="M8 1.75v2M8 12.25v2M14.25 8h-2M3.75 8h-2" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function NewFileIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M4.25 1.75h5.4l2.1 2.1v10.4h-7.5a1.5 1.5 0 0 1-1.5-1.5v-9.5a1.5 1.5 0 0 1 1.5-1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M9.5 1.9v2.25h2.25M5.5 8h4M7.5 6v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function NewFolderIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M1.75 4.7c0-.8.65-1.45 1.45-1.45h3.05l1.2 1.45h5.35c.8 0 1.45.65 1.45 1.45v6.15c0 .8-.65 1.45-1.45 1.45H3.2c-.8 0-1.45-.65-1.45-1.45V4.7Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M6 9h4M8 7v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }
@@ -422,6 +455,7 @@ interface ExplorerTreeProps {
   refreshToken: number
   revealPath: string | null
   revealToken: number
+  createRequest: CreateEntryRequest | null
   gitStatus: GitStatusSnapshot | null
   refreshGitStatus: () => Promise<void>
   onOpenFile: (path: string, name: string) => void
@@ -434,6 +468,7 @@ function ExplorerTree({
   refreshToken,
   revealPath,
   revealToken,
+  createRequest,
   gitStatus,
   refreshGitStatus,
   onOpenFile,
@@ -463,6 +498,7 @@ function ExplorerTree({
   const latestSearchingRef = useRef(false)
   const latestGitStatusRef = useRef<GitStatusSnapshot | null>(gitStatus)
   const lastManualRefreshRef = useRef(refreshToken)
+  const lastCreateRequestTokenRef = useRef(0)
 
   const visibleRows = useMemo(
     () => flattenTree(rootEntries, 0, expandedPaths, childrenByPath),
@@ -620,13 +656,19 @@ function ExplorerTree({
 
       if (kind === 'file') {
         openFile(workspaceId, newPath, name, '')
-        focusOrAddEditorBesideExplorer(workspaceId)
+        focusOrAddFileTab(workspaceId, newPath, name)
       }
       void refreshGitStatus()
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
     }
   }
+
+  useEffect(() => {
+    if (!createRequest || createRequest.token === lastCreateRequestTokenRef.current) return
+    lastCreateRequestTokenRef.current = createRequest.token
+    void createEntry(rootPath, createRequest.kind)
+  }, [createRequest?.token])
 
   const startRename = (entry: Entry) => {
     setSelectedPath(entry.path)
@@ -653,6 +695,7 @@ function ExplorerTree({
       committingRenameRef.current = true
       const nextPath = await window.api.renamePath(entry.path, nextName)
       remapOpenFiles(workspaceId, entry.path, nextPath)
+      remapFileTabsForPath(workspaceId, entry.path, nextPath)
 
       if (entry.isDir) {
         setChildrenByPath((current) => remapChildrenByPath(current, entry.path, nextPath))
@@ -700,6 +743,7 @@ function ExplorerTree({
     try {
       await window.api.deletePath(entry.path)
       removeOpenFilesForPath(workspaceId, entry.path)
+      removeFileTabsForPath(workspaceId, entry.path)
 
       setChildrenByPath((current) =>
         Object.fromEntries(Object.entries(current).filter(([path]) => !isPathOrChild(path, entry.path)))
@@ -1356,6 +1400,7 @@ export default function FileExplorer({ workspaceId }: Props) {
   const [query, setQuery] = useState('')
   const [refreshToken, setRefreshToken] = useState(0)
   const [revealToken, setRevealToken] = useState(0)
+  const [createRequest, setCreateRequest] = useState<CreateEntryRequest | null>(null)
   const { status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderReadyPath)
   const canRevealActiveFile = Boolean(folderReadyPath && activeFilePath && isPathOrChild(activeFilePath, folderReadyPath))
 
@@ -1374,7 +1419,11 @@ export default function FileExplorer({ workspaceId }: Props) {
     } catch {
       openFile(workspaceId, path, name, '')
     }
-    focusOrAddEditorBesideExplorer(workspaceId)
+    focusOrAddFileTab(workspaceId, path, name)
+  }
+
+  const requestCreateEntry = (kind: 'file' | 'dir') => {
+    setCreateRequest({ kind, token: Date.now() })
   }
 
   const revealActiveFile = () => {
@@ -1395,6 +1444,24 @@ export default function FileExplorer({ workspaceId }: Props) {
             </span>
             {folderReadyPath && (
               <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => requestCreateEntry('file')}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139]"
+                  title="New file"
+                  aria-label="New file"
+                >
+                  <NewFileIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => requestCreateEntry('dir')}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139]"
+                  title="New folder"
+                  aria-label="New folder"
+                >
+                  <NewFolderIcon />
+                </button>
                 <button
                   type="button"
                   onClick={revealActiveFile}
@@ -1443,6 +1510,7 @@ export default function FileExplorer({ workspaceId }: Props) {
             refreshToken={refreshToken}
             revealPath={canRevealActiveFile ? activeFilePath : null}
             revealToken={revealToken}
+            createRequest={createRequest}
             gitStatus={gitStatus}
             refreshGitStatus={refreshGitStatus}
             onOpenFile={handleOpenFile}

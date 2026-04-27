@@ -184,6 +184,169 @@ export function focusOrAddTerminalTab(
   return true
 }
 
+function fileTabId(filePath: string): string {
+  return `file-editor:${encodeURIComponent(filePath)}`
+}
+
+function getFileTabPath(node: TabNode): string | null {
+  if (node.getComponent() !== 'file-editor') return null
+  const config = node.getConfig() as { filePath?: string } | undefined
+  return typeof config?.filePath === 'string' ? config.filePath : null
+}
+
+function pathSeparatorFor(path: string): '\\' | '/' {
+  return path.includes('\\') && !path.includes('/') ? '\\' : '/'
+}
+
+function isPathOrChild(path: string, parentPath: string): boolean {
+  if (path === parentPath) return true
+  const separator = pathSeparatorFor(parentPath)
+  return path.startsWith(`${parentPath}${separator}`)
+}
+
+function remapPath(path: string, fromPath: string, toPath: string): string {
+  if (path === fromPath) return toPath
+  const separator = pathSeparatorFor(fromPath)
+  const prefix = `${fromPath}${separator}`
+  return path.startsWith(prefix) ? `${toPath}${path.slice(fromPath.length)}` : path
+}
+
+function basename(path: string): string {
+  return path.split(/[/\\]/).filter(Boolean).pop() ?? path
+}
+
+export function focusFileTab(workspaceId: string, filePath: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  let targetTabId: string | null = null
+  model.visitNodes((node) => {
+    if (targetTabId || !(node instanceof TabNode)) return
+    if (getFileTabPath(node) === filePath) targetTabId = node.getId()
+  })
+
+  if (!targetTabId) return false
+  model.doAction(Actions.selectTab(targetTabId))
+  return true
+}
+
+export function remapFileTabsForPath(workspaceId: string, fromPath: string, toPath: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  const updates: Array<{ tabId: string; name: string; config: Record<string, unknown> }> = []
+  model.visitNodes((node) => {
+    if (!(node instanceof TabNode)) return
+    const filePath = getFileTabPath(node)
+    if (!filePath || !isPathOrChild(filePath, fromPath)) return
+
+    const nextPath = remapPath(filePath, fromPath, toPath)
+    updates.push({
+      tabId: node.getId(),
+      name: basename(nextPath),
+      config: {
+        ...((node.getConfig() as Record<string, unknown> | undefined) ?? {}),
+        filePath: nextPath,
+      },
+    })
+  })
+
+  updates.forEach((update) => {
+    model.doAction(Actions.updateNodeAttributes(update.tabId, { config: update.config }))
+    model.doAction(Actions.renameTab(update.tabId, update.name))
+  })
+
+  return updates.length > 0
+}
+
+export function removeFileTabsForPath(workspaceId: string, path: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  const tabIds: string[] = []
+  model.visitNodes((node) => {
+    if (!(node instanceof TabNode)) return
+    const filePath = getFileTabPath(node)
+    if (filePath && isPathOrChild(filePath, path)) tabIds.push(node.getId())
+  })
+
+  tabIds.forEach((tabId) => model.doAction(Actions.deleteTab(tabId)))
+  return tabIds.length > 0
+}
+
+export function focusOrAddFileTab(
+  workspaceId: string,
+  filePath: string,
+  name: string
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  let targetTabId: string | null = null
+  model.visitNodes((node) => {
+    if (targetTabId || !(node instanceof TabNode)) return
+    if (getFileTabPath(node) === filePath) targetTabId = node.getId()
+  })
+
+  if (targetTabId) {
+    const node = model.getNodeById(targetTabId)
+    if (node instanceof TabNode && node.getName() !== name) {
+      model.doAction(Actions.renameTab(targetTabId, name))
+    }
+    model.doAction(Actions.selectTab(targetTabId))
+    return true
+  }
+
+  let targetTabset: TabSetNode | null = null
+  let explorerParent: TabSetNode | null = null
+  let firstTabset: TabSetNode | null = null
+
+  const activeTabset = model.getActiveTabset()
+  if (activeTabset) {
+    const hasEditorSurface = activeTabset.getChildren().some((child) =>
+      child instanceof TabNode
+      && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor')
+    )
+    if (hasEditorSurface) targetTabset = activeTabset
+  }
+
+  model.visitNodes((node) => {
+    if (!firstTabset && node instanceof TabSetNode) firstTabset = node
+
+    if (node instanceof TabNode && node.getComponent() === 'explorer') {
+      const parent = node.getParent()
+      if (!explorerParent && parent instanceof TabSetNode) explorerParent = parent
+    }
+
+    if (targetTabset || !(node instanceof TabSetNode)) return
+    const hasEditorSurface = node.getChildren().some((child) =>
+      child instanceof TabNode
+      && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor')
+    )
+    if (hasEditorSurface) targetTabset = node
+  })
+
+  const finalTarget = targetTabset ?? explorerParent ?? activeTabset ?? firstTabset
+  if (!finalTarget) return false
+
+  model.doAction(
+    Actions.addNode(
+      {
+        type: 'tab',
+        id: fileTabId(filePath),
+        name,
+        component: 'file-editor',
+        config: { filePath },
+      },
+      finalTarget.getId(),
+      targetTabset ? DockLocation.CENTER : DockLocation.RIGHT,
+      -1,
+      true
+    )
+  )
+  return true
+}
+
 export function focusComponentTab(workspaceId: string, component: string): boolean {
   const model = models.get(workspaceId)
   if (!model) return false

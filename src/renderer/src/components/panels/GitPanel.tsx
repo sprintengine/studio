@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils/gitStatusAppearance'
-import { focusOrAddComponentTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
+import { focusOrAddFileTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import WorktreeManager from '../worktree/WorktreeManager'
 
 type GitPanelMessage = {
@@ -545,7 +545,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
 
     openFile(workspaceId, entry.path, name, content)
-    focusOrAddComponentTab(workspaceId, 'editor', 'Editor')
+    focusOrAddFileTab(workspaceId, entry.path, name)
   }
 
   if (!folderPath) {

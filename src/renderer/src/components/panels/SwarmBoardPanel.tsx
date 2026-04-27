@@ -32,7 +32,7 @@ import {
   getSwarmRootDirectoryPath,
   parseSwarmStateFile,
 } from '../../utils/swarmStateFile'
-import { focusOrAddAgentTab, focusOrAddComponentTab } from '../../utils/modelRegistry'
+import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
 import { publishDiagnostic } from '../../utils/diagnostics'
 
 const columnMeta: { key: SwarmTaskBoardColumn; label: string; tint: string }[] = [
@@ -645,7 +645,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       const openedArtifact = await readArtifactForEditor(statePath, artifact)
       openFile(workspaceId, openedArtifact.path, openedArtifact.name, openedArtifact.content)
       setSelectedTaskId(null)
-      focusOrAddComponentTab(workspaceId, 'editor', 'Editor')
+      focusOrAddFileTab(workspaceId, openedArtifact.path, openedArtifact.name)
       setArtifactAction(artifact.id, {
         kind: 'open',
         status: 'success',
@@ -997,7 +997,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       }
     }
     openFile(workspaceId, planFilePath, 'plan.md', content)
-    focusOrAddComponentTab(workspaceId, 'editor', 'Editor')
+    focusOrAddFileTab(workspaceId, planFilePath, 'plan.md')
     setPlanReader((current) => ({ ...current, open: false }))
   }
 

@@ -67,6 +67,8 @@ function WorkspaceLayout({ workspaceId }: Props) {
   const workspace    = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
+  const closeFile = useWorkspaceStore((s) => s.closeFile)
   const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
   // Keep a stable Model instance per workspace — re-creating it destroys drag/resize state
   const modelRef = useRef<Model | null>(null)
@@ -167,7 +169,7 @@ function WorkspaceLayout({ workspaceId }: Props) {
   const factory = useCallback(
     (node: TabNode) => {
       const component = node.getComponent()
-      const config = node.getConfig() as { agentId?: string; terminalId?: string } | undefined
+      const config = node.getConfig() as { agentId?: string; terminalId?: string; filePath?: string } | undefined
 
       switch (component) {
         case 'agent':
@@ -179,6 +181,10 @@ function WorkspaceLayout({ workspaceId }: Props) {
           )
         case 'editor':
           return <EditorPanel workspaceId={workspaceId} />
+        case 'file-editor':
+          return config?.filePath
+            ? <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />
+            : <div className="h-full bg-[#08090b]" />
         case 'explorer':
           return <FileExplorer workspaceId={workspaceId} />
         case 'git':
@@ -207,9 +213,14 @@ function WorkspaceLayout({ workspaceId }: Props) {
     [workspaceId]
   )
 
-  const killTerminalForNode = useCallback(
+  const cleanupNode = useCallback(
     (node: TabNode) => {
-      const config = node.getConfig() as { agentId?: string; terminalId?: string } | undefined
+      const config = node.getConfig() as { agentId?: string; terminalId?: string; filePath?: string } | undefined
+      if (node.getComponent() === 'file-editor') {
+        if (config?.filePath) closeFile(workspaceId, config.filePath)
+        return
+      }
+
       if (node.getComponent() === 'agent') {
         const agentId = config?.agentId ?? node.getId()
         const agent = workspace.agents[agentId]
@@ -229,14 +240,22 @@ function WorkspaceLayout({ workspaceId }: Props) {
         void window.api.terminalKill(`terminal-${terminalId}`).catch(() => {})
       }
     },
-    [setSwarmAutoEnabled, updateAgent, workspace.agents, workspaceId]
+    [closeFile, setSwarmAutoEnabled, updateAgent, workspace.agents, workspaceId]
   )
 
   const handleAction = useCallback(
     (action: Action) => {
       if (action.type === Actions.DELETE_TAB) {
         const node = modelRef.current?.getNodeById(action.data.node)
-        if (node instanceof TabNode) killTerminalForNode(node)
+        if (node instanceof TabNode) cleanupNode(node)
+      }
+
+      if (action.type === Actions.SELECT_TAB) {
+        const node = modelRef.current?.getNodeById(action.data.tabNode)
+        if (node instanceof TabNode && node.getComponent() === 'file-editor') {
+          const config = node.getConfig() as { filePath?: string } | undefined
+          if (config?.filePath) setActiveFile(workspaceId, config.filePath)
+        }
       }
 
       if (action.type === Actions.RENAME_TAB) {
@@ -254,7 +273,7 @@ function WorkspaceLayout({ workspaceId }: Props) {
         if (node instanceof TabSetNode) {
           node.getChildren().forEach((child) => {
             if (child instanceof TabNode && child.isEnableClose()) {
-              killTerminalForNode(child)
+              cleanupNode(child)
             }
           })
         }
@@ -262,7 +281,7 @@ function WorkspaceLayout({ workspaceId }: Props) {
 
       return action
     },
-    [killTerminalForNode, updateAgent, workspaceId]
+    [cleanupNode, setActiveFile, updateAgent, workspaceId]
   )
 
   const handleAuxMouseClick = useCallback<NodeMouseEvent>((node, event) => {
@@ -270,9 +289,9 @@ function WorkspaceLayout({ workspaceId }: Props) {
 
     event.preventDefault()
     event.stopPropagation()
-    killTerminalForNode(node)
+    cleanupNode(node)
     modelRef.current?.doAction(Actions.deleteTab(node.getId()))
-  }, [killTerminalForNode])
+  }, [cleanupNode])
 
   const handleMouseDownCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 1) return
@@ -312,14 +331,31 @@ function WorkspaceLayout({ workspaceId }: Props) {
         return
       }
 
+      const canRenameTab = node.getComponent() !== 'file-editor'
       const tabContent = (
         <span
           className="min-w-0 truncate"
-          onDoubleClick={(event) => startRename(event, node)}
+          onDoubleClick={canRenameTab ? (event) => startRename(event, node) : undefined}
         >
           {renderValues.content}
         </span>
       )
+
+      if (node.getComponent() === 'file-editor') {
+        const config = node.getConfig() as { filePath?: string } | undefined
+        const file = workspace.editorState?.openFiles.find((openFile) => openFile.path === config?.filePath)
+        renderValues.content = (
+          <span className="inline-flex min-w-0 items-center gap-1">
+            {tabContent}
+            {file?.isDirty && (
+              <span className="shrink-0 text-[#f2c45f]" aria-label="Unsaved changes" title="Unsaved changes">
+                •
+              </span>
+            )}
+          </span>
+        )
+        return
+      }
 
       if (node.getComponent() !== 'agent') {
         renderValues.content = tabContent
@@ -373,7 +409,7 @@ function WorkspaceLayout({ workspaceId }: Props) {
         renderValues.content = tabContent
       }
     },
-    [commitRename, renameValue, renamingTabId, startRename, workspace.agents, workspace.swarmState]
+    [commitRename, renameValue, renamingTabId, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.swarmState]
   )
 
   return (

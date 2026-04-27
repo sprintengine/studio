@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
-import { focusOrAddComponentTab } from '../utils/modelRegistry'
+import { focusOrAddComponentTab, focusOrAddFileTab } from '../utils/modelRegistry'
 
 interface Command {
   id: string
@@ -57,6 +57,7 @@ export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
           description: file.path,
           run: () => {
             setActiveFile(activeWorkspaceId, file.path)
+            focusOrAddFileTab(activeWorkspaceId, file.path, file.name)
             onClose()
           },
         }))
