@@ -169,6 +169,29 @@ function toPosixPath(pathValue: string): string {
   return pathValue.replace(/\\/g, '/')
 }
 
+function toWindowsPath(pathValue: string): string {
+  const normalized = toPosixPath(pathValue)
+  const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
+  if (!wslMatch) return pathValue
+
+  const [, drive, rest] = wslMatch
+  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, '\\')}`
+}
+
+function toFilesystemPath(pathValue: string): string {
+  return process.platform === 'win32' ? toWindowsPath(pathValue) : pathValue
+}
+
+function normalizeComparablePath(pathValue: string): string {
+  const normalized = toPosixPath(pathValue).replace(/\/+$/, '')
+  const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
+  const comparable = wslMatch
+    ? `${wslMatch[1].toUpperCase()}:/${wslMatch[2]}`
+    : normalized
+
+  return /^[A-Za-z]:/.test(comparable) ? comparable.toLowerCase() : comparable
+}
+
 function toAbsolutePath(repoRoot: string, relativePath: string): string {
   return join(repoRoot, ...relativePath.split('/'))
 }
@@ -183,14 +206,9 @@ function isInsideRepo(repoRoot: string, filePath: string): boolean {
   return Boolean(relativePath) && !relativePath.startsWith('..') && !isAbsolute(relativePath)
 }
 
-function isInsideDirectory(parentPath: string, childPath: string): boolean {
-  const relativePath = relative(parentPath, childPath)
-  return Boolean(relativePath) && !relativePath.startsWith('..') && !isAbsolute(relativePath)
-}
-
 async function pathExists(pathValue: string): Promise<boolean> {
   try {
-    await stat(pathValue)
+    await stat(toFilesystemPath(pathValue))
     return true
   } catch {
     return false
@@ -262,7 +280,10 @@ export function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
 }
 
 async function resolveRepoRoot(repoRoot: string): Promise<GitWorktreeOperationResult<string>> {
-  const resolvedRoot = resolve(repoRoot)
+  const normalizedRoot = toPosixPath(repoRoot)
+  const resolvedRoot = /^\/mnt\/[A-Za-z](?:\/|$)/.test(normalizedRoot)
+    ? toFilesystemPath(normalizedRoot)
+    : toFilesystemPath(resolve(repoRoot))
   const actualRoot = await getGitRepoRoot(resolvedRoot)
 
   if (!actualRoot) {
@@ -276,12 +297,17 @@ function resolveWorktreeDestination(containerPath: string, destinationPath: stri
   containerPath: string
   destinationPath: string
 }> {
-  const resolvedContainer = resolve(containerPath)
+  const resolvedContainer = containerPath
   const resolvedDestination = isAbsolute(destinationPath)
-    ? resolve(destinationPath)
+    ? destinationPath
     : resolve(resolvedContainer, destinationPath)
 
-  if (!isInsideDirectory(resolvedContainer, resolvedDestination)) {
+  const comparableContainer = normalizeComparablePath(resolvedContainer)
+  const comparableDestination = normalizeComparablePath(resolvedDestination)
+  if (
+    comparableDestination !== comparableContainer
+    && !comparableDestination.startsWith(`${comparableContainer}/`)
+  ) {
     return {
       ok: false,
       message: 'Worktree destination must be inside the configured worktree container.',
@@ -396,11 +422,13 @@ export async function copyGitWorktreeIncludedFiles(
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
 
-  const worktreePath = resolve(input.worktreePath)
+  const worktreePath = input.worktreePath
   const worktrees = await listGitWorktrees(root.data)
   if (!worktrees.ok) return worktrees
 
-  const registeredWorktree = worktrees.data.worktrees.find((worktree) => resolve(worktree.path) === worktreePath)
+  const registeredWorktree = worktrees.data.worktrees.find(
+    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath)
+  )
   if (!registeredWorktree) {
     return {
       ok: false,
@@ -415,7 +443,7 @@ export async function copyGitWorktreeIncludedFiles(
     }
   }
 
-  const includeFilePath = join(root.data, '.worktreeinclude')
+  const includeFilePath = join(toFilesystemPath(root.data), '.worktreeinclude')
   const result: GitWorktreeCopyIncludedResult = {
     copied: [],
     skipped: [],
@@ -456,10 +484,13 @@ export async function copyGitWorktreeIncludedFiles(
       continue
     }
 
-    const sourcePath = resolve(root.data, entry)
-    const destinationPath = resolve(worktreePath, entry)
+    const sourcePath = join(root.data, ...entry.split(/[\\/]+/))
+    const destinationPath = join(worktreePath, ...entry.split(/[\\/]+/))
 
-    if (!isInsideDirectory(root.data, sourcePath) || !isInsideDirectory(worktreePath, destinationPath)) {
+    if (
+      !normalizeComparablePath(sourcePath).startsWith(`${normalizeComparablePath(root.data)}/`)
+      || !normalizeComparablePath(destinationPath).startsWith(`${normalizeComparablePath(worktreePath)}/`)
+    ) {
       result.skipped.push({ path: entry, reason: 'Include path must stay inside the repository and target worktree.' })
       continue
     }
@@ -470,8 +501,9 @@ export async function copyGitWorktreeIncludedFiles(
     }
 
     try {
-      await mkdir(dirname(destinationPath), { recursive: true })
-      await cp(sourcePath, destinationPath, {
+      const destinationFsPath = toFilesystemPath(destinationPath)
+      await mkdir(dirname(destinationFsPath), { recursive: true })
+      await cp(toFilesystemPath(sourcePath), destinationFsPath, {
         recursive: true,
         force: true,
         errorOnExist: false,
@@ -523,7 +555,7 @@ export async function createGitWorktree(
     }
   }
 
-  await mkdir(destination.data.containerPath, { recursive: true })
+  await mkdir(toFilesystemPath(destination.data.containerPath), { recursive: true })
   const addResult = await runGitCommand(root.data, [
     'worktree',
     'add',
@@ -554,7 +586,7 @@ export async function createGitWorktree(
   if (!nextWorktrees.ok) return nextWorktrees
 
   const createdWorktree = nextWorktrees.data.worktrees.find(
-    (worktree) => resolve(worktree.path) === destination.data.destinationPath
+    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(destination.data.destinationPath)
   )
 
   if (!createdWorktree) {
@@ -581,11 +613,13 @@ export async function removeGitWorktree(
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
 
-  const worktreePath = resolve(input.path)
+  const worktreePath = input.path
   const worktrees = await listGitWorktrees(root.data)
   if (!worktrees.ok) return worktrees
 
-  const registeredWorktree = worktrees.data.worktrees.find((worktree) => resolve(worktree.path) === worktreePath)
+  const registeredWorktree = worktrees.data.worktrees.find(
+    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath)
+  )
   if (!registeredWorktree) {
     return {
       ok: false,
