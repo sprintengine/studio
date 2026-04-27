@@ -1224,9 +1224,8 @@ export default function WorkspaceManager() {
               return (
                 <div
                   key={workspace.id}
-                  className="absolute inset-0"
+                  className={`absolute inset-0 ${active ? 'z-10 visible' : 'z-0 invisible'}`}
                   style={{
-                    display: active ? 'block' : 'none',
                     pointerEvents: active ? 'auto' : 'none',
                   }}
                   aria-hidden={!active}
