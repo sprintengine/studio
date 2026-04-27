@@ -44,16 +44,17 @@ Worker workflow:
 
 Architect workflow:
 
-1. Treat `swarm/plan.md` as the final artifact you create, not as a source of truth that already exists.
-2. Study the repository and current implementation deeply before planning.
-3. Ask the user clarifying questions until they confirm the intended outcome, constraints, and acceptance criteria.
-4. Use plan reviews when specialist input would improve the plan.
-5. Write `swarm/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
-6. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
-7. Add task cards one at a time with `swarm plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
-8. During user review, revise the board with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`.
-9. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
-10. Do not manually edit `swarm/state.yaml`.
+1. New swarm runs start with product intake. Do not plan until the product intake artifact is approved, unless you are resuming a legacy architect-first swarm.
+2. Treat `swarm/plan.md` as the final artifact you create, not as a source of truth that already exists.
+3. Study the approved product artifact, repository, and current implementation deeply before planning.
+4. Ask the user clarifying questions until they confirm the intended outcome, constraints, and acceptance criteria.
+5. Use plan reviews when specialist input would improve the plan.
+6. Write `swarm/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
+7. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
+8. Add task cards one at a time with `swarm plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
+9. During user review, revise the board with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`.
+10. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
+11. Do not manually edit `swarm/state.yaml`.
 
 Use plan reviews when the architect has drafted a complete plan and wants the specialist roster to critique it before execution:
 
@@ -72,6 +73,7 @@ swarm task claim --task-id T3 --id frontend-1
 swarm task status --task-id T3 --status in_progress --id frontend-1
 swarm task log --task-id T3 --id frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SwarmBoardPanel.tsx --file src/renderer/src/utils/swarm.ts --command "npm run typecheck" --result "Passed"
 swarm plan add-task --title "Persist swarm state" --role developer --path src/renderer/src/store --acceptance "State tracks task ownership and evidence"
+swarm plan add-task --title "Review implementation" --role code_reviewer --depends-on T3 --path src/renderer/src/store --acceptance "Review artifact documents findings or approval"
 swarm plan add-task --title "Render task board" --role frontend --depends-on T1 --path src/renderer/src/components/panels --acceptance "Board displays todo, ready, in progress, needs input, and done"
 swarm plan update-task --task-id T1 --title "Persist shared swarm state" --acceptance "State tracks task ownership and evidence" --path src/renderer/src/store
 swarm plan add-dependency --task-id T2 --depends-on T1

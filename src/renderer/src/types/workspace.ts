@@ -20,7 +20,7 @@ export type LayoutTemplate = {
   layout: IJsonModel
 }
 
-export type SwarmRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security'
+export type SwarmRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer'
 
 export type SwarmSkillMap = Record<SwarmRole, string[]>
 export type SwarmRoleCounts = Record<SwarmRole, number>
@@ -37,6 +37,7 @@ export type SwarmArtifactKind =
   | 'design_notes'
   | 'branding'
   | 'security_review'
+  | 'code_review'
   | 'validation_report'
 
 export type SwarmArtifactStatus =

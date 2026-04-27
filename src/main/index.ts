@@ -1336,6 +1336,7 @@ type SwarmArtifactKind =
   | 'product_strategy'
   | 'requirements'
   | 'security_review'
+  | 'code_review'
   | 'validation_report'
 
 type SwarmArtifactStatus =
@@ -1385,6 +1386,7 @@ const swarmArtifactKinds = new Set<SwarmArtifactKind>([
   'product_strategy',
   'requirements',
   'security_review',
+  'code_review',
   'validation_report',
 ])
 

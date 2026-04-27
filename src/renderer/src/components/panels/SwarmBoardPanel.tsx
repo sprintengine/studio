@@ -50,7 +50,7 @@ const taskStateLabel: Record<SwarmTaskStatus, string> = {
   done: 'Done',
 }
 
-const addableRoles: SwarmRole[] = ['product', 'frontend', 'developer', 'tester', 'security']
+const addableRoles: SwarmRole[] = ['product', 'frontend', 'developer', 'code_reviewer', 'tester', 'security']
 const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
   { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
   { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
@@ -143,6 +143,7 @@ const roleSummaries: Record<SwarmRole, string> = {
   product: 'Shapes scope, positioning, audience fit, and priority tradeoffs.',
   developer: 'Builds implementation and integration work.',
   frontend: 'Owns interaction design, visual quality, and UI implementation.',
+  code_reviewer: 'Reviews implementation quality, regressions, and evidence.',
   tester: 'Validates behavior, regressions, and acceptance criteria.',
   security: 'Reviews trust boundaries, command safety, data handling, and hardening.',
 }
@@ -542,7 +543,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     ? getSwarmPlanFilePath(folderPath, swarmContext.teamSlug)
     : null
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
-  const workerRoles: SwarmRole[] = ['developer', 'frontend', 'product', 'tester', 'security']
+  const workerRoles: SwarmRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'tester', 'security']
   const roleTaskLaunches = workerRoles.flatMap((role) => {
     const activeTask = swarmState.tasks.find((task) =>
       task.role === role && (task.status === 'in_progress' || task.status === 'needs_input')
@@ -2354,6 +2355,7 @@ function SwarmProjectView({
       product: { open: 0, ready: 0 },
       developer: { open: 0, ready: 0 },
       frontend: { open: 0, ready: 0 },
+      code_reviewer: { open: 0, ready: 0 },
       tester: { open: 0, ready: 0 },
       security: { open: 0, ready: 0 },
     }

@@ -28,7 +28,7 @@ except ImportError as exc:
 
 VALID_TASK_STATUSES = {"todo", "in_progress", "needs_input", "done"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
-VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security"}
+VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer"}
 VALID_ARTIFACT_KINDS = {
     "architect_plan",
     "product_strategy",
@@ -37,6 +37,7 @@ VALID_ARTIFACT_KINDS = {
     "design_notes",
     "branding",
     "security_review",
+    "code_review",
     "validation_report",
 }
 VALID_ARTIFACT_STATUSES = {"draft", "ready_for_review", "approved", "changes_requested", "superseded"}
@@ -48,6 +49,7 @@ PLAN_REVIEW_FOCUS = {
     "frontend": "interaction design, UI architecture, accessibility, responsive behavior, and user workflow",
     "tester": "test strategy, acceptance criteria, regression coverage, edge cases, and release confidence",
     "security": "trust boundaries, command safety, secrets, permissions, abuse cases, and hardening",
+    "code_reviewer": "code correctness, integration risk, maintainability, regressions, and evidence quality",
 }
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
@@ -57,6 +59,7 @@ SPECIALIST_PROMPT_FILES = {
     "frontend": "frontend-design-promt.md",
     "tester": "qa-test-prompt.md",
     "security": "security-review-prompt.md",
+    "code_reviewer": "code-reviewer-pre-prompt.md",
 }
 
 STATE_NOTICE = (
@@ -751,7 +754,11 @@ def plan_path_artifact_value(state_path: Path) -> str:
     return normalize_artifact_path(state_path, "plan.md")["path"]
 
 
-def ensure_plan_approval_gate(state: Dict[str, Any], state_path: Path, actor: str = "architect") -> Dict[str, Any]:
+def product_intake_path_artifact_value(state_path: Path) -> str:
+    return normalize_artifact_path(state_path, "product-requirements.md")["path"]
+
+
+def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
     plan_path_value = plan_path_artifact_value(state_path)
     plan_task = None
     plan_artifact = None
@@ -769,18 +776,140 @@ def ensure_plan_approval_gate(state: Dict[str, Any], state_path: Path, actor: st
             break
 
     if plan_task is None:
-        plan_task = find_task_by_id(state, "T0")
+        candidate = find_task_by_id(state, "T0")
+        if candidate and candidate.get("role") == "architect":
+            plan_task = candidate
+
+    return {"task": plan_task, "artifact": plan_artifact}
+
+
+def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: str = "product") -> Dict[str, Any]:
+    requirements_path_value = product_intake_path_artifact_value(state_path)
+    product_task = None
+    product_artifact = None
+
+    for artifact in state.setdefault("artifacts", []):
+        if not isinstance(artifact, dict):
+            continue
+        if (
+            artifact.get("kind") in {"product_strategy", "requirements"}
+            and artifact.get("path") == requirements_path_value
+            and artifact.get("status") != "superseded"
+        ):
+            product_artifact = artifact
+            product_task = find_task_by_id(state, artifact.get("taskId"))
+            break
+
+    if product_task is None:
+        candidate = find_task_by_id(state, "T0")
+        if candidate and candidate.get("role") == "product":
+            product_task = candidate
+
+    if product_task is None:
+        task_id = "T0" if "T0" not in task_ids(state) else next_task_id(state.get("tasks", []))
+        product_task = normalize_task({
+            "id": task_id,
+            "title": "Define product requirements",
+            "description": (
+                "Product strategist intake gate for this swarm run. Produce a requirements or "
+                "product handoff artifact before architect planning begins."
+            ),
+            "role": "product",
+            "status": "in_progress",
+            "ownerAgentId": actor,
+            "dependsOn": [],
+            "ownedPaths": [requirements_path_value],
+            "acceptanceCriteria": [
+                "Product artifact captures the goal, requirements, constraints, and acceptance expectations.",
+                "If no meaningful product strategy is needed, artifact states that clearly and records non-goals and handoff constraints.",
+                "Artifact is reviewed by the user and either approved to done or sent back for changes.",
+            ],
+            "implementationNotes": [
+                "Write the artifact at product-requirements.md in the active swarm team folder.",
+                "Use the existing requirements artifact created by swarm init; mark it ready after the file exists.",
+            ],
+            "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": []},
+            "notes": [],
+            "startedAt": now_iso(),
+            "completedAt": None,
+        })
+        state.setdefault("tasks", []).append(product_task)
+        append_event(state, "task_added", actor, f"{actor} added {product_task['id']}: {product_task['title']}.")
+    elif product_task.get("status") == "todo":
+        product_task["status"] = "in_progress"
+        product_task["ownerAgentId"] = product_task.get("ownerAgentId") or actor
+        product_task["startedAt"] = product_task.get("startedAt") or now_iso()
+        product_task["completedAt"] = None
+    elif product_task.get("status") == "in_progress":
+        product_task["ownerAgentId"] = product_task.get("ownerAgentId") or actor
+        product_task["startedAt"] = product_task.get("startedAt") or now_iso()
+        product_task["completedAt"] = None
+
+    if product_task.get("status") in ACTIVE_TASK_STATUSES:
+        set_agent_active(ensure_agent(state, actor, "product"), product_task)
+
+    if product_artifact is None:
+        now = now_iso()
+        absolute_path = artifact_absolute_path(state_path, requirements_path_value)
+        initial_status = "approved" if product_task.get("status") == "done" else "draft"
+        history = [{"action": "created", "actor": actor, "timestamp": now}]
+        if initial_status == "approved":
+            history.append({"action": "approved", "actor": actor, "timestamp": now, "note": "Imported from completed product intake task."})
+        product_artifact = {
+            "id": next_artifact_id(state.setdefault("artifacts", [])),
+            "kind": "requirements",
+            "title": "Product Requirements",
+            "path": requirements_path_value,
+            "status": initial_status,
+            "createdBy": actor,
+            "taskId": product_task.get("id"),
+            "fingerprint": file_fingerprint(absolute_path),
+            "reviewHistory": history,
+            "recommendedTasks": [],
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        if initial_status == "approved":
+            product_artifact["approvedBy"] = actor
+            product_artifact["approvedAt"] = now
+        state.setdefault("artifacts", []).append(product_artifact)
+        append_event(state, "artifact_added", actor, f"{actor} registered product requirements artifact {product_artifact['id']}.")
+    else:
+        product_artifact["taskId"] = product_task.get("id")
+        product_artifact["path"] = requirements_path_value
+        product_artifact.setdefault("title", "Product Requirements")
+        product_artifact.setdefault("createdBy", actor)
+        product_artifact.setdefault("reviewHistory", [])
+        product_artifact.setdefault("recommendedTasks", [])
+        product_artifact.setdefault("createdAt", now_iso())
+        product_artifact["updatedAt"] = now_iso()
+
+    return {"task": product_task, "artifact": product_artifact}
+
+
+def ensure_plan_approval_gate(
+    state: Dict[str, Any],
+    state_path: Path,
+    actor: str = "architect",
+    depends_on: Optional[str] = None,
+    start_active: bool = True,
+) -> Dict[str, Any]:
+    plan_path_value = plan_path_artifact_value(state_path)
+    existing_gate = find_architect_plan_gate(state, state_path)
+    plan_task = existing_gate["task"]
+    plan_artifact = existing_gate["artifact"]
 
     if plan_task is None:
-        task_id = "T0" if "T0" not in task_ids(state) else next_task_id(state.get("tasks", []))
+        preferred_id = "T1" if depends_on else "T0"
+        task_id = preferred_id if preferred_id not in task_ids(state) else next_task_id(state.get("tasks", []))
         plan_task = normalize_task({
             "id": task_id,
             "title": "Review architect plan artifact",
             "description": "Architect-authored plan.md and task graph approval gate.",
             "role": "architect",
-            "status": "in_progress",
-            "ownerAgentId": actor,
-            "dependsOn": [],
+            "status": "in_progress" if start_active else "todo",
+            "ownerAgentId": actor if start_active else None,
+            "dependsOn": [depends_on] if depends_on else [],
             "ownedPaths": [plan_path_value],
             "acceptanceCriteria": [
                 "Architect plan describes the execution approach and task graph.",
@@ -789,15 +918,18 @@ def ensure_plan_approval_gate(state: Dict[str, Any], state_path: Path, actor: st
             "implementationNotes": [],
             "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": []},
             "notes": [],
-            "startedAt": now_iso(),
+            "startedAt": now_iso() if start_active else None,
             "completedAt": None,
         })
         state.setdefault("tasks", []).append(plan_task)
         append_event(state, "task_added", actor, f"{actor} added {plan_task['id']}: {plan_task['title']}.")
     elif plan_task.get("status") != "done":
-        plan_task["status"] = "in_progress"
-        plan_task["ownerAgentId"] = plan_task.get("ownerAgentId") or actor
-        plan_task["startedAt"] = plan_task.get("startedAt") or now_iso()
+        if depends_on and depends_on not in plan_task.get("dependsOn", []):
+            add_unique_values(plan_task, "dependsOn", [depends_on])
+        if start_active and task_is_ready(state, plan_task):
+            plan_task["status"] = "in_progress"
+            plan_task["ownerAgentId"] = plan_task.get("ownerAgentId") or actor
+            plan_task["startedAt"] = plan_task.get("startedAt") or now_iso()
         plan_task["completedAt"] = None
 
     if plan_task.get("status") in ACTIVE_TASK_STATUSES:
@@ -1186,7 +1318,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
     init_command = f"swarm --state {json.dumps(str(state_path))} init"
     architect_startup_prompt = "\n\n".join([
         f"Use the existing swarm team `{team_slug}`.",
-        "Fetch the canonical architect instructions from the Python tool.",
+        "Fetch the canonical swarm startup instructions from the Python tool.",
         "Run:",
         f"```bash\n{init_command}\n```",
         "Then follow the returned prompt. If `handover.md` exists, treat it as incoming context, not as the final plan.",
@@ -1224,9 +1356,32 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             swarm["name"] = default_name
         if getattr(args, "goal", None) and not swarm.get("goal"):
             swarm["goal"] = args.goal
-        gate = ensure_plan_approval_gate(state, state_path, "architect")
+        legacy_plan_gate = find_architect_plan_gate(state, state_path)
+        if legacy_plan_gate["task"] and not any(
+            isinstance(task, dict) and task.get("role") == "product"
+            for task in state.get("tasks", [])
+        ):
+            plan_gate = ensure_plan_approval_gate(state, state_path, "architect")
+            recompute_phase(state)
+            return {"ok": True, "mode": "architect", "planGate": plan_gate}
+
+        product_gate = ensure_product_intake_gate(state, state_path, "product")
+        product_task = product_gate["task"]
+        product_done = product_task.get("status") == "done"
+        plan_gate = ensure_plan_approval_gate(
+            state,
+            state_path,
+            "architect",
+            depends_on=str(product_task.get("id")),
+            start_active=product_done,
+        )
         recompute_phase(state)
-        return {"ok": True, "gate": gate}
+        return {
+            "ok": True,
+            "mode": "architect" if product_done else "product",
+            "productGate": product_gate,
+            "planGate": plan_gate,
+        }
 
     init_state = with_locked_state(state_path, run)
     state = load_state(state_path)
@@ -1236,17 +1391,65 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     handover_exists = handover_path.exists()
     plan_exists = plan_path.exists()
     goal = swarm.get("goal") or "(not set — read the codebase for context)"
-    plan_gate = init_state["gate"]
-    artifact_id = plan_gate["artifact"]["id"]
+    plan_gate = init_state["planGate"]
+    product_gate = init_state.get("productGate")
+    plan_artifact_id = plan_gate["artifact"]["id"]
     plan_task_id = plan_gate["task"]["id"]
+
+    if init_state.get("mode") == "product":
+        product_artifact_id = product_gate["artifact"]["id"]
+        product_task_id = product_gate["task"]["id"]
+        product_path = artifact_absolute_path(state_path, product_gate["artifact"]["path"])
+        prompt = load_prompt("product")
+        handover_step = (
+            f"1. Read `{handover_path}` as incoming handoff context, not final truth\n"
+            "2. Inspect the repository only as needed to clarify scope, user impact, and constraints\n"
+        ) if handover_exists else (
+            "1. Inspect the repository only as needed to clarify scope, user impact, and constraints\n"
+        )
+        next_step_number = 3 if handover_exists else 2
+        directive = (
+            "\n\n---\n"
+            "## Your Goal\n"
+            f"{goal}\n\n"
+            "## Product-First Intake\n"
+            f"{handover_step}"
+            f"{next_step_number}. Use product intake task `{product_task_id}` and existing artifact `{product_artifact_id}`\n"
+            f"{next_step_number + 1}. Write the product handoff at `{product_path}`\n"
+            f"{next_step_number + 2}. For product-heavy work, cover requirements, behavior, audience, competitor/analog context, branding/styling constraints, risks, and acceptance expectations\n"
+            f"{next_step_number + 3}. For purely technical work, keep the artifact short and state that no meaningful product strategy is needed, while still recording goal, non-goals, constraints, and acceptance expectations\n"
+            f"{next_step_number + 4}. When the artifact is ready, run `swarm artifact ready --artifact-id {product_artifact_id} --id product` so `{product_task_id}` moves to `needs_input`\n"
+            f"{next_step_number + 5}. Tell the user to review the product artifact and approve it or request changes. Do not create implementation tasks.\n\n"
+            "**IMPORTANT: Do not edit swarm/state.yaml directly. "
+            "All updates must go through the swarm tool.**"
+        )
+        return {
+            "ok": True,
+            "role": "product",
+            "action": "product_intake",
+            "productTask": product_gate["task"],
+            "productArtifact": product_gate["artifact"],
+            "planTask": plan_gate["task"],
+            "planArtifact": plan_gate["artifact"],
+            "prompt": prompt + directive,
+        }
+
     prompt = load_prompt("architect")
     existing_plan_step = "Review and update the existing plan" if plan_exists else "Write a compact plan"
-    handover_step = (
-        f"1. Read `{handover_path}` as incoming handoff context, not final truth\n"
-        "2. Read the codebase and validate the handoff against the repository and current user instructions\n"
-    ) if handover_exists else (
-        "1. Read the codebase and understand what needs to be done\n"
-    )
+    if product_gate:
+        handover_step = (
+            f"1. Read `{handover_path}` as incoming handoff context, not final truth\n"
+            "2. Read the approved product artifact and validate it against the repository and current user instructions\n"
+        ) if handover_exists else (
+            "1. Read the approved product artifact, then inspect the codebase and understand what needs to be done\n"
+        )
+    else:
+        handover_step = (
+            f"1. Read `{handover_path}` as incoming handoff context, not final truth\n"
+            "2. Read the codebase and validate the handoff against the repository and current user instructions\n"
+        ) if handover_exists else (
+            "1. Read the codebase and understand what needs to be done\n"
+        )
     next_step_number = 3 if handover_exists else 2
     directive = (
         "\n\n---\n"
@@ -1255,11 +1458,11 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         "## Steps\n"
         f"{handover_step}"
         f"{next_step_number}. {existing_plan_step} at `{plan_path}` as the architect-owned final execution plan\n"
-        f"{next_step_number + 1}. Use architect plan task `{plan_task_id}` and artifact `{artifact_id}` as the approval gate for `plan.md`\n"
+        f"{next_step_number + 1}. Use architect plan task `{plan_task_id}` and artifact `{plan_artifact_id}` as the approval gate for `plan.md`\n"
         f"{next_step_number + 2}. Build the task board one task at a time with `swarm plan add-task`, making downstream tasks depend on `{plan_task_id}` when they require approved plan context\n"
         f"{next_step_number + 3}. For every task card, translate the relevant `plan.md` details into `--description`, repeatable `--note`, `--path`, and `--acceptance` values so workers receive a self-contained implementation brief\n"
         f"{next_step_number + 4}. During review, revise tasks with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`\n"
-        f"{next_step_number + 5}. When `plan.md` is ready, run `swarm artifact ready --artifact-id {artifact_id} --id architect` so `{plan_task_id}` moves to `needs_input`\n"
+        f"{next_step_number + 5}. When `plan.md` is ready, run `swarm artifact ready --artifact-id {plan_artifact_id} --id architect` so `{plan_task_id}` moves to `needs_input`\n"
         f"{next_step_number + 6}. Tell the user to review the plan artifact and approve it or request changes before spawning downstream specialists\n\n"
         "**IMPORTANT: Do not edit swarm/state.yaml directly. "
         "All updates must go through the swarm tool.**"
@@ -1268,6 +1471,8 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         "ok": True,
         "role": "architect",
         "action": "plan",
+        "productTask": product_gate["task"] if product_gate else None,
+        "productArtifact": product_gate["artifact"] if product_gate else None,
         "planTask": plan_gate["task"],
         "planArtifact": plan_gate["artifact"],
         "prompt": prompt + directive,
@@ -1837,7 +2042,7 @@ Swarm tool - all state mutations go through here. Never edit state.yaml directly
 
 Entry points (return full system prompt for the agent):
   swarm handover --name my-team --goal "..." --handover handover.md
-  swarm init [--goal "..."]
+  swarm init [--goal "..."]   # starts product intake for new swarms
   swarm recover
   swarm join --role developer --id developer-1
 
@@ -1851,6 +2056,7 @@ Task commands:
 
 Plan commands (architect only):
   swarm plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
+  swarm plan add-task --title "Review implementation" --role code_reviewer --depends-on T3 --path src/foo --acceptance "Review artifact documents findings or approval"
   swarm plan update-task --task-id T1 --title "..." --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
   swarm plan add-dependency --task-id T2 --depends-on T1
   swarm plan remove-dependency --task-id T2 --depends-on T1
@@ -1862,6 +2068,7 @@ Plan commands (architect only):
 
 Artifact commands:
   swarm artifact add --task-id T1 --kind product_strategy --title "Strategy" --path swarm/team/documents/strategy.md --created-by product
+  swarm artifact add --task-id T4 --kind code_review --title "Code review" --path swarm/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
   swarm artifact list --task-id T1
   swarm artifact ready --artifact-id A1 --id product
   swarm artifact approve --artifact-id A1 --id user

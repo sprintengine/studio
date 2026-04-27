@@ -18,9 +18,10 @@ import {
 
 const planSourcedSwarmRoleCounts: SwarmRoleCounts = {
   architect: 1,
-  product: 0,
+  product: 1,
   developer: 0,
   frontend: 0,
+  code_reviewer: 0,
   tester: 0,
   security: 0,
 }

@@ -197,6 +197,7 @@ type SwarmArtifactKind =
   | 'product_strategy'
   | 'requirements'
   | 'security_review'
+  | 'code_review'
   | 'validation_report'
 type SwarmArtifactStatus =
   | 'approved'

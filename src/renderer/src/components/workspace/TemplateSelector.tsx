@@ -59,6 +59,7 @@ const roleSummaries: Record<SwarmRole, string> = {
   product: 'Clarifies scope, tradeoffs, user value, and acceptance criteria.',
   frontend: 'Designs and implements responsive UI, interaction states, and polish.',
   developer: 'Builds core logic, integrations, refactors, and production code paths.',
+  code_reviewer: 'Reviews implementation quality, regressions, and evidence before validation.',
   tester: 'Runs acceptance checks, regression passes, and publishes evidence.',
   security: 'Reviews trust boundaries, secrets, abuse cases, and hardening risks.',
 }
@@ -68,15 +69,17 @@ const roleAccentClasses: Record<SwarmRole, string> = {
   product: 'bg-[#8b5cf6]',
   developer: 'bg-[#30d158]',
   frontend: 'bg-[#6ee7d8]',
+  code_reviewer: 'bg-[#f59e0b]',
   tester: 'bg-[#64a8ff]',
   security: 'bg-[#ff6b6b]',
 }
 
 const initialSwarmRoleCounts: SwarmRoleCounts = {
   architect: 1,
-  product: 0,
+  product: 1,
   frontend: 0,
   developer: 0,
+  code_reviewer: 0,
   tester: 0,
   security: 0,
 }

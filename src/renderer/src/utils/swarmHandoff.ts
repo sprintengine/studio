@@ -78,6 +78,6 @@ export function buildPlanFileSwarmHandoffPrompt({
     `swarm --state ${quoteShellArg(statePath)} init --goal ${quoteShellArg(goal)}`,
     '```',
     '',
-    'After initialization, continue as the swarm architect: review the handover, create the execution plan, add task cards through the swarm tool, and submit the plan for user review before implementation begins.',
+    'After initialization, follow the prompt returned by the swarm tool. New swarms begin with product intake; architect planning starts after the product artifact is approved.',
   ].join('\n')
 }

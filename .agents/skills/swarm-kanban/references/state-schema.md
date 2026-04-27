@@ -76,6 +76,7 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
   - `design_notes`
   - `branding`
   - `security_review`
+  - `code_review`
   - `validation_report`
 - `title`
 - `path`
@@ -105,7 +106,9 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 
 ## Coordination Rules
 
-- `handover.md` is incoming context from a previous planning agent. The architect validates it before writing `plan.md`.
+- `handover.md` is incoming context from a previous planning agent. The product strategist and architect validate it before creating approved artifacts.
+- New swarm runs start with a product intake task and a `requirements` or `product_strategy` artifact. If no meaningful product discovery is needed, the artifact should say so and still record goal, non-goals, constraints, and acceptance expectations.
+- Architect planning starts after the product intake artifact is approved.
 - `plan.md` is architect-owned final execution context for workers and reviewers.
 - Task cards should contain the relevant distilled plan context. Workers should not need to search `plan.md` to understand the concrete change assigned to them.
 - Board `Ready` is derived, not stored as a separate task status.
@@ -116,13 +119,16 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 - Only one task should be claimed by a worker at a time; `swarm task next` returns the existing active task instead of claiming another one.
 - The architect builds and revises the task graph during planning with `swarm plan` commands.
 - Product strategist tasks should capture market, competitor, audience, positioning, workflow, and adoption-risk guidance.
+- Code review tasks should produce direct review evidence or `code_review` artifacts with findings and recommended follow-up tasks.
 - Workers should not rewrite the plan or change other workers' task cards.
 - Review artifact lifecycle mutations must go through `swarm artifact` commands.
-- `swarm init` creates or reuses an architect plan approval task and an `architect_plan` artifact for `plan.md`.
+- `swarm init` creates or reuses a product intake approval task and artifact, plus a blocked architect plan approval task and `architect_plan` artifact for `plan.md`.
+- Product intake tasks must move their artifact to `ready_for_review` and block architect planning until approved.
 - Architect plan tasks must register `plan.md` as an `architect_plan` artifact, move to `needs_input`, and block downstream work until approved.
 - Product strategy and requirements gate tasks should register `product_strategy` or `requirements` artifacts, move to `needs_input`, and block dependent implementation until approved.
 - Frontend mockup/design gate tasks should register `html_mockup` or `design_notes` artifacts, move to `needs_input`, and block production UI implementation until approved.
 - Downstream implementation tasks should depend on the producing gate task ids, not only mention artifact paths in notes.
+- Review artifacts may include `recommendedTasks`; the architect decides whether to convert those recommendations into task cards.
 - `artifact ready` moves the linked producing task and owning agent to `needs_input`.
 - `artifact approve` marks the linked task `done` only when every non-superseded artifact for that task is `approved`.
 - `artifact request-changes` stores feedback in task notes and reopens the producing task without changing unrelated tasks.
