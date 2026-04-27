@@ -52,9 +52,11 @@ Architect workflow:
 6. Write `swarm/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
 7. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
 8. Add task cards one at a time with `swarm plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
-9. During user review, revise the board with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`.
-10. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
-11. Do not manually edit `swarm/state.yaml`.
+9. Include normal final review tasks for product final acceptance and architect final review unless the user explicitly opts out.
+10. During architect final review, never reopen completed tasks. If product findings or architect findings require follow-up work, create new tasks and also create a later architect final review task that depends on those follow-ups.
+11. During user review, revise the board with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`.
+12. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
+13. Do not manually edit `swarm/state.yaml`.
 
 Use plan reviews when the architect has drafted a complete plan and wants the specialist roster to critique it before execution:
 
@@ -95,6 +97,7 @@ Rules:
 - Complete one task per agent, then stop.
 - Use `swarm summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
+- Architect-created follow-up work from final review must be followed by another architect final review task. Completed tasks stay done; create new tasks for fixes or verification.
 - Plan reviewers write only their own markdown file in `plan-reviews/`; they do not update `state.yaml`, claim tasks, or change the task graph.
 - Architects address plan reviews with `swarm plan address-reviews --actor architect`, then revise `plan.md` directly and task cards through `swarm plan` commands.
 - The app does not call the Python tool. The Python tool is for agents; the user manually spawns specialists from the UI.
