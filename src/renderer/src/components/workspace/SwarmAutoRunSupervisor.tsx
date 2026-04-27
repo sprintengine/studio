@@ -11,6 +11,7 @@ import {
 import { parseSwarmStateFile } from '../../utils/swarmStateFile'
 import { ensureAgentTabInLayoutModel, focusOrAddAgentTab } from '../../utils/modelRegistry'
 import { publishDiagnostic } from '../../utils/diagnostics'
+import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 
 const AUTO_RUN_POLL_MS = 2000
 const BACKGROUND_TERMINAL_COLS = 100
@@ -519,7 +520,7 @@ async function sendApprovalToNextEligibleArtifactProducer(
       return 'failed'
     }
 
-    await window.api.terminalWrite(producerSession.sessionId, 'i approve\r')
+    await sendArtifactApprovalToTerminal(producerSession.sessionId)
     sentArtifactApprovalMessages.current.add(approvalKey)
     return 'sent'
   } catch (error) {

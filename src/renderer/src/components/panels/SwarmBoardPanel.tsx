@@ -9,6 +9,7 @@ import type {
   SwarmState,
   SwarmTask,
   SwarmTaskBoardColumn,
+  SwarmTaskFeedback,
   SwarmTaskStatus,
 } from '../../types/workspace'
 import { SwarmRoleIcon } from '../AppIcons'
@@ -34,6 +35,7 @@ import {
 } from '../../utils/swarmStateFile'
 import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
 import { publishDiagnostic } from '../../utils/diagnostics'
+import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 
 const columnMeta: { key: SwarmTaskBoardColumn; label: string; tint: string }[] = [
   { key: 'todo', label: 'Todo', tint: 'bg-[#111216] text-[#9a9aa2]' },
@@ -742,7 +744,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         throw new Error(`Opened ${target.label}. Start or wait for the producer CLI before approving.`)
       }
 
-      await window.api.terminalWrite(sessionId, 'i approve\r')
+      await sendArtifactApprovalToTerminal(sessionId)
       setArtifactAction(artifact.id, {
         kind: 'approve',
         status: 'success',
@@ -1979,6 +1981,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 </div>
               </div>
 
+              {selectedTask.feedback ? (
+                <AgentFeedback feedback={selectedTask.feedback} />
+              ) : null}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <SectionList
                   title="Commands Run"
@@ -2037,6 +2043,11 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 title="Completed Tasks"
                 items={runSummary.taskSummaries}
                 emptyLabel="No completed tasks recorded."
+              />
+              <SectionList
+                title="Agent Feedback"
+                items={runSummary.feedbackSummaries}
+                emptyLabel="No agent feedback recorded."
               />
               <SectionList
                 title="Touched Files"
@@ -3346,6 +3357,59 @@ function SectionList({
   )
 }
 
+const feedbackScoreLabels: Array<{ key: keyof SwarmTaskFeedback['scores']; label: string }> = [
+  { key: 'directiveClarityPct', label: 'Directive clarity' },
+  { key: 'taskClarityPct', label: 'Task clarity' },
+  { key: 'acceptanceCriteriaClarityPct', label: 'Acceptance clarity' },
+  { key: 'swarmToolEffectivenessPct', label: 'Swarm tool' },
+  { key: 'promptOptimizationPct', label: 'Prompt fit' },
+  { key: 'contextFitPct', label: 'Context fit' },
+  { key: 'hallucinationRiskPct', label: 'Hallucination risk' },
+  { key: 'roleFitPct', label: 'Role fit' },
+  { key: 'autonomyPct', label: 'Autonomy' },
+  { key: 'confidencePct', label: 'Confidence' },
+]
+
+function AgentFeedback({ feedback }: { feedback: SwarmTaskFeedback }) {
+  const scores = feedbackScoreLabels.flatMap((metric) => {
+    const value = feedback.scores[metric.key]
+    return typeof value === 'number' ? [{ ...metric, value }] : []
+  })
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+          Agent Feedback
+        </div>
+        <div className="text-[11px] text-[#5a5a63]">
+          {feedback.agentId} - {formatTimestamp(feedback.capturedAt)}
+        </div>
+      </div>
+      {scores.length > 0 ? (
+        <div className="grid gap-x-4 gap-y-2 md:grid-cols-2">
+          {scores.map((metric) => (
+            <div key={metric.key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-[12px]">
+              <span className="text-[#9a9aa2]">{metric.label}</span>
+              <span className="font-mono text-[#ececee]">{metric.value}%</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {feedback.topFriction ? (
+        <div className="mt-3 text-[12px] text-[#d7d7dc]">
+          <span className="text-[#9a9aa2]">Top friction: </span>{feedback.topFriction}
+        </div>
+      ) : null}
+      {feedback.suggestedImprovement ? (
+        <div className="mt-1 text-[12px] text-[#d7d7dc]">
+          <span className="text-[#9a9aa2]">Suggested improvement: </span>{feedback.suggestedImprovement}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function SwarmArtifactList({
   artifacts,
   tasksById,
@@ -3726,6 +3790,7 @@ function buildRunSummary(tasks: SwarmTask[]) {
     const summary = task.evidence.summary.trim() || 'No completion summary recorded.'
     return `${task.id} - ${task.title}: ${summary}`
   })
+  const feedbackSummaries = buildFeedbackSummary(completed)
   const openQuestions = tasks.flatMap((task) =>
     task.notes.map((note) => `${task.id}: ${note}`)
   )
@@ -3737,10 +3802,26 @@ function buildRunSummary(tasks: SwarmTask[]) {
     commandsRan,
     results,
     taskSummaries,
+    feedbackSummaries,
     openQuestions,
   }
 }
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+}
+
+function buildFeedbackSummary(tasks: SwarmTask[]): string[] {
+  const feedbackTasks = tasks.filter((task) => task.feedback)
+  if (feedbackTasks.length === 0) return []
+
+  return feedbackScoreLabels.flatMap((metric) => {
+    const values = feedbackTasks.flatMap((task) => {
+      const value = task.feedback?.scores[metric.key]
+      return typeof value === 'number' ? [value] : []
+    })
+    if (values.length === 0) return []
+    const average = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+    return [`${metric.label}: ${average}% avg across ${values.length} task${values.length === 1 ? '' : 's'}`]
+  })
 }

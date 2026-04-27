@@ -59,9 +59,23 @@ The app uses narrow IPC to request artifact review mutations through the Python 
   - `touchedFiles`
   - `commandsRan`
   - `results`
+- `feedback` (optional)
+  - Latest agent self-feedback recorded through `swarm task status --status done` or `swarm artifact ready`.
+  - `schemaVersion`: currently `1`.
+  - `capturedAt`: UTC ISO timestamp.
+  - `source`: currently `agent_self_report`.
+  - `agentId`
+  - `role`
+  - `scores`
+    - Optional integer percentage fields from `0` to `100`: `directiveClarityPct`, `taskClarityPct`, `acceptanceCriteriaClarityPct`, `swarmToolEffectivenessPct`, `promptOptimizationPct`, `contextFitPct`, `hallucinationRiskPct`, `roleFitPct`, `autonomyPct`, `confidencePct`.
+    - For all fields except `hallucinationRiskPct`, `100` is best. For `hallucinationRiskPct`, `0` is best and `100` is highest risk.
+  - `topFriction` (optional, short text)
+  - `suggestedImprovement` (optional, short text)
 - `notes`
 - `startedAt`
 - `completedAt`
+
+When feedback is supplied, the tool also appends a normalized record to `swarm/<team-slug>/metrics/agent-feedback.jsonl`. This JSONL file is append-only benchmark/analytics history; `task.feedback` is only the latest compact task-linked value for UI and summaries.
 
 ## Artifact Fields
 

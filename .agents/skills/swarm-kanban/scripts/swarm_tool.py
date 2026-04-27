@@ -43,6 +43,24 @@ VALID_ARTIFACT_KINDS = {
 VALID_ARTIFACT_STATUSES = {"draft", "ready_for_review", "approved", "changes_requested", "superseded"}
 APPROVAL_BLOCKING_ARTIFACT_STATUSES = VALID_ARTIFACT_STATUSES - {"superseded"}
 PLAN_REVIEW_ROLES = VALID_ROLES - {"architect"}
+FEEDBACK_SCHEMA_VERSION = 1
+FEEDBACK_SCORE_FIELDS = [
+    ("directive_clarity_pct", "directiveClarityPct", "directive_clarity_pct"),
+    ("task_clarity_pct", "taskClarityPct", "task_clarity_pct"),
+    ("acceptance_criteria_clarity_pct", "acceptanceCriteriaClarityPct", "acceptance_criteria_clarity_pct"),
+    ("swarm_tool_effectiveness_pct", "swarmToolEffectivenessPct", "swarm_tool_effectiveness_pct"),
+    ("prompt_optimization_pct", "promptOptimizationPct", "prompt_optimization_pct"),
+    ("context_fit_pct", "contextFitPct", "context_fit_pct"),
+    ("hallucination_risk_pct", "hallucinationRiskPct", "hallucination_risk_pct"),
+    ("role_fit_pct", "roleFitPct", "role_fit_pct"),
+    ("autonomy_pct", "autonomyPct", "autonomy_pct"),
+    ("confidence_pct", "confidencePct", "confidence_pct"),
+]
+FEEDBACK_TEXT_FIELDS = [
+    ("top_friction", "topFriction", "top_friction"),
+    ("suggested_improvement", "suggestedImprovement", "suggested_improvement"),
+]
+FEEDBACK_TEXT_LIMIT = 500
 PLAN_REVIEW_FOCUS = {
     "product": "scope fit, user value, prioritization, adoption risk, and missing requirements",
     "developer": "implementation sequence, integration risk, data flow, backend/API impact, and owned paths",
@@ -564,6 +582,138 @@ def path_is_relative_to(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def feedback_args_present(args: argparse.Namespace) -> bool:
+    for attr, _, _ in FEEDBACK_SCORE_FIELDS:
+        if getattr(args, attr, None) is not None:
+            return True
+    for attr, _, _ in FEEDBACK_TEXT_FIELDS:
+        if str(getattr(args, attr, "") or "").strip():
+            return True
+    return False
+
+
+def validate_feedback_percent(value: int, field_name: str) -> int:
+    if not isinstance(value, int) or value < 0 or value > 100:
+        raise SystemExit(f"{field_name} must be an integer from 0 to 100.")
+    return value
+
+
+def validate_feedback_text(value: str, field_name: str) -> str:
+    text = value.strip()
+    if len(text) > FEEDBACK_TEXT_LIMIT:
+        raise SystemExit(f"{field_name} must be {FEEDBACK_TEXT_LIMIT} characters or fewer.")
+    return text
+
+
+def parse_feedback_args(args: argparse.Namespace) -> Dict[str, Any]:
+    scores: Dict[str, int] = {}
+    json_scores: Dict[str, int] = {}
+    for attr, state_key, json_key in FEEDBACK_SCORE_FIELDS:
+        raw = getattr(args, attr, None)
+        if raw is None:
+            continue
+        value = validate_feedback_percent(raw, f"--{attr.replace('_', '-')}")
+        scores[state_key] = value
+        json_scores[json_key] = value
+
+    text_fields: Dict[str, str] = {}
+    json_text_fields: Dict[str, str] = {}
+    for attr, state_key, json_key in FEEDBACK_TEXT_FIELDS:
+        raw = str(getattr(args, attr, "") or "")
+        if not raw.strip():
+            continue
+        text = validate_feedback_text(raw, f"--{attr.replace('_', '-')}")
+        text_fields[state_key] = text
+        json_text_fields[json_key] = text
+
+    return {"scores": scores, "jsonScores": json_scores, "textFields": text_fields, "jsonTextFields": json_text_fields}
+
+
+def elapsed_ms(task: Dict[str, Any]) -> Optional[int]:
+    started_at = task.get("startedAt")
+    completed_at = task.get("completedAt")
+    if not isinstance(started_at, str) or not isinstance(completed_at, str):
+        return None
+    try:
+        start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max(0, int((end - start).total_seconds() * 1000))
+
+
+def observed_task_metrics(task: Dict[str, Any]) -> Dict[str, Any]:
+    ev = ensure_evidence(task)
+    observed: Dict[str, Any] = {
+        "task_status": task.get("status"),
+        "commands_run_count": len(ev.get("commandsRan", [])),
+        "files_touched_count": len(ev.get("touchedFiles", [])),
+        "human_intervention_count": 0,
+    }
+    duration = elapsed_ms(task)
+    if duration is not None:
+        observed["elapsed_ms"] = duration
+    return observed
+
+
+def build_feedback_payload(
+    args: argparse.Namespace,
+    state: Dict[str, Any],
+    state_path: Path,
+    task: Dict[str, Any],
+    actor: str,
+) -> Optional[Dict[str, Any]]:
+    if not feedback_args_present(args):
+        return None
+
+    parsed = parse_feedback_args(args)
+    now = now_iso()
+    role = str(task.get("role") or "")
+    task_id = str(task.get("id") or "")
+    team_slug = str(state.get("swarm", {}).get("name") or state_path.parent.name)
+    state_feedback = {
+        "schemaVersion": FEEDBACK_SCHEMA_VERSION,
+        "capturedAt": now,
+        "source": "agent_self_report",
+        "agentId": actor,
+        "role": role,
+        "scores": parsed["scores"],
+    }
+    state_feedback.update(parsed["textFields"])
+
+    record = {
+        "schema_version": FEEDBACK_SCHEMA_VERSION,
+        "run_id": team_slug,
+        "team_slug": team_slug,
+        "task_id": task_id,
+        "agent_id": actor,
+        "role": role,
+        "task_title": task.get("title") or "",
+        "captured_at": now,
+        "source": "agent_self_report",
+        "scores": parsed["jsonScores"],
+        "observed": observed_task_metrics(task),
+        **parsed["jsonTextFields"],
+    }
+    return {"stateFeedback": state_feedback, "record": record}
+
+
+def metrics_feedback_path(state_path: Path) -> Path:
+    team_dir = state_path.parent.resolve()
+    metrics_dir = (team_dir / "metrics").resolve()
+    if not path_is_relative_to(metrics_dir, team_dir):
+        raise SystemExit(f"Metrics directory must stay under active swarm team folder: {team_dir}")
+    return metrics_dir / "agent-feedback.jsonl"
+
+
+def append_feedback_record(state_path: Path, record: Dict[str, Any]) -> str:
+    output_path = metrics_feedback_path(state_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, sort_keys=True) + "\n")
+    return str(output_path)
 
 
 def repository_root_for_state(state_path: Path) -> Path:
@@ -1653,6 +1803,8 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
+        if feedback_args_present(args) and args.status != "done":
+            raise SystemExit("Feedback flags on `swarm task status` are only supported with --status done.")
         task["status"] = args.status
         if args.status == "in_progress" and not task.get("startedAt"):
             task["startedAt"] = now_iso()
@@ -1673,10 +1825,25 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             cleared = clear_task_refs(state, args.task_id)
         if args.status == "done" and task.get("ownerAgentId"):
             set_agent_done(ensure_agent(state, task["ownerAgentId"], task.get("role")))
+        feedback_payload = build_feedback_payload(args, state, args.state, task, actor)
+        if feedback_payload:
+            task["feedback"] = feedback_payload["stateFeedback"]
+            append_event(state, "task_feedback_recorded", actor, f"{actor} recorded feedback for {args.task_id}.")
         recompute_phase(state)
         event = append_event(state, "task_status_changed", actor, f"{actor} moved {args.task_id} to {args.status}.")
-        return {"ok": True, "task": task, "event": event, "clearedAgents": cleared}
-    return with_locked_state(args.state, run)
+        return {
+            "ok": True,
+            "task": task,
+            "event": event,
+            "clearedAgents": cleared,
+            "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
+        }
+    result = with_locked_state(args.state, run)
+    feedback_record = result.pop("_feedbackRecord", None)
+    if feedback_record:
+        result["feedbackRecorded"] = True
+        result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
+    return result
 
 
 def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
@@ -1963,11 +2130,27 @@ def cmd_artifact_ready(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         artifact = find_artifact(state, args.artifact_id)
         ready_result = set_artifact_ready(state, artifact, args.id, args.state)
+        task = find_task(state, str(artifact.get("taskId")))
+        feedback_payload = build_feedback_payload(args, state, args.state, task, args.id)
+        if feedback_payload:
+            task["feedback"] = feedback_payload["stateFeedback"]
+            append_event(state, "task_feedback_recorded", args.id, f"{args.id} recorded feedback for {task.get('id')}.")
         recompute_phase(state)
         event = append_event(state, "artifact_ready_for_review", args.id, f"{args.id} marked artifact {args.artifact_id} ready for review.")
-        return {"ok": True, "artifact": artifact, "transition": ready_result, "event": event}
+        return {
+            "ok": True,
+            "artifact": artifact,
+            "transition": ready_result,
+            "event": event,
+            "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
+        }
 
-    return with_locked_state(args.state, run)
+    result = with_locked_state(args.state, run)
+    feedback_record = result.pop("_feedbackRecord", None)
+    if feedback_record:
+        result["feedbackRecorded"] = True
+        result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
+    return result
 
 
 def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
@@ -2056,6 +2239,7 @@ Task commands:
   swarm task next   --role developer --id developer-1
   swarm task claim  --task-id T3 --id developer-1
   swarm task status --task-id T3 --status done --id developer-1
+  swarm task status --task-id T3 --status done --id developer-1 --confidence-pct 85 --hallucination-risk-pct 10
   swarm task log    --task-id T3 --id developer-1 --summary "..." --file src/foo.ts --command "npm test" --result "Passed"
   swarm task note   --task-id T3 --id developer-1 --note "Blocked on X"
   swarm task list   --role developer
@@ -2077,6 +2261,7 @@ Artifact commands:
   swarm artifact add --task-id T4 --kind code_review --title "Code review" --path swarm/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
   swarm artifact list --task-id T1
   swarm artifact ready --artifact-id A1 --id product
+  swarm artifact ready --artifact-id A1 --id product --confidence-pct 85 --hallucination-risk-pct 10
   swarm artifact approve --artifact-id A1 --id user
   swarm artifact request-changes --artifact-id A1 --id user --feedback "Tighten the scope."
 
@@ -2096,6 +2281,19 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
     p.add_argument("--actor", default="handoff", help="Actor name for the team creation event.")
     p.add_argument("--force", action="store_true", help="Replace existing state/handover bootstrap files.")
     p.set_defaults(handler=cmd_handover, uses_state=False)
+
+
+def add_feedback_arguments(parser: argparse.ArgumentParser) -> None:
+    feedback = parser.add_argument_group("optional agent feedback")
+    for attr, _, _ in FEEDBACK_SCORE_FIELDS:
+        feedback.add_argument(
+            f"--{attr.replace('_', '-')}",
+            dest=attr,
+            type=int,
+            help="Optional agent self-assessment percentage from 0 to 100.",
+        )
+    feedback.add_argument("--top-friction", default="", help="Optional short note on the biggest friction point.")
+    feedback.add_argument("--suggested-improvement", default="", help="Optional short prompt, task, or tool improvement suggestion.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2150,6 +2348,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--status", required=True, choices=sorted(VALID_TASK_STATUSES))
     p.add_argument("--id", help="Agent id.")
     p.add_argument("--summary", help="Completion summary (used when status=done).")
+    add_feedback_arguments(p)
     p.set_defaults(handler=cmd_task_status)
 
     p = task_sub.add_parser("log", help="Log work evidence (files, commands, results).")
@@ -2264,6 +2463,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = artifact_sub.add_parser("ready", help="Mark an artifact ready for human review and move its task to needs_input.")
     p.add_argument("--artifact-id", required=True)
     p.add_argument("--id", required=True, help="Actor or agent id.")
+    add_feedback_arguments(p)
     p.set_defaults(handler=cmd_artifact_ready)
 
     p = artifact_sub.add_parser("approve", help="Approve an artifact and complete its task when all linked artifacts are approved.")

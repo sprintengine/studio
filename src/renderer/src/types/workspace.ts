@@ -88,6 +88,30 @@ export type SwarmTaskEvidence = {
   results: string[]
 }
 
+export type SwarmTaskFeedbackScores = {
+  directiveClarityPct?: number
+  taskClarityPct?: number
+  acceptanceCriteriaClarityPct?: number
+  swarmToolEffectivenessPct?: number
+  promptOptimizationPct?: number
+  contextFitPct?: number
+  hallucinationRiskPct?: number
+  roleFitPct?: number
+  autonomyPct?: number
+  confidencePct?: number
+}
+
+export type SwarmTaskFeedback = {
+  schemaVersion: number
+  capturedAt: string
+  source: 'agent_self_report' | string
+  agentId: string
+  role: SwarmRole
+  scores: SwarmTaskFeedbackScores
+  topFriction?: string
+  suggestedImprovement?: string
+}
+
 export type SwarmRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'
 
 export type SwarmRuntimeAgent = {
@@ -126,6 +150,7 @@ export type SwarmTask = {
   acceptanceCriteria: string[]
   implementationNotes: string[]
   evidence: SwarmTaskEvidence
+  feedback?: SwarmTaskFeedback
   notes: string[]
   startedAt: string | null
   completedAt: string | null

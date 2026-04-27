@@ -34,3 +34,9 @@ If no tasks are ready, stop.
 - Do not claim tasks assigned to other roles.
 - Do not claim another task after marking your task done.
 - Log all findings as notes even if no code change is needed.
+
+## Completion Feedback
+
+When possible, attach agent self-feedback percentages to the command that completes the task. Use `0` to `100` integer percentages. For most fields, `100` is best; for `--hallucination-risk-pct`, `0` is best and `100` is highest risk.
+
+Add these optional flags to `swarm task status --status done`: `--directive-clarity-pct`, `--task-clarity-pct`, `--acceptance-criteria-clarity-pct`, `--swarm-tool-effectiveness-pct`, `--prompt-optimization-pct`, `--context-fit-pct`, `--hallucination-risk-pct`, `--role-fit-pct`, `--autonomy-pct`, `--confidence-pct`, `--top-friction`, and `--suggested-improvement`.

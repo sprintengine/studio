@@ -115,3 +115,9 @@ Before any filesystem edit, verify the target path is within the allowed documen
 - Do not claim another task after marking your task done.
 - Do not mark artifact gate tasks `done` yourself; approval does that after review.
 - Do not edit application source, project metadata, build config, or renderer assets even when those files appear in task context.
+
+## Completion Feedback
+
+When possible, attach agent self-feedback percentages to the command that completes your work. Use `0` to `100` integer percentages. For most fields, `100` is best; for `--hallucination-risk-pct`, `0` is best and `100` is highest risk.
+
+Add these optional flags to `swarm task status --status done` for non-artifact validation/final review tasks, or to `swarm artifact ready` for product artifact tasks: `--directive-clarity-pct`, `--task-clarity-pct`, `--acceptance-criteria-clarity-pct`, `--swarm-tool-effectiveness-pct`, `--prompt-optimization-pct`, `--context-fit-pct`, `--hallucination-risk-pct`, `--role-fit-pct`, `--autonomy-pct`, `--confidence-pct`, `--top-friction`, and `--suggested-improvement`.

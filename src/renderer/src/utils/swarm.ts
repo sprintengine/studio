@@ -11,6 +11,7 @@ import type {
   SwarmSkillMap,
   SwarmTaskBoardColumn,
   SwarmTaskEvidence,
+  SwarmTaskFeedback,
   SwarmState,
   SwarmTask,
   SwarmTaskStatus,
@@ -146,6 +147,62 @@ function stringOrNull(value: unknown): string | null {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function percentOrUndefined(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100
+    ? value
+    : undefined
+}
+
+function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefined {
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  const scoresRecord = record.scores && typeof record.scores === 'object'
+    ? record.scores as Record<string, unknown>
+    : {}
+  const scores = {
+    directiveClarityPct: percentOrUndefined(scoresRecord.directiveClarityPct),
+    taskClarityPct: percentOrUndefined(scoresRecord.taskClarityPct),
+    acceptanceCriteriaClarityPct: percentOrUndefined(scoresRecord.acceptanceCriteriaClarityPct),
+    swarmToolEffectivenessPct: percentOrUndefined(scoresRecord.swarmToolEffectivenessPct),
+    promptOptimizationPct: percentOrUndefined(scoresRecord.promptOptimizationPct),
+    contextFitPct: percentOrUndefined(scoresRecord.contextFitPct),
+    hallucinationRiskPct: percentOrUndefined(scoresRecord.hallucinationRiskPct),
+    roleFitPct: percentOrUndefined(scoresRecord.roleFitPct),
+    autonomyPct: percentOrUndefined(scoresRecord.autonomyPct),
+    confidencePct: percentOrUndefined(scoresRecord.confidencePct),
+  }
+  const hasScore = Object.values(scores).some((score) => score !== undefined)
+  const topFriction = typeof record.topFriction === 'string' && record.topFriction.trim()
+    ? record.topFriction
+    : undefined
+  const suggestedImprovement = typeof record.suggestedImprovement === 'string' && record.suggestedImprovement.trim()
+    ? record.suggestedImprovement
+    : undefined
+
+  if (
+    typeof record.schemaVersion !== 'number'
+    || typeof record.capturedAt !== 'string'
+    || typeof record.source !== 'string'
+    || typeof record.agentId !== 'string'
+    || !isSwarmRole(record.role)
+    || (!hasScore && !topFriction && !suggestedImprovement)
+  ) {
+    return undefined
+  }
+
+  return {
+    schemaVersion: record.schemaVersion,
+    capturedAt: record.capturedAt,
+    source: record.source,
+    agentId: record.agentId,
+    role: record.role,
+    scores,
+    ...(topFriction ? { topFriction } : {}),
+    ...(suggestedImprovement ? { suggestedImprovement } : {}),
+  }
 }
 
 function normalizeSwarmArtifactReviewHistory(value: unknown): SwarmArtifactReviewHistoryEntry[] {
@@ -459,24 +516,28 @@ export function getSwarmArtifactDependencyBlockers(
 export function normalizeSwarmState(input: SwarmState | null | undefined): SwarmState | null {
   if (!input) return null
 
-  const tasks = (Array.isArray(input.tasks) ? input.tasks : []).map((task, index) => ({
-    id: task.id ?? `task-${index + 1}`,
-    title: task.title ?? `Task ${index + 1}`,
-    description: task.description ?? '',
-    role: isSwarmRole(task.role) ? task.role : 'developer' as SwarmRole,
-    status: (['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SwarmTaskStatus)
-      ? task.status as SwarmTaskStatus
-      : 'todo' as const,
-    ownerAgentId: task.ownerAgentId ?? null,
-    dependsOn: task.dependsOn ?? [],
-    ownedPaths: task.ownedPaths ?? [],
-    acceptanceCriteria: task.acceptanceCriteria ?? [],
-    implementationNotes: task.implementationNotes ?? [],
-    evidence: task.evidence ?? emptyEvidence(),
-    notes: Array.isArray(task.notes) ? task.notes : [],
-    startedAt: task.startedAt ?? null,
-    completedAt: task.completedAt ?? null,
-  }))
+  const tasks = (Array.isArray(input.tasks) ? input.tasks : []).map((task, index) => {
+    const feedback = normalizeSwarmTaskFeedback(task.feedback)
+    return {
+      id: task.id ?? `task-${index + 1}`,
+      title: task.title ?? `Task ${index + 1}`,
+      description: task.description ?? '',
+      role: isSwarmRole(task.role) ? task.role : 'developer' as SwarmRole,
+      status: (['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SwarmTaskStatus)
+        ? task.status as SwarmTaskStatus
+        : 'todo' as const,
+      ownerAgentId: task.ownerAgentId ?? null,
+      dependsOn: task.dependsOn ?? [],
+      ownedPaths: task.ownedPaths ?? [],
+      acceptanceCriteria: task.acceptanceCriteria ?? [],
+      implementationNotes: task.implementationNotes ?? [],
+      evidence: task.evidence ?? emptyEvidence(),
+      ...(feedback ? { feedback } : {}),
+      notes: Array.isArray(task.notes) ? task.notes : [],
+      startedAt: task.startedAt ?? null,
+      completedAt: task.completedAt ?? null,
+    }
+  })
 
   const roleCounts = normalizeSwarmRoleCounts(input.roleCounts)
 

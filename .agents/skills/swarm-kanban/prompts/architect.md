@@ -96,3 +96,9 @@ swarm plan list
 - **DO NOT edit `swarm/state.yaml` directly.** All updates go through the swarm tool.
 - Completed task cards are immutable. Do not reopen done tasks during final review; add new follow-up tasks instead.
 - Do not start implementing. Your job ends when the user has a plan and task board to review.
+
+## Completion Feedback
+
+When possible, attach agent self-feedback percentages to the command that completes architect-owned work. Use `0` to `100` integer percentages. For most fields, `100` is best; for `--hallucination-risk-pct`, `0` is best and `100` is highest risk.
+
+Add these optional flags to `swarm task status --status done` for final review tasks, or to `swarm artifact ready` for architect plan artifact tasks: `--directive-clarity-pct`, `--task-clarity-pct`, `--acceptance-criteria-clarity-pct`, `--swarm-tool-effectiveness-pct`, `--prompt-optimization-pct`, `--context-fit-pct`, `--hallucination-risk-pct`, `--role-fit-pct`, `--autonomy-pct`, `--confidence-pct`, `--top-friction`, and `--suggested-improvement`.
