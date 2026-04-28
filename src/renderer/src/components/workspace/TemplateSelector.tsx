@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createSwarmTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { WorkspaceTypeIcon } from '../AppIcons'
+import CliIcon from '../CliIcon'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
+  AgentCli,
   LayoutTemplate,
   PreviewSlot,
   SwarmMockConfig,
   SwarmRole,
   SwarmRoleCounts,
+  SwarmRoleCliDefaults,
   SwarmState,
   SwarmWorkspaceContext,
 } from '../../types/workspace'
@@ -49,6 +52,7 @@ interface Props {
     folderPath: string | null
     swarmState?: SwarmState | null
     swarmContext?: SwarmWorkspaceContext | null
+    swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
   }) => void
   onClose: () => void
   allowClose?: boolean
@@ -83,6 +87,21 @@ const initialSwarmRoleCounts: SwarmRoleCounts = {
   tester: 0,
   security: 0,
 }
+
+const initialSwarmRoleCliDefaults: Required<SwarmRoleCliDefaults> = {
+  architect: 'codex',
+  product: 'codex',
+  frontend: 'codex',
+  developer: 'codex',
+  code_reviewer: 'codex',
+  tester: 'codex',
+  security: 'codex',
+}
+
+const cliOptions: Array<{ value: AgentCli; label: string }> = [
+  { value: 'codex', label: 'Codex' },
+  { value: 'claude', label: 'Claude' },
+]
 
 function basename(p: string): string {
   const parts = p.split(/[/\\]/).filter(Boolean)
@@ -185,6 +204,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const [swarmTeamNameTouched, setSwarmTeamNameTouched] = useState(false)
   const [swarmGoal, setSwarmGoal] = useState('')
   const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(initialSwarmRoleCounts)
+  const [swarmRoleCliDefaults, setSwarmRoleCliDefaults] = useState<Required<SwarmRoleCliDefaults>>(
+    initialSwarmRoleCliDefaults
+  )
   const [existingTeams, setExistingTeams] = useState<ExistingTeam[]>([])
   const [selectedExistingTeam, setSelectedExistingTeam] = useState<ExistingTeam | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -274,6 +296,13 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     if (!nameTouched) setName(team.displayName)
   }
 
+  const setRoleCliDefault = (role: SwarmRole, cli: AgentCli) => {
+    setSwarmRoleCliDefaults((current) => ({
+      ...current,
+      [role]: cli,
+    }))
+  }
+
   const handleCreate = () => {
     if (!canCreate) return
 
@@ -285,7 +314,14 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
         goal: loadedState.goal,
         roleCounts: loadedState.roleCounts,
       })
-      onCreate({ template, name: name.trim(), folderPath, swarmState: loadedState, swarmContext: context })
+      onCreate({
+        template,
+        name: name.trim(),
+        folderPath,
+        swarmState: loadedState,
+        swarmContext: context,
+        swarmRoleCliDefaults,
+      })
       return
     }
 
@@ -294,7 +330,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     const swarmContext = mode === 'swarm' && folderPath && swarmState
       ? buildSwarmContext(folderPath, swarmState.name, slugifySwarmName(swarmState.name))
       : null
-    onCreate({ template, name: name.trim(), folderPath, swarmState, swarmContext })
+    onCreate({ template, name: name.trim(), folderPath, swarmState, swarmContext, swarmRoleCliDefaults })
   }
 
   const startLogin = async () => {
@@ -552,7 +588,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                         {swarmRoleOrder.map((role) => (
                           <div
                             key={role}
-                            className="flex min-h-[68px] items-center border-b border-[#303139] px-3 py-2"
+                            className="flex min-h-[68px] items-center justify-between gap-3 border-b border-[#303139] px-3 py-2"
                           >
                             <span className="flex min-w-0 items-center gap-3">
                               <span className={`h-2 w-2 shrink-0 rounded-full ${roleAccentClasses[role]}`} />
@@ -565,6 +601,33 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                                 </span>
                               </span>
                             </span>
+                            <label className="shrink-0">
+                              <span className="sr-only">{swarmRoleLabels[role]} CLI</span>
+                              <span className="relative block">
+                                <select
+                                  value={swarmRoleCliDefaults[role]}
+                                  onChange={(event) => setRoleCliDefault(role, event.target.value as AgentCli)}
+                                  className="h-8 appearance-none rounded-md border border-[#303139] bg-[#111216] py-1 pl-8 pr-7 text-[12px] font-semibold text-[#d7d7dc] outline-none transition-colors hover:bg-[#17181d] focus:border-[#ececee]/70"
+                                >
+                                  {cliOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[#8a8a92]">
+                                  <CliIcon cli={swarmRoleCliDefaults[role]} className="h-4 w-4" />
+                                </span>
+                                <svg
+                                  className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#5a5a63]"
+                                  viewBox="0 0 20 20"
+                                  fill="none"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </span>
+                            </label>
                           </div>
                         ))}
                       </div>

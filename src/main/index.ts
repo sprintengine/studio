@@ -1601,7 +1601,8 @@ function buildNativeAgentLaunchCommand(
   }
 
   const sessionFlag = resume ? '--resume' : '--session-id'
-  return `${command} ${sessionFlag} ${quoteCmdIfNeeded(sessionId)}`
+  const promptArg = initialPrompt ? ` ${quoteCmd(initialPrompt)}` : ''
+  return `${command} ${sessionFlag} ${quoteCmdIfNeeded(sessionId)}${promptArg}`
 }
 
 function buildAgentLaunchCommand(
@@ -1611,7 +1612,7 @@ function buildAgentLaunchCommand(
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings
 ): string {
-  if (cli === 'claude') return buildClaudeLaunchCommand(sessionId, resume, cliRuntime)
+  if (cli === 'claude') return buildClaudeLaunchCommand(sessionId, resume, initialPrompt, cliRuntime)
   return buildCodexLaunchCommand(resume, initialPrompt, cliRuntime)
 }
 
@@ -1643,16 +1644,18 @@ function buildCodexLaunchCommand(
 function buildClaudeLaunchCommand(
   sessionId: string,
   resume = false,
+  initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings
 ): string {
   const quotedSessionId = quotePosix(sessionId)
   const claudeCommand = quotePosixCommand(cliRuntime?.command?.trim() || 'claude')
   const configuredCommand = cliRuntime?.command?.trim() || 'claude'
+  const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
 
   if (!resume) {
     return [
       buildCommandAvailabilityCheck('claude', configuredCommand),
-      `${claudeCommand} --session-id ${quotedSessionId};`,
+      `${claudeCommand} --session-id ${quotedSessionId}${promptArg};`,
       'fi',
     ].join(' ')
   }
@@ -1664,9 +1667,9 @@ function buildClaudeLaunchCommand(
   return [
     buildCommandAvailabilityCheck('claude', configuredCommand),
     `if find "$HOME/.claude/projects" -type f -name ${quotePosix(`${sessionId}.jsonl`)} -print -quit 2>/dev/null | grep -q .; then`,
-    `${claudeCommand} --resume ${quotedSessionId};`,
+    `${claudeCommand} --resume ${quotedSessionId}${promptArg};`,
     `else`,
-    `${claudeCommand} --session-id ${quotedSessionId};`,
+    `${claudeCommand} --session-id ${quotedSessionId}${promptArg};`,
     `fi`,
     'fi',
   ].join(' ')

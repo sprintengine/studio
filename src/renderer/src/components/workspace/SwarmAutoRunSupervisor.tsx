@@ -878,9 +878,7 @@ async function superviseWorkspace(
   const currentState = useWorkspaceStore.getState()
   const currentWorkspace = currentState.workspaces.find((candidate) => candidate.id === workspace.id)
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
-  // Background auto-run needs the startup prompt at process launch. Codex supports
-  // that path today; Claude still uses visible-terminal prompt injection.
-  const selectedCli: AgentCli = currentAgent?.cli === 'claude' ? 'codex' : currentAgent?.cli ?? 'codex'
+  const selectedCli: AgentCli = currentAgent?.cli ?? 'codex'
   const sessionId = crypto.randomUUID()
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return
@@ -957,9 +955,9 @@ async function superviseWorkspace(
       cliStartRequested: true,
       cliSessionId: sessionId,
       cliHasLaunched: true,
-      cliOnboardingPromptSent: selectedCli === 'codex',
+      cliOnboardingPromptSent: true,
       cli: selectedCli,
-      cliStartupPrompt: selectedCli === 'codex' ? undefined : startupPrompt,
+      cliStartupPrompt: undefined,
     })
 
     const terminalMetadata = {
@@ -983,7 +981,7 @@ async function superviseWorkspace(
       false,
       swarmStatePath,
       selectedCli,
-      selectedCli === 'codex' ? startupPrompt : undefined,
+      startupPrompt,
       cliRuntimes,
       false,
       terminalMetadata

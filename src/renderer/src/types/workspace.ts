@@ -180,6 +180,7 @@ export type AgentMessage = {
 
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 export type AgentCli = 'codex' | 'claude'
+export type SwarmRoleCliDefaults = Partial<Record<SwarmRole, AgentCli>>
 export type AgentKind = 'general' | 'specialist' | 'swarm'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
@@ -318,6 +319,7 @@ export type Workspace = {
   worktreeState: WorkspaceWorktreeState
   editorState: EditorState
   swarmState: SwarmState | null
+  swarmRoleCliDefaults?: SwarmRoleCliDefaults
   swarmAutoState: SwarmAutoState
   createdAt: number
 }

@@ -911,7 +911,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setCliPickerOpen(false)
     setSpawnDialog({
       agentId,
-      cli: agentState?.cliStartRequested ? agentState.cli ?? 'codex' : 'codex',
+      cli: agentState?.cli ?? 'codex',
       name: savedName,
     })
   }

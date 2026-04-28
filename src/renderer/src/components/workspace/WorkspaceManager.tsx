@@ -24,10 +24,6 @@ import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
-const CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
-  { value: 'claude', label: 'Claude Code' },
-  { value: 'codex', label: 'Codex' },
-]
 const AGENT_SPAWN_CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
   { value: 'codex', label: 'Codex' },
   { value: 'claude', label: 'Claude Code' },
@@ -168,7 +164,6 @@ export default function WorkspaceManager() {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'claude')
-  const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
   const lastSelectedSpecialist = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
@@ -179,14 +174,12 @@ export default function WorkspaceManager() {
   const clearNotifications = useNotificationStore((s) => s.clearAll)
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
-  const selectedCliOption = CLI_OPTIONS.find((option) => option.value === lastSelectedCli) ?? CLI_OPTIONS[0]
   const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
   const proAccount = hasActiveProPlan(authState)
 
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
-  const [cliMenuOpen, setCliMenuOpen] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -203,7 +196,6 @@ export default function WorkspaceManager() {
     isFullScreen: false,
   })
   const renameInputRef = useRef<HTMLInputElement>(null)
-  const cliMenuRef = useRef<HTMLDivElement>(null)
   const specialistMenuRef = useRef<HTMLDivElement>(null)
   const sessionsRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
@@ -215,7 +207,6 @@ export default function WorkspaceManager() {
 
   const openTemplateSelector = () => {
     setShowTemplateSelector(true)
-    setCliMenuOpen(false)
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setHandoffOpen(false)
@@ -297,27 +288,6 @@ export default function WorkspaceManager() {
   }, [renamingId])
 
   useEffect(() => {
-    if (!cliMenuOpen) return
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (!cliMenuRef.current?.contains(event.target as Node)) {
-        setCliMenuOpen(false)
-      }
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setCliMenuOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [cliMenuOpen])
-
-  useEffect(() => {
     if (!specialistMenuOpen) return
 
     const onPointerDown = (event: PointerEvent) => {
@@ -396,7 +366,6 @@ export default function WorkspaceManager() {
   }, [notificationsOpen])
 
   useEffect(() => {
-    setCliMenuOpen(false)
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setNotificationsOpen(false)
@@ -496,14 +465,16 @@ export default function WorkspaceManager() {
     folderPath,
     swarmState,
     swarmContext,
+    swarmRoleCliDefaults,
   }: {
     template: LayoutTemplate
     name: string
     folderPath: string | null
     swarmState?: Workspace['swarmState']
     swarmContext?: Workspace['swarmContext']
+    swarmRoleCliDefaults?: Workspace['swarmRoleCliDefaults'] | null
   }) => {
-    addWorkspace(template, { name, folderPath, swarmState, swarmContext })
+    addWorkspace(template, { name, folderPath, swarmState, swarmContext, swarmRoleCliDefaults })
     setShowTemplateSelector(false)
   }
 
@@ -632,7 +603,6 @@ export default function WorkspaceManager() {
     setHandoffTeamName(slugifySwarmName(activeWorkspace.name))
     setHandoffError(null)
     setSessionsOpen(false)
-    setCliMenuOpen(false)
     setSpecialistMenuOpen(false)
     setHandoffOpen(true)
   }
@@ -654,11 +624,6 @@ export default function WorkspaceManager() {
     setHandoffOpen(false)
   }
 
-  const handleSelectCli = (cli: AgentCli) => {
-    setLastSelectedCli(cli)
-    setCliMenuOpen(false)
-  }
-
   const handleSelectSpecialist = (specialistId: SpecialistActionId) => {
     setLastSelectedSpecialist(specialistId)
     setSpecialistMenuOpen(false)
@@ -667,7 +632,6 @@ export default function WorkspaceManager() {
 
   const startLogin = async () => {
     setSessionsOpen(false)
-    setCliMenuOpen(false)
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
@@ -873,10 +837,9 @@ export default function WorkspaceManager() {
             <div ref={sessionsRef} className="relative inline-flex">
               <button
                 type="button"
-                onClick={() => {
-                  setSessionsOpen((open) => !open)
-                  setCliMenuOpen(false)
-                  setSpecialistMenuOpen(false)
+                  onClick={() => {
+                    setSessionsOpen((open) => !open)
+                    setSpecialistMenuOpen(false)
                   setNotificationsOpen(false)
                 }}
                 className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
@@ -913,7 +876,6 @@ export default function WorkspaceManager() {
               onClick={() => {
                 setNotificationsOpen((open) => !open)
                 setSessionsOpen(false)
-                setCliMenuOpen(false)
                 setSpecialistMenuOpen(false)
                 setAccountOpen(false)
               }}
@@ -982,7 +944,7 @@ export default function WorkspaceManager() {
                   onClick={() => void addNewSpecialist()}
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-8 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-                  title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}`}
+                  title={`Spawn ${selectedSpecialistAction.label} specialist`}
                   aria-label={`Spawn ${selectedSpecialistAction.label} specialist`}
                 >
                   <SpecialistActionIcon icon={selectedSpecialistAction.icon} className="h-[18px] w-[18px]" />
@@ -990,7 +952,6 @@ export default function WorkspaceManager() {
                 <button
                   onClick={() => {
                     setSpecialistMenuOpen((open) => !open)
-                    setCliMenuOpen(false)
                   }}
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-6 items-center justify-center border-l border-[#24252b] text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
@@ -1077,84 +1038,6 @@ export default function WorkspaceManager() {
             </div>
           ) : null}
 
-          {workspaceActionsEnabled && activeWorkspace.mode !== 'swarm' && (
-            <div ref={cliMenuRef} className="relative inline-flex">
-              <div className="inline-flex overflow-hidden rounded-md border border-[#24252b] bg-[#111216]">
-                <button
-                  onClick={() => {
-                    setCliMenuOpen((open) => !open)
-                    setSpecialistMenuOpen(false)
-                  }}
-                  disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-8 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#17181d] disabled:opacity-40 disabled:hover:bg-[#111216]"
-                  title={`Base CLI: ${selectedCliOption.label}`}
-                  aria-haspopup="menu"
-                  aria-expanded={cliMenuOpen}
-                  aria-label={`Base CLI: ${selectedCliOption.label}`}
-                >
-                  <CliIcon cli={selectedCliOption.value} className="h-[18px] w-[18px]" />
-                </button>
-                <button
-                  onClick={() => {
-                    setCliMenuOpen((open) => !open)
-                    setSpecialistMenuOpen(false)
-                  }}
-                  disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-6 items-center justify-center border-l border-[#24252b] text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-                  title="Choose CLI"
-                  aria-haspopup="menu"
-                  aria-expanded={cliMenuOpen}
-                  aria-label="Choose CLI"
-                >
-                  <svg className={`h-3.5 w-3.5 transition-transform ${cliMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
-
-              {cliMenuOpen ? (
-                <div
-                  role="menu"
-                  className="absolute right-0 top-9 z-40 w-44 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
-                >
-                  {CLI_OPTIONS.map((option) => {
-                    const selected = option.value === selectedCliOption.value
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={selected}
-                        onClick={() => handleSelectCli(option.value)}
-                        className={`flex w-full items-center gap-3 rounded px-2.5 py-2 text-left transition-colors ${
-                          selected
-                            ? 'bg-[#17181d] text-[#ececee]'
-                            : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
-                        }`}
-                      >
-                        <span
-                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
-                            selected
-                                ? 'border-[#303139] bg-[#17181d] text-[#9a9aa2]'
-                                : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
-                          }`}
-                        >
-                          <CliIcon cli={option.value} className="h-[18px] w-[18px]" />
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
-                          {option.label}
-                        </span>
-                        {selected ? (
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#9a9aa2]" />
-                        ) : null}
-                      </button>
-                    )
-                  })}
-                </div>
-              ) : null}
-            </div>
-          )}
-
           <div ref={accountRef} className="relative inline-flex">
             {authState.authenticated ? (
               <button
@@ -1162,7 +1045,6 @@ export default function WorkspaceManager() {
                 onClick={() => {
                   setAccountOpen((open) => !open)
                   setSessionsOpen(false)
-                  setCliMenuOpen(false)
                   setSpecialistMenuOpen(false)
                   setNotificationsOpen(false)
                 }}

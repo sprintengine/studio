@@ -15,6 +15,7 @@ import type {
   SwarmState,
   SwarmWorkspaceContext,
   SwarmRole,
+  SwarmRoleCliDefaults,
   AgentCli,
   AppSettings,
   CliRuntimeSettings,
@@ -73,6 +74,7 @@ interface WorkspaceStore {
       folderPath?: string | null
       swarmState?: SwarmState | null
       swarmContext?: SwarmWorkspaceContext | null
+      swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
     }
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -257,6 +259,32 @@ const defaultSwarmAutoState = (): SwarmAutoState => ({
   isolateWorkersInWorktrees: false,
   pending: null,
 })
+
+const defaultSwarmRoleCliDefaults = (): Required<SwarmRoleCliDefaults> => ({
+  architect: 'codex',
+  product: 'codex',
+  frontend: 'codex',
+  developer: 'codex',
+  code_reviewer: 'codex',
+  tester: 'codex',
+  security: 'codex',
+})
+
+function normalizeSwarmRoleCliDefaults(
+  input: SwarmRoleCliDefaults | null | undefined
+): Required<SwarmRoleCliDefaults> {
+  const defaults = defaultSwarmRoleCliDefaults()
+  const next = { ...defaults }
+
+  Object.keys(defaults).forEach((role) => {
+    const value = input?.[role as SwarmRole]
+    if (value === 'codex' || value === 'claude') {
+      next[role as SwarmRole] = value
+    }
+  })
+
+  return next
+}
 
 function normalizeSwarmAutoState(
   input: Partial<SwarmAutoState> | null | undefined
@@ -572,13 +600,19 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               })
             : null
           const agents: Workspace['agents'] = {}
+          const swarmRoleCliDefaults = swarmState
+            ? normalizeSwarmRoleCliDefaults(options?.swarmRoleCliDefaults)
+            : undefined
           if (swarmState) {
             buildSwarmAgentRosterForState(swarmState).forEach((agent) => {
-              agents[agent.id] = defaultAgent(
-                agent.id,
-                pickWorkspaceAgentName(agents),
-                'swarm'
-              )
+              agents[agent.id] = {
+                ...defaultAgent(
+                  agent.id,
+                  pickWorkspaceAgentName(agents),
+                  'swarm'
+                ),
+                cli: swarmRoleCliDefaults?.[agent.role] ?? 'codex',
+              }
             })
           }
 
@@ -601,6 +635,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             worktreeState: defaultWorkspaceWorktreeState(),
             editorState: defaultEditorState(),
             swarmState,
+            swarmRoleCliDefaults,
             swarmAutoState: defaultSwarmAutoState(),
             createdAt: Date.now(),
           })
@@ -821,7 +856,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           )
           const agentRoleLabel = rosterAgent?.label ?? agentId
           const agentLabel = pickWorkspaceAgentName(ws.agents)
-          ws.agents[agentId] = defaultAgent(agentId, agentLabel, 'swarm')
+          const roleCliDefaults = normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults)
+          ws.agents[agentId] = {
+            ...defaultAgent(agentId, agentLabel, 'swarm'),
+            cli: roleCliDefaults[role],
+          }
           ws.agents = reconcileSwarmAgents(ws.agents, ws.swarmState)
           ws.swarmState.events.push({
             id: `EVT-${String(ws.swarmState.events.length + 1).padStart(3, '0')}`,
@@ -890,6 +929,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
             editorState: ws.editorState ?? defaultEditorState(),
             swarmState: normalizeSwarmState(ws.swarmState),
+            swarmRoleCliDefaults: normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults),
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           } satisfies Workspace)
           const imported = state.workspaces.at(-1)
@@ -998,7 +1038,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 22,
+      version: 23,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1183,6 +1223,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.workspaces = state.workspaces.map((ws) => ({
             ...ws,
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
+          }))
+        }
+        if (version < 23) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            swarmRoleCliDefaults: ws.mode === 'swarm' || ws.swarmState
+              ? normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults)
+              : undefined,
           }))
         }
         return state as never

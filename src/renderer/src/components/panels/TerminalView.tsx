@@ -408,10 +408,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
         swarmStatePath ? `Swarm state: ${swarmStatePath}` : null,
       ].filter(Boolean).join('\n')
-      const codexInitialPrompt = cli === 'codex' && !shouldResume && !agent.cliOnboardingPromptSent
+      const launchInitialPrompt = !shouldResume && !agent.cliOnboardingPromptSent
         ? startupPromptRef.current ?? undefined
         : undefined
-      if (codexInitialPrompt) {
+      if (launchInitialPrompt) {
         hasInjectedStartupPrompt = true
       }
 
@@ -423,7 +423,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         shouldResume,
         swarmStatePath,
         cli,
-        codexInitialPrompt,
+        launchInitialPrompt,
         cliRuntimes,
         false,
         ({
@@ -471,7 +471,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (!shouldResume) {
         updateAgent(workspaceId, agentId, {
           cliHasLaunched: true,
-          ...(codexInitialPrompt
+          ...(launchInitialPrompt
             ? {
                 cliOnboardingPromptSent: true,
                 cliStartupPrompt: undefined,
