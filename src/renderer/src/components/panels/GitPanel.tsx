@@ -949,48 +949,58 @@ function GitLogView({
       </div>
       <div className="space-y-1.5">
         {commits.map((commit) => (
-          <div
+          <GitLogCommitRow
             key={commit.hash}
-            className="group flex min-h-[46px] items-start gap-2 rounded-md px-2 py-2 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
-            title={commit.subject}
-          >
-            <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full border border-[#3a3d49]" />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
-              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#5a5a63]">
-                <span className="font-mono text-[#8a8a92]">{commit.shortHash}</span>
-                <span>{commit.date}</span>
-                <span className="min-w-0 truncate">{commit.author}</span>
-              </div>
-            </div>
-            {commit.refs.length > 0 ? (
-              <span className="mt-0.5 max-w-[76px] shrink-0 truncate rounded-full bg-[#15161a] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[#8a8a92]">
-                {commit.refs[0].replace(/^HEAD -> /, '')}
-              </span>
-            ) : null}
-            {commit.commitWebUrl ? (
-              <a
-                href={commit.commitWebUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#8a8a92] opacity-70 transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[#303139] group-hover:opacity-100"
-                title="Open commit on GitHub"
-                aria-label={`Open commit ${commit.shortHash} on GitHub`}
-              >
-                <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
-                  <path
-                    d="M6.25 4.25H4.1a1.35 1.35 0 0 0-1.35 1.35v6.3a1.35 1.35 0 0 0 1.35 1.35h6.3a1.35 1.35 0 0 0 1.35-1.35V9.75M8.75 2.75h4.5m0 0v4.5m0-4.5-6 6"
-                    stroke="currentColor"
-                    strokeWidth="1.35"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </a>
-            ) : null}
-          </div>
+            commit={commit}
+          />
         ))}
       </div>
     </section>
+  )
+}
+
+function GitLogCommitRow({ commit }: { commit: GitCommit }) {
+  const content = (
+    <>
+      <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full border border-[#3a3d49]" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#5a5a63]">
+          <span className="font-mono text-[#8a8a92]">{commit.shortHash}</span>
+          <span>{commit.date}</span>
+          <span className="min-w-0 truncate">{commit.author}</span>
+        </div>
+      </div>
+      {commit.refs.length > 0 ? (
+        <span className="mt-0.5 max-w-[76px] shrink-0 truncate rounded-full bg-[#15161a] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[#8a8a92]">
+          {commit.refs[0].replace(/^HEAD -> /, '')}
+        </span>
+      ) : null}
+    </>
+  )
+
+  const className = `group flex min-h-[46px] items-start gap-2 rounded-md px-2 py-2 text-[12px] text-[#9a9aa2] transition-colors ${
+    commit.commitWebUrl ? 'hover:bg-[#15161a] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139]' : ''
+  }`
+
+  if (commit.commitWebUrl) {
+    return (
+      <a
+        href={commit.commitWebUrl}
+        target="_blank"
+        rel="noreferrer"
+        className={className}
+        title={`Open ${commit.shortHash} on GitHub`}
+        aria-label={`Open commit ${commit.shortHash} on GitHub`}
+      >
+        {content}
+      </a>
+    )
+  }
+
+  return (
+    <div className={className} title={commit.subject}>
+      {content}
+    </div>
   )
 }
