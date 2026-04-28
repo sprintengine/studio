@@ -12,6 +12,15 @@ import type {
   SwarmTaskBoardColumn,
   SwarmTaskEvidence,
   SwarmTaskFeedback,
+  SwarmTaskFeedbackFinding,
+  SwarmTaskFeedbackFindingArea,
+  SwarmTaskFeedbackFindingKind,
+  SwarmTaskFeedbackFindingSeverity,
+  SwarmTaskFeedbackFindingStatus,
+  SwarmTaskFeedbackIssue,
+  SwarmTaskFeedbackIssueCategory,
+  SwarmTaskFeedbackIssueSeverity,
+  SwarmTaskFeedbackIssueStatus,
   SwarmState,
   SwarmTask,
   SwarmTaskStatus,
@@ -93,6 +102,52 @@ const swarmArtifactStatuses: readonly SwarmArtifactStatus[] = [
   'superseded',
 ]
 
+const feedbackIssueCategories: readonly SwarmTaskFeedbackIssueCategory[] = [
+  'system_prompt',
+  'role_prompt',
+  'task_card',
+  'acceptance_criteria',
+  'context',
+  'tooling',
+  'coordination',
+  'validation',
+  'permissions',
+  'ui',
+  'other',
+]
+
+const feedbackIssueSeverities: readonly SwarmTaskFeedbackIssueSeverity[] = ['low', 'medium', 'high']
+const feedbackIssueStatuses: readonly SwarmTaskFeedbackIssueStatus[] = ['new', 'reviewed', 'applied', 'rejected', 'deferred']
+const feedbackFindingKinds: readonly SwarmTaskFeedbackFindingKind[] = [
+  'code_bug',
+  'security_issue',
+  'product_requirement_violation',
+  'test_gap',
+  'accessibility_issue',
+  'performance_issue',
+  'reliability_issue',
+  'documentation_gap',
+  'other',
+]
+const feedbackFindingSeverities: readonly SwarmTaskFeedbackFindingSeverity[] = ['critical', 'high', 'medium', 'low']
+const feedbackFindingAreas: readonly SwarmTaskFeedbackFindingArea[] = [
+  'frontend',
+  'backend',
+  'database',
+  'networking',
+  'auth',
+  'security',
+  'filesystem',
+  'cli',
+  'ipc',
+  'mobile',
+  'testing',
+  'docs',
+  'product',
+  'other',
+]
+const feedbackFindingStatuses: readonly SwarmTaskFeedbackFindingStatus[] = ['open', 'accepted', 'fixed', 'rejected', 'deferred']
+
 const reviewGateArtifactKinds = new Set<SwarmArtifactKind>([
   'architect_plan',
   'product_strategy',
@@ -155,6 +210,118 @@ function percentOrUndefined(value: unknown): number | undefined {
     : undefined
 }
 
+function isFeedbackIssueCategory(value: unknown): value is SwarmTaskFeedbackIssueCategory {
+  return feedbackIssueCategories.includes(value as SwarmTaskFeedbackIssueCategory)
+}
+
+function isFeedbackIssueSeverity(value: unknown): value is SwarmTaskFeedbackIssueSeverity {
+  return feedbackIssueSeverities.includes(value as SwarmTaskFeedbackIssueSeverity)
+}
+
+function isFeedbackIssueStatus(value: unknown): value is SwarmTaskFeedbackIssueStatus {
+  return feedbackIssueStatuses.includes(value as SwarmTaskFeedbackIssueStatus)
+}
+
+function isFeedbackFindingKind(value: unknown): value is SwarmTaskFeedbackFindingKind {
+  return feedbackFindingKinds.includes(value as SwarmTaskFeedbackFindingKind)
+}
+
+function isFeedbackFindingSeverity(value: unknown): value is SwarmTaskFeedbackFindingSeverity {
+  return feedbackFindingSeverities.includes(value as SwarmTaskFeedbackFindingSeverity)
+}
+
+function isFeedbackFindingArea(value: unknown): value is SwarmTaskFeedbackFindingArea {
+  return feedbackFindingAreas.includes(value as SwarmTaskFeedbackFindingArea)
+}
+
+function isFeedbackFindingStatus(value: unknown): value is SwarmTaskFeedbackFindingStatus {
+  return feedbackFindingStatuses.includes(value as SwarmTaskFeedbackFindingStatus)
+}
+
+function optionalTrimmedString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function normalizeSwarmTaskFeedbackIssues(value: unknown): SwarmTaskFeedbackIssue[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((issue, index): SwarmTaskFeedbackIssue[] => {
+    if (!issue || typeof issue !== 'object') return []
+    const record = issue as Record<string, unknown>
+    const category = record.category
+    const severity = record.severity
+    const title = optionalTrimmedString(record.title)
+    const detail = optionalTrimmedString(record.detail)
+
+    if (!isFeedbackIssueCategory(category) || !isFeedbackIssueSeverity(severity) || !title || !detail) {
+      return []
+    }
+
+    const id = optionalTrimmedString(record.id) ?? `feedback-issue-${index + 1}`
+    const status = isFeedbackIssueStatus(record.status) ? record.status : undefined
+    const target = optionalTrimmedString(record.target)
+    const evidence = optionalTrimmedString(record.evidence)
+    const suggestedPromptChange = optionalTrimmedString(record.suggestedPromptChange)
+    const suggestedProcessChange = optionalTrimmedString(record.suggestedProcessChange)
+
+    return [{
+      id,
+      category,
+      severity,
+      title,
+      detail,
+      ...(status ? { status } : {}),
+      ...(target ? { target } : {}),
+      ...(evidence ? { evidence } : {}),
+      ...(suggestedPromptChange ? { suggestedPromptChange } : {}),
+      ...(suggestedProcessChange ? { suggestedProcessChange } : {}),
+    }]
+  })
+}
+
+function normalizeSwarmTaskFeedbackFindings(value: unknown): SwarmTaskFeedbackFinding[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((finding, index): SwarmTaskFeedbackFinding[] => {
+    if (!finding || typeof finding !== 'object') return []
+    const record = finding as Record<string, unknown>
+    const kind = record.kind
+    const severity = record.severity
+    const area = record.area
+    const title = optionalTrimmedString(record.title)
+    const detail = optionalTrimmedString(record.detail)
+
+    if (
+      !isFeedbackFindingKind(kind)
+      || !isFeedbackFindingSeverity(severity)
+      || !isFeedbackFindingArea(area)
+      || !title
+      || !detail
+    ) {
+      return []
+    }
+
+    const id = optionalTrimmedString(record.id) ?? `feedback-finding-${index + 1}`
+    const status = isFeedbackFindingStatus(record.status) ? record.status : undefined
+    const recommendation = optionalTrimmedString(record.recommendation)
+    const requirementId = optionalTrimmedString(record.requirementId)
+    const file = optionalTrimmedString(record.file)
+
+    return [{
+      id,
+      kind,
+      severity,
+      area,
+      title,
+      detail,
+      ...(status ? { status } : {}),
+      ...(recommendation ? { recommendation } : {}),
+      ...(requirementId ? { requirementId } : {}),
+      ...(file ? { file } : {}),
+    }]
+  })
+}
+
 function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefined {
   if (!value || typeof value !== 'object') return undefined
 
@@ -181,6 +348,8 @@ function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefin
   const suggestedImprovement = typeof record.suggestedImprovement === 'string' && record.suggestedImprovement.trim()
     ? record.suggestedImprovement
     : undefined
+  const issues = normalizeSwarmTaskFeedbackIssues(record.issues)
+  const findings = normalizeSwarmTaskFeedbackFindings(record.findings)
 
   if (
     typeof record.schemaVersion !== 'number'
@@ -188,7 +357,7 @@ function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefin
     || typeof record.source !== 'string'
     || typeof record.agentId !== 'string'
     || !isSwarmRole(record.role)
-    || (!hasScore && !topFriction && !suggestedImprovement)
+    || (!hasScore && !topFriction && !suggestedImprovement && issues.length === 0 && findings.length === 0)
   ) {
     return undefined
   }
@@ -202,6 +371,8 @@ function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefin
     scores,
     ...(topFriction ? { topFriction } : {}),
     ...(suggestedImprovement ? { suggestedImprovement } : {}),
+    ...(issues.length > 0 ? { issues } : {}),
+    ...(findings.length > 0 ? { findings } : {}),
   }
 }
 

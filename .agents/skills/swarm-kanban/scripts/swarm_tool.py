@@ -43,7 +43,7 @@ VALID_ARTIFACT_KINDS = {
 VALID_ARTIFACT_STATUSES = {"draft", "ready_for_review", "approved", "changes_requested", "superseded"}
 APPROVAL_BLOCKING_ARTIFACT_STATUSES = VALID_ARTIFACT_STATUSES - {"superseded"}
 PLAN_REVIEW_ROLES = VALID_ROLES - {"architect"}
-FEEDBACK_SCHEMA_VERSION = 1
+FEEDBACK_SCHEMA_VERSION = 3
 FEEDBACK_SCORE_FIELDS = [
     ("directive_clarity_pct", "directiveClarityPct", "directive_clarity_pct"),
     ("task_clarity_pct", "taskClarityPct", "task_clarity_pct"),
@@ -61,6 +61,51 @@ FEEDBACK_TEXT_FIELDS = [
     ("suggested_improvement", "suggestedImprovement", "suggested_improvement"),
 ]
 FEEDBACK_TEXT_LIMIT = 500
+FEEDBACK_ISSUE_TEXT_LIMIT = 1000
+VALID_FEEDBACK_ISSUE_CATEGORIES = {
+    "system_prompt",
+    "role_prompt",
+    "task_card",
+    "acceptance_criteria",
+    "context",
+    "tooling",
+    "coordination",
+    "validation",
+    "permissions",
+    "ui",
+    "other",
+}
+VALID_FEEDBACK_ISSUE_SEVERITIES = {"low", "medium", "high"}
+VALID_FEEDBACK_ISSUE_STATUSES = {"new", "reviewed", "applied", "rejected", "deferred"}
+VALID_FEEDBACK_FINDING_KINDS = {
+    "code_bug",
+    "security_issue",
+    "product_requirement_violation",
+    "test_gap",
+    "accessibility_issue",
+    "performance_issue",
+    "reliability_issue",
+    "documentation_gap",
+    "other",
+}
+VALID_FEEDBACK_FINDING_SEVERITIES = {"critical", "high", "medium", "low"}
+VALID_FEEDBACK_FINDING_AREAS = {
+    "frontend",
+    "backend",
+    "database",
+    "networking",
+    "auth",
+    "security",
+    "filesystem",
+    "cli",
+    "ipc",
+    "mobile",
+    "testing",
+    "docs",
+    "product",
+    "other",
+}
+VALID_FEEDBACK_FINDING_STATUSES = {"open", "accepted", "fixed", "rejected", "deferred"}
 PLAN_REVIEW_FOCUS = {
     "product": "scope fit, user value, prioritization, adoption risk, and missing requirements",
     "developer": "implementation sequence, integration risk, data flow, backend/API impact, and owned paths",
@@ -591,6 +636,10 @@ def feedback_args_present(args: argparse.Namespace) -> bool:
     for attr, _, _ in FEEDBACK_TEXT_FIELDS:
         if str(getattr(args, attr, "") or "").strip():
             return True
+    if getattr(args, "issue_json", None):
+        return True
+    if getattr(args, "finding_json", None):
+        return True
     return False
 
 
@@ -605,6 +654,110 @@ def validate_feedback_text(value: str, field_name: str) -> str:
     if len(text) > FEEDBACK_TEXT_LIMIT:
         raise SystemExit(f"{field_name} must be {FEEDBACK_TEXT_LIMIT} characters or fewer.")
     return text
+
+
+def validate_feedback_issue_text(value: Any, field_name: str, required: bool = False) -> str:
+    if not isinstance(value, str):
+        if required:
+            raise SystemExit(f"{field_name} must be a string.")
+        return ""
+    text = value.strip()
+    if required and not text:
+        raise SystemExit(f"{field_name} cannot be empty.")
+    if len(text) > FEEDBACK_ISSUE_TEXT_LIMIT:
+        raise SystemExit(f"{field_name} must be {FEEDBACK_ISSUE_TEXT_LIMIT} characters or fewer.")
+    return text
+
+
+def normalize_feedback_issue(raw: Any, task_id: str, index: int) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise SystemExit("--issue-json entries must be JSON objects.")
+
+    category = validate_feedback_issue_text(raw.get("category"), "issue.category", required=True)
+    if category not in VALID_FEEDBACK_ISSUE_CATEGORIES:
+        raise SystemExit(f"issue.category must be one of: {', '.join(sorted(VALID_FEEDBACK_ISSUE_CATEGORIES))}.")
+
+    severity = validate_feedback_issue_text(raw.get("severity"), "issue.severity", required=True)
+    if severity not in VALID_FEEDBACK_ISSUE_SEVERITIES:
+        raise SystemExit(f"issue.severity must be one of: {', '.join(sorted(VALID_FEEDBACK_ISSUE_SEVERITIES))}.")
+
+    status = validate_feedback_issue_text(raw.get("status", "new"), "issue.status") or "new"
+    if status not in VALID_FEEDBACK_ISSUE_STATUSES:
+        raise SystemExit(f"issue.status must be one of: {', '.join(sorted(VALID_FEEDBACK_ISSUE_STATUSES))}.")
+
+    issue_id = validate_feedback_issue_text(raw.get("id"), "issue.id") or f"{task_id}-I{index + 1}"
+    issue = {
+        "id": issue_id,
+        "category": category,
+        "severity": severity,
+        "title": validate_feedback_issue_text(raw.get("title"), "issue.title", required=True),
+        "detail": validate_feedback_issue_text(raw.get("detail"), "issue.detail", required=True),
+        "status": status,
+    }
+    for key in ["target", "evidence", "suggestedPromptChange", "suggestedProcessChange"]:
+        text = validate_feedback_issue_text(raw.get(key), f"issue.{key}")
+        if text:
+            issue[key] = text
+    return issue
+
+
+def parse_feedback_issue_args(args: argparse.Namespace, task_id: str) -> List[Dict[str, Any]]:
+    issues: List[Dict[str, Any]] = []
+    for index, raw_json in enumerate(getattr(args, "issue_json", None) or []):
+        try:
+            raw = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"--issue-json must be valid JSON: {exc.msg}") from exc
+        issues.append(normalize_feedback_issue(raw, task_id, index))
+    return issues
+
+
+def normalize_feedback_finding(raw: Any, task_id: str, index: int) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise SystemExit("--finding-json entries must be JSON objects.")
+
+    kind = validate_feedback_issue_text(raw.get("kind"), "finding.kind", required=True)
+    if kind not in VALID_FEEDBACK_FINDING_KINDS:
+        raise SystemExit(f"finding.kind must be one of: {', '.join(sorted(VALID_FEEDBACK_FINDING_KINDS))}.")
+
+    severity = validate_feedback_issue_text(raw.get("severity"), "finding.severity", required=True)
+    if severity not in VALID_FEEDBACK_FINDING_SEVERITIES:
+        raise SystemExit(f"finding.severity must be one of: {', '.join(sorted(VALID_FEEDBACK_FINDING_SEVERITIES))}.")
+
+    area = validate_feedback_issue_text(raw.get("area"), "finding.area", required=True)
+    if area not in VALID_FEEDBACK_FINDING_AREAS:
+        raise SystemExit(f"finding.area must be one of: {', '.join(sorted(VALID_FEEDBACK_FINDING_AREAS))}.")
+
+    status = validate_feedback_issue_text(raw.get("status", "open"), "finding.status") or "open"
+    if status not in VALID_FEEDBACK_FINDING_STATUSES:
+        raise SystemExit(f"finding.status must be one of: {', '.join(sorted(VALID_FEEDBACK_FINDING_STATUSES))}.")
+
+    finding_id = validate_feedback_issue_text(raw.get("id"), "finding.id") or f"{task_id}-F{index + 1}"
+    finding = {
+        "id": finding_id,
+        "kind": kind,
+        "severity": severity,
+        "area": area,
+        "title": validate_feedback_issue_text(raw.get("title"), "finding.title", required=True),
+        "detail": validate_feedback_issue_text(raw.get("detail"), "finding.detail", required=True),
+        "status": status,
+    }
+    for key in ["recommendation", "requirementId", "file"]:
+        text = validate_feedback_issue_text(raw.get(key), f"finding.{key}")
+        if text:
+            finding[key] = text
+    return finding
+
+
+def parse_feedback_finding_args(args: argparse.Namespace, task_id: str) -> List[Dict[str, Any]]:
+    findings: List[Dict[str, Any]] = []
+    for index, raw_json in enumerate(getattr(args, "finding_json", None) or []):
+        try:
+            raw = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"--finding-json must be valid JSON: {exc.msg}") from exc
+        findings.append(normalize_feedback_finding(raw, task_id, index))
+    return findings
 
 
 def parse_feedback_args(args: argparse.Namespace) -> Dict[str, Any]:
@@ -673,6 +826,8 @@ def build_feedback_payload(
     role = str(task.get("role") or "")
     task_id = str(task.get("id") or "")
     team_slug = str(state.get("swarm", {}).get("name") or state_path.parent.name)
+    issues = parse_feedback_issue_args(args, task_id)
+    findings = parse_feedback_finding_args(args, task_id)
     state_feedback = {
         "schemaVersion": FEEDBACK_SCHEMA_VERSION,
         "capturedAt": now,
@@ -697,6 +852,40 @@ def build_feedback_payload(
         "observed": observed_task_metrics(task),
         **parsed["jsonTextFields"],
     }
+    if issues:
+        state_feedback["issues"] = issues
+        record["issues"] = [
+            {
+                "id": issue["id"],
+                "category": issue["category"],
+                "severity": issue["severity"],
+                "target": issue.get("target"),
+                "title": issue["title"],
+                "detail": issue["detail"],
+                "evidence": issue.get("evidence"),
+                "suggested_prompt_change": issue.get("suggestedPromptChange"),
+                "suggested_process_change": issue.get("suggestedProcessChange"),
+                "status": issue["status"],
+            }
+            for issue in issues
+        ]
+    if findings:
+        state_feedback["findings"] = findings
+        record["findings"] = [
+            {
+                "id": finding["id"],
+                "kind": finding["kind"],
+                "severity": finding["severity"],
+                "area": finding["area"],
+                "title": finding["title"],
+                "detail": finding["detail"],
+                "recommendation": finding.get("recommendation"),
+                "requirement_id": finding.get("requirementId"),
+                "file": finding.get("file"),
+                "status": finding["status"],
+            }
+            for finding in findings
+        ]
     return {"stateFeedback": state_feedback, "record": record}
 
 
@@ -1663,6 +1852,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
                 f"This reconnects you to your existing active task instead of claiming a new one. "
                 f"Continue the task, log evidence, mark it done, then stop. "
+                f"If you notice a prompt or process issue that would help improve future swarms, include it with repeatable `--issue-json` on your final feedback command. "
+                f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
                 f"Do not claim another task with this agent after marking the task done.\n\n"
                 "**IMPORTANT: Do not edit swarm/state.yaml directly. "
                 "All updates must go through the swarm tool.**"
@@ -1676,6 +1867,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"There are **{len(ready)} task(s)** ready for your role.\n\n"
             f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
             f"Complete exactly one task, log evidence, mark it done, then stop. "
+            f"If you notice a prompt or process issue that would help improve future swarms, include it with repeatable `--issue-json` on your final feedback command. "
+            f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
             f"Do not claim another task with this agent after marking the task done.\n\n"
             "**IMPORTANT: Do not edit swarm/state.yaml directly. "
             "All updates must go through the swarm tool.**"
@@ -2294,6 +2487,24 @@ def add_feedback_arguments(parser: argparse.ArgumentParser) -> None:
         )
     feedback.add_argument("--top-friction", default="", help="Optional short note on the biggest friction point.")
     feedback.add_argument("--suggested-improvement", default="", help="Optional short prompt, task, or tool improvement suggestion.")
+    feedback.add_argument(
+        "--issue-json",
+        action="append",
+        default=[],
+        help=(
+            "Optional repeatable JSON object describing a prompt/process improvement issue. "
+            "Required fields: category, severity, title, detail."
+        ),
+    )
+    feedback.add_argument(
+        "--finding-json",
+        action="append",
+        default=[],
+        help=(
+            "Optional repeatable JSON object describing a role-specific review finding. "
+            "Required fields: kind, severity, area, title, detail."
+        ),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

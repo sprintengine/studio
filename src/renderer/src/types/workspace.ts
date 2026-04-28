@@ -101,6 +101,79 @@ export type SwarmTaskFeedbackScores = {
   confidencePct?: number
 }
 
+export type SwarmTaskFeedbackIssueCategory =
+  | 'system_prompt'
+  | 'role_prompt'
+  | 'task_card'
+  | 'acceptance_criteria'
+  | 'context'
+  | 'tooling'
+  | 'coordination'
+  | 'validation'
+  | 'permissions'
+  | 'ui'
+  | 'other'
+
+export type SwarmTaskFeedbackIssueSeverity = 'low' | 'medium' | 'high'
+export type SwarmTaskFeedbackIssueStatus = 'new' | 'reviewed' | 'applied' | 'rejected' | 'deferred'
+
+export type SwarmTaskFeedbackIssue = {
+  id: string
+  category: SwarmTaskFeedbackIssueCategory
+  severity: SwarmTaskFeedbackIssueSeverity
+  target?: string
+  title: string
+  detail: string
+  evidence?: string
+  suggestedPromptChange?: string
+  suggestedProcessChange?: string
+  status?: SwarmTaskFeedbackIssueStatus
+}
+
+export type SwarmTaskFeedbackFindingKind =
+  | 'code_bug'
+  | 'security_issue'
+  | 'product_requirement_violation'
+  | 'test_gap'
+  | 'accessibility_issue'
+  | 'performance_issue'
+  | 'reliability_issue'
+  | 'documentation_gap'
+  | 'other'
+
+export type SwarmTaskFeedbackFindingSeverity = 'critical' | 'high' | 'medium' | 'low'
+
+export type SwarmTaskFeedbackFindingArea =
+  | 'frontend'
+  | 'backend'
+  | 'database'
+  | 'networking'
+  | 'auth'
+  | 'security'
+  | 'filesystem'
+  | 'cli'
+  | 'ipc'
+  | 'mobile'
+  | 'testing'
+  | 'docs'
+  | 'product'
+  | 'other'
+
+export type SwarmTaskFeedbackFindingStatus = 'open' | 'accepted' | 'fixed' | 'rejected' | 'deferred'
+
+export type SwarmTaskFeedbackFinding = {
+  id: string
+  kind: SwarmTaskFeedbackFindingKind
+  severity: SwarmTaskFeedbackFindingSeverity
+  area: SwarmTaskFeedbackFindingArea
+  title: string
+  detail: string
+  recommendation?: string
+  requirementId?: string
+  file?: string
+  status?: SwarmTaskFeedbackFindingStatus
+}
+
 export type SwarmTaskFeedback = {
   schemaVersion: number
   capturedAt: string
@@ -110,6 +183,8 @@ export type SwarmTaskFeedback = {
   scores: SwarmTaskFeedbackScores
   topFriction?: string
   suggestedImprovement?: string
+  issues?: SwarmTaskFeedbackIssue[]
+  findings?: SwarmTaskFeedbackFinding[]
 }
 
 export type SwarmRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'

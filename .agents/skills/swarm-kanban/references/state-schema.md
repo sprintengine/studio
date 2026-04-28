@@ -61,7 +61,7 @@ The app uses narrow IPC to request artifact review mutations through the Python 
   - `results`
 - `feedback` (optional)
   - Latest agent self-feedback recorded through `swarm task status --status done` or `swarm artifact ready`.
-  - `schemaVersion`: currently `1`.
+  - `schemaVersion`: currently `3`.
   - `capturedAt`: UTC ISO timestamp.
   - `source`: currently `agent_self_report`.
   - `agentId`
@@ -71,6 +71,32 @@ The app uses narrow IPC to request artifact review mutations through the Python 
     - For all fields except `hallucinationRiskPct`, `100` is best. For `hallucinationRiskPct`, `0` is best and `100` is highest risk.
   - `topFriction` (optional, short text)
   - `suggestedImprovement` (optional, short text)
+  - `issues` (optional)
+    - Prompt/process improvement signals reported by the agent for the user to review.
+    - Existing swarms and feedback records may omit this field.
+    - `id`
+    - `category`: `system_prompt`, `role_prompt`, `task_card`, `acceptance_criteria`, `context`, `tooling`, `coordination`, `validation`, `permissions`, `ui`, or `other`
+    - `severity`: `low`, `medium`, or `high`
+    - `target` (optional): prompt, template, tool, or process area affected, such as `developer_prompt` or `swarm_tool`
+    - `title`
+    - `detail`
+    - `evidence` (optional)
+    - `suggestedPromptChange` (optional)
+    - `suggestedProcessChange` (optional)
+    - `status` (optional): `new`, `reviewed`, `applied`, `rejected`, or `deferred`; omitted values are treated as `new`
+  - `findings` (optional)
+    - Role-specific review findings reported by agents, such as bugs, security issues, requirement violations, and test gaps.
+    - Existing swarms and feedback records may omit this field.
+    - `id`
+    - `kind`: `code_bug`, `security_issue`, `product_requirement_violation`, `test_gap`, `accessibility_issue`, `performance_issue`, `reliability_issue`, `documentation_gap`, or `other`
+    - `severity`: `critical`, `high`, `medium`, or `low`
+    - `area`: `frontend`, `backend`, `database`, `networking`, `auth`, `security`, `filesystem`, `cli`, `ipc`, `mobile`, `testing`, `docs`, `product`, or `other`
+    - `title`
+    - `detail`
+    - `recommendation` (optional)
+    - `requirementId` (optional)
+    - `file` (optional)
+    - `status` (optional): `open`, `accepted`, `fixed`, `rejected`, or `deferred`; omitted values are treated as `open`
 - `notes`
 - `startedAt`
 - `completedAt`

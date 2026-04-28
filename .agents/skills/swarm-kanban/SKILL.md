@@ -21,7 +21,7 @@ API discovery:
 - Current command groups are `handover`, `init`, `recover`, `join`, `task`, `plan`, `artifact`, and `summary`.
 - Worker commands live under `swarm task`: use `task next`, `task claim`, `task status`, `task log`, `task note`, and `task list`.
 - `swarm task log` uses repeatable `--file`, `--command`, and `--result` flags.
-- `swarm task status --status done` and `swarm artifact ready` accept optional `0`-`100` agent feedback flags such as `--confidence-pct`, `--task-clarity-pct`, and `--hallucination-risk-pct`. Omit them when unavailable; existing completion commands remain valid.
+- `swarm task status --status done` and `swarm artifact ready` accept optional `0`-`100` agent feedback flags such as `--confidence-pct`, `--task-clarity-pct`, and `--hallucination-risk-pct`, short text fields such as `--top-friction`, repeatable `--issue-json` prompt/process improvement signals, and repeatable `--finding-json` role-specific review findings. Omit them when unavailable; existing completion commands remain valid.
 - Agent identity is the stable swarm slot id such as `frontend`, `product`, `developer-1`, or `developer-2`, not the Claude session id. If Claude restarts, reuse the same `--id` to continue that slot's active work.
 - If calling the Python script directly instead of the `swarm` function, put global `--state <path>` before the subcommand.
 

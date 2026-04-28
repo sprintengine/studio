@@ -11,6 +11,8 @@ import type {
   SwarmTask,
   SwarmTaskBoardColumn,
   SwarmTaskFeedback,
+  SwarmTaskFeedbackFinding,
+  SwarmTaskFeedbackIssue,
   SwarmTaskStatus,
 } from '../../types/workspace'
 import { SwarmRoleIcon } from '../AppIcons'
@@ -2136,6 +2138,16 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                 emptyLabel="No agent feedback recorded."
               />
               <SectionList
+                title="Prompt Improvement Signals"
+                items={runSummary.promptImprovementSignals}
+                emptyLabel="No prompt improvement signals recorded."
+              />
+              <SectionList
+                title="Role Findings"
+                items={runSummary.findingSummaries}
+                emptyLabel="No role findings recorded."
+              />
+              <SectionList
                 title="Touched Files"
                 items={runSummary.touchedFiles}
                 emptyLabel="No touched files recorded."
@@ -3456,6 +3468,78 @@ const feedbackScoreLabels: Array<{ key: keyof SwarmTaskFeedback['scores']; label
   { key: 'confidencePct', label: 'Confidence' },
 ]
 
+const feedbackIssueCategoryLabels: Record<SwarmTaskFeedbackIssue['category'], string> = {
+  system_prompt: 'System Prompt',
+  role_prompt: 'Role Prompt',
+  task_card: 'Task Card',
+  acceptance_criteria: 'Acceptance Criteria',
+  context: 'Context',
+  tooling: 'Tooling',
+  coordination: 'Coordination',
+  validation: 'Validation',
+  permissions: 'Permissions',
+  ui: 'UI',
+  other: 'Other',
+}
+
+const feedbackIssueSeverityLabels: Record<SwarmTaskFeedbackIssue['severity'], string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+}
+
+const feedbackIssueStatusLabels: Record<NonNullable<SwarmTaskFeedbackIssue['status']>, string> = {
+  new: 'New',
+  reviewed: 'Reviewed',
+  applied: 'Applied',
+  rejected: 'Rejected',
+  deferred: 'Deferred',
+}
+
+const feedbackFindingKindLabels: Record<SwarmTaskFeedbackFinding['kind'], string> = {
+  code_bug: 'Code Bug',
+  security_issue: 'Security Issue',
+  product_requirement_violation: 'Requirement Violation',
+  test_gap: 'Test Gap',
+  accessibility_issue: 'Accessibility Issue',
+  performance_issue: 'Performance Issue',
+  reliability_issue: 'Reliability Issue',
+  documentation_gap: 'Documentation Gap',
+  other: 'Other',
+}
+
+const feedbackFindingSeverityLabels: Record<SwarmTaskFeedbackFinding['severity'], string> = {
+  critical: 'Critical',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+}
+
+const feedbackFindingAreaLabels: Record<SwarmTaskFeedbackFinding['area'], string> = {
+  frontend: 'Frontend',
+  backend: 'Backend',
+  database: 'Database',
+  networking: 'Networking',
+  auth: 'Auth',
+  security: 'Security',
+  filesystem: 'Filesystem',
+  cli: 'CLI',
+  ipc: 'IPC',
+  mobile: 'Mobile',
+  testing: 'Testing',
+  docs: 'Docs',
+  product: 'Product',
+  other: 'Other',
+}
+
+const feedbackFindingStatusLabels: Record<NonNullable<SwarmTaskFeedbackFinding['status']>, string> = {
+  open: 'Open',
+  accepted: 'Accepted',
+  fixed: 'Fixed',
+  rejected: 'Rejected',
+  deferred: 'Deferred',
+}
+
 function AgentFeedback({ feedback }: { feedback: SwarmTaskFeedback }) {
   const scores = feedbackScoreLabels.flatMap((metric) => {
     const value = feedback.scores[metric.key]
@@ -3492,6 +3576,98 @@ function AgentFeedback({ feedback }: { feedback: SwarmTaskFeedback }) {
           <span className="text-[#9a9aa2]">Suggested improvement: </span>{feedback.suggestedImprovement}
         </div>
       ) : null}
+      {feedback.issues && feedback.issues.length > 0 ? (
+        <PromptImprovementIssues issues={feedback.issues} className="mt-4" />
+      ) : null}
+      {feedback.findings && feedback.findings.length > 0 ? (
+        <RoleFindings findings={feedback.findings} className="mt-4" />
+      ) : null}
+    </div>
+  )
+}
+
+function PromptImprovementIssues({
+  issues,
+  className = '',
+}: {
+  issues: SwarmTaskFeedbackIssue[]
+  className?: string
+}) {
+  if (issues.length === 0) return null
+
+  return (
+    <div className={className}>
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+        Prompt Improvement Signals
+      </div>
+      <div className="space-y-3">
+        {issues.map((issue) => (
+          <div key={issue.id} className="rounded-md border border-[#1f2025] bg-[#0f1014] p-3">
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="font-semibold text-[#ececee]">{issue.title}</span>
+              <span className="text-[#5a5a63]">{feedbackIssueCategoryLabels[issue.category]}</span>
+              <span className="text-[#5a5a63]">{feedbackIssueSeverityLabels[issue.severity]}</span>
+              <span className="text-[#5a5a63]">{feedbackIssueStatusLabels[issue.status ?? 'new']}</span>
+              {issue.target ? <span className="font-mono text-[#7f8189]">{issue.target}</span> : null}
+            </div>
+            <div className="mt-2 text-[12px] leading-5 text-[#d7d7dc]">{issue.detail}</div>
+            {issue.evidence ? (
+              <div className="mt-2 text-[12px] leading-5 text-[#9a9aa2]">
+                Evidence: {issue.evidence}
+              </div>
+            ) : null}
+            {issue.suggestedPromptChange ? (
+              <div className="mt-2 text-[12px] leading-5 text-[#d7d7dc]">
+                <span className="text-[#9a9aa2]">Prompt change: </span>{issue.suggestedPromptChange}
+              </div>
+            ) : null}
+            {issue.suggestedProcessChange ? (
+              <div className="mt-1 text-[12px] leading-5 text-[#d7d7dc]">
+                <span className="text-[#9a9aa2]">Process change: </span>{issue.suggestedProcessChange}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RoleFindings({
+  findings,
+  className = '',
+}: {
+  findings: SwarmTaskFeedbackFinding[]
+  className?: string
+}) {
+  if (findings.length === 0) return null
+
+  return (
+    <div className={className}>
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+        Role Findings
+      </div>
+      <div className="space-y-3">
+        {findings.map((finding) => (
+          <div key={finding.id} className="rounded-md border border-[#1f2025] bg-[#0f1014] p-3">
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="font-semibold text-[#ececee]">{finding.title}</span>
+              <span className="text-[#5a5a63]">{feedbackFindingKindLabels[finding.kind]}</span>
+              <span className="text-[#5a5a63]">{feedbackFindingSeverityLabels[finding.severity]}</span>
+              <span className="text-[#5a5a63]">{feedbackFindingAreaLabels[finding.area]}</span>
+              <span className="text-[#5a5a63]">{feedbackFindingStatusLabels[finding.status ?? 'open']}</span>
+              {finding.requirementId ? <span className="font-mono text-[#7f8189]">{finding.requirementId}</span> : null}
+              {finding.file ? <span className="font-mono text-[#7f8189] [overflow-wrap:anywhere]">{finding.file}</span> : null}
+            </div>
+            <div className="mt-2 text-[12px] leading-5 text-[#d7d7dc]">{finding.detail}</div>
+            {finding.recommendation ? (
+              <div className="mt-2 text-[12px] leading-5 text-[#d7d7dc]">
+                <span className="text-[#9a9aa2]">Recommendation: </span>{finding.recommendation}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -3877,6 +4053,8 @@ function buildRunSummary(tasks: SwarmTask[]) {
     return `${task.id} - ${task.title}: ${summary}`
   })
   const feedbackSummaries = buildFeedbackSummary(completed)
+  const promptImprovementSignals = buildFeedbackIssueSummary(completed)
+  const findingSummaries = buildFeedbackFindingSummary(completed)
   const openQuestions = tasks.flatMap((task) =>
     task.notes.map((note) => `${task.id}: ${note}`)
   )
@@ -3889,6 +4067,8 @@ function buildRunSummary(tasks: SwarmTask[]) {
     results,
     taskSummaries,
     feedbackSummaries,
+    promptImprovementSignals,
+    findingSummaries,
     openQuestions,
   }
 }
@@ -3910,4 +4090,100 @@ function buildFeedbackSummary(tasks: SwarmTask[]): string[] {
     const average = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
     return [`${metric.label}: ${average}% avg across ${values.length} task${values.length === 1 ? '' : 's'}`]
   })
+}
+
+function buildFeedbackIssueSummary(tasks: SwarmTask[]): string[] {
+  return tasks.flatMap((task) =>
+    (task.feedback?.issues ?? []).map((issue) => {
+      const parts = [
+        `${task.id}: ${feedbackIssueSeverityLabels[issue.severity]} ${feedbackIssueCategoryLabels[issue.category]}`,
+        issue.target ? `target ${issue.target}` : null,
+        issue.title,
+        issue.suggestedPromptChange ? `Prompt: ${issue.suggestedPromptChange}` : null,
+        issue.suggestedProcessChange ? `Process: ${issue.suggestedProcessChange}` : null,
+      ].filter(Boolean)
+      return parts.join(' - ')
+    })
+  )
+}
+
+function buildFeedbackFindingSummary(tasks: SwarmTask[]): string[] {
+  const findings = tasks.flatMap((task) =>
+    (task.feedback?.findings ?? []).map((finding) => ({ task, finding }))
+  )
+  if (findings.length === 0) return []
+  const findingRows = findings.map(({ finding }) => finding)
+
+  const total = findings.length
+  const severitySummary = summarizeFindingCounts(
+    findingRows,
+    ['critical', 'high', 'medium', 'low'],
+    (finding) => finding.severity,
+    feedbackFindingSeverityLabels
+  )
+  const kindSummary = summarizeFindingCounts(
+    findingRows,
+    [
+      'code_bug',
+      'security_issue',
+      'product_requirement_violation',
+      'test_gap',
+      'accessibility_issue',
+      'performance_issue',
+      'reliability_issue',
+      'documentation_gap',
+      'other',
+    ],
+    (finding) => finding.kind,
+    feedbackFindingKindLabels
+  )
+  const areaSummary = summarizeFindingCounts(
+    findingRows,
+    [
+      'frontend',
+      'backend',
+      'database',
+      'networking',
+      'auth',
+      'security',
+      'filesystem',
+      'cli',
+      'ipc',
+      'mobile',
+      'testing',
+      'docs',
+      'product',
+      'other',
+    ],
+    (finding) => finding.area,
+    feedbackFindingAreaLabels
+  )
+  const details = findings.map(({ task, finding }) =>
+    `${task.id}: ${feedbackFindingSeverityLabels[finding.severity]} ${feedbackFindingKindLabels[finding.kind]} in ${feedbackFindingAreaLabels[finding.area]} - ${finding.title}`
+  )
+
+  return [
+    `${total} finding${total === 1 ? '' : 's'} reported`,
+    ...(severitySummary ? [`By severity: ${severitySummary}`] : []),
+    ...(kindSummary ? [`By type: ${kindSummary}`] : []),
+    ...(areaSummary ? [`By area: ${areaSummary}`] : []),
+    ...details,
+  ]
+}
+
+function summarizeFindingCounts<T extends string>(
+  findings: SwarmTaskFeedbackFinding[],
+  order: readonly T[],
+  getValue: (finding: SwarmTaskFeedbackFinding) => T,
+  labels: Record<T, string>
+): string {
+  const counts = new Map<T, number>()
+  for (const finding of findings) {
+    const value = getValue(finding)
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+  return order.flatMap((key) => {
+    const count = counts.get(key) ?? 0
+    return count > 0 ? [`${labels[key]} ${count}`] : []
+  }).join(', ')
 }

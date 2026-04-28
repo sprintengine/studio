@@ -861,7 +861,7 @@ export default function WorkspaceManager() {
                 <SessionsIcon className="h-[18px] w-[18px]" />
                 {sessions.length > 0 ? (
                   <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#0b0c0f] bg-[#30d158] px-1 text-[10px] font-bold leading-none text-[#061210]">
-                    {sessions.length > 9 ? '9+' : sessions.length}
+                    {sessions.length > 99 ? '99+' : sessions.length}
                   </span>
                 ) : null}
               </button>
