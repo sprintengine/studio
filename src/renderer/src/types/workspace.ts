@@ -129,6 +129,8 @@ export type SwarmAutoPendingSpawn = {
 export type SwarmAutoState = {
   enabled: boolean
   autoApproveArtifacts: boolean
+  keepDoneAgentTerminals: boolean
+  isolateWorkersInWorktrees?: boolean
   pending: SwarmAutoPendingSpawn | null
 }
 

@@ -207,6 +207,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
   const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
   const setSwarmAutoApproveArtifacts = useWorkspaceStore((s) => s.setSwarmAutoApproveArtifacts)
+  const setSwarmKeepDoneAgentTerminals = useWorkspaceStore((s) => s.setSwarmKeepDoneAgentTerminals)
   const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
@@ -253,6 +254,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const agents = workspace?.agents ?? {}
   const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
   const autoApproveArtifacts = workspace?.swarmAutoState?.autoApproveArtifacts ?? false
+  const keepDoneAgentTerminals = workspace?.swarmAutoState?.keepDoneAgentTerminals ?? false
 
   const resolveReadableSwarmStatePath = async (): Promise<string | null> => {
     if (!folderPath) return null
@@ -842,6 +844,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     setSwarmAutoApproveArtifacts(workspaceId, !autoApproveArtifacts)
   }
 
+  const toggleKeepDoneAgentTerminals = () => {
+    setSwarmKeepDoneAgentTerminals(workspaceId, !keepDoneAgentTerminals)
+  }
+
   const getAgentName = (agentId: string, fallback: string) => agents[agentId]?.name ?? fallback
 
   const getCustomAgentName = (agentId: string, fallback: string) => {
@@ -1120,6 +1126,33 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
             <span id="artifact-auto-approval-disabled" className="sr-only">
               Auto must be enabled before artifacts can be auto-approved.
             </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={keepDoneAgentTerminals}
+              aria-label="Keep done agent terminals open"
+              onClick={toggleKeepDoneAgentTerminals}
+              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                keepDoneAgentTerminals
+                  ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/65 hover:bg-[#6ee7d8]/16'
+                  : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
+              }`}
+              title="Keep completed swarm agent terminals open"
+            >
+              <span
+                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                  keepDoneAgentTerminals ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+                }`}
+                aria-hidden="true"
+              >
+                <span
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+                    keepDoneAgentTerminals ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </span>
+              <span>Keep terminals</span>
+            </button>
             {!fixedView ? (
               <div className="ml-1 flex flex-wrap items-center gap-1">
                 {([

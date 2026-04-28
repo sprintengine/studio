@@ -98,6 +98,7 @@ interface WorkspaceStore {
   setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
   setSwarmAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setSwarmAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
+  setSwarmKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void
   setSwarmAutoWorktreeIsolation: (workspaceId: WorkspaceId, isolateWorkersInWorktrees: boolean) => void
   setSwarmAutoPending: (workspaceId: WorkspaceId, pending: SwarmAutoPendingSpawn | null) => void
   addSwarmMember: (
@@ -147,10 +148,6 @@ const defaultAgentExecution = (): AgentExecution => ({
   worktreeId: null,
   cwd: null,
 })
-
-type SwarmAutoStateWithWorktreeIsolation = SwarmAutoState & {
-  isolateWorkersInWorktrees: boolean
-}
 
 function normalizeAgentExecution(input: Partial<AgentExecution> | null | undefined): AgentExecution {
   const mode = input?.mode === 'worktree' ? 'worktree' : 'current_workspace'
@@ -253,20 +250,22 @@ const defaultEditorState = (): EditorState => ({
   activeFilePath: null,
 })
 
-const defaultSwarmAutoState = (): SwarmAutoStateWithWorktreeIsolation => ({
+const defaultSwarmAutoState = (): SwarmAutoState => ({
   enabled: false,
   autoApproveArtifacts: false,
+  keepDoneAgentTerminals: false,
   isolateWorkersInWorktrees: false,
   pending: null,
 })
 
 function normalizeSwarmAutoState(
-  input: (Partial<SwarmAutoState> & { isolateWorkersInWorktrees?: boolean }) | null | undefined
-): SwarmAutoStateWithWorktreeIsolation {
+  input: Partial<SwarmAutoState> | null | undefined
+): SwarmAutoState {
   const pending = input?.pending
   return {
     enabled: Boolean(input?.enabled),
     autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
+    keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
     isolateWorkersInWorktrees: Boolean(input?.isolateWorkersInWorktrees),
     pending: typeof pending?.taskId === 'string' && typeof pending.agentId === 'string'
       ? {
@@ -769,6 +768,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }),
 
+      setSwarmKeepDoneAgentTerminals: (workspaceId, keepDoneAgentTerminals) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSwarmAutoState(ws.swarmAutoState)
+          ws.swarmAutoState = {
+            ...current,
+            keepDoneAgentTerminals,
+          }
+        }),
+
       setSwarmAutoWorktreeIsolation: (workspaceId, isolateWorkersInWorktrees) =>
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
@@ -777,7 +787,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.swarmAutoState = {
             ...current,
             isolateWorkersInWorktrees,
-          } as SwarmAutoState
+          }
         }),
 
       setSwarmAutoPending: (workspaceId, pending) =>
@@ -988,7 +998,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 21,
+      version: 22,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1167,6 +1177,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ])
             ),
             worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
+          }))
+        }
+        if (version < 22) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
         return state as never

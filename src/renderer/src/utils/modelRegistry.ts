@@ -88,6 +88,36 @@ export function focusOrAddAgentTab(
   return true
 }
 
+function collectAgentTabIds(model: Model, agentId: string): string[] {
+  const tabIds: string[] = []
+  model.visitNodes((node) => {
+    if (!(node instanceof TabNode) || node.getComponent() !== 'agent') return
+
+    const config = node.getConfig() as { agentId?: string } | undefined
+    if (config?.agentId === agentId) tabIds.push(node.getId())
+  })
+  return tabIds
+}
+
+export function removeAgentTab(workspaceId: string, agentId: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  const tabIds = collectAgentTabIds(model, agentId)
+  tabIds.forEach((tabId) => model.doAction(Actions.deleteTab(tabId)))
+  return tabIds.length > 0
+}
+
+export function removeAgentTabFromLayoutModel(
+  layoutModel: IJsonModel,
+  agentId: string
+): { layoutModel: IJsonModel; removed: boolean } {
+  const model = Model.fromJson(layoutModel)
+  const tabIds = collectAgentTabIds(model, agentId)
+  tabIds.forEach((tabId) => model.doAction(Actions.deleteTab(tabId)))
+  return { layoutModel: model.toJson(), removed: tabIds.length > 0 }
+}
+
 export function ensureAgentTabInLayoutModel(
   layoutModel: IJsonModel,
   agentId: string,

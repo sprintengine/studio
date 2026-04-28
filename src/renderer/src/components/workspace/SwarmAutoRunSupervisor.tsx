@@ -10,12 +10,18 @@ import {
   swarmRoleLabels,
 } from '../../utils/swarm'
 import { parseSwarmStateFile } from '../../utils/swarmStateFile'
-import { ensureAgentTabInLayoutModel, focusOrAddAgentTab } from '../../utils/modelRegistry'
+import {
+  ensureAgentTabInLayoutModel,
+  focusOrAddAgentTab,
+  removeAgentTab,
+  removeAgentTabFromLayoutModel,
+} from '../../utils/modelRegistry'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 
 const AUTO_RUN_POLL_MS = 2000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
+const DONE_AGENT_TERMINAL_CLOSE_DELAY_MS = 5 * 60 * 1000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
 type AutoRunWorktreeSpec = {
@@ -32,6 +38,10 @@ type AutoRunWorktreeResult =
 
 type SwarmAutoStateWithWorktreeIsolation = Workspace['swarmAutoState'] & {
   isolateWorkersInWorktrees?: boolean
+}
+
+type DoneAgentTerminalObservation = {
+  firstSeenAt: number
 }
 
 function revealAutoRunAgentTerminal(workspaceId: string, agentId: string, label: string): void {
@@ -88,7 +98,7 @@ async function refreshAutoWorkspaceState(
   lastContentByWorkspace: MutableRefObject<Map<string, string>>,
   options: { force?: boolean } = {}
 ): Promise<SwarmState | null> {
-  if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !workspace.swarmState || !workspace.swarmContext) {
+  if (!workspace.folderPath || !workspace.swarmState || !workspace.swarmContext) {
     return null
   }
 
@@ -166,6 +176,12 @@ function sameFilePath(firstPath: string, secondPath: string): boolean {
 
 function isSwarmWorktreeIsolationEnabled(workspace: Workspace): boolean {
   return Boolean((workspace.swarmAutoState as SwarmAutoStateWithWorktreeIsolation).isolateWorkersInWorktrees)
+}
+
+function shouldCloseDoneAgentTerminals(workspace: Workspace): boolean {
+  return workspace.mode === 'swarm'
+    && Boolean(workspace.swarmState)
+    && !workspace.swarmAutoState.keepDoneAgentTerminals
 }
 
 function buildAutoRunWorktreeSpec(
@@ -609,6 +625,109 @@ async function findRunningUnfinishedRoleSession(
   }) ?? null
 }
 
+function doneTerminalObservationKey(workspace: Workspace, agentId: string): string {
+  return [
+    workspace.id,
+    workspace.swarmContext?.statePath ?? '',
+    agentId,
+  ].join(':')
+}
+
+function agentIsDoneForTerminalCleanup(
+  swarmState: SwarmState,
+  agentId: string
+): boolean {
+  const runtimeAgent = swarmState.swarmAgents[agentId]
+  if (runtimeAgent?.status === 'needs_input') return false
+
+  const ownedTasks = swarmState.tasks.filter((task) => task.ownerAgentId === agentId)
+  if (ownedTasks.some((task) => task.status === 'needs_input' || task.status === 'in_progress')) {
+    return false
+  }
+
+  if (runtimeAgent?.currentTaskId) {
+    const currentTask = swarmState.tasks.find((task) => task.id === runtimeAgent.currentTaskId)
+    if (currentTask && currentTask.status !== 'done') return false
+  }
+
+  if (runtimeAgent?.status === 'done') return true
+
+  return ownedTasks.length > 0 && ownedTasks.every((task) => task.status === 'done')
+}
+
+function getDoneAgentIdsForTerminalCleanup(swarmState: SwarmState): string[] {
+  const agentIds = new Set<string>(Object.keys(swarmState.swarmAgents))
+  swarmState.tasks.forEach((task) => {
+    if (task.ownerAgentId) agentIds.add(task.ownerAgentId)
+  })
+  return [...agentIds].filter((agentId) => agentIsDoneForTerminalCleanup(swarmState, agentId))
+}
+
+function clearDoneTerminalObservationsForWorkspace(
+  workspace: Workspace,
+  doneAgentTerminalObservations: MutableRefObject<Map<string, DoneAgentTerminalObservation>>
+): void {
+  for (const key of doneAgentTerminalObservations.current.keys()) {
+    if (key.startsWith(`${workspace.id}:`)) doneAgentTerminalObservations.current.delete(key)
+  }
+}
+
+async function closeDoneAgentSessions(
+  workspace: Workspace,
+  swarmState: SwarmState,
+  doneAgentTerminalObservations: MutableRefObject<Map<string, DoneAgentTerminalObservation>>
+): Promise<void> {
+  if (!shouldCloseDoneAgentTerminals(workspace)) {
+    clearDoneTerminalObservationsForWorkspace(workspace, doneAgentTerminalObservations)
+    return
+  }
+
+  const now = Date.now()
+  const sessions = await window.api.terminalList().catch(() => [])
+  const eligibleKeys = new Set<string>()
+
+  for (const agentId of getDoneAgentIdsForTerminalCleanup(swarmState)) {
+    const observationKey = doneTerminalObservationKey(workspace, agentId)
+    eligibleKeys.add(observationKey)
+    const observation = doneAgentTerminalObservations.current.get(observationKey)
+    if (!observation) {
+      doneAgentTerminalObservations.current.set(observationKey, { firstSeenAt: now })
+      continue
+    }
+    if (now - observation.firstSeenAt < DONE_AGENT_TERMINAL_CLOSE_DELAY_MS) continue
+
+    const agentSessions = sessions.filter((session) =>
+      session.agentId === agentId && sessionBelongsToWorkspaceSwarm(session, workspace)
+    )
+    for (const session of agentSessions) {
+      await window.api.terminalKill(session.sessionId)
+    }
+    const state = useWorkspaceStore.getState()
+    const latestWorkspace = state.workspaces.find((candidate) => candidate.id === workspace.id) ?? workspace
+    const hadAgent = Boolean(latestWorkspace.agents[agentId])
+    if (hadAgent || agentSessions.length > 0) {
+      state.updateAgent(workspace.id, agentId, {
+        cliSessionId: undefined,
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliStartupPrompt: undefined,
+      })
+    }
+    if (!removeAgentTab(workspace.id, agentId)) {
+      const result = removeAgentTabFromLayoutModel(latestWorkspace.layoutModel, agentId)
+      if (result.removed) state.updateLayout(workspace.id, result.layoutModel)
+    }
+    doneAgentTerminalObservations.current.delete(observationKey)
+  }
+
+  for (const key of doneAgentTerminalObservations.current.keys()) {
+    if (key.startsWith(`${workspace.id}:`) && !eligibleKeys.has(key)) {
+      doneAgentTerminalObservations.current.delete(key)
+    }
+  }
+}
+
 async function agentHasRunningProcess(workspace: Workspace, agentId: string): Promise<boolean> {
   return Boolean(await findRunningAgentSession(workspace, agentId))
 }
@@ -932,6 +1051,7 @@ export default function SwarmAutoRunSupervisor() {
   const inFlightSpawns = useRef(new Set<string>())
   const sentArtifactApprovalMessages = useRef(new Set<string>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
+  const doneAgentTerminalObservations = useRef(new Map<string, DoneAgentTerminalObservation>())
   const tickInProgress = useRef(false)
 
   useEffect(() => {
@@ -943,7 +1063,9 @@ export default function SwarmAutoRunSupervisor() {
 
       try {
         const { workspaces, appSettings } = useWorkspaceStore.getState()
-        const autoWorkspaces = workspaces.filter((workspace) => workspace.swarmAutoState.enabled)
+        const autoWorkspaces = workspaces.filter((workspace) =>
+          workspace.swarmAutoState.enabled || shouldCloseDoneAgentTerminals(workspace)
+        )
 
         for (const workspace of autoWorkspaces) {
           if (disposed) return
@@ -958,6 +1080,14 @@ export default function SwarmAutoRunSupervisor() {
 
         const reconciledState = useWorkspaceStore.getState()
         for (const workspace of reconciledState.workspaces) {
+          if (disposed) return
+          const swarmState = workspace.swarmState
+          if (!swarmState) continue
+          await closeDoneAgentSessions(workspace, swarmState, doneAgentTerminalObservations)
+        }
+
+        const cleanedState = useWorkspaceStore.getState()
+        for (const workspace of cleanedState.workspaces) {
           if (disposed) return
           await superviseWorkspace(
             workspace,
