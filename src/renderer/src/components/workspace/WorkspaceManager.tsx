@@ -164,6 +164,7 @@ export default function WorkspaceManager() {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'claude')
+  const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
   const lastSelectedSpecialist = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
@@ -174,6 +175,7 @@ export default function WorkspaceManager() {
   const clearNotifications = useNotificationStore((s) => s.clearAll)
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
+  const selectedCliOption = AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === lastSelectedCli) ?? AGENT_SPAWN_CLI_OPTIONS[0]
   const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
   const proAccount = hasActiveProPlan(authState)
 
@@ -630,6 +632,10 @@ export default function WorkspaceManager() {
     void addNewSpecialist(specialistId)
   }
 
+  const handleSelectSpawnCli = (cli: AgentCli) => {
+    setLastSelectedCli(cli)
+  }
+
   const startLogin = async () => {
     setSessionsOpen(false)
     setSpecialistMenuOpen(false)
@@ -944,7 +950,7 @@ export default function WorkspaceManager() {
                   onClick={() => void addNewSpecialist()}
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-8 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-                  title={`Spawn ${selectedSpecialistAction.label} specialist`}
+                  title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}`}
                   aria-label={`Spawn ${selectedSpecialistAction.label} specialist`}
                 >
                   <SpecialistActionIcon icon={selectedSpecialistAction.icon} className="h-[18px] w-[18px]" />
@@ -971,26 +977,54 @@ export default function WorkspaceManager() {
                   role="menu"
                   className="absolute right-0 top-9 z-40 w-72 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
                 >
-                  {AGENT_SPAWN_CLI_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => addNewCliAgent(option.value, option.label)}
-                      className="flex w-full items-center gap-3 rounded px-2.5 py-2 text-left text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                  <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                    CLI
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 px-1 pb-1">
+                    {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
+                      const selected = option.value === selectedCliOption.value
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={selected}
+                          onClick={() => handleSelectSpawnCli(option.value)}
+                          className={`flex min-w-0 items-center justify-center gap-2 rounded px-2 py-2 text-[12px] font-semibold transition-colors ${
+                            selected
+                              ? 'bg-[#17181d] text-[#ececee]'
+                              : 'text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#d7d7dc]'
+                          }`}
+                        >
+                          <CliIcon cli={option.value} className="h-4 w-4 shrink-0" />
+                          <span className="truncate">{option.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="my-1 border-t border-[#24252b]" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => addNewCliAgent(selectedCliOption.value, 'Raw Agent')}
+                    className="flex w-full items-center gap-3 rounded px-2.5 py-2 text-left text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                  >
+                    <span
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] ${
+                        selectedCliOption.value === 'codex' ? 'text-[#9a9aa2]' : 'text-[#d97757]'
+                      }`}
                     >
-                      <span
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] ${
-                          option.value === 'codex' ? 'text-[#9a9aa2]' : 'text-[#d97757]'
-                        }`}
-                      >
-                        <CliIcon cli={option.value} className="h-[18px] w-[18px]" />
+                      <CliIcon cli={selectedCliOption.value} className="h-[18px] w-[18px]" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold">
+                        Raw Agent
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
-                        {option.label}
+                      <span className="mt-0.5 block truncate text-[11px] text-[#8a8a92]">
+                        {selectedCliOption.label}, no specialist prompt
                       </span>
-                    </button>
-                  ))}
+                    </span>
+                  </button>
                   <div className="my-1 border-t border-[#24252b]" />
                   <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                     Specialist Agents
