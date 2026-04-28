@@ -41,6 +41,8 @@ type GitHistoryState =
 
 type GitScopeKind = 'main' | 'worktree'
 
+type GitPanelView = 'changes' | 'worktrees'
+
 type GitScopeOption = {
   id: string
   kind: GitScopeKind
@@ -210,6 +212,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const [commitMessage, setCommitMessage] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [activeView, setActiveView] = useState<GitPanelView>('changes')
 
   const refreshWorktreeScopes = useCallback(async () => {
     if (!mainRepoRoot || typeof window.api.listGitWorktrees !== 'function') {
@@ -342,6 +345,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   )
   const allEntries = useMemo(() => sortedEntries(Object.values(status?.files ?? {})), [status])
   const branchOptions = branches?.branches ?? []
+  const worktreeCount = scopeOptions.filter((scope) => scope.kind === 'worktree').length
   const readyToCommit = stagedEntries.length > 0 && Boolean(commitMessage.trim())
   const activeScopeLabel = activeScope?.label ?? 'Current checkout'
   const activeScopePath = repoRoot ?? activeRootPath ?? ''
@@ -637,49 +641,100 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          <WorktreeManager
-            workspaceId={workspaceId}
-            repoRoot={mainRepoRoot ?? repoRoot}
-            currentBranch={branches?.current ?? null}
-            branchOptions={branchOptions.map((branch) => branch.name)}
-            onChanged={refreshAll}
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[#1b1c21] bg-[#0d0e11] px-3" role="tablist" aria-label="Git panel views">
+          <GitPanelTab
+            active={activeView === 'changes'}
+            label="Changes"
+            count={allEntries.length}
+            onClick={() => setActiveView('changes')}
           />
-
-          {allEntries.length === 0 ? (
-            <div className="py-2 text-[12px] text-[#6f7480]">Working tree clean</div>
-          ) : (
-            groups.map((group) => (
-              <ChangeGroup
-                key={group.title}
-                group={group}
-                busy={busy}
-                onOpenFile={handleOpenFile}
-              />
-            ))
-          )}
+          <GitPanelTab
+            active={activeView === 'worktrees'}
+            label="Worktrees"
+            count={worktreeCount}
+            onClick={() => setActiveView('worktrees')}
+          />
         </div>
 
-        <CommitHistory
-          history={history}
-          open={historyOpen}
-          onToggle={() => setHistoryOpen((open) => !open)}
-        />
+        {activeView === 'changes' ? (
+          <>
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+              {allEntries.length === 0 ? (
+                <div className="py-2 text-[12px] text-[#6f7480]">Working tree clean</div>
+              ) : (
+                groups.map((group) => (
+                  <ChangeGroup
+                    key={group.title}
+                    group={group}
+                    busy={busy}
+                    onOpenFile={handleOpenFile}
+                  />
+                ))
+              )}
+            </div>
 
-        <CommitComposer
-          busy={busy}
-          commitMessage={commitMessage}
-          message={message}
-          readyToCommit={readyToCommit}
-          stagedCount={stagedEntries.length}
-          onCommit={handleCommit}
-          onCommitMessageChange={setCommitMessage}
-          onPush={handlePush}
-          scopeLabel={activeScopeLabel}
-          scopePath={activeScopePath}
-        />
+            <CommitHistory
+              history={history}
+              open={historyOpen}
+              onToggle={() => setHistoryOpen((open) => !open)}
+            />
+
+            <CommitComposer
+              busy={busy}
+              commitMessage={commitMessage}
+              message={message}
+              readyToCommit={readyToCommit}
+              stagedCount={stagedEntries.length}
+              onCommit={handleCommit}
+              onCommitMessageChange={setCommitMessage}
+              onPush={handlePush}
+              scopeLabel={activeScopeLabel}
+              scopePath={activeScopePath}
+            />
+          </>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+            <WorktreeManager
+              workspaceId={workspaceId}
+              repoRoot={mainRepoRoot ?? repoRoot}
+              currentBranch={branches?.current ?? null}
+              branchOptions={branchOptions.map((branch) => branch.name)}
+              mode="tab"
+              onChanged={refreshAll}
+            />
+          </div>
+        )}
       </div>
     </div>
+  )
+}
+
+function GitPanelTab({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean
+  label: string
+  count: number
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors focus:outline-none focus:ring-1 focus:ring-[#303139] ${
+        active
+          ? 'bg-[#1a1b20] text-[#ececee]'
+          : 'text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
+      }`}
+    >
+      <span>{label}</span>
+      <span className={active ? 'text-[#9a9aa2]' : 'text-[#5a5a63]'}>{count}</span>
+    </button>
   )
 }
 

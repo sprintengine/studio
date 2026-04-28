@@ -31,6 +31,7 @@ type Props = {
   repoRoot: string
   currentBranch: string | null
   branchOptions: string[]
+  mode?: 'section' | 'tab'
   onChanged: () => Promise<void>
 }
 
@@ -105,6 +106,7 @@ export default function WorktreeManager({
   repoRoot,
   currentBranch,
   branchOptions,
+  mode = 'section',
   onChanged,
 }: Props) {
   const workspace = useWorkspaceStore((state) => state.workspaces.find((item) => item.id === workspaceId) ?? null)
@@ -358,19 +360,36 @@ export default function WorktreeManager({
   }
 
   const formDisabled = Boolean(busy) || loading
+  const contentOpen = mode === 'tab' || open
+  const sectionClassName = mode === 'tab' ? 'min-h-0' : 'mb-5 border-b border-[#1b1c21] pb-4'
 
   return (
-    <section className="mb-5 border-b border-[#1b1c21] pb-4">
+    <section className={sectionClassName}>
       <div className="mb-2 flex h-7 items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => setOpen((current) => !current)}
-          className="flex min-w-0 items-center gap-2 rounded-md pr-2 text-left focus:outline-none focus:ring-1 focus:ring-[#303139]"
-          aria-expanded={open}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Worktrees</span>
-          <span className="text-[10px] text-[#6f7480]">{rows.length}</span>
-        </button>
+        {mode === 'tab' ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Worktrees</span>
+            <span className="text-[10px] text-[#6f7480]">{rows.length}</span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setOpen((current) => !current)}
+            className="group flex min-w-0 items-center gap-1.5 rounded-md pr-2 text-left focus:outline-none focus:ring-1 focus:ring-[#303139]"
+            aria-expanded={open}
+          >
+            <svg
+              viewBox="0 0 12 12"
+              aria-hidden="true"
+              className={`h-3 w-3 shrink-0 text-[#838896] transition-transform group-hover:text-[#d7d7dc] ${open ? 'rotate-90' : ''}`}
+              fill="none"
+            >
+              <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Worktrees</span>
+            <span className="text-[10px] text-[#6f7480]">{rows.length}</span>
+          </button>
+        )}
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
@@ -391,7 +410,7 @@ export default function WorktreeManager({
         </div>
       </div>
 
-      {open ? (
+      {contentOpen ? (
         <>
           <div className="mb-3 grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(80px,0.6fr)_auto]">
             <input
