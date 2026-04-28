@@ -134,7 +134,7 @@ export type SwarmAutoState = {
   keepDoneAgentTerminals: boolean
   cliPermissionPreset: SwarmCliPermissionPreset
   isolateWorkersInWorktrees?: boolean
-  pending: SwarmAutoPendingSpawn | null
+  pendingSpawns: SwarmAutoPendingSpawn[]
 }
 
 export type SwarmWorkspaceContext = {

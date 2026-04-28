@@ -107,7 +107,10 @@ interface WorkspaceStore {
     cliPermissionPreset: SwarmCliPermissionPreset
   ) => void
   setSwarmAutoWorktreeIsolation: (workspaceId: WorkspaceId, isolateWorkersInWorktrees: boolean) => void
-  setSwarmAutoPending: (workspaceId: WorkspaceId, pending: SwarmAutoPendingSpawn | null) => void
+  setSwarmAutoPendingSpawns: (
+    workspaceId: WorkspaceId,
+    pendingSpawns: SwarmAutoPendingSpawn[]
+  ) => void
   addSwarmMember: (
     workspaceId: WorkspaceId,
     role: SwarmRole
@@ -263,7 +266,7 @@ const defaultSwarmAutoState = (): SwarmAutoState => ({
   keepDoneAgentTerminals: false,
   cliPermissionPreset: 'default',
   isolateWorkersInWorktrees: false,
-  pending: null,
+  pendingSpawns: [],
 })
 
 const defaultSwarmRoleCliDefaults = (): Required<SwarmRoleCliDefaults> => ({
@@ -292,10 +295,29 @@ function normalizeSwarmRoleCliDefaults(
   return next
 }
 
+function normalizeSwarmAutoPendingSpawn(
+  input: Partial<SwarmAutoPendingSpawn> | null | undefined
+): SwarmAutoPendingSpawn | null {
+  return typeof input?.taskId === 'string' && typeof input.agentId === 'string'
+    ? {
+      taskId: input.taskId,
+      agentId: input.agentId,
+      ...(typeof input.startedAt === 'number' ? { startedAt: input.startedAt } : {}),
+    }
+    : null
+}
+
 function normalizeSwarmAutoState(
-  input: Partial<SwarmAutoState> | null | undefined
+  input: (Partial<SwarmAutoState> & { pending?: SwarmAutoPendingSpawn | null }) | null | undefined
 ): SwarmAutoState {
-  const pending = input?.pending
+  const legacyPending = normalizeSwarmAutoPendingSpawn(input?.pending)
+  const pendingSpawns = Array.isArray(input?.pendingSpawns)
+    ? input.pendingSpawns
+      .map((pending) => normalizeSwarmAutoPendingSpawn(pending))
+      .filter((pending): pending is SwarmAutoPendingSpawn => Boolean(pending))
+    : legacyPending
+      ? [legacyPending]
+      : []
   const cliPermissionPreset = input?.cliPermissionPreset === 'auto_workspace'
     || input?.cliPermissionPreset === 'bypass_all'
     ? input.cliPermissionPreset
@@ -307,13 +329,7 @@ function normalizeSwarmAutoState(
     keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
     cliPermissionPreset,
     isolateWorkersInWorktrees: Boolean(input?.isolateWorkersInWorktrees),
-    pending: typeof pending?.taskId === 'string' && typeof pending.agentId === 'string'
-      ? {
-        taskId: pending.taskId,
-        agentId: pending.agentId,
-        ...(typeof pending.startedAt === 'number' ? { startedAt: pending.startedAt } : {}),
-      }
-      : null,
+    pendingSpawns,
   }
 }
 
@@ -800,7 +816,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.swarmAutoState = {
             ...current,
             enabled,
-            pending: enabled ? current.pending : null,
+            pendingSpawns: enabled ? current.pendingSpawns : [],
           }
         }),
 
@@ -848,14 +864,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }),
 
-      setSwarmAutoPending: (workspaceId, pending) =>
+      setSwarmAutoPendingSpawns: (workspaceId, pendingSpawns) =>
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           if (!ws) return
           const current = normalizeSwarmAutoState(ws.swarmAutoState)
           ws.swarmAutoState = {
             ...current,
-            pending,
+            pendingSpawns,
           }
         }),
 
@@ -1061,7 +1077,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 23,
+      version: 24,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1254,6 +1270,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             swarmRoleCliDefaults: ws.mode === 'swarm' || ws.swarmState
               ? normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults)
               : undefined,
+          }))
+        }
+        if (version < 24) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
         return state as never
