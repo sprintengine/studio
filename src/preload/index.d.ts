@@ -89,6 +89,7 @@ declare global {
     date: string
     refs: string[]
     subject: string
+    commitWebUrl: string | null
   }
   type GitHistorySnapshot = {
     commits: GitCommit[]

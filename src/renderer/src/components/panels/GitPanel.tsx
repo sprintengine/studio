@@ -968,6 +968,26 @@ function GitLogView({
                 {commit.refs[0].replace(/^HEAD -> /, '')}
               </span>
             ) : null}
+            {commit.commitWebUrl ? (
+              <a
+                href={commit.commitWebUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#8a8a92] opacity-70 transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[#303139] group-hover:opacity-100"
+                title="Open commit on GitHub"
+                aria-label={`Open commit ${commit.shortHash} on GitHub`}
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+                  <path
+                    d="M6.25 4.25H4.1a1.35 1.35 0 0 0-1.35 1.35v6.3a1.35 1.35 0 0 0 1.35 1.35h6.3a1.35 1.35 0 0 0 1.35-1.35V9.75M8.75 2.75h4.5m0 0v4.5m0-4.5-6 6"
+                    stroke="currentColor"
+                    strokeWidth="1.35"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </a>
+            ) : null}
           </div>
         ))}
       </div>
