@@ -41,7 +41,7 @@ type GitHistoryState =
 
 type GitScopeKind = 'main' | 'worktree'
 
-type GitPanelView = 'changes' | 'worktrees'
+type GitPanelView = 'changes' | 'worktrees' | 'log'
 
 type GitScopeOption = {
   id: string
@@ -211,7 +211,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
-  const [historyOpen, setHistoryOpen] = useState(false)
   const [activeView, setActiveView] = useState<GitPanelView>('changes')
 
   const refreshWorktreeScopes = useCallback(async () => {
@@ -314,7 +313,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
     setHistory({ status: 'loading' })
     try {
-      setHistory({ status: 'ready', snapshot: await window.api.getGitHistory(repoRoot, 12) })
+      setHistory({ status: 'ready', snapshot: await window.api.getGitHistory(repoRoot, 50) })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setHistory({
@@ -346,6 +345,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const allEntries = useMemo(() => sortedEntries(Object.values(status?.files ?? {})), [status])
   const branchOptions = branches?.branches ?? []
   const worktreeCount = scopeOptions.filter((scope) => scope.kind === 'worktree').length
+  const commitCount = history.status === 'ready' ? history.snapshot.commits.length : 0
   const readyToCommit = stagedEntries.length > 0 && Boolean(commitMessage.trim())
   const activeScopeLabel = activeScope?.label ?? 'Current checkout'
   const activeScopePath = repoRoot ?? activeRootPath ?? ''
@@ -654,6 +654,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             count={worktreeCount}
             onClick={() => setActiveView('worktrees')}
           />
+          <GitPanelTab
+            active={activeView === 'log'}
+            label="Log"
+            count={commitCount}
+            onClick={() => setActiveView('log')}
+          />
         </div>
 
         {activeView === 'changes' ? (
@@ -673,12 +679,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               )}
             </div>
 
-            <CommitHistory
-              history={history}
-              open={historyOpen}
-              onToggle={() => setHistoryOpen((open) => !open)}
-            />
-
             <CommitComposer
               busy={busy}
               commitMessage={commitMessage}
@@ -692,7 +692,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               scopePath={activeScopePath}
             />
           </>
-        ) : (
+        ) : activeView === 'worktrees' ? (
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
             <WorktreeManager
               workspaceId={workspaceId}
@@ -703,6 +703,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               onChanged={refreshAll}
             />
           </div>
+        ) : (
+          <GitLogView history={history} />
         )}
       </div>
     </div>
@@ -920,72 +922,55 @@ function CommitComposer({
   )
 }
 
-function CommitHistory({
+function GitLogView({
   history,
-  open,
-  onToggle,
 }: {
   history: GitHistoryState
-  open: boolean
-  onToggle: () => void
 }) {
   const commits = history.status === 'ready' ? history.snapshot.commits : []
 
+  if (history.status === 'loading') {
+    return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[#5a5a63]">Loading commits...</div>
+  }
+
+  if (history.status === 'error') {
+    return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[#8a8a92]">{history.message}</div>
+  }
+
+  if (commits.length === 0) {
+    return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[#5a5a63]">No commits yet</div>
+  }
+
   return (
-    <section className="shrink-0 border-t border-[#1b1c21] bg-[#0d0e11]">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex h-9 w-full items-center justify-between gap-2 px-3 text-left transition-colors hover:bg-[#15161a]"
-        aria-expanded={open}
-      >
-        <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">History</span>
-        <span className="flex shrink-0 items-center gap-2 text-[10px] text-[#5a5a63]">
-          {commits.length ? `${commits.length} recent` : ''}
-          <svg
-            className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`}
-            viewBox="0 0 12 12"
-            fill="none"
-            aria-hidden="true"
+    <section className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div className="mb-2 flex h-6 items-center justify-between gap-2">
+        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Log</div>
+        <div className="text-[10px] text-[#5a5a63]">{commits.length} recent</div>
+      </div>
+      <div className="space-y-1.5">
+        {commits.map((commit) => (
+          <div
+            key={commit.hash}
+            className="group flex min-h-[46px] items-start gap-2 rounded-md px-2 py-2 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
+            title={commit.subject}
           >
-            <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      </button>
-      {open ? (
-        history.status === 'loading' ? (
-          <div className="px-3 pb-3 text-[11px] text-[#5a5a63]">Loading commits...</div>
-        ) : history.status === 'error' ? (
-          <div className="px-3 pb-3 text-[11px] text-[#8a8a92]">{history.message}</div>
-        ) : commits.length === 0 ? (
-          <div className="px-3 pb-3 text-[11px] text-[#5a5a63]">No commits yet</div>
-        ) : (
-          <div className="max-h-44 space-y-1.5 overflow-y-auto px-3 pb-3">
-          {commits.map((commit) => (
-            <div
-              key={commit.hash}
-              className="group flex min-h-[42px] items-start gap-2 rounded-md px-1.5 py-1.5 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
-              title={commit.subject}
-            >
-              <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full border border-[#3a3d49]" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
-                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#5a5a63]">
-                  <span className="font-mono text-[#8a8a92]">{commit.shortHash}</span>
-                  <span>{commit.date}</span>
-                  <span className="min-w-0 truncate">{commit.author}</span>
-                </div>
+            <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full border border-[#3a3d49]" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
+              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#5a5a63]">
+                <span className="font-mono text-[#8a8a92]">{commit.shortHash}</span>
+                <span>{commit.date}</span>
+                <span className="min-w-0 truncate">{commit.author}</span>
               </div>
-              {commit.refs.length > 0 ? (
-                <span className="mt-0.5 max-w-[76px] shrink-0 truncate rounded-full bg-[#15161a] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[#8a8a92]">
-                  {commit.refs[0].replace(/^HEAD -> /, '')}
-                </span>
-              ) : null}
             </div>
-          ))}
+            {commit.refs.length > 0 ? (
+              <span className="mt-0.5 max-w-[76px] shrink-0 truncate rounded-full bg-[#15161a] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[#8a8a92]">
+                {commit.refs[0].replace(/^HEAD -> /, '')}
+              </span>
+            ) : null}
           </div>
-        )
-      ) : null}
+        ))}
+      </div>
     </section>
   )
 }
