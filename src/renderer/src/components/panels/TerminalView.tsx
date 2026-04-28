@@ -90,6 +90,19 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const swarmContext = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.swarmContext ?? null
   )
+  const cliPermissionPreset = useWorkspaceStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId)
+    const currentAgent = workspace?.agents[agentId]
+    if (
+      workspace?.mode !== 'swarm'
+      || !workspace.swarmAutoState.enabled
+      || currentAgent?.kind !== 'swarm'
+    ) {
+      return undefined
+    }
+
+    return workspace.swarmAutoState.cliPermissionPreset
+  })
   const storedExecutionWorktreePath = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     const worktreeId = workspace?.agents[agentId]?.execution.worktreeId
@@ -404,6 +417,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       terminalLaunchDetails = [
         `Session: ${sessionId}`,
         `CLI: ${cli}`,
+        cliPermissionPreset ? `CLI permissions: ${cliPermissionPreset}` : null,
         `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
         swarmStatePath ? `Swarm state: ${swarmStatePath}` : null,
@@ -433,6 +447,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           executionMode: executionRoot.mode,
           worktreeId: executionRoot.worktreeId,
           worktreePath: executionRoot.worktreePath,
+          cliPermissionPreset,
         } as TerminalSpawnMetadata & {
           executionMode: AgentExecutionMode
           worktreeId?: string
@@ -521,6 +536,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agent?.execution.worktreeId,
     agent?.execution.cwd,
     cli,
+    cliPermissionPreset,
     cliRuntimes,
     folderReadyPath,
     workspaceName,

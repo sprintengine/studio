@@ -126,10 +126,13 @@ export type SwarmAutoPendingSpawn = {
   startedAt?: number
 }
 
+export type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+
 export type SwarmAutoState = {
   enabled: boolean
   autoApproveArtifacts: boolean
   keepDoneAgentTerminals: boolean
+  cliPermissionPreset: SwarmCliPermissionPreset
   isolateWorkersInWorktrees?: boolean
   pending: SwarmAutoPendingSpawn | null
 }

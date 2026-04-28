@@ -967,6 +967,7 @@ async function superviseWorkspace(
       executionMode,
       worktreeId,
       worktreePath,
+      cliPermissionPreset: workspace.swarmAutoState.cliPermissionPreset,
     } as TerminalSpawnMetadata & {
       executionMode: 'current_workspace' | 'worktree'
       worktreeId?: string
@@ -1008,6 +1009,7 @@ async function superviseWorkspace(
         details: [
           `Workspace: ${workspace.name}`,
           `CLI: ${selectedCli}`,
+          `CLI permissions: ${workspace.swarmAutoState.cliPermissionPreset}`,
           `Task: ${nextRun.taskId}`,
           `Session: ${sessionId}`,
           `Cwd: ${executionCwd}`,

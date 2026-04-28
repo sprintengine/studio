@@ -1129,6 +1129,7 @@ let nextFileWatcherId = 0
 
 type AgentCli = 'codex' | 'claude'
 type AgentExecutionMode = 'current_workspace' | 'worktree'
+type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 type CliRuntimeSettings = {
   command: string
   useWsl: boolean
@@ -1152,6 +1153,7 @@ type TerminalSpawnPayload = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
+  cliPermissionPreset?: SwarmCliPermissionPreset
 }
 
 type TerminalSessionSnapshot = {
@@ -1301,6 +1303,25 @@ function quoteCmd(value: string): string {
 
 function quoteCmdIfNeeded(value: string): string {
   return /[\s&()^|<>"]/g.test(value) ? quoteCmd(value) : value
+}
+
+function getCliPermissionArgs(
+  cli: AgentCli,
+  preset: SwarmCliPermissionPreset = 'default'
+): string[] {
+  if (preset === 'auto_workspace') {
+    return cli === 'codex'
+      ? ['--ask-for-approval', 'never', '--sandbox', 'workspace-write']
+      : ['--permission-mode', 'auto']
+  }
+
+  if (preset === 'bypass_all') {
+    return cli === 'codex'
+      ? ['--dangerously-bypass-approvals-and-sandbox']
+      : ['--permission-mode', 'bypassPermissions']
+  }
+
+  return []
 }
 
 function getCliRuntimeSettings(
@@ -1466,13 +1487,14 @@ function buildWslShellScript(
   swarmStatePath?: string,
   cli: AgentCli = 'codex',
   initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings
+  cliRuntime?: CliRuntimeSettings,
+  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
 ): string {
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSwarmShellBootstrap(swarmStatePath),
-    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime),
+    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset),
     'exec bash -li',
   ].join('; ')
 }
@@ -1484,7 +1506,8 @@ function getShellLaunchConfig(
   swarmStatePath?: string,
   cli: AgentCli = 'codex',
   initialPrompt?: string,
-  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
+  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
 ): ShellLaunchConfig {
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
 
@@ -1502,7 +1525,8 @@ function getShellLaunchConfig(
       resume,
       windowsCwd,
       initialPrompt,
-      cliRuntime
+      cliRuntime,
+      cliPermissionPreset
     )
 
     return {
@@ -1520,7 +1544,16 @@ function getShellLaunchConfig(
         '-e',
         'bash',
         '-lic',
-        buildWslShellScript(cwd, sessionId, resume, swarmStatePath, cli, initialPrompt, cliRuntime),
+        buildWslShellScript(
+          cwd,
+          sessionId,
+          resume,
+          swarmStatePath,
+          cli,
+          initialPrompt,
+          cliRuntime,
+          cliPermissionPreset
+        ),
       ],
     }
   }
@@ -1532,7 +1565,10 @@ function getShellLaunchConfig(
   return {
     command: shellPath,
     args,
-    initialInput: `${[buildSwarmShellBootstrap(swarmStatePath), buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime)].join('; ')}\r`,
+    initialInput: `${[
+      buildSwarmShellBootstrap(swarmStatePath),
+      buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset),
+    ].join('; ')}\r`,
   }
 }
 
@@ -1587,22 +1623,25 @@ function buildNativeAgentLaunchCommand(
   resume: boolean,
   cwd: string,
   initialPrompt: string | undefined,
-  cliRuntime: CliRuntimeSettings
+  cliRuntime: CliRuntimeSettings,
+  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
 ): string {
   const command = quoteCmdIfNeeded(cliRuntime.command || cli)
+  const permissionArgs = getCliPermissionArgs(cli, cliPermissionPreset).map(quoteCmdIfNeeded)
+  const permissionArgText = permissionArgs.length ? ` ${permissionArgs.join(' ')}` : ''
 
   if (cli === 'codex') {
     if (resume) {
-      return `${command} resume -C ${quoteCmdIfNeeded(cwd)}`
+      return `${command}${permissionArgText} resume -C ${quoteCmdIfNeeded(cwd)}`
     }
 
     const promptArg = initialPrompt ? ` ${quoteCmd(initialPrompt)}` : ''
-    return `${command} -C ${quoteCmdIfNeeded(cwd)}${promptArg}`
+    return `${command}${permissionArgText} -C ${quoteCmdIfNeeded(cwd)}${promptArg}`
   }
 
   const sessionFlag = resume ? '--resume' : '--session-id'
   const promptArg = initialPrompt ? ` ${quoteCmd(initialPrompt)}` : ''
-  return `${command} ${sessionFlag} ${quoteCmdIfNeeded(sessionId)}${promptArg}`
+  return `${command}${permissionArgText} ${sessionFlag} ${quoteCmdIfNeeded(sessionId)}${promptArg}`
 }
 
 function buildAgentLaunchCommand(
@@ -1610,10 +1649,13 @@ function buildAgentLaunchCommand(
   sessionId: string,
   resume = false,
   initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings
+  cliRuntime?: CliRuntimeSettings,
+  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
 ): string {
-  if (cli === 'claude') return buildClaudeLaunchCommand(sessionId, resume, initialPrompt, cliRuntime)
-  return buildCodexLaunchCommand(resume, initialPrompt, cliRuntime)
+  if (cli === 'claude') {
+    return buildClaudeLaunchCommand(sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset)
+  }
+  return buildCodexLaunchCommand(resume, initialPrompt, cliRuntime, cliPermissionPreset)
 }
 
 function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
@@ -1627,16 +1669,19 @@ function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
 function buildCodexLaunchCommand(
   resume = false,
   initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings
+  cliRuntime?: CliRuntimeSettings,
+  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
 ): string {
   const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
   const configuredCommand = cliRuntime?.command?.trim()
+  const permissionArgs = getCliPermissionArgs('codex', cliPermissionPreset).map(quotePosixCommand)
+  const permissionArgText = permissionArgs.length ? ` ${permissionArgs.join(' ')}` : ''
 
   return [
     buildCommandAvailabilityCheck('codex', configuredCommand || 'codex'),
     resume
-      ? `${quotePosixCommand(configuredCommand || 'codex')} resume;`
-      : `${quotePosixCommand(configuredCommand || 'codex')}${promptArg};`,
+      ? `${quotePosixCommand(configuredCommand || 'codex')}${permissionArgText} resume;`
+      : `${quotePosixCommand(configuredCommand || 'codex')}${permissionArgText}${promptArg};`,
     'fi',
   ].join(' ')
 }
@@ -1645,17 +1690,20 @@ function buildClaudeLaunchCommand(
   sessionId: string,
   resume = false,
   initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings
+  cliRuntime?: CliRuntimeSettings,
+  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
 ): string {
   const quotedSessionId = quotePosix(sessionId)
   const claudeCommand = quotePosixCommand(cliRuntime?.command?.trim() || 'claude')
   const configuredCommand = cliRuntime?.command?.trim() || 'claude'
   const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
+  const permissionArgs = getCliPermissionArgs('claude', cliPermissionPreset).map(quotePosixCommand)
+  const permissionArgText = permissionArgs.length ? ` ${permissionArgs.join(' ')}` : ''
 
   if (!resume) {
     return [
       buildCommandAvailabilityCheck('claude', configuredCommand),
-      `${claudeCommand} --session-id ${quotedSessionId}${promptArg};`,
+      `${claudeCommand}${permissionArgText} --session-id ${quotedSessionId}${promptArg};`,
       'fi',
     ].join(' ')
   }
@@ -1667,9 +1715,9 @@ function buildClaudeLaunchCommand(
   return [
     buildCommandAvailabilityCheck('claude', configuredCommand),
     `if find "$HOME/.claude/projects" -type f -name ${quotePosix(`${sessionId}.jsonl`)} -print -quit 2>/dev/null | grep -q .; then`,
-    `${claudeCommand} --resume ${quotedSessionId}${promptArg};`,
+    `${claudeCommand}${permissionArgText} --resume ${quotedSessionId}${promptArg};`,
     `else`,
-    `${claudeCommand} --session-id ${quotedSessionId}${promptArg};`,
+    `${claudeCommand}${permissionArgText} --session-id ${quotedSessionId}${promptArg};`,
     `fi`,
     'fi',
   ].join(' ')
@@ -1842,6 +1890,26 @@ ipcMain.handle('auth:consume-usage', (_, input: UsageRequest) => multicodeAuth.c
 
 ipcMain.handle('auth:release-usage', (_, input: UsageRequest) => multicodeAuth.releaseUsage(input))
 
+ipcMain.handle('mobile-bridge:get-state', () => mobileBridge.getState())
+
+ipcMain.handle('mobile-bridge:update-settings', (_, input: MobileBridgeSettingsUpdate) => {
+  return mobileBridge.updateSettings(input)
+})
+
+ipcMain.handle('mobile-bridge:request-pairing-code', () => mobileBridge.requestPairingCode())
+
+ipcMain.handle('mobile-bridge:list-devices', () => mobileBridge.listDevices())
+
+ipcMain.handle('mobile-bridge:revoke-device', (_, deviceId: string, reason?: string) => {
+  return mobileBridge.revokeDevice(deviceId, reason)
+})
+
+ipcMain.handle('mobile-bridge:publish-presence', (_, presence: MobileBridgePresence) => {
+  return mobileBridge.publishPresence(presence)
+})
+
+ipcMain.handle('mobile-bridge:get-diagnostics', () => mobileBridge.getDiagnostics())
+
 ipcMain.handle(
   'terminal:spawn',
   async (event, {
@@ -1911,7 +1979,8 @@ ipcMain.handle(
           swarmStatePath,
           cli,
           initialPrompt,
-          cliRuntimes
+          cliRuntimes,
+          cliPermissionPreset
         )
       const initialSize = getTerminalSize(cols, rows)
       const termProcess = pty.spawn(command, args, {

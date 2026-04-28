@@ -5,6 +5,7 @@ import type {
   AgentCli,
   AgentState,
   SwarmArtifact,
+  SwarmCliPermissionPreset,
   SwarmRole,
   SwarmState,
   SwarmTask,
@@ -56,6 +57,27 @@ const addableRoles: SwarmRole[] = ['product', 'frontend', 'developer', 'code_rev
 const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
   { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
   { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
+]
+const swarmCliPermissionOptions: Array<{
+  value: SwarmCliPermissionPreset
+  label: string
+  title: string
+}> = [
+  {
+    value: 'default',
+    label: 'Default permissions',
+    title: 'Use the CLI default permission behavior.',
+  },
+  {
+    value: 'auto_workspace',
+    label: 'Auto in workspace',
+    title: 'Reduce prompts while keeping workspace-scoped guardrails where the CLI supports them.',
+  },
+  {
+    value: 'bypass_all',
+    label: 'Bypass permissions',
+    title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
+  },
 ]
 
 function RefreshSwarmIcon() {
@@ -230,6 +252,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
   const setSwarmAutoApproveArtifacts = useWorkspaceStore((s) => s.setSwarmAutoApproveArtifacts)
   const setSwarmKeepDoneAgentTerminals = useWorkspaceStore((s) => s.setSwarmKeepDoneAgentTerminals)
+  const setSwarmCliPermissionPreset = useWorkspaceStore((s) => s.setSwarmCliPermissionPreset)
   const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
@@ -277,6 +300,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
   const autoApproveArtifacts = workspace?.swarmAutoState?.autoApproveArtifacts ?? false
   const keepDoneAgentTerminals = workspace?.swarmAutoState?.keepDoneAgentTerminals ?? false
+  const cliPermissionPreset = workspace?.swarmAutoState?.cliPermissionPreset ?? 'default'
 
   const resolveReadableSwarmStatePath = async (): Promise<string | null> => {
     if (!folderPath) return null
@@ -868,6 +892,17 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
 
   const toggleKeepDoneAgentTerminals = () => {
     setSwarmKeepDoneAgentTerminals(workspaceId, !keepDoneAgentTerminals)
+  }
+
+  const updateCliPermissionPreset = (preset: SwarmCliPermissionPreset) => {
+    if (preset === 'bypass_all') {
+      const confirmed = window.confirm(
+        'Bypass permissions lets spawned swarm agents run without CLI approval prompts. Use this only in repositories and environments you trust.'
+      )
+      if (!confirmed) return
+    }
+
+    setSwarmCliPermissionPreset(workspaceId, preset)
   }
 
   const getAgentName = (agentId: string, fallback: string) => agents[agentId]?.name ?? fallback

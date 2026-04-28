@@ -12,6 +12,7 @@ import type {
   EditorState,
   SwarmAutoPendingSpawn,
   SwarmAutoState,
+  SwarmCliPermissionPreset,
   SwarmState,
   SwarmWorkspaceContext,
   SwarmRole,
@@ -101,6 +102,10 @@ interface WorkspaceStore {
   setSwarmAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setSwarmAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
   setSwarmKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void
+  setSwarmCliPermissionPreset: (
+    workspaceId: WorkspaceId,
+    cliPermissionPreset: SwarmCliPermissionPreset
+  ) => void
   setSwarmAutoWorktreeIsolation: (workspaceId: WorkspaceId, isolateWorkersInWorktrees: boolean) => void
   setSwarmAutoPending: (workspaceId: WorkspaceId, pending: SwarmAutoPendingSpawn | null) => void
   addSwarmMember: (
@@ -256,6 +261,7 @@ const defaultSwarmAutoState = (): SwarmAutoState => ({
   enabled: false,
   autoApproveArtifacts: false,
   keepDoneAgentTerminals: false,
+  cliPermissionPreset: 'default',
   isolateWorkersInWorktrees: false,
   pending: null,
 })
@@ -290,10 +296,16 @@ function normalizeSwarmAutoState(
   input: Partial<SwarmAutoState> | null | undefined
 ): SwarmAutoState {
   const pending = input?.pending
+  const cliPermissionPreset = input?.cliPermissionPreset === 'auto_workspace'
+    || input?.cliPermissionPreset === 'bypass_all'
+    ? input.cliPermissionPreset
+    : 'default'
+
   return {
     enabled: Boolean(input?.enabled),
     autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
     keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
+    cliPermissionPreset,
     isolateWorkersInWorktrees: Boolean(input?.isolateWorkersInWorktrees),
     pending: typeof pending?.taskId === 'string' && typeof pending.agentId === 'string'
       ? {
@@ -811,6 +823,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.swarmAutoState = {
             ...current,
             keepDoneAgentTerminals,
+          }
+        }),
+
+      setSwarmCliPermissionPreset: (workspaceId, cliPermissionPreset) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSwarmAutoState(ws.swarmAutoState)
+          ws.swarmAutoState = {
+            ...current,
+            cliPermissionPreset,
           }
         }),
 

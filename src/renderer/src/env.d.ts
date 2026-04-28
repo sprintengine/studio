@@ -25,6 +25,8 @@ interface FileWatchEvent {
 }
 
 type AgentCli = 'codex' | 'claude'
+type AgentExecutionMode = 'current_workspace' | 'worktree'
+type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 type CliRuntimeSettings = {
   command: string
   useWsl: boolean
@@ -35,6 +37,10 @@ type TerminalSpawnMetadata = {
   workspaceId?: string
   agentId?: string
   terminalId?: string
+  executionMode?: AgentExecutionMode
+  worktreeId?: string
+  worktreePath?: string
+  cliPermissionPreset?: SwarmCliPermissionPreset
 }
 type TerminalSessionSnapshot = {
   sessionId: string
