@@ -72,6 +72,28 @@ function RefreshSwarmIcon() {
   )
 }
 
+function PlaySwarmIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M5.25 3.75v8.5l7-4.25-7-4.25Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+function PauseSwarmIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M4.75 3.5h2v9h-2v-9Zm4.5 0h2v9h-2v-9Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
 function getParentDirectoryPath(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, '')
   const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
@@ -1073,32 +1095,22 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               type="button"
               role="switch"
               aria-checked={autoEnabled}
+              aria-label={autoEnabled ? 'Pause swarm auto-run' : 'Start swarm auto-run'}
               onClick={toggleAuto}
-              className={`flex items-center gap-3 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+              title={autoEnabled ? 'Pause swarm auto-run' : 'Start swarm auto-run'}
+              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors ${
                 autoEnabled
                   ? 'border-[#6ee7d8]/55 bg-[#6ee7d8]/14 text-[#d8fffb] hover:border-[#6ee7d8]/75 hover:bg-[#6ee7d8]/18'
                   : 'border-[#303139] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
               }`}
             >
-              <span
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                  autoEnabled ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
-                }`}
-                aria-hidden="true"
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
-                    autoEnabled ? 'translate-x-4' : 'translate-x-0'
-                  }`}
-                />
-              </span>
-              <span>Auto</span>
+              {autoEnabled ? <PauseSwarmIcon /> : <PlaySwarmIcon />}
             </button>
             <button
               type="button"
               role="switch"
               aria-checked={autoApproveArtifacts}
-              aria-label="Auto-approve artifacts"
+              aria-label="Approve all artifacts"
               aria-describedby={!autoEnabled ? 'artifact-auto-approval-disabled' : undefined}
               onClick={toggleArtifactAutoApproval}
               disabled={!autoEnabled}
@@ -1107,7 +1119,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/65 hover:bg-[#6ee7d8]/16'
                   : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
               } disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]`}
-              title={autoEnabled ? 'Auto-approve artifacts' : 'Enable Auto before artifact auto-approval can run'}
+              title={autoEnabled ? 'Approve all artifacts' : 'Start swarm auto-run before approving all artifacts'}
             >
               <span
                 className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
@@ -1121,10 +1133,10 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   }`}
                 />
               </span>
-              <span>Artifacts</span>
+              <span>Approve all artifacts</span>
             </button>
             <span id="artifact-auto-approval-disabled" className="sr-only">
-              Auto must be enabled before artifacts can be auto-approved.
+              Swarm auto-run must be enabled before artifacts can be approved automatically.
             </span>
             <button
               type="button"
