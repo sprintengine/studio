@@ -31,6 +31,11 @@ const AGENT_SPAWN_CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
   { value: 'codex', label: 'Codex' },
   { value: 'claude', label: 'Claude Code' },
 ]
+const SPECIALIST_KEYBOARD_SHORTCUTS: Record<string, SpecialistActionId> = {
+  f: 'frontend-design-review',
+  m: 'performance',
+  p: 'architect',
+}
 type WorkspacePanelComponent = 'explorer' | 'editor' | 'git'
 type WorkspaceActivity = 'needs-input' | 'running' | 'idle'
 type SessionStatus = 'needs-input' | 'running'
@@ -496,6 +501,18 @@ export default function WorkspaceManager() {
 
       const key = event.key.toLowerCase()
 
+      if (event.altKey) {
+        const specialistId = SPECIALIST_KEYBOARD_SHORTCUTS[key]
+        if (specialistId) {
+          event.preventDefault()
+          event.stopPropagation()
+          setLastSelectedSpecialist(specialistId)
+          setSpecialistMenuOpen(false)
+          void addNewSpecialist(specialistId)
+          return
+        }
+      }
+
       if (key === 'p') {
         event.preventDefault()
         setShowPalette(true)
@@ -527,8 +544,10 @@ export default function WorkspaceManager() {
     activeWorkspaceId,
     showTemplateSelector,
     renamingId,
+    lastSelectedCli,
     removeWorkspace,
     setActiveWorkspace,
+    setLastSelectedSpecialist,
   ])
 
   useEffect(() => {
@@ -1046,7 +1065,7 @@ export default function WorkspaceManager() {
                   onClick={() => void addNewSpecialist()}
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-8 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-                  title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}`}
+                  title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}${selectedSpecialistAction.shortcut ? ` (${selectedSpecialistAction.shortcut})` : ''}`}
                   aria-label={`Spawn ${selectedSpecialistAction.label} specialist`}
                 >
                   <SpecialistActionIcon icon={selectedSpecialistAction.icon} className="h-[18px] w-[18px]" />
@@ -1159,6 +1178,10 @@ export default function WorkspaceManager() {
                         </span>
                         {selected ? (
                           <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f]" />
+                        ) : action.shortcut ? (
+                          <kbd className="mt-2.5 shrink-0 rounded bg-[#111216] px-1.5 py-0.5 text-[10px] text-[#5a5a63]">
+                            {action.shortcut}
+                          </kbd>
                         ) : null}
                       </button>
                     )
@@ -1314,6 +1337,7 @@ export default function WorkspaceManager() {
         <CommandPalette
           onClose={() => setShowPalette(false)}
           onNewWorkspace={openTemplateSelector}
+          onSpawnSpecialist={handleSelectSpecialist}
         />
       )}
     </div>

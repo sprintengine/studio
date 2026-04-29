@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
+import { SPECIALIST_ACTIONS } from '../specialists/specialistActions'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import type { SpecialistActionId } from '../types/workspace'
 import { focusOrAddComponentTab, focusOrAddFileTab } from '../utils/modelRegistry'
 
 interface Command {
@@ -14,9 +16,10 @@ interface Command {
 interface Props {
   onClose: () => void
   onNewWorkspace: () => void
+  onSpawnSpecialist: (specialistId: SpecialistActionId) => void
 }
 
-export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
+export default function CommandPalette({ onClose, onNewWorkspace, onSpawnSpecialist }: Props) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -64,6 +67,16 @@ export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
       : []),
     ...(activeWorkspace
       ? [
+          ...SPECIALIST_ACTIONS.map((action) => ({
+            id: `spawn-specialist-${action.id}`,
+            label: `Spawn: ${action.label}`,
+            description: `${action.shortLabel} specialist with the selected CLI`,
+            shortcut: action.shortcut,
+            run: () => {
+              onSpawnSpecialist(action.id)
+              onClose()
+            },
+          })),
           {
             id: 'content-search',
             label: 'Search: File Contents',
@@ -93,7 +106,7 @@ export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
         onClose()
       },
     },
-  ], [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspace, setActiveFile, onClose, onNewWorkspace])
+  ], [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspace, setActiveFile, onClose, onNewWorkspace, onSpawnSpecialist])
 
   const filtered = query.trim()
     ? commands.filter((command) => {

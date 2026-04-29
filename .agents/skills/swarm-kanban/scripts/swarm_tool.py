@@ -258,7 +258,7 @@ def artifact_registration_instruction(agent_id: str) -> str:
         "Artifact-producing tasks: if the task asks for an artifact, review, report, "
         "requirements document, design notes, mockup, plan, or validation output, writing "
         "the file and logging evidence is not enough. Register the UI-visible artifact object "
-        "before stopping:\n"
+        "before stopping. If the artifact needs human approval, register it ready for review:\n"
         "```\n"
         f"swarm artifact add --actor {agent_id} --task-id <task-id> --kind <artifact-kind> "
         f"--title \"<title>\" --path <path-under-team-folder> --created-by {agent_id} --ready\n"
@@ -268,8 +268,9 @@ def artifact_registration_instruction(agent_id: str) -> str:
         "security reviews, `code_review` for code reviews, `validation_report` for validation "
         "reports, `requirements` or `product_strategy` for product outputs, `design_notes` or "
         "`html_mockup` for frontend outputs, and `architect_plan` for plan gates. The `--ready` "
-        "flag moves the linked task to `needs_input`; do not manually mark an artifact-gated task "
-        "done before approval."
+        "flag moves the linked task to `needs_input`; use it only when the artifact should wait for "
+        "human approval. If a review artifact approves/passes the work with no findings, register "
+        "the artifact, log evidence, and follow the completion rule below."
     )
 
 

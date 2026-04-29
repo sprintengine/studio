@@ -18,6 +18,7 @@ export type SpecialistAction = {
   description: string
   icon: SpecialistIcon
   promptFile: string
+  shortcut?: string
 }
 
 export const SPECIALIST_ACTIONS: SpecialistAction[] = [
@@ -28,6 +29,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Create implementation plans, compare approaches, and shape system design.',
     icon: 'architecture',
     promptFile: 'architect-prompt.md',
+    shortcut: 'Ctrl+Alt+P',
   },
   {
     id: 'product-strategist',
@@ -60,6 +62,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Profile runtime behavior, memory use, CPU hot spots, bundle size, latency, and resource leaks.',
     icon: 'performance',
     promptFile: 'performance-engineer-prompt.md',
+    shortcut: 'Ctrl+Alt+M',
   },
   {
     id: 'frontend-design-review',
@@ -68,6 +71,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Design and implement polished frontend experiences, UI architecture, accessibility, and responsive behavior.',
     icon: 'design',
     promptFile: 'frontend-design-promt.md',
+    shortcut: 'Ctrl+Alt+F',
   },
   {
     id: 'qa-test',
