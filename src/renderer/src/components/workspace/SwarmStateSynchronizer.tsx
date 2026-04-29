@@ -5,8 +5,12 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { parseSwarmStateFile } from '../../utils/swarmStateFile'
 
 const SWARM_STATE_WATCH_DEBOUNCE_MS = 120
-const SWARM_STATE_RECOVERY_POLL_MS = 2_000
+const SWARM_STATE_RECOVERY_INITIAL_MS = 10_000
+const SWARM_STATE_WATCH_RECOVERY_INITIAL_MS = 60_000
+const SWARM_STATE_RECOVERY_MAX_MS = 120_000
 const SWARM_STATE_UNCHANGED_LOG_INTERVAL_MS = 30_000
+
+type SwarmStateRefreshCause = 'initial' | 'watch' | 'recovery'
 
 function getParentDirectoryPath(path: string): string {
   const normalized = path.replace(/[\\/]+$/, '')
@@ -32,11 +36,44 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
     let disposed = false
     let stopWatching: (() => Promise<void>) | null = null
     let debounce: number | null = null
-    let pollInterval: number | null = null
+    let recoveryTimeout: number | null = null
+    let recoveryDelayMs = SWARM_STATE_RECOVERY_INITIAL_MS
+    let watching = false
     const stateFilePath = workspace.swarmContext.statePath
     const swarmDirectory = getParentDirectoryPath(stateFilePath)
 
-    const readExternalState = async (cause: 'initial' | 'watch' | 'poll') => {
+    lastSyncedContentRef.current = null
+    readCountRef.current = 0
+    lastUnchangedLogAtRef.current = 0
+
+    const clearRecoveryTimeout = () => {
+      if (recoveryTimeout !== null) {
+        window.clearTimeout(recoveryTimeout)
+        recoveryTimeout = null
+      }
+    }
+
+    const resetRecoveryDelay = () => {
+      recoveryDelayMs = watching
+        ? SWARM_STATE_WATCH_RECOVERY_INITIAL_MS
+        : SWARM_STATE_RECOVERY_INITIAL_MS
+    }
+
+    const backOffRecoveryDelay = () => {
+      recoveryDelayMs = Math.min(recoveryDelayMs * 2, SWARM_STATE_RECOVERY_MAX_MS)
+    }
+
+    const scheduleRecovery = () => {
+      clearRecoveryTimeout()
+      if (disposed || document.hidden) return
+
+      recoveryTimeout = window.setTimeout(() => {
+        recoveryTimeout = null
+        void readExternalState('recovery')
+      }, recoveryDelayMs)
+    }
+
+    const readExternalState = async (cause: SwarmStateRefreshCause) => {
       const startedAt = performance.now()
       readCountRef.current += 1
       try {
@@ -44,6 +81,7 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
         const changed = content !== lastSyncedContentRef.current
         if (disposed) return
         if (!changed) {
+          if (cause === 'recovery') backOffRecoveryDelay()
           const now = Date.now()
           if (now - lastUnchangedLogAtRef.current >= SWARM_STATE_UNCHANGED_LOG_INTERVAL_MS) {
             lastUnchangedLogAtRef.current = now
@@ -56,9 +94,11 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
               readCount: readCountRef.current,
             })
           }
+          scheduleRecovery()
           return
         }
 
+        resetRecoveryDelay()
         const parsed = parseSwarmStateFile(content, getBaseName(swarmDirectory))
         lastSyncedContentRef.current = content
         setSwarmState(workspaceId, parsed)
@@ -72,7 +112,9 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
           artifactCount: parsed.artifacts.length,
           readCount: readCountRef.current,
         })
+        scheduleRecovery()
       } catch (error) {
+        if (cause === 'recovery') backOffRecoveryDelay()
         logPerfEvent('SwarmState', 'refresh-error', {
           workspaceId,
           team: workspace.swarmState?.name ?? getBaseName(swarmDirectory),
@@ -82,6 +124,7 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
           readCount: readCountRef.current,
         })
         // The swarm tool may not have created state.yaml yet.
+        scheduleRecovery()
       }
     }
 
@@ -92,6 +135,9 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
           if (debounce !== null) window.clearTimeout(debounce)
           debounce = window.setTimeout(() => { void readExternalState('watch') }, SWARM_STATE_WATCH_DEBOUNCE_MS)
         })
+        watching = true
+        resetRecoveryDelay()
+        scheduleRecovery()
 
         if (disposed && stopWatching) {
           void stopWatching()
@@ -102,14 +148,25 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
       }
     }
 
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        clearRecoveryTimeout()
+        return
+      }
+
+      resetRecoveryDelay()
+      void readExternalState('recovery')
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     void readExternalState('initial')
     void startWatching()
-    pollInterval = window.setInterval(() => { void readExternalState('poll') }, SWARM_STATE_RECOVERY_POLL_MS)
 
     return () => {
       disposed = true
       if (debounce !== null) window.clearTimeout(debounce)
-      if (pollInterval !== null) window.clearInterval(pollInterval)
+      clearRecoveryTimeout()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       if (stopWatching) void stopWatching()
     }
   }, [folderReadyPath, setSwarmState, workspace?.swarmContext?.statePath, workspaceId])

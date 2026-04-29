@@ -80,6 +80,15 @@ function toEntries(raw: { name: string; isDir: boolean }[], parent: string): Ent
     .sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)))
 }
 
+function isIgnoredExplorerWatchPath(path: string | null): boolean {
+  if (!path) return false
+
+  return path
+    .split(/[/\\]+/)
+    .filter(Boolean)
+    .some((segment) => segment === 'node_modules' || segment.startsWith('.'))
+}
+
 function flattenTree(
   entries: Entry[],
   depth: number,
@@ -1318,7 +1327,8 @@ function ExplorerTree({
     let disposed = false
     let unsubscribe: (() => Promise<void>) | undefined
 
-    window.api.watchPath(rootPath, () => {
+    window.api.watchPath(rootPath, (event) => {
+      if (isIgnoredExplorerWatchPath(event.path)) return
       scheduleRefresh()
     })
       .then((cleanup) => {

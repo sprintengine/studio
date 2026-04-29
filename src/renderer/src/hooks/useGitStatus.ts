@@ -14,7 +14,7 @@ type SharedGitStatusSnapshot = {
 }
 
 type GitStatusSubscriber = (snapshot: SharedGitStatusSnapshot) => void
-type GitStatusRefreshCause = 'initial' | 'watch' | 'poll' | 'manual' | 'coalesced'
+type GitStatusRefreshCause = 'initial' | 'watch' | 'recovery' | 'manual' | 'coalesced'
 
 type GitStatusSubscription = {
   repoRoot: string
@@ -23,16 +23,20 @@ type GitStatusSubscription = {
   signature: string
   subscribers: Set<GitStatusSubscriber>
   refreshTimer: number | null
-  pollInterval: number | null
+  recoveryTimer: number | null
+  recoveryDelayMs: number
   refreshPromise: Promise<void> | null
   refreshAgain: boolean
   stopWatching?: () => Promise<void>
   watchStarting: boolean
 }
 
-const GIT_STATUS_RECOVERY_POLL_MS = 30_000
+const GIT_STATUS_RECOVERY_INITIAL_MS = 30_000
+const GIT_STATUS_WATCH_RECOVERY_INITIAL_MS = 120_000
+const GIT_STATUS_RECOVERY_MAX_MS = 300_000
 const gitStatusSubscriptions = new Map<string, GitStatusSubscription>()
 const gitRepoRootLookups = new Map<string, Promise<string | null>>()
+let gitStatusVisibilityListenerInstalled = false
 
 export function normalizePathKey(path: string): string {
   return path.replace(/\\/g, '/').toLowerCase()
@@ -111,6 +115,54 @@ function notifyGitStatusSubscribers(subscription: GitStatusSubscription): void {
   subscription.subscribers.forEach((subscriber) => subscriber(snapshot))
 }
 
+function clearGitStatusRecovery(subscription: GitStatusSubscription): void {
+  if (subscription.recoveryTimer !== null) {
+    window.clearTimeout(subscription.recoveryTimer)
+    subscription.recoveryTimer = null
+  }
+}
+
+function resetGitStatusRecoveryDelay(subscription: GitStatusSubscription): void {
+  subscription.recoveryDelayMs = subscription.stopWatching
+    ? GIT_STATUS_WATCH_RECOVERY_INITIAL_MS
+    : GIT_STATUS_RECOVERY_INITIAL_MS
+}
+
+function backOffGitStatusRecovery(subscription: GitStatusSubscription): void {
+  subscription.recoveryDelayMs = Math.min(
+    subscription.recoveryDelayMs * 2,
+    GIT_STATUS_RECOVERY_MAX_MS
+  )
+}
+
+function scheduleGitStatusRecovery(subscription: GitStatusSubscription): void {
+  clearGitStatusRecovery(subscription)
+  if (!subscription.subscribers.size || document.hidden) return
+
+  subscription.recoveryTimer = window.setTimeout(() => {
+    subscription.recoveryTimer = null
+    if (document.hidden) return
+    void refreshGitStatusSubscription(subscription, 'recovery')
+  }, subscription.recoveryDelayMs)
+}
+
+function ensureGitStatusVisibilityListener(): void {
+  if (gitStatusVisibilityListenerInstalled) return
+  gitStatusVisibilityListenerInstalled = true
+
+  document.addEventListener('visibilitychange', () => {
+    gitStatusSubscriptions.forEach((subscription) => {
+      if (document.hidden) {
+        clearGitStatusRecovery(subscription)
+        return
+      }
+
+      resetGitStatusRecoveryDelay(subscription)
+      void refreshGitStatusSubscription(subscription, 'recovery')
+    })
+  })
+}
+
 async function refreshGitStatusSubscription(
   subscription: GitStatusSubscription,
   cause: GitStatusRefreshCause
@@ -131,6 +183,11 @@ async function refreshGitStatusSubscription(
       const normalized = normalizeStatusSnapshot(await window.api.getGitStatus(subscription.repoRoot))
       const nextSignature = getStatusSignature(normalized)
       const signatureChanged = nextSignature !== subscription.signature
+      if (cause === 'recovery' && !signatureChanged) {
+        backOffGitStatusRecovery(subscription)
+      } else {
+        resetGitStatusRecoveryDelay(subscription)
+      }
       if (signatureChanged) {
         subscription.status = normalized
         subscription.directoryStatus = buildDirectoryStatusMap(normalized)
@@ -146,6 +203,11 @@ async function refreshGitStatusSubscription(
         subscriberCount: subscription.subscribers.size,
       })
     } catch (error) {
+      if (cause === 'recovery') {
+        backOffGitStatusRecovery(subscription)
+      } else {
+        resetGitStatusRecoveryDelay(subscription)
+      }
       logPerfEvent('GitStatus', 'refresh-error', {
         cause,
         repoRoot: subscription.repoRoot,
@@ -164,6 +226,8 @@ async function refreshGitStatusSubscription(
       if (subscription.refreshAgain) {
         subscription.refreshAgain = false
         void refreshGitStatusSubscription(subscription, 'coalesced')
+      } else {
+        scheduleGitStatusRecovery(subscription)
       }
     }
   })()
@@ -194,10 +258,12 @@ function startGitStatusWatch(subscription: GitStatusSubscription): void {
         return
       }
       subscription.stopWatching = cleanup
+      resetGitStatusRecoveryDelay(subscription)
+      scheduleGitStatusRecovery(subscription)
     })
     .catch(() => {
       subscription.watchStarting = false
-      // Git status still works without watch support; manual refreshes keep it usable.
+      // Git status still works without watch support; recovery and manual refreshes keep it usable.
     })
 }
 
@@ -205,6 +271,7 @@ function getGitStatusSubscription(repoRoot: string): GitStatusSubscription {
   const key = normalizePathKey(repoRoot)
   const existing = gitStatusSubscriptions.get(key)
   if (existing) return existing
+  ensureGitStatusVisibilityListener()
 
   const subscription: GitStatusSubscription = {
     repoRoot,
@@ -213,16 +280,14 @@ function getGitStatusSubscription(repoRoot: string): GitStatusSubscription {
     signature: '',
     subscribers: new Set(),
     refreshTimer: null,
-    pollInterval: null,
+    recoveryTimer: null,
+    recoveryDelayMs: GIT_STATUS_RECOVERY_INITIAL_MS,
     refreshPromise: null,
     refreshAgain: false,
     watchStarting: false,
   }
 
   gitStatusSubscriptions.set(key, subscription)
-  subscription.pollInterval = window.setInterval(() => {
-    void refreshGitStatusSubscription(subscription, 'poll')
-  }, GIT_STATUS_RECOVERY_POLL_MS)
   void refreshGitStatusSubscription(subscription, 'initial')
   startGitStatusWatch(subscription)
   return subscription
@@ -245,10 +310,7 @@ function subscribeGitStatus(repoRoot: string, subscriber: GitStatusSubscriber): 
       window.clearTimeout(subscription.refreshTimer)
       subscription.refreshTimer = null
     }
-    if (subscription.pollInterval !== null) {
-      window.clearInterval(subscription.pollInterval)
-      subscription.pollInterval = null
-    }
+    clearGitStatusRecovery(subscription)
     if (subscription.stopWatching) {
       void subscription.stopWatching()
     }
