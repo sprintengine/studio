@@ -24,6 +24,7 @@ import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
+const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const AGENT_SPAWN_CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
   { value: 'codex', label: 'Codex' },
   { value: 'claude', label: 'Claude Code' },
@@ -152,6 +153,26 @@ function getSessionItems(
     })
 }
 
+function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]): string {
+  return [...sessions]
+    .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+    .map((session) => [
+      session.sessionId,
+      session.running ? '1' : '0',
+      session.kind,
+      session.workspaceId ?? '',
+      session.agentId ?? '',
+      session.terminalId ?? '',
+      session.cli ?? '',
+      session.cwd ?? '',
+      session.swarmStatePath ?? '',
+      session.executionMode ?? '',
+      session.worktreeId ?? '',
+      session.worktreePath ?? '',
+    ].join('\u001f'))
+    .join('\u001e')
+}
+
 export default function WorkspaceManager() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -203,6 +224,7 @@ export default function WorkspaceManager() {
   const notificationsRef = useRef<HTMLDivElement>(null)
   const accountRef = useRef<HTMLDivElement>(null)
   const handoffDialogRef = useRef<HTMLDivElement>(null)
+  const terminalSessionsSignatureRef = useRef('')
   const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
   const sessions = getSessionItems(workspaces, terminalSessions)
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
@@ -253,18 +275,27 @@ export default function WorkspaceManager() {
   useEffect(() => {
     let disposed = false
 
+    const applyTerminalSessions = (sessions: TerminalSessionSnapshot[]) => {
+      if (disposed) return
+      const signature = getTerminalSessionsSignature(sessions)
+      if (signature === terminalSessionsSignatureRef.current) return
+      terminalSessionsSignatureRef.current = signature
+      setTerminalSessions(sessions)
+    }
+
     const refreshTerminalSessions = async () => {
-      const sessions = await window.api.terminalList()
-      if (!disposed) setTerminalSessions(sessions)
+      applyTerminalSessions(await window.api.terminalList())
     }
 
     void refreshTerminalSessions().catch(() => {})
+    const unsubscribe = window.api.onTerminalSessionsChanged(applyTerminalSessions)
     const interval = window.setInterval(() => {
       void refreshTerminalSessions().catch(() => {})
-    }, 1000)
+    }, TERMINAL_SESSION_RECOVERY_POLL_MS)
 
     return () => {
       disposed = true
+      unsubscribe()
       window.clearInterval(interval)
     }
   }, [])

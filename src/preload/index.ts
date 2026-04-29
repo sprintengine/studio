@@ -66,6 +66,7 @@ type TerminalSessionSnapshot = {
   startedAt: number
   lastOutputAt: number | null
   outputBufferLength: number
+  retainedOutputBytes: number
 }
 type TerminalSpawnResult =
   | { ok: true; sessionId: string }
@@ -614,6 +615,13 @@ contextBridge.exposeInMainWorld('api', {
   onTerminalError: (sessionId: string, cb: (message: string) => void): (() => void) => {
     const ch = `terminal:error:${sessionId}`
     const handler = (_: Electron.IpcRendererEvent, message: string) => cb(message)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+
+  onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void): (() => void) => {
+    const ch = 'terminal:sessions-changed'
+    const handler = (_: Electron.IpcRendererEvent, sessions: TerminalSessionSnapshot[]) => cb(sessions)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },

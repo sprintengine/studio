@@ -71,9 +71,13 @@ type TerminalSessionSnapshot = {
   cli?: AgentCli
   cwd?: string
   swarmStatePath?: string
+  executionMode?: AgentExecutionMode
+  worktreeId?: string
+  worktreePath?: string
   startedAt: number
   lastOutputAt: number | null
   outputBufferLength: number
+  retainedOutputBytes: number
 }
 type TerminalSpawnResult =
   | { ok: true; sessionId: string }
@@ -393,6 +397,7 @@ declare interface Window {
     onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
     onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
     onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
+    onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
     onAppMenuCommand: (cb: (command: string) => void) => () => void
   }
 }

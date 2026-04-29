@@ -65,6 +65,7 @@ declare global {
     startedAt: number
     lastOutputAt: number | null
     outputBufferLength: number
+    retainedOutputBytes: number
   }
   type SpecialistActionId =
     | 'architect'
@@ -451,6 +452,7 @@ declare global {
       onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
       onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
       onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
+      onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
       onAppMenuCommand: (cb: (command: string) => void) => () => void
     }
   }
