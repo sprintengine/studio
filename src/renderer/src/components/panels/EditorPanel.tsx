@@ -1,10 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import MonacoEditor, { OnMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getGitEntry, useGitStatus } from '../../hooks/useGitStatus'
 import { getGitLineChanges, type GitLineChange } from '../../utils/gitDiff'
 import { renderMarkdown } from '../../utils/markdown'
+import {
+  getEditorBuffer,
+  hasEditorBuffer,
+  setEditorBuffer,
+  subscribeEditorBuffer,
+} from '../../utils/editorBuffers'
 
 interface Props {
   workspaceId: string
@@ -13,6 +19,9 @@ interface Props {
 
 type MonacoApi = Parameters<OnMount>[1]
 const EDITOR_FOCUS_EVENT = 'multicode:focus-editor'
+const GIT_DECORATION_DEBOUNCE_MS = 200
+const GIT_DECORATION_MAX_CHARS = 600_000
+const GIT_DECORATION_MAX_LINES = 8_000
 
 export default function EditorPanel({ workspaceId, filePath }: Props) {
   const editorState = useWorkspaceStore(
@@ -29,13 +38,37 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const openFiles = editorState?.openFiles ?? []
   const activeFilePath = filePath ?? null
   const activeFile = openFiles.find((f) => f.path === activeFilePath)
+  const activeFileHasRuntimeBuffer = activeFilePath
+    ? hasEditorBuffer(workspaceId, activeFilePath)
+    : false
+  const activeFileContentReady = !activeFilePath
+    || activeFileHasRuntimeBuffer
+    || typeof activeFile?.content === 'string'
+  const activeContent = useSyncExternalStore(
+    (listener) => activeFilePath ? subscribeEditorBuffer(workspaceId, activeFilePath, listener) : () => {},
+    () => activeFilePath ? getEditorBuffer(workspaceId, activeFilePath, activeFile?.content ?? '') : '',
+    () => ''
+  )
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const monacoRef = useRef<MonacoApi | null>(null)
   const gitDecorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
   const [gitBaseContent, setGitBaseContent] = useState<{ path: string; content: string } | null>(null)
+  const [contentLoadError, setContentLoadError] = useState<{ path: string; message: string } | null>(null)
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
   const isMarkdown = activeFile?.language === 'markdown'
   const showPreview = isMarkdown && markdownMode === 'preview'
+  const activeGitEntry = useMemo(
+    () => getGitEntry(gitStatus, activeFilePath),
+    [activeFilePath, gitStatus]
+  )
+  const activeGitEntrySignature = activeGitEntry
+    ? [
+      activeGitEntry.path,
+      activeGitEntry.status,
+      activeGitEntry.staged ? '1' : '0',
+      activeGitEntry.unstaged ? '1' : '0',
+    ].join('\u001f')
+    : ''
 
   useEffect(() => {
     if (filePath) setActiveFile(workspaceId, filePath)
@@ -57,11 +90,46 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       const pathToSave = filePath ?? ws?.editorState?.activeFilePath
       const file = ws?.editorState?.openFiles.find((f) => f.path === pathToSave)
       if (!file) return
-      await window.api.writefile(file.path, file.content)
+      if (!hasEditorBuffer(workspaceId, file.path) && typeof file.content !== 'string') return
+      await window.api.writefile(file.path, getEditorBuffer(workspaceId, file.path, file.content ?? ''))
       markFileClean(workspaceId, file.path)
       void refreshGitStatus()
     })
   }
+
+  useEffect(() => {
+    if (!activeFilePath || !activeFile) {
+      setContentLoadError(null)
+      return
+    }
+    if (activeFileContentReady) {
+      setContentLoadError((error) => error?.path === activeFilePath ? null : error)
+      return
+    }
+
+    let cancelled = false
+    setContentLoadError(null)
+
+    const loadRestoredContent = async () => {
+      try {
+        const content = await window.api.readfile(activeFilePath)
+        if (cancelled || hasEditorBuffer(workspaceId, activeFilePath)) return
+        setEditorBuffer(workspaceId, activeFilePath, content)
+      } catch (error) {
+        if (cancelled) return
+        setContentLoadError({
+          path: activeFilePath,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    void loadRestoredContent()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeFile, activeFileContentReady, activeFilePath, workspaceId])
 
   useEffect(() => {
     if (showPreview) return
@@ -115,8 +183,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     }
 
     const loadBaseContent = async () => {
-      const entry = getGitEntry(gitStatus, activeFilePath)
-      if (entry?.status === 'new') {
+      if (activeGitEntry?.status === 'new') {
         setGitBaseContent({ path: activeFilePath, content: '' })
         return
       }
@@ -137,7 +204,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     return () => {
       cancelled = true
     }
-  }, [activeFilePath, gitStatus?.updatedAt, gitStatus, repoRoot])
+  }, [activeFilePath, activeGitEntry?.status, activeGitEntrySignature, repoRoot])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -151,6 +218,22 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     }
 
     const lineCount = Math.max(model.getLineCount(), 1)
+    const tooLargeForDetailedDiff =
+      activeContent.length > GIT_DECORATION_MAX_CHARS
+      || gitBaseContent.content.length > GIT_DECORATION_MAX_CHARS
+      || lineCount > GIT_DECORATION_MAX_LINES
+
+    if (tooLargeForDetailedDiff) {
+      decorations.clear()
+      return
+    }
+
+    const baseLineCount = gitBaseContent.content.split(/\r\n|\r|\n/).length
+    if (baseLineCount > GIT_DECORATION_MAX_LINES) {
+      decorations.clear()
+      return
+    }
+
     const toDecoration = (change: GitLineChange): Monaco.editor.IModelDeltaDecoration => {
       const startLine = Math.min(Math.max(change.startLine, 1), lineCount)
       const endLine = Math.min(Math.max(change.endLine, startLine), lineCount)
@@ -185,8 +268,12 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       }
     }
 
-    decorations.set(getGitLineChanges(gitBaseContent.content, activeFile.content).map(toDecoration))
-  }, [activeFile, gitBaseContent, showPreview])
+    const timer = window.setTimeout(() => {
+      decorations.set(getGitLineChanges(gitBaseContent.content, activeContent).map(toDecoration))
+    }, GIT_DECORATION_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [activeContent, activeFile?.path, gitBaseContent, showPreview])
 
   if (!filePath) {
     return (
@@ -200,6 +287,22 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     return (
       <div className="h-full flex items-center justify-center bg-[#08090b] px-4 text-center text-[#5a5a63] text-[13px] font-mono">
         This file is no longer open.
+      </div>
+    )
+  }
+
+  if (contentLoadError?.path === activeFilePath) {
+    return (
+      <div className="h-full flex items-center justify-center bg-[#08090b] px-4 text-center text-[#ff9b9f] text-[13px] font-mono">
+        Failed to load file: {contentLoadError.message}
+      </div>
+    )
+  }
+
+  if (!activeFileContentReady) {
+    return (
+      <div className="h-full flex items-center justify-center bg-[#08090b] text-[#5a5a63] text-[13px] font-mono">
+        Loading file...
       </div>
     )
   }
@@ -222,7 +325,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
         {showPreview ? (
           <div className="h-full overflow-y-auto bg-[#08090b] px-8 pb-8 pt-14">
             <div className="max-w-4xl mx-auto">
-              {renderMarkdown(activeFile.content)}
+              {renderMarkdown(activeContent)}
             </div>
           </div>
         ) : (
@@ -230,7 +333,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
             <MonacoEditor
               height="100%"
               language={activeFile.language}
-              value={activeFile.content}
+              value={activeContent}
               theme="vs-dark"
               options={{
                 fontSize: 13,
@@ -248,7 +351,8 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
               }}
               onChange={(value) => {
                 if (value !== undefined && activeFilePath) {
-                  updateFileContent(workspaceId, activeFilePath, value)
+                  setEditorBuffer(workspaceId, activeFilePath, value)
+                  if (!activeFile.isDirty) updateFileContent(workspaceId, activeFilePath, value)
                 }
               }}
               onMount={handleMount}

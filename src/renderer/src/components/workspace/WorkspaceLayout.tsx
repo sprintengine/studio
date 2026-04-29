@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Actions,
   Layout,
@@ -16,16 +16,16 @@ import type { AgentState, SwarmRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { SpecialistActionIcon, StatusDot, SwarmRoleIcon } from '../AppIcons'
 import AgentPanel from '../panels/AgentPanel'
-import EditorPanel from '../panels/EditorPanel'
 import FileExplorer from '../panels/FileExplorer'
-import GitPanel from '../panels/GitPanel'
-import PlainTerminalPanel from '../panels/PlainTerminalPanel'
-import SwarmBoardPanel from '../panels/SwarmBoardPanel'
 
 interface Props {
   workspaceId: string
 }
 
+const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
+const GitPanel = React.lazy(() => import('../panels/GitPanel'))
+const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
+const SwarmBoardPanel = React.lazy(() => import('../panels/SwarmBoardPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 type AgentTabActivity = 'needs-input' | 'running' | 'idle'
 
@@ -61,6 +61,14 @@ function agentTabActivityDot(
     default:
       return null
   }
+}
+
+function PanelLoadingFallback() {
+  return (
+    <div className="flex h-full items-center justify-center bg-[#08090b] text-[12px] font-mono text-[#6f7078]">
+      Loading panel...
+    </div>
+  )
 }
 
 function WorkspaceLayout({ workspaceId }: Props) {
@@ -180,32 +188,66 @@ function WorkspaceLayout({ workspaceId }: Props) {
             />
           )
         case 'editor':
-          return <EditorPanel workspaceId={workspaceId} />
+          return (
+            <Suspense fallback={<PanelLoadingFallback />}>
+              <EditorPanel workspaceId={workspaceId} />
+            </Suspense>
+          )
         case 'file-editor':
           return config?.filePath
-            ? <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />
+            ? (
+              <Suspense fallback={<PanelLoadingFallback />}>
+                <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />
+              </Suspense>
+            )
             : <div className="h-full bg-[#08090b]" />
         case 'explorer':
           return <FileExplorer workspaceId={workspaceId} />
         case 'git':
-          return <GitPanel workspaceId={workspaceId} />
+          return (
+            <Suspense fallback={<PanelLoadingFallback />}>
+              <GitPanel workspaceId={workspaceId} />
+            </Suspense>
+          )
         case 'terminal':
           return (
-            <PlainTerminalPanel
-              workspaceId={workspaceId}
-              terminalId={config?.terminalId ?? node.getId()}
-            />
+            <Suspense fallback={<PanelLoadingFallback />}>
+              <PlainTerminalPanel
+                workspaceId={workspaceId}
+                terminalId={config?.terminalId ?? node.getId()}
+              />
+            </Suspense>
           )
         case 'swarm':
-          return <SwarmBoardPanel workspaceId={workspaceId} />
+          return (
+            <Suspense fallback={<PanelLoadingFallback />}>
+              <SwarmBoardPanel workspaceId={workspaceId} />
+            </Suspense>
+          )
         case 'swarm-project':
-          return <SwarmBoardPanel workspaceId={workspaceId} fixedView="project" />
+          return (
+            <Suspense fallback={<PanelLoadingFallback />}>
+              <SwarmBoardPanel workspaceId={workspaceId} fixedView="project" />
+            </Suspense>
+          )
         case 'swarm-map':
-          return <SwarmBoardPanel workspaceId={workspaceId} fixedView="map" />
+          return (
+            <Suspense fallback={<PanelLoadingFallback />}>
+              <SwarmBoardPanel workspaceId={workspaceId} fixedView="map" />
+            </Suspense>
+          )
         case 'swarm-task-graph':
-          return <SwarmBoardPanel workspaceId={workspaceId} fixedView="task-graph" />
+          return (
+            <Suspense fallback={<PanelLoadingFallback />}>
+              <SwarmBoardPanel workspaceId={workspaceId} fixedView="task-graph" />
+            </Suspense>
+          )
         case 'swarm-kanban':
-          return <SwarmBoardPanel workspaceId={workspaceId} fixedView="kanban" />
+          return (
+            <Suspense fallback={<PanelLoadingFallback />}>
+              <SwarmBoardPanel workspaceId={workspaceId} fixedView="kanban" />
+            </Suspense>
+          )
         default:
           return <div className="h-full bg-[#08090b]" />
       }

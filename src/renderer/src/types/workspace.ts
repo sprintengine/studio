@@ -374,7 +374,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
 export type OpenFile = {
   path: string
   name: string
-  content: string
+  content?: string
   language: string
   isDirty: boolean
 }

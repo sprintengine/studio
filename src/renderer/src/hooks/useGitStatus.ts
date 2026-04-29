@@ -162,7 +162,7 @@ function startGitStatusWatch(subscription: GitStatusSubscription): void {
   window.api.watchPath(subscription.repoRoot, () => scheduleGitStatusRefresh(subscription))
     .then((cleanup) => {
       subscription.watchStarting = false
-      if (!gitStatusSubscriptions.has(normalizePathKey(subscription.repoRoot))) {
+      if (gitStatusSubscriptions.get(normalizePathKey(subscription.repoRoot)) !== subscription) {
         void cleanup()
         return
       }

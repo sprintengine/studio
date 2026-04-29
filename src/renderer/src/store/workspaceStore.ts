@@ -41,6 +41,12 @@ import {
   getSwarmStateFilePath,
   slugifySwarmName,
 } from '../utils/swarmStateFile'
+import {
+  deleteEditorBuffer,
+  remapEditorBuffers,
+  removeEditorBuffersForPath,
+  setEditorBuffer,
+} from '../utils/editorBuffers'
 
 const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
@@ -978,28 +984,32 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.activeWorkspaceId = id
         }),
 
-      openFile: (workspaceId, path, name, content) =>
+      openFile: (workspaceId, path, name, content) => {
+        setEditorBuffer(workspaceId, path, content)
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           if (!ws) return
           if (!ws.editorState) ws.editorState = defaultEditorState()
           const existing = ws.editorState.openFiles.find((f) => f.path === path)
           if (existing) {
-            existing.content = content
             existing.isDirty = false
+            existing.name = name
+            existing.language = detectLanguage(name)
+            delete existing.content
           } else {
             ws.editorState.openFiles.push({
               path,
               name,
-              content,
               language: detectLanguage(name),
               isDirty: false,
             })
           }
           ws.editorState.activeFilePath = path
-        }),
+        })
+      },
 
-      closeFile: (workspaceId, path) =>
+      closeFile: (workspaceId, path) => {
+        deleteEditorBuffer(workspaceId, path)
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           if (!ws?.editorState) return
@@ -1009,7 +1019,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (ws.editorState.activeFilePath === path) {
             ws.editorState.activeFilePath = ws.editorState.openFiles.at(-1)?.path ?? null
           }
-        }),
+        })
+      },
 
       setActiveFile: (workspaceId, path) =>
         set((state) => {
@@ -1017,15 +1028,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (ws?.editorState) ws.editorState.activeFilePath = path
         }),
 
-      updateFileContent: (workspaceId, path, content) =>
+      updateFileContent: (workspaceId, path, content) => {
+        setEditorBuffer(workspaceId, path, content)
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           const file = ws?.editorState?.openFiles.find((f) => f.path === path)
-          if (file) {
-            file.content = content
-            file.isDirty = true
-          }
-        }),
+          if (!file || file.isDirty) return
+          file.isDirty = true
+        })
+      },
 
       markFileClean: (workspaceId, path) =>
         set((state) => {
@@ -1034,7 +1045,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (file) file.isDirty = false
         }),
 
-      remapOpenFiles: (workspaceId, fromPath, toPath) =>
+      remapOpenFiles: (workspaceId, fromPath, toPath) => {
+        remapEditorBuffers(workspaceId, fromPath, toPath)
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           const openFiles = ws?.editorState?.openFiles
@@ -1056,9 +1068,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           } else if (ws.editorState.activeFilePath?.startsWith(fromPrefix)) {
             ws.editorState.activeFilePath = `${toPath}${ws.editorState.activeFilePath.slice(fromPath.length)}`
           }
-        }),
+        })
+      },
 
-      removeOpenFilesForPath: (workspaceId, path) =>
+      removeOpenFilesForPath: (workspaceId, path) => {
+        removeEditorBuffersForPath(workspaceId, path)
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           const openFiles = ws?.editorState?.openFiles
@@ -1073,11 +1087,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (activeFileDeleted) {
             ws.editorState.activeFilePath = ws.editorState.openFiles.at(-1)?.path ?? null
           }
-        }),
+        })
+      },
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 24,
+      version: 25,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1278,6 +1293,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
+        if (version < 25) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            editorState: {
+              openFiles: (ws.editorState?.openFiles ?? []).map(({ content: _content, ...file }) => ({
+                ...file,
+                isDirty: false,
+              })),
+              activeFilePath: ws.editorState?.activeFilePath ?? null,
+            },
+          }))
+        }
         return state as never
       },
       partialize: (s) => ({
@@ -1304,9 +1331,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
           // Keep file list + active file, drop content so we don't resurrect stale edits
           editorState: {
-            openFiles: (ws.editorState?.openFiles ?? []).map((f) => ({
+            openFiles: (ws.editorState?.openFiles ?? []).map(({ content: _content, ...f }) => ({
               ...f,
-              content: '',
               isDirty: false,
             })),
             activeFilePath: ws.editorState?.activeFilePath ?? null,
