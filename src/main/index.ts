@@ -1213,6 +1213,21 @@ type FileSearchResult =
       results: FileSearchEntry[]
       truncated: boolean
       engine: FileSearchEngine
+      elapsedMs: number
+      resultCount: number
+    }
+  | {
+      ok: false
+      message: string
+      engine: FileSearchEngine | null
+    }
+
+type FileSearchEngineResult =
+  | {
+      ok: true
+      results: FileSearchEntry[]
+      truncated: boolean
+      engine: FileSearchEngine
     }
   | {
       ok: false
@@ -2513,14 +2528,14 @@ async function searchFilesWithRipgrep(
   rootPath: string,
   query: string,
   limit: number
-): Promise<FileSearchResult> {
+): Promise<FileSearchEngineResult> {
   const normalizedQuery = normalizeSearchPath(query)
   const results: FileSearchEntry[] = []
   let stdoutBuffer = ''
   let stderrBuffer = ''
   let truncated = false
 
-  return new Promise<FileSearchResult>((resolve) => {
+  return new Promise<FileSearchEngineResult>((resolve) => {
     let settled = false
     const child = spawn(rgPath, [
       '--files',
@@ -2554,7 +2569,7 @@ async function searchFilesWithRipgrep(
 
     activeFileSearches.set(senderId, child)
 
-    const finish = (result: FileSearchResult) => {
+    const finish = (result: FileSearchEngineResult) => {
       if (settled) return
       settled = true
       if (activeFileSearches.get(senderId) === child) {
@@ -2632,7 +2647,7 @@ async function searchFilesWithNodeFallback(
   rootPath: string,
   query: string,
   limit: number
-): Promise<FileSearchResult> {
+): Promise<FileSearchEngineResult> {
   const normalizedQuery = normalizeSearchPath(query)
   const results: FileSearchEntry[] = []
   const directories = [rootPath]
@@ -2687,11 +2702,23 @@ async function searchFilesWithNodeFallback(
   return { ok: true, results: sortFileSearchResults(results, query), truncated, engine: 'node' }
 }
 
+function withFileSearchDiagnostics(result: FileSearchEngineResult, startedAt: number): FileSearchResult {
+  if (!result.ok) return result
+  return {
+    ...result,
+    elapsedMs: Date.now() - startedAt,
+    resultCount: result.results.length,
+  }
+}
+
 async function searchFiles(senderId: number, input: FileSearchRequest): Promise<FileSearchResult> {
+  const startedAt = Date.now()
   const rootPath = typeof input.rootPath === 'string' ? input.rootPath : ''
   const query = typeof input.query === 'string' ? input.query.trim() : ''
   const limit = normalizeFileSearchLimit(input.limit)
-  if (!rootPath || !query) return { ok: true, results: [], truncated: false, engine: 'ripgrep' }
+  if (!rootPath || !query) {
+    return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
+  }
 
   try {
     const rootStats = await stat(rootPath)
@@ -2708,8 +2735,8 @@ async function searchFiles(senderId: number, input: FileSearchRequest): Promise<
 
   cancelActiveFileSearch(senderId)
   const ripgrepResult = await searchFilesWithRipgrep(senderId, rootPath, query, limit)
-  if (ripgrepResult.ok) return ripgrepResult
-  return searchFilesWithNodeFallback(rootPath, query, limit)
+  if (ripgrepResult.ok) return withFileSearchDiagnostics(ripgrepResult, startedAt)
+  return withFileSearchDiagnostics(await searchFilesWithNodeFallback(rootPath, query, limit), startedAt)
 }
 
 function isMissingPathError(error: unknown): boolean {

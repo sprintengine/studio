@@ -26,6 +26,8 @@ type FileSearchResult =
       results: FileSearchEntry[]
       truncated: boolean
       engine: 'ripgrep' | 'node'
+      elapsedMs: number
+      resultCount: number
     }
   | {
       ok: false

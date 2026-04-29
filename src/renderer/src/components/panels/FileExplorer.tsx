@@ -102,6 +102,18 @@ type SearchTreeNode = {
   children: Map<string, SearchTreeNode>
 }
 
+type FileSearchDiagnostics = {
+  engine: 'ripgrep' | 'node'
+  elapsedMs: number
+  resultCount: number
+  truncated: boolean
+}
+
+type FileSearchResponse = {
+  entries: Entry[]
+  diagnostics: FileSearchDiagnostics | null
+}
+
 function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
   const separator = pathSeparatorFor(rootPath)
   const rootChildren = new Map<string, SearchTreeNode>()
@@ -483,9 +495,9 @@ async function searchFiles(
   query: string,
   gitStatus: GitStatusSnapshot | null,
   limit = 200
-): Promise<Entry[]> {
+): Promise<FileSearchResponse> {
   const lowerQuery = query.toLowerCase().trim()
-  if (!lowerQuery) return []
+  if (!lowerQuery) return { entries: [], diagnostics: null }
 
   const result = await window.api.searchFiles(rootPath, query, { limit })
   if (!result.ok) throw new Error(result.message)
@@ -519,7 +531,15 @@ async function searchFiles(
     })
   })
 
-  return matches
+  return {
+    entries: matches,
+    diagnostics: {
+      engine: result.engine,
+      elapsedMs: result.elapsedMs,
+      resultCount: result.resultCount,
+      truncated: result.truncated,
+    },
+  }
 }
 
 interface ExplorerTreeProps {
@@ -564,6 +584,7 @@ function ExplorerTree({
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Entry[]>([])
+  const [searchDiagnostics, setSearchDiagnostics] = useState<FileSearchDiagnostics | null>(null)
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
   const [markdownSwarmDraft, setMarkdownSwarmDraft] = useState<MarkdownSwarmDraft | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
@@ -591,6 +612,9 @@ function ExplorerTree({
   const activeRows = isSearching
     ? searchRows
     : visibleRows
+  const searchDiagnosticsTitle = import.meta.env.DEV && searchDiagnostics
+    ? `Search used ${searchDiagnostics.engine} in ${searchDiagnostics.elapsedMs} ms (${searchDiagnostics.resultCount}${searchDiagnostics.truncated ? '+' : ''} results)`
+    : undefined
 
   useEffect(() => {
     latestExpandedPathsRef.current = expandedPaths
@@ -606,6 +630,19 @@ function ExplorerTree({
   }, [gitStatus])
 
   const renamingPath = renameDraft?.entry.path ?? null
+
+  const applySearchResponse = useCallback((response: FileSearchResponse) => {
+    setSearchResults(response.entries)
+    setSearchDiagnostics(response.diagnostics)
+
+    if (import.meta.env.DEV && response.diagnostics) {
+      console.debug('[FileExplorer] search-files', {
+        rootPath,
+        query: latestSearchQueryRef.current,
+        ...response.diagnostics,
+      })
+    }
+  }, [rootPath])
 
   useEffect(() => {
     if (!renamingPath) return
@@ -683,13 +720,13 @@ function ExplorerTree({
     if (latestSearchingRef.current) {
       const requestSeq = ++searchRequestSeqRef.current
       try {
-        const results = await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current)
-        if (requestSeq === searchRequestSeqRef.current) setSearchResults(results)
+        const response = await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current)
+        if (requestSeq === searchRequestSeqRef.current) applySearchResponse(response)
       } finally {
         if (requestSeq === searchRequestSeqRef.current) setSearching(false)
       }
     }
-  }, [loadDirectory, rootPath])
+  }, [applySearchResponse, loadDirectory, rootPath])
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimeoutRef.current) {
@@ -791,7 +828,7 @@ function ExplorerTree({
 
       await refreshParentDirectory(entry.parentPath)
       if (isSearching) {
-        setSearchResults(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
+        applySearchResponse(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
       }
       setSelectedPath(nextPath)
       setRenameDraft(null)
@@ -1205,6 +1242,7 @@ function ExplorerTree({
         searchTimeoutRef.current = null
       }
       setSearchResults([])
+      setSearchDiagnostics(null)
       setSearching(false)
       return
     }
@@ -1218,13 +1256,16 @@ function ExplorerTree({
     searchTimeoutRef.current = window.setTimeout(() => {
       searchTimeoutRef.current = null
       searchFiles(rootPath, query, latestGitStatusRef.current)
-        .then((results) => {
+        .then((response) => {
           if (requestSeq !== searchRequestSeqRef.current) return
-          setSearchResults(results)
-          setSelectedPath(results[0]?.path ?? null)
+          applySearchResponse(response)
+          setSelectedPath(response.entries[0]?.path ?? null)
         })
         .catch(() => {
-          if (requestSeq === searchRequestSeqRef.current) setSearchResults([])
+          if (requestSeq === searchRequestSeqRef.current) {
+            setSearchResults([])
+            setSearchDiagnostics(null)
+          }
         })
         .finally(() => {
           if (requestSeq === searchRequestSeqRef.current) setSearching(false)
@@ -1237,7 +1278,7 @@ function ExplorerTree({
         searchTimeoutRef.current = null
       }
     }
-  }, [rootPath, query, isSearching])
+  }, [applySearchResponse, rootPath, query, isSearching])
 
   useEffect(() => {
     let disposed = false
@@ -1389,6 +1430,7 @@ function ExplorerTree({
         ref={containerRef}
         tabIndex={0}
         role="tree"
+        title={searchDiagnosticsTitle}
         onKeyDown={(event) => void handleKeyDown(event)}
         onContextMenu={(event) => void showContextMenu(event)}
         className="flex flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[#303139]"
