@@ -4,6 +4,7 @@ import { getGitEntry, normalizePathKey, useGitStatus } from '../../hooks/useGitS
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
+import { logPerfEvent } from '../../utils/perfDiagnostics'
 import {
   createPlanSourcedSwarmWorkspace,
   PlanSourcedSwarmWorkspaceError,
@@ -113,6 +114,8 @@ type FileSearchResponse = {
   entries: Entry[]
   diagnostics: FileSearchDiagnostics | null
 }
+
+type RefreshTreeCause = 'initial' | 'watch' | 'manual' | 'git-status' | 'reveal'
 
 function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
   const separator = pathSeparatorFor(rootPath)
@@ -597,7 +600,6 @@ function ExplorerTree({
   const markdownSwarmTeamInputRef = useRef<HTMLInputElement>(null)
   const latestExpandedPathsRef = useRef<Record<string, boolean>>({})
   const latestSearchQueryRef = useRef('')
-  const latestSearchingRef = useRef(false)
   const latestSearchExcludesRef = useRef(searchExcludes)
   const latestGitStatusRef = useRef<GitStatusSnapshot | null>(gitStatus)
   const lastManualRefreshRef = useRef(refreshToken)
@@ -626,8 +628,7 @@ function ExplorerTree({
 
   useEffect(() => {
     latestSearchQueryRef.current = query
-    latestSearchingRef.current = isSearching
-  }, [query, isSearching])
+  }, [query])
 
   useEffect(() => {
     latestSearchExcludesRef.current = searchExcludes
@@ -643,8 +644,8 @@ function ExplorerTree({
     setSearchResults(response.entries)
     setSearchDiagnostics(response.diagnostics)
 
-    if (import.meta.env.DEV && response.diagnostics) {
-      console.debug('[FileExplorer] search-files', {
+    if (response.diagnostics) {
+      logPerfEvent('FileExplorer', 'search-files', {
         rootPath,
         query: latestSearchQueryRef.current,
         ...response.diagnostics,
@@ -694,16 +695,19 @@ function ExplorerTree({
     await loadDirectory(parentPath)
   }
 
-  const refreshTree = useCallback(async () => {
+  const refreshTree = useCallback(async (cause: RefreshTreeCause = 'manual') => {
+    const startedAt = performance.now()
     const expandedDirectories = Object.entries(latestExpandedPathsRef.current)
       .filter(([, expanded]) => expanded)
       .map(([dirPath]) => dirPath)
 
     const directories = Array.from(new Set([rootPath, ...expandedDirectories]))
+    let loadedDirectoryCount = 0
     await Promise.all(
       directories.map(async (dirPath) => {
         try {
           await loadDirectory(dirPath)
+          loadedDirectoryCount += 1
         } catch (error) {
           if (dirPath === rootPath) {
             throw error
@@ -725,21 +729,15 @@ function ExplorerTree({
       })
     )
 
-    if (latestSearchingRef.current) {
-      const requestSeq = ++searchRequestSeqRef.current
-      try {
-        const response = await searchFiles(
-          rootPath,
-          latestSearchQueryRef.current,
-          latestGitStatusRef.current,
-          latestSearchExcludesRef.current
-        )
-        if (requestSeq === searchRequestSeqRef.current) applySearchResponse(response)
-      } finally {
-        if (requestSeq === searchRequestSeqRef.current) setSearching(false)
-      }
-    }
-  }, [applySearchResponse, loadDirectory, rootPath])
+    logPerfEvent('FileExplorer', 'refresh-tree', {
+      cause,
+      rootPath,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      expandedDirectoryCount: expandedDirectories.length,
+      loadedDirectoryCount,
+      isSearching: latestSearchQueryRef.current.trim().length > 0,
+    })
+  }, [loadDirectory, rootPath])
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimeoutRef.current) {
@@ -748,7 +746,7 @@ function ExplorerTree({
 
     refreshTimeoutRef.current = window.setTimeout(() => {
       refreshTimeoutRef.current = null
-      void refreshTree()
+      void refreshTree('watch')
     }, 150)
   }, [refreshTree])
 
@@ -1092,7 +1090,7 @@ function ExplorerTree({
     if (command === 'delete' && entry) return void deleteEntry(entry)
     if (command === 'refresh') {
       if (isSearching || targetDir === rootPath) {
-        await refreshTree()
+        await refreshTree('manual')
       } else {
         await refreshParentDirectory(targetDir)
       }
@@ -1202,9 +1200,18 @@ function ExplorerTree({
     setExpandedPaths({})
     setSelectedPath(null)
 
+    const startedAt = performance.now()
     loadDirectory(rootPath)
       .then((entries) => {
         setSelectedPath(entries[0]?.path ?? null)
+        logPerfEvent('FileExplorer', 'refresh-tree', {
+          cause: 'initial',
+          rootPath,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          expandedDirectoryCount: 0,
+          loadedDirectoryCount: 1,
+          isSearching: false,
+        })
       })
       .finally(() => setLoading(false))
   }, [loadDirectory, rootPath])
@@ -1212,7 +1219,7 @@ function ExplorerTree({
   useEffect(() => {
     if (refreshToken === lastManualRefreshRef.current) return
     lastManualRefreshRef.current = refreshToken
-    void refreshTree()
+    void refreshTree('manual')
     void refreshGitStatus()
   }, [refreshGitStatus, refreshToken, refreshTree])
 
@@ -1222,6 +1229,7 @@ function ExplorerTree({
     let cancelled = false
 
     const revealFile = async () => {
+      const startedAt = performance.now()
       const parentDirectories = parentDirectoriesForPath(rootPath, revealPath)
 
       for (const directory of parentDirectories) {
@@ -1234,6 +1242,14 @@ function ExplorerTree({
         ...Object.fromEntries(parentDirectories.map((directory) => [directory, true])),
       }))
       setSelectedPath(revealPath)
+      logPerfEvent('FileExplorer', 'refresh-tree', {
+        cause: 'reveal',
+        rootPath,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        expandedDirectoryCount: parentDirectories.length,
+        loadedDirectoryCount: parentDirectories.length,
+        isSearching: false,
+      })
 
       window.setTimeout(() => {
         if (cancelled) return
@@ -1249,7 +1265,7 @@ function ExplorerTree({
   }, [loadDirectory, revealPath, revealToken, rootPath])
 
   useEffect(() => {
-    void refreshTree()
+    void refreshTree('git-status')
   }, [gitStatus?.updatedAt, refreshTree])
 
   useEffect(() => {

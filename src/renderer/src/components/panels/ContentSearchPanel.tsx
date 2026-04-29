@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { focusOrAddFileTab } from '../../utils/modelRegistry'
+import { logPerfEvent } from '../../utils/perfDiagnostics'
 
 interface Props {
   workspaceId: string
@@ -96,6 +97,15 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
 
           setResults(result.results)
           setDiagnostics({
+            engine: result.engine,
+            elapsedMs: result.elapsedMs,
+            resultCount: result.resultCount,
+            truncated: result.truncated,
+          })
+
+          logPerfEvent('ContentSearch', 'search-content', {
+            rootPath: folderReadyPath,
+            query: trimmedQuery,
             engine: result.engine,
             elapsedMs: result.elapsedMs,
             resultCount: result.resultCount,

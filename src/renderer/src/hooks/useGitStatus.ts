@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { logPerfEvent } from '../utils/perfDiagnostics'
 
 type UseGitStatusResult = {
   repoRoot: string | null
@@ -13,6 +14,7 @@ type SharedGitStatusSnapshot = {
 }
 
 type GitStatusSubscriber = (snapshot: SharedGitStatusSnapshot) => void
+type GitStatusRefreshCause = 'initial' | 'watch' | 'poll' | 'manual' | 'coalesced'
 
 type GitStatusSubscription = {
   repoRoot: string
@@ -109,23 +111,48 @@ function notifyGitStatusSubscribers(subscription: GitStatusSubscription): void {
   subscription.subscribers.forEach((subscriber) => subscriber(snapshot))
 }
 
-async function refreshGitStatusSubscription(subscription: GitStatusSubscription): Promise<void> {
+async function refreshGitStatusSubscription(
+  subscription: GitStatusSubscription,
+  cause: GitStatusRefreshCause
+): Promise<void> {
   if (subscription.refreshPromise) {
     subscription.refreshAgain = true
+    logPerfEvent('GitStatus', 'refresh-coalesced', {
+      cause,
+      repoRoot: subscription.repoRoot,
+      subscriberCount: subscription.subscribers.size,
+    })
     return subscription.refreshPromise
   }
 
   subscription.refreshPromise = (async () => {
+    const startedAt = performance.now()
     try {
       const normalized = normalizeStatusSnapshot(await window.api.getGitStatus(subscription.repoRoot))
       const nextSignature = getStatusSignature(normalized)
-      if (nextSignature !== subscription.signature) {
+      const signatureChanged = nextSignature !== subscription.signature
+      if (signatureChanged) {
         subscription.status = normalized
         subscription.directoryStatus = buildDirectoryStatusMap(normalized)
         subscription.signature = nextSignature
         notifyGitStatusSubscribers(subscription)
       }
-    } catch {
+      logPerfEvent('GitStatus', 'refresh', {
+        cause,
+        repoRoot: subscription.repoRoot,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        changedFileCount: Object.keys(normalized.files).length,
+        signatureChanged,
+        subscriberCount: subscription.subscribers.size,
+      })
+    } catch (error) {
+      logPerfEvent('GitStatus', 'refresh-error', {
+        cause,
+        repoRoot: subscription.repoRoot,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        message: error instanceof Error ? error.message : String(error),
+        subscriberCount: subscription.subscribers.size,
+      })
       if (subscription.status || subscription.signature) {
         subscription.status = null
         subscription.directoryStatus = {}
@@ -136,7 +163,7 @@ async function refreshGitStatusSubscription(subscription: GitStatusSubscription)
       subscription.refreshPromise = null
       if (subscription.refreshAgain) {
         subscription.refreshAgain = false
-        void refreshGitStatusSubscription(subscription)
+        void refreshGitStatusSubscription(subscription, 'coalesced')
       }
     }
   })()
@@ -144,14 +171,14 @@ async function refreshGitStatusSubscription(subscription: GitStatusSubscription)
   return subscription.refreshPromise
 }
 
-function scheduleGitStatusRefresh(subscription: GitStatusSubscription): void {
+function scheduleGitStatusRefresh(subscription: GitStatusSubscription, cause: GitStatusRefreshCause): void {
   if (subscription.refreshTimer !== null) {
     window.clearTimeout(subscription.refreshTimer)
   }
 
   subscription.refreshTimer = window.setTimeout(() => {
     subscription.refreshTimer = null
-    void refreshGitStatusSubscription(subscription)
+    void refreshGitStatusSubscription(subscription, cause)
   }, 250)
 }
 
@@ -159,7 +186,7 @@ function startGitStatusWatch(subscription: GitStatusSubscription): void {
   if (subscription.watchStarting || subscription.stopWatching || typeof window.api.watchPath !== 'function') return
 
   subscription.watchStarting = true
-  window.api.watchPath(subscription.repoRoot, () => scheduleGitStatusRefresh(subscription))
+  window.api.watchPath(subscription.repoRoot, () => scheduleGitStatusRefresh(subscription, 'watch'))
     .then((cleanup) => {
       subscription.watchStarting = false
       if (gitStatusSubscriptions.get(normalizePathKey(subscription.repoRoot)) !== subscription) {
@@ -194,9 +221,9 @@ function getGitStatusSubscription(repoRoot: string): GitStatusSubscription {
 
   gitStatusSubscriptions.set(key, subscription)
   subscription.pollInterval = window.setInterval(() => {
-    void refreshGitStatusSubscription(subscription)
+    void refreshGitStatusSubscription(subscription, 'poll')
   }, GIT_STATUS_RECOVERY_POLL_MS)
-  void refreshGitStatusSubscription(subscription)
+  void refreshGitStatusSubscription(subscription, 'initial')
   startGitStatusWatch(subscription)
   return subscription
 }
@@ -231,7 +258,7 @@ function subscribeGitStatus(repoRoot: string, subscriber: GitStatusSubscriber): 
 
 function refreshSharedGitStatus(repoRoot: string | null): Promise<void> {
   if (!repoRoot || typeof window.api.getGitStatus !== 'function') return Promise.resolve()
-  return refreshGitStatusSubscription(getGitStatusSubscription(repoRoot))
+  return refreshGitStatusSubscription(getGitStatusSubscription(repoRoot), 'manual')
 }
 
 function resolveSharedGitRepoRoot(rootPath: string): Promise<string | null> {

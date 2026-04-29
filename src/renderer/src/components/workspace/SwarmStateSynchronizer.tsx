@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { parseSwarmStateFile } from '../../utils/swarmStateFile'
 
 const SWARM_STATE_WATCH_DEBOUNCE_MS = 120
 const SWARM_STATE_RECOVERY_POLL_MS = 2_000
+const SWARM_STATE_UNCHANGED_LOG_INTERVAL_MS = 30_000
 
 function getParentDirectoryPath(path: string): string {
   const normalized = path.replace(/[\\/]+$/, '')
@@ -21,6 +23,8 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
   const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
   const { folderReadyPath } = useWorkspaceFolderStatus(workspaceId)
   const lastSyncedContentRef = useRef<string | null>(null)
+  const readCountRef = useRef(0)
+  const lastUnchangedLogAtRef = useRef(0)
 
   useEffect(() => {
     if (!workspace?.swarmContext?.statePath || !folderReadyPath) return
@@ -32,15 +36,51 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
     const stateFilePath = workspace.swarmContext.statePath
     const swarmDirectory = getParentDirectoryPath(stateFilePath)
 
-    const readExternalState = async () => {
+    const readExternalState = async (cause: 'initial' | 'watch' | 'poll') => {
+      const startedAt = performance.now()
+      readCountRef.current += 1
       try {
         const content = await window.api.readfile(stateFilePath)
-        if (disposed || content === lastSyncedContentRef.current) return
+        const changed = content !== lastSyncedContentRef.current
+        if (disposed) return
+        if (!changed) {
+          const now = Date.now()
+          if (now - lastUnchangedLogAtRef.current >= SWARM_STATE_UNCHANGED_LOG_INTERVAL_MS) {
+            lastUnchangedLogAtRef.current = now
+            logPerfEvent('SwarmState', 'refresh', {
+              workspaceId,
+              team: workspace.swarmState?.name ?? getBaseName(swarmDirectory),
+              cause,
+              elapsedMs: Math.round(performance.now() - startedAt),
+              changed: false,
+              readCount: readCountRef.current,
+            })
+          }
+          return
+        }
 
         const parsed = parseSwarmStateFile(content, getBaseName(swarmDirectory))
         lastSyncedContentRef.current = content
         setSwarmState(workspaceId, parsed)
-      } catch {
+        logPerfEvent('SwarmState', 'refresh', {
+          workspaceId,
+          team: parsed.name,
+          cause,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          changed: true,
+          taskCount: parsed.tasks.length,
+          artifactCount: parsed.artifacts.length,
+          readCount: readCountRef.current,
+        })
+      } catch (error) {
+        logPerfEvent('SwarmState', 'refresh-error', {
+          workspaceId,
+          team: workspace.swarmState?.name ?? getBaseName(swarmDirectory),
+          cause,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          message: error instanceof Error ? error.message : String(error),
+          readCount: readCountRef.current,
+        })
         // The swarm tool may not have created state.yaml yet.
       }
     }
@@ -50,7 +90,7 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
         stopWatching = await window.api.watchPath(swarmDirectory, (event) => {
           if (event.path && !event.path.endsWith('state.yaml')) return
           if (debounce !== null) window.clearTimeout(debounce)
-          debounce = window.setTimeout(() => { void readExternalState() }, SWARM_STATE_WATCH_DEBOUNCE_MS)
+          debounce = window.setTimeout(() => { void readExternalState('watch') }, SWARM_STATE_WATCH_DEBOUNCE_MS)
         })
 
         if (disposed && stopWatching) {
@@ -62,9 +102,9 @@ export default function SwarmStateSynchronizer({ workspaceId }: { workspaceId: s
       }
     }
 
-    void readExternalState()
+    void readExternalState('initial')
     void startWatching()
-    pollInterval = window.setInterval(() => { void readExternalState() }, SWARM_STATE_RECOVERY_POLL_MS)
+    pollInterval = window.setInterval(() => { void readExternalState('poll') }, SWARM_STATE_RECOVERY_POLL_MS)
 
     return () => {
       disposed = true

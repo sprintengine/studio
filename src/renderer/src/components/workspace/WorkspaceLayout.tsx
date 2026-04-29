@@ -14,6 +14,7 @@ import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentState, SwarmRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
+import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { SpecialistActionIcon, StatusDot, SwarmRoleIcon } from '../AppIcons'
 import AgentPanel from '../panels/AgentPanel'
 import FileExplorer from '../panels/FileExplorer'
@@ -28,6 +29,7 @@ const GitPanel = React.lazy(() => import('../panels/GitPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SwarmBoardPanel = React.lazy(() => import('../panels/SwarmBoardPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
+const loadedPanelComponents = new Set<string>()
 type AgentTabActivity = 'needs-input' | 'running' | 'idle'
 
 type AgentTabActivityDot = {
@@ -69,6 +71,40 @@ function PanelLoadingFallback() {
     <div className="flex h-full items-center justify-center bg-[#08090b] text-[12px] font-mono text-[#6f7078]">
       Loading panel...
     </div>
+  )
+}
+
+function TimedPanelLoad({
+  component,
+  startedAt,
+  children,
+}: {
+  component: string
+  startedAt: number
+  children: React.ReactNode
+}) {
+  const initialStartedAtRef = useRef(startedAt)
+
+  useEffect(() => {
+    const firstLoad = !loadedPanelComponents.has(component)
+    loadedPanelComponents.add(component)
+    logPerfEvent('WorkspaceLayout', 'panel-load', {
+      component,
+      elapsedMs: Math.round(performance.now() - initialStartedAtRef.current),
+      firstLoad,
+    })
+  }, [component])
+
+  return <>{children}</>
+}
+
+function timedPanel(component: string, children: React.ReactNode) {
+  return (
+    <Suspense fallback={<PanelLoadingFallback />}>
+      <TimedPanelLoad component={component} startedAt={performance.now()}>
+        {children}
+      </TimedPanelLoad>
+    </Suspense>
   )
 }
 
@@ -189,72 +225,34 @@ function WorkspaceLayout({ workspaceId }: Props) {
             />
           )
         case 'editor':
-          return (
-            <Suspense fallback={<PanelLoadingFallback />}>
-              <EditorPanel workspaceId={workspaceId} />
-            </Suspense>
-          )
+          return timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} />)
         case 'file-editor':
           return config?.filePath
-            ? (
-              <Suspense fallback={<PanelLoadingFallback />}>
-                <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />
-              </Suspense>
-            )
+            ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)
             : <div className="h-full bg-[#08090b]" />
         case 'explorer':
           return <FileExplorer workspaceId={workspaceId} />
         case 'content-search':
-          return (
-            <Suspense fallback={<PanelLoadingFallback />}>
-              <ContentSearchPanel workspaceId={workspaceId} />
-            </Suspense>
-          )
+          return timedPanel('ContentSearchPanel', <ContentSearchPanel workspaceId={workspaceId} />)
         case 'git':
-          return (
-            <Suspense fallback={<PanelLoadingFallback />}>
-              <GitPanel workspaceId={workspaceId} />
-            </Suspense>
-          )
+          return timedPanel('GitPanel', <GitPanel workspaceId={workspaceId} />)
         case 'terminal':
-          return (
-            <Suspense fallback={<PanelLoadingFallback />}>
-              <PlainTerminalPanel
-                workspaceId={workspaceId}
-                terminalId={config?.terminalId ?? node.getId()}
-              />
-            </Suspense>
-          )
+          return timedPanel('PlainTerminalPanel', (
+            <PlainTerminalPanel
+              workspaceId={workspaceId}
+              terminalId={config?.terminalId ?? node.getId()}
+            />
+          ))
         case 'swarm':
-          return (
-            <Suspense fallback={<PanelLoadingFallback />}>
-              <SwarmBoardPanel workspaceId={workspaceId} />
-            </Suspense>
-          )
+          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} />)
         case 'swarm-project':
-          return (
-            <Suspense fallback={<PanelLoadingFallback />}>
-              <SwarmBoardPanel workspaceId={workspaceId} fixedView="project" />
-            </Suspense>
-          )
+          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="project" />)
         case 'swarm-map':
-          return (
-            <Suspense fallback={<PanelLoadingFallback />}>
-              <SwarmBoardPanel workspaceId={workspaceId} fixedView="map" />
-            </Suspense>
-          )
+          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="map" />)
         case 'swarm-task-graph':
-          return (
-            <Suspense fallback={<PanelLoadingFallback />}>
-              <SwarmBoardPanel workspaceId={workspaceId} fixedView="task-graph" />
-            </Suspense>
-          )
+          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="task-graph" />)
         case 'swarm-kanban':
-          return (
-            <Suspense fallback={<PanelLoadingFallback />}>
-              <SwarmBoardPanel workspaceId={workspaceId} fixedView="kanban" />
-            </Suspense>
-          )
+          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="kanban" />)
         default:
           return <div className="h-full bg-[#08090b]" />
       }

@@ -1163,12 +1163,19 @@ type TerminalSession = {
 const TERMINAL_REPLAY_BUFFER_LIMIT = 2 * 1024 * 1024
 const TERMINAL_DATA_BATCH_MS = 16
 const TERMINAL_REPLAY_COMPACT_THRESHOLD = 1024
+const TERMINAL_BATCH_DIAGNOSTIC_INTERVAL_MS = 1_000
 const terminals = new Map<string, TerminalSession>()
 const pendingTerminalData = new Map<string, {
   sender: Electron.WebContents
   channel: string
   chunks: string[]
   timer: NodeJS.Timeout
+}>()
+const terminalBatchDiagnostics = new Map<string, {
+  batches: number
+  chunks: number
+  bytes: number
+  lastLogAt: number
 }>()
 const fileWatchers = new Map<string, { watcher: FSWatcher; senderId: number }>()
 const trackedWatcherSenders = new Set<number>()
@@ -1899,13 +1906,65 @@ function broadcastTerminalSessionsChanged(): void {
   }
 }
 
-function flushTerminalData(sessionId: string): void {
+function logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void {
+  if (app.isPackaged) return
+  console.info(`[${scope}] ${event}`, payload)
+}
+
+function recordTerminalDataBatch(
+  session: TerminalSession | undefined,
+  cause: 'timer' | 'exit' | 'dispose',
+  chunkCount: number,
+  byteCount: number
+): void {
+  if (!session || chunkCount === 0) return
+
+  const now = Date.now()
+  const stats = terminalBatchDiagnostics.get(session.sessionId) ?? {
+    batches: 0,
+    chunks: 0,
+    bytes: 0,
+    lastLogAt: now,
+  }
+
+  stats.batches += 1
+  stats.chunks += chunkCount
+  stats.bytes += byteCount
+
+  if (cause !== 'timer' || now - stats.lastLogAt >= TERMINAL_BATCH_DIAGNOSTIC_INTERVAL_MS) {
+    logMainPerfEvent('Terminal', 'output-batches', {
+      sessionId: session.sessionId,
+      kind: session.kind,
+      workspaceId: session.workspaceId,
+      cause,
+      batches: stats.batches,
+      chunks: stats.chunks,
+      bytes: stats.bytes,
+      retainedOutputBytes: session.outputBytes,
+    })
+    stats.batches = 0
+    stats.chunks = 0
+    stats.bytes = 0
+    stats.lastLogAt = now
+  }
+
+  terminalBatchDiagnostics.set(session.sessionId, stats)
+}
+
+function flushTerminalData(sessionId: string, cause: 'timer' | 'exit' | 'dispose' = 'timer'): void {
   const pending = pendingTerminalData.get(sessionId)
   if (!pending) return
 
   pendingTerminalData.delete(sessionId)
   clearTimeout(pending.timer)
-  sendTerminalEvent(pending.sender, pending.channel, pending.chunks.join(''))
+  const data = pending.chunks.join('')
+  sendTerminalEvent(pending.sender, pending.channel, data)
+  recordTerminalDataBatch(
+    terminals.get(sessionId),
+    cause,
+    pending.chunks.length,
+    Buffer.byteLength(data)
+  )
 }
 
 function sendTerminalData(session: TerminalSession, data: string): void {
@@ -1919,7 +1978,7 @@ function sendTerminalData(session: TerminalSession, data: string): void {
   }
 
   const timer = setTimeout(() => {
-    flushTerminalData(session.sessionId)
+    flushTerminalData(session.sessionId, 'timer')
   }, TERMINAL_DATA_BATCH_MS)
   pendingTerminalData.set(session.sessionId, {
     sender: session.sender,
@@ -2044,7 +2103,8 @@ function disposeTerminal(sessionId: string): void {
   const session = terminals.get(sessionId)
   if (!session) return
 
-  flushTerminalData(sessionId)
+  flushTerminalData(sessionId, 'dispose')
+  terminalBatchDiagnostics.delete(sessionId)
   session.isDisposed = true
   session.hasExited = true
   terminals.delete(sessionId)
@@ -2179,7 +2239,8 @@ async function spawnMobileAgentTerminal(input: {
       sendTerminalData(terminalSession, data)
     })
     termProcess.onExit((event) => {
-      flushTerminalData(input.sessionId)
+      flushTerminalData(input.sessionId, 'exit')
+      terminalBatchDiagnostics.delete(input.sessionId)
       terminalSession.hasExited = true
       if (terminals.get(input.sessionId) === terminalSession) {
         terminals.delete(input.sessionId)
@@ -2424,7 +2485,8 @@ ipcMain.handle(
       })
 
       termProcess.onExit((e) => {
-        flushTerminalData(sessionId)
+        flushTerminalData(sessionId, 'exit')
+        terminalBatchDiagnostics.delete(sessionId)
         terminalSession.hasExited = true
         if (terminals.get(sessionId) === terminalSession) {
           terminals.delete(sessionId)
