@@ -21,6 +21,7 @@ import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/swarmHandoff'
 import { slugifySwarmName } from '../../utils/swarmStateFile'
 import TemplateSelector from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
+import SwarmStateSynchronizer from './SwarmStateSynchronizer'
 import WorkspaceLayout from './WorkspaceLayout'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
@@ -764,6 +765,11 @@ export default function WorkspaceManager() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       <SwarmAutoRunSupervisor />
+      {workspaces.map((workspace) => (
+        workspace.mode === 'swarm' || workspace.swarmContext
+          ? <SwarmStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
+          : null
+      ))}
 
       {window.api.platform !== 'darwin' && (
         <div

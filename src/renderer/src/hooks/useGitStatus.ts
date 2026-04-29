@@ -3,8 +3,34 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 type UseGitStatusResult = {
   repoRoot: string | null
   status: GitStatusSnapshot | null
+  directoryStatus: Record<string, GitFileStatus>
   refresh: () => Promise<void>
 }
+
+type SharedGitStatusSnapshot = {
+  status: GitStatusSnapshot | null
+  directoryStatus: Record<string, GitFileStatus>
+}
+
+type GitStatusSubscriber = (snapshot: SharedGitStatusSnapshot) => void
+
+type GitStatusSubscription = {
+  repoRoot: string
+  status: GitStatusSnapshot | null
+  directoryStatus: Record<string, GitFileStatus>
+  signature: string
+  subscribers: Set<GitStatusSubscriber>
+  refreshTimer: number | null
+  pollInterval: number | null
+  refreshPromise: Promise<void> | null
+  refreshAgain: boolean
+  stopWatching?: () => Promise<void>
+  watchStarting: boolean
+}
+
+const GIT_STATUS_RECOVERY_POLL_MS = 30_000
+const gitStatusSubscriptions = new Map<string, GitStatusSubscription>()
+const gitRepoRootLookups = new Map<string, Promise<string | null>>()
 
 export function normalizePathKey(path: string): string {
   return path.replace(/\\/g, '/').toLowerCase()
@@ -27,6 +53,46 @@ function normalizeStatusSnapshot(snapshot: GitStatusSnapshot): GitStatusSnapshot
   }
 }
 
+function parentPathKey(pathKey: string): string | null {
+  const trimmed = pathKey.replace(/\/+$/, '')
+  const index = trimmed.lastIndexOf('/')
+  if (index <= 0) return null
+  return trimmed.slice(0, index)
+}
+
+function mergeGitStatusPriority(
+  current: GitFileStatus | null | undefined,
+  next: GitFileStatus
+): GitFileStatus {
+  if (current === 'conflicted' || next === 'conflicted') return 'conflicted'
+  if (
+    current === 'modified'
+    || current === 'renamed'
+    || current === 'deleted'
+    || next === 'modified'
+    || next === 'renamed'
+    || next === 'deleted'
+  ) return 'modified'
+  return 'new'
+}
+
+function buildDirectoryStatusMap(snapshot: GitStatusSnapshot | null): Record<string, GitFileStatus> {
+  if (!snapshot) return {}
+
+  const repoRootKey = normalizePathKey(snapshot.repoRoot).replace(/\/+$/, '')
+  const directoryStatus: Record<string, GitFileStatus> = {}
+
+  Object.values(snapshot.files).forEach((entry) => {
+    let directoryKey = parentPathKey(normalizePathKey(entry.path))
+    while (directoryKey && directoryKey.startsWith(repoRootKey) && directoryKey !== repoRootKey) {
+      directoryStatus[directoryKey] = mergeGitStatusPriority(directoryStatus[directoryKey], entry.status)
+      directoryKey = parentPathKey(directoryKey)
+    }
+  })
+
+  return directoryStatus
+}
+
 function getStatusSignature(snapshot: GitStatusSnapshot | null): string {
   if (!snapshot) return ''
   return Object.values(snapshot.files)
@@ -35,117 +101,198 @@ function getStatusSignature(snapshot: GitStatusSnapshot | null): string {
     .join('|')
 }
 
+function notifyGitStatusSubscribers(subscription: GitStatusSubscription): void {
+  const snapshot = {
+    status: subscription.status,
+    directoryStatus: subscription.directoryStatus,
+  }
+  subscription.subscribers.forEach((subscriber) => subscriber(snapshot))
+}
+
+async function refreshGitStatusSubscription(subscription: GitStatusSubscription): Promise<void> {
+  if (subscription.refreshPromise) {
+    subscription.refreshAgain = true
+    return subscription.refreshPromise
+  }
+
+  subscription.refreshPromise = (async () => {
+    try {
+      const normalized = normalizeStatusSnapshot(await window.api.getGitStatus(subscription.repoRoot))
+      const nextSignature = getStatusSignature(normalized)
+      if (nextSignature !== subscription.signature) {
+        subscription.status = normalized
+        subscription.directoryStatus = buildDirectoryStatusMap(normalized)
+        subscription.signature = nextSignature
+        notifyGitStatusSubscribers(subscription)
+      }
+    } catch {
+      if (subscription.status || subscription.signature) {
+        subscription.status = null
+        subscription.directoryStatus = {}
+        subscription.signature = ''
+        notifyGitStatusSubscribers(subscription)
+      }
+    } finally {
+      subscription.refreshPromise = null
+      if (subscription.refreshAgain) {
+        subscription.refreshAgain = false
+        void refreshGitStatusSubscription(subscription)
+      }
+    }
+  })()
+
+  return subscription.refreshPromise
+}
+
+function scheduleGitStatusRefresh(subscription: GitStatusSubscription): void {
+  if (subscription.refreshTimer !== null) {
+    window.clearTimeout(subscription.refreshTimer)
+  }
+
+  subscription.refreshTimer = window.setTimeout(() => {
+    subscription.refreshTimer = null
+    void refreshGitStatusSubscription(subscription)
+  }, 250)
+}
+
+function startGitStatusWatch(subscription: GitStatusSubscription): void {
+  if (subscription.watchStarting || subscription.stopWatching || typeof window.api.watchPath !== 'function') return
+
+  subscription.watchStarting = true
+  window.api.watchPath(subscription.repoRoot, () => scheduleGitStatusRefresh(subscription))
+    .then((cleanup) => {
+      subscription.watchStarting = false
+      if (!gitStatusSubscriptions.has(normalizePathKey(subscription.repoRoot))) {
+        void cleanup()
+        return
+      }
+      subscription.stopWatching = cleanup
+    })
+    .catch(() => {
+      subscription.watchStarting = false
+      // Git status still works without watch support; manual refreshes keep it usable.
+    })
+}
+
+function getGitStatusSubscription(repoRoot: string): GitStatusSubscription {
+  const key = normalizePathKey(repoRoot)
+  const existing = gitStatusSubscriptions.get(key)
+  if (existing) return existing
+
+  const subscription: GitStatusSubscription = {
+    repoRoot,
+    status: null,
+    directoryStatus: {},
+    signature: '',
+    subscribers: new Set(),
+    refreshTimer: null,
+    pollInterval: null,
+    refreshPromise: null,
+    refreshAgain: false,
+    watchStarting: false,
+  }
+
+  gitStatusSubscriptions.set(key, subscription)
+  subscription.pollInterval = window.setInterval(() => {
+    void refreshGitStatusSubscription(subscription)
+  }, GIT_STATUS_RECOVERY_POLL_MS)
+  void refreshGitStatusSubscription(subscription)
+  startGitStatusWatch(subscription)
+  return subscription
+}
+
+function subscribeGitStatus(repoRoot: string, subscriber: GitStatusSubscriber): () => void {
+  const key = normalizePathKey(repoRoot)
+  const subscription = getGitStatusSubscription(repoRoot)
+  subscription.subscribers.add(subscriber)
+  subscriber({
+    status: subscription.status,
+    directoryStatus: subscription.directoryStatus,
+  })
+
+  return () => {
+    subscription.subscribers.delete(subscriber)
+    if (subscription.subscribers.size > 0) return
+
+    if (subscription.refreshTimer !== null) {
+      window.clearTimeout(subscription.refreshTimer)
+      subscription.refreshTimer = null
+    }
+    if (subscription.pollInterval !== null) {
+      window.clearInterval(subscription.pollInterval)
+      subscription.pollInterval = null
+    }
+    if (subscription.stopWatching) {
+      void subscription.stopWatching()
+    }
+    gitStatusSubscriptions.delete(key)
+  }
+}
+
+function refreshSharedGitStatus(repoRoot: string | null): Promise<void> {
+  if (!repoRoot || typeof window.api.getGitStatus !== 'function') return Promise.resolve()
+  return refreshGitStatusSubscription(getGitStatusSubscription(repoRoot))
+}
+
+function resolveSharedGitRepoRoot(rootPath: string): Promise<string | null> {
+  const key = normalizePathKey(rootPath)
+  const existing = gitRepoRootLookups.get(key)
+  if (existing) return existing
+
+  const lookup = window.api.getGitRepoRoot(rootPath)
+    .catch(() => null)
+    .finally(() => {
+      gitRepoRootLookups.delete(key)
+    })
+  gitRepoRootLookups.set(key, lookup)
+  return lookup
+}
+
 export function useGitStatus(rootPath: string | null): UseGitStatusResult {
   const [repoRoot, setRepoRoot] = useState<string | null>(null)
   const [status, setStatus] = useState<GitStatusSnapshot | null>(null)
+  const [directoryStatus, setDirectoryStatus] = useState<Record<string, GitFileStatus>>({})
   const repoRootRef = useRef<string | null>(null)
-  const refreshTimerRef = useRef<number | null>(null)
-  const statusSignatureRef = useRef('')
-  const statusRepoRootRef = useRef<string | null>(null)
-
-  const applyStatus = useCallback((nextStatus: GitStatusSnapshot | null) => {
-    const normalized = nextStatus ? normalizeStatusSnapshot(nextStatus) : null
-    const nextSignature = getStatusSignature(normalized)
-    const nextRepoRoot = normalized?.repoRoot ?? null
-    if (nextSignature === statusSignatureRef.current && nextRepoRoot === statusRepoRootRef.current) return
-
-    statusSignatureRef.current = nextSignature
-    statusRepoRootRef.current = nextRepoRoot
-    setStatus(normalized)
-  }, [])
 
   const refresh = useCallback(async () => {
-    const currentRepoRoot = repoRootRef.current
-    if (!currentRepoRoot || typeof window.api.getGitStatus !== 'function') return
-
-    try {
-      applyStatus(await window.api.getGitStatus(currentRepoRoot))
-    } catch {
-      applyStatus(null)
-    }
-  }, [applyStatus])
-
-  const scheduleRefresh = useCallback(() => {
-    if (refreshTimerRef.current) {
-      window.clearTimeout(refreshTimerRef.current)
-    }
-
-    refreshTimerRef.current = window.setTimeout(() => {
-      refreshTimerRef.current = null
-      void refresh()
-    }, 250)
-  }, [refresh])
+    await refreshSharedGitStatus(repoRootRef.current)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
 
     repoRootRef.current = null
-    statusSignatureRef.current = ''
-    statusRepoRootRef.current = null
     setRepoRoot(null)
     setStatus(null)
+    setDirectoryStatus({})
 
     if (!rootPath) return
     if (typeof window.api.getGitRepoRoot !== 'function' || typeof window.api.getGitStatus !== 'function') return
 
-    window.api.getGitRepoRoot(rootPath)
-      .then(async (nextRepoRoot) => {
+    resolveSharedGitRepoRoot(rootPath)
+      .then((nextRepoRoot) => {
         if (cancelled) return
         repoRootRef.current = nextRepoRoot
         setRepoRoot(nextRepoRoot)
-        if (nextRepoRoot) {
-          try {
-            applyStatus(await window.api.getGitStatus(nextRepoRoot))
-          } catch {
-            applyStatus(null)
-          }
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          repoRootRef.current = null
-          statusSignatureRef.current = ''
-          statusRepoRootRef.current = null
-          setRepoRoot(null)
-          setStatus(null)
-        }
       })
 
     return () => {
       cancelled = true
     }
-  }, [applyStatus, rootPath])
+  }, [rootPath])
 
   useEffect(() => {
-    if (!repoRoot) return
-    if (typeof window.api.watchPath !== 'function') return
-
-    let disposed = false
-    let unsubscribe: (() => Promise<void>) | undefined
-
-    window.api.watchPath(repoRoot, scheduleRefresh)
-      .then((cleanup) => {
-        if (disposed) {
-          void cleanup()
-          return
-        }
-        unsubscribe = cleanup
-      })
-      .catch(() => {
-        // Git status still works without watch support; manual refreshes keep it usable.
-      })
-
-    return () => {
-      disposed = true
-      if (refreshTimerRef.current) {
-        window.clearTimeout(refreshTimerRef.current)
-        refreshTimerRef.current = null
-      }
-      if (unsubscribe) {
-        void unsubscribe()
-      }
+    if (!repoRoot) {
+      setStatus(null)
+      setDirectoryStatus({})
+      return
     }
-  }, [repoRoot, scheduleRefresh])
 
-  return { repoRoot, status, refresh }
+    return subscribeGitStatus(repoRoot, (snapshot) => {
+      setStatus(snapshot.status)
+      setDirectoryStatus(snapshot.directoryStatus)
+    })
+  }, [repoRoot])
+
+  return { repoRoot, status, directoryStatus, refresh }
 }

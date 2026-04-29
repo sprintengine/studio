@@ -433,27 +433,22 @@ function mergeGitDeletedEntries(entries: Entry[], dirPath: string, gitStatus: Gi
   return nextEntries.sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)))
 }
 
-function getDirectoryGitStatus(gitStatus: GitStatusSnapshot | null, dirPath: string): GitFileStatus | null {
-  if (!gitStatus) return null
-
-  const separator = pathSeparatorFor(dirPath)
-  const prefix = normalizePathKey(`${dirPath}${separator}`)
-  const childStatuses = Object.values(gitStatus.files)
-    .filter((entry) => normalizePathKey(entry.path).startsWith(prefix))
-    .map((entry) => entry.status)
-
-  if (!childStatuses.length) return null
-  if (childStatuses.some((status) => status === 'conflicted')) return 'conflicted'
-  if (childStatuses.some((status) => status === 'modified' || status === 'renamed' || status === 'deleted')) return 'modified'
-  if (childStatuses.some((status) => status === 'new')) return 'new'
-  return null
+function getDirectoryGitStatus(
+  directoryStatus: Record<string, GitFileStatus>,
+  dirPath: string
+): GitFileStatus | null {
+  return directoryStatus[normalizePathKey(dirPath)] ?? null
 }
 
-function getEntryGitStatus(gitStatus: GitStatusSnapshot | null, entry: Entry): GitFileStatus | null {
+function getEntryGitStatus(
+  gitStatus: GitStatusSnapshot | null,
+  directoryStatus: Record<string, GitFileStatus>,
+  entry: Entry
+): GitFileStatus | null {
   if (entry.gitDeleted) return 'deleted'
   const exactStatus = getGitEntry(gitStatus, entry.path)?.status ?? null
   if (exactStatus) return exactStatus
-  return entry.isDir ? getDirectoryGitStatus(gitStatus, entry.path) : null
+  return entry.isDir ? getDirectoryGitStatus(directoryStatus, entry.path) : null
 }
 
 function remapChildrenByPath(
@@ -536,6 +531,7 @@ interface ExplorerTreeProps {
   revealToken: number
   createRequest: CreateEntryRequest | null
   gitStatus: GitStatusSnapshot | null
+  directoryStatus: Record<string, GitFileStatus>
   refreshGitStatus: () => Promise<void>
   onOpenFile: (path: string, name: string) => void
 }
@@ -549,6 +545,7 @@ function ExplorerTree({
   revealToken,
   createRequest,
   gitStatus,
+  directoryStatus,
   refreshGitStatus,
   onOpenFile,
 }: ExplorerTreeProps) {
@@ -1400,7 +1397,7 @@ function ExplorerTree({
           const isSelected = entry.path === selectedPath
           const isExpanded = entry.isDir && (isSearching || expandedPaths[entry.path])
           const isRenaming = renameDraft?.entry.path === entry.path
-          const gitStatusKind = getEntryGitStatus(gitStatus, entry)
+          const gitStatusKind = getEntryGitStatus(gitStatus, directoryStatus, entry)
           const gitAppearance = getGitStatusAppearance(gitStatusKind)
           const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[#d7d7dc] group-hover:text-[#fff7d7]' : '')
 
@@ -1492,7 +1489,11 @@ export default function FileExplorer({ workspaceId }: Props) {
   const [refreshToken, setRefreshToken] = useState(0)
   const [revealToken, setRevealToken] = useState(0)
   const [createRequest, setCreateRequest] = useState<CreateEntryRequest | null>(null)
-  const { status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderReadyPath)
+  const {
+    status: gitStatus,
+    directoryStatus,
+    refresh: refreshGitStatus,
+  } = useGitStatus(folderReadyPath)
   const canRevealActiveFile = Boolean(folderReadyPath && activeFilePath && isPathOrChild(activeFilePath, folderReadyPath))
 
   const handleOpen = async () => {
@@ -1603,6 +1604,7 @@ export default function FileExplorer({ workspaceId }: Props) {
             revealToken={revealToken}
             createRequest={createRequest}
             gitStatus={gitStatus}
+            directoryStatus={directoryStatus}
             refreshGitStatus={refreshGitStatus}
             onOpenFile={handleOpenFile}
           />

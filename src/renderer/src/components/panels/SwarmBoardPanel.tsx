@@ -291,8 +291,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
     status: 'idle',
     message: 'Waiting for a swarm workspace folder.',
   })
-  const lastSyncedContentRef = useRef<string | null>(null)
-  const initialReadDoneRef = useRef(false)
 
   const swarmState = workspace?.swarmState ?? null
   const swarmContext = workspace?.swarmContext ?? null
@@ -336,94 +334,19 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       })
       return
     }
-
-    if (initialReadDoneRef.current) return
-
-    let cancelled = false
-
-    const loadStateFile = async () => {
-      setSyncState({ status: 'syncing', message: 'Loading agent-managed swarm state...' })
-      try {
-        const stateFilePath = await resolveReadableSwarmStatePath()
-        if (!stateFilePath) throw new Error('No workspace folder is ready.')
-        const content = await window.api.readfile(stateFilePath)
-        if (cancelled) return
-        const parsed = parseSwarmStateFile(content, getBaseName(getParentDirectoryPath(stateFilePath)))
-        lastSyncedContentRef.current = content
-        setSwarmState(workspaceId, parsed)
-        setSyncState({ status: 'live', message: `Watching agent-managed state at ${stateFilePath}` })
-      } catch (error) {
-        if (cancelled) return
-        setSyncState({
-          status: 'idle',
-          message: error instanceof Error ? error.message : 'Waiting for agent-managed state.',
-        })
-      } finally {
-        initialReadDoneRef.current = true
-      }
+    if (!swarmContext?.statePath) {
+      setSyncState({
+        status: 'idle',
+        message: 'Waiting for agent-managed state.',
+      })
+      return
     }
 
-    void loadStateFile()
-
-    return () => {
-      cancelled = true
-    }
-  }, [folderMissing, folderPath, savedFolderPath, setSwarmState, swarmContext?.statePath, workspaceId])
-
-  useEffect(() => {
-    if (!folderPath) return
-
-    let disposed = false
-    let stopWatching: (() => Promise<void>) | null = null
-    let debounce: number | null = null
-    let pollInterval: number | null = null
-    let activeStateFilePath: string | null = null
-
-    const readExternalState = async () => {
-      try {
-        const stateFilePath = activeStateFilePath ?? await resolveReadableSwarmStatePath()
-        if (!stateFilePath) return
-        activeStateFilePath = stateFilePath
-        const content = await window.api.readfile(stateFilePath)
-        if (disposed || content === lastSyncedContentRef.current) return
-        const parsed = parseSwarmStateFile(content, getBaseName(getParentDirectoryPath(stateFilePath)))
-        lastSyncedContentRef.current = content
-        setSwarmState(workspaceId, parsed)
-        setSyncState({ status: 'live', message: `Watching agent-managed state at ${stateFilePath}` })
-      } catch { /* file not yet written */ }
-    }
-
-    const startWatching = async () => {
-      try {
-        const stateFilePath = await resolveReadableSwarmStatePath()
-        if (!stateFilePath || disposed) return
-        activeStateFilePath = stateFilePath
-        const swarmDirectory = getParentDirectoryPath(stateFilePath)
-        // The renderer must never write `state.yaml`. We only watch the
-        // agent-managed file and refresh local UI state when the swarm tool
-        // changes it.
-        stopWatching = await window.api.watchPath(swarmDirectory, (event) => {
-          if (event.path && !event.path.endsWith('state.yaml')) return
-          if (debounce !== null) window.clearTimeout(debounce)
-          debounce = window.setTimeout(() => { void readExternalState() }, 120)
-        })
-      } catch { /* directory may not exist yet */ }
-    }
-
-    void readExternalState()
-    void startWatching()
-    // WSL and network-backed folders can miss fs.watch events in Electron.
-    // Polling is a read-only fallback so the board still reflects claims and
-    // status changes written by the swarm tool.
-    pollInterval = window.setInterval(() => { void readExternalState() }, 2000)
-
-    return () => {
-      disposed = true
-      if (debounce !== null) window.clearTimeout(debounce)
-      if (pollInterval !== null) window.clearInterval(pollInterval)
-      if (stopWatching) void stopWatching()
-    }
-  }, [folderPath, setSwarmState, swarmContext?.statePath, workspaceId])
+    setSyncState({
+      status: 'live',
+      message: `Watching agent-managed state at ${swarmContext.statePath}`,
+    })
+  }, [folderMissing, folderPath, savedFolderPath, swarmContext?.statePath])
 
   const runtimeAgents = useMemo(
     () => roster.map((agent) => ({
@@ -634,7 +557,6 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
       if (!stateFilePath) throw new Error('No workspace folder is ready.')
       const content = await window.api.readfile(stateFilePath)
       const parsed = parseSwarmStateFile(content, getBaseName(getParentDirectoryPath(stateFilePath)))
-      lastSyncedContentRef.current = content
       setSwarmState(workspaceId, parsed)
       setSyncState({
         status: 'live',
