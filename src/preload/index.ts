@@ -14,6 +14,24 @@ type FileWatchEvent = {
   eventType: string
   path: string | null
 }
+type FileSearchEntry = {
+  name: string
+  path: string
+  parentPath: string
+  isDir: false
+}
+type FileSearchResult =
+  | {
+      ok: true
+      results: FileSearchEntry[]
+      truncated: boolean
+      engine: 'ripgrep' | 'node'
+    }
+  | {
+      ok: false
+      message: string
+      engine: 'ripgrep' | 'node' | null
+    }
 type AgentCli = 'codex' | 'claude'
 type AgentExecutionMode = 'current_workspace' | 'worktree'
 type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
@@ -489,6 +507,8 @@ contextBridge.exposeInMainWorld('api', {
 
   // File system
   readdir:   (path: string)                    => ipcRenderer.invoke('fs:readdir', path),
+  searchFiles: (rootPath: string, query: string, options?: { limit?: number }): Promise<FileSearchResult> =>
+    ipcRenderer.invoke('fs:search-files', { rootPath, query, limit: options?.limit }),
   readfile:  (path: string)                    => ipcRenderer.invoke('fs:readfile', path),
   pathExists: (path: string)                   => ipcRenderer.invoke('fs:path-exists', path),
   checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>

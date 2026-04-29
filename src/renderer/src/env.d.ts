@@ -24,6 +24,25 @@ interface FileWatchEvent {
   path: string | null
 }
 
+type FileSearchEntry = {
+  name: string
+  path: string
+  parentPath: string
+  isDir: false
+}
+type FileSearchResult =
+  | {
+      ok: true
+      results: FileSearchEntry[]
+      truncated: boolean
+      engine: 'ripgrep' | 'node'
+    }
+  | {
+      ok: false
+      message: string
+      engine: 'ripgrep' | 'node' | null
+    }
+
 type AgentCli = 'codex' | 'claude'
 type AgentExecutionMode = 'current_workspace' | 'worktree'
 type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
@@ -317,6 +336,7 @@ declare interface Window {
 
     // File system
     readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>
+    searchFiles: (rootPath: string, query: string, options?: { limit?: number }) => Promise<FileSearchResult>
     readfile:  (path: string) => Promise<string>
     pathExists: (path: string) => Promise<boolean>
     checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>

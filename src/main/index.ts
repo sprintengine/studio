@@ -3,7 +3,9 @@ import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { access, appendFile, cp, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
 import { createHash, randomBytes } from 'crypto'
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { autoUpdater } from 'electron-updater'
+import { rgPath } from '@vscode/ripgrep'
 import * as pty from 'node-pty'
 import {
   commitGitChanges,
@@ -1160,6 +1162,52 @@ const fileWatchers = new Map<string, { watcher: FSWatcher; senderId: number }>()
 const trackedWatcherSenders = new Set<number>()
 let nextFileWatcherId = 0
 
+const FILE_SEARCH_DEFAULT_LIMIT = 200
+const FILE_SEARCH_MAX_LIMIT = 500
+const FILE_SEARCH_FALLBACK_MAX_VISITS = 50_000
+const FILE_SEARCH_EXCLUDED_DIRS = new Set([
+  '.git',
+  '.hg',
+  '.svn',
+  'node_modules',
+  'dist',
+  'out',
+  'build',
+  '.next',
+  '.turbo',
+  'coverage',
+])
+const activeFileSearches = new Map<number, ChildProcessWithoutNullStreams>()
+const cancelledFileSearches = new WeakSet<ChildProcessWithoutNullStreams>()
+
+type FileSearchEngine = 'ripgrep' | 'node'
+
+type FileSearchRequest = {
+  rootPath: string
+  query: string
+  limit?: number
+}
+
+type FileSearchEntry = {
+  name: string
+  path: string
+  parentPath: string
+  isDir: false
+}
+
+type FileSearchResult =
+  | {
+      ok: true
+      results: FileSearchEntry[]
+      truncated: boolean
+      engine: FileSearchEngine
+    }
+  | {
+      ok: false
+      message: string
+      engine: FileSearchEngine | null
+    }
+
 type AgentCli = 'codex' | 'claude'
 type AgentExecutionMode = 'current_workspace' | 'worktree'
 type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
@@ -2295,6 +2343,262 @@ ipcMain.handle('swarm:artifact:open', async (_, payload: SwarmArtifactOpenPayloa
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
 
+function normalizeFileSearchLimit(limit: unknown): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return FILE_SEARCH_DEFAULT_LIMIT
+  return Math.min(Math.max(Math.floor(limit), 1), FILE_SEARCH_MAX_LIMIT)
+}
+
+function normalizeSearchPath(value: string): string {
+  return value.replace(/\\/g, '/').toLowerCase()
+}
+
+function isExcludedSearchDirectory(name: string): boolean {
+  return FILE_SEARCH_EXCLUDED_DIRS.has(name)
+}
+
+function toFileSearchEntry(rootPath: string, relativePath: string): FileSearchEntry {
+  const normalizedRelativePath = relativePath.replace(/\\/g, sep)
+  const fullPath = join(rootPath, normalizedRelativePath)
+  const parentRelativePath = dirname(normalizedRelativePath)
+  return {
+    name: basename(fullPath),
+    path: fullPath,
+    parentPath: parentRelativePath === '.' ? rootPath : join(rootPath, parentRelativePath),
+    isDir: false,
+  }
+}
+
+function sortFileSearchResults(results: FileSearchEntry[], query: string): FileSearchEntry[] {
+  const normalizedQuery = normalizeSearchPath(query)
+  return [...results].sort((a, b) => {
+    const aName = normalizeSearchPath(a.name)
+    const bName = normalizeSearchPath(b.name)
+    const aNameIndex = aName.indexOf(normalizedQuery)
+    const bNameIndex = bName.indexOf(normalizedQuery)
+    const aPath = normalizeSearchPath(a.path)
+    const bPath = normalizeSearchPath(b.path)
+    const aScore = aNameIndex === -1 ? 10_000 + aPath.indexOf(normalizedQuery) : aNameIndex
+    const bScore = bNameIndex === -1 ? 10_000 + bPath.indexOf(normalizedQuery) : bNameIndex
+    return aScore - bScore || a.path.length - b.path.length || a.path.localeCompare(b.path)
+  })
+}
+
+function cancelActiveFileSearch(senderId: number): void {
+  const activeSearch = activeFileSearches.get(senderId)
+  if (!activeSearch) return
+  activeFileSearches.delete(senderId)
+  cancelledFileSearches.add(activeSearch)
+  try {
+    activeSearch.kill()
+  } catch {
+    // Process may already be exiting.
+  }
+}
+
+async function searchFilesWithRipgrep(
+  senderId: number,
+  rootPath: string,
+  query: string,
+  limit: number
+): Promise<FileSearchResult> {
+  const normalizedQuery = normalizeSearchPath(query)
+  const results: FileSearchEntry[] = []
+  let stdoutBuffer = ''
+  let stderrBuffer = ''
+  let truncated = false
+
+  return new Promise<FileSearchResult>((resolve) => {
+    let settled = false
+    const child = spawn(rgPath, [
+      '--files',
+      '--color',
+      'never',
+      '--no-messages',
+      '-g',
+      '!**/.git/**',
+      '-g',
+      '!**/.hg/**',
+      '-g',
+      '!**/.svn/**',
+      '-g',
+      '!**/node_modules/**',
+      '-g',
+      '!**/dist/**',
+      '-g',
+      '!**/out/**',
+      '-g',
+      '!**/build/**',
+      '-g',
+      '!**/.next/**',
+      '-g',
+      '!**/.turbo/**',
+      '-g',
+      '!**/coverage/**',
+    ], {
+      cwd: rootPath,
+      windowsHide: true,
+    })
+
+    activeFileSearches.set(senderId, child)
+
+    const finish = (result: FileSearchResult) => {
+      if (settled) return
+      settled = true
+      if (activeFileSearches.get(senderId) === child) {
+        activeFileSearches.delete(senderId)
+      }
+      resolve(result)
+    }
+
+    const consumeLine = (relativePath: string) => {
+      if (!relativePath) return
+      if (!normalizeSearchPath(relativePath).includes(normalizedQuery)) return
+      results.push(toFileSearchEntry(rootPath, relativePath))
+      if (results.length > limit) {
+        truncated = true
+        results.length = limit
+        finish({ ok: true, results: sortFileSearchResults(results, query), truncated, engine: 'ripgrep' })
+        try {
+          child.kill()
+        } catch {
+          // Process may already have exited after producing enough results.
+        }
+      }
+    }
+
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      if (settled) return
+      stdoutBuffer += chunk
+      const lines = stdoutBuffer.split(/\r?\n/u)
+      stdoutBuffer = lines.pop() ?? ''
+      lines.forEach(consumeLine)
+    })
+
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk: string) => {
+      stderrBuffer += chunk
+    })
+
+    child.on('error', (error) => {
+      if (cancelledFileSearches.has(child)) {
+        finish({ ok: true, results: [], truncated: false, engine: 'ripgrep' })
+        return
+      }
+
+      finish({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+        engine: 'ripgrep',
+      })
+    })
+
+    child.on('close', (code) => {
+      if (settled) return
+      if (cancelledFileSearches.has(child)) {
+        finish({ ok: true, results: [], truncated: false, engine: 'ripgrep' })
+        return
+      }
+      if (stdoutBuffer) consumeLine(stdoutBuffer)
+      if (settled) return
+      if (code === 0 || code === 1) {
+        finish({ ok: true, results: sortFileSearchResults(results, query), truncated, engine: 'ripgrep' })
+        return
+      }
+
+      finish({
+        ok: false,
+        message: stderrBuffer.trim() || `ripgrep exited with code ${code ?? 'unknown'}.`,
+        engine: 'ripgrep',
+      })
+    })
+  })
+}
+
+async function searchFilesWithNodeFallback(
+  rootPath: string,
+  query: string,
+  limit: number
+): Promise<FileSearchResult> {
+  const normalizedQuery = normalizeSearchPath(query)
+  const results: FileSearchEntry[] = []
+  const directories = [rootPath]
+  let visited = 0
+  let truncated = false
+
+  while (directories.length > 0) {
+    const dirPath = directories.shift()
+    if (!dirPath) break
+    visited += 1
+    if (visited > FILE_SEARCH_FALLBACK_MAX_VISITS) {
+      truncated = true
+      break
+    }
+
+    let entries
+    try {
+      entries = await readdir(dirPath, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    entries.sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue
+      const fullPath = join(dirPath, entry.name)
+      if (entry.isDirectory()) {
+        if (!isExcludedSearchDirectory(entry.name)) directories.push(fullPath)
+        continue
+      }
+
+      if (!normalizeSearchPath(relative(rootPath, fullPath)).includes(normalizedQuery)) continue
+      results.push({
+        name: entry.name,
+        path: fullPath,
+        parentPath: dirPath,
+        isDir: false,
+      })
+      if (results.length > limit) {
+        truncated = true
+        results.length = limit
+        directories.length = 0
+        break
+      }
+    }
+  }
+
+  return { ok: true, results: sortFileSearchResults(results, query), truncated, engine: 'node' }
+}
+
+async function searchFiles(senderId: number, input: FileSearchRequest): Promise<FileSearchResult> {
+  const rootPath = typeof input.rootPath === 'string' ? input.rootPath : ''
+  const query = typeof input.query === 'string' ? input.query.trim() : ''
+  const limit = normalizeFileSearchLimit(input.limit)
+  if (!rootPath || !query) return { ok: true, results: [], truncated: false, engine: 'ripgrep' }
+
+  try {
+    const rootStats = await stat(rootPath)
+    if (!rootStats.isDirectory()) {
+      return { ok: false, message: 'Search root is not a directory.', engine: null }
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+      engine: null,
+    }
+  }
+
+  cancelActiveFileSearch(senderId)
+  const ripgrepResult = await searchFilesWithRipgrep(senderId, rootPath, query, limit)
+  if (ripgrepResult.ok) return ripgrepResult
+  return searchFilesWithNodeFallback(rootPath, query, limit)
+}
+
 function isMissingPathError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
 }
@@ -2345,6 +2649,10 @@ ipcMain.handle('fs:watch-start', async (event, dirPath: string) => {
 
 ipcMain.handle('fs:watch-stop', (_, watchId: string) => {
   disposeFileWatcher(watchId)
+})
+
+ipcMain.handle('fs:search-files', async (event, input: FileSearchRequest) => {
+  return searchFiles(event.sender.id, input)
 })
 
 ipcMain.handle('fs:readdir', async (_, dirPath: string) => {

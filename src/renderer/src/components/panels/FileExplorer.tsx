@@ -97,6 +97,77 @@ function flattenTree(
   return rows
 }
 
+type SearchTreeNode = {
+  entry: Entry
+  children: Map<string, SearchTreeNode>
+}
+
+function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
+  const separator = pathSeparatorFor(rootPath)
+  const rootChildren = new Map<string, SearchTreeNode>()
+
+  const getOrCreateDirectory = (
+    children: Map<string, SearchTreeNode>,
+    name: string,
+    parentPath: string
+  ): SearchTreeNode => {
+    const path = `${parentPath}${parentPath.endsWith(separator) ? '' : separator}${name}`
+    const existing = children.get(path)
+    if (existing) return existing
+
+    const node: SearchTreeNode = {
+      entry: {
+        name,
+        isDir: true,
+        path,
+        parentPath,
+      },
+      children: new Map(),
+    }
+    children.set(path, node)
+    return node
+  }
+
+  entries.forEach((entry) => {
+    const relativePath = workspaceRelativePath(rootPath, entry.path)
+    if (!relativePath) {
+      rootChildren.set(entry.path, { entry, children: new Map() })
+      return
+    }
+
+    const segments = relativePath.split('/').filter(Boolean)
+    if (segments.length <= 1) {
+      rootChildren.set(entry.path, { entry, children: new Map() })
+      return
+    }
+
+    let parentPath = rootPath
+    let currentChildren = rootChildren
+    segments.slice(0, -1).forEach((segment) => {
+      const directory = getOrCreateDirectory(currentChildren, segment, parentPath)
+      parentPath = directory.entry.path
+      currentChildren = directory.children
+    })
+    currentChildren.set(entry.path, { entry: { ...entry, parentPath }, children: new Map() })
+  })
+
+  const rows: TreeRow[] = []
+  const visit = (nodes: SearchTreeNode[], depth: number) => {
+    nodes
+      .sort((a, b) => {
+        if (a.entry.isDir !== b.entry.isDir) return a.entry.isDir ? -1 : 1
+        return a.entry.name.localeCompare(b.entry.name)
+      })
+      .forEach((node) => {
+        rows.push({ entry: node.entry, depth })
+        if (node.entry.isDir) visit([...node.children.values()], depth + 1)
+      })
+  }
+
+  visit([...rootChildren.values()], 0)
+  return rows
+}
+
 function fileAppearance(name: string): { accent: string; bg: string; border: string; label: string } {
   if (name === 'package.json') {
     return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: '{}' }
@@ -418,33 +489,41 @@ async function searchFiles(
   gitStatus: GitStatusSnapshot | null,
   limit = 200
 ): Promise<Entry[]> {
-  const matches: Entry[] = []
   const lowerQuery = query.toLowerCase().trim()
-  if (!lowerQuery) return matches
-  const seen = new Set<string>()
+  if (!lowerQuery) return []
 
-  const visit = async (dirPath: string): Promise<void> => {
+  const result = await window.api.searchFiles(rootPath, query, { limit })
+  if (!result.ok) throw new Error(result.message)
+
+  const matches: Entry[] = result.results.map((entry) => ({ ...entry }))
+  const seen = new Set(matches.map((entry) => normalizePathKey(entry.path)))
+
+  Object.values(gitStatus?.files ?? {}).forEach((status) => {
     if (matches.length >= limit) return
-    const raw = await window.api.readdir(dirPath)
-    const entries = mergeGitDeletedEntries(toEntries(raw, dirPath), dirPath, gitStatus)
+    if (status.status !== 'deleted') return
+    if (!isPathOrChild(status.path, rootPath)) return
 
-    for (const entry of entries) {
-      const key = normalizePathKey(entry.path)
-      if (seen.has(key)) continue
-      seen.add(key)
+    const name = status.path.split(/[/\\]/).filter(Boolean).pop()
+    if (!name) return
+    if (!name.toLowerCase().includes(lowerQuery) && !status.path.toLowerCase().includes(lowerQuery)) return
 
-      if (entry.isDir) {
-        if (!entry.gitDeleted) {
-          await visit(entry.path)
-        }
-      } else if (entry.name.toLowerCase().includes(lowerQuery) || entry.path.toLowerCase().includes(lowerQuery)) {
-        matches.push(entry)
-        if (matches.length >= limit) return
-      }
-    }
-  }
+    const key = normalizePathKey(status.path)
+    if (seen.has(key)) return
+    seen.add(key)
 
-  await visit(rootPath)
+    const separator = pathSeparatorFor(status.path)
+    const parentPath = status.path.includes(separator)
+      ? status.path.slice(0, status.path.lastIndexOf(separator))
+      : rootPath
+    matches.push({
+      name,
+      isDir: false,
+      path: status.path,
+      parentPath,
+      gitDeleted: true,
+    })
+  })
+
   return matches
 }
 
@@ -491,6 +570,8 @@ function ExplorerTree({
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
   const [markdownSwarmDraft, setMarkdownSwarmDraft] = useState<MarkdownSwarmDraft | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
+  const searchTimeoutRef = useRef<number | null>(null)
+  const searchRequestSeqRef = useRef(0)
   const committingRenameRef = useRef(false)
   const markdownSwarmTeamInputRef = useRef<HTMLInputElement>(null)
   const latestExpandedPathsRef = useRef<Record<string, boolean>>({})
@@ -506,8 +587,12 @@ function ExplorerTree({
   )
 
   const isSearching = query.trim().length > 0
+  const searchRows = useMemo(
+    () => buildSearchTreeRows(rootPath, searchResults),
+    [rootPath, searchResults]
+  )
   const activeRows = isSearching
-    ? searchResults.map((entry) => ({ entry, depth: 0 }))
+    ? searchRows
     : visibleRows
 
   useEffect(() => {
@@ -599,11 +684,12 @@ function ExplorerTree({
     )
 
     if (latestSearchingRef.current) {
-      setSearching(true)
+      const requestSeq = ++searchRequestSeqRef.current
       try {
-        setSearchResults(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
+        const results = await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current)
+        if (requestSeq === searchRequestSeqRef.current) setSearchResults(results)
       } finally {
-        setSearching(false)
+        if (requestSeq === searchRequestSeqRef.current) setSearching(false)
       }
     }
   }, [loadDirectory, rootPath])
@@ -629,6 +715,10 @@ function ExplorerTree({
 
   const activateEntry = async (entry: Entry) => {
     setSelectedPath(entry.path)
+    if (isSearching && entry.isDir) {
+      focusTree()
+      return
+    }
     if (isSearching || !entry.isDir) {
       await onOpenFile(entry.path, entry.name)
       return
@@ -1111,30 +1201,46 @@ function ExplorerTree({
   }, [gitStatus?.updatedAt, refreshTree])
 
   useEffect(() => {
-    let cancelled = false
-
     if (!isSearching) {
+      searchRequestSeqRef.current += 1
+      if (searchTimeoutRef.current) {
+        window.clearTimeout(searchTimeoutRef.current)
+        searchTimeoutRef.current = null
+      }
       setSearchResults([])
       setSearching(false)
       return
     }
 
+    const requestSeq = ++searchRequestSeqRef.current
     setSearching(true)
-    searchFiles(rootPath, query, gitStatus)
-      .then((results) => {
-        if (!cancelled) {
+    if (searchTimeoutRef.current) {
+      window.clearTimeout(searchTimeoutRef.current)
+    }
+
+    searchTimeoutRef.current = window.setTimeout(() => {
+      searchTimeoutRef.current = null
+      searchFiles(rootPath, query, latestGitStatusRef.current)
+        .then((results) => {
+          if (requestSeq !== searchRequestSeqRef.current) return
           setSearchResults(results)
           setSelectedPath(results[0]?.path ?? null)
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSearching(false)
-      })
+        })
+        .catch(() => {
+          if (requestSeq === searchRequestSeqRef.current) setSearchResults([])
+        })
+        .finally(() => {
+          if (requestSeq === searchRequestSeqRef.current) setSearching(false)
+        })
+    }, 180)
 
     return () => {
-      cancelled = true
+      if (searchTimeoutRef.current) {
+        window.clearTimeout(searchTimeoutRef.current)
+        searchTimeoutRef.current = null
+      }
     }
-  }, [gitStatus, rootPath, query, isSearching])
+  }, [rootPath, query, isSearching])
 
   useEffect(() => {
     let disposed = false
@@ -1159,6 +1265,10 @@ function ExplorerTree({
       if (refreshTimeoutRef.current) {
         window.clearTimeout(refreshTimeoutRef.current)
         refreshTimeoutRef.current = null
+      }
+      if (searchTimeoutRef.current) {
+        window.clearTimeout(searchTimeoutRef.current)
+        searchTimeoutRef.current = null
       }
       if (unsubscribe) {
         void unsubscribe()
@@ -1288,9 +1398,8 @@ function ExplorerTree({
       >
         {activeRows.map(({ entry, depth }) => {
           const isSelected = entry.path === selectedPath
-          const isExpanded = entry.isDir && expandedPaths[entry.path]
+          const isExpanded = entry.isDir && (isSearching || expandedPaths[entry.path])
           const isRenaming = renameDraft?.entry.path === entry.path
-          const meta = entry.parentPath.slice(rootPath.length).replace(/^[\\/]+/, '')
           const gitStatusKind = getEntryGitStatus(gitStatus, entry)
           const gitAppearance = getGitStatusAppearance(gitStatusKind)
           const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[#d7d7dc] group-hover:text-[#fff7d7]' : '')
@@ -1303,7 +1412,7 @@ function ExplorerTree({
               }}
               role="treeitem"
               aria-selected={isSelected}
-              aria-expanded={!isSearching && entry.isDir ? isExpanded : undefined}
+              aria-expanded={entry.isDir ? isExpanded : undefined}
               onClick={() => {
                 if (isRenaming) return
                 if (entry.gitDeleted) {
@@ -1321,27 +1430,9 @@ function ExplorerTree({
                   ? 'bg-[#17181d] text-[#ececee]'
                   : 'text-[#9a9aa2] hover:bg-[#15161a] hover:text-[#ececee]'
               }`}
-              style={{ paddingLeft: `${8 + (isSearching ? 0 : depth * 14)}px` }}
+              style={{ paddingLeft: `${8 + depth * 14}px` }}
             >
-              {isSearching ? (
-                <>
-                  <span className="w-3 shrink-0" />
-                  <FileIcon name={entry.name} />
-                  <div className="min-w-0 flex-1">
-                    {isRenaming ? (
-                      renderRenameInput(
-                        'h-5 w-full rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
-                      )
-                    ) : (
-                      <div className={`truncate ${gitAppearance.textClass}`}>{entry.name}</div>
-                    )}
-                    <div className="truncate text-[10px] text-[#5a5a63]">{meta || rootPath}</div>
-                  </div>
-                  {gitAppearance.badge && (
-                    <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
-                  )}
-                </>
-              ) : entry.isDir ? (
+              {entry.isDir ? (
                 <>
                   <ChevronIcon expanded={isExpanded} />
                   <FolderIcon expanded={isExpanded} />
