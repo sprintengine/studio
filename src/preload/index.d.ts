@@ -8,6 +8,7 @@ declare global {
 
   type AgentCli = 'codex' | 'claude'
   type AgentExecutionMode = 'current_workspace' | 'worktree'
+  type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
   type CliRuntimeSettings = {
     command: string
     useWsl: boolean
@@ -21,6 +22,7 @@ declare global {
     executionMode?: AgentExecutionMode
     worktreeId?: string
     worktreePath?: string
+    cliPermissionPreset?: SwarmCliPermissionPreset
   }
   type TerminalSpawnResult =
     | { ok: true; sessionId: string }
@@ -267,6 +269,84 @@ declare global {
       user: null
       selectedOrganization: null
     }
+  type MobileControlCommandType =
+    | 'snapshot.request'
+    | 'artifact.read'
+    | 'swarm.create'
+    | 'task.start'
+    | 'artifact.approve'
+    | 'artifact.requestChanges'
+    | 'agent.followUp'
+    | 'device.revoke'
+  type MobileControlCapability =
+    | 'snapshots.read'
+    | 'artifacts.read'
+    | 'swarms.create'
+    | 'tasks.start'
+    | 'artifacts.review'
+    | 'agents.followUp'
+    | 'devices.revoke'
+  type MobileControlDevice = {
+    protocolVersion: 1
+    deviceId: string
+    displayName: string
+    platform: 'ios' | 'android' | 'web'
+    appVersion: string
+    pairedAt: string
+    lastSeenAt?: string
+    revokedAt?: string
+    capabilities: MobileControlCapability[]
+  }
+  type MobileControlCapabilities = {
+    protocolVersion: 1
+    deviceId: string
+    commands: MobileControlCommandType[]
+    capabilities: MobileControlCapability[]
+    artifactPreviewModes: ('text' | 'markdown' | 'restrictedHtml')[]
+    maxFollowUpCharacters: number
+    snapshotTtlMs: number
+  }
+  type MobileBridgeRelayStatus =
+    | 'disabled'
+    | 'unconfigured'
+    | 'connecting'
+    | 'connected'
+    | 'retrying'
+    | 'error'
+  type MobileBridgePresence = 'available' | 'busy' | 'idle' | 'offline'
+  type MobileBridgeDiagnosticEntry = {
+    id: string
+    timestamp: string
+    level: 'info' | 'warning' | 'error'
+    code: string
+    message: string
+    retryable: boolean
+  }
+  type MobileBridgePairingChallenge = {
+    pairingChallengeId: string
+    pairingCode: string
+    pairingUri: string
+    expiresAt: string
+    requestedScopes: MobileControlCapability[]
+  }
+  type MobileBridgeState = {
+    enabled: boolean
+    relayStatus: MobileBridgeRelayStatus
+    relayUrl: string | null
+    desktopInstanceId: string
+    desktopRelaySessionId: string | null
+    relayTokenExpiresAt: string | null
+    nextReconnectAt: string | null
+    presence: MobileBridgePresence
+    lastPresenceAt: string | null
+    pairingChallenge: Omit<MobileBridgePairingChallenge, 'pairingCode' | 'pairingUri'> | null
+    pairedDevices: MobileControlDevice[]
+    capabilities: MobileControlCapabilities
+    diagnostics: MobileBridgeDiagnosticEntry[]
+  }
+  type MobileBridgeSettingsUpdate = {
+    enabled?: boolean
+  }
 
   interface Window {
     api: {
@@ -286,6 +366,14 @@ declare global {
       authReleaseUsage: (input: UsageRequest) => Promise<UsageResult>
       onAuthStateChanged: (cb: (state: MulticodeAuthState) => void) => () => void
       onAuthCallbackError: (cb: (message: string) => void) => () => void
+      mobileBridgeGetState: () => Promise<MobileBridgeState>
+      mobileBridgeUpdateSettings: (input: MobileBridgeSettingsUpdate) => Promise<MobileBridgeState>
+      mobileBridgeRequestPairingCode: () => Promise<MobileBridgePairingChallenge>
+      mobileBridgeListDevices: () => Promise<MobileControlDevice[]>
+      mobileBridgeRevokeDevice: (deviceId: string, reason?: string) => Promise<MobileControlDevice>
+      mobileBridgePublishPresence: (presence: MobileBridgePresence) => Promise<MobileBridgeState>
+      mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
+      onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void) => () => void
       readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>
       readfile:  (path: string) => Promise<string>
       pathExists: (path: string) => Promise<boolean>

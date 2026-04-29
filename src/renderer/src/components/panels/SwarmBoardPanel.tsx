@@ -1202,6 +1202,33 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
               </span>
               <span>Keep terminals</span>
             </button>
+            <label className="sr-only" htmlFor={`swarm-cli-permissions-${workspaceId}`}>
+              CLI permissions for swarm auto-run
+            </label>
+            <select
+              id={`swarm-cli-permissions-${workspaceId}`}
+              value={cliPermissionPreset}
+              onChange={(event) =>
+                updateCliPermissionPreset(event.currentTarget.value as SwarmCliPermissionPreset)
+              }
+              title={
+                swarmCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title
+                ?? 'CLI permissions for swarm auto-run'
+              }
+              className={`h-8 rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none transition-colors focus:ring-1 ${
+                cliPermissionPreset === 'bypass_all'
+                  ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
+                  : cliPermissionPreset === 'auto_workspace'
+                    ? 'border-[#6ee7d8]/40 text-[#d8fffb] focus:ring-[#6ee7d8]/40'
+                    : 'border-[#303139] text-[#8a8a92] focus:ring-[#303139]'
+              }`}
+            >
+              {swarmCliPermissionOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
             {!fixedView ? (
               <div className="ml-1 flex flex-wrap items-center gap-1">
                 {([
@@ -1492,6 +1519,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   `${task.acceptanceCriteria.length} checks`,
                 ]
                 const taskArtifacts = artifactsByTaskId[task.id] ?? []
+                const mobileDecisionSummary = formatTaskMobileDecisionSummary(taskArtifacts)
                 const taskArtifactBlockers = artifactBlockersByTaskId[task.id] ?? []
                 const actionLabel = task.ownerAgentId
                   ? ownerCliRunning ? 'Open Terminal' : 'Respawn'
@@ -1581,6 +1609,11 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                         <span className="rounded bg-[#17181d] px-1.5 py-0.5 text-[10px] font-semibold text-[#d7d7dc]">
                           {formatArtifactSummary(taskArtifacts)}
                         </span>
+                        {mobileDecisionSummary ? (
+                          <span className="rounded bg-[#6ee7d8]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#bff7f1]">
+                            {mobileDecisionSummary}
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
                     {taskArtifactBlockers.length > 0 ? (
@@ -3718,6 +3751,7 @@ function SwarmArtifactList({
             const pending = action?.status === 'pending'
             const readyForReview = artifact.status === 'ready_for_review'
             const autoApprovalEligibility = getSwarmArtifactAutoApprovalEligibility(artifact)
+            const mobileDecision = getMobileArtifactDecision(artifact)
 
             return (
               <div key={artifact.id} className="grid gap-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
@@ -3743,6 +3777,11 @@ function SwarmArtifactList({
                   <div className="mt-1 text-[12px] text-[#9a9aa2] [overflow-wrap:anywhere]">
                     {artifact.path || 'No file path recorded.'}
                   </div>
+                  {mobileDecision ? (
+                    <div className="mt-2 border-l border-[#6ee7d8]/45 pl-2 text-[11px] leading-5 text-[#bff7f1]">
+                      {formatMobileArtifactDecision(mobileDecision)}
+                    </div>
+                  ) : null}
                   {readyForReview && autoApprovalEligibility.label ? (
                     <div className={`mt-2 text-[11px] font-semibold ${
                       autoApprovalEligibility.eligible ? 'text-[#6ee7d8]' : 'text-[#ffd58a]'
@@ -3869,6 +3908,84 @@ function formatArtifactSummary(artifacts: SwarmArtifact[]): string {
     return `${pendingCount} pending ${pendingCount === 1 ? 'artifact' : 'artifacts'}`
   }
   return `${approvedCount} approved ${approvedCount === 1 ? 'artifact' : 'artifacts'}`
+}
+
+type MobileArtifactDecision = {
+  action: string
+  actor: string
+  timestamp: string | null
+  note?: string
+}
+
+function getMobileArtifactDecision(artifact: SwarmArtifact): MobileArtifactDecision | null {
+  const mobileHistory = [...artifact.reviewHistory]
+    .reverse()
+    .find((entry) => isMobileActor(entry.actor))
+
+  if (mobileHistory) {
+    return {
+      action: mobileHistory.action,
+      actor: mobileHistory.actor,
+      timestamp: mobileHistory.timestamp,
+      note: mobileHistory.note,
+    }
+  }
+
+  if (artifact.approvedBy && isMobileActor(artifact.approvedBy)) {
+    return {
+      action: 'approved',
+      actor: artifact.approvedBy,
+      timestamp: artifact.approvedAt ?? null,
+    }
+  }
+
+  if (artifact.changesRequestedBy && isMobileActor(artifact.changesRequestedBy)) {
+    return {
+      action: 'changes_requested',
+      actor: artifact.changesRequestedBy,
+      timestamp: artifact.changesRequestedAt ?? null,
+    }
+  }
+
+  return null
+}
+
+function formatTaskMobileDecisionSummary(artifacts: SwarmArtifact[]): string | null {
+  const mobileDecisionCount = artifacts.filter((artifact) => getMobileArtifactDecision(artifact)).length
+  if (mobileDecisionCount === 0) return null
+  return `${mobileDecisionCount} mobile ${mobileDecisionCount === 1 ? 'decision' : 'decisions'}`
+}
+
+function formatMobileArtifactDecision(decision: MobileArtifactDecision): string {
+  const parts = [
+    `Mobile ${mobileActionLabel(decision.action)} by ${formatMobileActor(decision.actor)}`,
+    decision.timestamp ? formatTimestamp(decision.timestamp) : null,
+    decision.note,
+  ].filter(Boolean)
+
+  return parts.join(' - ')
+}
+
+function isMobileActor(actor: string): boolean {
+  return actor.trim().toLowerCase().startsWith('mobile:')
+}
+
+function formatMobileActor(actor: string): string {
+  return actor.replace(/^mobile:/i, '').replace(/[_-]+/g, ' ') || 'mobile device'
+}
+
+function mobileActionLabel(action: string): string {
+  switch (action) {
+    case 'approve':
+    case 'approved':
+      return 'approved'
+    case 'request_changes':
+    case 'requestChanges':
+    case 'changes_requested':
+      return 'requested changes'
+    default:
+      return action.replace(/[_-]+/g, ' ')
+  }
 }
 
 function formatArtifactBlockerSummary(

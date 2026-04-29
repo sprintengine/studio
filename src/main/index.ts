@@ -25,6 +25,14 @@ import {
   switchGitBranch,
   unstageGitPaths,
 } from './git'
+import {
+  MobileBridge,
+  type MobileBridgePresence,
+  type MobileBridgeSettingsUpdate,
+} from './mobile-bridge'
+import { MobileSwarmCommandService } from './mobile-swarm-command'
+import { DesktopMobileSwarmSessionOrchestrator } from './mobile-swarm-session'
+import { MobileSwarmSnapshotService } from './mobile-swarm-snapshot'
 
 const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || 'http://localhost:3000').replace(/\/+$/u, '')
 const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
@@ -295,6 +303,16 @@ class MulticodeMultiauthClient {
     return this.usage('/api/usage/release', input)
   }
 
+  async getAccessToken(clientId: typeof MULTICODE_CLIENT_ID = MULTICODE_CLIENT_ID): Promise<string> {
+    if (!this.accessToken) {
+      await this.refresh(clientId)
+    }
+    if (!this.accessToken) {
+      throw new Error('No desktop access token is available.')
+    }
+    return this.accessToken
+  }
+
   private async usage(path: string, input: UsageRequest): Promise<UsageResult> {
     return this.request<UsageResult>(path, {
       method: 'POST',
@@ -425,7 +443,7 @@ class MulticodeAuthBridge {
       code_challenge_method: 'S256',
       state,
       nonce,
-      scope: 'openid profile entitlements:read',
+      scope: 'openid profile entitlements:read relay:desktop',
     })
     const selectedOrganizationId = organizationId?.trim() || this.state.selectedOrganization?.id
 
@@ -558,6 +576,14 @@ class MulticodeAuthBridge {
         id: 'desktop',
         expiresAt: this.state.entitlements?.expiresAt ?? new Date(0).toISOString(),
       },
+    }
+  }
+
+  async getRelayAccessToken(): Promise<string | null> {
+    try {
+      return await this.client.getAccessToken(MULTICODE_CLIENT_ID)
+    } catch {
+      return null
     }
   }
 
@@ -730,6 +756,13 @@ class MulticodeAuthBridge {
 }
 
 const multicodeAuth = new MulticodeAuthBridge()
+const mobileSnapshotService = new MobileSwarmSnapshotService()
+const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
+  accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
+  commandService: createMobileCommandService(),
+  snapshotService: mobileSnapshotService,
+  statePathsProvider: discoverMobileSwarmStatePaths,
+})
 
 function signedOutAuthState(message: string | null): MulticodeAuthState {
   return {
@@ -1827,6 +1860,153 @@ function disposeFileWatcher(watchId: string): void {
   fileWatchers.delete(watchId)
 }
 
+function createMobileCommandService(): MobileSwarmCommandService {
+  const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
+    adapters: {
+      listTerminals: async () => {
+        return [...terminals.values()].map(getTerminalSnapshot)
+      },
+      spawnAgentTerminal: spawnMobileAgentTerminal,
+      writeTerminal: (sessionId, data) => {
+        const session = terminals.get(sessionId)
+        if (!session || session.hasExited || session.isDisposed) {
+          throw new Error('Desktop terminal session is no longer running.')
+        }
+        session.process.write(data)
+      },
+      pathExists,
+      listGitWorktrees: async (repoRoot) => {
+        const snapshot = await listGitWorktrees(repoRoot)
+        if (!snapshot.ok) return { ok: false, message: snapshot.message }
+        return {
+          ok: true,
+          data: {
+            worktrees: snapshot.data.worktrees.map((worktree) => ({ path: worktree.path, branch: worktree.branch })),
+          },
+        }
+      },
+      createGitWorktree,
+    },
+  })
+
+  return new MobileSwarmCommandService({
+    workspaceRoot: process.cwd(),
+    sessionOrchestrator: orchestrator,
+  })
+}
+
+async function spawnMobileAgentTerminal(input: {
+  sessionId: string
+  cwd: string
+  swarmStatePath: string
+  agentId: string
+  initialPrompt: string
+  cli: AgentCli
+  executionMode: AgentExecutionMode
+  worktreeId?: string
+  worktreePath?: string
+}): Promise<{ ok: true; sessionId: string } | { ok: false; message: string }> {
+  const sender = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())?.webContents
+  if (!sender) {
+    return { ok: false, message: 'No desktop window is available to host a mobile-started agent terminal.' }
+  }
+
+  const accessDecision = await multicodeAuth.checkPremiumAccess({
+    featureKey: 'multicode.swarm_mode',
+  })
+  if (!accessDecision.allowed) {
+    return { ok: false, message: accessDecision.message }
+  }
+
+  disposeTerminal(input.sessionId)
+
+  try {
+    const { command, args, cwd: launchCwd, initialInput, env } = getShellLaunchConfig(
+      input.cwd,
+      input.sessionId,
+      false,
+      input.swarmStatePath,
+      input.cli,
+      input.initialPrompt,
+      undefined,
+      'auto_workspace'
+    )
+    const initialSize = getTerminalSize(120, 30)
+    const termProcess = pty.spawn(command, args, {
+      name: 'xterm-256color',
+      cols: initialSize.cols,
+      rows: initialSize.rows,
+      cwd: launchCwd ?? input.cwd,
+      env: env ?? getTerminalEnv(),
+    })
+    const terminalSession: TerminalSession = {
+      sessionId: input.sessionId,
+      process: termProcess,
+      sender,
+      isReady: process.platform !== 'win32',
+      hasExited: false,
+      isDisposed: false,
+      outputBuffer: '',
+      kind: 'agent',
+      agentId: input.agentId,
+      cli: input.cli,
+      cwd: launchCwd ?? input.cwd,
+      swarmStatePath: input.swarmStatePath,
+      executionMode: input.executionMode,
+      worktreeId: input.worktreeId,
+      worktreePath: input.worktreePath,
+      startedAt: Date.now(),
+      lastOutputAt: null,
+    }
+
+    terminals.set(input.sessionId, terminalSession)
+    termProcess.onData((data) => {
+      if (!terminalSession.isReady) {
+        terminalSession.isReady = true
+        flushPendingTerminalResize(input.sessionId, terminalSession)
+      }
+      appendTerminalOutput(terminalSession, data)
+      sendTerminalEvent(terminalSession.sender, `terminal:data:${input.sessionId}`, data)
+    })
+    termProcess.onExit((event) => {
+      terminalSession.hasExited = true
+      if (terminals.get(input.sessionId) === terminalSession) {
+        terminals.delete(input.sessionId)
+      }
+      if (!terminalSession.isDisposed) {
+        sendTerminalEvent(terminalSession.sender, `terminal:exit:${input.sessionId}`, event.exitCode)
+      }
+    })
+    if (initialInput) {
+      termProcess.write(initialInput)
+    }
+
+    return { ok: true, sessionId: input.sessionId }
+  } catch (error) {
+    return { ok: false, message: getTerminalErrorMessage(error) }
+  }
+}
+
+async function discoverMobileSwarmStatePaths(): Promise<string[]> {
+  const swarmRoot = join(process.cwd(), 'swarm')
+  let entries
+  try {
+    entries = await readdir(swarmRoot, { withFileTypes: true })
+  } catch {
+    return []
+  }
+
+  const statePaths = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const statePath = join(swarmRoot, entry.name, 'state.yaml')
+        return (await pathExists(statePath)) ? statePath : null
+      })
+  )
+  return statePaths.filter((statePath): statePath is string => Boolean(statePath))
+}
+
 function disposeFileWatchersForSender(senderId: number): void {
   for (const [watchId, fileWatcher] of fileWatchers.entries()) {
     if (fileWatcher.senderId === senderId) {
@@ -1930,6 +2110,7 @@ ipcMain.handle(
     executionMode,
     worktreeId,
     worktreePath,
+    cliPermissionPreset = 'default',
   }: TerminalSpawnPayload) => {
     const existingSession = terminals.get(sessionId)
     if (existingSession && !existingSession.hasExited && !existingSession.isDisposed) {
@@ -2628,6 +2809,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  mobileBridge.shutdown()
 })
 
 function registerMulticodeProtocol(): void {

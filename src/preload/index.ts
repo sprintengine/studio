@@ -281,6 +281,84 @@ type SessionSnapshot =
     user: null
     selectedOrganization: null
   }
+type MobileControlCommandType =
+  | 'snapshot.request'
+  | 'artifact.read'
+  | 'swarm.create'
+  | 'task.start'
+  | 'artifact.approve'
+  | 'artifact.requestChanges'
+  | 'agent.followUp'
+  | 'device.revoke'
+type MobileControlCapability =
+  | 'snapshots.read'
+  | 'artifacts.read'
+  | 'swarms.create'
+  | 'tasks.start'
+  | 'artifacts.review'
+  | 'agents.followUp'
+  | 'devices.revoke'
+type MobileControlDevice = {
+  protocolVersion: 1
+  deviceId: string
+  displayName: string
+  platform: 'ios' | 'android' | 'web'
+  appVersion: string
+  pairedAt: string
+  lastSeenAt?: string
+  revokedAt?: string
+  capabilities: MobileControlCapability[]
+}
+type MobileControlCapabilities = {
+  protocolVersion: 1
+  deviceId: string
+  commands: MobileControlCommandType[]
+  capabilities: MobileControlCapability[]
+  artifactPreviewModes: ('text' | 'markdown' | 'restrictedHtml')[]
+  maxFollowUpCharacters: number
+  snapshotTtlMs: number
+}
+type MobileBridgeRelayStatus =
+  | 'disabled'
+  | 'unconfigured'
+  | 'connecting'
+  | 'connected'
+  | 'retrying'
+  | 'error'
+type MobileBridgePresence = 'available' | 'busy' | 'idle' | 'offline'
+type MobileBridgeDiagnosticEntry = {
+  id: string
+  timestamp: string
+  level: 'info' | 'warning' | 'error'
+  code: string
+  message: string
+  retryable: boolean
+}
+type MobileBridgePairingChallenge = {
+  pairingChallengeId: string
+  pairingCode: string
+  pairingUri: string
+  expiresAt: string
+  requestedScopes: MobileControlCapability[]
+}
+type MobileBridgeState = {
+  enabled: boolean
+  relayStatus: MobileBridgeRelayStatus
+  relayUrl: string | null
+  desktopInstanceId: string
+  desktopRelaySessionId: string | null
+  relayTokenExpiresAt: string | null
+  nextReconnectAt: string | null
+  presence: MobileBridgePresence
+  lastPresenceAt: string | null
+  pairingChallenge: Omit<MobileBridgePairingChallenge, 'pairingCode' | 'pairingUri'> | null
+  pairedDevices: MobileControlDevice[]
+  capabilities: MobileControlCapabilities
+  diagnostics: MobileBridgeDiagnosticEntry[]
+}
+type MobileBridgeSettingsUpdate = {
+  enabled?: boolean
+}
 
 const specialistPromptFiles: Record<SpecialistActionId, string> = {
   architect: 'architect-prompt.md',
@@ -385,6 +463,26 @@ contextBridge.exposeInMainWorld('api', {
   onAuthCallbackError: (cb: (message: string) => void): (() => void) => {
     const ch = 'auth:callback-error'
     const handler = (_: Electron.IpcRendererEvent, message: string) => cb(message)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  mobileBridgeGetState: (): Promise<MobileBridgeState> =>
+    ipcRenderer.invoke('mobile-bridge:get-state'),
+  mobileBridgeUpdateSettings: (input: MobileBridgeSettingsUpdate): Promise<MobileBridgeState> =>
+    ipcRenderer.invoke('mobile-bridge:update-settings', input),
+  mobileBridgeRequestPairingCode: (): Promise<MobileBridgePairingChallenge> =>
+    ipcRenderer.invoke('mobile-bridge:request-pairing-code'),
+  mobileBridgeListDevices: (): Promise<MobileControlDevice[]> =>
+    ipcRenderer.invoke('mobile-bridge:list-devices'),
+  mobileBridgeRevokeDevice: (deviceId: string, reason?: string): Promise<MobileControlDevice> =>
+    ipcRenderer.invoke('mobile-bridge:revoke-device', deviceId, reason),
+  mobileBridgePublishPresence: (presence: MobileBridgePresence): Promise<MobileBridgeState> =>
+    ipcRenderer.invoke('mobile-bridge:publish-presence', presence),
+  mobileBridgeGetDiagnostics: (): Promise<MobileBridgeDiagnosticEntry[]> =>
+    ipcRenderer.invoke('mobile-bridge:get-diagnostics'),
+  onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void): (() => void) => {
+    const ch = 'mobile-bridge:state-changed'
+    const handler = (_: Electron.IpcRendererEvent, state: MobileBridgeState) => cb(state)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },

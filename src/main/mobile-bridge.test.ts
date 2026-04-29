@@ -1,0 +1,442 @@
+import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice } from './mobile-bridge'
+import { MobileSwarmCommandService } from './mobile-swarm-command'
+
+const now = new Date('2026-04-28T22:00:00.000Z')
+
+void main()
+
+async function main(): Promise<void> {
+  await assertAuthenticatedRelayTransportDispatchesAndFailsClosed()
+  await assertRelayServiceDeliveriesDispatchAndRecordResults()
+}
+
+async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Promise<void> {
+  const fixture = await writeSwarmFixture()
+  const toolInvocations: Array<{ args: string[]; cwd: string }> = []
+  const relay = new FakeRelayTransport([
+    commandDelivery('cmd_approve', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'artifact.approve',
+      payload: { swarmId: 'relay-team', artifactId: 'A1' },
+      device: pairedDevice({ scopes: ['relay:artifact:review'] }),
+    }),
+    commandDelivery('cmd_missing_device', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'artifact.approve',
+      payload: { swarmId: 'relay-team', artifactId: 'A1' },
+      device: null,
+    }),
+    commandDelivery('cmd_revoked', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'artifact.requestChanges',
+      payload: { swarmId: 'relay-team', artifactId: 'A1', feedback: 'Needs more detail.' },
+      device: pairedDevice({ revokedAt: now.toISOString(), scopes: ['relay:artifact:review'] }),
+    }),
+    commandDelivery('cmd_wrong_session', {
+      desktopRelaySessionId: 'drs_other',
+      commandType: 'artifact.approve',
+      payload: { swarmId: 'relay-team', artifactId: 'A1' },
+      device: pairedDevice({ scopes: ['relay:artifact:review'] }),
+    }),
+    commandDelivery('cmd_missing_capability', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'task.start',
+      payload: { swarmId: 'relay-team', taskId: 'T1', role: 'developer' },
+      device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
+    }),
+  ])
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'ses_seed_usr_seed_pro', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => 'desktop-access-token',
+      relayTransport: relay,
+      commandService: new MobileSwarmCommandService({
+        workspaceRoot: fixture.workspaceRoot,
+        statePaths: [fixture.statePath],
+        now: () => now,
+        execute: async (invocation) => {
+          toolInvocations.push(invocation)
+          return { exitCode: 0, stdout: '{"ok":true,"action":"approved"}', stderr: '' }
+        },
+      }),
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 10_000,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitFor(() => relay.results.length === 5 && relay.snapshots.length === 1)
+  bridge.shutdown()
+
+  assert.equal(relay.connects.length, 1)
+  assert.equal(relay.connects[0].accessToken, 'desktop-access-token')
+  assert.equal(relay.connects[0].commands.includes('artifact.approve'), true)
+  assert.equal(relay.connects[0].commands.includes('task.start'), true)
+  assert.equal(toolInvocations.length, 1)
+  assert.equal(toolInvocations[0].cwd, fixture.workspaceRoot)
+  assert.equal(relay.snapshots[0].snapshot.swarms[0].swarmId, 'relay-team')
+
+  const resultByCommand = new Map(relay.results.map((result) => [result.commandId, result]))
+  assert.equal(resultByCommand.get('cmd_approve')?.status, 'completed')
+  assert.equal(resultByCommand.get('cmd_missing_device')?.resultCode, 'UNAUTHENTICATED')
+  assert.equal(resultByCommand.get('cmd_revoked')?.resultCode, 'DEVICE_REVOKED')
+  assert.equal(resultByCommand.get('cmd_wrong_session')?.resultCode, 'UNAUTHORIZED')
+  assert.equal(resultByCommand.get('cmd_missing_capability')?.resultCode, 'UNAUTHORIZED')
+}
+
+async function assertRelayServiceDeliveriesDispatchAndRecordResults(): Promise<void> {
+  const fixture = await writeSwarmFixture()
+  const toolInvocations: Array<{ args: string[]; cwd: string }> = []
+  const relay = new RelayServiceBackedTransport()
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'desktop-session-1', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => relay.desktopAccessToken,
+      relayTransport: relay,
+      commandService: new MobileSwarmCommandService({
+        workspaceRoot: fixture.workspaceRoot,
+        statePaths: [fixture.statePath],
+        now: () => now,
+        execute: async (invocation) => {
+          toolInvocations.push(invocation)
+          return { exitCode: 0, stdout: '{"ok":true,"action":"approved"}', stderr: '' }
+        },
+      }),
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 10_000,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitFor(() => relay.results.some((result) => result.commandId === 'cmd_relay_service_approve'))
+  bridge.shutdown()
+
+  assert.equal(toolInvocations.length, 1)
+  assert.equal(relay.results[0].status, 'completed')
+  assert.equal(relay.results[0].resultCode, 'OK')
+  await assert.rejects(
+    () => relay.enqueueDifferentCommandWithSameIdempotencyKey(),
+    (error) => error && typeof error === 'object' && 'code' in error && error.code === 'IDEMPOTENCY_CONFLICT'
+  )
+}
+
+class FakeRelayTransport implements MobileRelayTransport {
+  readonly connects: Array<{ accessToken: string; commands: string[] }> = []
+  readonly results: Array<{
+    commandId: string
+    status: 'completed' | 'failed'
+    resultCode: string
+    summary: Record<string, unknown>
+  }> = []
+  readonly snapshots: Array<{ snapshot: { swarms: Array<{ swarmId: string }> } }> = []
+  private delivered = false
+
+  constructor(private readonly deliveries: Awaited<ReturnType<MobileRelayTransport['listPendingCommands']>>) {}
+
+  async connectDesktop(input: Parameters<MobileRelayTransport['connectDesktop']>[0]) {
+    this.connects.push({ accessToken: input.accessToken, commands: input.commands })
+    return {
+      desktopRelaySessionId: 'drs_desktop_1',
+      relayToken: 'relay-token',
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+      heartbeatAfterSeconds: 30,
+    }
+  }
+
+  async createPairingChallenge() {
+    return {
+      pairingChallengeId: 'pcha_1',
+      pairingUri: 'multicode://mobile/pair?secret=pair-secret',
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+    }
+  }
+
+  async listPendingCommands() {
+    if (this.delivered) return []
+    this.delivered = true
+    return this.deliveries
+  }
+
+  async postCommandResult(input: Parameters<MobileRelayTransport['postCommandResult']>[0]) {
+    this.results.push({
+      commandId: input.commandId,
+      status: input.status,
+      resultCode: input.resultCode,
+      summary: input.summary,
+    })
+  }
+
+  async publishSnapshot(input: Parameters<NonNullable<MobileRelayTransport['publishSnapshot']>>[0]) {
+    this.snapshots.push({ snapshot: input.snapshot })
+  }
+}
+
+class RelayServiceBackedTransport implements MobileRelayTransport {
+  readonly results: Array<{
+    commandId: string
+    status: 'completed' | 'failed'
+    resultCode: string
+    summary: Record<string, unknown>
+  }> = []
+  private readonly auth: { tokens: { issueAccessToken(input: Record<string, unknown>): string } }
+  private readonly relay: {
+    connectDesktop(input: Record<string, unknown>): Promise<{
+      desktopRelaySessionId: string
+      relayToken: string
+      expiresAt: string
+      heartbeatAfterSeconds: number
+    }>
+    createPairingChallenge(input: Record<string, unknown>): Promise<{ pairingUri: string }>
+    pairMobile(input: Record<string, unknown>): Promise<{ relayToken: string }>
+    enqueueCommand(input: Record<string, unknown>): Promise<unknown>
+    listPendingCommands(input: Record<string, unknown>): Promise<{ commands: Awaited<ReturnType<MobileRelayTransport['listPendingCommands']>> }>
+    recordCommandResult(input: Record<string, unknown>): Promise<unknown>
+  }
+  private readonly requestedScopes = ['relay:artifact:review']
+  private desktopRelayToken = ''
+  private mobileRelayToken = ''
+  private desktopRelaySessionId = ''
+
+  constructor() {
+    const { AuthService, MemoryAuthStore } = require('../../../multiauth/src/auth') as {
+      AuthService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['auth']
+      MemoryAuthStore: new () => unknown
+    }
+    const { MemoryRelayStore, RelayService } = require('../../../multiauth/src/relay') as {
+      MemoryRelayStore: new () => unknown
+      RelayService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['relay']
+    }
+    const authStore = new MemoryAuthStore()
+    this.auth = new AuthService({
+      issuer: 'https://auth.multiverse.local',
+      sessionSecret: 'test-session-secret',
+      store: authStore,
+      now: () => now,
+    })
+    this.relay = new RelayService({
+      authService: this.auth,
+      store: new MemoryRelayStore(),
+      now: () => now,
+    })
+  }
+
+  get desktopAccessToken(): string {
+    return this.auth.tokens.issueAccessToken({
+      audience: 'multicode-desktop',
+      userId: 'usr_seed_pro',
+      sessionId: 'ses_seed_usr_seed_pro',
+      organizationId: 'org_seed_pro_personal',
+      scope: ['relay:desktop'],
+      lifetimeSeconds: 600,
+    })
+  }
+
+  private get mobileAccessToken(): string {
+    return this.auth.tokens.issueAccessToken({
+      audience: 'multicode-mobile',
+      userId: 'usr_seed_pro',
+      sessionId: 'ses_seed_usr_seed_pro',
+      organizationId: 'org_seed_pro_personal',
+      scope: ['relay:pair'],
+      lifetimeSeconds: 600,
+    })
+  }
+
+  async connectDesktop(input: Parameters<MobileRelayTransport['connectDesktop']>[0]) {
+    const desktop = await this.relay.connectDesktop({
+      accessToken: input.accessToken,
+      desktopInstanceId: input.desktopInstanceId,
+      displayName: input.displayName,
+      capabilities: {
+        mobileControlProtocolVersion: 1,
+        commands: input.commands,
+      },
+    })
+    this.desktopRelayToken = desktop.relayToken
+    this.desktopRelaySessionId = desktop.desktopRelaySessionId
+
+    const challenge = await this.relay.createPairingChallenge({
+      relayToken: desktop.relayToken,
+      desktopRelaySessionId: desktop.desktopRelaySessionId,
+      requestedScopes: this.requestedScopes,
+      relayUrl: input.relayUrl,
+    })
+    const paired = await this.relay.pairMobile({
+      accessToken: this.mobileAccessToken,
+      pairingSecret: secretFromPairingUri(challenge.pairingUri),
+      deviceName: 'Relay service phone',
+      platform: 'ios',
+      devicePublicKey: 'relay-service-phone-key',
+    })
+    this.mobileRelayToken = paired.relayToken
+    await this.enqueueApproveCommand()
+
+    return desktop
+  }
+
+  async createPairingChallenge(_input: Parameters<MobileRelayTransport['createPairingChallenge']>[0]) {
+    return {
+      pairingChallengeId: 'unused',
+      pairingUri: 'multicode://mobile/pair?secret=unused',
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+    }
+  }
+
+  async listPendingCommands(_input: Parameters<MobileRelayTransport['listPendingCommands']>[0]) {
+    const response = await this.relay.listPendingCommands({
+      relayToken: this.desktopRelayToken,
+      desktopRelaySessionId: this.desktopRelaySessionId,
+    })
+    return response.commands
+  }
+
+  async postCommandResult(input: Parameters<MobileRelayTransport['postCommandResult']>[0]) {
+    await this.relay.recordCommandResult({
+      relayToken: this.desktopRelayToken,
+      commandId: input.commandId,
+      status: input.status,
+      resultCode: input.resultCode,
+      summary: input.summary,
+    })
+    this.results.push({
+      commandId: input.commandId,
+      status: input.status,
+      resultCode: input.resultCode,
+      summary: input.summary,
+    })
+  }
+
+  async enqueueDifferentCommandWithSameIdempotencyKey(): Promise<void> {
+    await this.relay.enqueueCommand({
+      relayToken: this.mobileRelayToken,
+      idempotencyKey: 'idem-relay-service-approve',
+      envelope: {
+        desktopRelaySessionId: this.desktopRelaySessionId,
+        commandId: 'cmd_relay_service_approve',
+        commandType: 'artifact.approve',
+        issuedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+        payload: { swarmId: 'relay-team', artifactId: 'A2' },
+      },
+    })
+  }
+
+  private async enqueueApproveCommand(): Promise<void> {
+    await this.relay.enqueueCommand({
+      relayToken: this.mobileRelayToken,
+      idempotencyKey: 'idem-relay-service-approve',
+      envelope: {
+        desktopRelaySessionId: this.desktopRelaySessionId,
+        commandId: 'cmd_relay_service_approve',
+        commandType: 'artifact.approve',
+        issuedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+        payload: { swarmId: 'relay-team', artifactId: 'A1' },
+      },
+    })
+  }
+}
+
+async function writeSwarmFixture(): Promise<{ workspaceRoot: string; statePath: string }> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-'))
+  const teamDirectory = join(workspaceRoot, 'swarm', 'relay-team')
+  await mkdir(join(teamDirectory, 'documents'), { recursive: true })
+  await writeFile(join(teamDirectory, 'documents', 'requirements.md'), '# Requirements\n', 'utf8')
+  const statePath = join(teamDirectory, 'state.yaml')
+  await writeFile(statePath, `${JSON.stringify({
+    swarm: {
+      name: 'relay-team',
+      updatedAt: now.toISOString(),
+    },
+    tasks: [
+      {
+        id: 'T1',
+        title: 'Ready task',
+        role: 'developer',
+        status: 'todo',
+        ownerAgentId: null,
+        dependsOn: [],
+      },
+    ],
+    artifacts: [
+      {
+        id: 'A1',
+        kind: 'requirements',
+        title: 'Requirements',
+        path: 'swarm/relay-team/documents/requirements.md',
+        status: 'ready_for_review',
+        taskId: 'T1',
+      },
+    ],
+  }, null, 2)}\n`, 'utf8')
+  return { workspaceRoot, statePath }
+}
+
+function commandDelivery(
+  commandId: string,
+  input: {
+    desktopRelaySessionId: string
+    commandType: 'artifact.approve' | 'artifact.requestChanges' | 'task.start'
+    payload: Record<string, unknown>
+    device: MobileRelayAuthenticatedDevice | null
+  }
+): Awaited<ReturnType<MobileRelayTransport['listPendingCommands']>>[number] {
+  const envelope = {
+    desktopRelaySessionId: input.desktopRelaySessionId,
+    commandId,
+    commandType: input.commandType,
+    issuedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+    payload: input.payload,
+  }
+  return { envelope, device: input.device }
+}
+
+function pairedDevice(overrides: Partial<MobileRelayAuthenticatedDevice>): MobileRelayAuthenticatedDevice {
+  return {
+    deviceId: 'pdv_phone_1',
+    userId: 'usr_seed_pro',
+    organizationId: 'org_seed_pro_personal',
+    mobileSessionId: 'ses_mobile_1',
+    desktopRelaySessionId: 'drs_desktop_1',
+    displayName: 'Dev phone',
+    platform: 'ios',
+    appVersion: '1.0.0',
+    status: 'active',
+    pairedAt: now.toISOString(),
+    ...overrides,
+  }
+}
+
+function secretFromPairingUri(pairingUri: string): string {
+  const params = new URL(pairingUri).searchParams
+  const secret = params.get('pairingSecret') ?? params.get('secret')
+  if (!secret) {
+    throw new Error('Pairing URI did not include a secret.')
+  }
+  return secret
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const startedAt = Date.now()
+  while (!predicate()) {
+    if (Date.now() - startedAt > 2_000) {
+      throw new Error('Timed out waiting for fake relay integration.')
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
