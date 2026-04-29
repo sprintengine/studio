@@ -205,18 +205,29 @@ export default function SettingsModal({ onClose }: Props) {
   const requestPairingCode = async () => {
     if (!mobileState?.enabled || mobileAction.status === 'busy') return
 
-    setMobileAction({ status: 'busy', message: 'Creating mobile pairing code...' })
+    setMobileAction({ status: 'busy', message: 'Creating mobile pairing value...' })
     try {
       const challenge = await mobileBridgeApi.mobileBridgeRequestPairingCode()
       setPairingChallenge(challenge)
       const state = await mobileBridgeApi.mobileBridgeGetState()
       setMobileState(state)
-      setMobileAction({ status: 'idle', message: `Pairing code expires ${formatMobileDate(challenge.expiresAt)}.` })
+      setMobileAction({ status: 'idle', message: `Pairing value expires ${formatMobileDate(challenge.expiresAt)}.` })
     } catch (error) {
       setMobileAction({
         status: 'error',
-        message: error instanceof Error ? error.message : 'Failed to create mobile pairing code.',
+        message: error instanceof Error ? error.message : 'Failed to create mobile pairing value.',
       })
+    }
+  }
+
+  const copyPairingValue = async () => {
+    if (!pairingChallenge) return
+
+    try {
+      await navigator.clipboard.writeText(pairingChallenge.pairingCode)
+      setMobileAction({ status: 'idle', message: 'Pairing value copied.' })
+    } catch {
+      setMobileAction({ status: 'error', message: 'Unable to copy pairing value.' })
     }
   }
 
@@ -436,16 +447,25 @@ export default function SettingsModal({ onClose }: Props) {
                       disabled={!mobileEnabled || mobileAction.status === 'busy'}
                       className="rounded-md bg-[#6ee7d8]/14 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/20 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#6ee7d8]/14"
                     >
-                      New Code
+                      New Pairing Value
                     </button>
                   </div>
                   {pairingChallenge ? (
                     <div className="rounded-md border border-[#303139] bg-[#0d0e11] p-3">
-                      <div className="font-mono text-2xl font-semibold tracking-[0.12em] text-[#ececee]">
-                        {pairingChallenge.pairingCode}
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                          Manual Pairing Value
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void copyPairingValue()}
+                          className="rounded-md border border-[#303139] px-2 py-1 text-[11px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#4b4c55] hover:bg-[#18191f]"
+                        >
+                          Copy
+                        </button>
                       </div>
-                      <div className="mt-2 text-[12px] leading-5 text-[#9a9aa2] [overflow-wrap:anywhere]">
-                        {pairingChallenge.pairingUri}
+                      <div className="font-mono text-[12px] leading-5 text-[#ececee] [overflow-wrap:anywhere]">
+                        {pairingChallenge.pairingCode}
                       </div>
                       <div className="mt-2 text-[11px] text-[#5a5a63]">
                         Expires {formatMobileDate(pairingChallenge.expiresAt)}
@@ -453,7 +473,7 @@ export default function SettingsModal({ onClose }: Props) {
                     </div>
                   ) : (
                     <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-3 text-[12px] leading-5 text-[#5a5a63]">
-                      Mobile control is disabled by default. Enable it before creating a short-lived pairing code.
+                      Mobile control is disabled by default. Enable it before creating a short-lived pairing value.
                     </div>
                   )}
                 </div>

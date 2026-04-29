@@ -26,6 +26,7 @@ import WorkspaceLayout from './WorkspaceLayout'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
+const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 5 * 60_000
 const AGENT_SPAWN_CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
   { value: 'codex', label: 'Codex' },
   { value: 'claude', label: 'Claude Code' },
@@ -215,6 +216,7 @@ export default function WorkspaceManager() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSnapshot[]>([])
+  const [mountedWorkspaceIds, setMountedWorkspaceIds] = useState<string[]>([])
   const [windowState, setWindowState] = useState<WindowState>({
     isMaximized: false,
     isFullScreen: false,
@@ -226,9 +228,13 @@ export default function WorkspaceManager() {
   const accountRef = useRef<HTMLDivElement>(null)
   const handoffDialogRef = useRef<HTMLDivElement>(null)
   const terminalSessionsSignatureRef = useRef('')
+  const workspaceLayoutUnloadTimersRef = useRef<Record<string, number>>({})
   const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
   const sessions = getSessionItems(workspaces, terminalSessions)
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
+  const renderedWorkspaceIds = workspaces
+    .map((workspace) => workspace.id)
+    .filter((workspaceId) => workspaceId === activeWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
 
   const openTemplateSelector = () => {
     setShowTemplateSelector(true)
@@ -236,6 +242,59 @@ export default function WorkspaceManager() {
     setNotificationsOpen(false)
     setHandoffOpen(false)
   }
+
+  const clearWorkspaceLayoutUnloadTimer = (workspaceId: string) => {
+    const timer = workspaceLayoutUnloadTimersRef.current[workspaceId]
+    if (timer === undefined) return
+
+    window.clearTimeout(timer)
+    delete workspaceLayoutUnloadTimersRef.current[workspaceId]
+  }
+
+  useEffect(() => {
+    const workspaceIds = new Set(workspaces.map((workspace) => workspace.id))
+
+    setMountedWorkspaceIds((current) => {
+      const next = current.filter((workspaceId) => workspaceIds.has(workspaceId))
+      if (activeWorkspaceId && workspaceIds.has(activeWorkspaceId) && !next.includes(activeWorkspaceId)) {
+        next.push(activeWorkspaceId)
+      }
+      return next.length === current.length && next.every((workspaceId, index) => workspaceId === current[index])
+        ? current
+        : next
+    })
+
+    Object.keys(workspaceLayoutUnloadTimersRef.current).forEach((workspaceId) => {
+      if (!workspaceIds.has(workspaceId) || workspaceId === activeWorkspaceId) {
+        clearWorkspaceLayoutUnloadTimer(workspaceId)
+      }
+    })
+  }, [activeWorkspaceId, workspaces])
+
+  useEffect(() => {
+    const workspaceIds = new Set(workspaces.map((workspace) => workspace.id))
+
+    mountedWorkspaceIds.forEach((workspaceId) => {
+      if (workspaceId === activeWorkspaceId || !workspaceIds.has(workspaceId)) {
+        clearWorkspaceLayoutUnloadTimer(workspaceId)
+        return
+      }
+      if (workspaceLayoutUnloadTimersRef.current[workspaceId] !== undefined) return
+
+      workspaceLayoutUnloadTimersRef.current[workspaceId] = window.setTimeout(() => {
+        delete workspaceLayoutUnloadTimersRef.current[workspaceId]
+        setMountedWorkspaceIds((current) => {
+          if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) return current
+          return current.filter((id) => id !== workspaceId)
+        })
+      }, WORKSPACE_LAYOUT_IDLE_UNLOAD_MS)
+    })
+  }, [activeWorkspaceId, mountedWorkspaceIds, workspaces])
+
+  useEffect(() => () => {
+    Object.values(workspaceLayoutUnloadTimersRef.current).forEach((timer) => window.clearTimeout(timer))
+    workspaceLayoutUnloadTimersRef.current = {}
+  }, [])
 
   useEffect(() => {
     if (workspaces.length === 0) setShowTemplateSelector(true)
@@ -1172,11 +1231,19 @@ export default function WorkspaceManager() {
         ) : (
           <>
             {workspaces.length === 0 && <EmptyState onNew={openTemplateSelector} />}
-            {activeWorkspaceId ? (
-              <div className="absolute inset-0">
-                <WorkspaceLayout key={activeWorkspaceId} workspaceId={activeWorkspaceId} />
-              </div>
-            ) : null}
+            {renderedWorkspaceIds.map((workspaceId) => {
+              const active = workspaceId === activeWorkspaceId
+              return (
+                <div
+                  key={workspaceId}
+                  className={`absolute inset-0 ${active ? 'z-10 visible' : 'z-0 invisible'}`}
+                  style={{ pointerEvents: active ? 'auto' : 'none' }}
+                  aria-hidden={!active}
+                >
+                  <WorkspaceLayout workspaceId={workspaceId} />
+                </div>
+              )
+            })}
           </>
         )}
       </div>

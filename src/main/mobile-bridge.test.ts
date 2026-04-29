@@ -10,9 +10,76 @@ const now = new Date('2026-04-28T22:00:00.000Z')
 void main()
 
 async function main(): Promise<void> {
+  await assertDesktopPairingDisplayUsesCurrentRelayPayload()
+  await assertDesktopPairingDisplayRejectsLegacyRelayChallenge()
   await assertAuthenticatedRelayTransportDispatchesAndFailsClosed()
   await assertRelayServiceDeliveriesDispatchAndRecordResults()
   await assertDesktopRevocationUpdatesRelayAuthority()
+}
+
+async function assertDesktopPairingDisplayUsesCurrentRelayPayload(): Promise<void> {
+  const fixture = await writeSwarmFixture()
+  const relay = new PairingChallengeRelayTransport()
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'ses_seed_usr_seed_pro', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => 'desktop-access-token',
+      relayTransport: relay,
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 10_000,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitFor(() => relay.connects.length === 1)
+  const challenge = await bridge.requestPairingCode()
+  bridge.shutdown()
+
+  const displayedValue = new URL(challenge.pairingCode)
+  assert.equal(displayedValue.searchParams.get('mobileControlProtocolVersion'), '1')
+  assert.equal(displayedValue.searchParams.get('pairingChallengeId'), 'pcha_current')
+  assert.equal(displayedValue.searchParams.get('relayUrl'), 'https://relay.test')
+  assert.equal(displayedValue.searchParams.get('pairingSecret'), 'psec_current')
+  assert.equal(displayedValue.searchParams.get('secret'), null)
+  assert.equal(displayedValue.searchParams.get('expiresAt'), new Date(now.getTime() + 60_000).toISOString())
+  assert.equal(displayedValue.searchParams.get('desktopName'), 'Relay desktop')
+  assert.equal(displayedValue.searchParams.get('desktopInstanceId'), 'desktop-instance-current')
+  assert.equal(displayedValue.searchParams.get('desktopRelaySessionId'), 'drs_desktop_1')
+  assert.equal(challenge.pairingCode.includes('psec_current'), true)
+  assert.notEqual(challenge.pairingCode, challenge.pairingUri)
+  assert.equal(challenge.pairingUri.includes('pairingSecret=psec_current'), true)
+}
+
+async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise<void> {
+  const fixture = await writeSwarmFixture()
+  const relay = new LegacyPairingChallengeRelayTransport()
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'ses_seed_usr_seed_pro', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => 'desktop-access-token',
+      relayTransport: relay,
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 10_000,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitFor(() => relay.connects.length === 1)
+  await assert.rejects(
+    () => bridge.requestPairingCode(),
+    /Relay pairing challenge did not include a mobile-compatible pairing payload/u
+  )
+  bridge.shutdown()
 }
 
 async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Promise<void> {
@@ -220,6 +287,58 @@ class FakeRelayTransport implements MobileRelayTransport {
 
   async publishSnapshot(input: Parameters<NonNullable<MobileRelayTransport['publishSnapshot']>>[0]) {
     this.snapshots.push({ snapshot: input.snapshot })
+  }
+}
+
+class PairingChallengeRelayTransport extends FakeRelayTransport {
+  constructor() {
+    super([])
+  }
+
+  override async createPairingChallenge() {
+    const expiresAt = new Date(now.getTime() + 60_000).toISOString()
+
+    return {
+      pairingChallengeId: 'pcha_current',
+      pairingUri: [
+        'multicode://mobile/pair?',
+        new URLSearchParams({
+          relayUrl: 'https://relay.test',
+          pairingSecret: 'psec_current',
+          expiresAt,
+          pairingChallengeId: 'pcha_current',
+          desktopName: 'Relay desktop',
+          desktopInstanceId: 'desktop-instance-current',
+        }).toString(),
+      ].join(''),
+      pairingPayload: {
+        mobileControlProtocolVersion: 1 as const,
+        pairingChallengeId: 'pcha_current',
+        relayUrl: 'https://relay.test',
+        pairingSecret: 'psec_current',
+        expiresAt,
+        desktop: {
+          displayName: 'Relay desktop',
+          desktopInstanceId: 'desktop-instance-current',
+          desktopRelaySessionId: 'drs_desktop_1',
+        },
+      },
+      expiresAt,
+    }
+  }
+}
+
+class LegacyPairingChallengeRelayTransport extends FakeRelayTransport {
+  constructor() {
+    super([])
+  }
+
+  override async createPairingChallenge() {
+    return {
+      pairingChallengeId: 'pcha_legacy',
+      pairingUri: 'multicode://mobile/pair?secret=legacy-secret',
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+    }
   }
 }
 

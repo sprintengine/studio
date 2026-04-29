@@ -445,7 +445,7 @@ export class MobileBridge {
       desktopRelaySessionId: this.desktopRelaySessionId as string,
       requestedScopes: REQUESTED_RELAY_SCOPES,
     })
-    const pairingCode = pairingCodeFromRelayUri(relayChallenge.pairingUri)
+    const pairingCode = manualPairingValueFromRelayChallenge(relayChallenge)
     const expiresAt = relayChallenge.expiresAt
     const pairingChallengeId = relayChallenge.pairingChallengeId
     const pairingUri = relayChallenge.pairingUri
@@ -1560,14 +1560,44 @@ function getDesktopDisplayName(): string {
   return typeof app?.name === 'string' && app.name.trim() ? app.name : 'Multicode Desktop'
 }
 
-function pairingCodeFromRelayUri(pairingUri: string): string {
-  try {
-    const secret = new URL(pairingUri).searchParams.get('secret')
-    if (secret) return secret
-  } catch {
-    // Fall through to a bounded display token.
+function manualPairingValueFromRelayChallenge(challenge: RelayPairingChallengeResult): string {
+  if (!challenge.pairingPayload) {
+    if (isCurrentMobilePairingUri(challenge.pairingUri)) return challenge.pairingUri
+    throw new Error('Relay pairing challenge did not include a mobile-compatible pairing payload.')
   }
-  return randomBase64Url(8)
+
+  let url: URL
+  try {
+    url = new URL(challenge.pairingUri)
+  } catch {
+    url = new URL('multicode://mobile/pair')
+  }
+
+  url.searchParams.set('mobileControlProtocolVersion', String(challenge.pairingPayload.mobileControlProtocolVersion))
+  url.searchParams.set('pairingChallengeId', challenge.pairingPayload.pairingChallengeId)
+  url.searchParams.set('relayUrl', challenge.pairingPayload.relayUrl)
+  url.searchParams.set('pairingSecret', challenge.pairingPayload.pairingSecret)
+  url.searchParams.set('expiresAt', challenge.pairingPayload.expiresAt)
+  url.searchParams.set('desktopName', challenge.pairingPayload.desktop.displayName)
+  url.searchParams.set('desktopInstanceId', challenge.pairingPayload.desktop.desktopInstanceId)
+  url.searchParams.set('desktopRelaySessionId', challenge.pairingPayload.desktop.desktopRelaySessionId)
+
+  return url.toString()
+}
+
+function isCurrentMobilePairingUri(pairingUri: string): boolean {
+  try {
+    const params = new URL(pairingUri).searchParams
+    return params.get('mobileControlProtocolVersion') === String(mobileControlProtocolVersion)
+      && Boolean(params.get('pairingChallengeId')?.trim())
+      && Boolean(params.get('relayUrl')?.trim() || params.get('relay')?.trim())
+      && Boolean(params.get('pairingSecret')?.trim())
+      && Boolean(params.get('expiresAt')?.trim())
+      && Boolean((params.get('desktopName') ?? params.get('desktopDisplayName'))?.trim())
+      && Boolean(params.get('desktopInstanceId')?.trim())
+  } catch {
+    return false
+  }
 }
 
 function randomBase64Url(byteLength: number): string {
