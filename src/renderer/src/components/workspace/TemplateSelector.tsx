@@ -103,9 +103,15 @@ const cliOptions: Array<{ value: AgentCli; label: string }> = [
   { value: 'claude', label: 'Claude' },
 ]
 
+const maxVisibleRecentFolders = 5
+
 function basename(p: string): string {
   const parts = p.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? ''
+}
+
+function folderKey(path: string): string {
+  return path.trim().replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() || path
 }
 
 function toTitleName(value: string): string {
@@ -195,6 +201,8 @@ function getSwarmAccessState(authState: MulticodeAuthState, requestedAgents: num
 export default function TemplateSelector({ onCreate, onClose, allowClose = true }: Props) {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
+  const storedRecentFolders = useWorkspaceStore((s) => s.appSettings.recentWorkspaceFolders ?? [])
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
   const [folderPath, setFolderPath] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [nameTouched, setNameTouched] = useState(false)
@@ -210,6 +218,24 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const [existingTeams, setExistingTeams] = useState<ExistingTeam[]>([])
   const [selectedExistingTeam, setSelectedExistingTeam] = useState<ExistingTeam | null>(null)
   const [isScanning, setIsScanning] = useState(false)
+
+  const recentFolders = useMemo(() => {
+    const seen = new Set<string>()
+    const folders: string[] = []
+    const candidates = [
+      ...storedRecentFolders,
+      ...workspaces.map((workspace) => workspace.folderPath).filter((path): path is string => Boolean(path)),
+    ]
+
+    candidates.forEach((path) => {
+      const key = folderKey(path)
+      if (seen.has(key)) return
+      seen.add(key)
+      folders.push(path)
+    })
+
+    return folders.slice(0, maxVisibleRecentFolders)
+  }, [storedRecentFolders, workspaces])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -241,13 +267,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     [name, swarmGoal, swarmRoleCounts, swarmTeamName]
   )
 
-  const handlePick = async () => {
-    const dir = await window.api.openDir()
-    if (!dir) return
-
+  const selectFolder = async (dir: string) => {
     const folderName = basename(dir)
     setFolderPath(dir)
     setSelectedExistingTeam(null)
+    setExistingTeams([])
     if (!nameTouched) setName(folderName || 'workspace')
     if (!swarmTeamNameTouched) setSwarmTeamName(toTitleName(folderName) || 'Swarm Team')
 
@@ -275,6 +299,12 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     } finally {
       setIsScanning(false)
     }
+  }
+
+  const handlePick = async () => {
+    const dir = await window.api.openDir()
+    if (!dir) return
+    await selectFolder(dir)
   }
 
   const handleModeChange = (nextMode: CreationMode) => {
@@ -489,6 +519,46 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                     </span>
                     <span className="shrink-0 text-sm font-semibold text-[#d7d7dc]">Browse</span>
                   </button>
+                  {recentFolders.length > 0 ? (
+                    <div className="mt-2 min-w-0">
+                      <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[#777780]">
+                        Recent
+                      </div>
+                      <div className="max-h-36 space-y-1 overflow-auto pr-1">
+                        {recentFolders.map((recentFolder) => {
+                          const active = folderPath ? folderKey(folderPath) === folderKey(recentFolder) : false
+                          const label = basename(recentFolder) || recentFolder
+                          return (
+                            <button
+                              key={recentFolder}
+                              type="button"
+                              aria-pressed={active}
+                              title={recentFolder}
+                              onClick={() => void selectFolder(recentFolder)}
+                              className={`flex min-h-9 w-full min-w-0 items-center gap-3 rounded px-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#ececee]/25 ${
+                                active
+                                  ? 'bg-[#17181d] text-[#ececee]'
+                                  : 'text-[#a8a8b0] hover:bg-[#111216] hover:text-[#d7d7dc]'
+                              }`}
+                            >
+                              <span
+                                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                                  active ? 'bg-[#ececee]' : 'bg-[#3a3b42]'
+                                }`}
+                                aria-hidden="true"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[12px] font-medium">{label}</span>
+                                <span className="block truncate font-mono text-[11px] text-[#777780]">
+                                  {recentFolder}
+                                </span>
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <label className="flex min-w-0 flex-col gap-2">

@@ -50,6 +50,7 @@ import {
 
 const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
+const MAX_RECENT_WORKSPACE_FOLDERS = 12
 
 function migrateLegacyWorkspaceStorageKey(): void {
   try {
@@ -147,6 +148,7 @@ const defaultAppSettings = (): AppSettings => ({
   lastSelectedCli: 'claude',
   lastSelectedSpecialist: 'architect',
   searchExcludes: [],
+  recentWorkspaceFolders: [],
 })
 
 function normalizeSearchExcludes(patterns: unknown): string[] {
@@ -163,6 +165,31 @@ function normalizeSearchExcludes(patterns: unknown): string[] {
   })
 
   return normalized.slice(0, 100)
+}
+
+function normalizeRecentWorkspaceFolders(
+  folders: unknown,
+  additionalFolders: unknown = []
+): string[] {
+  const candidates = [
+    ...(Array.isArray(folders) ? folders : []),
+    ...(Array.isArray(additionalFolders) ? additionalFolders : []),
+  ]
+  const seen = new Set<string>()
+  const normalized: string[] = []
+
+  candidates.forEach((folder) => {
+    if (typeof folder !== 'string') return
+    const value = folder.trim()
+    if (!value) return
+
+    const key = value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() || value
+    if (seen.has(key)) return
+    seen.add(key)
+    normalized.push(value)
+  })
+
+  return normalized.slice(0, MAX_RECENT_WORKSPACE_FOLDERS)
 }
 
 const defaultAuthState = (): MulticodeAuthState => ({
@@ -646,6 +673,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         const id = nanoid()
 
         set((state) => {
+          const folderPath = options?.folderPath ?? null
           const fallbackName = `${template.name} ${state.workspaces.length + 1}`
           const isSwarm = template.id === 'swarm-mode' || Boolean(options?.swarmState)
           const swarmState = isSwarm
@@ -677,11 +705,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             id,
             name: options?.name?.trim() || fallbackName,
             mode: swarmState ? 'swarm' : 'standard',
-            folderPath: options?.folderPath ?? null,
+            folderPath,
             folderMissing: false,
             swarmContext: normalizeSwarmWorkspaceContext(
               options?.swarmContext,
-              options?.folderPath ?? null,
+              folderPath,
               swarmState
             ),
             templateId: template.id,
@@ -696,6 +724,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             swarmAutoState: defaultSwarmAutoState(),
             createdAt: Date.now(),
           })
+          if (folderPath) {
+            state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
+              [folderPath],
+              state.appSettings.recentWorkspaceFolders
+            )
+          }
           state.activeWorkspaceId = id
         })
 
@@ -733,6 +767,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (ws) {
             ws.folderPath = folderPath
             ws.folderMissing = false
+            if (folderPath) {
+              state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
+                [folderPath],
+                state.appSettings.recentWorkspaceFolders
+              )
+            }
             ws.swarmContext = normalizeSwarmWorkspaceContext(
               ws.swarmContext,
               folderPath,
@@ -1115,7 +1155,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 26,
+      version: 27,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1342,6 +1382,26 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             lastSelectedSpecialist:
               current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
             searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
+          }
+        }
+        if (version < 27) {
+          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const defaults = defaultAppSettings()
+          current.appSettings = {
+            ...defaults,
+            ...(current.appSettings ?? {}),
+            cliRuntimes: {
+              ...defaults.cliRuntimes,
+              ...(current.appSettings?.cliRuntimes ?? {}),
+            },
+            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
+            lastSelectedSpecialist:
+              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
+            searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
+            recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
+              current.appSettings?.recentWorkspaceFolders,
+              state.workspaces.map((ws) => ws.folderPath)
+            ),
           }
         }
         return state as never

@@ -306,6 +306,7 @@ export type AppSettings = {
   lastSelectedCli: AgentCli
   lastSelectedSpecialist: SpecialistActionId
   searchExcludes: string[]
+  recentWorkspaceFolders: string[]
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'

@@ -1441,6 +1441,13 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                   `${task.acceptanceCriteria.length} checks`,
                 ]
                 const taskArtifacts = artifactsByTaskId[task.id] ?? []
+                const quickOpenArtifact = task.status === 'needs_input'
+                  ? getPrimaryTaskArtifact(taskArtifacts)
+                  : null
+                const quickOpenArtifactAction = quickOpenArtifact
+                  ? artifactActions[quickOpenArtifact.id]
+                  : undefined
+                const quickOpenArtifactPending = quickOpenArtifactAction?.status === 'pending'
                 const mobileDecisionSummary = formatTaskMobileDecisionSummary(taskArtifacts)
                 const taskArtifactBlockers = artifactBlockersByTaskId[task.id] ?? []
                 const actionLabel = task.ownerAgentId
@@ -1543,8 +1550,27 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
                         Waiting on {formatArtifactBlockerSummary(taskArtifactBlockers)}
                       </div>
                     ) : null}
-                    {showTaskAction ? (
-                      <div className="mt-2 flex justify-end">
+                    {showTaskAction || quickOpenArtifact ? (
+                      <div className="mt-2 flex flex-wrap justify-end gap-1.5">
+                        {quickOpenArtifact ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void openArtifact(quickOpenArtifact)
+                            }}
+                            onKeyDown={(event) => {
+                              event.stopPropagation()
+                            }}
+                            disabled={quickOpenArtifactPending}
+                            title={quickOpenArtifact.title}
+                            className="rounded bg-[#ffbf2f]/12 px-2 py-1 text-[11px] font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/18 hover:text-[#fff0c8] disabled:opacity-45 disabled:hover:bg-[#ffbf2f]/12 disabled:hover:text-[#ffe0a3]"
+                          >
+                            {quickOpenArtifactPending && quickOpenArtifactAction?.kind === 'open'
+                              ? 'Opening...'
+                              : 'Open Artifact'}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={(event) => {
@@ -3830,6 +3856,23 @@ function formatArtifactSummary(artifacts: SwarmArtifact[]): string {
     return `${pendingCount} pending ${pendingCount === 1 ? 'artifact' : 'artifacts'}`
   }
   return `${approvedCount} approved ${approvedCount === 1 ? 'artifact' : 'artifacts'}`
+}
+
+function getPrimaryTaskArtifact(artifacts: SwarmArtifact[]): SwarmArtifact | null {
+  const statusOrder: SwarmArtifact['status'][] = [
+    'ready_for_review',
+    'changes_requested',
+    'draft',
+    'approved',
+    'superseded',
+  ]
+
+  return [...artifacts]
+    .filter((artifact) => artifact.path.trim())
+    .sort((a, b) => {
+      const statusDelta = statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status)
+      return statusDelta !== 0 ? statusDelta : a.title.localeCompare(b.title)
+    })[0] ?? null
 }
 
 type MobileArtifactDecision = {
