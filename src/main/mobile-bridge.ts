@@ -195,6 +195,12 @@ export type MobileRelayTransport = {
     resultCode: string
     summary: Record<string, unknown>
   }): Promise<void>
+  revokeDevice(input: {
+    relayUrl: string
+    accessToken: string
+    deviceId: string
+    reason: string
+  }): Promise<{ revoked: true }>
   publishSnapshot?(input: {
     relayUrl: string
     relayToken: string
@@ -473,15 +479,19 @@ export class MobileBridge {
     await this.load()
     this.assertEnabled()
 
-    if (!deviceId.trim()) {
+    const trimmedDeviceId = deviceId.trim()
+    const trimmedReason = reason?.trim()
+    if (!trimmedDeviceId) {
       throw new Error('deviceId is required.')
     }
 
-    const device = this.pairedDevices.find((candidate) => candidate.deviceId === deviceId)
+    const device = this.pairedDevices.find((candidate) => candidate.deviceId === trimmedDeviceId)
     if (!device) {
-      this.recordDiagnostic('warning', 'device_revoked', `Device ${deviceId} was not found for revocation.`, false)
+      this.recordDiagnostic('warning', 'device_revoked', `Device ${trimmedDeviceId} was not found for revocation.`, false)
       throw new Error('Paired mobile device was not found.')
     }
+
+    await this.revokeDeviceAtRelay(trimmedDeviceId, trimmedReason ?? 'Revoked from Multicode desktop settings.')
 
     if (!device.revokedAt) {
       const revokedAt = new Date().toISOString()
@@ -490,7 +500,7 @@ export class MobileBridge {
       this.recordDiagnostic(
         'info',
         'device_revoked',
-        reason?.trim() ? `Revoked mobile device ${device.displayName}: ${reason.trim()}` : `Revoked mobile device ${device.displayName}.`,
+        trimmedReason ? `Revoked mobile device ${device.displayName}: ${trimmedReason}` : `Revoked mobile device ${device.displayName}.`,
         false
       )
     }
@@ -1064,8 +1074,38 @@ export class MobileBridge {
     const deviceId = stringPayload(command.payload, 'deviceId')
     const payload = command.payload as Record<string, unknown>
     const reason = typeof payload.reason === 'string' ? payload.reason : undefined
-    const device = await this.revokeDevice(deviceId, reason)
+    let device: MobileControlDevice
+    try {
+      device = await this.revokeDevice(deviceId, reason)
+    } catch (error) {
+      return failedCommandResult(command, 'relay_unavailable', getErrorMessage(error))
+    }
     return acceptedBridgeCommand(command, { revoked: true, deviceId: device.deviceId })
+  }
+
+  private async revokeDeviceAtRelay(deviceId: string, reason: string): Promise<void> {
+    if (!this.relayUrl) {
+      this.recordDiagnostic('warning', 'relay_not_configured', 'Mobile relay URL is not configured; device was not revoked.', true)
+      throw new Error('Mobile relay URL is not configured.')
+    }
+
+    const accessToken = await this.accessTokenProvider()
+    if (!accessToken) {
+      this.recordDiagnostic('warning', 'unauthenticated', 'Mobile relay revocation requires a desktop access token.', true)
+      throw new Error('Mobile relay revocation requires a desktop access token.')
+    }
+
+    try {
+      await this.relayTransport.revokeDevice({
+        relayUrl: this.relayUrl,
+        accessToken,
+        deviceId,
+        reason,
+      })
+    } catch (error) {
+      this.recordDiagnostic('error', 'relay_unavailable', `Relay device revocation failed: ${getErrorMessage(error)}`, true)
+      throw error
+    }
   }
 
   private async postCommandResult(commandId: string, result: MobileSwarmCommandResult): Promise<void> {
@@ -1192,6 +1232,27 @@ class FetchMobileRelayTransport implements MobileRelayTransport {
         summary: input.summary,
       },
     })
+  }
+
+  async revokeDevice(input: {
+    relayUrl: string
+    accessToken: string
+    deviceId: string
+    reason: string
+  }): Promise<{ revoked: true }> {
+    const payload = await relayJsonRequest(input.relayUrl, `/api/relay/devices/${encodeURIComponent(input.deviceId)}/revoke`, {
+      token: input.accessToken,
+      method: 'POST',
+      body: {
+        reason: input.reason,
+      },
+    })
+
+    if (payload.revoked !== true) {
+      throw new Error('Relay revoke response did not confirm device revocation.')
+    }
+
+    return { revoked: true }
   }
 }
 

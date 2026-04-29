@@ -15,6 +15,7 @@ type SharedGitStatusSnapshot = {
 
 type GitStatusSubscriber = (snapshot: SharedGitStatusSnapshot) => void
 type GitStatusRefreshCause = 'initial' | 'watch' | 'recovery' | 'manual' | 'coalesced'
+type GitStatusScheduledRefreshCause = Exclude<GitStatusRefreshCause, 'coalesced'>
 
 type GitStatusSubscription = {
   repoRoot: string
@@ -34,6 +35,8 @@ type GitStatusSubscription = {
 const GIT_STATUS_RECOVERY_INITIAL_MS = 30_000
 const GIT_STATUS_WATCH_RECOVERY_INITIAL_MS = 120_000
 const GIT_STATUS_RECOVERY_MAX_MS = 300_000
+const GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS = 1_000
+const GIT_STATUS_DEFAULT_REFRESH_DEBOUNCE_MS = 250
 const gitStatusSubscriptions = new Map<string, GitStatusSubscription>()
 const gitRepoRootLookups = new Map<string, Promise<string | null>>()
 let gitStatusVisibilityListenerInstalled = false
@@ -235,15 +238,19 @@ async function refreshGitStatusSubscription(
   return subscription.refreshPromise
 }
 
-function scheduleGitStatusRefresh(subscription: GitStatusSubscription, cause: GitStatusRefreshCause): void {
+function scheduleGitStatusRefresh(subscription: GitStatusSubscription, cause: GitStatusScheduledRefreshCause): void {
   if (subscription.refreshTimer !== null) {
     window.clearTimeout(subscription.refreshTimer)
   }
 
+  const delayMs = cause === 'watch'
+    ? GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS
+    : GIT_STATUS_DEFAULT_REFRESH_DEBOUNCE_MS
+
   subscription.refreshTimer = window.setTimeout(() => {
     subscription.refreshTimer = null
     void refreshGitStatusSubscription(subscription, cause)
-  }, 250)
+  }, delayMs)
 }
 
 function startGitStatusWatch(subscription: GitStatusSubscription): void {

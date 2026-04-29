@@ -1172,21 +1172,11 @@ export default function WorkspaceManager() {
         ) : (
           <>
             {workspaces.length === 0 && <EmptyState onNew={openTemplateSelector} />}
-            {workspaces.map((workspace) => {
-              const active = workspace.id === activeWorkspaceId
-              return (
-                <div
-                  key={workspace.id}
-                  className={`absolute inset-0 ${active ? 'z-10 visible' : 'z-0 invisible'}`}
-                  style={{
-                    pointerEvents: active ? 'auto' : 'none',
-                  }}
-                  aria-hidden={!active}
-                >
-                  <WorkspaceLayout workspaceId={workspace.id} />
-                </div>
-              )
-            })}
+            {activeWorkspaceId ? (
+              <div className="absolute inset-0">
+                <WorkspaceLayout key={activeWorkspaceId} workspaceId={activeWorkspaceId} />
+              </div>
+            ) : null}
           </>
         )}
       </div>

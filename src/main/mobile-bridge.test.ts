@@ -12,6 +12,7 @@ void main()
 async function main(): Promise<void> {
   await assertAuthenticatedRelayTransportDispatchesAndFailsClosed()
   await assertRelayServiceDeliveriesDispatchAndRecordResults()
+  await assertDesktopRevocationUpdatesRelayAuthority()
 }
 
 async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Promise<void> {
@@ -91,6 +92,39 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   assert.equal(resultByCommand.get('cmd_revoked')?.resultCode, 'DEVICE_REVOKED')
   assert.equal(resultByCommand.get('cmd_wrong_session')?.resultCode, 'UNAUTHORIZED')
   assert.equal(resultByCommand.get('cmd_missing_capability')?.resultCode, 'UNAUTHORIZED')
+}
+
+async function assertDesktopRevocationUpdatesRelayAuthority(): Promise<void> {
+  const fixture = await writeSwarmFixture()
+  const relay = new RelayServiceBackedTransport()
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'desktop-session-1', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => relay.desktopAccessToken,
+      relayTransport: relay,
+      commandService: new MobileSwarmCommandService({
+        workspaceRoot: fixture.workspaceRoot,
+        statePaths: [fixture.statePath],
+        now: () => now,
+        execute: async () => ({ exitCode: 0, stdout: '{"ok":true,"action":"approved"}', stderr: '' }),
+      }),
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 10_000,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitFor(() => relay.results.some((result) => result.commandId === 'cmd_relay_service_approve'))
+  const revokedDevice = await bridge.revokeDevice(relay.pairedDeviceId, 'Lost phone')
+  bridge.shutdown()
+
+  assert.equal(revokedDevice.revokedAt !== undefined, true)
+  await relay.assertRecreatedRelayRejectsRevokedDevice()
 }
 
 async function assertRelayServiceDeliveriesDispatchAndRecordResults(): Promise<void> {
@@ -180,6 +214,10 @@ class FakeRelayTransport implements MobileRelayTransport {
     })
   }
 
+  async revokeDevice(_input: Parameters<MobileRelayTransport['revokeDevice']>[0]) {
+    return { revoked: true as const }
+  }
+
   async publishSnapshot(input: Parameters<NonNullable<MobileRelayTransport['publishSnapshot']>>[0]) {
     this.snapshots.push({ snapshot: input.snapshot })
   }
@@ -201,15 +239,19 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
       heartbeatAfterSeconds: number
     }>
     createPairingChallenge(input: Record<string, unknown>): Promise<{ pairingUri: string }>
-    pairMobile(input: Record<string, unknown>): Promise<{ relayToken: string }>
+    pairMobile(input: Record<string, unknown>): Promise<{ pairedDeviceId: string; relayToken: string }>
+    mintRelayToken(input: Record<string, unknown>): Promise<unknown>
     enqueueCommand(input: Record<string, unknown>): Promise<unknown>
     listPendingCommands(input: Record<string, unknown>): Promise<{ commands: Awaited<ReturnType<MobileRelayTransport['listPendingCommands']>> }>
     recordCommandResult(input: Record<string, unknown>): Promise<unknown>
+    revokeDevice(input: Record<string, unknown>): Promise<{ revoked: true }>
   }
   private readonly requestedScopes = ['relay:artifact:review']
   private desktopRelayToken = ''
   private mobileRelayToken = ''
   private desktopRelaySessionId = ''
+  private pairedDeviceIdValue = ''
+  private readonly relayStore: unknown
 
   constructor() {
     const { AuthService, MemoryAuthStore } = require('../../../multiauth/src/auth') as {
@@ -227,9 +269,10 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
       store: authStore,
       now: () => now,
     })
+    this.relayStore = new MemoryRelayStore()
     this.relay = new RelayService({
       authService: this.auth,
-      store: new MemoryRelayStore(),
+      store: this.relayStore,
       now: () => now,
     })
   }
@@ -243,6 +286,10 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
       scope: ['relay:desktop'],
       lifetimeSeconds: 600,
     })
+  }
+
+  get pairedDeviceId(): string {
+    return this.pairedDeviceIdValue
   }
 
   private get mobileAccessToken(): string {
@@ -282,6 +329,7 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
       platform: 'ios',
       devicePublicKey: 'relay-service-phone-key',
     })
+    this.pairedDeviceIdValue = paired.pairedDeviceId as string
     this.mobileRelayToken = paired.relayToken
     await this.enqueueApproveCommand()
 
@@ -317,6 +365,52 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
       status: input.status,
       resultCode: input.resultCode,
       summary: input.summary,
+    })
+  }
+
+  async revokeDevice(input: Parameters<MobileRelayTransport['revokeDevice']>[0]) {
+    return this.relay.revokeDevice({
+      accessToken: input.accessToken,
+      deviceId: input.deviceId,
+      reason: input.reason,
+    })
+  }
+
+  async assertRecreatedRelayRejectsRevokedDevice(): Promise<void> {
+    const restartedRelay = this.recreateRelayService()
+    await assert.rejects(
+      () => restartedRelay.mintRelayToken({
+        accessToken: this.mobileAccessToken,
+        pairedDeviceId: this.pairedDeviceId,
+        requestedScopes: ['relay:artifact:review'],
+      }),
+      (error) => error && typeof error === 'object' && 'status' in error && error.status === 403
+    )
+    await assert.rejects(
+      () => restartedRelay.enqueueCommand({
+        relayToken: this.mobileRelayToken,
+        idempotencyKey: 'idem-after-desktop-revocation',
+        envelope: {
+          desktopRelaySessionId: this.desktopRelaySessionId,
+          commandId: 'cmd_after_desktop_revoke',
+          commandType: 'artifact.approve',
+          issuedAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+          payload: { swarmId: 'relay-team', artifactId: 'A1' },
+        },
+      }),
+      (error) => error && typeof error === 'object' && 'status' in error && error.status === 403
+    )
+  }
+
+  private recreateRelayService(): RelayServiceBackedTransport['relay'] {
+    const { RelayService } = require('../../../multiauth/src/relay') as {
+      RelayService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['relay']
+    }
+    return new RelayService({
+      authService: this.auth,
+      store: this.relayStore,
+      now: () => now,
     })
   }
 

@@ -253,6 +253,26 @@ def load_prompt(role: str) -> str:
     )
 
 
+def artifact_registration_instruction(agent_id: str) -> str:
+    return (
+        "Artifact-producing tasks: if the task asks for an artifact, review, report, "
+        "requirements document, design notes, mockup, plan, or validation output, writing "
+        "the file and logging evidence is not enough. Register the UI-visible artifact object "
+        "before stopping:\n"
+        "```\n"
+        f"swarm artifact add --actor {agent_id} --task-id <task-id> --kind <artifact-kind> "
+        f"--title \"<title>\" --path <path-under-team-folder> --created-by {agent_id} --ready\n"
+        "swarm artifact list --task-id <task-id>\n"
+        "```\n"
+        "Use the task's requested kind when specified. Otherwise use `security_review` for "
+        "security reviews, `code_review` for code reviews, `validation_report` for validation "
+        "reports, `requirements` or `product_strategy` for product outputs, `design_notes` or "
+        "`html_mockup` for frontend outputs, and `architect_plan` for plan gates. The `--ready` "
+        "flag moves the linked task to `needs_input`; do not manually mark an artifact-gated task "
+        "done before approval."
+    )
+
+
 def backup_state_file(path: Path) -> Path:
     if not path.exists():
         raise SystemExit(f"State file not found: {path}")
@@ -1851,7 +1871,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"You already have active task `{task_id}`: {task_title}.\n\n"
                 f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
                 f"This reconnects you to your existing active task instead of claiming a new one. "
-                f"Continue the task and log evidence. "
+                f"Continue the task and log evidence.\n\n"
+                f"{artifact_registration_instruction(args.id)}\n\n"
                 f"When complete: if you produced findings, issues, or changes_requested, move the task back to `needs_input` so the implementer/author can address them. "
                 f"Otherwise, mark it done. "
                 f"If you notice a prompt or process issue that would help improve future swarms, include it with repeatable `--issue-json` on your final feedback command. "
@@ -1868,7 +1889,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"You are agent `{args.id}` with role `{args.role}`.\n"
             f"There are **{len(ready)} task(s)** ready for your role.\n\n"
             f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
-            f"Complete exactly one task and log evidence. "
+            f"Complete exactly one task and log evidence.\n\n"
+            f"{artifact_registration_instruction(args.id)}\n\n"
             f"When complete: if you produced findings, issues, or changes_requested, move the task back to `needs_input` so the implementer/author can address them. "
             f"Otherwise, mark it done. "
             f"If you notice a prompt or process issue that would help improve future swarms, include it with repeatable `--issue-json` on your final feedback command. "
