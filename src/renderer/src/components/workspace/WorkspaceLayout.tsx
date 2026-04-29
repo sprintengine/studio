@@ -23,6 +23,7 @@ interface Props {
 }
 
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
+const ContentSearchPanel = React.lazy(() => import('../panels/ContentSearchPanel'))
 const GitPanel = React.lazy(() => import('../panels/GitPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SwarmBoardPanel = React.lazy(() => import('../panels/SwarmBoardPanel'))
@@ -203,6 +204,12 @@ function WorkspaceLayout({ workspaceId }: Props) {
             : <div className="h-full bg-[#08090b]" />
         case 'explorer':
           return <FileExplorer workspaceId={workspaceId} />
+        case 'content-search':
+          return (
+            <Suspense fallback={<PanelLoadingFallback />}>
+              <ContentSearchPanel workspaceId={workspaceId} />
+            </Suspense>
+          )
         case 'git':
           return (
             <Suspense fallback={<PanelLoadingFallback />}>

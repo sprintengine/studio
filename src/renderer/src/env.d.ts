@@ -45,6 +45,30 @@ type FileSearchResult =
       engine: 'ripgrep' | null
     }
 
+type ContentSearchEntry = {
+  name: string
+  path: string
+  parentPath: string
+  lineNumber: number
+  column: number
+  lineText: string
+  matchText: string
+}
+type ContentSearchResult =
+  | {
+      ok: true
+      results: ContentSearchEntry[]
+      truncated: boolean
+      engine: 'ripgrep'
+      elapsedMs: number
+      resultCount: number
+    }
+  | {
+      ok: false
+      message: string
+      engine: 'ripgrep' | null
+    }
+
 type AgentCli = 'codex' | 'claude'
 type AgentExecutionMode = 'current_workspace' | 'worktree'
 type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
@@ -343,6 +367,8 @@ declare interface Window {
     // File system
     readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>
     searchFiles: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }) => Promise<FileSearchResult>
+    searchContent: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }) => Promise<ContentSearchResult>
+    cancelContentSearch: () => Promise<void>
     readfile:  (path: string) => Promise<string>
     pathExists: (path: string) => Promise<boolean>
     checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>

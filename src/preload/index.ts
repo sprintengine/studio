@@ -34,6 +34,29 @@ type FileSearchResult =
       message: string
       engine: 'ripgrep' | null
     }
+type ContentSearchEntry = {
+  name: string
+  path: string
+  parentPath: string
+  lineNumber: number
+  column: number
+  lineText: string
+  matchText: string
+}
+type ContentSearchResult =
+  | {
+      ok: true
+      results: ContentSearchEntry[]
+      truncated: boolean
+      engine: 'ripgrep'
+      elapsedMs: number
+      resultCount: number
+    }
+  | {
+      ok: false
+      message: string
+      engine: 'ripgrep' | null
+    }
 type AgentCli = 'codex' | 'claude'
 type AgentExecutionMode = 'current_workspace' | 'worktree'
 type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
@@ -512,6 +535,10 @@ contextBridge.exposeInMainWorld('api', {
   readdir:   (path: string)                    => ipcRenderer.invoke('fs:readdir', path),
   searchFiles: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }): Promise<FileSearchResult> =>
     ipcRenderer.invoke('fs:search-files', { rootPath, query, limit: options?.limit, excludes: options?.excludes }),
+  searchContent: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }): Promise<ContentSearchResult> =>
+    ipcRenderer.invoke('fs:search-content', { rootPath, query, limit: options?.limit, excludes: options?.excludes }),
+  cancelContentSearch: (): Promise<void> =>
+    ipcRenderer.invoke('fs:cancel-content-search'),
   readfile:  (path: string)                    => ipcRenderer.invoke('fs:readfile', path),
   pathExists: (path: string)                   => ipcRenderer.invoke('fs:path-exists', path),
   checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>

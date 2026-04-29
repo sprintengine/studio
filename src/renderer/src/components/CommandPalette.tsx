@@ -65,6 +65,15 @@ export default function CommandPalette({ onClose, onNewWorkspace }: Props) {
     ...(activeWorkspace
       ? [
           {
+            id: 'content-search',
+            label: 'Search: File Contents',
+            description: activeWorkspace.folderPath ?? 'Open content search',
+            run: () => {
+              focusOrAddComponentTab(activeWorkspace.id, 'content-search', 'Content Search')
+              onClose()
+            },
+          },
+          {
             id: 'git-worktrees',
             label: 'Git: Manage Worktrees',
             description: activeWorkspace.folderPath ?? 'Open the Git panel',

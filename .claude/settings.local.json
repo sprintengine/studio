@@ -5,7 +5,8 @@
       "Bash(python3 *)",
       "WebSearch",
       "Bash(gh api *)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(grep -E \"\\\\.\\(md|ts|yaml|json\\)$\")"
     ]
   }
 }
