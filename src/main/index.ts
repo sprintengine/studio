@@ -1176,8 +1176,7 @@ let nextFileWatcherId = 0
 
 const FILE_SEARCH_DEFAULT_LIMIT = 200
 const FILE_SEARCH_MAX_LIMIT = 500
-const FILE_SEARCH_FALLBACK_MAX_VISITS = 50_000
-const FILE_SEARCH_EXCLUDED_DIRS = new Set([
+const FILE_SEARCH_DEFAULT_EXCLUDES = [
   '.git',
   '.hg',
   '.svn',
@@ -1188,16 +1187,17 @@ const FILE_SEARCH_EXCLUDED_DIRS = new Set([
   '.next',
   '.turbo',
   'coverage',
-])
+]
 const activeFileSearches = new Map<number, ChildProcessWithoutNullStreams>()
 const cancelledFileSearches = new WeakSet<ChildProcessWithoutNullStreams>()
 
-type FileSearchEngine = 'ripgrep' | 'node'
+type FileSearchEngine = 'ripgrep'
 
 type FileSearchRequest = {
   rootPath: string
   query: string
   limit?: number
+  excludes?: string[]
 }
 
 type FileSearchEntry = {
@@ -2476,12 +2476,38 @@ function normalizeFileSearchLimit(limit: unknown): number {
   return Math.min(Math.max(Math.floor(limit), 1), FILE_SEARCH_MAX_LIMIT)
 }
 
+function normalizeSearchExcludePatterns(excludes: unknown): string[] {
+  if (!Array.isArray(excludes)) return []
+  const seen = new Set<string>()
+  const patterns: string[] = []
+
+  excludes.forEach((exclude) => {
+    if (typeof exclude !== 'string') return
+    const pattern = exclude.trim().replace(/\\/g, '/').replace(/^!+/u, '')
+    if (!pattern || pattern.length > 200 || seen.has(pattern)) return
+    seen.add(pattern)
+    patterns.push(pattern)
+  })
+
+  return patterns.slice(0, 100)
+}
+
 function normalizeSearchPath(value: string): string {
   return value.replace(/\\/g, '/').toLowerCase()
 }
 
-function isExcludedSearchDirectory(name: string): boolean {
-  return FILE_SEARCH_EXCLUDED_DIRS.has(name)
+function hasGlobSyntax(pattern: string): boolean {
+  return /[*?[\]{}]/u.test(pattern)
+}
+
+function searchExcludeToRipgrepGlobs(pattern: string): string[] {
+  if (!hasGlobSyntax(pattern) && !pattern.includes('/')) {
+    return [`!**/${pattern}`, `!**/${pattern}/**`]
+  }
+
+  return pattern.startsWith('**/')
+    ? [`!${pattern}`]
+    : [`!${pattern}`, `!**/${pattern}`]
 }
 
 function toFileSearchEntry(rootPath: string, relativePath: string): FileSearchEntry {
@@ -2527,13 +2553,18 @@ async function searchFilesWithRipgrep(
   senderId: number,
   rootPath: string,
   query: string,
-  limit: number
+  limit: number,
+  userExcludes: string[]
 ): Promise<FileSearchEngineResult> {
   const normalizedQuery = normalizeSearchPath(query)
   const results: FileSearchEntry[] = []
   let stdoutBuffer = ''
   let stderrBuffer = ''
   let truncated = false
+  const defaultExcludeArgs = FILE_SEARCH_DEFAULT_EXCLUDES.flatMap((pattern) => ['-g', `!**/${pattern}/**`])
+  const userExcludeArgs = userExcludes.flatMap((pattern) =>
+    searchExcludeToRipgrepGlobs(pattern).flatMap((glob) => ['-g', glob])
+  )
 
   return new Promise<FileSearchEngineResult>((resolve) => {
     let settled = false
@@ -2542,26 +2573,8 @@ async function searchFilesWithRipgrep(
       '--color',
       'never',
       '--no-messages',
-      '-g',
-      '!**/.git/**',
-      '-g',
-      '!**/.hg/**',
-      '-g',
-      '!**/.svn/**',
-      '-g',
-      '!**/node_modules/**',
-      '-g',
-      '!**/dist/**',
-      '-g',
-      '!**/out/**',
-      '-g',
-      '!**/build/**',
-      '-g',
-      '!**/.next/**',
-      '-g',
-      '!**/.turbo/**',
-      '-g',
-      '!**/coverage/**',
+      ...defaultExcludeArgs,
+      ...userExcludeArgs,
     ], {
       cwd: rootPath,
       windowsHide: true,
@@ -2643,65 +2656,6 @@ async function searchFilesWithRipgrep(
   })
 }
 
-async function searchFilesWithNodeFallback(
-  rootPath: string,
-  query: string,
-  limit: number
-): Promise<FileSearchEngineResult> {
-  const normalizedQuery = normalizeSearchPath(query)
-  const results: FileSearchEntry[] = []
-  const directories = [rootPath]
-  let visited = 0
-  let truncated = false
-
-  while (directories.length > 0) {
-    const dirPath = directories.shift()
-    if (!dirPath) break
-    visited += 1
-    if (visited > FILE_SEARCH_FALLBACK_MAX_VISITS) {
-      truncated = true
-      break
-    }
-
-    let entries
-    try {
-      entries = await readdir(dirPath, { withFileTypes: true })
-    } catch {
-      continue
-    }
-
-    entries.sort((a, b) => {
-      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
-
-    for (const entry of entries) {
-      if (entry.isSymbolicLink()) continue
-      const fullPath = join(dirPath, entry.name)
-      if (entry.isDirectory()) {
-        if (!isExcludedSearchDirectory(entry.name)) directories.push(fullPath)
-        continue
-      }
-
-      if (!normalizeSearchPath(relative(rootPath, fullPath)).includes(normalizedQuery)) continue
-      results.push({
-        name: entry.name,
-        path: fullPath,
-        parentPath: dirPath,
-        isDir: false,
-      })
-      if (results.length > limit) {
-        truncated = true
-        results.length = limit
-        directories.length = 0
-        break
-      }
-    }
-  }
-
-  return { ok: true, results: sortFileSearchResults(results, query), truncated, engine: 'node' }
-}
-
 function withFileSearchDiagnostics(result: FileSearchEngineResult, startedAt: number): FileSearchResult {
   if (!result.ok) return result
   return {
@@ -2716,6 +2670,7 @@ async function searchFiles(senderId: number, input: FileSearchRequest): Promise<
   const rootPath = typeof input.rootPath === 'string' ? input.rootPath : ''
   const query = typeof input.query === 'string' ? input.query.trim() : ''
   const limit = normalizeFileSearchLimit(input.limit)
+  const userExcludes = normalizeSearchExcludePatterns(input.excludes)
   if (!rootPath || !query) {
     return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
   }
@@ -2734,9 +2689,9 @@ async function searchFiles(senderId: number, input: FileSearchRequest): Promise<
   }
 
   cancelActiveFileSearch(senderId)
-  const ripgrepResult = await searchFilesWithRipgrep(senderId, rootPath, query, limit)
+  const ripgrepResult = await searchFilesWithRipgrep(senderId, rootPath, query, limit, userExcludes)
   if (ripgrepResult.ok) return withFileSearchDiagnostics(ripgrepResult, startedAt)
-  return withFileSearchDiagnostics(await searchFilesWithNodeFallback(rootPath, query, limit), startedAt)
+  return ripgrepResult
 }
 
 function isMissingPathError(error: unknown): boolean {

@@ -25,14 +25,14 @@ type FileSearchResult =
       ok: true
       results: FileSearchEntry[]
       truncated: boolean
-      engine: 'ripgrep' | 'node'
+      engine: 'ripgrep'
       elapsedMs: number
       resultCount: number
     }
   | {
       ok: false
       message: string
-      engine: 'ripgrep' | 'node' | null
+      engine: 'ripgrep' | null
     }
 type AgentCli = 'codex' | 'claude'
 type AgentExecutionMode = 'current_workspace' | 'worktree'
@@ -510,8 +510,8 @@ contextBridge.exposeInMainWorld('api', {
 
   // File system
   readdir:   (path: string)                    => ipcRenderer.invoke('fs:readdir', path),
-  searchFiles: (rootPath: string, query: string, options?: { limit?: number }): Promise<FileSearchResult> =>
-    ipcRenderer.invoke('fs:search-files', { rootPath, query, limit: options?.limit }),
+  searchFiles: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }): Promise<FileSearchResult> =>
+    ipcRenderer.invoke('fs:search-files', { rootPath, query, limit: options?.limit, excludes: options?.excludes }),
   readfile:  (path: string)                    => ipcRenderer.invoke('fs:readfile', path),
   pathExists: (path: string)                   => ipcRenderer.invoke('fs:path-exists', path),
   checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>

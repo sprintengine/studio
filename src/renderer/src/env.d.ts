@@ -35,14 +35,14 @@ type FileSearchResult =
       ok: true
       results: FileSearchEntry[]
       truncated: boolean
-      engine: 'ripgrep' | 'node'
+      engine: 'ripgrep'
       elapsedMs: number
       resultCount: number
     }
   | {
       ok: false
       message: string
-      engine: 'ripgrep' | 'node' | null
+      engine: 'ripgrep' | null
     }
 
 type AgentCli = 'codex' | 'claude'
@@ -342,7 +342,7 @@ declare interface Window {
 
     // File system
     readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>
-    searchFiles: (rootPath: string, query: string, options?: { limit?: number }) => Promise<FileSearchResult>
+    searchFiles: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }) => Promise<FileSearchResult>
     readfile:  (path: string) => Promise<string>
     pathExists: (path: string) => Promise<boolean>
     checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>

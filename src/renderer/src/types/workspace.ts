@@ -305,6 +305,7 @@ export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   lastSelectedCli: AgentCli
   lastSelectedSpecialist: SpecialistActionId
+  searchExcludes: string[]
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'

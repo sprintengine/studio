@@ -103,7 +103,7 @@ type SearchTreeNode = {
 }
 
 type FileSearchDiagnostics = {
-  engine: 'ripgrep' | 'node'
+  engine: 'ripgrep'
   elapsedMs: number
   resultCount: number
   truncated: boolean
@@ -494,12 +494,13 @@ async function searchFiles(
   rootPath: string,
   query: string,
   gitStatus: GitStatusSnapshot | null,
+  searchExcludes: string[],
   limit = 200
 ): Promise<FileSearchResponse> {
   const lowerQuery = query.toLowerCase().trim()
   if (!lowerQuery) return { entries: [], diagnostics: null }
 
-  const result = await window.api.searchFiles(rootPath, query, { limit })
+  const result = await window.api.searchFiles(rootPath, query, { limit, excludes: searchExcludes })
   if (!result.ok) throw new Error(result.message)
 
   const matches: Entry[] = result.results.map((entry) => ({ ...entry }))
@@ -546,6 +547,7 @@ interface ExplorerTreeProps {
   workspaceId: string
   rootPath: string
   query: string
+  searchExcludes: string[]
   refreshToken: number
   revealPath: string | null
   revealToken: number
@@ -560,6 +562,7 @@ function ExplorerTree({
   workspaceId,
   rootPath,
   query,
+  searchExcludes,
   refreshToken,
   revealPath,
   revealToken,
@@ -595,6 +598,7 @@ function ExplorerTree({
   const latestExpandedPathsRef = useRef<Record<string, boolean>>({})
   const latestSearchQueryRef = useRef('')
   const latestSearchingRef = useRef(false)
+  const latestSearchExcludesRef = useRef(searchExcludes)
   const latestGitStatusRef = useRef<GitStatusSnapshot | null>(gitStatus)
   const lastManualRefreshRef = useRef(refreshToken)
   const lastCreateRequestTokenRef = useRef(0)
@@ -624,6 +628,10 @@ function ExplorerTree({
     latestSearchQueryRef.current = query
     latestSearchingRef.current = isSearching
   }, [query, isSearching])
+
+  useEffect(() => {
+    latestSearchExcludesRef.current = searchExcludes
+  }, [searchExcludes])
 
   useEffect(() => {
     latestGitStatusRef.current = gitStatus
@@ -720,7 +728,12 @@ function ExplorerTree({
     if (latestSearchingRef.current) {
       const requestSeq = ++searchRequestSeqRef.current
       try {
-        const response = await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current)
+        const response = await searchFiles(
+          rootPath,
+          latestSearchQueryRef.current,
+          latestGitStatusRef.current,
+          latestSearchExcludesRef.current
+        )
         if (requestSeq === searchRequestSeqRef.current) applySearchResponse(response)
       } finally {
         if (requestSeq === searchRequestSeqRef.current) setSearching(false)
@@ -828,7 +841,12 @@ function ExplorerTree({
 
       await refreshParentDirectory(entry.parentPath)
       if (isSearching) {
-        applySearchResponse(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
+        applySearchResponse(await searchFiles(
+          rootPath,
+          latestSearchQueryRef.current,
+          latestGitStatusRef.current,
+          latestSearchExcludesRef.current
+        ))
       }
       setSelectedPath(nextPath)
       setRenameDraft(null)
@@ -1255,7 +1273,7 @@ function ExplorerTree({
 
     searchTimeoutRef.current = window.setTimeout(() => {
       searchTimeoutRef.current = null
-      searchFiles(rootPath, query, latestGitStatusRef.current)
+      searchFiles(rootPath, query, latestGitStatusRef.current, latestSearchExcludesRef.current)
         .then((response) => {
           if (requestSeq !== searchRequestSeqRef.current) return
           applySearchResponse(response)
@@ -1278,7 +1296,7 @@ function ExplorerTree({
         searchTimeoutRef.current = null
       }
     }
-  }, [applySearchResponse, rootPath, query, isSearching])
+  }, [applySearchResponse, rootPath, query, isSearching, searchExcludes])
 
   useEffect(() => {
     let disposed = false
@@ -1524,6 +1542,7 @@ export default function FileExplorer({ workspaceId }: Props) {
   } = useWorkspaceFolderStatus(workspaceId)
   const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
   const openFile = useWorkspaceStore((s) => s.openFile)
+  const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
   const activeFilePath = useWorkspaceStore(
     (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.editorState?.activeFilePath ?? null
   )
@@ -1641,6 +1660,7 @@ export default function FileExplorer({ workspaceId }: Props) {
             workspaceId={workspaceId}
             rootPath={folderReadyPath}
             query={query}
+            searchExcludes={searchExcludes}
             refreshToken={refreshToken}
             revealPath={canRevealActiveFile ? activeFilePath : null}
             revealToken={revealToken}

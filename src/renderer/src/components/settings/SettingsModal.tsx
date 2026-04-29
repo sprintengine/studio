@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli } from '../../types/workspace'
 
@@ -106,9 +106,18 @@ type MobileBridgeActionState = {
 const mobileBridgeApi = window.api as typeof window.api & MobileBridgeApi
 const presenceOptions: MobileBridgePresence[] = ['available', 'busy', 'idle', 'offline']
 
+function parseSearchExcludeText(value: string): string[] {
+  return value
+    .split(/\r?\n|,/u)
+    .map((pattern) => pattern.trim())
+    .filter(Boolean)
+}
+
 export default function SettingsModal({ onClose }: Props) {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
+  const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
   const isWindows = window.api.platform === 'win32'
   const [mobileState, setMobileState] = useState<MobileBridgeState | null>(null)
   const [pairingChallenge, setPairingChallenge] = useState<MobileBridgePairingChallenge | null>(null)
@@ -118,15 +127,21 @@ export default function SettingsModal({ onClose }: Props) {
   })
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
   const [showMobileDiagnostics, setShowMobileDiagnostics] = useState(false)
+  const [searchExcludesDraft, setSearchExcludesDraft] = useState(() => searchExcludes.join('\n'))
+
+  const closeSettings = useCallback(() => {
+    setSearchExcludes(parseSearchExcludeText(searchExcludesDraft))
+    onClose()
+  }, [onClose, searchExcludesDraft, setSearchExcludes])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') closeSettings()
     }
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [closeSettings])
 
   useEffect(() => {
     let cancelled = false
@@ -161,6 +176,10 @@ export default function SettingsModal({ onClose }: Props) {
       dispose()
     }
   }, [])
+
+  useEffect(() => {
+    setSearchExcludesDraft(searchExcludes.join('\n'))
+  }, [searchExcludes])
 
   const toggleMobileControl = async () => {
     if (mobileAction.status === 'busy') return
@@ -258,7 +277,7 @@ export default function SettingsModal({ onClose }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={(event) => event.target === event.currentTarget && onClose()}
+      onClick={(event) => event.target === event.currentTarget && closeSettings()}
     >
       <div className="max-h-[92vh] w-[760px] max-w-[95vw] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] p-6 shadow-2xl">
         <div className="mb-4 flex items-start justify-between">
@@ -266,7 +285,7 @@ export default function SettingsModal({ onClose }: Props) {
             <h2 className="text-base font-semibold text-[#ececee]">Settings</h2>
             <p className="mt-0.5 text-sm text-[#5a5a63]">Configure local CLIs and desktop-authorized mobile access.</p>
           </div>
-          <button onClick={onClose} className="text-xl leading-none text-[#5a5a63] hover:text-[#d7d7dc]">
+          <button onClick={closeSettings} className="text-xl leading-none text-[#5a5a63] hover:text-[#d7d7dc]">
             x
           </button>
         </div>
@@ -314,6 +333,35 @@ export default function SettingsModal({ onClose }: Props) {
             Defaults are <span className="font-mono text-[#d7d7dc]">codex</span> native and{' '}
             <span className="font-mono text-[#d7d7dc]">claude</span>{isWindows ? ' through WSL' : ''}.
             Use a full executable path if your CLI is not on PATH.
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+              File Search
+            </div>
+            <div className="mt-1 text-sm font-semibold text-[#ececee]">
+              Additional exclude patterns
+            </div>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+              Excludes
+            </span>
+            <textarea
+              value={searchExcludesDraft}
+              onChange={(event) => setSearchExcludesDraft(event.target.value)}
+              onBlur={(event) => setSearchExcludes(parseSearchExcludeText(event.target.value))}
+              rows={4}
+              placeholder={'generated\n*.snap\nfixtures/large/**'}
+              className="min-h-[96px] w-full resize-y rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#6ee7d8]/70"
+            />
+          </label>
+          <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-2 text-[12px] leading-5 text-[#5a5a63]">
+            Defaults still exclude heavy folders like <span className="font-mono text-[#d7d7dc]">.git</span>,{' '}
+            <span className="font-mono text-[#d7d7dc]">node_modules</span>, and{' '}
+            <span className="font-mono text-[#d7d7dc]">dist</span>. Add one pattern per line or separate entries with commas.
           </div>
         </div>
 
@@ -516,7 +564,7 @@ export default function SettingsModal({ onClose }: Props) {
 
         <div className="mt-6 flex justify-end">
           <button
-            onClick={onClose}
+            onClick={closeSettings}
             className="rounded border border-[#303139] bg-[#111216] px-4 py-1.5 text-sm font-medium text-[#ececee] transition-colors hover:bg-[#17181d]"
           >
             Close

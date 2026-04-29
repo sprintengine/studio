@@ -74,6 +74,7 @@ interface WorkspaceStore {
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
+  setSearchExcludes: (patterns: string[]) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: {
@@ -145,7 +146,24 @@ const defaultAppSettings = (): AppSettings => ({
   },
   lastSelectedCli: 'claude',
   lastSelectedSpecialist: 'architect',
+  searchExcludes: [],
 })
+
+function normalizeSearchExcludes(patterns: unknown): string[] {
+  if (!Array.isArray(patterns)) return []
+  const seen = new Set<string>()
+  const normalized: string[] = []
+
+  patterns.forEach((pattern) => {
+    if (typeof pattern !== 'string') return
+    const value = pattern.trim().replace(/\\/g, '/').replace(/^!+/u, '')
+    if (!value || seen.has(value)) return
+    seen.add(value)
+    normalized.push(value)
+  })
+
+  return normalized.slice(0, 100)
+}
 
 const defaultAuthState = (): MulticodeAuthState => ({
   authenticated: false,
@@ -617,6 +635,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       setLastSelectedSpecialist: (specialistId) =>
         set((state) => {
           state.appSettings.lastSelectedSpecialist = specialistId
+        }),
+
+      setSearchExcludes: (patterns) =>
+        set((state) => {
+          state.appSettings.searchExcludes = normalizeSearchExcludes(patterns)
         }),
 
       addWorkspace: (template, options) => {
@@ -1092,7 +1115,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 25,
+      version: 26,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1304,6 +1327,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               activeFilePath: ws.editorState?.activeFilePath ?? null,
             },
           }))
+        }
+        if (version < 26) {
+          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const defaults = defaultAppSettings()
+          current.appSettings = {
+            ...defaults,
+            ...(current.appSettings ?? {}),
+            cliRuntimes: {
+              ...defaults.cliRuntimes,
+              ...(current.appSettings?.cliRuntimes ?? {}),
+            },
+            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
+            lastSelectedSpecialist:
+              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
+            searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
+          }
         }
         return state as never
       },
