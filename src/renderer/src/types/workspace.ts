@@ -301,12 +301,20 @@ export type WorkspaceWorktreeState = {
   updatedAt: number | null
 }
 
+export type UsageTelemetrySettings = {
+  sendUsageData: boolean
+  localDevExportEnabled: boolean
+  lastExportAt: string | null
+  exportDiagnostics: boolean
+}
+
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   lastSelectedCli: AgentCli
   lastSelectedSpecialist: SpecialistActionId
   searchExcludes: string[]
   recentWorkspaceFolders: string[]
+  usageTelemetry: UsageTelemetrySettings
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'

@@ -832,6 +832,44 @@ async function getRunningAutoRunAgentIds(
   return runningAgentIds
 }
 
+async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<void> {
+  const sessions = await window.api.terminalList().catch(() => [])
+  const sessionsByAgentId = new Map<string, TerminalSessionSnapshot[]>()
+
+  sessions.forEach((session) => {
+    if (!session.agentId || !sessionBelongsToWorkspaceSwarm(session, workspace)) return
+    sessionsByAgentId.set(session.agentId, [
+      ...(sessionsByAgentId.get(session.agentId) ?? []),
+      session,
+    ])
+  })
+
+  for (const [agentId, agentSessions] of sessionsByAgentId) {
+    if (agentSessions.length <= 1) continue
+
+    const storedSessionId = workspace.agents[agentId]?.cliSessionId
+    const preferredSession =
+      agentSessions.find((session) => session.sessionId === storedSessionId)
+      ?? [...agentSessions].sort((a, b) => b.startedAt - a.startedAt)[0]
+
+    await Promise.all(
+      agentSessions
+        .filter((session) => session.sessionId !== preferredSession.sessionId)
+        .map((session) => window.api.terminalKill(session.sessionId).catch(() => {}))
+    )
+
+    const agent = workspace.agents[agentId]
+    if (agent?.cliSessionId !== preferredSession.sessionId || !agent?.cliStartRequested) {
+      useWorkspaceStore.getState().updateAgent(workspace.id, agentId, {
+        cliSessionId: preferredSession.sessionId,
+        cliStartRequested: true,
+        cliHasLaunched: true,
+        cli: preferredSession.cli ?? agent?.cli ?? 'codex',
+      })
+    }
+  }
+}
+
 function setAutoRunPendingSpawns(workspaceId: string, pendingSpawns: SwarmAutoPendingSpawn[]): void {
   useWorkspaceStore.getState().setSwarmAutoPendingSpawns(workspaceId, pendingSpawns)
 }
@@ -934,6 +972,14 @@ async function spawnAutoRunCandidate(
         taskId: nextRun.taskId,
       })
       return 'failed'
+    }
+
+    const latestAgent = useWorkspaceStore
+      .getState()
+      .workspaces.find((candidate) => candidate.id === workspace.id)
+      ?.agents[nextRun.agentId]
+    if (latestAgent?.cliStartRequested || latestAgent?.cliSessionId) {
+      return 'skipped'
     }
 
     let executionCwd = workspaceFolderPath
@@ -1145,6 +1191,8 @@ async function superviseWorkspace(
 }
 
 async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
+  await reconcileDuplicateAgentSessions(workspace)
+
   for (const agent of Object.values(workspace.agents)) {
     if (!agent.cliStartRequested || !agent.cliHasLaunched || !agent.cliSessionId) continue
 

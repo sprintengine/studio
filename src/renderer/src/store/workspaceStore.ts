@@ -19,6 +19,7 @@ import type {
   SwarmRoleCliDefaults,
   AgentCli,
   AppSettings,
+  UsageTelemetrySettings,
   CliRuntimeSettings,
   AgentKind,
   SpecialistActionId,
@@ -76,6 +77,7 @@ interface WorkspaceStore {
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setSearchExcludes: (patterns: string[]) => void
+  setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: {
@@ -149,7 +151,42 @@ const defaultAppSettings = (): AppSettings => ({
   lastSelectedSpecialist: 'architect',
   searchExcludes: [],
   recentWorkspaceFolders: [],
+  usageTelemetry: defaultUsageTelemetrySettings(),
 })
+
+function defaultUsageTelemetrySettings(): UsageTelemetrySettings {
+  return {
+    sendUsageData: false,
+    localDevExportEnabled: import.meta.env.DEV,
+    lastExportAt: null,
+    exportDiagnostics: true,
+  }
+}
+
+function normalizeUsageTelemetrySettings(settings: unknown): UsageTelemetrySettings {
+  const defaults = defaultUsageTelemetrySettings()
+  if (!settings || typeof settings !== 'object') return defaults
+
+  const candidate = settings as Partial<UsageTelemetrySettings>
+  return {
+    sendUsageData:
+      typeof candidate.sendUsageData === 'boolean'
+        ? candidate.sendUsageData
+        : defaults.sendUsageData,
+    localDevExportEnabled:
+      typeof candidate.localDevExportEnabled === 'boolean'
+        ? candidate.localDevExportEnabled
+        : defaults.localDevExportEnabled,
+    lastExportAt:
+      typeof candidate.lastExportAt === 'string' || candidate.lastExportAt === null
+        ? candidate.lastExportAt
+        : defaults.lastExportAt,
+    exportDiagnostics:
+      typeof candidate.exportDiagnostics === 'boolean'
+        ? candidate.exportDiagnostics
+        : defaults.exportDiagnostics,
+  }
+}
 
 function normalizeSearchExcludes(patterns: unknown): string[] {
   if (!Array.isArray(patterns)) return []
@@ -669,6 +706,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.appSettings.searchExcludes = normalizeSearchExcludes(patterns)
         }),
 
+      setUsageTelemetrySettings: (update) =>
+        set((state) => {
+          state.appSettings.usageTelemetry = normalizeUsageTelemetrySettings({
+            ...state.appSettings.usageTelemetry,
+            ...update,
+          })
+        }),
+
       addWorkspace: (template, options) => {
         const id = nanoid()
 
@@ -1155,7 +1200,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 27,
+      version: 28,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1401,6 +1446,29 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
               current.appSettings?.recentWorkspaceFolders,
               state.workspaces.map((ws) => ws.folderPath)
+            ),
+          }
+        }
+        if (version < 28) {
+          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const defaults = defaultAppSettings()
+          current.appSettings = {
+            ...defaults,
+            ...(current.appSettings ?? {}),
+            cliRuntimes: {
+              ...defaults.cliRuntimes,
+              ...(current.appSettings?.cliRuntimes ?? {}),
+            },
+            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
+            lastSelectedSpecialist:
+              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
+            searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
+            recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
+              current.appSettings?.recentWorkspaceFolders,
+              state.workspaces.map((ws) => ws.folderPath)
+            ),
+            usageTelemetry: normalizeUsageTelemetrySettings(
+              current.appSettings?.usageTelemetry
             ),
           }
         }

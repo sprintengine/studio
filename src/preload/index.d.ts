@@ -399,6 +399,7 @@ declare global {
   interface Window {
     api: {
       platform: string
+      isDevelopment: boolean
       authGetState: () => Promise<MulticodeAuthState>
       authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
       authLogout: () => Promise<{ loggedOut: true }>

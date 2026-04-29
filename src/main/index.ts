@@ -2117,6 +2117,29 @@ function disposeTerminal(sessionId: string): void {
   }
 }
 
+function disposeOtherAgentSessions(
+  sessionId: string,
+  workspaceId: string | undefined,
+  agentId: string | undefined,
+  swarmStatePath: string | undefined
+): void {
+  if (!workspaceId || !agentId) return
+
+  const duplicateSessionIds = [...terminals.values()]
+    .filter((session) => (
+      session.sessionId !== sessionId
+      && !session.hasExited
+      && !session.isDisposed
+      && session.kind === 'agent'
+      && session.workspaceId === workspaceId
+      && session.agentId === agentId
+      && (!swarmStatePath || !session.swarmStatePath || session.swarmStatePath === swarmStatePath)
+    ))
+    .map((session) => session.sessionId)
+
+  duplicateSessionIds.forEach(disposeTerminal)
+}
+
 function disposeFileWatcher(watchId: string): void {
   const fileWatcher = fileWatchers.get(watchId)
   if (!fileWatcher) return
@@ -2424,6 +2447,9 @@ ipcMain.handle(
             exitCode: 1,
           } satisfies TerminalSpawnResult
         }
+      }
+      if ((kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
+        disposeOtherAgentSessions(sessionId, workspaceId, agentId, swarmStatePath)
       }
 
       const { command, args, cwd: launchCwd, initialInput, env } = shellOnly

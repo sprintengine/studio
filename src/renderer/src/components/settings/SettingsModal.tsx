@@ -116,8 +116,10 @@ function parseSearchExcludeText(value: string): string[] {
 export default function SettingsModal({ onClose }: Props) {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
+  const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
+  const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
   const isWindows = window.api.platform === 'win32'
   const [mobileState, setMobileState] = useState<MobileBridgeState | null>(null)
   const [pairingChallenge, setPairingChallenge] = useState<MobileBridgePairingChallenge | null>(null)
@@ -380,6 +382,57 @@ export default function SettingsModal({ onClose }: Props) {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Usage Telemetry
+              </div>
+              <div className="mt-1 text-sm font-semibold text-[#ececee]">
+                Swarm usage data and diagnostics
+              </div>
+            </div>
+            <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-2.5 py-1 text-[11px] font-semibold text-[#9a9aa2]">
+              {import.meta.env.DEV ? 'Development build' : 'Production build'}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <UsageTelemetryToggle
+              label="Send usage data"
+              description="Upload sanitized swarm usage records only after explicit consent. This stays off by default for production builds."
+              enabled={usageTelemetry.sendUsageData}
+              onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
+            />
+            <UsageTelemetryToggle
+              label="Local dev export"
+              description="Write sanitized JSONL records to the sibling admin portal during local development. This can default on only in development builds."
+              enabled={usageTelemetry.localDevExportEnabled}
+              onChange={(enabled) => setUsageTelemetrySettings({ localDevExportEnabled: enabled })}
+            />
+            <UsageTelemetryToggle
+              label="Export diagnostics"
+              description="Include privacy-safe exporter and upload diagnostics so missing, rejected, or duplicated records can be investigated."
+              enabled={usageTelemetry.exportDiagnostics}
+              onChange={(enabled) => setUsageTelemetrySettings({ exportDiagnostics: enabled })}
+            />
+          </div>
+
+          <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-2 text-[12px] leading-5 text-[#9a9aa2]">
+            Raw source, prompts, transcripts, artifact bodies, descriptions, notes, and file contents are not collected by default.
+            Production upload is separate from local export and remains disabled until you turn on Send usage data.
+          </div>
+
+          <div className="grid gap-x-6 gap-y-3 border-t border-[#24252b] pt-4 text-sm sm:grid-cols-2">
+            <MobileMeta label="Last local export" value={formatNullableMobileDate(usageTelemetry.lastExportAt)} />
+            <MobileMeta
+              label="Upload consent"
+              value={usageTelemetry.sendUsageData ? 'Enabled' : 'Disabled'}
+              tone={usageTelemetry.sendUsageData ? 'connected' : 'disabled'}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                 Mobile Companion
               </div>
               <div className="mt-1 text-sm font-semibold text-[#ececee]">
@@ -591,6 +644,52 @@ export default function SettingsModal({ onClose }: Props) {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function UsageTelemetryToggle({
+  label,
+  description,
+  enabled,
+  onChange,
+}: {
+  label: string
+  description: string
+  enabled: boolean
+  onChange: (enabled: boolean) => void
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-[#ececee]">{label}</div>
+        <div className="mt-1 text-[12px] leading-5 text-[#5a5a63]">{description}</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        onClick={() => onChange(!enabled)}
+        className={`flex w-fit items-center gap-3 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+          enabled
+            ? 'border-[#6ee7d8]/55 bg-[#6ee7d8]/14 text-[#d8fffb] hover:border-[#6ee7d8]/75 hover:bg-[#6ee7d8]/18'
+            : 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
+        }`}
+      >
+        <span
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+            enabled ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+          }`}
+          aria-hidden="true"
+        >
+          <span
+            className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+              enabled ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </span>
+        <span>{enabled ? 'Enabled' : 'Disabled'}</span>
+      </button>
     </div>
   )
 }

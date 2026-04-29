@@ -332,6 +332,11 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
+      const currentSessionId = useWorkspaceStore
+        .getState()
+        .workspaces.find((w) => w.id === workspaceId)
+        ?.agents[agentId]
+        ?.cliSessionId
       if (code !== 0 && !reportedTerminalFailure) {
         reportedTerminalFailure = true
         publishDiagnosticSync({
@@ -346,6 +351,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           sessionId,
         })
       }
+      if (currentSessionId !== sessionId) return
       updateAgent(workspaceId, agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
@@ -461,6 +467,12 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       }))
       if (disposed) return
       if (!spawnResult.ok) {
+        const currentSessionId = useWorkspaceStore
+          .getState()
+          .workspaces.find((w) => w.id === workspaceId)
+          ?.agents[agentId]
+          ?.cliSessionId
+        if (currentSessionId !== sessionId) return
         updateAgent(workspaceId, agentId, {
           cliStartRequested: false,
           cliHasLaunched: false,
