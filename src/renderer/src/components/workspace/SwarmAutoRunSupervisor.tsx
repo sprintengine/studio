@@ -13,8 +13,8 @@ import type {
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
   buildSwarmAgentRosterForState,
+  getSwarmArtifactAutoApprovalEligibility,
   getSwarmTaskBoardColumn,
-  isSwarmArtifactAutoApprovableKind,
   swarmRoleLabels,
 } from '../../utils/swarm'
 import { parseSwarmStateFile } from '../../utils/swarmStateFile'
@@ -40,12 +40,11 @@ const TERMINAL_IPC_TIMEOUT_MS = 3000
 const DONE_AGENT_TERMINAL_CLOSE_DELAY_MS = 5 * 60 * 1000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
-const AUTO_APPROVAL_INTENT_STATUSES = new Set<SwarmArtifact['status']>([
+const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SwarmArtifact['status']>([
   'draft',
   'ready_for_review',
   'changes_requested',
 ])
-
 type AutoRunCandidate = {
   agentId: string
   label: string
@@ -532,14 +531,15 @@ function describeNeedsInputAutoApprovalState(swarmState: SwarmState): string[] {
 
 function getAutoApprovalIntentArtifacts(swarmState: SwarmState): SwarmArtifact[] {
   const tasksById = new Map(swarmState.tasks.map((task) => [task.id, task]))
+  const hasNeedsInputTask = swarmState.tasks.some((task) => task.status === 'needs_input')
   return swarmState.artifacts.filter((artifact) => {
-    if (!AUTO_APPROVAL_INTENT_STATUSES.has(artifact.status)) return false
-    if (!isSwarmArtifactAutoApprovableKind(artifact.kind)) return false
-    if (!artifact.path.trim()) return false
-
     const task = tasksById.get(artifact.taskId)
     if (!task) return false
-    return Boolean(artifact.createdBy.trim() || task.ownerAgentId?.trim())
+    if (!artifact.createdBy.trim() && !task.ownerAgentId?.trim()) return false
+    if (getSwarmArtifactAutoApprovalEligibility(artifact).eligible) return true
+    if (!hasNeedsInputTask) return false
+    if (!NEEDS_INPUT_AUTO_APPROVAL_STATUSES.has(artifact.status)) return false
+    return Boolean(artifact.path.trim())
   })
 }
 
@@ -616,18 +616,6 @@ async function sendApprovalToNextEligibleArtifactProducer(
             `Next retry in: ${Math.max(0, Math.ceil((nextRetryAt - now) / 1000))}s`,
             ...describeNeedsInputAutoApprovalState(swarmState),
           ],
-        }
-      )
-    } else if (swarmState.tasks.some((task) => task.status === 'needs_input')) {
-      void publishAutoApprovalDiagnostic(
-        workspace,
-        autoApprovalDiagnostics,
-        `${workspace.id}:auto-approval-no-eligible`,
-        {
-          level: 'warning',
-          title: 'No artifact eligible for auto-approval',
-          message: 'Auto-approve is on, but no ready review artifact matched the auto-approval rules.',
-          details: describeNeedsInputAutoApprovalState(swarmState),
         }
       )
     }
