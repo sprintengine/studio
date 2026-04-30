@@ -55,7 +55,7 @@ const taskStateLabel: Record<SwarmTaskStatus, string> = {
   done: 'Done',
 }
 
-const addableRoles: SwarmRole[] = ['product', 'frontend', 'developer', 'code_reviewer', 'performance', 'tester', 'security']
+const addableRoles: SwarmRole[] = ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'performance', 'tester', 'security']
 const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
   { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
   { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
