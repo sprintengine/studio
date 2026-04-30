@@ -64,6 +64,7 @@ const roleSummaries: Record<SwarmRole, string> = {
   frontend: 'Designs and implements responsive UI, interaction states, and polish.',
   developer: 'Builds core logic, integrations, refactors, and production code paths.',
   code_reviewer: 'Reviews implementation quality, regressions, and evidence before validation.',
+  performance: 'Reviews latency, CPU, memory, runtime cost, and measurement gaps after code review.',
   tester: 'Runs acceptance checks, regression passes, and publishes evidence.',
   security: 'Reviews trust boundaries, secrets, abuse cases, and hardening risks.',
 }
@@ -74,6 +75,7 @@ const roleAccentClasses: Record<SwarmRole, string> = {
   developer: 'bg-[#30d158]',
   frontend: 'bg-[#6ee7d8]',
   code_reviewer: 'bg-[#f59e0b]',
+  performance: 'bg-[#a78bfa]',
   tester: 'bg-[#64a8ff]',
   security: 'bg-[#ff6b6b]',
 }
@@ -84,6 +86,7 @@ const initialSwarmRoleCounts: SwarmRoleCounts = {
   frontend: 0,
   developer: 0,
   code_reviewer: 0,
+  performance: 0,
   tester: 0,
   security: 0,
 }
@@ -94,6 +97,7 @@ const initialSwarmRoleCliDefaults: Required<SwarmRoleCliDefaults> = {
   frontend: 'codex',
   developer: 'codex',
   code_reviewer: 'codex',
+  performance: 'codex',
   tester: 'codex',
   security: 'codex',
 }

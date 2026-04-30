@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
-import type { AgentCli, AgentExecution, AgentExecutionMode } from '../../types/workspace'
+import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
 import { getSpecialistAction, loadSpecialistPrompt } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -14,8 +14,6 @@ interface Props {
   workspaceId: string
   agentId: string
 }
-
-const MAX_TERMINAL_READINESS_BUFFER = 5000
 
 type AgentExecutionRoot = {
   cwd: string | undefined
@@ -46,30 +44,6 @@ function resolveAgentExecutionRoot(
     worktreeId: execution.worktreeId ?? undefined,
     worktreePath,
   }
-}
-
-function plainTerminalText(data: string): string {
-  return data
-    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\r/g, '\n')
-}
-
-function looksLikeCliReady(output: string, cli: AgentCli): boolean {
-  if (cli === 'claude') {
-    return /Claude Code|Welcome to Claude|cwd:|Bypassing Permissions|\/help|Try .*Claude/i.test(output)
-  }
-
-  return /Codex|OpenAI|GPT|\/help|model/i.test(output)
-}
-
-function looksLikeLaunchBlocked(output: string): boolean {
-  return /unexpected EOF|command not found|No such file or directory|can't open file|WSL could not be started|Access is denied|permission denied|not recognized|CLI was not found/i.test(output)
-}
-
-function looksLikeTrustPrompt(output: string, cli: AgentCli): boolean {
-  if (cli !== 'claude') return false
-  return /Do you trust the files|trust files in this folder/i.test(output)
 }
 
 export default function TerminalView({ workspaceId, agentId }: Props) {
@@ -260,10 +234,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     fitTerminal()
     focusTerminal()
 
-    let hasInjectedStartupPrompt = false
-    let promptInjectionBlocked = false
-    let terminalReadinessBuffer = ''
-    let promptInjectionTimer: number | null = null
     let disposed = false
     let reportedTerminalFailure = false
     let terminalLaunchDetails = [
@@ -272,62 +242,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
     ].join('\n')
 
-    const injectStartupPrompt = () => {
-      const prompt = startupPromptRef.current
-      if (
-        promptInjectionBlocked
-        || agent.cliOnboardingPromptSent
-        || !prompt
-        || hasInjectedStartupPrompt
-      ) return
-
-      hasInjectedStartupPrompt = true
-      updateAgent(workspaceId, agentId, {
-        cliOnboardingPromptSent: true,
-        cliStartupPrompt: undefined,
-      })
-
-      const normalizedPrompt = prompt.replace(/\r?\n/g, '\n')
-      void window.api.terminalWrite(sessionId, `\x1b[200~${normalizedPrompt}\x1b[201~\r`)
-    }
-
-    const schedulePromptInjection = (delay: number) => {
-      if (promptInjectionBlocked || agent.cliOnboardingPromptSent || hasInjectedStartupPrompt) return
-      if (promptInjectionTimer !== null) return
-
-      promptInjectionTimer = window.setTimeout(() => {
-        promptInjectionTimer = null
-        injectStartupPrompt()
-      }, delay)
-    }
-
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
       term.write(data)
-      if (data.trim().length > 0) {
-        const plainData = plainTerminalText(data)
-        terminalReadinessBuffer = `${terminalReadinessBuffer}${plainData}`.slice(-MAX_TERMINAL_READINESS_BUFFER)
-
-        if (looksLikeLaunchBlocked(terminalReadinessBuffer)) {
-          promptInjectionBlocked = true
-          if (promptInjectionTimer !== null) {
-            window.clearTimeout(promptInjectionTimer)
-            promptInjectionTimer = null
-          }
-          return
-        }
-
-        if (looksLikeTrustPrompt(plainData, cli)) {
-          if (promptInjectionTimer !== null) {
-            window.clearTimeout(promptInjectionTimer)
-            promptInjectionTimer = null
-          }
-          return
-        }
-
-        if (looksLikeCliReady(terminalReadinessBuffer, cli)) {
-          schedulePromptInjection(900)
-        }
-      }
     })
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
@@ -396,8 +312,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     container.addEventListener('keydown', handleKeyDown)
     container.addEventListener('contextmenu', handleContextMenu)
 
-    const ensureSpecialistStartupPrompt = async () => {
-      if (startupPromptRef.current || agent.cliOnboardingPromptSent) return
+    const ensureSpecialistStartupPrompt = async (promptAlreadySentForActiveSession: boolean) => {
+      if (startupPromptRef.current || promptAlreadySentForActiveSession) return
       if (agent.kind !== 'specialist' || !agent.specialistId) return
 
       const specialist = getSpecialistAction(agent.specialistId)
@@ -410,9 +326,14 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     }
 
     const launchTerminal = async () => {
-      await ensureSpecialistStartupPrompt()
+      const terminalStatus = await window.api.terminalStatus(sessionId).catch(() => ({ running: false }))
       if (disposed) return
       if (savedFolderPath && !folderReadyPath) return
+
+      const resumeExistingPty = shouldResume && terminalStatus.running
+      const promptAlreadySentForActiveSession = Boolean(resumeExistingPty && agent.cliOnboardingPromptSent)
+      await ensureSpecialistStartupPrompt(promptAlreadySentForActiveSession)
+      if (disposed) return
 
       const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
       const executionRoot = resolveAgentExecutionRoot(
@@ -428,19 +349,14 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
         swarmStatePath ? `Swarm state: ${swarmStatePath}` : null,
       ].filter(Boolean).join('\n')
-      const launchInitialPrompt = !shouldResume && !agent.cliOnboardingPromptSent
-        ? startupPromptRef.current ?? undefined
-        : undefined
-      if (launchInitialPrompt) {
-        hasInjectedStartupPrompt = true
-      }
+      const launchInitialPrompt = resumeExistingPty ? undefined : startupPromptRef.current ?? undefined
 
       const spawnResult = await window.api.terminalSpawn(
         sessionId,
         term.cols,
         term.rows,
         executionRoot.cwd,
-        shouldResume,
+        resumeExistingPty,
         swarmStatePath,
         cli,
         launchInitialPrompt,
@@ -495,7 +411,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         return
       }
 
-      if (!shouldResume) {
+      if (!resumeExistingPty) {
         updateAgent(workspaceId, agentId, {
           cliHasLaunched: true,
           ...(launchInitialPrompt
@@ -516,9 +432,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     return () => {
       disposed = true
-      if (promptInjectionTimer !== null) {
-        window.clearTimeout(promptInjectionTimer)
-      }
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       container.removeEventListener('mousedown', focusTerminal)

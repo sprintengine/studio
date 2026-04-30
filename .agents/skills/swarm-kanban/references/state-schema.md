@@ -90,7 +90,7 @@ The app uses narrow IPC to request artifact review mutations through the Python 
     - `id`
     - `kind`: `code_bug`, `security_issue`, `product_requirement_violation`, `test_gap`, `accessibility_issue`, `performance_issue`, `reliability_issue`, `documentation_gap`, or `other`
     - `severity`: `critical`, `high`, `medium`, or `low`
-    - `area`: `frontend`, `backend`, `database`, `networking`, `auth`, `security`, `filesystem`, `cli`, `ipc`, `mobile`, `testing`, `docs`, `product`, or `other`
+    - `area`: `frontend`, `backend`, `database`, `networking`, `auth`, `security`, `filesystem`, `cli`, `ipc`, `mobile`, `testing`, `performance`, `docs`, `product`, or `other`
     - `title`
     - `detail`
     - `recommendation` (optional)
@@ -117,6 +117,7 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
   - `branding`
   - `security_review`
   - `code_review`
+  - `performance_review`
   - `validation_report`
 - `title`
 - `path`
@@ -160,6 +161,7 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 - The architect builds and revises the task graph during planning with `swarm plan` commands.
 - Product strategist tasks should capture market, competitor, audience, positioning, workflow, and adoption-risk guidance.
 - Code review tasks should produce direct review evidence or `code_review` artifacts with findings and recommended follow-up tasks.
+- Performance review tasks should run after the relevant code review tasks and produce direct review evidence or `performance_review` artifacts with measured evidence where practical, clearly labeled hypotheses where not, findings, and recommended follow-up tasks.
 - Workers should not rewrite the plan or change other workers' task cards.
 - Review artifact lifecycle mutations must go through `swarm artifact` commands.
 - `swarm init` creates or reuses a product intake approval task and artifact, plus a blocked architect plan approval task and `architect_plan` artifact for `plan.md`.

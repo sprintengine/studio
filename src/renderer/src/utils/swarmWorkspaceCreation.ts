@@ -22,6 +22,7 @@ const planSourcedSwarmRoleCounts: SwarmRoleCounts = {
   developer: 0,
   frontend: 0,
   code_reviewer: 0,
+  performance: 0,
   tester: 0,
   security: 0,
 }

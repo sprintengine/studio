@@ -31,6 +31,8 @@ import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 const AUTO_RUN_POLL_MS = 2000
 const AUTO_RUN_MAX_CONCURRENT_AGENTS = 2
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
+const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
+const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
 const DONE_AGENT_TERMINAL_CLOSE_DELAY_MS = 5 * 60 * 1000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
@@ -466,6 +468,57 @@ function artifactApprovalMessageKey(workspace: Workspace, artifact: SwarmArtifac
   ].join(':')
 }
 
+async function publishAutoApprovalDiagnostic(
+  workspace: Workspace,
+  diagnostics: MutableRefObject<Map<string, number>>,
+  key: string,
+  input: {
+    level: 'info' | 'warning' | 'error'
+    title: string
+    message: string
+    details?: string[]
+    agentId?: string
+    taskId?: string
+    sessionId?: string
+  }
+): Promise<void> {
+  const now = Date.now()
+  const previousAt = diagnostics.current.get(key) ?? 0
+  if (now - previousAt < AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS) return
+
+  diagnostics.current.set(key, now)
+  await publishDiagnostic({
+    level: input.level,
+    source: 'swarm',
+    title: input.title,
+    message: input.message,
+    details: [
+      `Workspace: ${workspace.name}`,
+      `Swarm state: ${workspace.swarmContext?.statePath ?? 'Unavailable'}`,
+      ...(input.details ?? []),
+    ].join('\n'),
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    agentId: input.agentId,
+    taskId: input.taskId,
+    sessionId: input.sessionId,
+  })
+}
+
+function describeNeedsInputAutoApprovalState(swarmState: SwarmState): string[] {
+  const needsInputTasks = swarmState.tasks
+    .filter((task) => task.status === 'needs_input')
+    .map((task) => `${task.id} (${task.role}) owner=${task.ownerAgentId ?? 'none'}`)
+  const readyArtifacts = swarmState.artifacts
+    .filter((artifact) => artifact.status === 'ready_for_review')
+    .map((artifact) => `${artifact.id} kind=${artifact.kind} task=${artifact.taskId || 'none'} createdBy=${artifact.createdBy || 'none'} path=${artifact.path || 'none'}`)
+
+  return [
+    `Needs-input tasks: ${needsInputTasks.join(', ') || 'none'}`,
+    `Ready artifacts: ${readyArtifacts.join(', ') || 'none'}`,
+  ]
+}
+
 async function findRunningAgentSession(
   workspace: Workspace,
   agentId: string
@@ -496,16 +549,57 @@ async function findRunningAgentSession(
 async function sendApprovalToNextEligibleArtifactProducer(
   workspace: Workspace,
   swarmState: SwarmState,
-  sentArtifactApprovalMessages: MutableRefObject<Set<string>>
+  sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
+  autoApprovalDiagnostics: MutableRefObject<Map<string, number>>
 ): Promise<'sent' | 'failed' | 'none'> {
   if (!workspace.swarmAutoState.enabled || !workspace.swarmAutoState.autoApproveArtifacts || !workspace.swarmContext) {
     return 'none'
   }
 
-  const artifact = getAutoApprovableReadySwarmArtifacts(swarmState).find((candidate) =>
-    !sentArtifactApprovalMessages.current.has(artifactApprovalMessageKey(workspace, candidate))
+  const now = Date.now()
+  const eligibleArtifacts = getAutoApprovableReadySwarmArtifacts(swarmState)
+  const artifact = eligibleArtifacts.find((candidate) =>
+    now - (sentArtifactApprovalMessages.current.get(artifactApprovalMessageKey(workspace, candidate)) ?? 0)
+      >= ARTIFACT_AUTO_APPROVAL_RETRY_MS
   )
-  if (!artifact) return 'none'
+  if (!artifact) {
+    if (eligibleArtifacts.length > 0) {
+      const nextRetryAt = Math.min(
+        ...eligibleArtifacts.map((candidate) =>
+          (sentArtifactApprovalMessages.current.get(artifactApprovalMessageKey(workspace, candidate)) ?? 0)
+            + ARTIFACT_AUTO_APPROVAL_RETRY_MS
+        )
+      )
+      await publishAutoApprovalDiagnostic(
+        workspace,
+        autoApprovalDiagnostics,
+        `${workspace.id}:auto-approval-retry-wait`,
+        {
+          level: 'info',
+          title: 'Artifact auto-approval waiting to retry',
+          message: 'An artifact is still waiting for approval, but the retry cooldown has not elapsed.',
+          details: [
+            `Eligible artifacts: ${eligibleArtifacts.map((candidate) => candidate.id).join(', ')}`,
+            `Next retry in: ${Math.max(0, Math.ceil((nextRetryAt - now) / 1000))}s`,
+            ...describeNeedsInputAutoApprovalState(swarmState),
+          ],
+        }
+      )
+    } else if (swarmState.tasks.some((task) => task.status === 'needs_input')) {
+      await publishAutoApprovalDiagnostic(
+        workspace,
+        autoApprovalDiagnostics,
+        `${workspace.id}:auto-approval-no-eligible`,
+        {
+          level: 'warning',
+          title: 'No artifact eligible for auto-approval',
+          message: 'Auto-approve is on, but no ready review artifact matched the auto-approval rules.',
+          details: describeNeedsInputAutoApprovalState(swarmState),
+        }
+      )
+    }
+    return 'none'
+  }
 
   const approvalKey = artifactApprovalMessageKey(workspace, artifact)
   try {
@@ -556,8 +650,42 @@ async function sendApprovalToNextEligibleArtifactProducer(
       return 'failed'
     }
 
-    await sendArtifactApprovalToTerminal(producerSession.sessionId)
-    sentArtifactApprovalMessages.current.add(approvalKey)
+    try {
+      await sendArtifactApprovalToTerminal(producerSession.sessionId)
+    } catch (error) {
+      await pauseAutoRunForArtifactApprovalFailure(
+        workspace,
+        artifact,
+        'Failed to send approval to the producer terminal.',
+        [
+          `Producer agent: ${producerAgentId}`,
+          `Session: ${producerSession.sessionId}`,
+          `Error: ${error instanceof Error ? error.message : String(error)}`,
+        ]
+      )
+      return 'failed'
+    }
+
+    sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
+    await publishAutoApprovalDiagnostic(
+      workspace,
+      autoApprovalDiagnostics,
+      `${approvalKey}:sent`,
+      {
+        level: 'info',
+        title: 'Artifact approval sent',
+        message: 'Sent "i approve" to the producer terminal.',
+        details: [
+          `Artifact: ${artifact.id} - ${artifact.title}`,
+          `Task: ${artifact.taskId}`,
+          `Producer agent: ${producerAgentId}`,
+          `Session: ${producerSession.sessionId}`,
+        ],
+        agentId: producerAgentId,
+        taskId: artifact.taskId,
+        sessionId: producerSession.sessionId,
+      }
+    )
     return 'sent'
   } catch (error) {
     await pauseAutoRunForArtifactApprovalFailure(
@@ -1103,7 +1231,8 @@ async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   inFlightSpawns: MutableRefObject<Set<string>>,
-  sentArtifactApprovalMessages: MutableRefObject<Set<string>>,
+  sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
+  autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
   let swarmState = workspace.swarmState
@@ -1113,7 +1242,8 @@ async function superviseWorkspace(
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
       workspace,
       swarmState,
-      sentArtifactApprovalMessages
+      sentArtifactApprovalMessages,
+      autoApprovalDiagnostics
     )
     if (approvalResult === 'none') break
     if (approvalResult === 'failed') return
@@ -1209,7 +1339,8 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
 
 export default function SwarmAutoRunSupervisor() {
   const inFlightSpawns = useRef(new Set<string>())
-  const sentArtifactApprovalMessages = useRef(new Set<string>())
+  const sentArtifactApprovalMessages = useRef(new Map<string, number>())
+  const autoApprovalDiagnostics = useRef(new Map<string, number>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
   const doneAgentTerminalObservations = useRef(new Map<string, DoneAgentTerminalObservation>())
   const tickInProgress = useRef(false)
@@ -1254,6 +1385,7 @@ export default function SwarmAutoRunSupervisor() {
             appSettings.cliRuntimes,
             inFlightSpawns,
             sentArtifactApprovalMessages,
+            autoApprovalDiagnostics,
             lastContentByWorkspace
           )
         }

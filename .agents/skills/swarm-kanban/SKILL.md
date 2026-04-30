@@ -54,7 +54,7 @@ Architect workflow:
 6. Write `swarm/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
 7. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
 8. Add task cards one at a time with `swarm plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
-9. Include normal final review tasks for product final acceptance and architect final review unless the user explicitly opts out.
+9. Include normal final review tasks for performance review after code review, product final acceptance, and architect final review unless the user explicitly opts out.
 10. During architect final review, never reopen completed tasks. If product findings or architect findings require follow-up work, create new tasks and also create a later architect final review task that depends on those follow-ups.
 11. During user review, revise the board with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`.
 12. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
@@ -78,6 +78,7 @@ swarm task status --task-id T3 --status in_progress --id frontend-1
 swarm task log --task-id T3 --id frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SwarmBoardPanel.tsx --file src/renderer/src/utils/swarm.ts --command "npm run typecheck" --result "Passed"
 swarm plan add-task --title "Persist swarm state" --role developer --path src/renderer/src/store --acceptance "State tracks task ownership and evidence"
 swarm plan add-task --title "Review implementation" --role code_reviewer --depends-on T3 --path src/renderer/src/store --acceptance "Review artifact documents findings or approval"
+swarm plan add-task --title "Review performance" --role performance --depends-on T4 --path src/renderer/src/store --acceptance "Performance review artifact documents measured evidence, findings, or approval"
 swarm plan add-task --title "Render task board" --role frontend --depends-on T1 --path src/renderer/src/components/panels --acceptance "Board displays todo, ready, in progress, needs input, and done"
 swarm plan update-task --task-id T1 --title "Persist shared swarm state" --acceptance "State tracks task ownership and evidence" --path src/renderer/src/store
 swarm plan add-dependency --task-id T2 --depends-on T1

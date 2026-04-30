@@ -40,6 +40,7 @@ export const swarmRoleLabels: Record<SwarmRole, string> = {
   tester: 'Tester',
   security: 'Security Specialist',
   code_reviewer: 'Code Reviewer',
+  performance: 'Performance Engineer',
 }
 
 export const swarmRoleAccent: Record<SwarmRole, string> = {
@@ -50,6 +51,7 @@ export const swarmRoleAccent: Record<SwarmRole, string> = {
   tester: '#3dff8f',
   security: '#ff6b6b',
   code_reviewer: '#f59e0b',
+  performance: '#a78bfa',
 }
 
 export const swarmArtifactKindLabels: Record<SwarmArtifactKind, string> = {
@@ -61,6 +63,7 @@ export const swarmArtifactKindLabels: Record<SwarmArtifactKind, string> = {
   branding: 'Branding',
   security_review: 'Security Review',
   code_review: 'Code Review',
+  performance_review: 'Performance Review',
   validation_report: 'Validation Report',
 }
 
@@ -78,6 +81,7 @@ export const swarmRoleOrder: SwarmRole[] = [
   'frontend',
   'developer',
   'code_reviewer',
+  'performance',
   'tester',
   'security',
 ]
@@ -91,6 +95,7 @@ const swarmArtifactKinds: readonly SwarmArtifactKind[] = [
   'branding',
   'security_review',
   'code_review',
+  'performance_review',
   'validation_report',
 ]
 
@@ -142,6 +147,7 @@ const feedbackFindingAreas: readonly SwarmTaskFeedbackFindingArea[] = [
   'ipc',
   'mobile',
   'testing',
+  'performance',
   'docs',
   'product',
   'other',
@@ -157,6 +163,7 @@ const reviewGateArtifactKinds = new Set<SwarmArtifactKind>([
   'branding',
   'security_review',
   'code_review',
+  'performance_review',
   'validation_report',
 ])
 
@@ -185,6 +192,7 @@ function isSwarmRole(value: unknown): value is SwarmRole {
     || value === 'tester'
     || value === 'security'
     || value === 'code_reviewer'
+    || value === 'performance'
   )
 }
 
@@ -439,7 +447,7 @@ function normalizeSwarmArtifacts(value: unknown): SwarmArtifact[] {
 }
 
 export function createDefaultSwarmRoleCounts(): SwarmRoleCounts {
-  return { architect: 1, product: 1, developer: 1, frontend: 0, tester: 0, security: 0, code_reviewer: 0 }
+  return { architect: 1, product: 1, developer: 1, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
 }
 
 export function createDefaultSwarmSkills(): SwarmSkillMap {
@@ -451,6 +459,7 @@ export function createDefaultSwarmSkills(): SwarmSkillMap {
     tester: ['Regression checks', 'Acceptance review', 'Validation'],
     security: ['Threat modeling', 'Security review', 'Hardening', 'Abuse-case analysis'],
     code_reviewer: ['Code review', 'Regression risk', 'Maintainability', 'Evidence quality'],
+    performance: ['Latency review', 'Memory and CPU analysis', 'Bundle/runtime cost', 'Measurement quality'],
   }
 }
 
@@ -469,6 +478,7 @@ export function normalizeSwarmRoleCounts(
     tester: Math.max(0, roleCounts?.tester ?? 0),
     security: Math.max(0, roleCounts?.security ?? 0),
     code_reviewer: Math.max(0, roleCounts?.code_reviewer ?? 0),
+    performance: Math.max(0, roleCounts?.performance ?? 0),
   }
 }
 
@@ -520,12 +530,12 @@ export function buildSwarmAgentRoster(roleCounts: SwarmRoleCounts): SwarmAgentRo
 export function buildSwarmAgentRosterFromRuntimeAgents(
   swarmAgents: Record<AgentId, SwarmRuntimeAgent>
 ): SwarmAgentRosterItem[] {
-  const roleTotals: Record<SwarmRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0 }
+  const roleTotals: Record<SwarmRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
   for (const agent of Object.values(swarmAgents)) {
     if (isSwarmRole(agent?.role)) roleTotals[agent.role] += 1
   }
 
-  const seenByRole: Record<SwarmRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0 }
+  const seenByRole: Record<SwarmRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
 
   return Object.entries(swarmAgents)
     .filter((entry): entry is [AgentId, SwarmRuntimeAgent] => isSwarmRole(entry[1]?.role))

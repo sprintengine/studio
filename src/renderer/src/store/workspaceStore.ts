@@ -363,6 +363,7 @@ const defaultSwarmRoleCliDefaults = (): Required<SwarmRoleCliDefaults> => ({
   frontend: 'codex',
   developer: 'codex',
   code_reviewer: 'codex',
+  performance: 'codex',
   tester: 'codex',
   security: 'codex',
 })

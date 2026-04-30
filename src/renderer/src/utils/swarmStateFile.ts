@@ -49,7 +49,7 @@ export function getSwarmPlanFilePath(folderPath: string, swarmName?: string): st
 }
 
 function isSwarmRole(value: unknown): value is SwarmRole {
-  return ['architect', 'product', 'developer', 'frontend', 'tester', 'security', 'code_reviewer'].includes(value as string)
+  return ['architect', 'product', 'developer', 'frontend', 'tester', 'security', 'code_reviewer', 'performance'].includes(value as string)
 }
 
 function countRolesFromAgents(agents: Record<string, { role: SwarmRole }> | undefined): SwarmRoleCounts | null {

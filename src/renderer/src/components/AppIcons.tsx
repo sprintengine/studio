@@ -100,6 +100,8 @@ export function SwarmRoleIcon({ role, className }: IconProps & { role: SwarmRole
       return <SecurityIcon className={className} />
     case 'code_reviewer':
       return <ReviewIcon className={className} />
+    case 'performance':
+      return <PerformanceIcon className={className} />
   }
 }
 

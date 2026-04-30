@@ -28,7 +28,7 @@ except ImportError as exc:
 
 VALID_TASK_STATUSES = {"todo", "in_progress", "needs_input", "done"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
-VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer"}
+VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer", "performance"}
 VALID_ARTIFACT_KINDS = {
     "architect_plan",
     "product_strategy",
@@ -38,6 +38,7 @@ VALID_ARTIFACT_KINDS = {
     "branding",
     "security_review",
     "code_review",
+    "performance_review",
     "validation_report",
 }
 VALID_ARTIFACT_STATUSES = {"draft", "ready_for_review", "approved", "changes_requested", "superseded"}
@@ -101,6 +102,7 @@ VALID_FEEDBACK_FINDING_AREAS = {
     "ipc",
     "mobile",
     "testing",
+    "performance",
     "docs",
     "product",
     "other",
@@ -113,6 +115,7 @@ PLAN_REVIEW_FOCUS = {
     "tester": "test strategy, acceptance criteria, regression coverage, edge cases, and release confidence",
     "security": "trust boundaries, command safety, secrets, permissions, abuse cases, and hardening",
     "code_reviewer": "code correctness, integration risk, maintainability, regressions, and evidence quality",
+    "performance": "latency, CPU, memory, bundle/runtime resource use, measurement quality, and likely bottlenecks",
 }
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
@@ -124,6 +127,7 @@ SPECIALIST_PROMPT_FILES = {
     "tester": "qa-test-prompt.md",
     "security": "security-review-prompt.md",
     "code_reviewer": "code-reviewer-pre-prompt.md",
+    "performance": "performance-engineer-prompt.md",
 }
 
 STATE_NOTICE = (
@@ -265,8 +269,9 @@ def artifact_registration_instruction(agent_id: str) -> str:
         "swarm artifact list --task-id <task-id>\n"
         "```\n"
         "Use the task's requested kind when specified. Otherwise use `security_review` for "
-        "security reviews, `code_review` for code reviews, `validation_report` for validation "
-        "reports, `requirements` or `product_strategy` for product outputs, `design_notes` or "
+        "security reviews, `code_review` for code reviews, `performance_review` for performance "
+        "reviews, `validation_report` for validation reports, `requirements` or `product_strategy` "
+        "for product outputs, `design_notes` or "
         "`html_mockup` for frontend outputs, and `architect_plan` for plan gates. The `--ready` "
         "flag moves the linked task to `needs_input`; use it only when the artifact should wait for "
         "human approval. If a review artifact approves/passes the work with no findings, register "
@@ -2467,6 +2472,7 @@ Task commands:
 Plan commands (architect only):
   swarm plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
   swarm plan add-task --title "Review implementation" --role code_reviewer --depends-on T3 --path src/foo --acceptance "Review artifact documents findings or approval"
+  swarm plan add-task --title "Review performance" --role performance --depends-on T4 --path src/foo --acceptance "Performance review artifact documents measured evidence, findings, or approval"
   swarm plan update-task --task-id T1 --title "..." --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
   swarm plan add-dependency --task-id T2 --depends-on T1
   swarm plan remove-dependency --task-id T2 --depends-on T1
@@ -2479,6 +2485,7 @@ Plan commands (architect only):
 Artifact commands:
   swarm artifact add --task-id T1 --kind product_strategy --title "Strategy" --path swarm/team/documents/strategy.md --created-by product
   swarm artifact add --task-id T4 --kind code_review --title "Code review" --path swarm/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
+  swarm artifact add --task-id T5 --kind performance_review --title "Performance review" --path swarm/team/reviews/performance-review.md --created-by performance --recommended-task "Fix unbounded render work"
   swarm artifact list --task-id T1
   swarm artifact ready --artifact-id A1 --id product
   swarm artifact ready --artifact-id A1 --id product --confidence-pct 85 --hallucination-risk-pct 10
@@ -2505,6 +2512,11 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
 
 def add_feedback_arguments(parser: argparse.ArgumentParser) -> None:
     feedback = parser.add_argument_group("optional agent feedback")
+    issue_categories = ", ".join(sorted(VALID_FEEDBACK_ISSUE_CATEGORIES))
+    issue_severities = ", ".join(sorted(VALID_FEEDBACK_ISSUE_SEVERITIES))
+    finding_kinds = ", ".join(sorted(VALID_FEEDBACK_FINDING_KINDS))
+    finding_severities = ", ".join(sorted(VALID_FEEDBACK_FINDING_SEVERITIES))
+    finding_areas = ", ".join(sorted(VALID_FEEDBACK_FINDING_AREAS))
     for attr, _, _ in FEEDBACK_SCORE_FIELDS:
         feedback.add_argument(
             f"--{attr.replace('_', '-')}",
@@ -2520,7 +2532,8 @@ def add_feedback_arguments(parser: argparse.ArgumentParser) -> None:
         default=[],
         help=(
             "Optional repeatable JSON object describing a prompt/process improvement issue. "
-            "Required fields: category, severity, title, detail."
+            "Required fields: category, severity, title, detail. "
+            f"category: {issue_categories}. severity: {issue_severities}."
         ),
     )
     feedback.add_argument(
@@ -2529,7 +2542,8 @@ def add_feedback_arguments(parser: argparse.ArgumentParser) -> None:
         default=[],
         help=(
             "Optional repeatable JSON object describing a role-specific review finding. "
-            "Required fields: kind, severity, area, title, detail."
+            "Required fields: kind, severity, area, title, detail. "
+            f"kind: {finding_kinds}. severity: {finding_severities}. area: {finding_areas}."
         ),
     )
 

@@ -102,6 +102,7 @@ const swarmRoleLabels: Record<string, string> = {
   tester: 'Tester',
   security: 'Security Specialist',
   code_reviewer: 'Code Reviewer',
+  performance: 'Performance Engineer',
 }
 
 export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSessionOrchestrator {
