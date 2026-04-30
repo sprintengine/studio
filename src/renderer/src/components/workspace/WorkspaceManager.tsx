@@ -17,6 +17,7 @@ import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
+import { MULTICODE_DISABLE_SWARM_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/swarmHandoff'
 import { slugifySwarmName } from '../../utils/swarmStateFile'
 import TemplateSelector from './TemplateSelector'
@@ -843,8 +844,8 @@ export default function WorkspaceManager() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       <SwarmAutoRunSupervisor />
-      {workspaces.map((workspace) => (
-        workspace.mode === 'swarm' || workspace.swarmContext
+      {!MULTICODE_DISABLE_SWARM_SYNC && workspaces.map((workspace) => (
+        workspace.id === activeWorkspaceId && (workspace.mode === 'swarm' || workspace.swarmContext)
           ? <SwarmStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}

@@ -1,6 +1,7 @@
 import React from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli } from '../../types/workspace'
+import { MULTICODE_DISABLE_SWARM_TERMINALS, MULTICODE_SAFE_MODE } from '../../utils/runtimeFlags'
 import TerminalView from './TerminalView'
 
 interface Props {
@@ -21,7 +22,8 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const label = agent?.name ?? agentId
   const isSwarmAgent = workspace?.mode === 'swarm' && Boolean(swarmRuntimeAgent)
-  const hasStarted = !isSwarmAgent || Boolean(agent?.cliStartRequested)
+  const swarmTerminalBlocked = MULTICODE_DISABLE_SWARM_TERMINALS && isSwarmAgent
+  const hasStarted = !swarmTerminalBlocked && (!isSwarmAgent || Boolean(agent?.cliStartRequested))
   const needsInput = swarmRuntimeAgent?.status === 'needs_input'
   const cli: AgentCli = agent?.cli ?? 'codex'
   const cliShellTone = needsInput
@@ -48,10 +50,18 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
         {hasStarted ? (
           <TerminalView workspaceId={workspaceId} agentId={agentId} />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center p-5">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
+            {swarmTerminalBlocked ? (
+              <div className="max-w-sm text-[12px] leading-5 text-[#8a8a92]">
+                {MULTICODE_SAFE_MODE
+                  ? 'Safe mode is active. Swarm agent terminals are not auto-mounted.'
+                  : 'Swarm agent terminals are disabled for this diagnostic run.'}
+              </div>
+            ) : null}
             <button
               onClick={() => startAgent(false)}
-              className="rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+              disabled={swarmTerminalBlocked}
+              className="rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea] disabled:cursor-default disabled:border-[#2a4548] disabled:bg-[#172326] disabled:text-[#5f797d]"
             >
               {startLabel}
             </button>

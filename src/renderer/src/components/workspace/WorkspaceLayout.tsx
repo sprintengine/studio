@@ -12,7 +12,7 @@ import {
 import 'flexlayout-react/style/dark.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentState, SwarmRuntimeAgentStatus } from '../../types/workspace'
+import type { AgentState, SwarmRole, SwarmRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { SpecialistActionIcon, StatusDot, SwarmRoleIcon } from '../AppIcons'
@@ -31,6 +31,16 @@ const SwarmBoardPanel = React.lazy(() => import('../panels/SwarmBoardPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
 type AgentTabActivity = 'needs-input' | 'running' | 'idle'
+const SWARM_ROLES: SwarmRole[] = [
+  'architect',
+  'product',
+  'developer',
+  'frontend',
+  'tester',
+  'security',
+  'code_reviewer',
+  'performance',
+]
 
 type AgentTabActivityDot = {
   tone: 'running' | 'needs-input'
@@ -64,6 +74,10 @@ function agentTabActivityDot(
     default:
       return null
   }
+}
+
+function inferSwarmRoleFromAgentId(agentId: string): SwarmRole | null {
+  return SWARM_ROLES.find((role) => agentId === role || agentId.startsWith(`${role}-`)) ?? null
 }
 
 function PanelLoadingFallback() {
@@ -419,7 +433,9 @@ function WorkspaceLayout({ workspaceId }: Props) {
       const specialist = agent?.kind === 'specialist' && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
-      const swarmRole = agent?.kind === 'swarm' ? runtimeAgent?.role : null
+      const swarmRole = agent?.kind === 'swarm'
+        ? runtimeAgent?.role ?? inferSwarmRoleFromAgentId(agentId)
+        : null
 
       if (specialist) {
         renderValues.leading = (

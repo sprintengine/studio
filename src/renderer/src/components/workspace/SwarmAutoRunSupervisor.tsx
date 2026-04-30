@@ -13,9 +13,8 @@ import type {
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
   buildSwarmAgentRosterForState,
-  getAutoApprovableReadySwarmArtifacts,
-  getNextSwarmAgentId,
   getSwarmTaskBoardColumn,
+  isSwarmArtifactAutoApprovableKind,
   swarmRoleLabels,
 } from '../../utils/swarm'
 import { parseSwarmStateFile } from '../../utils/swarmStateFile'
@@ -26,16 +25,26 @@ import {
   removeAgentTabFromLayoutModel,
 } from '../../utils/modelRegistry'
 import { publishDiagnostic } from '../../utils/diagnostics'
+import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { MULTICODE_DISABLE_SWARM_AUTORUN } from '../../utils/runtimeFlags'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 
 const AUTO_RUN_POLL_MS = 2000
+const INACTIVE_AUTO_RUN_POLL_MS = 15000
+const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_MAX_CONCURRENT_AGENTS = 2
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
+const TERMINAL_IPC_TIMEOUT_MS = 3000
 const DONE_AGENT_TERMINAL_CLOSE_DELAY_MS = 5 * 60 * 1000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
+const AUTO_APPROVAL_INTENT_STATUSES = new Set<SwarmArtifact['status']>([
+  'draft',
+  'ready_for_review',
+  'changes_requested',
+])
 
 type AutoRunCandidate = {
   agentId: string
@@ -62,6 +71,55 @@ type SwarmAutoStateWithWorktreeIsolation = Workspace['swarmAutoState'] & {
 
 type DoneAgentTerminalObservation = {
   firstSeenAt: number
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId)
+  })
+}
+
+async function listTerminalSessionsForAutoRun(
+  workspace: Workspace,
+  cause: string
+): Promise<TerminalSessionSnapshot[]> {
+  const startedAt = performance.now()
+  logPerfEvent('SwarmAutoRun', 'terminal-list-start', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    cause,
+    timeoutMs: TERMINAL_IPC_TIMEOUT_MS,
+  })
+
+  try {
+    const sessions = await withTimeout(
+      window.api.terminalList(),
+      TERMINAL_IPC_TIMEOUT_MS,
+      `Timed out waiting for terminal sessions after ${TERMINAL_IPC_TIMEOUT_MS}ms.`
+    )
+    logPerfEvent('SwarmAutoRun', 'terminal-list-end', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      cause,
+      sessionCount: sessions.length,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
+    return sessions
+  } catch (error) {
+    logPerfEvent('SwarmAutoRun', 'terminal-list-error', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      cause,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      message: error instanceof Error ? error.message : String(error),
+    })
+    return []
+  }
 }
 
 function revealAutoRunAgentTerminal(workspaceId: string, agentId: string, label: string): void {
@@ -125,16 +183,36 @@ async function refreshAutoWorkspaceState(
   const stateFilePath = workspace.swarmContext.statePath
 
   try {
+    const startedAt = performance.now()
     const content = await window.api.readfile(stateFilePath)
     if (!options.force && lastContentByWorkspace.current.get(workspace.id) === content) {
+      logPerfEvent('SwarmAutoRun', 'refresh-state', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        changed: false,
+        elapsedMs: Math.round(performance.now() - startedAt),
+      })
       return workspace.swarmState
     }
 
     lastContentByWorkspace.current.set(workspace.id, content)
     const parsedState = parseSwarmStateFile(content, workspace.swarmContext.teamSlug)
     useWorkspaceStore.getState().setSwarmState(workspace.id, parsedState)
+    logPerfEvent('SwarmAutoRun', 'refresh-state', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      changed: true,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      taskCount: parsedState.tasks.length,
+      artifactCount: parsedState.artifacts.length,
+    })
     return parsedState
-  } catch {
+  } catch (error) {
+    logPerfEvent('SwarmAutoRun', 'refresh-state-error', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      message: error instanceof Error ? error.message : String(error),
+    })
     // Auto mode can be enabled before the agent-managed state file exists.
     return null
   }
@@ -175,19 +253,9 @@ function slugifyWorktreeToken(value: string, fallback: string): string {
   return slug || fallback
 }
 
-function isAbsoluteFilePath(path: string): boolean {
-  return path.startsWith('/') || path.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(path)
-}
-
 function normalizeComparablePath(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
   return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
-}
-
-function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
-  const parent = normalizeComparablePath(parentPath)
-  const target = normalizeComparablePath(targetPath)
-  return target === parent || target.startsWith(`${parent}/`)
 }
 
 function sameFilePath(firstPath: string, secondPath: string): boolean {
@@ -228,50 +296,18 @@ function buildAutoRunWorktreeSpec(
   }
 }
 
-function resolveArtifactPathForAutoApproval(workspace: Workspace, artifact: SwarmArtifact): string {
-  const artifactPath = artifact.path.trim()
-  if (!artifactPath) throw new Error('Artifact path is missing.')
-  if (/^https?:\/\//i.test(artifactPath)) throw new Error('Remote artifact links cannot be auto-approved.')
-  if (artifactPath.split(/[\\/]+/).includes('..')) {
-    throw new Error('Artifact path must stay inside the swarm team directory.')
-  }
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/i.test(artifactPath) && !isAbsoluteFilePath(artifactPath)) {
-    throw new Error('Only workspace artifact file paths can be auto-approved.')
-  }
-
-  const teamDirectory = workspace.swarmContext?.teamDirectoryPath
-    ?? getParentDirectoryPath(workspace.swarmContext?.statePath ?? '')
-  const workspaceRoot = workspace.folderPath || getParentDirectoryPath(getParentDirectoryPath(teamDirectory))
-  const targetPath = isAbsoluteFilePath(artifactPath)
-    ? artifactPath
-    : [
-        joinFilePath(workspaceRoot, artifactPath),
-        joinFilePath(teamDirectory, artifactPath),
-      ].find((candidate) => isPathInsideOrEqual(teamDirectory, candidate))
-        ?? joinFilePath(workspaceRoot, artifactPath)
-
-  if (!isPathInsideOrEqual(teamDirectory, targetPath)) {
-    throw new Error('Artifact path must stay inside the swarm team directory.')
-  }
-
-  return targetPath
-}
-
-async function pauseAutoRunForArtifactApprovalFailure(
+async function publishArtifactApprovalWarning(
   workspace: Workspace,
   artifact: SwarmArtifact,
   message: string,
   extraDetails: string[] = []
 ): Promise<void> {
   const task = workspace.swarmState?.tasks.find((candidate) => candidate.id === artifact.taskId)
-  const state = useWorkspaceStore.getState()
-  state.setSwarmAutoEnabled(workspace.id, false)
-  state.setSwarmAutoPendingSpawns(workspace.id, [])
 
   await publishDiagnostic({
-    level: 'error',
+    level: 'warning',
     source: 'swarm',
-    title: 'Artifact auto-approval stopped',
+    title: 'Artifact auto-approval skipped',
     message,
     details: [
       `Workspace: ${workspace.name}`,
@@ -281,6 +317,7 @@ async function pauseAutoRunForArtifactApprovalFailure(
       `Artifact status: ${artifact.status}`,
       `Artifact path: ${artifact.path || 'No file path recorded'}`,
       `Task: ${artifact.taskId || 'No task'}${task ? ` - ${task.title}` : ''}`,
+      'Auto-run remains enabled.',
       ...extraDetails,
     ].join('\n'),
     workspaceId: workspace.id,
@@ -433,32 +470,6 @@ async function ensureAutoRunWorktree(
   return { ok: true, spec, path: createResult.data.path, branch: createResult.data.branch }
 }
 
-function resolveArtifactProducerAgentId(
-  workspace: Workspace,
-  swarmState: SwarmState,
-  artifact: SwarmArtifact
-): string | null {
-  const roster = buildSwarmAgentRosterForState(swarmState)
-  const rosterById = Object.fromEntries(roster.map((agent) => [agent.id, agent]))
-  const task = swarmState.tasks.find((candidate) => candidate.id === artifact.taskId)
-  const createdBy = artifact.createdBy.trim()
-
-  if (createdBy && (rosterById[createdBy] || workspace.agents[createdBy] || swarmState.swarmAgents[createdBy])) {
-    return createdBy
-  }
-
-  if (task?.ownerAgentId) return task.ownerAgentId
-
-  if (task) {
-    const runningRoleAgents = roster.filter((agent) =>
-      agent.role === task.role && Boolean(workspace.agents[agent.id]?.cliStartRequested)
-    )
-    if (runningRoleAgents.length === 1) return runningRoleAgents[0].id
-  }
-
-  return null
-}
-
 function artifactApprovalMessageKey(workspace: Workspace, artifact: SwarmArtifact): string {
   return [
     workspace.id,
@@ -519,12 +530,25 @@ function describeNeedsInputAutoApprovalState(swarmState: SwarmState): string[] {
   ]
 }
 
+function getAutoApprovalIntentArtifacts(swarmState: SwarmState): SwarmArtifact[] {
+  const tasksById = new Map(swarmState.tasks.map((task) => [task.id, task]))
+  return swarmState.artifacts.filter((artifact) => {
+    if (!AUTO_APPROVAL_INTENT_STATUSES.has(artifact.status)) return false
+    if (!isSwarmArtifactAutoApprovableKind(artifact.kind)) return false
+    if (!artifact.path.trim()) return false
+
+    const task = tasksById.get(artifact.taskId)
+    if (!task) return false
+    return Boolean(artifact.createdBy.trim() || task.ownerAgentId?.trim())
+  })
+}
+
 async function findRunningAgentSession(
   workspace: Workspace,
   agentId: string
 ): Promise<TerminalSessionSnapshot | null> {
   const agent = workspace.agents[agentId]
-  const sessions = await window.api.terminalList()
+  const sessions = await listTerminalSessionsForAutoRun(workspace, `find-running:${agentId}`)
   if (agent?.cliStartRequested && agent.cliHasLaunched && agent.cliSessionId) {
     const storedSession = sessions.find((session) => session.sessionId === agent.cliSessionId)
     if (storedSession && isMatchingWorkspaceAgentSession(storedSession, workspace, agentId)) return storedSession
@@ -541,6 +565,7 @@ async function findRunningAgentSession(
     cliStartRequested: true,
     cliHasLaunched: true,
     cli: runningSession.cli ?? agent?.cli ?? 'codex',
+    kind: 'swarm',
   })
   revealAutoRunAgentTerminal(workspace.id, agentId, agent?.name ?? agentId)
   return runningSession
@@ -557,11 +582,19 @@ async function sendApprovalToNextEligibleArtifactProducer(
   }
 
   const now = Date.now()
-  const eligibleArtifacts = getAutoApprovableReadySwarmArtifacts(swarmState)
+  const eligibleArtifacts = getAutoApprovalIntentArtifacts(swarmState)
   const artifact = eligibleArtifacts.find((candidate) =>
     now - (sentArtifactApprovalMessages.current.get(artifactApprovalMessageKey(workspace, candidate)) ?? 0)
       >= ARTIFACT_AUTO_APPROVAL_RETRY_MS
   )
+  logPerfEvent('SwarmAutoRun', 'auto-approval-check', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    eligibleArtifactCount: eligibleArtifacts.length,
+    selectedArtifactId: artifact?.id ?? null,
+    selectedArtifactKind: artifact?.kind ?? null,
+    selectedArtifactTaskId: artifact?.taskId ?? null,
+  })
   if (!artifact) {
     if (eligibleArtifacts.length > 0) {
       const nextRetryAt = Math.min(
@@ -570,7 +603,7 @@ async function sendApprovalToNextEligibleArtifactProducer(
             + ARTIFACT_AUTO_APPROVAL_RETRY_MS
         )
       )
-      await publishAutoApprovalDiagnostic(
+      void publishAutoApprovalDiagnostic(
         workspace,
         autoApprovalDiagnostics,
         `${workspace.id}:auto-approval-retry-wait`,
@@ -586,7 +619,7 @@ async function sendApprovalToNextEligibleArtifactProducer(
         }
       )
     } else if (swarmState.tasks.some((task) => task.status === 'needs_input')) {
-      await publishAutoApprovalDiagnostic(
+      void publishAutoApprovalDiagnostic(
         workspace,
         autoApprovalDiagnostics,
         `${workspace.id}:auto-approval-no-eligible`,
@@ -598,73 +631,42 @@ async function sendApprovalToNextEligibleArtifactProducer(
         }
       )
     }
+    logPerfEvent('SwarmAutoRun', 'auto-approval-none', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      eligibleArtifactCount: eligibleArtifacts.length,
+      needsInputTaskCount: swarmState.tasks.filter((task) => task.status === 'needs_input').length,
+    })
     return 'none'
   }
 
   const approvalKey = artifactApprovalMessageKey(workspace, artifact)
   try {
-    const artifactPath = resolveArtifactPathForAutoApproval(workspace, artifact)
-    if (!(await window.api.pathExists(artifactPath))) {
-      await pauseAutoRunForArtifactApprovalFailure(
+    const task = swarmState.tasks.find((candidate) => candidate.id === artifact.taskId)
+    const responsibleAgentId = artifact.createdBy.trim() || task?.ownerAgentId?.trim() || ''
+    if (!responsibleAgentId) {
+      sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
+      await publishArtifactApprovalWarning(
         workspace,
         artifact,
-        'Cannot approve: artifact file is missing.',
-        [`Resolved path: ${artifactPath}`]
+        'Cannot communicate auto-approval intent: no responsible agent is recorded.'
       )
-      return 'failed'
+      return 'none'
     }
 
-    try {
-      await window.api.readfile(artifactPath)
-    } catch (error) {
-      await pauseAutoRunForArtifactApprovalFailure(
+    const agentSession = await findRunningAgentSession(workspace, responsibleAgentId)
+    if (!agentSession) {
+      sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
+      await publishArtifactApprovalWarning(
         workspace,
         artifact,
-        'Cannot approve: artifact file is unreadable.',
-        [
-          `Resolved path: ${artifactPath}`,
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
-        ]
+        'Cannot communicate auto-approval intent: the responsible agent terminal is not running.',
+        [`Responsible agent: ${responsibleAgentId}`]
       )
-      return 'failed'
+      return 'none'
     }
 
-    const producerAgentId = resolveArtifactProducerAgentId(workspace, swarmState, artifact)
-    if (!producerAgentId) {
-      await pauseAutoRunForArtifactApprovalFailure(
-        workspace,
-        artifact,
-        'Cannot approve: no producer terminal is linked to this artifact.'
-      )
-      return 'failed'
-    }
-
-    const producerSession = await findRunningAgentSession(workspace, producerAgentId)
-    if (!producerSession) {
-      await pauseAutoRunForArtifactApprovalFailure(
-        workspace,
-        artifact,
-        'Cannot approve: the producer CLI is not running.',
-        [`Producer agent: ${producerAgentId}`]
-      )
-      return 'failed'
-    }
-
-    try {
-      await sendArtifactApprovalToTerminal(producerSession.sessionId)
-    } catch (error) {
-      await pauseAutoRunForArtifactApprovalFailure(
-        workspace,
-        artifact,
-        'Failed to send approval to the producer terminal.',
-        [
-          `Producer agent: ${producerAgentId}`,
-          `Session: ${producerSession.sessionId}`,
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
-        ]
-      )
-      return 'failed'
-    }
+    await sendArtifactApprovalToTerminal(agentSession.sessionId)
 
     sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
     await publishAutoApprovalDiagnostic(
@@ -673,44 +675,39 @@ async function sendApprovalToNextEligibleArtifactProducer(
       `${approvalKey}:sent`,
       {
         level: 'info',
-        title: 'Artifact approval sent',
-        message: 'Sent "i approve" to the producer terminal.',
+        title: 'Artifact approval intent sent',
+        message: 'Sent the user approval intent to the responsible agent terminal.',
         details: [
           `Artifact: ${artifact.id} - ${artifact.title}`,
           `Task: ${artifact.taskId}`,
-          `Producer agent: ${producerAgentId}`,
-          `Session: ${producerSession.sessionId}`,
+          `Responsible agent: ${responsibleAgentId}`,
+          `Terminal session: ${agentSession.sessionId}`,
         ],
-        agentId: producerAgentId,
+        agentId: responsibleAgentId,
+        sessionId: agentSession.sessionId,
         taskId: artifact.taskId,
-        sessionId: producerSession.sessionId,
       }
     )
     return 'sent'
   } catch (error) {
-    await pauseAutoRunForArtifactApprovalFailure(
+    logPerfEvent('SwarmAutoRun', 'auto-approval-error', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      artifactId: artifact.id,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
+    await publishArtifactApprovalWarning(
       workspace,
       artifact,
       error instanceof Error ? error.message : 'Approval failed. Review manually or retry.'
     )
-    return 'failed'
+    return 'none'
   }
 }
 
-function getNextAvailableSwarmAgentId(
-  role: SwarmRole,
-  swarmAgents: SwarmState['swarmAgents'],
-  usedAgentIds: Set<string>
-): string {
-  const syntheticAgents = { ...swarmAgents }
-  let agentId = getNextSwarmAgentId(role, syntheticAgents)
-
-  while (usedAgentIds.has(agentId)) {
-    syntheticAgents[agentId] = { role, status: 'idle', currentTaskId: null }
-    agentId = getNextSwarmAgentId(role, syntheticAgents)
-  }
-
-  return agentId
+function buildAutoRunAgentId(role: SwarmRole, taskId: string): string {
+  return `${role}-${slugifyWorktreeToken(taskId, 'task')}`
 }
 
 function pickNextAutoRuns(
@@ -725,25 +722,26 @@ function pickNextAutoRuns(
 ): AutoRunCandidate[] {
   if (options.limit <= 0) return []
 
+  const startedAt = performance.now()
+  logPerfEvent('SwarmAutoRun', 'candidate-pick-start', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    limit: options.limit,
+    taskCount: swarmState.tasks.length,
+    agentCount: Object.keys(swarmState.swarmAgents).length,
+    pendingSpawnCount: options.pendingSpawns.length,
+    runningAgentCount: options.runningAgentIds.size,
+    inFlightSpawnCount: options.inFlightSpawns.size,
+  })
   const roster = buildSwarmAgentRosterForState(swarmState)
+  logPerfEvent('SwarmAutoRun', 'candidate-pick-roster', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    rosterCount: roster.length,
+  })
   const rosterById = Object.fromEntries(roster.map((agent) => [agent.id, agent]))
-  const runtimeAgentById = Object.fromEntries(
-    roster.map((agent) => [
-      agent.id,
-      {
-        role: swarmState.swarmAgents[agent.id]?.role ?? agent.role,
-        status: swarmState.swarmAgents[agent.id]?.status ?? 'idle',
-      },
-    ])
-  )
   const pendingTaskIds = new Set(options.pendingSpawns.map((pending) => pending.taskId))
   const pendingAgentIds = new Set(options.pendingSpawns.map((pending) => pending.agentId))
-  const usedAgentIds = new Set<string>([
-    ...Object.keys(swarmState.swarmAgents),
-    ...Object.keys(workspace.agents),
-    ...pendingAgentIds,
-    ...options.runningAgentIds,
-  ])
   const selectedTaskIds = new Set<string>()
   const selectedAgentIds = new Set<string>()
   const candidates: AutoRunCandidate[] = []
@@ -771,47 +769,97 @@ function pickNextAutoRuns(
     })
     selectedTaskIds.add(task.id)
     selectedAgentIds.add(agentId)
-    usedAgentIds.add(agentId)
     return true
   }
 
   const activeTasks = swarmState.tasks.filter((task) =>
     task.status === 'in_progress' && Boolean(task.ownerAgentId)
   )
+  logPerfEvent('SwarmAutoRun', 'candidate-pick-active-tasks', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    activeTaskCount: activeTasks.length,
+  })
 
   for (const task of activeTasks) {
     if (candidates.length >= options.limit) break
-    const agentId = task.ownerAgentId
-    if (!agentId) continue
+    const ownerAgentId = task.ownerAgentId
+    if (!ownerAgentId) continue
+    const agentId = options.runningAgentIds.has(ownerAgentId)
+      ? ownerAgentId
+      : buildAutoRunAgentId(task.role, task.id)
     const rosterAgent = rosterById[agentId]
     addCandidate(task, agentId, workspace.agents[agentId]?.name ?? rosterAgent?.label ?? agentId)
   }
 
-  const readyTasks = swarmState.tasks.filter((task) =>
-    getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready' && !task.ownerAgentId
+  const recoverableNeedsInputTasks = swarmState.tasks.filter((task) =>
+    task.status === 'needs_input'
+    && (!task.ownerAgentId || !options.runningAgentIds.has(task.ownerAgentId))
   )
+  logPerfEvent('SwarmAutoRun', 'candidate-pick-recoverable-needs-input-tasks', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    taskCount: recoverableNeedsInputTasks.length,
+  })
+
+  for (const task of recoverableNeedsInputTasks) {
+    if (candidates.length >= options.limit) break
+    const agentId = buildAutoRunAgentId(task.role, task.id)
+    addCandidate(task, agentId, agentId)
+  }
+
+  const doneTaskIds = new Set(
+    swarmState.tasks
+      .filter((task) => task.status === 'done')
+      .map((task) => task.id)
+  )
+  const readyTasks = swarmState.tasks.filter((task) =>
+    task.status !== 'in_progress'
+    && task.status !== 'needs_input'
+    && task.status !== 'done'
+    && !task.ownerAgentId
+    && task.dependsOn.every((dependencyId) => doneTaskIds.has(dependencyId))
+  )
+  logPerfEvent('SwarmAutoRun', 'candidate-pick-ready-tasks', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    readyTaskCount: readyTasks.length,
+  })
 
   for (const task of readyTasks) {
     if (candidates.length >= options.limit) break
+    logPerfEvent('SwarmAutoRun', 'candidate-pick-ready-task', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      taskId: task.id,
+      role: task.role,
+      ownerAgentId: task.ownerAgentId ?? null,
+      dependsOnCount: task.dependsOn.length,
+    })
 
-    const existingAgent = roster.find((agent) =>
-      agent.role === task.role
-      && runtimeAgentById[agent.id]?.status !== 'done'
-      && !workspace.agents[agent.id]?.cliStartRequested
-      && !pendingAgentIds.has(agent.id)
-      && !selectedAgentIds.has(agent.id)
-      && !options.runningAgentIds.has(agent.id)
-      && !hasInFlightSpawn(agent.id)
-    )
-    const agent = existingAgent ?? {
-      id: getNextAvailableSwarmAgentId(task.role, swarmState.swarmAgents, usedAgentIds),
-      label: swarmRoleLabels[task.role],
+    const agent = {
+      id: buildAutoRunAgentId(task.role, task.id),
+      label: buildAutoRunAgentId(task.role, task.id),
       role: task.role,
     }
 
     addCandidate(task, agent.id, agent.label)
+    logPerfEvent('SwarmAutoRun', 'candidate-pick-ready-task-result', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      taskId: task.id,
+      selectedAgentId: agent.id,
+      selectedAgentRole: agent.role,
+      candidateCount: candidates.length,
+    })
   }
 
+  logPerfEvent('SwarmAutoRun', 'candidate-pick-end', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    candidateCount: candidates.length,
+    elapsedMs: Math.round(performance.now() - startedAt),
+  })
   return candidates
 }
 
@@ -885,7 +933,7 @@ async function closeDoneAgentSessions(
   }
 
   const now = Date.now()
-  const sessions = await window.api.terminalList().catch(() => [])
+  const sessions = await listTerminalSessionsForAutoRun(workspace, 'close-done')
   const eligibleKeys = new Set<string>()
 
   for (const agentId of getDoneAgentIdsForTerminalCleanup(swarmState)) {
@@ -902,7 +950,11 @@ async function closeDoneAgentSessions(
       session.agentId === agentId && sessionBelongsToWorkspaceSwarm(session, workspace)
     )
     for (const session of agentSessions) {
-      await window.api.terminalKill(session.sessionId)
+      await withTimeout(
+        window.api.terminalKill(session.sessionId),
+        TERMINAL_IPC_TIMEOUT_MS,
+        `Timed out killing terminal session ${session.sessionId}.`
+      ).catch(() => {})
     }
     const state = useWorkspaceStore.getState()
     const latestWorkspace = state.workspaces.find((candidate) => candidate.id === workspace.id) ?? workspace
@@ -939,7 +991,7 @@ async function getRunningAutoRunAgentIds(
   swarmState: SwarmState
 ): Promise<Set<string>> {
   const runningAgentIds = new Set<string>()
-  const sessions = await window.api.terminalList().catch(() => [])
+  const sessions = await listTerminalSessionsForAutoRun(workspace, 'running-agent-ids')
 
   for (const session of sessions) {
     if (!session.agentId || !sessionBelongsToWorkspaceSwarm(session, workspace)) continue
@@ -953,6 +1005,7 @@ async function getRunningAutoRunAgentIds(
         cliStartRequested: true,
         cliHasLaunched: true,
         cli: session.cli ?? agent?.cli ?? 'codex',
+        kind: 'swarm',
       })
     }
   }
@@ -961,7 +1014,7 @@ async function getRunningAutoRunAgentIds(
 }
 
 async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<void> {
-  const sessions = await window.api.terminalList().catch(() => [])
+  const sessions = await listTerminalSessionsForAutoRun(workspace, 'reconcile-duplicates')
   const sessionsByAgentId = new Map<string, TerminalSessionSnapshot[]>()
 
   sessions.forEach((session) => {
@@ -983,7 +1036,11 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<vo
     await Promise.all(
       agentSessions
         .filter((session) => session.sessionId !== preferredSession.sessionId)
-        .map((session) => window.api.terminalKill(session.sessionId).catch(() => {}))
+        .map((session) => withTimeout(
+          window.api.terminalKill(session.sessionId),
+          TERMINAL_IPC_TIMEOUT_MS,
+          `Timed out killing terminal session ${session.sessionId}.`
+        ).catch(() => {}))
     )
 
     const agent = workspace.agents[agentId]
@@ -993,6 +1050,7 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<vo
         cliStartRequested: true,
         cliHasLaunched: true,
         cli: preferredSession.cli ?? agent?.cli ?? 'codex',
+        kind: 'swarm',
       })
     }
   }
@@ -1079,6 +1137,15 @@ async function spawnAutoRunCandidate(
   inFlightSpawns.current.add(spawnKey)
 
   try {
+    const startedAt = performance.now()
+    logPerfEvent('SwarmAutoRun', 'spawn-start', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId: nextRun.agentId,
+      role: nextRun.role,
+      taskId: nextRun.taskId,
+      sessionId,
+    })
     const folderExists = await window.api.pathExists(workspaceFolderPath)
     if (!folderExists) {
       currentState.setFolderMissing(workspace.id, true)
@@ -1152,6 +1219,7 @@ async function spawnAutoRunCandidate(
       cliOnboardingPromptSent: true,
       cli: selectedCli,
       cliStartupPrompt: undefined,
+      kind: 'swarm',
     })
 
     const terminalMetadata = {
@@ -1186,6 +1254,17 @@ async function spawnAutoRunCandidate(
       message: error instanceof Error ? error.message : 'Failed to start terminal.',
       exitCode: 1,
     }))
+    logPerfEvent('SwarmAutoRun', 'spawn-result', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId: nextRun.agentId,
+      role: nextRun.role,
+      taskId: nextRun.taskId,
+      sessionId,
+      ok: spawnResult.ok,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      message: spawnResult.ok ? null : spawnResult.message,
+    })
     if (!spawnResult.ok) {
       const latestState = useWorkspaceStore.getState()
       latestState.setSwarmAutoEnabled(workspace.id, false)
@@ -1235,60 +1314,124 @@ async function superviseWorkspace(
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
+  const superviseStartedAt = performance.now()
   let swarmState = workspace.swarmState
   if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !swarmState || !workspace.swarmContext) return
 
-  while (workspace.swarmAutoState.enabled && workspace.swarmAutoState.autoApproveArtifacts) {
+  logPerfEvent('SwarmAutoRun', 'supervise-start', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    taskCount: swarmState.tasks.length,
+    agentCount: Object.keys(swarmState.swarmAgents).length,
+    autoApproveArtifacts: workspace.swarmAutoState.autoApproveArtifacts,
+  })
+
+  if (workspace.swarmAutoState.enabled && workspace.swarmAutoState.autoApproveArtifacts) {
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
       workspace,
       swarmState,
       sentArtifactApprovalMessages,
       autoApprovalDiagnostics
     )
-    if (approvalResult === 'none') break
     if (approvalResult === 'failed') return
-
-    const refreshedSwarmState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
-    if (!refreshedSwarmState) {
-      const messageSentArtifactIds = new Set(
-        getAutoApprovableReadySwarmArtifacts(swarmState).map((artifact) => artifact.id)
-      )
-      const artifact = swarmState.artifacts.find((candidate) => messageSentArtifactIds.has(candidate.id))
-      if (artifact) {
-        await pauseAutoRunForArtifactApprovalFailure(
-          workspace,
-          artifact,
-          'Could not refresh swarm state. Auto has paused.'
+    if (approvalResult === 'sent') {
+      const refreshedSwarmState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
+      if (!refreshedSwarmState) {
+        const messageSentArtifactIds = new Set(
+          getAutoApprovalIntentArtifacts(swarmState).map((artifact) => artifact.id)
         )
-      } else {
-        useWorkspaceStore.getState().setSwarmAutoEnabled(workspace.id, false)
+        const artifact = swarmState.artifacts.find((candidate) => messageSentArtifactIds.has(candidate.id))
+        if (artifact) {
+          await publishArtifactApprovalWarning(
+            workspace,
+            artifact,
+            'Could not refresh swarm state after sending approval intent.'
+          )
+        }
+        return
       }
+
+      const refreshedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+      if (!refreshedWorkspace) return
+      workspace = refreshedWorkspace
+      swarmState = refreshedWorkspace.swarmState ?? refreshedSwarmState
+      logPerfEvent('SwarmAutoRun', 'supervise-stop', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        reason: 'auto-approval-sent',
+        elapsedMs: Math.round(performance.now() - superviseStartedAt),
+      })
       return
     }
-
-    const refreshedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
-    if (!refreshedWorkspace) return
-    workspace = refreshedWorkspace
-    swarmState = refreshedWorkspace.swarmState ?? refreshedSwarmState
   }
 
+  logPerfEvent('SwarmAutoRun', 'reconcile-pending-start', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    pendingSpawnCount: workspace.swarmAutoState.pendingSpawns.length,
+  })
   const pendingSpawns = await reconcileAutoRunPendingSpawns(workspace, swarmState)
+  logPerfEvent('SwarmAutoRun', 'reconcile-pending-end', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    pendingSpawnCount: pendingSpawns.length,
+  })
 
-  const runtimeAgents = Object.values(swarmState.swarmAgents)
-  if (runtimeAgents.some((agent) => agent.status === 'needs_input')) {
+  logPerfEvent('SwarmAutoRun', 'running-agents-start', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+  })
+  const runningAgentIds = await getRunningAutoRunAgentIds(workspace, swarmState)
+  logPerfEvent('SwarmAutoRun', 'running-agents-end', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    runningAgentCount: runningAgentIds.size,
+  })
+
+  const runningNeedsInputAgentIds = Object.entries(swarmState.swarmAgents)
+    .filter(([, agent]) => agent.status === 'needs_input')
+    .map(([agentId]) => agentId)
+    .filter((agentId) => runningAgentIds.has(agentId))
+  if (runningNeedsInputAgentIds.length > 0) {
+    logPerfEvent('SwarmAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'agent-needs-input',
+      agentIds: runningNeedsInputAgentIds,
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
     return
   }
 
-  if (swarmState.tasks.some((task) => task.status === 'needs_input')) {
+  const runningNeedsInputTaskIds = swarmState.tasks
+    .filter((task) =>
+      task.status === 'needs_input'
+      && Boolean(task.ownerAgentId)
+      && runningAgentIds.has(task.ownerAgentId!)
+    )
+    .map((task) => task.id)
+  if (runningNeedsInputTaskIds.length > 0) {
+    logPerfEvent('SwarmAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'task-needs-input',
+      taskIds: runningNeedsInputTaskIds,
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
     return
   }
 
   if (swarmState.tasks.length > 0 && swarmState.tasks.every((task) => task.status === 'done')) {
     useWorkspaceStore.getState().setSwarmAutoEnabled(workspace.id, false)
+    logPerfEvent('SwarmAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'all-tasks-done',
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
     return
   }
 
-  const runningAgentIds = await getRunningAutoRunAgentIds(workspace, swarmState)
   const occupiedAgentIds = new Set<string>([
     ...runningAgentIds,
     ...pendingSpawns.map((pending) => pending.agentId),
@@ -1298,13 +1441,62 @@ async function superviseWorkspace(
     occupiedAgentIds.add(spawnKey.slice(workspace.id.length + 1))
   }
   const availableSlots = AUTO_RUN_MAX_CONCURRENT_AGENTS - occupiedAgentIds.size
-  if (availableSlots <= 0) return
+  logPerfEvent('SwarmAutoRun', 'slots', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    availableSlots,
+    occupiedAgentCount: occupiedAgentIds.size,
+  })
+  if (availableSlots <= 0) {
+    logPerfEvent('SwarmAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'no-slots',
+      occupiedAgentCount: occupiedAgentIds.size,
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
+  }
 
-  const nextRuns = pickNextAutoRuns(workspace, swarmState, {
-    limit: availableSlots,
-    pendingSpawns,
-    runningAgentIds,
-    inFlightSpawns: inFlightSpawns.current,
+  let nextRuns: AutoRunCandidate[] = []
+  try {
+    nextRuns = pickNextAutoRuns(workspace, swarmState, {
+      limit: availableSlots,
+      pendingSpawns,
+      runningAgentIds,
+      inFlightSpawns: inFlightSpawns.current,
+    })
+  } catch (error) {
+    logPerfEvent('SwarmAutoRun', 'candidate-pick-error', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    await publishDiagnostic({
+      level: 'warning',
+      source: 'swarm',
+      title: 'Auto-run skipped this tick',
+      message: 'Could not choose the next swarm task to run.',
+      details: [
+        `Workspace: ${workspace.name}`,
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        'Auto-run remains enabled.',
+      ].join('\n'),
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    })
+    return
+  }
+  logPerfEvent('SwarmAutoRun', 'candidates', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    availableSlots,
+    candidateCount: nextRuns.length,
+    candidates: nextRuns.map((run) => ({
+      agentId: run.agentId,
+      role: run.role,
+      taskId: run.taskId,
+    })),
   })
   for (const nextRun of nextRuns) {
     const latestWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
@@ -1342,10 +1534,17 @@ export default function SwarmAutoRunSupervisor() {
   const sentArtifactApprovalMessages = useRef(new Map<string, number>())
   const autoApprovalDiagnostics = useRef(new Map<string, number>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
+  const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
   const doneAgentTerminalObservations = useRef(new Map<string, DoneAgentTerminalObservation>())
+  const startedAt = useRef(Date.now())
   const tickInProgress = useRef(false)
 
   useEffect(() => {
+    if (MULTICODE_DISABLE_SWARM_AUTORUN) {
+      console.info('[SwarmAutoRun] disabled by runtime flag')
+      return
+    }
+
     let disposed = false
 
     const tick = async () => {
@@ -1353,24 +1552,50 @@ export default function SwarmAutoRunSupervisor() {
       tickInProgress.current = true
 
       try {
-        const { workspaces, appSettings } = useWorkspaceStore.getState()
+        const tickStartedAt = performance.now()
+        const { workspaces, appSettings, activeWorkspaceId } = useWorkspaceStore.getState()
+        const now = Date.now()
         const autoWorkspaces = workspaces.filter((workspace) =>
           workspace.swarmAutoState.enabled || shouldCloseDoneAgentTerminals(workspace)
-        )
+        ).filter((workspace) => {
+          if (workspace.id === activeWorkspaceId) return true
+
+          const lastTick = lastInactiveTickByWorkspace.current.get(workspace.id) ?? 0
+          if (now - lastTick < INACTIVE_AUTO_RUN_POLL_MS) return false
+          lastInactiveTickByWorkspace.current.set(workspace.id, now)
+          return true
+        })
+
+        lastInactiveTickByWorkspace.current.forEach((_, workspaceId) => {
+          if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
+            lastInactiveTickByWorkspace.current.delete(workspaceId)
+          }
+        })
+        logPerfEvent('SwarmAutoRun', 'tick-start', {
+          activeWorkspaceId,
+          autoWorkspaceCount: autoWorkspaces.length,
+          autoWorkspaces: autoWorkspaces.map((workspace) => ({
+            id: workspace.id,
+            name: workspace.name,
+            enabled: workspace.swarmAutoState.enabled,
+            keepDoneAgentTerminals: workspace.swarmAutoState.keepDoneAgentTerminals,
+          })),
+        })
 
         for (const workspace of autoWorkspaces) {
           if (disposed) return
           await refreshAutoWorkspaceState(workspace, lastContentByWorkspace)
         }
 
+        const eligibleWorkspaceIds = new Set(autoWorkspaces.map((workspace) => workspace.id))
         const refreshedState = useWorkspaceStore.getState()
-        for (const workspace of refreshedState.workspaces) {
+        for (const workspace of refreshedState.workspaces.filter((candidate) => eligibleWorkspaceIds.has(candidate.id))) {
           if (disposed) return
           await reconcileWorkspaceSessions(workspace)
         }
 
         const reconciledState = useWorkspaceStore.getState()
-        for (const workspace of reconciledState.workspaces) {
+        for (const workspace of reconciledState.workspaces.filter((candidate) => eligibleWorkspaceIds.has(candidate.id))) {
           if (disposed) return
           const swarmState = workspace.swarmState
           if (!swarmState) continue
@@ -1378,8 +1603,10 @@ export default function SwarmAutoRunSupervisor() {
         }
 
         const cleanedState = useWorkspaceStore.getState()
-        for (const workspace of cleanedState.workspaces) {
+        const startupSpawnDelayElapsed = Date.now() - startedAt.current >= AUTO_RUN_STARTUP_SPAWN_DELAY_MS
+        for (const workspace of cleanedState.workspaces.filter((candidate) => eligibleWorkspaceIds.has(candidate.id))) {
           if (disposed) return
+          if (!startupSpawnDelayElapsed) continue
           await superviseWorkspace(
             workspace,
             appSettings.cliRuntimes,
@@ -1389,6 +1616,10 @@ export default function SwarmAutoRunSupervisor() {
             lastContentByWorkspace
           )
         }
+        logPerfEvent('SwarmAutoRun', 'tick-end', {
+          elapsedMs: Math.round(performance.now() - tickStartedAt),
+          autoWorkspaceCount: autoWorkspaces.length,
+        })
       } finally {
         tickInProgress.current = false
       }

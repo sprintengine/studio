@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from 'electron'
 import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
-import { access, appendFile, cp, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
+import { access, appendFile, cp, lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
 import { createHash, randomBytes } from 'crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
@@ -41,6 +41,8 @@ const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
 const MULTICODE_REDIRECT_URI = 'multicode://auth/callback' as const
 const MULTICODE_PRODUCT = 'multicode' as const
 const ENTITLEMENT_GRACE_MS = 72 * 60 * 60 * 1000
+const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
+const DIAGNOSTIC_SLOW_IPC_MS = 250
 
 type FeatureValue = boolean | number | string
 
@@ -931,6 +933,30 @@ function createWindow(): void {
   win.on('enter-full-screen', () => sendWindowState(win))
   win.on('leave-full-screen', () => sendWindowState(win))
 
+  if (MULTICODE_DIAGNOSTICS) {
+    win.webContents.on('console-message', function (_event, detailsOrLevel) {
+      const args = Array.from(arguments)
+      const details = detailsOrLevel && typeof detailsOrLevel === 'object'
+        ? detailsOrLevel as { level?: string; message?: string; sourceId?: string; lineNumber?: number }
+        : null
+      const level = details?.level ?? String(detailsOrLevel)
+      const message = details?.message ?? String(args[2] ?? '')
+      console.info(`[Renderer:${level}] ${message}`, {
+        sourceId: details?.sourceId ?? args[4],
+        line: details?.lineNumber ?? args[3],
+      })
+    })
+    win.webContents.on('render-process-gone', (_event, details) => {
+      console.error('[Renderer] render-process-gone', details)
+    })
+    win.webContents.on('unresponsive', () => {
+      console.error('[Renderer] unresponsive')
+    })
+    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+      console.error('[Renderer] did-fail-load', { errorCode, errorDescription, validatedURL })
+    })
+  }
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
@@ -1160,8 +1186,9 @@ type TerminalSession = {
   pendingResize?: TerminalSize
 }
 
-const TERMINAL_REPLAY_BUFFER_LIMIT = 2 * 1024 * 1024
-const TERMINAL_DATA_BATCH_MS = 16
+const TERMINAL_REPLAY_BUFFER_LIMIT = 512 * 1024
+const TERMINAL_DATA_BATCH_MS = 100
+const TERMINAL_PENDING_DATA_LIMIT = 256 * 1024
 const TERMINAL_REPLAY_COMPACT_THRESHOLD = 1024
 const TERMINAL_BATCH_DIAGNOSTIC_INTERVAL_MS = 1_000
 const terminals = new Map<string, TerminalSession>()
@@ -1169,6 +1196,7 @@ const pendingTerminalData = new Map<string, {
   sender: Electron.WebContents
   channel: string
   chunks: string[]
+  bytes: number
   timer: NodeJS.Timeout
 }>()
 const terminalBatchDiagnostics = new Map<string, {
@@ -1177,7 +1205,20 @@ const terminalBatchDiagnostics = new Map<string, {
   bytes: number
   lastLogAt: number
 }>()
-const fileWatchers = new Map<string, { watcher: FSWatcher; senderId: number }>()
+type FileWatchEvent = {
+  eventType: string
+  path: string | null
+}
+
+type FileWatcherRecord = {
+  watcher: FSWatcher
+  senderId: number
+  pendingEvent: FileWatchEvent | null
+  flushTimer: NodeJS.Timeout | null
+}
+
+const FILE_WATCH_EVENT_COALESCE_MS = 100
+const fileWatchers = new Map<string, FileWatcherRecord>()
 const trackedWatcherSenders = new Set<number>()
 let nextFileWatcherId = 0
 
@@ -1446,6 +1487,31 @@ function toWindowsPath(dirPath: string): string {
   return `${drive.toUpperCase()}:\\${rest.replace(/\//g, '\\')}`
 }
 
+function replaceAllLiteral(value: string, search: string, replacement: string): string {
+  return search && search !== replacement ? value.split(search).join(replacement) : value
+}
+
+function normalizeInitialPromptPaths(
+  initialPrompt: string | undefined,
+  target: 'windows' | 'wsl',
+  paths: Array<string | undefined>
+): string | undefined {
+  if (!initialPrompt) return initialPrompt
+
+  let normalizedPrompt = initialPrompt
+  for (const pathValue of paths) {
+    if (!pathValue) continue
+
+    const targetPath = target === 'wsl' ? toWslPath(pathValue) : toWindowsPath(pathValue)
+    const candidates = Array.from(new Set([pathValue, toWindowsPath(pathValue), toWslPath(pathValue)]))
+    for (const candidate of candidates) {
+      normalizedPrompt = replaceAllLiteral(normalizedPrompt, candidate, targetPath)
+    }
+  }
+
+  return normalizedPrompt
+}
+
 function isNativeWindowsPath(dirPath: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(dirPath) || /^\\\\/.test(dirPath)
 }
@@ -1515,6 +1581,55 @@ type SwarmArtifactOpenPayload = {
   artifactPath: string
 }
 
+type SwarmArtifactReviewPayload = {
+  statePath: string
+  artifactId: string
+  feedback?: string
+}
+
+type SwarmArtifactReviewAction = 'approve' | 'request-changes'
+type SwarmArtifactReviewMode = 'user' | 'auto-run'
+
+type SwarmMcpActorContext = {
+  id: string
+  role: 'user'
+  authenticated: true
+  mcpAuthorized: true
+}
+
+type SwarmMcpToolResponse =
+  | { ok: true; tool: string; result: unknown }
+  | { ok: false; tool: string; error?: { code?: string; message?: string } }
+
+type SwarmArtifactRecord = {
+  id: string
+  kind: string
+  title: string
+  path: string
+  status: string
+  createdBy: string
+  taskId: string
+}
+
+type SwarmTaskRecord = {
+  id: string
+  status: string
+  ownerAgentId: string
+}
+
+const autoApprovableArtifactKinds = new Set([
+  'architect_plan',
+  'product_strategy',
+  'requirements',
+  'html_mockup',
+  'design_notes',
+  'branding',
+  'security_review',
+  'code_review',
+  'performance_review',
+  'validation_report',
+])
+
 type ValidSwarmStatePath = {
   statePath: string
   teamDirectory: string
@@ -1564,8 +1679,38 @@ function isSwarmStateFilePath(input: string): boolean {
   )
 }
 
-function assertNotDirectSwarmStateMutation(targetPath: string): void {
-  if (isSwarmStateFilePath(targetPath)) {
+async function getRealMutationTargetPath(targetPath: string): Promise<string | null> {
+  try {
+    await lstat(targetPath)
+  } catch (error) {
+    if (!isMissingPathError(error)) {
+      throw error
+    }
+
+    const parentDirectory = dirname(resolve(targetPath))
+    try {
+      return resolve(await realpath(parentDirectory), basename(targetPath))
+    } catch (parentError) {
+      if (isMissingPathError(parentError)) {
+        return null
+      }
+      throw parentError
+    }
+  }
+
+  try {
+    return await realpath(targetPath)
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return null
+    }
+    throw error
+  }
+}
+
+async function assertNotDirectSwarmStateMutation(targetPath: string): Promise<void> {
+  const realTargetPath = await getRealMutationTargetPath(targetPath)
+  if (isSwarmStateFilePath(targetPath) || (realTargetPath && isSwarmStateFilePath(realTargetPath))) {
     throw new Error('Swarm state files must be updated through the swarm tool.')
   }
 }
@@ -1595,6 +1740,254 @@ function resolveArtifactFilePath(state: ValidSwarmStatePath, artifactPathInput: 
   }
 
   return fullPath
+}
+
+function resolveSwarmArtifactId(input: unknown): string {
+  if (typeof input !== 'string' || !input.trim()) {
+    throw new Error('Artifact id is required.')
+  }
+  const artifactId = input.trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(artifactId)) {
+    throw new Error('Artifact id must be a safe swarm identifier.')
+  }
+  return artifactId
+}
+
+function getSwarmMcpPythonExecutable(workspaceRoot: string): string {
+  const venvPython = process.platform === 'win32'
+    ? join(workspaceRoot, '.venv', 'Scripts', 'python.exe')
+    : join(workspaceRoot, '.venv', 'bin', 'python')
+  if (existsSync(venvPython)) return venvPython
+  return process.platform === 'win32' ? 'python' : 'python3'
+}
+
+function runSwarmMcpTool(
+  state: ValidSwarmStatePath,
+  tool: string,
+  payload: Record<string, unknown>,
+  actor: SwarmMcpActorContext
+): Promise<{
+  exitCode: number | null
+  stdout: string
+  stderr: string
+  response: SwarmMcpToolResponse | null
+}> {
+  return new Promise((resolvePromise) => {
+    const child = spawn(getSwarmMcpPythonExecutable(state.workspaceRoot), ['-m', 'swarm_mcp', '--allowed-root', state.workspaceRoot], {
+      cwd: state.workspaceRoot,
+      env: {
+        ...process.env,
+        PYTHONPATH: [state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+      },
+      windowsHide: true,
+    })
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
+    child.on('error', (error) => {
+      resolvePromise({ exitCode: 1, stdout, stderr: stderr || error.message, response: null })
+    })
+    child.on('close', (exitCode) => {
+      let response: SwarmMcpToolResponse | null = null
+      const responseLine = stdout.trim().split(/\r?\n/u).filter(Boolean).at(-1)
+      if (responseLine) {
+        try {
+          response = JSON.parse(responseLine) as SwarmMcpToolResponse
+        } catch {
+          response = null
+        }
+      }
+      resolvePromise({ exitCode, stdout, stderr, response })
+    })
+    child.stdin.end(`${JSON.stringify({ tool, payload, actor })}\n`)
+  })
+}
+
+async function requireSwarmMcpAuthority(): Promise<SwarmMcpActorContext> {
+  const accessDecision = await multicodeAuth.checkPremiumAccess({
+    featureKey: 'multicode.swarm_mode',
+  })
+  if (!accessDecision.allowed) {
+    throw new Error(accessDecision.message)
+  }
+
+  const userId = multicodeAuth.getState().user?.id?.trim()
+  if (!userId) {
+    throw new Error('Artifact review requires an authenticated Multicode user.')
+  }
+
+  return {
+    id: userId,
+    role: 'user',
+    authenticated: true,
+    mcpAuthorized: true,
+  }
+}
+
+function parseSwarmStateForArtifactReview(content: string): {
+  tasks: SwarmTaskRecord[]
+  artifacts: SwarmArtifactRecord[]
+} {
+  const parsed = JSON.parse(content) as Record<string, unknown>
+  const tasks = (Array.isArray(parsed.tasks) ? parsed.tasks : []).flatMap((task): SwarmTaskRecord[] => {
+    if (!task || typeof task !== 'object') return []
+    const record = task as Record<string, unknown>
+    return typeof record.id === 'string' && typeof record.status === 'string'
+      ? [{
+          id: record.id,
+          status: record.status,
+          ownerAgentId: typeof record.ownerAgentId === 'string' ? record.ownerAgentId : '',
+        }]
+      : []
+  })
+  const artifacts = (Array.isArray(parsed.artifacts) ? parsed.artifacts : []).flatMap((artifact): SwarmArtifactRecord[] => {
+    if (!artifact || typeof artifact !== 'object') return []
+    const record = artifact as Record<string, unknown>
+    if (typeof record.id !== 'string') return []
+    return [{
+      id: record.id,
+      kind: typeof record.kind === 'string' ? record.kind : '',
+      title: typeof record.title === 'string' ? record.title : '',
+      path: typeof record.path === 'string' ? record.path : '',
+      status: typeof record.status === 'string' ? record.status : '',
+      createdBy: typeof record.createdBy === 'string' ? record.createdBy : '',
+      taskId: typeof record.taskId === 'string' ? record.taskId : '',
+    }]
+  })
+  return { tasks, artifacts }
+}
+
+function getArtifactAutoApprovalBlocker(
+  artifact: SwarmArtifactRecord,
+  tasks: SwarmTaskRecord[],
+  artifacts: SwarmArtifactRecord[]
+): string | null {
+  if (artifact.status === 'approved') return 'Artifact is already approved.'
+  if (artifact.status === 'superseded') return 'Superseded artifacts are obsolete and cannot receive auto-approval intent.'
+  if (!['draft', 'ready_for_review', 'changes_requested'].includes(artifact.status)) {
+    return 'Artifact status is not eligible for auto-approval intent.'
+  }
+  if (!artifact.path.trim()) return 'Artifact file path is missing.'
+  if (!autoApprovableArtifactKinds.has(artifact.kind)) return 'Artifact kind is not eligible for auto-approval intent.'
+
+  const task = tasks.find((candidate) => candidate.id === artifact.taskId)
+  if (!task) return 'Artifact task was not found.'
+  if (!artifact.createdBy.trim() && !task.ownerAgentId.trim()) {
+    return 'Artifact task has no responsible agent to receive auto-approval intent.'
+  }
+
+  const blockingArtifacts = artifacts.filter((candidate) =>
+    candidate.taskId === task.id
+    && candidate.status !== 'approved'
+    && candidate.status !== 'superseded'
+    && autoApprovableArtifactKinds.has(candidate.kind)
+  )
+  if (blockingArtifacts.length === 0) return 'No blocking review artifact is waiting for approval.'
+
+  const ineligibleBlockingArtifact = blockingArtifacts.find((candidate) =>
+    !['draft', 'ready_for_review', 'changes_requested'].includes(candidate.status) || !candidate.path.trim()
+  )
+  if (ineligibleBlockingArtifact) {
+    return `Related artifact ${ineligibleBlockingArtifact.id} is not eligible for auto-approval.`
+  }
+
+  return null
+}
+
+async function assertAutoApprovalAllowed(state: ValidSwarmStatePath, artifactId: string): Promise<SwarmArtifactRecord> {
+  const stateContent = await readFile(state.statePath, 'utf8')
+  const { tasks, artifacts } = parseSwarmStateForArtifactReview(stateContent)
+  const artifact = artifacts.find((candidate) => candidate.id === artifactId)
+  if (!artifact) throw new Error('Requested artifact was not found in the swarm state.')
+
+  const blocker = getArtifactAutoApprovalBlocker(artifact, tasks, artifacts)
+  if (blocker) throw new Error(blocker)
+  if (/^https?:\/\//i.test(artifact.path)) throw new Error('Remote artifact links cannot be auto-approved.')
+
+  const artifactPath = resolveArtifactFilePath(state, artifact.path)
+  const artifactStats = await stat(artifactPath)
+  if (!artifactStats.isFile()) throw new Error('Artifact path must be a file.')
+  await readFile(artifactPath, 'utf8')
+  return artifact
+}
+
+async function reviewSwarmArtifact(
+  payload: SwarmArtifactReviewPayload,
+  action: SwarmArtifactReviewAction,
+  mode: SwarmArtifactReviewMode
+): Promise<SwarmArtifactCommandResult> {
+  try {
+    const state = validateSwarmStatePath(payload?.statePath)
+    const artifactId = resolveSwarmArtifactId(payload?.artifactId)
+    const actor = await requireSwarmMcpAuthority()
+    let feedback: string | undefined
+
+    if (action === 'request-changes') {
+      feedback = typeof payload?.feedback === 'string' ? payload.feedback.trim() : ''
+      if (!feedback) return { ok: false, message: 'Artifact change requests require feedback.' }
+    }
+    if (mode === 'auto-run') {
+      if (action !== 'approve') throw new Error('Auto-run can only approve eligible artifacts.')
+      const artifact = await assertAutoApprovalAllowed(state, artifactId)
+      const stateContent = await readFile(state.statePath, 'utf8')
+      return {
+        ok: true,
+        data: {
+          action: 'approve-intent',
+          actor: 'auto-run',
+          authorizedUserId: actor.id,
+          artifactId,
+          artifact,
+          stateContent,
+        },
+      }
+    }
+
+    const reviewPayload = {
+      statePath: state.statePath,
+      artifactId,
+      id: actor.id,
+      ...(feedback ? { feedback } : {}),
+    }
+    const toolName = action === 'approve' ? 'swarm.artifact.approve' : 'swarm.artifact.request_changes'
+
+    const toolResult = await runSwarmMcpTool(state, toolName, reviewPayload, actor)
+    if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
+      const message = toolResult.response && !toolResult.response.ok
+        ? toolResult.response.error?.message
+        : undefined
+      return {
+        ok: false,
+        message: message ?? (toolResult.stderr.trim() || 'The swarm MCP command failed.'),
+        stdout: toolResult.stdout,
+        stderr: toolResult.stderr,
+        exitCode: toolResult.exitCode ?? 'unknown',
+      }
+    }
+
+    const stateContent = await readFile(state.statePath, 'utf8')
+    return {
+      ok: true,
+      data: {
+        action,
+        actor: reviewPayload.id,
+        authorizedUserId: actor.id,
+        artifactId,
+        stateContent,
+        tool: toolResult.response.result,
+      },
+    }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 function buildSwarmShellBootstrap(swarmStatePath?: string): string {
@@ -1651,11 +2044,12 @@ function buildWslShellScript(
   cliRuntime?: CliRuntimeSettings,
   cliPermissionPreset: SwarmCliPermissionPreset = 'default'
 ): string {
+  const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'wsl', [cwd, swarmStatePath])
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSwarmShellBootstrap(swarmStatePath),
-    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset),
+    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset),
     'exec bash -li',
   ].join('; ')
 }
@@ -1675,6 +2069,7 @@ function getShellLaunchConfig(
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
     const windowsCwd = toWindowsPath(cwd)
     const windowsStatePath = swarmStatePath ? toWindowsPath(swarmStatePath) : undefined
+    const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'windows', [cwd, swarmStatePath])
     if (!isNativeWindowsPath(windowsCwd)) {
       throw new Error(
         `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`
@@ -1685,7 +2080,7 @@ function getShellLaunchConfig(
       sessionId,
       resume,
       windowsCwd,
-      initialPrompt,
+      shellInitialPrompt,
       cliRuntime,
       cliPermissionPreset
     )
@@ -1907,8 +2302,37 @@ function broadcastTerminalSessionsChanged(): void {
 }
 
 function logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void {
-  if (app.isPackaged) return
+  if (app.isPackaged && !MULTICODE_DIAGNOSTICS) return
   console.info(`[${scope}] ${event}`, payload)
+}
+
+async function withIpcDiagnostics<T>(
+  scope: string,
+  event: string,
+  payload: Record<string, unknown>,
+  action: () => Promise<T>
+): Promise<T> {
+  const startedAt = Date.now()
+  try {
+    const result = await action()
+    const elapsedMs = Date.now() - startedAt
+    if (MULTICODE_DIAGNOSTICS || elapsedMs >= DIAGNOSTIC_SLOW_IPC_MS) {
+      logMainPerfEvent(scope, event, {
+        ...payload,
+        elapsedMs,
+        ok: true,
+      })
+    }
+    return result
+  } catch (error) {
+    logMainPerfEvent(scope, `${event}-error`, {
+      ...payload,
+      elapsedMs: Date.now() - startedAt,
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
 }
 
 function recordTerminalDataBatch(
@@ -1951,6 +2375,38 @@ function recordTerminalDataBatch(
   terminalBatchDiagnostics.set(session.sessionId, stats)
 }
 
+function trimPendingTerminalChunks(chunks: string[], maxBytes: number): { chunks: string[]; bytes: number; dropped: boolean } {
+  let bytes = 0
+  const retained: string[] = []
+
+  for (let index = chunks.length - 1; index >= 0; index -= 1) {
+    const chunk = chunks[index] ?? ''
+    const chunkBytes = Buffer.byteLength(chunk)
+    if (bytes + chunkBytes <= maxBytes) {
+      retained.unshift(chunk)
+      bytes += chunkBytes
+      continue
+    }
+
+    const remainingBytes = maxBytes - bytes
+    if (remainingBytes > 0) {
+      const tail = Buffer.from(chunk)
+        .subarray(Math.max(0, chunkBytes - remainingBytes))
+        .toString('utf8')
+      retained.unshift(tail)
+      bytes += Buffer.byteLength(tail)
+    }
+    retained.unshift('\r\n[Multicode: terminal output throttled to keep the UI responsive]\r\n')
+    return {
+      chunks: retained,
+      bytes: retained.reduce((total, value) => total + Buffer.byteLength(value), 0),
+      dropped: true,
+    }
+  }
+
+  return { chunks: retained, bytes, dropped: false }
+}
+
 function flushTerminalData(sessionId: string, cause: 'timer' | 'exit' | 'dispose' = 'timer'): void {
   const pending = pendingTerminalData.get(sessionId)
   if (!pending) return
@@ -1974,6 +2430,12 @@ function sendTerminalData(session: TerminalSession, data: string): void {
     pending.sender = session.sender
     pending.channel = channel
     pending.chunks.push(data)
+    pending.bytes += Buffer.byteLength(data)
+    if (pending.bytes > TERMINAL_PENDING_DATA_LIMIT) {
+      const trimmed = trimPendingTerminalChunks(pending.chunks, TERMINAL_PENDING_DATA_LIMIT)
+      pending.chunks = trimmed.chunks
+      pending.bytes = trimmed.bytes
+    }
     return
   }
 
@@ -1984,6 +2446,7 @@ function sendTerminalData(session: TerminalSession, data: string): void {
     sender: session.sender,
     channel,
     chunks: [data],
+    bytes: Buffer.byteLength(data),
     timer,
   })
 }
@@ -2144,8 +2607,40 @@ function disposeFileWatcher(watchId: string): void {
   const fileWatcher = fileWatchers.get(watchId)
   if (!fileWatcher) return
 
+  if (fileWatcher.flushTimer) {
+    clearTimeout(fileWatcher.flushTimer)
+  }
   fileWatcher.watcher.close()
   fileWatchers.delete(watchId)
+}
+
+function flushFileWatchEvent(watchId: string): void {
+  const fileWatcher = fileWatchers.get(watchId)
+  if (!fileWatcher) return
+
+  fileWatcher.flushTimer = null
+  const watchEvent = fileWatcher.pendingEvent
+  fileWatcher.pendingEvent = null
+  if (!watchEvent) return
+
+  const sender = BrowserWindow.getAllWindows()
+    .map((window) => window.webContents)
+    .find((webContents) => webContents.id === fileWatcher.senderId)
+  if (!sender || sender.isDestroyed()) return
+
+  sender.send(`fs:watch-event:${watchId}`, watchEvent)
+}
+
+function scheduleFileWatchEvent(watchId: string, watchEvent: FileWatchEvent): void {
+  const fileWatcher = fileWatchers.get(watchId)
+  if (!fileWatcher) return
+
+  fileWatcher.pendingEvent = fileWatcher.pendingEvent
+    ? { eventType: 'change', path: null }
+    : watchEvent
+
+  if (fileWatcher.flushTimer) clearTimeout(fileWatcher.flushTimer)
+  fileWatcher.flushTimer = setTimeout(() => flushFileWatchEvent(watchId), FILE_WATCH_EVENT_COALESCE_MS)
 }
 
 function createMobileCommandService(): MobileSwarmCommandService {
@@ -2306,6 +2801,9 @@ async function discoverMobileSwarmStatePaths(): Promise<string[]> {
 function disposeFileWatchersForSender(senderId: number): void {
   for (const [watchId, fileWatcher] of fileWatchers.entries()) {
     if (fileWatcher.senderId === senderId) {
+      if (fileWatcher.flushTimer) {
+        clearTimeout(fileWatcher.flushTimer)
+      }
       fileWatcher.watcher.close()
       fileWatchers.delete(watchId)
     }
@@ -2576,9 +3074,9 @@ ipcMain.handle('terminal:kill', (_, sessionId: string) => {
 })
 
 // ── Swarm artifact IPC handlers ──────────────────────────────────────────────
-// Renderer IPC must not invoke swarm Python mutation commands. User review
-// decisions are handed to the producing agent terminal, and agents update swarm
-// state through their own tool flow.
+// Renderer IPC gets narrow artifact review commands only. The main process owns
+// authenticated MCP authority, review actor selection, auto-run policy checks,
+// and fresh state snapshots after mutations.
 
 ipcMain.handle('swarm:artifact:open', async (_, payload: SwarmArtifactOpenPayload): Promise<SwarmArtifactCommandResult> => {
   try {
@@ -2600,6 +3098,18 @@ ipcMain.handle('swarm:artifact:open', async (_, payload: SwarmArtifactOpenPayloa
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
+})
+
+ipcMain.handle('swarm:artifact:approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
+  return reviewSwarmArtifact(payload, 'approve', 'user')
+})
+
+ipcMain.handle('swarm:artifact:auto-approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
+  return reviewSwarmArtifact(payload, 'approve', 'auto-run')
+})
+
+ipcMain.handle('swarm:artifact:request-changes', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
+  return reviewSwarmArtifact(payload, 'request-changes', 'user')
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
@@ -3072,7 +3582,7 @@ ipcMain.handle('fs:watch-start', async (event, dirPath: string) => {
   const createWatcher = (useRecursive: boolean): FSWatcher =>
     watch(dirPath, { recursive: useRecursive }, (eventType, filename) => {
       if (event.sender.isDestroyed()) return
-      event.sender.send(`fs:watch-event:${watchId}`, {
+      scheduleFileWatchEvent(watchId, {
         eventType,
         path: typeof filename === 'string' ? filename : null,
       })
@@ -3080,7 +3590,7 @@ ipcMain.handle('fs:watch-start', async (event, dirPath: string) => {
 
   try {
     const watcher = createWatcher(recursive)
-    fileWatchers.set(watchId, { watcher, senderId: event.sender.id })
+    fileWatchers.set(watchId, { watcher, senderId: event.sender.id, pendingEvent: null, flushTimer: null })
     return watchId
   } catch (error) {
     if (isMissingPathError(error)) return null
@@ -3090,7 +3600,7 @@ ipcMain.handle('fs:watch-start', async (event, dirPath: string) => {
 
     try {
       const watcher = createWatcher(false)
-      fileWatchers.set(watchId, { watcher, senderId: event.sender.id })
+      fileWatchers.set(watchId, { watcher, senderId: event.sender.id, pendingEvent: null, flushTimer: null })
       return watchId
     } catch (fallbackError) {
       if (isMissingPathError(fallbackError)) return null
@@ -3145,13 +3655,13 @@ ipcMain.handle('specialist:read-prompt', async (_, specialistId: SpecialistActio
 })
 
 ipcMain.handle('fs:writefile', async (_, filePath: string, content: string) => {
-  assertNotDirectSwarmStateMutation(filePath)
+  await assertNotDirectSwarmStateMutation(filePath)
   await writeFile(filePath, content, 'utf-8')
 })
 
 ipcMain.handle('fs:create-file', async (_, parentDir: string, name: string) => {
   const filePath = join(parentDir, name)
-  assertNotDirectSwarmStateMutation(filePath)
+  await assertNotDirectSwarmStateMutation(filePath)
   await writeFile(filePath, '', { encoding: 'utf-8', flag: 'wx' })
   return filePath
 })
@@ -3176,8 +3686,8 @@ ipcMain.handle('fs:rename', async (_, sourcePath: string, nextName: string) => {
 
   const targetPath = join(dirname(sourcePath), normalizedName)
   if (targetPath === sourcePath) return targetPath
-  assertNotDirectSwarmStateMutation(sourcePath)
-  assertNotDirectSwarmStateMutation(targetPath)
+  await assertNotDirectSwarmStateMutation(sourcePath)
+  await assertNotDirectSwarmStateMutation(targetPath)
 
   if (await pathExists(targetPath)) {
     throw new Error(`A file or folder named "${normalizedName}" already exists.`)
@@ -3190,7 +3700,8 @@ ipcMain.handle('fs:rename', async (_, sourcePath: string, nextName: string) => {
 ipcMain.handle('fs:copy', async (_, sourcePath: string, destinationDir: string) => {
   const sourceName = basename(sourcePath)
   const destinationPath = await getUniqueCopyPath(destinationDir, sourceName, sourcePath)
-  assertNotDirectSwarmStateMutation(destinationPath)
+  await assertNotDirectSwarmStateMutation(sourcePath)
+  await assertNotDirectSwarmStateMutation(destinationPath)
 
   await cp(sourcePath, destinationPath, {
     errorOnExist: true,
@@ -3202,7 +3713,7 @@ ipcMain.handle('fs:copy', async (_, sourcePath: string, destinationDir: string) 
 })
 
 ipcMain.handle('fs:delete', async (_, targetPath: string) => {
-  assertNotDirectSwarmStateMutation(targetPath)
+  await assertNotDirectSwarmStateMutation(targetPath)
   await shell.trashItem(targetPath)
 })
 
@@ -3212,55 +3723,66 @@ ipcMain.handle('fs:show-item-in-folder', async (_, targetPath: string) => {
 })
 
 ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
-  return getGitRepoRoot(folderPath)
+  return withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))
 })
 
 ipcMain.handle('git:get-status', async (_, repoRoot: string) => {
-  return getGitStatus(repoRoot)
+  return withIpcDiagnostics('GitIPC', 'get-status', { repoRoot }, async () => {
+    const snapshot = await getGitStatus(repoRoot)
+    return snapshot
+  }).then((snapshot) => {
+    if (MULTICODE_DIAGNOSTICS) {
+      logMainPerfEvent('GitIPC', 'get-status-result', {
+        repoRoot,
+        changedFileCount: Object.keys(snapshot.files).length,
+      })
+    }
+    return snapshot
+  })
 })
 
 ipcMain.handle('git:get-file-base', async (_, repoRoot: string, filePath: string) => {
-  return getGitFileBase(repoRoot, filePath)
+  return withIpcDiagnostics('GitIPC', 'get-file-base', { repoRoot, filePath }, () => getGitFileBase(repoRoot, filePath))
 })
 
 ipcMain.handle('git:get-branches', async (_, repoRoot: string) => {
-  return getGitBranches(repoRoot)
+  return withIpcDiagnostics('GitIPC', 'get-branches', { repoRoot }, () => getGitBranches(repoRoot))
 })
 
 ipcMain.handle('git:get-history', async (_, repoRoot: string, limit?: number) => {
-  return getGitHistory(repoRoot, limit)
+  return withIpcDiagnostics('GitIPC', 'get-history', { repoRoot, limit }, () => getGitHistory(repoRoot, limit))
 })
 
 ipcMain.handle('git:stage', async (_, repoRoot: string, paths: string[]) => {
-  return stageGitPaths(repoRoot, paths)
+  return withIpcDiagnostics('GitIPC', 'stage', { repoRoot, pathCount: paths.length }, () => stageGitPaths(repoRoot, paths))
 })
 
 ipcMain.handle('git:unstage', async (_, repoRoot: string, paths: string[]) => {
-  return unstageGitPaths(repoRoot, paths)
+  return withIpcDiagnostics('GitIPC', 'unstage', { repoRoot, pathCount: paths.length }, () => unstageGitPaths(repoRoot, paths))
 })
 
 ipcMain.handle('git:revert', async (_, repoRoot: string, paths: string[]) => {
-  return revertGitPaths(repoRoot, paths)
+  return withIpcDiagnostics('GitIPC', 'revert', { repoRoot, pathCount: paths.length }, () => revertGitPaths(repoRoot, paths))
 })
 
 ipcMain.handle('git:discard-unstaged', async (_, repoRoot: string, paths: string[]) => {
-  return discardUnstagedGitChanges(repoRoot, paths)
+  return withIpcDiagnostics('GitIPC', 'discard-unstaged', { repoRoot, pathCount: paths.length }, () => discardUnstagedGitChanges(repoRoot, paths))
 })
 
 ipcMain.handle('git:commit', async (_, repoRoot: string, message: string) => {
-  return commitGitChanges(repoRoot, message)
+  return withIpcDiagnostics('GitIPC', 'commit', { repoRoot, messageLength: message.length }, () => commitGitChanges(repoRoot, message))
 })
 
 ipcMain.handle('git:push', async (_, repoRoot: string) => {
-  return pushGitBranch(repoRoot)
+  return withIpcDiagnostics('GitIPC', 'push', { repoRoot }, () => pushGitBranch(repoRoot))
 })
 
 ipcMain.handle('git:switch-branch', async (_, repoRoot: string, branchName: string) => {
-  return switchGitBranch(repoRoot, branchName)
+  return withIpcDiagnostics('GitIPC', 'switch-branch', { repoRoot, branchName }, () => switchGitBranch(repoRoot, branchName))
 })
 
 ipcMain.handle('git:worktree:list', async (_, repoRoot: string) => {
-  return listGitWorktrees(repoRoot)
+  return withIpcDiagnostics('GitIPC', 'worktree-list', { repoRoot }, () => listGitWorktrees(repoRoot))
 })
 
 ipcMain.handle('git:worktree:create', async (_, input) => {

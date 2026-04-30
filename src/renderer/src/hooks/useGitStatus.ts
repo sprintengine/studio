@@ -30,13 +30,23 @@ type GitStatusSubscription = {
   refreshAgain: boolean
   stopWatching?: () => Promise<void>
   watchStarting: boolean
+  lastWatchRefreshAt: number
 }
 
 const GIT_STATUS_RECOVERY_INITIAL_MS = 30_000
 const GIT_STATUS_WATCH_RECOVERY_INITIAL_MS = 120_000
 const GIT_STATUS_RECOVERY_MAX_MS = 300_000
 const GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS = 1_000
+const GIT_STATUS_WATCH_REFRESH_MIN_INTERVAL_MS = 10_000
 const GIT_STATUS_DEFAULT_REFRESH_DEBOUNCE_MS = 250
+const GIT_STATUS_WATCH_IGNORED_SEGMENTS = new Set([
+  '.git',
+  'node_modules',
+  'out',
+  'dist',
+  '.vite',
+  '__pycache__',
+])
 const gitStatusSubscriptions = new Map<string, GitStatusSubscription>()
 const gitRepoRootLookups = new Map<string, Promise<string | null>>()
 let gitStatusVisibilityListenerInstalled = false
@@ -253,11 +263,52 @@ function scheduleGitStatusRefresh(subscription: GitStatusSubscription, cause: Gi
   }, delayMs)
 }
 
+function shouldIgnoreGitStatusWatchPath(path: string | null): boolean {
+  if (!path) return true
+  return path
+    .split(/[/\\]+/)
+    .filter(Boolean)
+    .some((segment) => GIT_STATUS_WATCH_IGNORED_SEGMENTS.has(segment))
+}
+
 function startGitStatusWatch(subscription: GitStatusSubscription): void {
   if (subscription.watchStarting || subscription.stopWatching || typeof window.api.watchPath !== 'function') return
+  if (window.api.platform === 'win32') {
+    logPerfEvent('GitStatus', 'watch-disabled', {
+      repoRoot: subscription.repoRoot,
+      reason: 'Windows recursive fs.watch can retrigger Git status refresh loops.',
+    })
+    resetGitStatusRecoveryDelay(subscription)
+    scheduleGitStatusRecovery(subscription)
+    return
+  }
 
   subscription.watchStarting = true
-  window.api.watchPath(subscription.repoRoot, () => scheduleGitStatusRefresh(subscription, 'watch'))
+  window.api.watchPath(subscription.repoRoot, (event) => {
+    if (shouldIgnoreGitStatusWatchPath(event.path)) {
+      logPerfEvent('GitStatus', 'watch-ignored', {
+        repoRoot: subscription.repoRoot,
+        path: event.path,
+      })
+      return
+    }
+    logPerfEvent('GitStatus', 'watch', {
+      repoRoot: subscription.repoRoot,
+      path: event.path,
+      eventType: event.eventType,
+    })
+    const now = Date.now()
+    if (now - subscription.lastWatchRefreshAt < GIT_STATUS_WATCH_REFRESH_MIN_INTERVAL_MS) {
+      logPerfEvent('GitStatus', 'watch-throttled', {
+        repoRoot: subscription.repoRoot,
+        path: event.path,
+        eventType: event.eventType,
+      })
+      return
+    }
+    subscription.lastWatchRefreshAt = now
+    scheduleGitStatusRefresh(subscription, 'watch')
+  })
     .then((cleanup) => {
       subscription.watchStarting = false
       if (gitStatusSubscriptions.get(normalizePathKey(subscription.repoRoot)) !== subscription) {
@@ -292,6 +343,7 @@ function getGitStatusSubscription(repoRoot: string): GitStatusSubscription {
     refreshPromise: null,
     refreshAgain: false,
     watchStarting: false,
+    lastWatchRefreshAt: 0,
   }
 
   gitStatusSubscriptions.set(key, subscription)
