@@ -12,7 +12,7 @@ import {
 import 'flexlayout-react/style/dark.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentState, SwarmRole, SwarmRuntimeAgentStatus } from '../../types/workspace'
+import type { AgentState, FuturePlanWorkspaceSource, SwarmRole, SwarmRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { SpecialistActionIcon, StatusDot, SwarmRoleIcon } from '../AppIcons'
@@ -21,6 +21,7 @@ import FileExplorer from '../panels/FileExplorer'
 
 interface Props {
   workspaceId: string
+  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
@@ -122,7 +123,7 @@ function timedPanel(component: string, children: React.ReactNode) {
   )
 }
 
-function WorkspaceLayout({ workspaceId }: Props) {
+function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   const workspace    = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
@@ -245,7 +246,7 @@ function WorkspaceLayout({ workspaceId }: Props) {
             ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)
             : <div className="h-full bg-[#08090b]" />
         case 'explorer':
-          return <FileExplorer workspaceId={workspaceId} />
+          return <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />
         case 'content-search':
           return timedPanel('ContentSearchPanel', <ContentSearchPanel workspaceId={workspaceId} />)
         case 'git':
@@ -271,7 +272,7 @@ function WorkspaceLayout({ workspaceId }: Props) {
           return <div className="h-full bg-[#08090b]" />
       }
     },
-    [workspaceId]
+    [onStartFuturePlan, workspaceId]
   )
 
   const cleanupNode = useCallback(

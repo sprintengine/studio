@@ -9,11 +9,17 @@ import type {
   PreviewSlot,
   SwarmMockConfig,
   SwarmRole,
+  SwarmAutoState,
+  FuturePlanWorkspaceSource,
   SwarmRoleCounts,
   SwarmRoleCliDefaults,
   SwarmState,
   SwarmWorkspaceContext,
 } from '../../types/workspace'
+import {
+  createPlanSourcedSwarmWorkspace,
+  PlanSourcedSwarmWorkspaceError,
+} from '../../utils/swarmWorkspaceCreation'
 import {
   countSwarmAgents,
   createInitialSwarmState,
@@ -37,6 +43,18 @@ type ExistingTeam = {
 
 type CreationMode = 'swarm' | 'standard'
 
+type MarkdownPlanOption = {
+  path: string
+  relativePath: string
+}
+
+export type TemplateSelectorInitialState = {
+  mode?: CreationMode
+  folderPath?: string | null
+  workspaceName?: string
+  futurePlanSource?: FuturePlanWorkspaceSource | null
+}
+
 type SwarmAccessState = {
   allowed: boolean
   title: string
@@ -53,9 +71,11 @@ interface Props {
     swarmState?: SwarmState | null
     swarmContext?: SwarmWorkspaceContext | null
     swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
+    swarmAutoState?: Partial<SwarmAutoState> | null
   }) => void
   onClose: () => void
   allowClose?: boolean
+  initialState?: TemplateSelectorInitialState | null
 }
 
 const roleSummaries: Record<SwarmRole, string> = {
@@ -124,6 +144,69 @@ function toTitleName(value: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function pathSeparatorFor(path: string): string {
+  return path.includes('\\') && !path.includes('/') ? '\\' : '/'
+}
+
+function joinPath(parent: string, child: string): string {
+  const separator = pathSeparatorFor(parent)
+  return `${parent}${parent.endsWith(separator) ? '' : separator}${child}`
+}
+
+function workspaceRelativePath(rootPath: string, filePath: string): string | null {
+  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normalizedFile = filePath.replace(/\\/g, '/')
+  const rootKey = normalizedRoot.toLowerCase()
+  const fileKey = normalizedFile.toLowerCase()
+  if (fileKey === rootKey || !fileKey.startsWith(`${rootKey}/`)) return null
+  return normalizedFile.slice(normalizedRoot.length + 1)
+}
+
+function planBasename(path: string): string {
+  const name = basename(path)
+  return name.replace(/\.md$/i, '')
+}
+
+function markdownTitle(content: string): string | null {
+  const heading = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#(?!#)\s+\S/.test(line))
+
+  return heading?.replace(/^#\s+/, '').trim() || null
+}
+
+function shouldScanDirectory(name: string): boolean {
+  return name !== 'node_modules' && name !== '.git' && name !== '.multicode-worktrees'
+}
+
+async function listMarkdownPlanOptions(rootPath: string): Promise<MarkdownPlanOption[]> {
+  const options: MarkdownPlanOption[] = []
+  const queue = [rootPath]
+  const maxFiles = 500
+
+  while (queue.length > 0 && options.length < maxFiles) {
+    const dir = queue.shift()
+    if (!dir) break
+
+    const entries = await window.api.readdir(dir).catch(() => [])
+    for (const entry of entries) {
+      const entryPath = joinPath(dir, entry.name)
+      if (entry.isDir) {
+        if (shouldScanDirectory(entry.name)) queue.push(entryPath)
+        continue
+      }
+
+      if (!/\.md$/i.test(entry.name)) continue
+      const relativePath = workspaceRelativePath(rootPath, entryPath)
+      if (relativePath) options.push({ path: entryPath, relativePath })
+      if (options.length >= maxFiles) break
+    }
+  }
+
+  return options.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
 }
 
 function getExistingTeamDisplayName(slug: string, state: SwarmState): string {
@@ -202,19 +285,20 @@ function getSwarmAccessState(authState: MulticodeAuthState, requestedAgents: num
   }
 }
 
-export default function TemplateSelector({ onCreate, onClose, allowClose = true }: Props) {
+export default function TemplateSelector({ onCreate, onClose, allowClose = true, initialState = null }: Props) {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const storedRecentFolders = useWorkspaceStore((s) => s.appSettings.recentWorkspaceFolders ?? [])
   const workspaces = useWorkspaceStore((s) => s.workspaces)
-  const [folderPath, setFolderPath] = useState<string | null>(null)
-  const [name, setName] = useState('')
-  const [nameTouched, setNameTouched] = useState(false)
-  const [mode, setMode] = useState<CreationMode>('standard')
+  const initialFuturePlan = initialState?.futurePlanSource ?? null
+  const [folderPath, setFolderPath] = useState<string | null>(initialState?.folderPath ?? initialFuturePlan?.folderPath ?? null)
+  const [name, setName] = useState(initialState?.workspaceName ?? initialFuturePlan?.teamName ?? '')
+  const [nameTouched, setNameTouched] = useState(Boolean(initialState?.workspaceName ?? initialFuturePlan))
+  const [mode, setMode] = useState<CreationMode>(initialState?.mode ?? (initialFuturePlan ? 'swarm' : 'standard'))
   const [selectedId, setSelectedId] = useState<string>(LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id)
-  const [swarmTeamName, setSwarmTeamName] = useState('')
-  const [swarmTeamNameTouched, setSwarmTeamNameTouched] = useState(false)
-  const [swarmGoal, setSwarmGoal] = useState('')
+  const [swarmTeamName, setSwarmTeamName] = useState(initialFuturePlan?.teamName ?? '')
+  const [swarmTeamNameTouched, setSwarmTeamNameTouched] = useState(Boolean(initialFuturePlan))
+  const [swarmGoal, setSwarmGoal] = useState(initialFuturePlan?.goal ?? '')
   const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(initialSwarmRoleCounts)
   const [swarmRoleCliDefaults, setSwarmRoleCliDefaults] = useState<Required<SwarmRoleCliDefaults>>(
     initialSwarmRoleCliDefaults
@@ -222,6 +306,14 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const [existingTeams, setExistingTeams] = useState<ExistingTeam[]>([])
   const [selectedExistingTeam, setSelectedExistingTeam] = useState<ExistingTeam | null>(null)
   const [isScanning, setIsScanning] = useState(false)
+  const [isCreating, setIsCreating] = useState(false)
+  const [useWorktreesForSwarms, setUseWorktreesForSwarms] = useState(false)
+  const [futurePlanOptions, setFuturePlanOptions] = useState<MarkdownPlanOption[]>(
+    initialFuturePlan ? [{ path: initialFuturePlan.sourcePath, relativePath: initialFuturePlan.sourceRelativePath }] : []
+  )
+  const [selectedFuturePlanPath, setSelectedFuturePlanPath] = useState(initialFuturePlan?.sourcePath ?? '')
+  const [futurePlanContent, setFuturePlanContent] = useState<string | null>(initialFuturePlan?.sourceContent ?? null)
+  const [futurePlanError, setFuturePlanError] = useState<string | null>(null)
 
   const recentFolders = useMemo(() => {
     const seen = new Set<string>()
@@ -255,10 +347,13 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
   const detailsComplete = name.trim().length > 0
   const swarmObjectiveComplete =
     selectedExistingTeam != null || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0)
+  const futurePlanReady = selectedExistingTeam != null || !selectedFuturePlanPath || (futurePlanContent != null && !futurePlanError)
   const canCreate =
-    detailsComplete
+    !isCreating
+    && detailsComplete
     && (mode === 'standard' || (
       swarmAccess.allowed
+      && futurePlanReady
       && (selectedExistingTeam != null || (swarmObjectiveComplete && totalAgents > 0))
     ))
 
@@ -271,44 +366,98 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     [name, swarmGoal, swarmRoleCounts, swarmTeamName]
   )
 
+  const scanFolder = async (dir: string) => {
+    const entries = await window.api.readdir(joinPath(dir, 'swarm')).catch(() => [])
+    const teams: ExistingTeam[] = []
+    for (const entry of entries) {
+      if (!entry.isDir) continue
+      try {
+        const content = await window.api.readfile(getExistingSwarmStateFilePath(dir, entry.name))
+        const state = parseSwarmStateFile(content, entry.name)
+        const displayName = getExistingTeamDisplayName(entry.name, state)
+        teams.push({
+          slug: entry.name,
+          displayName,
+          context: buildSwarmContext(dir, displayName, entry.name),
+          state,
+        })
+      } catch {
+        // Ignore folders that are not swarm state directories.
+      }
+    }
+
+    const plans = await listMarkdownPlanOptions(dir)
+    setExistingTeams(teams)
+    setFuturePlanOptions((current) => {
+      if (!selectedFuturePlanPath || plans.some((plan) => plan.path === selectedFuturePlanPath)) return plans
+      const selected = current.find((plan) => plan.path === selectedFuturePlanPath)
+      return selected ? [selected, ...plans] : plans
+    })
+  }
+
   const selectFolder = async (dir: string) => {
     const folderName = basename(dir)
     setFolderPath(dir)
     setSelectedExistingTeam(null)
     setExistingTeams([])
+    setFuturePlanOptions([])
+    setFuturePlanContent(null)
+    setFuturePlanError(null)
+    setSelectedFuturePlanPath('')
     if (!nameTouched) setName(folderName || 'workspace')
     if (!swarmTeamNameTouched) setSwarmTeamName(toTitleName(folderName) || 'Swarm Team')
 
     setIsScanning(true)
     try {
-      const entries = await window.api.readdir(`${dir}/swarm`).catch(() => [])
-      const teams: ExistingTeam[] = []
-      for (const entry of entries) {
-        if (!entry.isDir) continue
-        try {
-          const content = await window.api.readfile(getExistingSwarmStateFilePath(dir, entry.name))
-          const state = parseSwarmStateFile(content, entry.name)
-          const displayName = getExistingTeamDisplayName(entry.name, state)
-          teams.push({
-            slug: entry.name,
-            displayName,
-            context: buildSwarmContext(dir, displayName, entry.name),
-            state,
-          })
-        } catch {
-          // Ignore folders that are not swarm state directories.
-        }
-      }
-      setExistingTeams(teams)
+      await scanFolder(dir)
     } finally {
       setIsScanning(false)
     }
   }
 
+  useEffect(() => {
+    if (!folderPath) return
+    setIsScanning(true)
+    scanFolder(folderPath).finally(() => setIsScanning(false))
+    // Initial scan only; folder changes go through selectFolder.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const handlePick = async () => {
     const dir = await window.api.openDir()
     if (!dir) return
     await selectFolder(dir)
+  }
+
+  const selectFuturePlan = async (sourcePath: string) => {
+    setSelectedFuturePlanPath(sourcePath)
+    setFuturePlanError(null)
+
+    if (!sourcePath) {
+      setFuturePlanContent(null)
+      return
+    }
+
+    const option = futurePlanOptions.find((candidate) => candidate.path === sourcePath)
+    if (!option) {
+      setFuturePlanContent(null)
+      setFuturePlanError('Selected markdown file is not available.')
+      return
+    }
+
+    try {
+      const content = await window.api.readfile(option.path)
+      const fallbackName = planBasename(option.path)
+      const goal = markdownTitle(content) ?? toTitleName(fallbackName)
+      setFuturePlanContent(content)
+      if (!swarmTeamNameTouched) setSwarmTeamName(slugifySwarmName(fallbackName))
+      if (!nameTouched) setName(slugifySwarmName(fallbackName))
+      setSwarmGoal(goal)
+      setSelectedExistingTeam(null)
+    } catch {
+      setFuturePlanContent(null)
+      setFuturePlanError('Could not read the selected markdown file.')
+    }
   }
 
   const handleModeChange = (nextMode: CreationMode) => {
@@ -337,8 +486,15 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     }))
   }
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!canCreate) return
+
+    const swarmAutoState = mode === 'swarm'
+      ? {
+        useWorktreesForSwarms,
+        isolateWorkersInWorktrees: useWorktreesForSwarms,
+      }
+      : null
 
     if (selectedExistingTeam) {
       const { displayName, state, context } = selectedExistingTeam
@@ -355,7 +511,44 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
         swarmState: loadedState,
         swarmContext: context,
         swarmRoleCliDefaults,
+        swarmAutoState,
       })
+      return
+    }
+
+    if (mode === 'swarm' && selectedFuturePlanPath) {
+      const option = futurePlanOptions.find((candidate) => candidate.path === selectedFuturePlanPath)
+      if (!folderPath || !option || futurePlanContent == null) return
+
+      setIsCreating(true)
+      try {
+        if (!(await window.api.pathExists(option.path))) {
+          setFuturePlanError('Selected markdown file is not available.')
+          return
+        }
+
+        await createPlanSourcedSwarmWorkspace({
+          rootPath: folderPath,
+          teamName: swarmTeamName,
+          goal: swarmGoal,
+          sourcePath: option.relativePath,
+          sourceContent: futurePlanContent,
+          workspaceName: name,
+          roleCounts: swarmRoleCounts,
+          roleCliDefaults: swarmRoleCliDefaults,
+          useWorktreesForSwarms,
+          pathExists: window.api.pathExists,
+        })
+        onClose()
+      } catch (error) {
+        if (error instanceof PlanSourcedSwarmWorkspaceError && error.code === 'team-exists') {
+          setFuturePlanError('A swarm team with this name already exists.')
+        } else {
+          setFuturePlanError(error instanceof Error ? error.message : 'Could not create the swarm workspace.')
+        }
+      } finally {
+        setIsCreating(false)
+      }
       return
     }
 
@@ -364,7 +557,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
     const swarmContext = mode === 'swarm' && folderPath && swarmState
       ? buildSwarmContext(folderPath, swarmState.name, slugifySwarmName(swarmState.name))
       : null
-    onCreate({ template, name: name.trim(), folderPath, swarmState, swarmContext, swarmRoleCliDefaults })
+    onCreate({ template, name: name.trim(), folderPath, swarmState, swarmContext, swarmRoleCliDefaults, swarmAutoState })
   }
 
   const startLogin = async () => {
@@ -405,11 +598,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
             ) : null}
             <button
               type="button"
-              onClick={handleCreate}
+              onClick={() => void handleCreate()}
               disabled={!canCreate}
               className="h-9 rounded-md border border-[#ececee] bg-[#ececee] px-4 text-sm font-semibold text-[#08090b] transition-colors hover:bg-white disabled:border-[#303139] disabled:bg-[#17181d] disabled:text-[#5a5a63]"
             >
-              {selectedExistingTeam ? 'Load Team' : mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
+              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
             </button>
           </div>
         </header>
@@ -580,7 +773,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                       }
                     }}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter') handleCreate()
+                      if (event.key === 'Enter') void handleCreate()
                     }}
                     placeholder="my-workspace"
                     className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
@@ -603,6 +796,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                           setSelectedExistingTeam(null)
                           setSwarmTeamName(event.target.value)
                           setSwarmTeamNameTouched(true)
+                          setFuturePlanError(null)
                         }}
                         placeholder="Interface Team"
                         className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
@@ -638,6 +832,66 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                     </label>
                   </div>
 
+                  <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+                    <label className="flex min-w-0 flex-col gap-2">
+                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                        Future plan
+                      </span>
+                      <select
+                        value={selectedFuturePlanPath}
+                        onChange={(event) => void selectFuturePlan(event.target.value)}
+                        disabled={!folderPath || isScanning || selectedExistingTeam != null}
+                        className="h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] outline-none transition-colors focus:border-[#ececee]/70 disabled:text-[#5a5a63]"
+                      >
+                        <option value="">
+                          {isScanning ? 'Scanning markdown...' : futurePlanOptions.length > 0 ? 'No future plan' : 'No markdown files'}
+                        </option>
+                        {futurePlanOptions.map((plan) => (
+                          <option key={plan.path} value={plan.path}>
+                            {plan.relativePath}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                        Worktrees
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={useWorktreesForSwarms}
+                        onClick={() => setUseWorktreesForSwarms((enabled) => !enabled)}
+                        className={`flex h-[42px] items-center justify-between gap-3 rounded-md border px-3 text-sm font-semibold transition-colors ${
+                          useWorktreesForSwarms
+                            ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb]'
+                            : 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2] hover:bg-[#111216] hover:text-[#d7d7dc]'
+                        }`}
+                      >
+                        <span>Use worktrees</span>
+                        <span
+                          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                            useWorktreesForSwarms ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+                          }`}
+                          aria-hidden="true"
+                        >
+                          <span
+                            className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+                              useWorktreesForSwarms ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {futurePlanError ? (
+                    <div className="mt-3 border-l border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+                      {futurePlanError}
+                    </div>
+                  ) : null}
+
                   <label className="mt-4 block">
                     <span className="text-xs font-medium text-[#9a9aa2]">
                       Objective
@@ -647,6 +901,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true 
                       onChange={(event) => {
                         setSelectedExistingTeam(null)
                         setSwarmGoal(event.target.value)
+                        setFuturePlanError(null)
                       }}
                       placeholder="Describe the outcome this swarm should deliver..."
                       className="mt-2 min-h-[140px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-3 text-[14px] leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"

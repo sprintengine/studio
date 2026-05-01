@@ -223,6 +223,15 @@ export type SwarmWorkspaceContext = {
   statePath: string
 }
 
+export type FuturePlanWorkspaceSource = {
+  folderPath: string
+  sourcePath: string
+  sourceRelativePath: string
+  sourceContent: string
+  teamName: string
+  goal: string
+}
+
 export type SwarmTask = {
   id: string
   title: string

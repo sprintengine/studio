@@ -86,6 +86,7 @@ interface WorkspaceStore {
       swarmState?: SwarmState | null
       swarmContext?: SwarmWorkspaceContext | null
       swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
+      swarmAutoState?: Partial<SwarmAutoState> | null
     }
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -776,7 +777,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             editorState: defaultEditorState(),
             swarmState,
             swarmRoleCliDefaults,
-            swarmAutoState: defaultSwarmAutoState(),
+            swarmAutoState: normalizeSwarmAutoState(options?.swarmAutoState),
             createdAt: Date.now(),
           })
           if (folderPath) {

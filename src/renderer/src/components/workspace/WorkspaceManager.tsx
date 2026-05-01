@@ -12,7 +12,14 @@ import {
   getSpecialistAction,
   loadSpecialistPrompt,
 } from '../../specialists/specialistActions'
-import type { AgentCli, AppNotification, LayoutTemplate, SpecialistActionId, Workspace } from '../../types/workspace'
+import type {
+  AgentCli,
+  AppNotification,
+  FuturePlanWorkspaceSource,
+  LayoutTemplate,
+  SpecialistActionId,
+  Workspace,
+} from '../../types/workspace'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -20,7 +27,7 @@ import { focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils
 import { MULTICODE_DISABLE_SWARM_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/swarmHandoff'
 import { slugifySwarmName } from '../../utils/swarmStateFile'
-import TemplateSelector from './TemplateSelector'
+import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
 import SwarmStateSynchronizer from './SwarmStateSynchronizer'
 import WorkspaceLayout from './WorkspaceLayout'
@@ -209,6 +216,7 @@ export default function WorkspaceManager() {
   const proAccount = hasActiveProPlan(authState)
 
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
+  const [templateSelectorInitialState, setTemplateSelectorInitialState] = useState<TemplateSelectorInitialState | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
@@ -243,6 +251,20 @@ export default function WorkspaceManager() {
     .filter((workspaceId) => workspaceId === activeWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
 
   const openTemplateSelector = () => {
+    setTemplateSelectorInitialState(null)
+    setShowTemplateSelector(true)
+    setSpecialistMenuOpen(false)
+    setNotificationsOpen(false)
+    setHandoffOpen(false)
+  }
+
+  const openFuturePlanWorkspace = (source: FuturePlanWorkspaceSource) => {
+    setTemplateSelectorInitialState({
+      mode: 'swarm',
+      folderPath: source.folderPath,
+      workspaceName: source.teamName,
+      futurePlanSource: source,
+    })
     setShowTemplateSelector(true)
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
@@ -586,6 +608,7 @@ export default function WorkspaceManager() {
     swarmState,
     swarmContext,
     swarmRoleCliDefaults,
+    swarmAutoState,
   }: {
     template: LayoutTemplate
     name: string
@@ -593,9 +616,11 @@ export default function WorkspaceManager() {
     swarmState?: Workspace['swarmState']
     swarmContext?: Workspace['swarmContext']
     swarmRoleCliDefaults?: Workspace['swarmRoleCliDefaults'] | null
+    swarmAutoState?: Partial<Workspace['swarmAutoState']> | null
   }) => {
-    addWorkspace(template, { name, folderPath, swarmState, swarmContext, swarmRoleCliDefaults })
+    addWorkspace(template, { name, folderPath, swarmState, swarmContext, swarmRoleCliDefaults, swarmAutoState })
     setShowTemplateSelector(false)
+    setTemplateSelectorInitialState(null)
   }
 
   const handleCloseTab = (event: React.MouseEvent, id: string) => {
@@ -1256,8 +1281,12 @@ export default function WorkspaceManager() {
         {showTemplateSelector ? (
           <TemplateSelector
             onCreate={handleCreate}
-            onClose={() => setShowTemplateSelector(false)}
+            onClose={() => {
+              setShowTemplateSelector(false)
+              setTemplateSelectorInitialState(null)
+            }}
             allowClose={workspaces.length > 0}
+            initialState={templateSelectorInitialState}
           />
         ) : (
           <>
@@ -1271,7 +1300,7 @@ export default function WorkspaceManager() {
                   style={{ pointerEvents: active ? 'auto' : 'none' }}
                   aria-hidden={!active}
                 >
-                  <WorkspaceLayout workspaceId={workspaceId} />
+                  <WorkspaceLayout workspaceId={workspaceId} onStartFuturePlan={openFuturePlanWorkspace} />
                 </div>
               )
             })}

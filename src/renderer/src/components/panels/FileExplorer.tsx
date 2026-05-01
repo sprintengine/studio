@@ -5,11 +5,8 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import {
-  createPlanSourcedSwarmWorkspace,
-  PlanSourcedSwarmWorkspaceError,
-} from '../../utils/swarmWorkspaceCreation'
 import { slugifySwarmName } from '../../utils/swarmStateFile'
+import type { FuturePlanWorkspaceSource } from '../../types/workspace'
 
 type Entry = {
   name: string
@@ -37,35 +34,6 @@ type RenameDraft = {
 type CreateEntryRequest = {
   kind: 'file' | 'dir'
   token: number
-}
-
-type MarkdownSwarmDialogError =
-  | 'missing-team'
-  | 'invalid-team'
-  | 'missing-goal'
-  | 'invalid-source'
-  | 'team-exists'
-  | 'read-failure'
-  | 'creation-failure'
-
-type MarkdownSwarmDraft = {
-  sourcePath: string
-  sourceRelativePath: string
-  sourceContent: string | null
-  teamName: string
-  goal: string
-  error: MarkdownSwarmDialogError | null
-  creating: boolean
-}
-
-const markdownSwarmErrorMessage: Record<MarkdownSwarmDialogError, string> = {
-  'missing-team': 'Enter a team name.',
-  'invalid-team': 'Use a team name that can produce a swarm folder name.',
-  'missing-goal': 'Enter a goal.',
-  'invalid-source': 'Choose a markdown file in this workspace.',
-  'team-exists': 'A swarm team with this name already exists.',
-  'read-failure': 'Could not read the selected markdown file.',
-  'creation-failure': 'Could not create the swarm workspace.',
 }
 
 function toEntries(raw: { name: string; isDir: boolean }[], parent: string): Entry[] {
@@ -418,14 +386,6 @@ function planBasename(entryName: string): string {
   return entryName.replace(/\.md$/i, '')
 }
 
-function swarmSlugCandidate(teamName: string): string {
-  return teamName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
-
 function mergeGitDeletedEntries(entries: Entry[], dirPath: string, gitStatus: GitStatusSnapshot | null): Entry[] {
   if (!gitStatus) return entries
 
@@ -568,6 +528,7 @@ interface ExplorerTreeProps {
   directoryStatus: Record<string, GitFileStatus>
   refreshGitStatus: () => Promise<void>
   onOpenFile: (path: string, name: string) => void
+  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
 function ExplorerTree({
@@ -583,6 +544,7 @@ function ExplorerTree({
   directoryStatus,
   refreshGitStatus,
   onOpenFile,
+  onStartFuturePlan,
 }: ExplorerTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
@@ -601,12 +563,10 @@ function ExplorerTree({
   const [searchResults, setSearchResults] = useState<Entry[]>([])
   const [searchDiagnostics, setSearchDiagnostics] = useState<FileSearchDiagnostics | null>(null)
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
-  const [markdownSwarmDraft, setMarkdownSwarmDraft] = useState<MarkdownSwarmDraft | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
   const searchTimeoutRef = useRef<number | null>(null)
   const searchRequestSeqRef = useRef(0)
   const committingRenameRef = useRef(false)
-  const markdownSwarmTeamInputRef = useRef<HTMLInputElement>(null)
   const latestExpandedPathsRef = useRef<Record<string, boolean>>({})
   const latestSearchQueryRef = useRef('')
   const latestSearchExcludesRef = useRef(searchExcludes)
@@ -669,14 +629,6 @@ function ExplorerTree({
       renameInputRef.current?.select()
     }, 0)
   }, [renamingPath])
-
-  useEffect(() => {
-    if (!markdownSwarmDraft) return
-    window.setTimeout(() => {
-      markdownSwarmTeamInputRef.current?.focus()
-      markdownSwarmTeamInputRef.current?.select()
-    }, 0)
-  }, [markdownSwarmDraft?.sourcePath])
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     const raw = await window.api.readdir(dirPath)
@@ -911,126 +863,25 @@ function ExplorerTree({
     }
   }
 
-  const validateMarkdownSwarmDraft = (draft: MarkdownSwarmDraft): MarkdownSwarmDialogError | null => {
-    if (!draft.teamName.trim()) return 'missing-team'
-    if (!swarmSlugCandidate(draft.teamName)) return 'invalid-team'
-    if (!draft.goal.trim()) return 'missing-goal'
-    if (draft.sourceContent === null) return 'invalid-source'
-
-    const relativePath = workspaceRelativePath(rootPath, draft.sourcePath)
-    if (!relativePath || !/\.md$/i.test(relativePath)) return 'invalid-source'
-
-    return null
-  }
-
-  const updateMarkdownSwarmTeamName = (teamName: string) => {
-    setMarkdownSwarmDraft((current) => {
-      if (!current) return current
-
-      const error = !teamName.trim()
-        ? 'missing-team'
-        : !swarmSlugCandidate(teamName)
-          ? 'invalid-team'
-          : ['missing-team', 'invalid-team', 'team-exists', 'creation-failure'].includes(current.error ?? '')
-            ? null
-            : current.error
-
-      return { ...current, teamName, error }
-    })
-  }
-
-  const updateMarkdownSwarmGoal = (goal: string) => {
-    setMarkdownSwarmDraft((current) => {
-      if (!current) return current
-
-      const error = !goal.trim()
-        ? 'missing-goal'
-        : ['missing-goal', 'creation-failure'].includes(current.error ?? '')
-          ? null
-          : current.error
-
-      return { ...current, goal, error }
-    })
-  }
-
-  const openMarkdownSwarmDialog = async (entry: Entry) => {
+  const startFuturePlan = async (entry: Entry) => {
     const sourceRelativePath = markdownSourceRelativePath(rootPath, entry)
-    if (!sourceRelativePath) {
-      setMarkdownSwarmDraft({
-        sourcePath: entry.path,
-        sourceRelativePath: workspaceRelativePath(rootPath, entry.path) ?? entry.name,
-        sourceContent: null,
-        teamName: '',
-        goal: '',
-        error: 'invalid-source',
-        creating: false,
-      })
-      return
-    }
+    if (!sourceRelativePath || !onStartFuturePlan) return
 
     const basename = planBasename(entry.name)
     const fallbackGoal = titleCasePlanName(basename)
 
     try {
       const sourceContent = await window.api.readfile(entry.path)
-      setMarkdownSwarmDraft({
+      onStartFuturePlan({
+        folderPath: rootPath,
         sourcePath: entry.path,
         sourceRelativePath,
         sourceContent,
         teamName: slugifySwarmName(basename),
         goal: markdownTitle(sourceContent) ?? fallbackGoal,
-        error: null,
-        creating: false,
       })
-    } catch {
-      setMarkdownSwarmDraft({
-        sourcePath: entry.path,
-        sourceRelativePath,
-        sourceContent: null,
-        teamName: slugifySwarmName(basename),
-        goal: fallbackGoal,
-        error: 'read-failure',
-        creating: false,
-      })
-    }
-  }
-
-  const closeMarkdownSwarmDialog = () => {
-    setMarkdownSwarmDraft((current) => current?.creating ? current : null)
-  }
-
-  const createMarkdownSwarm = async () => {
-    if (!markdownSwarmDraft || markdownSwarmDraft.creating) return
-
-    const validationError = validateMarkdownSwarmDraft(markdownSwarmDraft)
-    if (validationError) {
-      setMarkdownSwarmDraft((current) => current ? { ...current, error: validationError } : current)
-      return
-    }
-
-    try {
-      setMarkdownSwarmDraft((current) => current ? { ...current, creating: true, error: null } : current)
-      if (!(await window.api.pathExists(markdownSwarmDraft.sourcePath))) {
-        throw new PlanSourcedSwarmWorkspaceError('missing-source')
-      }
-      await createPlanSourcedSwarmWorkspace({
-        rootPath,
-        teamName: markdownSwarmDraft.teamName,
-        goal: markdownSwarmDraft.goal,
-        sourcePath: markdownSwarmDraft.sourceRelativePath,
-        sourceContent: markdownSwarmDraft.sourceContent ?? '',
-        pathExists: window.api.pathExists,
-      })
-      setMarkdownSwarmDraft(null)
     } catch (error) {
-      let nextError: MarkdownSwarmDialogError = 'creation-failure'
-      if (error instanceof PlanSourcedSwarmWorkspaceError) {
-        if (error.code === 'missing-team') nextError = 'missing-team'
-        if (error.code === 'missing-goal') nextError = 'missing-goal'
-        if (error.code === 'missing-source') nextError = 'invalid-source'
-        if (error.code === 'team-exists') nextError = 'team-exists'
-      }
-      setMarkdownSwarmDraft((current) => current ? { ...current, creating: false, error: nextError } : current)
+      alert(error instanceof Error ? error.message : 'Could not read the selected markdown file.')
     }
   }
 
@@ -1046,11 +897,11 @@ function ExplorerTree({
     const targetDir = entry ? (entry.isDir ? entry.path : entry.parentPath) : rootPath
     const canUsePathCommands = !entry?.gitDeleted
     const canDeletePath = canUsePathCommands && typeof window.api.deletePath === 'function'
-    const canCreateMarkdownSwarm = Boolean(entry && canUsePathCommands && markdownSourceRelativePath(rootPath, entry))
+    const canStartFuturePlan = Boolean(entry && canUsePathCommands && markdownSourceRelativePath(rootPath, entry))
     const command = await window.api.showContextMenu([
       ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
       ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
-      ...(canCreateMarkdownSwarm ? [{ id: 'create-markdown-swarm', label: 'Create Swarm From This Markdown' }] : []),
+      ...(canStartFuturePlan ? [{ id: 'create-markdown-swarm', label: 'Start Future Plan...' }] : []),
       ...(entry?.isDir && !isSearching && canUsePathCommands
         ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
         : []),
@@ -1076,7 +927,7 @@ function ExplorerTree({
       }
       return
     }
-    if (command === 'create-markdown-swarm' && entry) return void openMarkdownSwarmDialog(entry)
+    if (command === 'create-markdown-swarm' && entry) return void startFuturePlan(entry)
     if (command === 'expand' && entry?.isDir) {
       if (!expandedPaths[entry.path]) {
         await ensureDirectoryLoaded(entry.path)
@@ -1105,101 +956,6 @@ function ExplorerTree({
       }
       await refreshGitStatus()
     }
-  }
-
-  const renderMarkdownSwarmDialog = () => {
-    if (!markdownSwarmDraft) return null
-
-    const validationError = validateMarkdownSwarmDraft(markdownSwarmDraft)
-    const visibleError = markdownSwarmDraft.error ? markdownSwarmErrorMessage[markdownSwarmDraft.error] : null
-    const canCreate = !markdownSwarmDraft.creating && !validationError && !markdownSwarmDraft.error
-
-    return (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4"
-        role="presentation"
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget) closeMarkdownSwarmDialog()
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            closeMarkdownSwarmDialog()
-          }
-        }}
-      >
-        <form
-          className="w-full max-w-[420px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] shadow-2xl"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="markdown-swarm-dialog-title"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (canCreate) void createMarkdownSwarm()
-          }}
-        >
-          <div className="border-b border-[#1f2025] px-4 py-3">
-            <h2 id="markdown-swarm-dialog-title" className="text-[13px] font-semibold text-[#ececee]">
-              Create Swarm From Markdown
-            </h2>
-          </div>
-
-          <div className="space-y-3 px-4 py-4">
-            <label className="block space-y-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#5a5a63]">Team Name</span>
-              <input
-                ref={markdownSwarmTeamInputRef}
-                value={markdownSwarmDraft.teamName}
-                disabled={markdownSwarmDraft.creating}
-                onChange={(event) => updateMarkdownSwarmTeamName(event.target.value)}
-                className="h-8 w-full rounded-md border border-[#24252b] bg-[#111216] px-3 text-[13px] text-[#ececee] outline-none transition-colors focus:border-[#303139] disabled:opacity-60"
-              />
-            </label>
-
-            <label className="block space-y-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#5a5a63]">Goal</span>
-              <input
-                value={markdownSwarmDraft.goal}
-                disabled={markdownSwarmDraft.creating}
-                onChange={(event) => updateMarkdownSwarmGoal(event.target.value)}
-                className="h-8 w-full rounded-md border border-[#24252b] bg-[#111216] px-3 text-[13px] text-[#ececee] outline-none transition-colors focus:border-[#303139] disabled:opacity-60"
-              />
-            </label>
-
-            <div className="space-y-1.5">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-[#5a5a63]">Source File</div>
-              <div className="truncate rounded-md border border-[#1f2025] bg-[#090a0c] px-3 py-2 font-mono text-[11px] text-[#9a9aa2]">
-                {markdownSwarmDraft.sourceRelativePath}
-              </div>
-            </div>
-
-            {visibleError && (
-              <div className="border-l border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
-                {visibleError}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center justify-end gap-2 border-t border-[#1f2025] px-4 py-3">
-            <button
-              type="button"
-              disabled={markdownSwarmDraft.creating}
-              onClick={closeMarkdownSwarmDialog}
-              className="rounded-md border border-[#24252b] bg-[#15161a] px-3 py-1.5 text-[12px] text-[#cfd2dd] transition-colors hover:bg-[#1a1b20] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-[#15161a]"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!canCreate}
-              className="rounded-md border border-[#f2c45f]/45 bg-[#f2c45f]/12 px-3 py-1.5 text-[12px] font-semibold text-[#ffe18a] transition-colors hover:bg-[#f2c45f]/18 disabled:cursor-default disabled:border-[#343742] disabled:bg-[#15161a] disabled:text-[#5a5a63]"
-            >
-              {markdownSwarmDraft.creating ? 'Creating...' : 'Create Swarm'}
-            </button>
-          </div>
-        </form>
-      </div>
-    )
   }
 
   useEffect(() => {
@@ -1469,7 +1225,6 @@ function ExplorerTree({
 
   return (
     <>
-      {renderMarkdownSwarmDialog()}
       <div
         ref={containerRef}
         tabIndex={0}
@@ -1556,9 +1311,10 @@ function ExplorerTree({
 
 interface Props {
   workspaceId: string
+  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
-export default function FileExplorer({ workspaceId }: Props) {
+export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) {
   const {
     folderPath,
     folderReadyPath,
@@ -1695,6 +1451,7 @@ export default function FileExplorer({ workspaceId }: Props) {
             directoryStatus={directoryStatus}
             refreshGitStatus={refreshGitStatus}
             onOpenFile={handleOpenFile}
+            onStartFuturePlan={onStartFuturePlan}
           />
         ) : checkingFolder ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[#5a5a63]">
