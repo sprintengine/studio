@@ -4,6 +4,7 @@ type PlanFileSwarmHandoffPromptArgs = {
   sourcePath: string
   sourceContent: string
   statePath: string
+  useWorktreesForSwarms?: boolean
 }
 
 function quoteShellArg(value: string): string {
@@ -50,6 +51,7 @@ export function buildPlanFileSwarmHandoffPrompt({
   sourcePath,
   sourceContent,
   statePath,
+  useWorktreesForSwarms = false,
 }: PlanFileSwarmHandoffPromptArgs): string {
   const delimiter = pickHeredocDelimiter(sourceContent)
 
@@ -65,7 +67,7 @@ export function buildPlanFileSwarmHandoffPrompt({
     'First run the swarm handover command below, passing the plan markdown snapshot as stdin. If the team already exists, or if handover reports a collision or failure, stop and report that to the user instead of overwriting anything.',
     '',
     '```bash',
-    `swarm handover --name ${quoteShellArg(teamSlug)} --goal ${quoteShellArg(goal)} --handover-stdin <<'${delimiter}'`,
+    `swarm handover --name ${quoteShellArg(teamSlug)} --goal ${quoteShellArg(goal)} --use-worktrees ${useWorktreesForSwarms ? 'true' : 'false'} --handover-stdin <<'${delimiter}'`,
     `# Handover From ${sourcePath}`,
     '',
     sourceContent,
@@ -75,7 +77,7 @@ export function buildPlanFileSwarmHandoffPrompt({
     'Only after `swarm handover` succeeds, initialize the swarm state at the target path:',
     '',
     '```bash',
-    `swarm --state ${quoteShellArg(statePath)} init --goal ${quoteShellArg(goal)}`,
+    `swarm --state ${quoteShellArg(statePath)} init --goal ${quoteShellArg(goal)} --use-worktrees ${useWorktreesForSwarms ? 'true' : 'false'}`,
     '```',
     '',
     'After initialization, follow the prompt returned by the swarm tool. New swarms begin with product intake; architect planning starts after the product artifact is approved.',

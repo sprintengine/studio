@@ -40,11 +40,12 @@ export function buildSwarmStartupPrompt(
     executionCwd?: string
     swarmStatePath?: string
     commandMode?: 'init' | 'join'
+    useWorktreesForSwarms?: boolean
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
   const command = commandMode === 'init'
-    ? `Run \`swarm init --goal ${quoteShellArg(goal)}\` to receive your full prompt and instructions.`
+    ? `Run \`swarm init --goal ${quoteShellArg(goal)} --use-worktrees ${options.useWorktreesForSwarms ? 'true' : 'false'}\` to receive your full prompt and instructions.`
     : `Run \`swarm join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
 
   const context = [

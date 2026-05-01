@@ -1188,6 +1188,7 @@ async function spawnAutoRunCandidate(
         executionCwd,
         swarmStatePath,
         commandMode: getSwarmStartupCommandMode(nextRun.role, nextRun.agentId, swarmState),
+        useWorktreesForSwarms: workspace.swarmAutoState.useWorktreesForSwarms,
       }),
       nextRun.label,
       swarmRoleLabels[nextRun.role]

@@ -116,6 +116,8 @@ interface WorkspaceStore {
     workspaceId: WorkspaceId,
     cliPermissionPreset: SwarmCliPermissionPreset
   ) => void
+  setSwarmUseWorktreesForSwarms: (workspaceId: WorkspaceId, useWorktreesForSwarms: boolean) => void
+  setSwarmArchitectMergeAutoTriggeredKey: (workspaceId: WorkspaceId, key: string | null) => void
   setSwarmAutoWorktreeIsolation: (workspaceId: WorkspaceId, isolateWorkersInWorktrees: boolean) => void
   setSwarmAutoPendingSpawns: (
     workspaceId: WorkspaceId,
@@ -353,7 +355,9 @@ const defaultSwarmAutoState = (): SwarmAutoState => ({
   autoApproveArtifacts: false,
   keepDoneAgentTerminals: false,
   cliPermissionPreset: 'default',
+  useWorktreesForSwarms: false,
   isolateWorkersInWorktrees: false,
+  architectMergeAutoTriggeredKey: null,
   pendingSpawns: [],
 })
 
@@ -417,7 +421,12 @@ function normalizeSwarmAutoState(
     autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
     keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
     cliPermissionPreset,
+    useWorktreesForSwarms: Boolean(input?.useWorktreesForSwarms),
     isolateWorkersInWorktrees: Boolean(input?.isolateWorkersInWorktrees),
+    architectMergeAutoTriggeredKey:
+      typeof input?.architectMergeAutoTriggeredKey === 'string'
+        ? input.architectMergeAutoTriggeredKey
+        : null,
     pendingSpawns,
   }
 }
@@ -968,6 +977,31 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }),
 
+      setSwarmUseWorktreesForSwarms: (workspaceId, useWorktreesForSwarms) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSwarmAutoState(ws.swarmAutoState)
+          ws.swarmAutoState = {
+            ...current,
+            useWorktreesForSwarms,
+            architectMergeAutoTriggeredKey: useWorktreesForSwarms
+              ? current.architectMergeAutoTriggeredKey
+              : null,
+          }
+        }),
+
+      setSwarmArchitectMergeAutoTriggeredKey: (workspaceId, key) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSwarmAutoState(ws.swarmAutoState)
+          ws.swarmAutoState = {
+            ...current,
+            architectMergeAutoTriggeredKey: key,
+          }
+        }),
+
       setSwarmAutoWorktreeIsolation: (workspaceId, isolateWorkersInWorktrees) =>
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
@@ -1201,7 +1235,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 28,
+      version: 29,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1472,6 +1506,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               current.appSettings?.usageTelemetry
             ),
           }
+        }
+        if (version < 29) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
+          }))
         }
         return state as never
       },

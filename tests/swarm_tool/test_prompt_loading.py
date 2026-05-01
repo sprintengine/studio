@@ -22,6 +22,36 @@ def test_init_returns_product_intake_prompt_from_python_tool(tmp_path) -> None:
     )
 
 
+def test_init_accepts_worktree_preference_and_injects_architect_guidance(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "worktree-init-prompt",
+        [task("T0", "Completed product intake", "product", status="done")],
+    )
+    payload = fixture.cli.run("init", "--goal", "Plan in a shared worktree", "--use-worktrees", "true")
+
+    assert payload["ok"] is True
+    assert payload["role"] == "architect"
+    assert_prompt_includes(
+        payload["prompt"],
+        [
+            "## Worktree Preference",
+            "The user enabled architect-managed swarm worktrees for this run.",
+            "Worktree: enabled",
+            "Worktree path:",
+            "Merge target:",
+        ],
+    )
+
+
+def test_init_rejects_invalid_worktree_preference(tmp_path) -> None:
+    state_path = tmp_path / "swarm" / "invalid-worktree-flag" / "state.yaml"
+    completed = SwarmCli(state_path).run_failure("init", "--use-worktrees", "maybe")
+
+    assert completed.returncode == 2
+    assert "expected true or false" in completed.stderr
+
+
 def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
@@ -40,6 +70,9 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
             "You are agent `developer-fixture` with role `developer`.",
             "swarm task next --role developer --id developer-fixture",
             "Complete exactly one task and log evidence.",
+            "## Execution Workspace Discipline",
+            "If `plan.md` declares `Worktree: enabled`",
+            "Commit: abc1234",
             "Do not edit swarm/state.yaml directly",
         ],
     )
@@ -54,6 +87,7 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
         [
             "You already have active task `T1`: Implement prompt regression.",
             "This reconnects you to your existing active task instead of claiming a new one.",
+            "## Execution Workspace Discipline",
         ],
     )
 
@@ -107,6 +141,24 @@ def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_
             "Fetch the canonical swarm startup instructions from the Python tool.",
             "swarm --state",
             "init",
+            "--use-worktrees false",
             "Then follow the returned prompt.",
+        ],
+    )
+
+
+def test_merge_start_returns_instruction_only_prompt(tmp_path) -> None:
+    fixture = create_team(tmp_path, "merge-start", [task("T1", "Done task", "developer", status="done")])
+    payload = fixture.cli.run("merge", "start", "--id", "architect", "--target", "main")
+
+    assert payload["ok"] is True
+    assert payload["action"] == "merge_start"
+    assert payload["target"] == "main"
+    assert_prompt_includes(
+        payload["prompt"],
+        [
+            "This command only returns instructions. It has not changed task cards and has not run Git.",
+            "Read `plan.md` and `swarm summary`",
+            "Do not push unless explicitly instructed by the user.",
         ],
     )

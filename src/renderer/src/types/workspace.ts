@@ -210,7 +210,9 @@ export type SwarmAutoState = {
   autoApproveArtifacts: boolean
   keepDoneAgentTerminals: boolean
   cliPermissionPreset: SwarmCliPermissionPreset
+  useWorktreesForSwarms: boolean
   isolateWorkersInWorktrees?: boolean
+  architectMergeAutoTriggeredKey?: string | null
   pendingSpawns: SwarmAutoPendingSpawn[]
 }
 

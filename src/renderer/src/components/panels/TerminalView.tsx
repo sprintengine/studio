@@ -104,6 +104,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       workspace.swarmState.goal,
       {
         commandMode: getSwarmStartupCommandMode(rosterAgent.role, agentId, workspace.swarmState),
+        useWorktreesForSwarms: workspace.swarmAutoState.useWorktreesForSwarms,
       }
     )
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label

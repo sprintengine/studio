@@ -136,7 +136,7 @@ def _mcp_payload(args) -> tuple[str, dict]:
     group = args.group
     action = getattr(args, "action", None)
     if group == "init":
-        return "swarm.init", {**base, "goal": args.goal}
+        return "swarm.init", {**base, "goal": args.goal, "useWorktrees": bool(args.use_worktrees)}
     if group == "recover":
         return "swarm.recover", base
     if group == "join":
