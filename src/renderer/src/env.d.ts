@@ -413,6 +413,19 @@ declare interface Window {
       statePath: string,
       artifactPath: string
     ) => Promise<SwarmArtifactCommandResult>
+    approveSwarmArtifact: (
+      statePath: string,
+      artifactId: string
+    ) => Promise<SwarmArtifactCommandResult>
+    autoApproveSwarmArtifact: (
+      statePath: string,
+      artifactId: string
+    ) => Promise<SwarmArtifactCommandResult>
+    requestSwarmArtifactChanges: (
+      statePath: string,
+      artifactId: string,
+      feedback: string
+    ) => Promise<SwarmArtifactCommandResult>
 
     // Agent CLI Terminal
     terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata) => Promise<TerminalSpawnResult>

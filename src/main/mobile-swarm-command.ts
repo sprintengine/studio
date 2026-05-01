@@ -199,6 +199,28 @@ type SwarmToolExecutionResult = {
 
 type SwarmToolExecutor = (invocation: SwarmToolInvocation) => Promise<SwarmToolExecutionResult>
 
+export type SwarmArtifactReviewAction = 'approve' | 'request-changes'
+
+export function buildSwarmArtifactReviewArgs(input: {
+  statePath: string
+  action: SwarmArtifactReviewAction
+  artifactId: string
+  actorId: string
+  feedback?: string
+}): string[] {
+  return [
+    '--state',
+    input.statePath,
+    'artifact',
+    input.action,
+    '--artifact-id',
+    input.artifactId,
+    '--id',
+    input.actorId,
+    ...(input.action === 'request-changes' && input.feedback ? ['--feedback', input.feedback] : []),
+  ]
+}
+
 type MobileSwarmCommandServiceOptions = {
   workspaceRoot?: string
   allowedWorkspaceRoots?: string[]
@@ -451,27 +473,25 @@ export class MobileSwarmCommandService {
     const artifact = await this.findArtifact(state, command.payload.artifactId)
 
     const actorId = mobileActorId(command.deviceId)
-    const args = [
-      '--state',
-      state.statePath,
-      'artifact',
-      action,
-      '--artifact-id',
-      artifact.id,
-      '--id',
-      actorId,
-    ]
+    let feedback: string | undefined
 
     if (action === 'request-changes') {
-      const feedback = typeof command.payload.feedback === 'string' ? command.payload.feedback.trim() : ''
+      feedback = typeof command.payload.feedback === 'string' ? command.payload.feedback.trim() : ''
       if (!feedback) {
         return this.reject(command, 'invalid_payload', 'Artifact change requests require feedback.', false, state, artifact.id)
       }
       if (feedback.length > maxFeedbackCharacters) {
         return this.reject(command, 'invalid_payload', `Artifact feedback must be ${maxFeedbackCharacters} characters or less.`, false, state, artifact.id)
       }
-      args.push('--feedback', feedback)
     }
+
+    const args = buildSwarmArtifactReviewArgs({
+      statePath: state.statePath,
+      action,
+      artifactId: artifact.id,
+      actorId,
+      feedback,
+    })
 
     return this.invokeTool(command, args, state.workspaceRoot, state, artifact.id)
   }

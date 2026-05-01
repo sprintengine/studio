@@ -13,6 +13,7 @@
     "dist:mac": "electron-vite build && electron-builder --mac",
     "dist:linux": "electron-vite build && electron-builder --linux",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test:main:mobile-swarm-command": "esbuild src/main/mobile-swarm-command.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/mobile-swarm-command.test.cjs && node node_modules/.cache/multicode/mobile-swarm-command.test.cjs",
     "lint": "eslint . --ext .ts,.tsx",
     "icons": "node scripts/generate-icons.js"
   },

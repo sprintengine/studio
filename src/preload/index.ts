@@ -619,6 +619,22 @@ contextBridge.exposeInMainWorld('api', {
     artifactPath: string
   ): Promise<SwarmArtifactCommandResult> =>
     ipcRenderer.invoke('swarm:artifact:open', { statePath, artifactPath }),
+  approveSwarmArtifact: (
+    statePath: string,
+    artifactId: string
+  ): Promise<SwarmArtifactCommandResult> =>
+    ipcRenderer.invoke('swarm:artifact:approve', { statePath, artifactId }),
+  autoApproveSwarmArtifact: (
+    statePath: string,
+    artifactId: string
+  ): Promise<SwarmArtifactCommandResult> =>
+    ipcRenderer.invoke('swarm:artifact:auto-approve', { statePath, artifactId }),
+  requestSwarmArtifactChanges: (
+    statePath: string,
+    artifactId: string,
+    feedback: string
+  ): Promise<SwarmArtifactCommandResult> =>
+    ipcRenderer.invoke('swarm:artifact:request-changes', { statePath, artifactId, feedback }),
 
   // Agent CLI Terminal
   terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata): Promise<TerminalSpawnResult> => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli, initialPrompt, cliRuntimes, shellOnly, ...metadata }),

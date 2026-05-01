@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, writeFile } from 'fs/promises'
+import { createRequire } from 'node:module'
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
+  buildSwarmArtifactReviewArgs,
   mobileControlProtocolVersion,
   MobileSwarmCommandService,
   type MobileControlCommand,
@@ -16,6 +18,8 @@ void main()
 
 async function main(): Promise<void> {
   await assertArtifactApproveInvokesSwarmTool()
+  await assertArtifactRequestChangesInvokesSwarmTool()
+  assertAutoRunArtifactApproveArgsUseCanonicalActor()
   await assertArtifactRequestChangesRejectsStaleSnapshot()
   await assertSameIdempotencyKeyAndBodyReplaysCachedResult()
   await assertSameIdempotencyKeyWithDifferentBodyIsRejected()
@@ -28,6 +32,7 @@ async function main(): Promise<void> {
   await assertFollowUpUsesKnownAgentSessionOrchestration()
   await assertFollowUpRejectsTerminalControlCharacters()
   await assertUnsupportedCommandIsRejected()
+  await assertFilesystemMutationHandlersProtectSwarmStateAliases()
 }
 
 async function assertArtifactApproveInvokesSwarmTool(): Promise<void> {
@@ -62,6 +67,60 @@ async function assertArtifactApproveInvokesSwarmTool(): Promise<void> {
   ])
   assert.equal(invocations[0].cwd, fixture.workspaceRoot)
   assert.equal(service.getAuditLog()[0].status, 'accepted')
+}
+
+async function assertArtifactRequestChangesInvokesSwarmTool(): Promise<void> {
+  const fixture = await writeSwarmFixture('request-changes-team', 'swarm/request-changes-team/documents/requirements.md')
+  const invocations: Array<{ args: string[]; cwd: string }> = []
+  const service = new MobileSwarmCommandService({
+    workspaceRoot: fixture.workspaceRoot,
+    statePaths: [fixture.statePath],
+    now: () => now,
+    execute: async (invocation) => {
+      invocations.push(invocation)
+      return { exitCode: 0, stdout: '{"ok":true,"action":"changes_requested"}', stderr: '' }
+    },
+  })
+
+  const result = await service.dispatch(command('artifact.requestChanges', {
+    swarmId: 'request-changes-team',
+    artifactId: 'A1',
+    feedback: 'Clarify the acceptance criteria.',
+  }))
+
+  assert.equal(result.ok, true)
+  assert.equal(invocations.length, 1)
+  assert.deepEqual(invocations[0].args, [
+    '--state',
+    fixture.statePath,
+    'artifact',
+    'request-changes',
+    '--artifact-id',
+    'A1',
+    '--id',
+    'mobile:device_1',
+    '--feedback',
+    'Clarify the acceptance criteria.',
+  ])
+  assert.equal(invocations[0].cwd, fixture.workspaceRoot)
+}
+
+function assertAutoRunArtifactApproveArgsUseCanonicalActor(): void {
+  assert.deepEqual(buildSwarmArtifactReviewArgs({
+    statePath: '/workspace/swarm/team/state.yaml',
+    action: 'approve',
+    artifactId: 'A1',
+    actorId: 'auto-run',
+  }), [
+    '--state',
+    '/workspace/swarm/team/state.yaml',
+    'artifact',
+    'approve',
+    '--artifact-id',
+    'A1',
+    '--id',
+    'auto-run',
+  ])
 }
 
 async function assertArtifactRequestChangesRejectsStaleSnapshot(): Promise<void> {
@@ -466,6 +525,189 @@ async function assertUnsupportedCommandIsRejected(): Promise<void> {
 
   assert.equal(result.ok, false)
   assert.equal(result.ok === false ? result.error.code : '', 'command_not_supported')
+}
+
+async function assertFilesystemMutationHandlersProtectSwarmStateAliases(): Promise<void> {
+  const handlers = await importMainProcessIpcHandlers()
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-fs-guard-'))
+  const swarmDirectory = join(workspaceRoot, 'swarm')
+  const teamDirectory = join(swarmDirectory, 'team')
+  await mkdir(teamDirectory, { recursive: true })
+  const statePath = join(teamDirectory, 'state.yaml')
+  await writeFile(statePath, 'canonical swarm state\n', 'utf8')
+
+  const stateSymlinkPath = join(workspaceRoot, 'state-link.yaml')
+  const teamSymlinkPath = join(workspaceRoot, 'team-link')
+  await symlink(statePath, stateSymlinkPath, 'file')
+  await symlink(teamDirectory, teamSymlinkPath, 'dir')
+
+  await assertRejectsSwarmStateMutation(() => handlers.writeFile(statePath, 'blocked'))
+  await assertRejectsSwarmStateMutation(() => handlers.writeFile(join(teamDirectory, '..', 'team', 'state.yaml'), 'blocked'))
+  await assertRejectsSwarmStateMutation(() => handlers.writeFile(stateSymlinkPath, 'blocked'))
+  await assertRejectsSwarmStateMutation(() => handlers.writeFile(join(teamSymlinkPath, 'state.yaml'), 'blocked'))
+
+  await assertRejectsSwarmStateMutation(() => handlers.rename(stateSymlinkPath, 'renamed-link.yaml'))
+  const renameSourceThroughAlias = join(teamSymlinkPath, 'rename-source.txt')
+  await writeFile(renameSourceThroughAlias, 'safe source\n', 'utf8')
+  await assertRejectsSwarmStateMutation(() => handlers.rename(renameSourceThroughAlias, 'state.yaml'))
+
+  const copyDestination = join(workspaceRoot, 'copy-destination')
+  await mkdir(copyDestination)
+  await assertRejectsSwarmStateMutation(() => handlers.copy(stateSymlinkPath, copyDestination))
+  await assertRejectsSwarmStateMutation(() => handlers.delete(stateSymlinkPath))
+  await assertRejectsSwarmStateMutation(() => handlers.rename(teamDirectory, 'team-renamed'))
+  await assertRejectsSwarmStateMutation(() => handlers.copy(teamDirectory, copyDestination))
+  await assertRejectsSwarmStateMutation(() => handlers.delete(teamDirectory))
+  await assertRejectsSwarmStateMutation(() => handlers.rename(swarmDirectory, 'swarm-renamed'))
+  await assertRejectsSwarmStateMutation(() => handlers.copy(swarmDirectory, copyDestination))
+  await assertRejectsSwarmStateMutation(() => handlers.delete(swarmDirectory))
+  await assertRejectsSwarmStateMutation(() => handlers.rename(teamSymlinkPath, 'team-link-renamed'))
+  await assertRejectsSwarmStateMutation(() => handlers.copy(teamSymlinkPath, copyDestination))
+  await assertRejectsSwarmStateMutation(() => handlers.delete(teamSymlinkPath))
+
+  assert.equal(await readFile(statePath, 'utf8'), 'canonical swarm state\n')
+
+  const safeDirectory = join(workspaceRoot, 'safe')
+  const safeCopyDestination = join(workspaceRoot, 'safe-copy')
+  await mkdir(safeDirectory)
+  await mkdir(safeCopyDestination)
+
+  const safeFilePath = join(safeDirectory, 'notes.txt')
+  await handlers.writeFile(safeFilePath, 'safe write\n')
+  assert.equal(await readFile(safeFilePath, 'utf8'), 'safe write\n')
+
+  const renamedSafeFilePath = await handlers.rename(safeFilePath, 'renamed.txt')
+  assert.equal(renamedSafeFilePath, join(safeDirectory, 'renamed.txt'))
+  assert.equal(await readFile(renamedSafeFilePath, 'utf8'), 'safe write\n')
+
+  const copiedSafeFilePath = await handlers.copy(renamedSafeFilePath, safeCopyDestination)
+  assert.equal(await readFile(copiedSafeFilePath, 'utf8'), 'safe write\n')
+
+  await handlers.delete(copiedSafeFilePath)
+  await assert.rejects(() => access(copiedSafeFilePath))
+
+  const safeNestedDirectory = join(workspaceRoot, 'safe-dir')
+  await mkdir(join(safeNestedDirectory, 'nested'), { recursive: true })
+  await writeFile(join(safeNestedDirectory, 'nested', 'notes.txt'), 'safe nested write\n', 'utf8')
+
+  const renamedSafeDirectoryPath = await handlers.rename(safeNestedDirectory, 'safe-dir-renamed')
+  assert.equal(await readFile(join(renamedSafeDirectoryPath, 'nested', 'notes.txt'), 'utf8'), 'safe nested write\n')
+
+  const copiedSafeDirectoryPath = await handlers.copy(renamedSafeDirectoryPath, safeCopyDestination)
+  assert.equal(await readFile(join(copiedSafeDirectoryPath, 'nested', 'notes.txt'), 'utf8'), 'safe nested write\n')
+
+  await handlers.delete(copiedSafeDirectoryPath)
+  await assert.rejects(() => access(copiedSafeDirectoryPath))
+  await handlers.delete(renamedSafeDirectoryPath)
+  await assert.rejects(() => access(renamedSafeDirectoryPath))
+}
+
+type FilesystemMutationHandlers = {
+  writeFile: (filePath: string, content: string) => Promise<void>
+  rename: (sourcePath: string, nextName: string) => Promise<string>
+  copy: (sourcePath: string, destinationDir: string) => Promise<string>
+  delete: (targetPath: string) => Promise<void>
+}
+
+async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandlers> {
+  const ipcHandlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
+  const nodeRequire = createRequire(__filename)
+  const moduleLoader = nodeRequire('node:module') as {
+    _load: (request: string, parent: unknown, isMain: boolean) => unknown
+  }
+  const originalLoad = moduleLoader._load
+
+  moduleLoader._load = (request, parent, isMain) => {
+    if (request === 'electron') {
+      return {
+        app: {
+          defaultApp: false,
+          getAppPath: () => process.cwd(),
+          getPath: (name: string) => join(tmpdir(), `multicode-electron-${name}`),
+          isPackaged: false,
+          on: () => undefined,
+          quit: () => undefined,
+          requestSingleInstanceLock: () => true,
+          setAppLogsPath: () => undefined,
+          setAppUserModelId: () => undefined,
+          setAsDefaultProtocolClient: () => true,
+          whenReady: () => new Promise(() => undefined),
+        },
+        BrowserWindow: class {
+          static getAllWindows(): unknown[] {
+            return []
+          }
+        },
+        dialog: {},
+        ipcMain: {
+          handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => {
+            ipcHandlers.set(channel, handler)
+          },
+        },
+        Menu: {
+          buildFromTemplate: () => ({}),
+          setApplicationMenu: () => undefined,
+        },
+        safeStorage: {
+          decryptString: () => '',
+          encryptString: (value: string) => Buffer.from(value),
+          isEncryptionAvailable: () => true,
+        },
+        shell: {
+          openExternal: async () => undefined,
+          openPath: async () => '',
+          showItemInFolder: () => undefined,
+          trashItem: async (targetPath: string) => {
+            await rm(targetPath, { force: true, recursive: true })
+          },
+        },
+      }
+    }
+    if (request === 'electron-updater') {
+      return { autoUpdater: { checkForUpdatesAndNotify: async () => undefined } }
+    }
+    if (request === 'node-pty') {
+      return { spawn: () => { throw new Error('node-pty should not be used in filesystem IPC tests') } }
+    }
+    if (request === '@vscode/ripgrep') {
+      return { rgPath: 'rg' }
+    }
+    return originalLoad(request, parent, isMain)
+  }
+
+  try {
+    await import('./index')
+  } finally {
+    moduleLoader._load = originalLoad
+  }
+
+  const getHandler = (channel: string): ((...args: unknown[]) => Promise<unknown>) => {
+    const handler = ipcHandlers.get(channel)
+    assert.ok(handler, `${channel} handler should be registered`)
+    return async (...args) => handler(null, ...args) as Promise<unknown>
+  }
+
+  return {
+    writeFile: async (filePath, content) => {
+      await getHandler('fs:writefile')(filePath, content)
+    },
+    rename: async (sourcePath, nextName) => {
+      return await getHandler('fs:rename')(sourcePath, nextName) as string
+    },
+    copy: async (sourcePath, destinationDir) => {
+      return await getHandler('fs:copy')(sourcePath, destinationDir) as string
+    },
+    delete: async (targetPath) => {
+      await getHandler('fs:delete')(targetPath)
+    },
+  }
+}
+
+async function assertRejectsSwarmStateMutation(action: () => Promise<unknown>): Promise<void> {
+  await assert.rejects(
+    action,
+    (error) => error instanceof Error && error.message === 'Swarm state files must be updated through the swarm tool.'
+  )
 }
 
 async function writeSwarmFixture(

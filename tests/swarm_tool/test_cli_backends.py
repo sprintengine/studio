@@ -1,0 +1,267 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import textwrap
+
+from helpers import REPO_ROOT, SWARM_COMMAND, create_team, get_task, read_state, task
+
+MCP_USER_ID_ENV = "SWARM_MCP_USER_ID"
+MCP_USER_AUTHORIZED_ENV = "SWARM_MCP_USER_AUTHORIZED"
+
+
+def run_swarm(args: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    merged_env = os.environ.copy()
+    merged_env.pop(MCP_USER_ID_ENV, None)
+    merged_env.pop(MCP_USER_AUTHORIZED_ENV, None)
+    if env:
+        merged_env.update(env)
+    return subprocess.run(
+        [str(SWARM_COMMAND), *args],
+        cwd=REPO_ROOT,
+        env=merged_env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+
+def parse_stdout_json(completed: subprocess.CompletedProcess[str]) -> dict:
+    assert completed.returncode == 0, completed.stderr
+    return json.loads(completed.stdout)
+
+
+def audit_rows(team_dir):
+    path = team_dir / "metrics" / "audit-events.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_direct_core_backend_is_default_and_preserves_cli_json_shape(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-direct-default", [task("T1", "Default route", "developer")])
+
+    completed = run_swarm(["--state", str(fixture.state_path), "task", "next", "--role", "developer", "--id", "developer-a"])
+
+    payload = parse_stdout_json(completed)
+    assert payload["ok"] is True
+    assert payload["task"]["id"] == "T1"
+    assert "tool" not in payload
+    assert audit_rows(fixture.team_dir) == []
+
+
+def test_direct_core_reads_legacy_yaml_state_without_rewriting_for_read_only_commands(tmp_path) -> None:
+    state_path = tmp_path / "swarm" / "legacy-yaml" / "state.yaml"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        textwrap.dedent(
+            """\
+            swarm:
+              name: legacy-yaml
+              goal: Fixture swarm legacy-yaml
+              status: executing
+            tasks:
+              - id: T1
+                title: YAML route
+                description: YAML route
+                role: developer
+                status: todo
+                ownerAgentId:
+                dependsOn: []
+                ownedPaths: []
+                acceptanceCriteria: []
+                implementationNotes: []
+                evidence:
+                  summary: ""
+                  touchedFiles: []
+                  commandsRan: []
+                  results: []
+                notes: []
+                startedAt:
+                completedAt:
+            agents: {}
+            events: []
+            artifacts: []
+            roles: {}
+            """
+        ),
+        encoding="utf-8",
+    )
+    before = state_path.read_text(encoding="utf-8")
+
+    completed = run_swarm(["--state", str(state_path), "task", "list", "--role", "developer"])
+
+    payload = parse_stdout_json(completed)
+    assert [record["id"] for record in payload["readyTasks"]] == ["T1"]
+    assert state_path.read_text(encoding="utf-8") == before
+
+
+def test_explicit_mcp_backend_preserves_success_shape_and_emits_audit(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-mcp-backend", [task("T1", "MCP route", "developer")])
+
+    completed = run_swarm(
+        [
+            "--backend",
+            "mcp-local",
+            "--state",
+            str(fixture.state_path),
+            "task",
+            "next",
+            "--role",
+            "developer",
+            "--id",
+            "developer-a",
+        ],
+        env={
+            "SWARM_MCP_ALLOWED_ROOT": str(tmp_path),
+            MCP_USER_ID_ENV: "workspace-user",
+            MCP_USER_AUTHORIZED_ENV: "1",
+        },
+    )
+
+    payload = parse_stdout_json(completed)
+    assert payload["ok"] is True
+    assert payload["task"]["id"] == "T1"
+    assert "tool" not in payload
+    state = read_state(fixture.state_path)
+    assert get_task(state, "T1")["ownerAgentId"] == "developer-a"
+    rows = audit_rows(fixture.team_dir)
+    assert [row["operation_name"] for row in rows] == ["swarm.task.next"]
+    assert rows[0]["backend_mode"] == "mcp-local"
+
+
+def test_explicit_mcp_backend_rejects_missing_user_id(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-mcp-missing-user", [task("T1", "MCP missing user", "developer")])
+
+    completed = run_swarm(
+        [
+            "--backend",
+            "mcp-local",
+            "--state",
+            str(fixture.state_path),
+            "task",
+            "list",
+            "--role",
+            "developer",
+        ],
+        env={"SWARM_MCP_ALLOWED_ROOT": str(tmp_path), MCP_USER_AUTHORIZED_ENV: "1"},
+    )
+
+    assert completed.returncode != 0
+    assert "backend mode mcp-local returned unauthorized" in completed.stderr
+
+
+def test_explicit_mcp_backend_rejects_missing_authorization_flag(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-mcp-missing-auth", [task("T1", "MCP missing auth", "developer")])
+
+    completed = run_swarm(
+        [
+            "--backend",
+            "mcp-local",
+            "--state",
+            str(fixture.state_path),
+            "task",
+            "list",
+            "--role",
+            "developer",
+        ],
+        env={"SWARM_MCP_ALLOWED_ROOT": str(tmp_path), MCP_USER_ID_ENV: "workspace-user"},
+    )
+
+    assert completed.returncode != 0
+    assert "backend mode mcp-local returned unauthorized" in completed.stderr
+
+
+def test_explicit_mcp_backend_rejects_false_authorization_flag(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-mcp-false-auth", [task("T1", "MCP false auth", "developer")])
+
+    completed = run_swarm(
+        [
+            "--backend",
+            "mcp-local",
+            "--state",
+            str(fixture.state_path),
+            "task",
+            "list",
+            "--role",
+            "developer",
+        ],
+        env={
+            "SWARM_MCP_ALLOWED_ROOT": str(tmp_path),
+            MCP_USER_ID_ENV: "workspace-user",
+            MCP_USER_AUTHORIZED_ENV: "false",
+        },
+    )
+
+    assert completed.returncode != 0
+    assert "backend mode mcp-local returned unauthorized" in completed.stderr
+
+
+def test_mcp_backend_can_be_selected_from_environment(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-mcp-env", [task("T1", "MCP env route", "developer")])
+
+    completed = run_swarm(
+        ["--state", str(fixture.state_path), "task", "list", "--role", "developer"],
+        env={
+            "SWARM_BACKEND": "mcp-local",
+            "SWARM_MCP_ALLOWED_ROOT": str(tmp_path),
+            MCP_USER_ID_ENV: "workspace-user",
+            MCP_USER_AUTHORIZED_ENV: "true",
+        },
+    )
+
+    payload = parse_stdout_json(completed)
+    assert payload["ok"] is True
+    assert [record["id"] for record in payload["readyTasks"]] == ["T1"]
+
+
+def test_help_discloses_selected_backend_mode(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-help-backend", [task("T1", "Help", "developer")])
+
+    completed = run_swarm(
+        ["--backend", "mcp-local", "--state", str(fixture.state_path), "task", "next", "--help"],
+        env={"SWARM_MCP_ALLOWED_ROOT": str(tmp_path)},
+    )
+
+    assert completed.returncode == 0
+    assert "usage:" in completed.stdout
+    assert "backend mode: mcp-local" in completed.stderr
+
+
+def test_mcp_backend_errors_disclose_backend_mode_for_unsupported_command(tmp_path) -> None:
+    handover = tmp_path / "handover.md"
+    handover.write_text("handover", encoding="utf-8")
+
+    completed = run_swarm(
+        [
+            "--backend",
+            "mcp-local",
+            "--state",
+            str(tmp_path / "swarm" / "state.yaml"),
+            "handover",
+            "--name",
+            "unsupported",
+            "--handover",
+            str(handover),
+        ],
+        env={"SWARM_MCP_ALLOWED_ROOT": str(tmp_path)},
+    )
+
+    assert completed.returncode != 0
+    assert "backend mode mcp-local" in completed.stderr
+    assert "Use --backend direct-core" in completed.stderr
+
+
+def test_mcp_backend_does_not_silently_remap_unsupported_plan_list(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-mcp-plan-list", [task("T1", "Plan list", "developer")])
+
+    completed = run_swarm(
+        ["--backend", "mcp-local", "--state", str(fixture.state_path), "plan", "list"],
+        env={"SWARM_MCP_ALLOWED_ROOT": str(tmp_path)},
+    )
+
+    assert completed.returncode != 0
+    assert "backend mode mcp-local" in completed.stderr
+    assert "plan action: list" in completed.stderr

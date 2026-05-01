@@ -500,6 +500,13 @@ export default function WorkspaceManager() {
         return
       }
 
+      if (event.code === 'Quote' && event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        event.stopPropagation()
+        addNewTerminal()
+        return
+      }
+
       const key = event.key.toLowerCase()
 
       if (event.altKey) {
@@ -1048,7 +1055,7 @@ export default function WorkspaceManager() {
               onClick={addNewTerminal}
               disabled={!activeWorkspaceId}
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-              title="Open terminal"
+              title="Open terminal (Ctrl+Shift+')"
               aria-label="Open terminal"
             >
               <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">

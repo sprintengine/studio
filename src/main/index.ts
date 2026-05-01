@@ -1708,9 +1708,83 @@ async function getRealMutationTargetPath(targetPath: string): Promise<string | n
   }
 }
 
+async function getExistingDirectoryPath(targetPath: string): Promise<string | null> {
+  try {
+    const targetStats = await stat(targetPath)
+    return targetStats.isDirectory() ? targetPath : null
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return null
+    }
+    throw error
+  }
+}
+
+async function directorySubtreeContainsSwarmStatePath(directoryPath: string): Promise<boolean> {
+  const visitedRealDirectories = new Set<string>()
+
+  const visit = async (currentDirectory: string): Promise<boolean> => {
+    let realCurrentDirectory: string | null = null
+    try {
+      realCurrentDirectory = await realpath(currentDirectory)
+    } catch (error) {
+      if (!isMissingPathError(error)) {
+        throw error
+      }
+    }
+
+    if (realCurrentDirectory) {
+      if (visitedRealDirectories.has(realCurrentDirectory)) {
+        return false
+      }
+      visitedRealDirectories.add(realCurrentDirectory)
+    }
+
+    let entries
+    try {
+      entries = await readdir(currentDirectory, { withFileTypes: true })
+    } catch (error) {
+      if (isMissingPathError(error)) {
+        return false
+      }
+      throw error
+    }
+
+    for (const entry of entries) {
+      const entryPath = join(currentDirectory, entry.name)
+      if (entry.name === 'state.yaml' && isSwarmStateFilePath(entryPath)) {
+        return true
+      }
+      if (entry.isDirectory() && await visit(entryPath)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  return visit(directoryPath)
+}
+
 async function assertNotDirectSwarmStateMutation(targetPath: string): Promise<void> {
   const realTargetPath = await getRealMutationTargetPath(targetPath)
   if (isSwarmStateFilePath(targetPath) || (realTargetPath && isSwarmStateFilePath(realTargetPath))) {
+    throw new Error('Swarm state files must be updated through the swarm tool.')
+  }
+
+  const existingDirectoryPath = await getExistingDirectoryPath(targetPath)
+  if (!existingDirectoryPath) {
+    return
+  }
+
+  if (await directorySubtreeContainsSwarmStatePath(existingDirectoryPath)) {
+    throw new Error('Swarm state files must be updated through the swarm tool.')
+  }
+
+  const realDirectoryPath = realTargetPath && realTargetPath !== resolve(existingDirectoryPath)
+    ? await getExistingDirectoryPath(realTargetPath)
+    : null
+  if (realDirectoryPath && await directorySubtreeContainsSwarmStatePath(realDirectoryPath)) {
     throw new Error('Swarm state files must be updated through the swarm tool.')
   }
 }
@@ -1778,6 +1852,8 @@ function runSwarmMcpTool(
       env: {
         ...process.env,
         PYTHONPATH: [state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+        SWARM_MCP_USER_ID: actor.id,
+        SWARM_MCP_USER_AUTHORIZED: '1',
       },
       windowsHide: true,
     })
