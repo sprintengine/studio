@@ -1205,6 +1205,16 @@ const terminalBatchDiagnostics = new Map<string, {
   bytes: number
   lastLogAt: number
 }>()
+const TERMINAL_INPUT_DIAGNOSTIC_INTERVAL_MS = 1_000
+const TERMINAL_SLOW_INPUT_WRITE_MS = 50
+const terminalInputDiagnostics = new Map<string, {
+  writes: number
+  bytes: number
+  totalMs: number
+  maxMs: number
+  errors: number
+  lastLogAt: number
+}>()
 type FileWatchEvent = {
   eventType: string
   path: string | null
@@ -2451,6 +2461,54 @@ function recordTerminalDataBatch(
   terminalBatchDiagnostics.set(session.sessionId, stats)
 }
 
+function recordTerminalInputWrite(
+  session: TerminalSession | undefined,
+  byteCount: number,
+  elapsedMs: number,
+  ok: boolean
+): void {
+  if (!session || !MULTICODE_DIAGNOSTICS) return
+
+  const now = Date.now()
+  const stats = terminalInputDiagnostics.get(session.sessionId) ?? {
+    writes: 0,
+    bytes: 0,
+    totalMs: 0,
+    maxMs: 0,
+    errors: 0,
+    lastLogAt: now,
+  }
+
+  stats.writes += 1
+  stats.bytes += byteCount
+  stats.totalMs += elapsedMs
+  stats.maxMs = Math.max(stats.maxMs, elapsedMs)
+  if (!ok) stats.errors += 1
+
+  if (now - stats.lastLogAt >= TERMINAL_INPUT_DIAGNOSTIC_INTERVAL_MS || elapsedMs >= TERMINAL_SLOW_INPUT_WRITE_MS || !ok) {
+    logMainPerfEvent('Terminal', 'input-writes', {
+      sessionId: session.sessionId,
+      kind: session.kind,
+      workspaceId: session.workspaceId,
+      agentId: session.agentId,
+      terminalId: session.terminalId,
+      writes: stats.writes,
+      bytes: stats.bytes,
+      avgMs: stats.writes > 0 ? Math.round((stats.totalMs / stats.writes) * 10) / 10 : 0,
+      maxMs: Math.round(stats.maxMs * 10) / 10,
+      errors: stats.errors,
+    })
+    stats.writes = 0
+    stats.bytes = 0
+    stats.totalMs = 0
+    stats.maxMs = 0
+    stats.errors = 0
+    stats.lastLogAt = now
+  }
+
+  terminalInputDiagnostics.set(session.sessionId, stats)
+}
+
 function trimPendingTerminalChunks(chunks: string[], maxBytes: number): { chunks: string[]; bytes: number; dropped: boolean } {
   let bytes = 0
   const retained: string[] = []
@@ -2644,6 +2702,7 @@ function disposeTerminal(sessionId: string): void {
 
   flushTerminalData(sessionId, 'dispose')
   terminalBatchDiagnostics.delete(sessionId)
+  terminalInputDiagnostics.delete(sessionId)
   session.isDisposed = true
   session.hasExited = true
   terminals.delete(sessionId)
@@ -2835,6 +2894,7 @@ async function spawnMobileAgentTerminal(input: {
     termProcess.onExit((event) => {
       flushTerminalData(input.sessionId, 'exit')
       terminalBatchDiagnostics.delete(input.sessionId)
+      terminalInputDiagnostics.delete(input.sessionId)
       terminalSession.hasExited = true
       if (terminals.get(input.sessionId) === terminalSession) {
         terminals.delete(input.sessionId)
@@ -3087,6 +3147,7 @@ ipcMain.handle(
       termProcess.onExit((e) => {
         flushTerminalData(sessionId, 'exit')
         terminalBatchDiagnostics.delete(sessionId)
+        terminalInputDiagnostics.delete(sessionId)
         terminalSession.hasExited = true
         if (terminals.get(sessionId) === terminalSession) {
           terminals.delete(sessionId)
@@ -3118,13 +3179,16 @@ ipcMain.handle(
 )
 
 ipcMain.handle('terminal:write', (_, { sessionId, data }: { sessionId: string; data: string }) => {
+  const startedAt = Date.now()
   const session = terminals.get(sessionId)
   if (!session || session.hasExited || session.isDisposed) return
 
   try {
     session.process.write(data)
+    recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, true)
   } catch {
     session.hasExited = true
+    recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, false)
   }
 })
 

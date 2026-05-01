@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './assets/index.css'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
+import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
 
 window.addEventListener('error', (event) => {
   console.error('[RendererError]', {
@@ -22,13 +23,20 @@ window.addEventListener('unhandledrejection', (event) => {
 })
 
 try {
+  const longTaskThresholdMs = perfDiagnosticsEnabled() ? 75 : 250
   const observer = new PerformanceObserver((list) => {
     list.getEntries().forEach((entry) => {
-      if (entry.duration >= 250) {
+      if (entry.duration >= longTaskThresholdMs) {
         console.warn('[RendererLongTask]', {
           name: entry.name,
           durationMs: Math.round(entry.duration),
           startTimeMs: Math.round(entry.startTime),
+        })
+        logPerfEvent('Renderer', 'long-task', {
+          name: entry.name,
+          durationMs: Math.round(entry.duration),
+          startTimeMs: Math.round(entry.startTime),
+          thresholdMs: longTaskThresholdMs,
         })
       }
     })

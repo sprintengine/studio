@@ -9,6 +9,7 @@ import { getSpecialistAction, loadSpecialistPrompt } from '../../specialists/spe
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 
 interface Props {
   workspaceId: string
@@ -145,6 +146,13 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       scrollback: 5000,
     })
     const fitAddon = new FitAddon()
+    const terminalDiagnostics = createTerminalDiagnostics({
+      scope: 'TerminalView',
+      sessionId,
+      workspaceId,
+      agentId,
+      kind: 'agent',
+    })
 
     const fitTerminal = () => {
       if (container.clientWidth === 0 || container.clientHeight === 0) return
@@ -155,6 +163,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     }
 
     const focusTerminal = () => {
+      terminalDiagnostics.recordFocus()
       term.focus()
     }
 
@@ -186,6 +195,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      terminalDiagnostics.recordContainerKeydown(event)
       const mod = event.ctrlKey || event.metaKey
       if (!mod) return
 
@@ -224,6 +234,9 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     term.loadAddon(fitAddon)
     term.attachCustomKeyEventHandler((event) => {
+      if (event.type === 'keydown') {
+        terminalDiagnostics.recordKeydown(event)
+      }
       if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
         event.preventDefault()
         void window.api.terminalWrite(sessionId, '\u001b[13;2u')
@@ -244,7 +257,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     ].join('\n')
 
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
-      term.write(data)
+      const startedAt = performance.now()
+      term.write(data, () => {
+        terminalDiagnostics.recordOutputWrite(data, performance.now() - startedAt)
+      })
     })
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
@@ -293,7 +309,12 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     })
 
     const onDataDisposable = term.onData((data) => {
-      void window.api.terminalWrite(sessionId, data)
+      terminalDiagnostics.recordInput(data)
+      const startedAt = performance.now()
+      void window.api.terminalWrite(sessionId, data).then(
+        () => terminalDiagnostics.recordInputWrite(data, startedAt, true),
+        () => terminalDiagnostics.recordInputWrite(data, startedAt, false)
+      )
     })
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
@@ -448,6 +469,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
+      terminalDiagnostics.dispose()
       term.dispose()
     }
   }, [

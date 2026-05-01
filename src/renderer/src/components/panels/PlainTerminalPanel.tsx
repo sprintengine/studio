@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 
 interface Props {
   workspaceId: string
@@ -46,6 +47,13 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
       scrollback: 5000,
     })
     const fitAddon = new FitAddon()
+    const terminalDiagnostics = createTerminalDiagnostics({
+      scope: 'PlainTerminalPanel',
+      sessionId,
+      workspaceId,
+      terminalId,
+      kind: 'terminal',
+    })
 
     const fitTerminal = () => {
       if (container.clientWidth === 0 || container.clientHeight === 0) return
@@ -56,6 +64,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     }
 
     const focusTerminal = () => {
+      terminalDiagnostics.recordFocus()
       term.focus()
     }
 
@@ -87,6 +96,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      terminalDiagnostics.recordContainerKeydown(event)
       const mod = event.ctrlKey || event.metaKey
       if (!mod) return
 
@@ -124,13 +134,22 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     }
 
     term.loadAddon(fitAddon)
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type === 'keydown') {
+        terminalDiagnostics.recordKeydown(event)
+      }
+      return true
+    })
     term.open(container)
     fitTerminal()
     focusTerminal()
     let reportedTerminalFailure = false
 
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
-      term.write(data)
+      const startedAt = performance.now()
+      term.write(data, () => {
+        terminalDiagnostics.recordOutputWrite(data, performance.now() - startedAt)
+      })
     })
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
@@ -166,7 +185,12 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     })
 
     const onDataDisposable = term.onData((data) => {
-      void window.api.terminalWrite(sessionId, data)
+      terminalDiagnostics.recordInput(data)
+      const startedAt = performance.now()
+      void window.api.terminalWrite(sessionId, data).then(
+        () => terminalDiagnostics.recordInputWrite(data, startedAt, true),
+        () => terminalDiagnostics.recordInputWrite(data, startedAt, false)
+      )
     })
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
@@ -259,6 +283,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
+      terminalDiagnostics.dispose()
       term.dispose()
     }
   }, [folderReadyPath, savedFolderPath, swarmContext?.statePath, terminalId, workspaceId, workspaceName])

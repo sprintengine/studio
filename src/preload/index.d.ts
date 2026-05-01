@@ -400,6 +400,7 @@ declare global {
     api: {
       platform: string
       isDevelopment: boolean
+      isDiagnosticsEnabled: boolean
       authGetState: () => Promise<MulticodeAuthState>
       authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
       authLogout: () => Promise<{ loggedOut: true }>

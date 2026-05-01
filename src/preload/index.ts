@@ -465,6 +465,7 @@ async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<S
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
   isDevelopment: process.env.NODE_ENV === 'development',
+  isDiagnosticsEnabled: process.env.MULTICODE_DIAGNOSTICS === '1',
 
   // Window chrome
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),

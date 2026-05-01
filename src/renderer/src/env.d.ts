@@ -341,6 +341,8 @@ type SessionSnapshot =
 declare interface Window {
   api: {
     platform: string
+    isDevelopment: boolean
+    isDiagnosticsEnabled: boolean
 
     // Window chrome
     windowMinimize: () => Promise<void>
