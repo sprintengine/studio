@@ -640,6 +640,7 @@ contextBridge.exposeInMainWorld('api', {
   // Agent CLI Terminal
   terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata): Promise<TerminalSpawnResult> => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli, initialPrompt, cliRuntimes, shellOnly, ...metadata }),
   terminalWrite:  (sessionId: string, data: string) => ipcRenderer.invoke('terminal:write', { sessionId, data }),
+  terminalWriteFast: (sessionId: string, data: string): void => ipcRenderer.send('terminal:write-fast', { sessionId, data }),
   terminalResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
   terminalStatus: (sessionId: string): Promise<{ running: boolean }> => ipcRenderer.invoke('terminal:status', sessionId),
   terminalList:   (): Promise<TerminalSessionSnapshot[]> => ipcRenderer.invoke('terminal:list'),

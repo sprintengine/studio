@@ -1183,11 +1183,15 @@ type TerminalSession = {
   worktreePath?: string
   startedAt: number
   lastOutputAt: number | null
+  lastInputAt: number | null
   pendingResize?: TerminalSize
 }
 
 const TERMINAL_REPLAY_BUFFER_LIMIT = 512 * 1024
-const TERMINAL_DATA_BATCH_MS = 100
+const TERMINAL_INTERACTIVE_DATA_BATCH_MS = 0
+const TERMINAL_DATA_BATCH_MS = 16
+const TERMINAL_RECENT_INPUT_WINDOW_MS = 250
+const TERMINAL_INTERACTIVE_DATA_LIMIT = 4096
 const TERMINAL_PENDING_DATA_LIMIT = 256 * 1024
 const TERMINAL_REPLAY_COMPACT_THRESHOLD = 1024
 const TERMINAL_BATCH_DIAGNOSTIC_INTERVAL_MS = 1_000
@@ -2573,9 +2577,10 @@ function sendTerminalData(session: TerminalSession, data: string): void {
     return
   }
 
+  const delayMs = getTerminalDataBatchDelay(session, data)
   const timer = setTimeout(() => {
     flushTerminalData(session.sessionId, 'timer')
-  }, TERMINAL_DATA_BATCH_MS)
+  }, delayMs)
   pendingTerminalData.set(session.sessionId, {
     sender: session.sender,
     channel,
@@ -2583,6 +2588,16 @@ function sendTerminalData(session: TerminalSession, data: string): void {
     bytes: Buffer.byteLength(data),
     timer,
   })
+}
+
+function getTerminalDataBatchDelay(session: TerminalSession, data: string): number {
+  const recentInput = session.lastInputAt !== null
+    && Date.now() - session.lastInputAt <= TERMINAL_RECENT_INPUT_WINDOW_MS
+  const smallOutput = Buffer.byteLength(data) <= TERMINAL_INTERACTIVE_DATA_LIMIT
+
+  return recentInput && smallOutput
+    ? TERMINAL_INTERACTIVE_DATA_BATCH_MS
+    : TERMINAL_DATA_BATCH_MS
 }
 
 function getTerminalErrorMessage(error: unknown): string {
@@ -2879,6 +2894,7 @@ async function spawnMobileAgentTerminal(input: {
       worktreePath: input.worktreePath,
       startedAt: Date.now(),
       lastOutputAt: null,
+      lastInputAt: null,
     }
 
     terminals.set(input.sessionId, terminalSession)
@@ -3130,6 +3146,7 @@ ipcMain.handle(
         worktreePath,
         startedAt: Date.now(),
         lastOutputAt: null,
+        lastInputAt: null,
       }
 
       terminals.set(sessionId, terminalSession)
@@ -3184,6 +3201,26 @@ ipcMain.handle('terminal:write', (_, { sessionId, data }: { sessionId: string; d
   if (!session || session.hasExited || session.isDisposed) return
 
   try {
+    session.lastInputAt = Date.now()
+    session.process.write(data)
+    recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, true)
+  } catch {
+    session.hasExited = true
+    recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, false)
+  }
+})
+
+ipcMain.on('terminal:write-fast', (_, payload: unknown) => {
+  if (!payload || typeof payload !== 'object') return
+  const { sessionId, data } = payload as { sessionId?: unknown; data?: unknown }
+  if (typeof sessionId !== 'string' || typeof data !== 'string') return
+
+  const startedAt = Date.now()
+  const session = terminals.get(sessionId)
+  if (!session || session.hasExited || session.isDisposed) return
+
+  try {
+    session.lastInputAt = Date.now()
     session.process.write(data)
     recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, true)
   } catch {

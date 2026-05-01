@@ -10,6 +10,7 @@ import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swar
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
+import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 
 interface Props {
   workspaceId: string
@@ -239,7 +240,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       }
       if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
         event.preventDefault()
-        void window.api.terminalWrite(sessionId, '\u001b[13;2u')
+        window.api.terminalWriteFast(sessionId, '\u001b[13;2u')
+        terminalDiagnostics.recordInputDispatch('\u001b[13;2u')
         return false
       }
       return true
@@ -255,12 +257,12 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       `CLI: ${cli}`,
       `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
     ].join('\n')
+    const outputQueue = createXtermOutputQueue(term, {
+      recordWrite: terminalDiagnostics.recordOutputWrite,
+    })
 
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
-      const startedAt = performance.now()
-      term.write(data, () => {
-        terminalDiagnostics.recordOutputWrite(data, performance.now() - startedAt)
-      })
+      outputQueue.enqueue(data)
     })
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
@@ -310,11 +312,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     const onDataDisposable = term.onData((data) => {
       terminalDiagnostics.recordInput(data)
-      const startedAt = performance.now()
-      void window.api.terminalWrite(sessionId, data).then(
-        () => terminalDiagnostics.recordInputWrite(data, startedAt, true),
-        () => terminalDiagnostics.recordInputWrite(data, startedAt, false)
-      )
+      window.api.terminalWriteFast(sessionId, data)
+      terminalDiagnostics.recordInputDispatch(data)
     })
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
@@ -470,6 +469,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       terminalDiagnostics.dispose()
+      outputQueue.dispose()
       term.dispose()
     }
   }, [

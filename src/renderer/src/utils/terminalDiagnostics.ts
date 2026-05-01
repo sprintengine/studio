@@ -7,6 +7,7 @@ type TerminalDiagnosticsInput = {
   agentId?: string
   terminalId?: string
   kind: 'agent' | 'terminal'
+  rendererMode?: 'default' | 'webgl'
 }
 
 type TerminalDiagnosticsCounters = {
@@ -17,6 +18,8 @@ type TerminalDiagnosticsCounters = {
   focusCount: number
   inputEventCount: number
   inputBytes: number
+  inputDispatchCount: number
+  inputDispatchBytes: number
   inputWriteCount: number
   inputWriteBytes: number
   inputWriteSlowCount: number
@@ -44,6 +47,8 @@ function emptyCounters(): TerminalDiagnosticsCounters {
     focusCount: 0,
     inputEventCount: 0,
     inputBytes: 0,
+    inputDispatchCount: 0,
+    inputDispatchBytes: 0,
     inputWriteCount: 0,
     inputWriteBytes: 0,
     inputWriteSlowCount: 0,
@@ -78,6 +83,7 @@ export function createTerminalDiagnostics(input: TerminalDiagnosticsInput) {
       recordKeydown: (_event: KeyboardEvent) => {},
       recordContainerKeydown: (_event: KeyboardEvent) => {},
       recordInput: (_data: string) => {},
+      recordInputDispatch: (_data: string) => {},
       recordInputWrite: (_data: string, _startedAt: number, _ok: boolean) => {},
       recordOutputWrite: (_data: string, _elapsedMs: number) => {},
       flush: () => {},
@@ -94,6 +100,7 @@ export function createTerminalDiagnostics(input: TerminalDiagnosticsInput) {
     workspaceId: input.workspaceId,
     agentId: input.agentId,
     terminalId: input.terminalId,
+    rendererMode: input.rendererMode ?? 'default',
   }
 
   const flush = (reason: 'interval' | 'dispose' = 'interval') => {
@@ -119,6 +126,8 @@ export function createTerminalDiagnostics(input: TerminalDiagnosticsInput) {
       focusCount: counters.focusCount,
       inputEventCount: counters.inputEventCount,
       inputBytes: counters.inputBytes,
+      inputDispatchCount: counters.inputDispatchCount,
+      inputDispatchBytes: counters.inputDispatchBytes,
       inputWriteCount: counters.inputWriteCount,
       inputWriteBytes: counters.inputWriteBytes,
       inputWriteSlowCount: counters.inputWriteSlowCount,
@@ -159,6 +168,10 @@ export function createTerminalDiagnostics(input: TerminalDiagnosticsInput) {
     recordInput: (data: string) => {
       counters.inputEventCount += 1
       counters.inputBytes += byteLength(data)
+    },
+    recordInputDispatch: (data: string) => {
+      counters.inputDispatchCount += 1
+      counters.inputDispatchBytes += byteLength(data)
     },
     recordInputWrite: (data: string, startedAt: number, ok: boolean) => {
       const elapsedMs = performance.now() - startedAt

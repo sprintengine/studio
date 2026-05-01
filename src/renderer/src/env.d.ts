@@ -432,6 +432,7 @@ declare interface Window {
     // Agent CLI Terminal
     terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata) => Promise<TerminalSpawnResult>
     terminalWrite:  (sessionId: string, data: string) => Promise<void>
+    terminalWriteFast: (sessionId: string, data: string) => void
     terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
     terminalStatus: (sessionId: string) => Promise<{ running: boolean }>
     terminalList:   () => Promise<TerminalSessionSnapshot[]>
