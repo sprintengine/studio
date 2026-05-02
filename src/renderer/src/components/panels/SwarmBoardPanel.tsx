@@ -120,6 +120,62 @@ function PauseSwarmIcon() {
   )
 }
 
+function ZoomInSwarmIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M7.25 11.25a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm2.9-1.1 3.1 3.1M7.25 5.45v3.6M5.45 7.25h3.6"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function ZoomOutSwarmIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M7.25 11.25a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm2.9-1.1 3.1 3.1M5.45 7.25h3.6"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function ResetGraphZoomIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M12.75 5.5A5 5 0 1 0 13 8m-.25-2.5V2.75m0 2.75H10"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function FitGraphZoomIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M3.25 6V3.25H6m4 0h2.75V6m0 4v2.75H10m-4 0H3.25V10"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function getParentDirectoryPath(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, '')
   const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
@@ -2909,9 +2965,45 @@ function SwarmTaskGraphView({
 }) {
   const graph = useMemo(() => buildTaskGraphLayout(swarmState.tasks), [swarmState.tasks])
   const focusTaskId = useMemo(() => getTaskGraphFocusTaskId(swarmState.tasks), [swarmState.tasks])
+  const [graphZoom, setGraphZoom] = useState(defaultTaskGraphZoom)
   const graphCanvasRef = useRef<HTMLDivElement | null>(null)
   const graphScrollRef = useRef<HTMLDivElement | null>(null)
   const lastCenteredKeyRef = useRef<string | null>(null)
+  const zoomAnchorRef = useRef<TaskGraphZoomAnchor | null>(null)
+
+  const captureZoomAnchor = (viewportX?: number, viewportY?: number): TaskGraphZoomAnchor | null => {
+    const scrollEl = graphScrollRef.current
+    if (!scrollEl) return null
+
+    const resolvedViewportX = viewportX ?? scrollEl.clientWidth / 2
+    const resolvedViewportY = viewportY ?? scrollEl.clientHeight / 2
+
+    return {
+      graphX: (scrollEl.scrollLeft + resolvedViewportX) / graphZoom,
+      graphY: (scrollEl.scrollTop + resolvedViewportY) / graphZoom,
+      viewportX: resolvedViewportX,
+      viewportY: resolvedViewportY,
+    }
+  }
+
+  const setGraphZoomFromAnchor = (
+    nextZoom: number,
+    anchor: TaskGraphZoomAnchor | null = captureZoomAnchor()
+  ) => {
+    if (Math.abs(nextZoom - graphZoom) < 0.001) return
+    zoomAnchorRef.current = anchor
+    setGraphZoom(nextZoom)
+  }
+
+  const fitGraphToViewport = () => {
+    const scrollEl = graphScrollRef.current
+    if (!scrollEl) return
+
+    const availableWidth = Math.max(1, scrollEl.clientWidth - 48)
+    const availableHeight = Math.max(1, scrollEl.clientHeight - 48)
+    const fitZoom = Math.min(1, availableWidth / graph.canvasWidth, availableHeight / graph.canvasHeight)
+    setGraphZoomFromAnchor(Math.max(minTaskGraphZoom, Math.min(maxTaskGraphZoom, fitZoom)))
+  }
 
   useEffect(() => {
     const scrollEl = graphScrollRef.current
@@ -2924,21 +3016,35 @@ function SwarmTaskGraphView({
 
     const frame = window.requestAnimationFrame(() => {
       scrollEl.scrollTo({
-        left: Math.max(0, focusNode.x - scrollEl.clientWidth / 2),
-        top: Math.max(0, focusNode.y - scrollEl.clientHeight / 2),
+        left: Math.max(0, focusNode.x * graphZoom - scrollEl.clientWidth / 2),
+        top: Math.max(0, focusNode.y * graphZoom - scrollEl.clientHeight / 2),
         behavior: 'smooth',
       })
     })
 
     return () => window.cancelAnimationFrame(frame)
-  }, [focusTaskId, graph])
+  }, [focusTaskId, graph, graphZoom])
+
+  useEffect(() => {
+    const scrollEl = graphScrollRef.current
+    const anchor = zoomAnchorRef.current
+    if (!scrollEl || !anchor) return
+    zoomAnchorRef.current = null
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollEl.scrollLeft = Math.max(0, anchor.graphX * graphZoom - anchor.viewportX)
+      scrollEl.scrollTop = Math.max(0, anchor.graphY * graphZoom - anchor.viewportY)
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [graphZoom])
 
   const updateGraphCursor = (event: React.PointerEvent<HTMLDivElement>) => {
     const el = graphCanvasRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
-    el.style.setProperty('--swarm-cursor-x', `${event.clientX - rect.left}px`)
-    el.style.setProperty('--swarm-cursor-y', `${event.clientY - rect.top}px`)
+    el.style.setProperty('--swarm-cursor-x', `${(event.clientX - rect.left) / graphZoom}px`)
+    el.style.setProperty('--swarm-cursor-y', `${(event.clientY - rect.top) / graphZoom}px`)
     el.style.setProperty('--swarm-cursor-opacity', '1')
   }
 
@@ -2946,44 +3052,113 @@ function SwarmTaskGraphView({
     graphCanvasRef.current?.style.setProperty('--swarm-cursor-opacity', '0')
   }
 
+  const handleGraphWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey && !event.metaKey) return
+
+    event.preventDefault()
+    const scrollEl = graphScrollRef.current
+    if (!scrollEl) return
+
+    const rect = scrollEl.getBoundingClientRect()
+    const anchor = captureZoomAnchor(event.clientX - rect.left, event.clientY - rect.top)
+    setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, event.deltaY < 0 ? 'in' : 'out'), anchor)
+  }
+
   const terminalCount = graph.terminalTaskIds.length
+  const zoomPercent = Math.round(graphZoom * 100)
+  const canZoomOut = graphZoom > minTaskGraphZoom + 0.001
+  const canZoomIn = graphZoom < maxTaskGraphZoom - 0.001
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden bg-[#08090b]">
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-[#08090b]">
+      <div className="absolute right-4 top-4 z-30 flex items-center gap-1 rounded-md bg-[#0d0e11]/92 p-1 shadow-[0_14px_38px_rgba(0,0,0,0.28)] backdrop-blur">
+        <button
+          type="button"
+          onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'out'))}
+          disabled={!canZoomOut}
+          className="flex h-8 w-8 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+          aria-label="Zoom out task graph"
+          title="Zoom out"
+        >
+          <ZoomOutSwarmIcon />
+        </button>
+        <div className="w-12 text-center text-[11px] font-semibold tabular-nums text-[#d7d7dc]" aria-live="polite">
+          {zoomPercent}%
+        </div>
+        <button
+          type="button"
+          onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'in'))}
+          disabled={!canZoomIn}
+          className="flex h-8 w-8 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+          aria-label="Zoom in task graph"
+          title="Zoom in"
+        >
+          <ZoomInSwarmIcon />
+        </button>
+        <button
+          type="button"
+          onClick={fitGraphToViewport}
+          className="flex h-8 w-8 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+          aria-label="Fit task graph to viewport"
+          title="Fit graph"
+        >
+          <FitGraphZoomIcon />
+        </button>
+        <button
+          type="button"
+          onClick={() => setGraphZoomFromAnchor(defaultTaskGraphZoom)}
+          disabled={Math.abs(graphZoom - defaultTaskGraphZoom) < 0.001}
+          className="flex h-8 w-8 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+          aria-label="Reset task graph zoom"
+          title="Reset zoom"
+        >
+          <ResetGraphZoomIcon />
+        </button>
+      </div>
       <div
         ref={graphScrollRef}
         onPointerEnter={updateGraphCursor}
         onPointerMove={updateGraphCursor}
         onPointerLeave={clearGraphCursor}
-        className="min-h-[460px] overflow-auto"
+        onWheel={handleGraphWheel}
+        className="h-full min-h-[460px] overflow-auto"
       >
         <div
-          ref={graphCanvasRef}
           className="relative"
           style={{
-            width: graph.canvasWidth,
-            height: graph.canvasHeight,
-            backgroundImage:
-              'radial-gradient(circle, rgba(255,255,255,0.12) 0, rgba(255,255,255,0.12) 1px, transparent 1px)',
-            backgroundColor: '#08090b',
-            backgroundSize: '24px 24px',
+            width: graph.canvasWidth * graphZoom,
+            height: graph.canvasHeight * graphZoom,
           }}
         >
           <div
-            className="pointer-events-none absolute inset-0 transition-opacity duration-150"
+            ref={graphCanvasRef}
+            className="relative"
             style={{
+              width: graph.canvasWidth,
+              height: graph.canvasHeight,
+              transform: `scale(${graphZoom})`,
+              transformOrigin: 'top left',
               backgroundImage:
-                'radial-gradient(circle, rgba(255,255,255,0.38) 0, rgba(255,255,255,0.38) 1px, transparent 1px)',
+                'radial-gradient(circle, rgba(255,255,255,0.12) 0, rgba(255,255,255,0.12) 1px, transparent 1px)',
+              backgroundColor: '#08090b',
               backgroundSize: '24px 24px',
-              maskImage:
-                'radial-gradient(circle at var(--swarm-cursor-x, 50%) var(--swarm-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
-              opacity: 'var(--swarm-cursor-opacity, 0)',
-              WebkitMaskImage:
-                'radial-gradient(circle at var(--swarm-cursor-x, 50%) var(--swarm-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
             }}
-          />
+          >
+            <div
+              className="pointer-events-none absolute inset-0 transition-opacity duration-150"
+              style={{
+                backgroundImage:
+                  'radial-gradient(circle, rgba(255,255,255,0.38) 0, rgba(255,255,255,0.38) 1px, transparent 1px)',
+                backgroundSize: '24px 24px',
+                maskImage:
+                  'radial-gradient(circle at var(--swarm-cursor-x, 50%) var(--swarm-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
+                opacity: 'var(--swarm-cursor-opacity, 0)',
+                WebkitMaskImage:
+                  'radial-gradient(circle at var(--swarm-cursor-x, 50%) var(--swarm-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
+              }}
+            />
 
-          {(graph.hasCycle || graph.missingDependencyCount > 0) ? (
+            {(graph.hasCycle || graph.missingDependencyCount > 0) ? (
             <div className="absolute left-4 top-4 z-20 max-w-md border-l border-[#ffbf2f]/60 bg-[#08090b]/88 px-3 py-2 text-sm leading-6 text-[#ffe0a3] backdrop-blur">
               {graph.hasCycle ? 'A dependency cycle was detected. ' : ''}
               {graph.missingDependencyCount > 0
@@ -3147,6 +3322,7 @@ function SwarmTaskGraphView({
             )
           })}
         </div>
+        </div>
       </div>
     </div>
   )
@@ -3220,6 +3396,26 @@ type TaskGraphLayout = {
   terminalTaskIds: string[]
   hasCycle: boolean
   missingDependencyCount: number
+}
+
+type TaskGraphZoomAnchor = {
+  graphX: number
+  graphY: number
+  viewportX: number
+  viewportY: number
+}
+
+const taskGraphZoomLevels = [0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2]
+const defaultTaskGraphZoom = 1
+const minTaskGraphZoom = taskGraphZoomLevels[0]
+const maxTaskGraphZoom = taskGraphZoomLevels[taskGraphZoomLevels.length - 1]
+
+function getNextTaskGraphZoom(currentZoom: number, direction: 'in' | 'out'): number {
+  if (direction === 'in') {
+    return taskGraphZoomLevels.find((level) => level > currentZoom + 0.001) ?? taskGraphZoomLevels[taskGraphZoomLevels.length - 1]
+  }
+
+  return [...taskGraphZoomLevels].reverse().find((level) => level < currentZoom - 0.001) ?? taskGraphZoomLevels[0]
 }
 
 function buildTaskGraphLayout(tasks: SwarmTask[]): TaskGraphLayout {
