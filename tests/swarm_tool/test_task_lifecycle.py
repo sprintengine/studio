@@ -89,6 +89,8 @@ def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_p
     plan_artifact = artifact_by_kind(read_state(state_path), "architect_plan")
     (state_path.parent / plan_artifact["path"]).write_text("# Architect Plan\n", encoding="utf-8")
     cli.run("artifact", "ready", "--artifact-id", plan_artifact["id"], "--id", "architect-fixture")
+    plan_ready = read_state(state_path)
+    assert artifact_by_kind(plan_ready, "architect_plan")["createdBy"] == "architect-fixture"
     cli.run("artifact", "approve", "--artifact-id", plan_artifact["id"], "--id", "user")
 
     plan_approved = read_state(state_path)
