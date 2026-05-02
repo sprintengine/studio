@@ -30,6 +30,7 @@ import { slugifySwarmName } from '../../utils/swarmStateFile'
 import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
 import SwarmStateSynchronizer from './SwarmStateSynchronizer'
+import WorkspaceGitStatusButton from './WorkspaceGitStatusButton'
 import WorkspaceLayout from './WorkspaceLayout'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
@@ -1022,6 +1023,19 @@ export default function WorkspaceManager() {
                 />
               ) : null}
             </div>
+          ) : null}
+
+          {activeWorkspace ? (
+            <WorkspaceGitStatusButton
+              workspaceId={activeWorkspace.id}
+              folderPath={activeWorkspace.folderPath ?? null}
+              onOpen={() => {
+                setSessionsOpen(false)
+                setNotificationsOpen(false)
+                setSpecialistMenuOpen(false)
+                setAccountOpen(false)
+              }}
+            />
           ) : null}
 
           <div ref={notificationsRef} className="relative inline-flex">

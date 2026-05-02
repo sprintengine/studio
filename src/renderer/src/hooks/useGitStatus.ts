@@ -5,13 +5,18 @@ type UseGitStatusResult = {
   repoRoot: string | null
   status: GitStatusSnapshot | null
   directoryStatus: Record<string, GitFileStatus>
+  repoState: GitRepoState
+  errorMessage: string | null
   refresh: () => Promise<void>
 }
 
 type SharedGitStatusSnapshot = {
   status: GitStatusSnapshot | null
   directoryStatus: Record<string, GitFileStatus>
+  errorMessage: string | null
 }
+
+export type GitRepoState = 'idle' | 'loading' | 'ready' | 'not-git' | 'error'
 
 type GitStatusSubscriber = (snapshot: SharedGitStatusSnapshot) => void
 type GitStatusRefreshCause = 'initial' | 'watch' | 'recovery' | 'manual' | 'coalesced'
@@ -21,6 +26,7 @@ type GitStatusSubscription = {
   repoRoot: string
   status: GitStatusSnapshot | null
   directoryStatus: Record<string, GitFileStatus>
+  errorMessage: string | null
   signature: string
   subscribers: Set<GitStatusSubscriber>
   refreshTimer: number | null
@@ -124,6 +130,7 @@ function notifyGitStatusSubscribers(subscription: GitStatusSubscription): void {
   const snapshot = {
     status: subscription.status,
     directoryStatus: subscription.directoryStatus,
+    errorMessage: subscription.errorMessage,
   }
   subscription.subscribers.forEach((subscriber) => subscriber(snapshot))
 }
@@ -196,15 +203,17 @@ async function refreshGitStatusSubscription(
       const normalized = normalizeStatusSnapshot(await window.api.getGitStatus(subscription.repoRoot))
       const nextSignature = getStatusSignature(normalized)
       const signatureChanged = nextSignature !== subscription.signature
+      const hadError = Boolean(subscription.errorMessage)
       if (cause === 'recovery' && !signatureChanged) {
         backOffGitStatusRecovery(subscription)
       } else {
         resetGitStatusRecoveryDelay(subscription)
       }
-      if (signatureChanged) {
+      if (signatureChanged || !subscription.status || hadError) {
         subscription.status = normalized
         subscription.directoryStatus = buildDirectoryStatusMap(normalized)
         subscription.signature = nextSignature
+        subscription.errorMessage = null
         notifyGitStatusSubscribers(subscription)
       }
       logPerfEvent('GitStatus', 'refresh', {
@@ -228,12 +237,11 @@ async function refreshGitStatusSubscription(
         message: error instanceof Error ? error.message : String(error),
         subscriberCount: subscription.subscribers.size,
       })
-      if (subscription.status || subscription.signature) {
-        subscription.status = null
-        subscription.directoryStatus = {}
-        subscription.signature = ''
-        notifyGitStatusSubscribers(subscription)
-      }
+      subscription.status = null
+      subscription.directoryStatus = {}
+      subscription.signature = ''
+      subscription.errorMessage = error instanceof Error ? error.message : String(error)
+      notifyGitStatusSubscribers(subscription)
     } finally {
       subscription.refreshPromise = null
       if (subscription.refreshAgain) {
@@ -335,6 +343,7 @@ function getGitStatusSubscription(repoRoot: string): GitStatusSubscription {
     repoRoot,
     status: null,
     directoryStatus: {},
+    errorMessage: null,
     signature: '',
     subscribers: new Set(),
     refreshTimer: null,
@@ -359,6 +368,7 @@ function subscribeGitStatus(repoRoot: string, subscriber: GitStatusSubscriber): 
   subscriber({
     status: subscription.status,
     directoryStatus: subscription.directoryStatus,
+    errorMessage: subscription.errorMessage,
   })
 
   return () => {
@@ -400,6 +410,8 @@ export function useGitStatus(rootPath: string | null): UseGitStatusResult {
   const [repoRoot, setRepoRoot] = useState<string | null>(null)
   const [status, setStatus] = useState<GitStatusSnapshot | null>(null)
   const [directoryStatus, setDirectoryStatus] = useState<Record<string, GitFileStatus>>({})
+  const [repoState, setRepoState] = useState<GitRepoState>('idle')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const repoRootRef = useRef<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -413,15 +425,22 @@ export function useGitStatus(rootPath: string | null): UseGitStatusResult {
     setRepoRoot(null)
     setStatus(null)
     setDirectoryStatus({})
+    setErrorMessage(null)
+    setRepoState(rootPath ? 'loading' : 'idle')
 
     if (!rootPath) return
-    if (typeof window.api.getGitRepoRoot !== 'function' || typeof window.api.getGitStatus !== 'function') return
+    if (typeof window.api.getGitRepoRoot !== 'function' || typeof window.api.getGitStatus !== 'function') {
+      setErrorMessage('Git integration is unavailable.')
+      setRepoState('error')
+      return
+    }
 
     resolveSharedGitRepoRoot(rootPath)
       .then((nextRepoRoot) => {
         if (cancelled) return
         repoRootRef.current = nextRepoRoot
         setRepoRoot(nextRepoRoot)
+        if (!nextRepoRoot) setRepoState('not-git')
       })
 
     return () => {
@@ -439,8 +458,10 @@ export function useGitStatus(rootPath: string | null): UseGitStatusResult {
     return subscribeGitStatus(repoRoot, (snapshot) => {
       setStatus(snapshot.status)
       setDirectoryStatus(snapshot.directoryStatus)
+      setErrorMessage(snapshot.errorMessage)
+      setRepoState(snapshot.errorMessage ? 'error' : snapshot.status ? 'ready' : 'loading')
     })
   }, [repoRoot])
 
-  return { repoRoot, status, directoryStatus, refresh }
+  return { repoRoot, status, directoryStatus, repoState, errorMessage, refresh }
 }
