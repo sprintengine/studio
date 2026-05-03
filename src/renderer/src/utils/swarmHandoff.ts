@@ -8,20 +8,7 @@ type PlanFileSwarmHandoffPromptArgs = {
 }
 
 function quoteShellArg(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}'`
-}
-
-function pickHeredocDelimiter(content: string): string {
-  const usedLines = new Set(content.split(/\r?\n/).map((line) => line.trim()))
-  let delimiter = 'SWARM_HANDOVER'
-  let suffix = 2
-
-  while (usedLines.has(delimiter)) {
-    delimiter = `SWARM_HANDOVER_${suffix}`
-    suffix += 1
-  }
-
-  return delimiter
+  return `"${value.replace(/"/g, '\\"')}"`
 }
 
 export function buildCurrentContextSwarmHandoffPrompt(teamSlug: string): string {
@@ -53,33 +40,30 @@ export function buildPlanFileSwarmHandoffPrompt({
   statePath,
   useWorktreesForSwarms = false,
 }: PlanFileSwarmHandoffPromptArgs): string {
-  const delimiter = pickHeredocDelimiter(sourceContent)
+  const contentLines = sourceContent.trim().split(/\r?\n/).length
 
   return [
     'Create a swarm workspace from this saved future plan.',
     `Team name: \`${teamSlug}\``,
     `Goal: ${goal}`,
     `Source path: \`${sourcePath}\``,
+    `Source snapshot: ${contentLines} markdown line${contentLines === 1 ? '' : 's'} selected by the user.`,
     `Target state path: \`${statePath}\``,
     '',
     'The renderer has only created local workspace metadata and this startup prompt. Canonical swarm files must be created by the swarm tool. Do not write `state.yaml`, `handover.md`, task state, or artifact state directly.',
     '',
-    'First run the swarm handover command below, passing the plan markdown snapshot as stdin. If the team already exists, or if handover reports a collision or failure, stop and report that to the user instead of overwriting anything.',
+    'First run the swarm handover command below. It tells the swarm tool to copy the selected markdown file into the team handover, so the run is tied to that file instead of only to the short objective. If the team already exists, or if handover reports a collision or failure, stop and report that to the user instead of overwriting anything.',
     '',
-    '```bash',
-    `swarm handover --name ${quoteShellArg(teamSlug)} --goal ${quoteShellArg(goal)} --use-worktrees ${useWorktreesForSwarms ? 'true' : 'false'} --handover-stdin <<'${delimiter}'`,
-    `# Handover From ${sourcePath}`,
-    '',
-    sourceContent,
-    delimiter,
+    '```shell',
+    `swarm handover --name ${quoteShellArg(teamSlug)} --goal ${quoteShellArg(goal)} --use-worktrees ${useWorktreesForSwarms ? 'true' : 'false'} --handover ${quoteShellArg(sourcePath)}`,
     '```',
     '',
     'Only after `swarm handover` succeeds, initialize the swarm state at the target path:',
     '',
-    '```bash',
+    '```shell',
     `swarm --state ${quoteShellArg(statePath)} init --goal ${quoteShellArg(goal)} --use-worktrees ${useWorktreesForSwarms ? 'true' : 'false'}`,
     '```',
     '',
-    'After initialization, follow the prompt returned by the swarm tool. New swarms begin with product intake; architect planning starts after the product artifact is approved.',
+    `After initialization, follow the prompt returned by the swarm tool. Product and architect agents must read \`${sourcePath}\` and the copied \`handover.md\` before producing artifacts or task cards, and should treat that markdown file as the incoming plan context. New swarms begin with product intake; architect planning starts after the product artifact is approved.`,
   ].join('\n')
 }
