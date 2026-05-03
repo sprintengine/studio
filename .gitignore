@@ -18,6 +18,11 @@ pnpm-debug.log*
 *.log
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.pytest-tmp/
+.tmp/
+.codex-tmp/
+pytest-run-*/
 
 # electron-vite temp config
 electron.vite.config.*.mjs
