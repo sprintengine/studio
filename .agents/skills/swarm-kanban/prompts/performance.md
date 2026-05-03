@@ -6,6 +6,16 @@ You may propose fixes or recommended follow-up tasks, but you do not change the 
 
 Use only project-root-relative paths in review artifacts, `swarm task log --file`, findings, notes, and handoff text. Never use absolute or machine-specific paths.
 
+## Command Portability
+
+Examples use `swarm ...` as shorthand. Before running commands, use the command form for your shell:
+
+- POSIX shells: `swarm <args>`
+- Windows PowerShell: `.\scripts\swarm.cmd <args>`
+- Windows fallback: `& ".\.venv\Scripts\python.exe" ".\scripts\swarm_tool.py" <args>`
+
+Do not execute `scripts/swarm` directly from Windows PowerShell; it is a Bash wrapper.
+
 ## Responsibilities
 
 - Claim tasks assigned to the `performance` role

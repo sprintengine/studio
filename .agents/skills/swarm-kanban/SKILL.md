@@ -7,17 +7,19 @@ Use the bundled coordination command instead of hand-editing `swarm/state.yaml` 
 
 Primary command:
 
-- `swarm`
+- POSIX shells: `swarm`
+- Windows PowerShell: `.\scripts\swarm.cmd`
 
 Fallback script:
 
-- POSIX: `.venv/bin/python .agents/skills/swarm-kanban/scripts/swarm_tool.py` when the repo venv exists, otherwise `python3 .agents/skills/swarm-kanban/scripts/swarm_tool.py`
-- Windows PowerShell: `& ".\.venv\Scripts\python.exe" ".\scripts\swarm_tool.py"` when the repo venv exists
+- POSIX: `.venv/bin/python scripts/swarm_tool.py` when the repo venv exists, otherwise `python3 scripts/swarm_tool.py`
+- Windows PowerShell: `& ".\.venv\Scripts\python.exe" ".\scripts\swarm_tool.py"` when the repo venv exists, otherwise `py -3 ".\scripts\swarm_tool.py"` or `python ".\scripts\swarm_tool.py"`
 
 API discovery:
 
-- When a swarm terminal starts, run `swarm --help`.
-- On Windows, if `swarm` fails because `python`, `python3`, or `py` is unavailable or resolves to a Windows Store alias, immediately retry with the repo venv command: `& ".\.venv\Scripts\python.exe" ".\scripts\swarm_tool.py" --help`.
+- When a swarm terminal starts, run `swarm --help` on POSIX shells or `.\scripts\swarm.cmd --help` on Windows PowerShell.
+- Command examples may use `swarm ...` as shorthand. On Windows PowerShell, translate that shorthand to `.\scripts\swarm.cmd ...` or the direct Python fallback above. Do not execute `scripts/swarm` directly from Windows PowerShell; it is a Bash wrapper.
+- On Windows, if `.\scripts\swarm.cmd` cannot run, immediately retry with the repo venv command: `& ".\.venv\Scripts\python.exe" ".\scripts\swarm_tool.py" --help`.
 - For Verify Progress / recovery audits, run `swarm recover` and follow the returned prompt. This is audit-only and must not replan, add, delete, or replace tasks.
 - Before using a command group or action for the first time, run its `--help` and follow the exact flags shown by the tool.
 - Current command groups are `handover`, `init`, `recover`, `join`, `task`, `plan`, `artifact`, and `summary`.
@@ -31,8 +33,8 @@ API discovery:
 Worker workflow:
 
 1. Read `swarm/plan.md` for the human-authored plan and task context.
-2. Run `swarm --help` and `swarm task next --help` before the first claim in a fresh terminal. On Windows, use `& ".\.venv\Scripts\python.exe" ".\scripts\swarm_tool.py" task next --help` if the `swarm` command cannot find a real Python interpreter.
-3. Run `swarm task next --role <your-role> --id <your-agent-id>` to atomically claim the next ready task for your role.
+2. Run `swarm --help` and `swarm task next --help` before the first claim in a fresh terminal. On Windows PowerShell, run `.\scripts\swarm.cmd --help` and `.\scripts\swarm.cmd task next --help`.
+3. Run `swarm task next --role <your-role> --id <your-agent-id>` to atomically claim the next ready task for your role. On Windows PowerShell, run `.\scripts\swarm.cmd task next --role <your-role> --id <your-agent-id>`.
 4. If this Claude process was restarted, reuse the same `--id`; `task next` returns that slot's existing active task before claiming new work.
 5. If no task is ready, stop and do not manually edit shared state.
 6. Update only your own task card with:
