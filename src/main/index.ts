@@ -1542,6 +1542,10 @@ function quoteCmd(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
 
+function quoteCmdPrompt(value: string): string {
+  return quoteCmd(value.replace(/\r?\n/g, ' '))
+}
+
 function quoteCmdIfNeeded(value: string): string {
   return /[\s&()^|<>"]/g.test(value) ? quoteCmd(value) : value
 }
@@ -2177,7 +2181,8 @@ function getShellLaunchConfig(
 
     return {
       command: 'cmd.exe',
-      args: ['/d', '/k', commandLine],
+      args: ['/d', '/k'],
+      initialInput: `${commandLine}\r`,
       env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
       cwd: windowsCwd,
     }
@@ -2189,18 +2194,18 @@ function getShellLaunchConfig(
       args: [
         '-e',
         'bash',
-        '-lic',
-        buildWslShellScript(
-          cwd,
-          sessionId,
-          resume,
-          swarmStatePath,
-          cli,
-          initialPrompt,
-          cliRuntime,
-          cliPermissionPreset
-        ),
+        '-li',
       ],
+      initialInput: `${buildWslShellScript(
+        cwd,
+        sessionId,
+        resume,
+        swarmStatePath,
+        cli,
+        initialPrompt,
+        cliRuntime,
+        cliPermissionPreset
+      )}\r`,
     }
   }
 
@@ -2281,12 +2286,12 @@ function buildNativeAgentLaunchCommand(
       return `${command}${permissionArgText} resume -C ${quoteCmdIfNeeded(cwd)}`
     }
 
-    const promptArg = initialPrompt ? ` ${quoteCmd(initialPrompt)}` : ''
+    const promptArg = initialPrompt ? ` ${quoteCmdPrompt(initialPrompt)}` : ''
     return `${command}${permissionArgText} -C ${quoteCmdIfNeeded(cwd)}${promptArg}`
   }
 
   const sessionFlag = resume ? '--resume' : '--session-id'
-  const promptArg = initialPrompt ? ` ${quoteCmd(initialPrompt)}` : ''
+  const promptArg = initialPrompt ? ` ${quoteCmdPrompt(initialPrompt)}` : ''
   return `${command}${permissionArgText} ${sessionFlag} ${quoteCmdIfNeeded(sessionId)}${promptArg}`
 }
 
