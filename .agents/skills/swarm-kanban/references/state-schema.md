@@ -159,9 +159,12 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
   - `ownerAgentId` is empty
 - Only one task should be claimed by a worker at a time; `swarm task next` returns the existing active task instead of claiming another one.
 - The architect builds and revises the task graph during planning with `swarm plan` commands.
-- Product strategist tasks should capture market, competitor, audience, positioning, workflow, and adoption-risk guidance.
+- Product intake tasks should capture requirements, constraints, non-goals, user impact, and acceptance expectations. Product strategy/positioning work should be added only when the approved intake leaves a concrete product decision unresolved.
 - Code review tasks should produce direct review evidence or `code_review` artifacts with findings and recommended follow-up tasks.
-- Performance review tasks should run after the relevant code review tasks and produce direct review evidence or `performance_review` artifacts with measured evidence where practical, clearly labeled hypotheses where not, findings, and recommended follow-up tasks.
+- Initial task graphs should include an architect-owned final review scheduling task after implementation, validation, and code review. That scheduler reads the completed evidence and adds only the needed product, security, and performance final review tasks, with explicit skip rationale for unneeded reviews.
+- Product final acceptance review tasks should be scheduled when the work is product-facing, changes user-visible behavior, changes requirements interpretation, or when code review/validation raises acceptance uncertainty.
+- Security review tasks should be scheduled when work touches auth, permissions, IPC, command execution, filesystem boundaries, network/relay surfaces, secrets/tokens, HTML rendering, sandboxing, dependency risk, or when code review raises a security-adjacent concern.
+- Performance review tasks should be scheduled only after relevant code review evidence exists and should run when the work touches startup, hot paths, rendering scale, polling, filesystem/search/git traversal, command loops, memory growth, bundle/runtime resource usage, or when code review/validation raises a performance concern. They produce direct review evidence or `performance_review` artifacts with measured evidence where practical, clearly labeled hypotheses where not, findings, and recommended follow-up tasks.
 - Workers should not rewrite the plan or change other workers' task cards.
 - Review artifact lifecycle mutations must go through `swarm artifact` commands.
 - `swarm init` creates or reuses a product intake approval task and artifact, plus a blocked architect plan approval task and `architect_plan` artifact for `plan.md`.

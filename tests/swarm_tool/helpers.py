@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,6 +11,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWARM_COMMAND = REPO_ROOT / "scripts" / "swarm"
+SWARM_TOOL = REPO_ROOT / "scripts" / "swarm_tool.py"
 REAL_REPO_SWARM_ROOT = (REPO_ROOT / "swarm").resolve()
 
 
@@ -42,13 +45,19 @@ def parse_cli_json(stdout: str, command: list[str]) -> dict[str, Any]:
     return payload
 
 
+def swarm_command(state_path: Path, args: tuple[str, ...]) -> list[str]:
+    if os.name == "nt":
+        return [sys.executable, str(SWARM_TOOL), "--state", str(state_path), *args]
+    return [str(SWARM_COMMAND), "--state", str(state_path), *args]
+
+
 @dataclass(frozen=True)
 class SwarmCli:
     state_path: Path
 
     def run(self, *args: str) -> dict[str, Any]:
         assert_disposable_state_path(self.state_path)
-        command = [str(SWARM_COMMAND), "--state", str(self.state_path), *args]
+        command = swarm_command(self.state_path, args)
         completed = subprocess.run(
             command,
             cwd=REPO_ROOT,
@@ -68,7 +77,7 @@ class SwarmCli:
 
     def run_failure(self, *args: str) -> subprocess.CompletedProcess[str]:
         assert_disposable_state_path(self.state_path)
-        command = [str(SWARM_COMMAND), "--state", str(self.state_path), *args]
+        command = swarm_command(self.state_path, args)
         completed = subprocess.run(
             command,
             cwd=REPO_ROOT,

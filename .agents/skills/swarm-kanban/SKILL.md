@@ -57,11 +57,12 @@ Architect workflow:
 6. Write `swarm/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
 7. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
 8. Add task cards one at a time with `swarm plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
-9. Include normal final review tasks for performance review after code review, product final acceptance, and architect final review unless the user explicitly opts out.
-10. During architect final review, never reopen completed tasks. If product findings or architect findings require follow-up work, create new tasks and also create a later architect final review task that depends on those follow-ups.
-11. During user review, revise the board with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`.
-12. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
-13. Do not manually edit `swarm/state.yaml`.
+9. Include an architect-owned final review scheduling task after implementation, validation, and code review. This task decides which product, security, and performance final reviews are actually needed, records skip rationale for unneeded reviews, adds only the selected specialist review tasks, and then adds a later architect final review task.
+10. Do not create product final acceptance, security review, or performance review tasks during initial planning unless the approved requirements or user explicitly require that specialist review before implementation starts.
+11. During architect final review, never reopen completed tasks. If product, security, performance, code review, validation, or architect findings require follow-up work, create new tasks and also create a later architect final review task that depends on those follow-ups.
+12. During user review, revise the board with `swarm plan update-task`, `swarm plan delete-task`, `swarm plan add-dependency`, and `swarm plan remove-dependency`.
+13. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
+14. Do not manually edit `swarm/state.yaml`.
 
 Use plan reviews when the architect has drafted a complete plan and wants the specialist roster to critique it before execution:
 

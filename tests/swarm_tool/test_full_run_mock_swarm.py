@@ -52,7 +52,7 @@ def add_ready_artifact(
     )
 
 
-def test_full_run_mock_swarm_covers_gates_reviews_auto_approval_and_final_follow_up(tmp_path) -> None:
+def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_final_follow_up(tmp_path) -> None:
     state_path = tmp_path / "swarm" / "full-run-mock" / "state.yaml"
     cli = SwarmCli(state_path)
 
@@ -116,27 +116,13 @@ def test_full_run_mock_swarm_covers_gates_reviews_auto_approval_and_final_follow
         "--task-id",
         "T6",
         "--title",
-        "Product final acceptance",
-        "--role",
-        "product",
-        "--depends-on",
-        "T5",
-        "--acceptance",
-        "Product final review is approved",
-    )
-    cli.run(
-        "plan",
-        "add-task",
-        "--task-id",
-        "T7",
-        "--title",
-        "Architect final review",
+        "Schedule final reviews",
         "--role",
         "architect",
         "--depends-on",
-        "T6",
+        "T5",
         "--acceptance",
-        "Follow-up work is added as new tasks followed by another architect review",
+        "Selected final reviews are added with skip rationale for unneeded reviews",
     )
 
     plan_artifact = artifact_by_kind(read_state(state_path), "architect_plan")
@@ -233,32 +219,80 @@ def test_full_run_mock_swarm_covers_gates_reviews_auto_approval_and_final_follow
     assert get_artifact(state_after_auto_approval, "A4")["approvedBy"] == "auto-run"
     assert_board_column(state_after_auto_approval, "T6", "ready")
 
-    cli.run("task", "next", "--role", "product", "--id", "product-final")
-    add_ready_artifact(
-        cli,
-        state_path,
-        "A5",
+    cli.run("task", "next", "--role", "architect", "--id", "architect-scheduler")
+    cli.run(
+        "plan",
+        "add-task",
+        "--task-id",
+        "T7",
+        "--title",
+        "Product final acceptance",
+        "--role",
+        "product",
+        "--depends-on",
         "T6",
-        "product_strategy",
-        "reviews/product-final.md",
-        "Product Final Review",
-        "product-final",
+        "--acceptance",
+        "Product final review is approved",
     )
-    cli.run("artifact", "approve", "--artifact-id", "A5", "--id", "user")
-    assert_ready_tasks(cli, "architect", ["T7"])
-
-    cli.run("task", "next", "--role", "architect", "--id", "architect-final")
     cli.run(
         "plan",
         "add-task",
         "--task-id",
         "T8",
         "--title",
+        "Architect final review",
+        "--role",
+        "architect",
+        "--depends-on",
+        "T7",
+        "--acceptance",
+        "Follow-up work is added as new tasks followed by another architect review",
+    )
+    cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "T6",
+        "--id",
+        "architect-scheduler",
+        "--summary",
+        "Scheduled product final review and skipped security/performance for this fixture.",
+        "--file",
+        "swarm/swarm-tool-mcp-server-and-test-harness/reviews/final-review-schedule-1.md",
+        "--command",
+        "swarm plan add-task --task-id T7 ... and swarm plan add-task --task-id T8 ...",
+        "--result",
+        "Selected product final review; skipped security and performance with rationale.",
+    )
+    cli.run("task", "status", "--task-id", "T6", "--status", "done", "--id", "architect-scheduler")
+    assert_ready_tasks(cli, "product", ["T7"])
+
+    cli.run("task", "next", "--role", "product", "--id", "product-final")
+    add_ready_artifact(
+        cli,
+        state_path,
+        "A5",
+        "T7",
+        "product_strategy",
+        "reviews/product-final.md",
+        "Product Final Review",
+        "product-final",
+    )
+    cli.run("artifact", "approve", "--artifact-id", "A5", "--id", "user")
+    assert_ready_tasks(cli, "architect", ["T8"])
+
+    cli.run("task", "next", "--role", "architect", "--id", "architect-final")
+    cli.run(
+        "plan",
+        "add-task",
+        "--task-id",
+        "T9",
+        "--title",
         "Address final follow-up",
         "--role",
         "developer",
         "--depends-on",
-        "T7",
+        "T8",
         "--acceptance",
         "Follow-up work is implemented in a new task",
     )
@@ -266,13 +300,13 @@ def test_full_run_mock_swarm_covers_gates_reviews_auto_approval_and_final_follow
         "plan",
         "add-task",
         "--task-id",
-        "T9",
+        "T10",
         "--title",
         "Architect final review follow-up",
         "--role",
         "architect",
         "--depends-on",
-        "T8",
+        "T9",
         "--acceptance",
         "Second final review follows new follow-up work",
     )
@@ -280,7 +314,7 @@ def test_full_run_mock_swarm_covers_gates_reviews_auto_approval_and_final_follow
         "task",
         "log",
         "--task-id",
-        "T7",
+        "T8",
         "--id",
         "architect-final",
         "--summary",
@@ -288,17 +322,19 @@ def test_full_run_mock_swarm_covers_gates_reviews_auto_approval_and_final_follow
         "--file",
         "swarm/swarm-tool-mcp-server-and-test-harness/reviews/architect-final-review-1.md",
         "--command",
-        "swarm plan add-task --task-id T8 ... and swarm plan add-task --task-id T9 ...",
+        "swarm plan add-task --task-id T9 ... and swarm plan add-task --task-id T10 ...",
         "--result",
         "Follow-up developer task and later architect final review task created.",
     )
-    cli.run("task", "status", "--task-id", "T7", "--status", "done", "--id", "architect-final")
+    cli.run("task", "status", "--task-id", "T8", "--status", "done", "--id", "architect-final")
 
     final_state = read_state(state_path)
     assert_task_status(final_state, "T3", "done")
+    assert_task_status(final_state, "T6", "done")
     assert_task_status(final_state, "T7", "done")
-    assert_task_status(final_state, "T8", "todo")
+    assert_task_status(final_state, "T8", "done")
     assert_task_status(final_state, "T9", "todo")
-    assert_board_column(final_state, "T8", "ready")
-    assert_board_column(final_state, "T9", "todo")
-    assert get_task(final_state, "T9")["dependsOn"] == ["T8"]
+    assert_task_status(final_state, "T10", "todo")
+    assert_board_column(final_state, "T9", "ready")
+    assert_board_column(final_state, "T10", "todo")
+    assert get_task(final_state, "T10")["dependsOn"] == ["T9"]

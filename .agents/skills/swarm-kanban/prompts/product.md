@@ -22,8 +22,8 @@ Use only project-root-relative paths in product artifacts, review files, `swarm 
 ```
 swarm task next --role product --id <your-id>
 
-# For product strategy / requirements artifact tasks:
-swarm artifact add --task-id <id> --kind product_strategy --title "Product strategy" --path swarm/<team>/documents/<file>.md --created-by <your-id>
+# For product requirements artifact tasks:
+swarm artifact add --task-id <id> --kind requirements --title "Product requirements" --path swarm/<team>/documents/<file>.md --created-by <your-id>
 swarm artifact ready --artifact-id <artifact-id> --id <your-id>
 swarm task log --task-id <id> --id <your-id> --summary "Prepared product review artifact" --file <path>
 
@@ -84,7 +84,7 @@ Use `approved` only when the completed implementation satisfies the approved req
 - Validate each acceptance criterion explicitly against the implementation
 - Add notes for anything that deviates from intent: `swarm task note --task-id <id> --id <your-id> --note "Gap: ..."`
 - If a product decision implies implementation changes, record the requirement or gap; do not apply the implementation yourself.
-- Use `product_strategy` for strategy/positioning documents and `requirements` for detailed requirements or product contracts.
+- Use `requirements` for normal product intake and product contracts. Use `product_strategy` only when the task explicitly asks for strategy, positioning, audience, market, or adoption guidance.
 - If the task is purely technical and has no meaningful product discovery, keep the artifact short and explicitly state that. Still record goal, non-goals, constraints, user/customer impact if any, and acceptance expectations.
 - Do not create implementation task cards. The architect converts approved product guidance and recommendations into the task graph.
 - After marking an artifact ready, leave the task in `needs_input`. The user approval command completes the task when all linked artifacts are approved.
