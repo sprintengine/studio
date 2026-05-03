@@ -832,10 +832,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                     </label>
                   </div>
 
-                  <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
                     <label className="flex min-w-0 flex-col gap-2">
                       <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
-                        Future plan
+                        Existing plans
                       </span>
                       <select
                         value={selectedFuturePlanPath}
@@ -844,7 +844,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                         className="h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] outline-none transition-colors focus:border-[#ececee]/70 disabled:text-[#5a5a63]"
                       >
                         <option value="">
-                          {isScanning ? 'Scanning markdown...' : futurePlanOptions.length > 0 ? 'No future plan' : 'No markdown files'}
+                          {isScanning ? 'Scanning plans...' : futurePlanOptions.length > 0 ? 'No existing plan' : 'No existing plans'}
                         </option>
                         {futurePlanOptions.map((plan) => (
                           <option key={plan.path} value={plan.path}>

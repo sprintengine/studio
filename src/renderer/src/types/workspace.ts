@@ -375,6 +375,7 @@ export type AgentState = {
   cliHasLaunched?: boolean
   cliOnboardingPromptSent?: boolean
   cli?: AgentCli
+  cliPermissionPreset?: SwarmCliPermissionPreset
   cliStartupPrompt?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId

@@ -341,6 +341,7 @@ const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'): Agen
   cliHasLaunched: false,
   cliOnboardingPromptSent: false,
   cli: 'codex' as AgentCli,
+  cliPermissionPreset: 'default',
   cliStartupPrompt: undefined,
   kind,
   specialistId: undefined,
@@ -401,6 +402,12 @@ function normalizeSwarmAutoPendingSpawn(
     : null
 }
 
+function normalizeCliPermissionPreset(
+  input: SwarmCliPermissionPreset | null | undefined
+): SwarmCliPermissionPreset {
+  return input === 'auto_workspace' || input === 'bypass_all' ? input : 'default'
+}
+
 function normalizeSwarmAutoState(
   input: (Partial<SwarmAutoState> & { pending?: SwarmAutoPendingSpawn | null }) | null | undefined
 ): SwarmAutoState {
@@ -412,10 +419,7 @@ function normalizeSwarmAutoState(
     : legacyPending
       ? [legacyPending]
       : []
-  const cliPermissionPreset = input?.cliPermissionPreset === 'auto_workspace'
-    || input?.cliPermissionPreset === 'bypass_all'
-    ? input.cliPermissionPreset
-    : 'default'
+  const cliPermissionPreset = normalizeCliPermissionPreset(input?.cliPermissionPreset)
 
   return {
     enabled: Boolean(input?.enabled),
@@ -481,6 +485,7 @@ function normalizeAgentState(agent: AgentState): AgentState {
   return {
     ...agent,
     execution: normalizeAgentExecution(agent.execution),
+    cliPermissionPreset: normalizeCliPermissionPreset(agent.cliPermissionPreset),
   }
 }
 

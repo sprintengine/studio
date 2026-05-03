@@ -1045,6 +1045,10 @@ function createAppMenu(): Menu {
           accelerator: 'CmdOrCtrl+Shift+G',
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-git'),
         },
+        {
+          label: 'Open Swarm Kanban Board',
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'open-swarm-kanban'),
+        },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },

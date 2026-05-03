@@ -18,12 +18,13 @@ import type {
   FuturePlanWorkspaceSource,
   LayoutTemplate,
   SpecialistActionId,
+  SwarmCliPermissionPreset,
   Workspace,
 } from '../../types/workspace'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
+import { focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SWARM_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/swarmHandoff'
 import { slugifySwarmName } from '../../utils/swarmStateFile'
@@ -39,6 +40,27 @@ const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 5 * 60_000
 const AGENT_SPAWN_CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
   { value: 'codex', label: 'Codex' },
   { value: 'claude', label: 'Claude Code' },
+]
+const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
+  value: SwarmCliPermissionPreset
+  label: string
+  title: string
+}> = [
+  {
+    value: 'default',
+    label: 'Default permissions',
+    title: 'Use the CLI default permission behavior.',
+  },
+  {
+    value: 'auto_workspace',
+    label: 'Auto in workspace',
+    title: 'Reduce prompts while keeping workspace-scoped guardrails where the CLI supports them.',
+  },
+  {
+    value: 'bypass_all',
+    label: 'Bypass permissions',
+    title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
+  },
 ]
 const SPECIALIST_KEYBOARD_SHORTCUTS: Record<string, SpecialistActionId> = {
   f: 'frontend-design-review',
@@ -221,6 +243,11 @@ export default function WorkspaceManager() {
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
+  const [agentCliDropdownOpen, setAgentCliDropdownOpen] = useState(false)
+  const [agentSpawnPermissionPreset, setAgentSpawnPermissionPreset] = useState<SwarmCliPermissionPreset>('default')
+  const selectedAgentPermissionOption = AGENT_SPAWN_PERMISSION_OPTIONS.find(
+    (option) => option.value === agentSpawnPermissionPreset
+  ) ?? AGENT_SPAWN_PERMISSION_OPTIONS[0]
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
@@ -279,6 +306,10 @@ export default function WorkspaceManager() {
     window.clearTimeout(timer)
     delete workspaceLayoutUnloadTimersRef.current[workspaceId]
   }
+
+  useEffect(() => {
+    if (!specialistMenuOpen) setAgentCliDropdownOpen(false)
+  }, [specialistMenuOpen])
 
   useEffect(() => {
     const workspaceIds = new Set(workspaces.map((workspace) => workspace.id))
@@ -544,10 +575,6 @@ export default function WorkspaceManager() {
         }
       }
 
-      if (key === 'p') {
-        event.preventDefault()
-        setShowPalette(true)
-      }
       if (key === 't') {
         event.preventDefault()
         openTemplateSelector()
@@ -598,9 +625,14 @@ export default function WorkspaceManager() {
         toggleWorkspacePanel(activeWorkspaceId, 'editor')
       } else if (command === 'toggle-git') {
         toggleWorkspacePanel(activeWorkspaceId, 'git')
+      } else if (command === 'open-swarm-kanban') {
+        const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
+        if (workspace?.mode === 'swarm' || workspace?.swarmContext) {
+          focusOrAddComponentTab(activeWorkspaceId, 'swarm-kanban', 'Kanban')
+        }
       }
     })
-  }, [activeWorkspaceId])
+  }, [activeWorkspaceId, workspaces])
 
   const handleCreate = ({
     template,
@@ -665,6 +697,7 @@ export default function WorkspaceManager() {
     updateAgent(activeWorkspaceId, newId, {
       name: tabName,
       cli: lastSelectedCli,
+      cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'specialist',
       specialistId: specialist.id,
       cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
@@ -701,6 +734,7 @@ export default function WorkspaceManager() {
     updateAgent(activeWorkspaceId, newId, {
       name: tabName,
       cli,
+      cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'general',
       specialistId: undefined,
       cliStartupPrompt: undefined,
@@ -778,6 +812,7 @@ export default function WorkspaceManager() {
 
   const handleSelectSpawnCli = (cli: AgentCli) => {
     setLastSelectedCli(cli)
+    setAgentCliDropdownOpen(false)
   }
 
   const startLogin = async () => {
@@ -1107,12 +1142,12 @@ export default function WorkspaceManager() {
 
           {workspaceActionsEnabled ? (
             <div ref={specialistMenuRef} className="relative inline-flex">
-              <div className="inline-flex overflow-hidden rounded-md border border-[#24252b] bg-[#111216]">
+              <div className="inline-flex overflow-hidden rounded-md border border-[#4b4d55] bg-[#181a20] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.025)]">
                 <button
                   onClick={() => void addNewSpecialist()}
                   disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-8 items-center justify-center text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-                  title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}${selectedSpecialistAction.shortcut ? ` (${selectedSpecialistAction.shortcut})` : ''}`}
+                  className="inline-flex h-8 w-8 items-center justify-center text-[#d7d7dc] transition-colors hover:bg-[#22252c] hover:text-[#f3f3f5] disabled:opacity-40 disabled:hover:bg-[#181a20]"
+                  title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${selectedSpecialistAction.shortcut})` : ''}`}
                   aria-label={`Spawn ${selectedSpecialistAction.label} specialist`}
                 >
                   <SpecialistActionIcon icon={selectedSpecialistAction.icon} className="h-[18px] w-[18px]" />
@@ -1122,7 +1157,7 @@ export default function WorkspaceManager() {
                     setSpecialistMenuOpen((open) => !open)
                   }}
                   disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-6 items-center justify-center border-l border-[#24252b] text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
+                  className="inline-flex h-8 w-6 items-center justify-center border-l border-[#4b4d55] text-[#c7c7ce] transition-colors hover:bg-[#22252c] hover:text-[#f3f3f5] disabled:opacity-40 disabled:hover:bg-[#181a20]"
                   title="Spawn agent"
                   aria-haspopup="menu"
                   aria-expanded={specialistMenuOpen}
@@ -1140,50 +1175,113 @@ export default function WorkspaceManager() {
                   className="absolute right-0 top-9 z-40 w-72 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
                 >
                   <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                    CLI
+                    AI Model
                   </div>
-                  <div className="grid grid-cols-2 gap-1 px-1 pb-1">
-                    {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
-                      const selected = option.value === selectedCliOption.value
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={selected}
-                          onClick={() => handleSelectSpawnCli(option.value)}
-                          className={`flex min-w-0 items-center justify-center gap-2 rounded px-2 py-2 text-[12px] font-semibold transition-colors ${
-                            selected
-                              ? 'bg-[#17181d] text-[#ececee]'
-                              : 'text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#d7d7dc]'
-                          }`}
-                        >
-                          <CliIcon cli={option.value} className="h-4 w-4 shrink-0" />
-                          <span className="truncate">{option.label}</span>
-                        </button>
-                      )
-                    })}
+                  <div className="px-1 pb-1">
+                    <button
+                      type="button"
+                      aria-haspopup="listbox"
+                      aria-expanded={agentCliDropdownOpen}
+                      aria-controls="agent-spawn-cli-options"
+                      onClick={() => setAgentCliDropdownOpen((open) => !open)}
+                      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-[#4b4d55] bg-[#181a20] px-2.5 text-left text-[13px] font-semibold text-[#ececee] transition-colors hover:border-[#5c5f68] hover:bg-[#22252c] focus:outline-none focus:ring-1 focus:ring-[#6b6e78]"
+                    >
+                      <CliIcon cli={selectedCliOption.value} className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{selectedCliOption.label}</span>
+                      <svg
+                        className={`h-3.5 w-3.5 shrink-0 text-[#9a9aa2] transition-transform ${
+                          agentCliDropdownOpen ? 'rotate-180' : ''
+                        }`}
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        aria-hidden="true"
+                      >
+                        <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    {agentCliDropdownOpen ? (
+                      <div
+                        id="agent-spawn-cli-options"
+                        role="listbox"
+                        aria-label="AI model for new agent"
+                        className="mt-1 overflow-hidden rounded-md border border-[#303139] bg-[#111216] p-1"
+                      >
+                        {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
+                          const selected = option.value === selectedCliOption.value
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              onClick={() => handleSelectSpawnCli(option.value)}
+                              className={`flex w-full min-w-0 items-center gap-2 rounded border px-2 py-2 text-left text-[12px] font-semibold transition-colors ${
+                                selected
+                                  ? 'border-[#4b4d55] bg-[#24262d] text-[#f3f3f5]'
+                                  : 'border-transparent text-[#b4b4bd] hover:border-[#3a3c44] hover:bg-[#1b1d23] hover:text-[#ececee]'
+                              }`}
+                            >
+                              <CliIcon cli={option.value} className="h-4 w-4 shrink-0" />
+                              <span className="truncate">{option.label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="my-1 border-t border-[#24252b]" />
+                  <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                    Permissions
+                  </div>
+                  <div className="px-1 pb-1">
+                    <label className="sr-only" htmlFor="agent-spawn-cli-permissions">
+                      CLI permissions for new agent
+                    </label>
+                    <select
+                      id="agent-spawn-cli-permissions"
+                      value={agentSpawnPermissionPreset}
+                      onChange={(event) =>
+                        setAgentSpawnPermissionPreset(event.currentTarget.value as SwarmCliPermissionPreset)
+                      }
+                      title={
+                        AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === agentSpawnPermissionPreset)?.title
+                        ?? 'CLI permissions for new agent'
+                      }
+                      className={`h-8 w-full rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none transition-colors focus:ring-1 ${
+                        agentSpawnPermissionPreset === 'bypass_all'
+                          ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
+                          : agentSpawnPermissionPreset === 'auto_workspace'
+                            ? 'border-[#6ee7d8]/40 text-[#d8fffb] focus:ring-[#6ee7d8]/40'
+                            : 'border-[#303139] text-[#8a8a92] focus:ring-[#303139]'
+                      }`}
+                    >
+                      {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="my-1 border-t border-[#24252b]" />
                   <button
                     type="button"
                     role="menuitem"
-                    onClick={() => addNewCliAgent(selectedCliOption.value, 'Raw Agent')}
-                    className="flex w-full items-center gap-3 rounded px-2.5 py-2 text-left text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                    onClick={() => addNewCliAgent(selectedCliOption.value, 'General Agent')}
+                    className="flex w-full items-start gap-3 rounded px-2.5 py-2 text-left text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                   >
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] ${
+                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] ${
                         selectedCliOption.value === 'codex' ? 'text-[#9a9aa2]' : 'text-[#d97757]'
                       }`}
                     >
                       <CliIcon cli={selectedCliOption.value} className="h-[18px] w-[18px]" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-semibold">
-                        Raw Agent
+                      <span className="block text-[13px] font-semibold">
+                        General Agent
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-[#8a8a92]">
-                        {selectedCliOption.label}, no specialist prompt
+                      <span className="mt-0.5 block whitespace-normal break-words text-[11px] leading-4 text-[#8a8a92]">
+                        {selectedCliOption.label}, {selectedAgentPermissionOption.label.toLowerCase()}, no specialist prompt
                       </span>
                     </span>
                   </button>

@@ -69,6 +69,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const cliPermissionPreset = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     const currentAgent = workspace?.agents[agentId]
+    if (currentAgent?.kind !== 'swarm' && currentAgent?.cliPermissionPreset) {
+      return currentAgent.cliPermissionPreset
+    }
+
     if (
       workspace?.mode !== 'swarm'
       || !workspace.swarmAutoState.enabled
