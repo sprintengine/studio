@@ -24,7 +24,8 @@ If no tasks are ready, stop.
 
 - Verify every acceptance criterion explicitly
 - Log command output as `--result` entries so evidence is auditable
-- When running Python in this repo, use the project virtual environment if it exists: prefer `.venv/bin/python` and `.venv/bin/pip` on POSIX shells, or `.venv\Scripts\python.exe` on Windows. Do not install Python packages globally when a repo `.venv` is expected.
+- Use only project-root-relative paths in `swarm task log --file`, notes, artifacts, and handoff text. Never use absolute or machine-specific paths.
+- When running Python in this repo, use the project virtual environment if it exists: prefer `.venv/bin/python -m pip` on POSIX shells, or `.venv\Scripts\python.exe -m pip` on Windows. You may install task-required Python packages into the repo-local `.venv`; never install Python packages globally.
 - If a bug is found, add a note before marking done: `swarm task note --task-id <id> --id <your-id> --note "Bug: ..."`
 
 ## Critical Rules

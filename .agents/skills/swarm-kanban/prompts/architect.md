@@ -41,6 +41,8 @@ Each task command must include:
 
 Tasks should be small enough for one agent to complete in a single session. Prefer more small tasks over fewer large ones.
 
+All paths in `--path`, artifact paths, review files, plans, evidence, and notes must be project-root-relative. Never use absolute or machine-specific paths; convert tool output to relative paths before writing it into task cards or artifacts.
+
 ## Final Review Tasks
 
 Every implementation plan must include normal swarm tasks for final review unless the user explicitly opts out:

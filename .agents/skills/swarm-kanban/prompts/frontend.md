@@ -33,6 +33,7 @@ If no tasks are ready, stop.
 - Use Tailwind classes consistent with the project palette (`zinc-950` bg, `zinc-900` surfaces, `zinc-800` borders, `indigo-500/600` accents)
 - Run `npm run typecheck` before marking done
 - Only touch files listed in the task's `ownedPaths`
+- Use only project-root-relative paths in `swarm task log --file`, artifact paths, notes, and handoff text. Never use absolute or machine-specific paths.
 - Treat tasks that own `swarm/<team>/designs/**` or request mockups/design notes as artifact tasks, not production implementation tasks.
 - Register HTML mockups as `html_mockup` artifacts and design rationale as `design_notes` artifacts.
 - Before a production UI task, confirm the task depends on approved frontend mockup/design artifacts when the feature is user-facing. If a required approval is missing, add a task note and stop instead of building.
