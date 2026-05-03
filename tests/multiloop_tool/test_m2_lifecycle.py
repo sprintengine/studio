@@ -5,6 +5,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from multiloop_core.state import StateValidationError, validate_state
 from tests.multiloop_tool.test_m1_cli import MultiloopCli, base_state, read_state, write_state
 
 
@@ -81,6 +84,41 @@ def test_task_next_claims_only_active_milestone_ready_tasks_and_resumes_owner(tm
     assert state["tasks"][2]["status"] == "ready"
 
 
+def test_state_validation_rejects_bad_dependencies_feedback_and_agent_ownership() -> None:
+    state = m2_state()
+    state["tasks"][0]["feedback"] = {"confidencePct": 91, "topFriction": "runtime"}
+    state["tasks"][0]["ownerAgentId"] = "developer-1"
+    state["agents"] = {"developer-1": {"role": "developer", "status": "running", "currentTaskId": "T1"}}
+    validate_state(state)
+
+    bad_feedback = deepcopy(state)
+    bad_feedback["tasks"][0]["feedback"] = {"confidencePct": 101}
+    with pytest.raises(StateValidationError, match=r"\$\.tasks\[0\]\.feedback\.confidencePct: expected number between 0 and 100"):
+        validate_state(bad_feedback)
+
+    self_dependency = deepcopy(state)
+    self_dependency["tasks"][0]["dependsOn"] = ["T1"]
+    with pytest.raises(StateValidationError, match=r"\$\.tasks\[0\]\.dependsOn\[0\]: task cannot depend on itself"):
+        validate_state(self_dependency)
+
+    cross_milestone_dependency = deepcopy(state)
+    cross_milestone_dependency["tasks"][0]["dependsOn"] = ["T3"]
+    with pytest.raises(
+        StateValidationError,
+        match=r"\$\.tasks\[0\]\.dependsOn\[0\]: task dependency 'T3' belongs to a different milestone",
+    ):
+        validate_state(cross_milestone_dependency)
+
+    wrong_agent_task = deepcopy(state)
+    wrong_agent_task["agents"]["developer-1"]["currentTaskId"] = "T2"
+    wrong_agent_task["tasks"][1]["ownerAgentId"] = "developer-2"
+    with pytest.raises(
+        StateValidationError,
+        match=r"\$\.agents\.developer-1\.currentTaskId: task 'T2' is not owned by 'developer-1'",
+    ):
+        validate_state(wrong_agent_task)
+
+
 def test_task_claim_rejects_inactive_milestone_and_unfinished_dependencies(tmp_path: Path) -> None:
     state_path = tmp_path / "multiloop" / "m2" / "state.json"
     write_state(state_path, m2_state())
@@ -117,13 +155,27 @@ def test_done_requires_evidence_and_clears_agent_after_log(tmp_path: Path) -> No
         "--result",
         "Passed",
     )
-    completed = cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-1")
+    completed = cli.run(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "done",
+        "--id",
+        "developer-1",
+        "--confidence-pct",
+        "91",
+        "--hallucination-risk-pct",
+        "5",
+    )
 
     assert "before logging summary, files, commands, and results" in missing_evidence.stderr
     assert "Updated task: T1 [done]" in completed.stdout
     state = read_state(state_path)
     assert state["agents"]["developer-1"]["status"] == "idle"
     assert state["tasks"][0]["completedAt"] is not None
+    assert state["tasks"][0]["feedback"] == {"confidencePct": 91, "hallucinationRiskPct": 5}
 
 
 def test_notes_and_blockers_are_visible_and_prevent_milestone_acceptance(tmp_path: Path) -> None:
@@ -157,6 +209,46 @@ def test_notes_and_blockers_are_visible_and_prevent_milestone_acceptance(tmp_pat
     assert "Lifecycle needs milestone-scoped summaries" in detail
     assert "Blockers: 1 active" in summary
     assert "active blockers: B1" in rejected.stderr
+
+
+def test_milestone_show_task_detail_controls_are_bounded_and_filterable(tmp_path: Path) -> None:
+    state_path = tmp_path / "multiloop" / "m2" / "state.json"
+    state = m2_state()
+    for index in range(4, 11):
+        state["tasks"].append(
+            {
+                "id": f"T{index}",
+                "milestoneId": "M2",
+                "role": "tester" if index == 10 else "developer",
+                "status": "done" if index == 10 else "ready",
+                "title": f"Extra lifecycle task {index}",
+                "dependsOn": [],
+                "ownerAgentId": None,
+                "evidence": {
+                    "summary": f"Evidence {index}",
+                    "touchedFiles": [f"file-{index}.py"],
+                    "commandsRan": [f"command {index}"],
+                    "results": [f"result {index}"],
+                },
+                "learnedFacts": [f"fact {index}"],
+                "blockers": [],
+            }
+        )
+    write_state(state_path, state)
+    cli = MultiloopCli(tmp_path, state_path)
+
+    bounded = cli.run("milestone", "show", "M2", "--tasks").stdout
+    hidden = cli.run("milestone", "show", "M2", "--tasks", "--limit", "2").stdout
+    filtered = cli.run("milestone", "show", "M2", "--tasks", "--status", "done").stdout
+    task_detail = cli.run("milestone", "show", "M2", "--task-id", "T10").stdout
+
+    assert "Task details:" in bounded
+    assert "Use --limit, --status, --task-id, or --verbose for details." in bounded
+    assert "T7 [ready]" not in hidden
+    assert "T10 [done]" in filtered
+    assert "T1 [ready]" not in filtered
+    assert "Touched files:" in task_detail
+    assert "file-10.py" in task_detail
 
 
 def test_milestone_start_block_and_accept_preserve_loop_final_goal_distinction(tmp_path: Path) -> None:
