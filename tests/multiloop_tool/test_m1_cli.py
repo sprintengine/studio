@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,12 +19,37 @@ from multiloop_core.state import StateLock, create_state_file, save_state, with_
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MULTILOOP_COMMAND = REPO_ROOT / "scripts" / "multiloop"
+MULTILOOP_TOOL = REPO_ROOT / "scripts" / "multiloop_tool.py"
 REAL_REPO_SWARM_ROOT = (REPO_ROOT / "swarm").resolve()
 
 
-def _script_command() -> list[str]:
+def _tool_command() -> list[str]:
+    return [sys.executable, str(MULTILOOP_TOOL)]
+
+
+def _usable_bash() -> str | None:
+    bash = shutil.which("bash.exe") or shutil.which("bash")
+    if bash is None:
+        return None
+    try:
+        completed = subprocess.run(
+            [bash, "--version"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    return bash
+
+
+def _wrapper_command() -> list[str]:
     if os.name == "nt":
-        bash = shutil.which("bash.exe") or shutil.which("bash")
+        bash = _usable_bash()
         if bash is None:
             raise AssertionError("scripts/multiloop requires bash on Windows test hosts")
         return [bash, MULTILOOP_COMMAND.as_posix()]
@@ -57,7 +83,7 @@ class MultiloopCli:
     state_path: Path | None = None
 
     def run(self, *args: str) -> subprocess.CompletedProcess[str]:
-        command = _script_command()
+        command = _tool_command()
         if self.state_path is not None:
             assert_disposable_state_path(self.state_path)
             command.extend(["--state", str(self.state_path)])
@@ -80,7 +106,7 @@ class MultiloopCli:
         return completed
 
     def run_failure(self, *args: str) -> subprocess.CompletedProcess[str]:
-        command = _script_command()
+        command = _tool_command()
         if self.state_path is not None:
             assert_disposable_state_path(self.state_path)
             command.extend(["--state", str(self.state_path)])
@@ -257,7 +283,7 @@ def test_pending_init_fails_if_state_file_is_created_while_waiting_for_lock(tmp_
     lock = StateLock(state_path.with_suffix(".json.lock"), timeout=1.0, poll=0.01)
     lock.acquire()
     cli = MultiloopCli(tmp_path, state_path)
-    command = _script_command() + ["--state", str(state_path), "init", "--name", "Race Loop"]
+    command = _tool_command() + ["--state", str(state_path), "init", "--name", "Race Loop"]
     pending = subprocess.Popen(
         command,
         cwd=tmp_path,
@@ -277,6 +303,26 @@ def test_pending_init_fails_if_state_file_is_created_while_waiting_for_lock(tmp_
     assert pending.returncode != 0
     assert "State file already exists:" in stderr
     assert read_state(state_path)["loop"]["displayName"] == "Fixture Loop"
+
+
+def test_bash_wrapper_delegates_to_python_tool_when_shell_is_available(tmp_path: Path) -> None:
+    if os.name == "nt" and _usable_bash() is None:
+        pytest.skip("scripts/multiloop is a bash wrapper; direct Python behavior tests cover Windows without bash")
+
+    state_path = tmp_path / "multiloop" / "wrapper-loop" / "state.json"
+    command = _wrapper_command() + ["--state", str(state_path), "init", "--name", "Wrapper Loop"]
+    completed = subprocess.run(
+        command,
+        cwd=tmp_path,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "Created multiloop state:" in completed.stdout
+    assert read_state(state_path)["loop"]["name"] == "wrapper-loop"
 
 
 def test_create_state_file_rejects_existing_state_inside_lock(tmp_path: Path) -> None:
