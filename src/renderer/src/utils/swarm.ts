@@ -725,6 +725,7 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
   return {
     name: input.name?.trim() || 'Swarm Team',
     goal: input.goal ?? '',
+    ...(input.source ? { source: input.source } : {}),
     updatedAt: input.updatedAt ?? null,
     roleCounts,
     swarmAgents: input.swarmAgents && Object.keys(input.swarmAgents).length > 0

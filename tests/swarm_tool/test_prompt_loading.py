@@ -7,7 +7,7 @@ import sys
 import pytest
 
 import helpers as swarm_helpers
-from fixtures import SwarmCli, assert_prompt_includes, create_team, task
+from fixtures import SwarmCli, assert_prompt_includes, create_team, read_state, task
 
 
 @pytest.fixture(autouse=True)
@@ -210,6 +210,40 @@ def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_
             "Then follow the returned prompt.",
         ],
     )
+
+    state = read_state(state_path)
+    assert isinstance(state["source"]["capturedAt"], str)
+    assert state["source"]["kind"] == "markdown"
+    assert state["source"]["origin"] == "inline"
+    assert state["source"]["path"].endswith("swarm/handover-prompt/handover.md")
+
+
+def test_handover_records_markdown_file_source_metadata(tmp_path) -> None:
+    state_path = tmp_path / "swarm" / "file-handover" / "state.yaml"
+    source_path = tmp_path / "future-plans" / "source-plan.md"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("# Source Plan\n\nBuild the feature.\n", encoding="utf-8")
+
+    payload = SwarmCli(state_path).run(
+        "handover",
+        "--name",
+        "File Handover",
+        "--goal",
+        "Create a sourced swarm",
+        "--handover",
+        str(source_path),
+    )
+
+    assert payload["ok"] is True
+    handover_path = state_path.parent / "handover.md"
+    assert handover_path.read_text(encoding="utf-8") == "# Source Plan\n\nBuild the feature.\n"
+
+    state = read_state(state_path)
+    assert isinstance(state["source"]["capturedAt"], str)
+    assert state["source"]["kind"] == "markdown"
+    assert state["source"]["origin"] == "file"
+    assert state["source"]["path"].endswith("swarm/file-handover/handover.md")
+    assert state["source"]["originalPath"].endswith("future-plans/source-plan.md")
 
 
 def test_merge_start_returns_instruction_only_prompt(tmp_path) -> None:

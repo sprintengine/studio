@@ -71,6 +71,9 @@ export function parseSwarmStateFile(content: string, fallbackName?: string): Swa
   const candidate: SwarmState = {
     name: (swarm.name as string) ?? fallbackName ?? 'Swarm Team',
     goal: (swarm.goal as string) ?? '',
+    source: typeof parsed.source === 'object' && parsed.source !== null
+      ? parsed.source as SwarmState['source']
+      : undefined,
     updatedAt: typeof swarm.updatedAt === 'string' ? swarm.updatedAt : null,
     roleCounts,
     swarmAgents: Object.keys(agents).length > 0

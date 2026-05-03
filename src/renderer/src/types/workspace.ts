@@ -232,6 +232,14 @@ export type FuturePlanWorkspaceSource = {
   goal: string
 }
 
+export type SwarmSource = {
+  kind: 'markdown' | string
+  origin: 'file' | 'stdin' | 'inline' | string
+  path: string
+  originalPath?: string
+  capturedAt?: string
+}
+
 export type SwarmTask = {
   id: string
   title: string
@@ -253,6 +261,7 @@ export type SwarmTask = {
 export type SwarmState = {
   name: string
   goal: string
+  source?: SwarmSource
   updatedAt?: string | null
   roleCounts: SwarmRoleCounts
   swarmAgents: Record<string, SwarmRuntimeAgent>
