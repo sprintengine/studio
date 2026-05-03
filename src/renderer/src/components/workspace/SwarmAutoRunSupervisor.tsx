@@ -1186,6 +1186,7 @@ async function spawnAutoRunCandidate(
     const startupPrompt = prependAgentIdentifier(
       buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal, {
         executionCwd,
+        workspaceRoot: workspaceFolderPath,
         swarmStatePath,
         commandMode: getSwarmStartupCommandMode(nextRun.role, nextRun.agentId, swarmState),
         useWorktreesForSwarms: workspace.swarmAutoState.useWorktreesForSwarms,

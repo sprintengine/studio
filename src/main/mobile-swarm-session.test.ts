@@ -18,12 +18,13 @@ async function main(): Promise<void> {
 
 async function assertTaskStartPrefersWorktree(): Promise<void> {
   const fixture = await writeFixture('session-worktree-team')
-  const spawned: Array<{ cwd: string; executionMode: string; worktreePath?: string }> = []
+  const spawned: Array<{ cwd: string; executionMode: string; initialPrompt: string; worktreePath?: string }> = []
   const adapters = adaptersForFixture(fixture, {
     spawnAgentTerminal: async (input) => {
       spawned.push({
         cwd: input.cwd,
         executionMode: input.executionMode,
+        initialPrompt: input.initialPrompt,
         worktreePath: input.worktreePath,
       })
       return { ok: true, sessionId: input.sessionId }
@@ -39,6 +40,8 @@ async function assertTaskStartPrefersWorktree(): Promise<void> {
   assert.equal(spawned[0].executionMode, 'worktree')
   assert.equal(spawned[0].cwd, fixture.worktreePath)
   assert.equal(spawned[0].worktreePath, fixture.worktreePath)
+  assert.match(spawned[0].initialPrompt, /\\.venv\\Scripts\\python\.exe" \.\\scripts\\swarm_tool\.py join --role developer --id developer-1/u)
+  assert.match(spawned[0].initialPrompt, /Otherwise run `swarm join --role developer --id developer-1`/u)
 }
 
 async function assertTaskStartRejectsTerminalLimit(): Promise<void> {

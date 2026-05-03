@@ -300,7 +300,13 @@ function buildWorkerRespawnStartupPrompt(
 ): string {
   return [
     'Fetch the canonical swarm instructions from the Python tool.',
-    'Run:',
+    'On Windows, prefer the repo virtual environment command if `swarm` or global Python is unreliable:',
+    [
+      '```powershell',
+      `& ".\\.venv\\Scripts\\python.exe" .\\scripts\\swarm_tool.py join --role ${role} --id ${agentId}`,
+      '```',
+    ].join('\n'),
+    'Otherwise run:',
     `\`\`\`\nswarm join --role ${role} --id ${agentId}\n\`\`\``,
   ].join('\n\n')
 }

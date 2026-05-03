@@ -32,21 +32,36 @@ function quoteShellArg(value: string): string {
   return JSON.stringify(value)
 }
 
+function buildWindowsSwarmToolCommand(command: string, workspaceRoot?: string): string {
+  const python = workspaceRoot
+    ? `${workspaceRoot.replace(/[\\/]+$/u, '')}\\.venv\\Scripts\\python.exe`
+    : '.\\.venv\\Scripts\\python.exe'
+  return `& ${quotePowerShellArg(python)} .\\scripts\\swarm_tool.py ${command}`
+}
+
+function quotePowerShellArg(value: string): string {
+  return `"${value.replace(/"/g, '`"')}"`
+}
+
 export function buildSwarmStartupPrompt(
   role: string,
   agentId: string,
   goal: string,
   options: {
     executionCwd?: string
+    workspaceRoot?: string
     swarmStatePath?: string
     commandMode?: 'init' | 'join'
     useWorktreesForSwarms?: boolean
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
+  const swarmCommand = commandMode === 'init'
+    ? `init --goal ${quoteShellArg(goal)} --use-worktrees ${options.useWorktreesForSwarms ? 'true' : 'false'}`
+    : `join --role ${role} --id ${agentId}`
   const command = commandMode === 'init'
-    ? `Run \`swarm init --goal ${quoteShellArg(goal)} --use-worktrees ${options.useWorktreesForSwarms ? 'true' : 'false'}\` to receive your full prompt and instructions.`
-    : `Run \`swarm join --role ${role} --id ${agentId}\` to receive your full prompt and next directive.`
+    ? `Run \`swarm ${swarmCommand}\` to receive your full prompt and instructions.`
+    : `Run \`swarm ${swarmCommand}\` to receive your full prompt and next directive.`
 
   const context = [
     options.executionCwd ? `Worker cwd: ${options.executionCwd}` : null,
@@ -56,6 +71,12 @@ export function buildSwarmStartupPrompt(
   return [
     'Fetch the canonical swarm instructions from the Python tool.',
     context.length > 0 ? context.join('\n') : null,
+    [
+      'On Windows, prefer the repo virtual environment command if `swarm` or global Python is unreliable:',
+      '```powershell',
+      buildWindowsSwarmToolCommand(swarmCommand, options.workspaceRoot),
+      '```',
+    ].join('\n'),
     command,
   ].filter(Boolean).join('\n\n')
 }

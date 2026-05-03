@@ -109,6 +109,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       agentId,
       workspace.swarmState.goal,
       {
+        executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath).cwd,
+        workspaceRoot: folderReadyPath ?? undefined,
         commandMode: getSwarmStartupCommandMode(rosterAgent.role, agentId, workspace.swarmState),
         useWorktreesForSwarms: workspace.swarmAutoState.useWorktreesForSwarms,
       }

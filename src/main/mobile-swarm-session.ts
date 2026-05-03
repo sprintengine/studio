@@ -161,6 +161,7 @@ export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSession
         agentId,
         label: swarmRoleLabels[request.role] ?? request.role,
         goal: typeof state.swarm?.goal === 'string' ? state.swarm.goal : '',
+        workspaceRoot: request.workspaceRoot,
         executionCwd,
         statePath: request.statePath,
       }),
@@ -329,15 +330,27 @@ function buildStartupPrompt(input: {
   agentId: string
   label: string
   goal: string
+  workspaceRoot: string
   executionCwd: string
   statePath: string
 }): string {
+  const windowsPython = join(input.workspaceRoot, '.venv', 'Scripts', 'python.exe')
   return [
     `${input.label}: ${input.label} - Fetch the canonical swarm instructions from the Python tool.`,
     `Worker cwd: ${input.executionCwd}`,
     `Shared swarm state: ${input.statePath}`,
-    `Run \`swarm join --role ${input.role} --id ${input.agentId}\` to receive your full prompt and next directive.`,
+    'Use the repo virtual environment directly on Windows if `swarm` or global Python is unreliable:',
+    [
+      '```powershell',
+      `& ${quotePowerShellArg(windowsPython)} .\\scripts\\swarm_tool.py join --role ${input.role} --id ${input.agentId}`,
+      '```',
+    ].join('\n'),
+    `Otherwise run \`swarm join --role ${input.role} --id ${input.agentId}\` to receive your full prompt and next directive.`,
   ].join('\n\n')
+}
+
+function quotePowerShellArg(value: string): string {
+  return `"${value.replace(/"/g, '`"')}"`
 }
 
 function slugify(value: string, fallback: string): string {

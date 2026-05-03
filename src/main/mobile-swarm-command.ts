@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import { createHash, randomUUID } from 'crypto'
 import { access, readFile, stat } from 'fs/promises'
-import { constants } from 'fs'
+import { constants, existsSync } from 'fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { readSwarmSnapshot } from './mobile-swarm-snapshot'
 
@@ -914,7 +914,7 @@ export class MobileSwarmCommandError extends Error {
 
 function createSwarmToolExecutor(swarmToolPath: string): SwarmToolExecutor {
   return (invocation) => new Promise((resolvePromise) => {
-    const executable = process.platform === 'win32' ? 'python' : 'python3'
+    const executable = getWorkspacePythonExecutable(invocation.cwd)
     const child = spawn(executable, [swarmToolPath, ...invocation.args], {
       cwd: invocation.cwd,
       env: {
@@ -942,6 +942,18 @@ function createSwarmToolExecutor(swarmToolPath: string): SwarmToolExecutor {
       resolvePromise({ exitCode, stdout, stderr })
     })
   })
+}
+
+function getWorkspacePythonExecutable(workspaceRoot: string): string {
+  const venvPython = process.platform === 'win32'
+    ? join(workspaceRoot, '.venv', 'Scripts', 'python.exe')
+    : join(workspaceRoot, '.venv', 'bin', 'python')
+  if (existsSync(venvPython)) return venvPython
+
+  const windowsVenvPython = join(workspaceRoot, '.venv', 'Scripts', 'python.exe')
+  if (existsSync(windowsVenvPython)) return windowsVenvPython
+
+  return process.platform === 'win32' ? 'python' : 'python3'
 }
 
 function defaultSwarmToolPath(): string {
