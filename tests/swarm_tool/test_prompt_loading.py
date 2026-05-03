@@ -1,6 +1,65 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
+import pytest
+
+import helpers as swarm_helpers
 from fixtures import SwarmCli, assert_prompt_includes, create_team, task
+
+
+@pytest.fixture(autouse=True)
+def use_python_swarm_tool_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    if os.name != "nt":
+        return
+
+    def command_for(cli: SwarmCli, *args: str) -> list[str]:
+        swarm_helpers.assert_disposable_state_path(cli.state_path)
+        return [
+            sys.executable,
+            str(swarm_helpers.REPO_ROOT / "scripts" / "swarm_tool.py"),
+            "--state",
+            str(cli.state_path),
+            *args,
+        ]
+
+    def run(cli: SwarmCli, *args: str) -> dict:
+        command = command_for(cli, *args)
+        completed = subprocess.run(
+            command,
+            cwd=swarm_helpers.REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(
+                "Swarm command failed.\n"
+                f"command: {' '.join(command)}\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
+        return swarm_helpers.parse_cli_json(completed.stdout, command)
+
+    def run_failure(cli: SwarmCli, *args: str) -> subprocess.CompletedProcess[str]:
+        command = command_for(cli, *args)
+        completed = subprocess.run(
+            command,
+            cwd=swarm_helpers.REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if completed.returncode == 0:
+            raise AssertionError(f"Swarm command unexpectedly passed: {' '.join(command)}")
+        return completed
+
+    monkeypatch.setattr(swarm_helpers.SwarmCli, "run", run)
+    monkeypatch.setattr(swarm_helpers.SwarmCli, "run_failure", run_failure)
 
 
 def test_init_returns_product_intake_prompt_from_python_tool(tmp_path) -> None:
