@@ -16,6 +16,8 @@ pnpm-debug.log*
 .DS_Store
 *.tsbuildinfo
 *.log
+__pycache__/
+*.py[cod]
 
 # electron-vite temp config
 electron.vite.config.*.mjs
