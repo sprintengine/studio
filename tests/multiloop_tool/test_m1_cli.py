@@ -256,7 +256,11 @@ def test_init_creates_m1_state_without_tasks_or_detailed_future_task_graph(tmp_p
     assert state["loop"]["iteration"] == 1
     assert state["loop"]["currentMilestoneId"] == "M1"
     assert state["tasks"] == []
-    assert [milestone["id"] for milestone in state["roadmap"]] == ["M1", "M2", "M3", "M4", "M5", "M6", "M7"]
+    assert [milestone["id"] for milestone in state["roadmap"]] == ["M1", "M2", "M3"]
+    assert state["roadmap"][0]["title"] == "Goal alignment and first executable slice"
+    assert "Ship M1" in state["roadmap"][0]["goal"]
+    assert state["roadmap"][1]["title"] == "Implement and validate the selected slice"
+    assert state["roadmap"][2]["title"] == "Review, learn, and adapt the roadmap"
     required_milestone_fields = {
         "id",
         "title",

@@ -122,12 +122,12 @@ def test_two_milestone_fixture_preserves_accepted_history_and_surfaces_next_mile
     m2_detail = cli.run("milestone", "show", "M2", "--tasks").stdout
     final_state = read_state(state_path)
 
-    assert "Started milestone: M2 [active]: Milestone lifecycle and task model" in started
-    assert "* M2 [accepted]: Milestone lifecycle and task model" in roadmap
-    assert "- M3 [planned]: Coordinator and role prompts" in roadmap
+    assert "Started milestone: M2 [active]: Implement and validate the selected slice" in started
+    assert "* M2 [accepted]: Implement and validate the selected slice" in roadmap
+    assert "- M3 [planned]: Review, learn, and adapt the roadmap" in roadmap
     assert "Latest revision: R1 - M1 tester verdict narrowed the future validation scope." in roadmap
     verdicts = cli.run("milestone", "verdict", "list", "M2").stdout
-    assert "Verdicts for M2 [accepted]: Milestone lifecycle and task model" in verdicts
+    assert "Verdicts for M2 [accepted]: Implement and validate the selected slice" in verdicts
     assert "V1 tester [accepted] by tester-m2" in verdicts
     assert "T2 [done]" in m2_detail
     assert "Renderer fixture passed." in m2_detail
