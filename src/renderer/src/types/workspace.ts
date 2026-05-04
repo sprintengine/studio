@@ -223,6 +223,171 @@ export type SwarmWorkspaceContext = {
   statePath: string
 }
 
+export type MultiloopWorkspaceContext = {
+  loopName: string
+  loopSlug: string
+  loopDirectoryPath: string
+  statePath: string
+}
+
+export type MultiloopLoopStatus = 'active' | 'blocked' | 'accepted'
+export type MultiloopMilestoneStatus = 'planned' | 'active' | 'blocked' | 'accepted'
+export type MultiloopTaskStatus = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done' | 'blocked'
+export type MultiloopAgentStatus = 'idle' | 'running' | 'blocked'
+export type MultiloopBlockerStatus = 'active' | 'resolved'
+export type MultiloopBlockerScope = 'loop' | 'milestone' | 'task'
+export type MultiloopReviewVerdictValue = 'accepted' | 'needs_follow_up' | 'blocked' | 'revise_scope'
+
+export type MultiloopLoop = {
+  name: string
+  displayName: string
+  finalGoal: string
+  iteration: number
+  status: MultiloopLoopStatus
+  currentMilestoneId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type MultiloopMilestoneReviewVerdict = {
+  id: string
+  role: string
+  createdBy: string
+  verdict: MultiloopReviewVerdictValue
+  evidence: string[]
+  blockers: string[]
+  finalGoalImplications: string[]
+  nextRecommendation: string
+  createdAt: string
+}
+
+export type MultiloopLegacyMilestoneReviewVerdict = {
+  id: string
+  role: 'legacy'
+  createdBy: 'legacy'
+  verdict: 'legacy'
+  evidence: string[]
+  blockers: string[]
+  finalGoalImplications: string[]
+  nextRecommendation: string
+  createdAt: null
+}
+
+export type MultiloopMilestoneRevision = {
+  id: string
+  rationale: string
+  changes: string[]
+  createdAt: string
+  revisedBy?: string
+}
+
+export type MultiloopMilestone = {
+  id: string
+  title: string
+  goal: string
+  status: MultiloopMilestoneStatus
+  entryCriteria: string[]
+  acceptanceCriteria: string[]
+  finalGoalContribution: string
+  learnedFacts: string[]
+  blockers: string[]
+  reviewVerdicts: Array<MultiloopMilestoneReviewVerdict | MultiloopLegacyMilestoneReviewVerdict>
+  revisions: MultiloopMilestoneRevision[]
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type MultiloopTaskEvidence = {
+  summary: string
+  touchedFiles: string[]
+  commandsRan: string[]
+  results: string[]
+}
+
+export type MultiloopTask = {
+  id: string
+  milestoneId: string
+  role: string
+  status: MultiloopTaskStatus
+  title: string
+  description: string
+  ownerAgentId: string | null
+  dependsOn: string[]
+  ownedPaths: string[]
+  acceptanceCriteria: string[]
+  implementationNotes: string[]
+  learnedFacts: string[]
+  blockers: string[]
+  evidence: MultiloopTaskEvidence
+  feedback: Record<string, number | string>
+  createdAt: string | null
+  updatedAt: string | null
+  startedAt: string | null
+  completedAt: string | null
+}
+
+export type MultiloopArtifact = {
+  id: string
+  kind: string
+  title: string
+  path: string
+  milestoneId: string | null
+  taskId: string | null
+  createdBy: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  raw: Record<string, unknown>
+}
+
+export type MultiloopAgent = {
+  id: string
+  role: string
+  status: MultiloopAgentStatus
+  currentTaskId: string | null
+}
+
+export type MultiloopDecision = {
+  id: string
+  summary: string
+  createdBy: string | null
+  createdAt: string | null
+  raw: Record<string, unknown>
+}
+
+export type MultiloopBlocker = {
+  id: string
+  summary: string
+  scope: MultiloopBlockerScope
+  status: MultiloopBlockerStatus
+  milestoneId: string | null
+  taskId: string | null
+  detail: string | null
+  createdBy: string | null
+  createdAt: string | null
+  resolvedAt: string | null
+}
+
+export type MultiloopState = {
+  schemaVersion: number
+  loop: MultiloopLoop
+  roadmap: MultiloopMilestone[]
+  tasks: MultiloopTask[]
+  artifacts: MultiloopArtifact[]
+  agents: Record<string, MultiloopAgent>
+  decisions: MultiloopDecision[]
+  blockers: MultiloopBlocker[]
+}
+
+export type MultiloopStateDisplayError = {
+  title: string
+  message: string
+  path?: string
+}
+
+export type MultiloopStateReadResult =
+  | { ok: true; state: MultiloopState }
+  | { ok: false; error: MultiloopStateDisplayError }
+
 export type FuturePlanWorkspaceSource = {
   folderPath: string
   sourcePath: string
@@ -281,7 +446,18 @@ export type AgentMessage = {
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 export type AgentCli = 'codex' | 'claude'
 export type SwarmRoleCliDefaults = Partial<Record<SwarmRole, AgentCli>>
-export type AgentKind = 'general' | 'specialist' | 'swarm'
+export type MultiloopAgentSoulRole =
+  | 'coordinator'
+  | 'architect'
+  | 'product'
+  | 'developer'
+  | 'frontend'
+  | 'tester'
+  | 'security'
+  | 'code_reviewer'
+  | 'performance'
+
+export type AgentKind = 'general' | 'specialist' | 'swarm' | 'multiloop'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
 export type SpecialistActionId =
@@ -334,6 +510,8 @@ export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   lastSelectedCli: AgentCli
   lastSelectedSpecialist: SpecialistActionId
+  lastSelectedMultiloopRole: MultiloopAgentSoulRole
+  lastAgentSpawnPermissionPreset: SwarmCliPermissionPreset
   searchExcludes: string[]
   recentWorkspaceFolders: string[]
   usageTelemetry: UsageTelemetrySettings
@@ -388,6 +566,7 @@ export type AgentState = {
   cliStartupPrompt?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId
+  multiloopRole?: MultiloopAgentSoulRole
 }
 
 export type AgentConfig = {
@@ -420,16 +599,18 @@ export type EditorState = {
 export type Workspace = {
   id: WorkspaceId
   name: string
-  mode: 'standard' | 'swarm'
+  mode: 'standard' | 'swarm' | 'multiloop'
   folderPath: string | null
   folderMissing?: boolean
   swarmContext?: SwarmWorkspaceContext | null
+  multiloopContext?: MultiloopWorkspaceContext | null
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>
   worktreeState: WorkspaceWorktreeState
   editorState: EditorState
   swarmState: SwarmState | null
+  multiloopState?: MultiloopState | null
   swarmRoleCliDefaults?: SwarmRoleCliDefaults
   swarmAutoState: SwarmAutoState
   createdAt: number

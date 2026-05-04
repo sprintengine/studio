@@ -121,6 +121,16 @@ type SpecialistActionId =
 type SpecialistPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
+type MultiloopAgentSoulRole =
+  | 'coordinator'
+  | 'architect'
+  | 'product'
+  | 'developer'
+  | 'frontend'
+  | 'tester'
+  | 'security'
+  | 'code_reviewer'
+  | 'performance'
 type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
 type GitStatusEntry = {
   path: string
@@ -247,6 +257,24 @@ type WindowState = {
 }
 type SwarmArtifactCommandResult =
   | { ok: true; data: unknown }
+  | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
+type MultiloopInitInput = {
+  workspaceRoot: string
+  loopName: string
+  finalGoal: string
+}
+type MultiloopInitResult =
+  | {
+      ok: true
+      data: {
+        workspaceRoot: string
+        loopName: string
+        loopSlug: string
+        loopDirectory: string
+        statePath: string
+        created: boolean
+      }
+    }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 type SessionUser = {
   id: string
@@ -377,6 +405,7 @@ declare interface Window {
     logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
     openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
     readSpecialistPrompt: (specialistId: SpecialistActionId) => Promise<SpecialistPromptResult>
+    readMultiloopAgentSoul: (role: MultiloopAgentSoulRole) => Promise<SpecialistPromptResult>
     writefile: (path: string, content: string) => Promise<void>
     createFile: (parentDir: string, name: string) => Promise<string>
     createDir: (parentDir: string, name: string) => Promise<string>
@@ -428,6 +457,7 @@ declare interface Window {
       artifactId: string,
       feedback: string
     ) => Promise<SwarmArtifactCommandResult>
+    initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
 
     // Agent CLI Terminal
     terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata) => Promise<TerminalSpawnResult>

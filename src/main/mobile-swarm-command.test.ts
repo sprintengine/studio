@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
+import { platform, tmpdir } from 'os'
 import { join } from 'path'
 import {
   buildSwarmArtifactReviewArgs,
@@ -538,32 +538,48 @@ async function assertFilesystemMutationHandlersProtectSwarmStateAliases(): Promi
 
   const stateSymlinkPath = join(workspaceRoot, 'state-link.yaml')
   const teamSymlinkPath = join(workspaceRoot, 'team-link')
-  await symlink(statePath, stateSymlinkPath, 'file')
-  await symlink(teamDirectory, teamSymlinkPath, 'dir')
+  const hasStateSymlink = await tryCreateSymlink(statePath, stateSymlinkPath, 'file')
+  const hasTeamSymlink = await tryCreateSymlink(
+    teamDirectory,
+    teamSymlinkPath,
+    platform() === 'win32' ? 'junction' : 'dir'
+  )
 
   await assertRejectsSwarmStateMutation(() => handlers.writeFile(statePath, 'blocked'))
   await assertRejectsSwarmStateMutation(() => handlers.writeFile(join(teamDirectory, '..', 'team', 'state.yaml'), 'blocked'))
-  await assertRejectsSwarmStateMutation(() => handlers.writeFile(stateSymlinkPath, 'blocked'))
-  await assertRejectsSwarmStateMutation(() => handlers.writeFile(join(teamSymlinkPath, 'state.yaml'), 'blocked'))
+  if (hasStateSymlink) {
+    await assertRejectsSwarmStateMutation(() => handlers.writeFile(stateSymlinkPath, 'blocked'))
+  }
+  if (hasTeamSymlink) {
+    await assertRejectsSwarmStateMutation(() => handlers.writeFile(join(teamSymlinkPath, 'state.yaml'), 'blocked'))
+  }
 
-  await assertRejectsSwarmStateMutation(() => handlers.rename(stateSymlinkPath, 'renamed-link.yaml'))
-  const renameSourceThroughAlias = join(teamSymlinkPath, 'rename-source.txt')
-  await writeFile(renameSourceThroughAlias, 'safe source\n', 'utf8')
-  await assertRejectsSwarmStateMutation(() => handlers.rename(renameSourceThroughAlias, 'state.yaml'))
+  if (hasStateSymlink) {
+    await assertRejectsSwarmStateMutation(() => handlers.rename(stateSymlinkPath, 'renamed-link.yaml'))
+  }
+  if (hasTeamSymlink) {
+    const renameSourceThroughAlias = join(teamSymlinkPath, 'rename-source.txt')
+    await writeFile(renameSourceThroughAlias, 'safe source\n', 'utf8')
+    await assertRejectsSwarmStateMutation(() => handlers.rename(renameSourceThroughAlias, 'state.yaml'))
+  }
 
   const copyDestination = join(workspaceRoot, 'copy-destination')
   await mkdir(copyDestination)
-  await assertRejectsSwarmStateMutation(() => handlers.copy(stateSymlinkPath, copyDestination))
-  await assertRejectsSwarmStateMutation(() => handlers.delete(stateSymlinkPath))
+  if (hasStateSymlink) {
+    await assertRejectsSwarmStateMutation(() => handlers.copy(stateSymlinkPath, copyDestination))
+    await assertRejectsSwarmStateMutation(() => handlers.delete(stateSymlinkPath))
+  }
   await assertRejectsSwarmStateMutation(() => handlers.rename(teamDirectory, 'team-renamed'))
   await assertRejectsSwarmStateMutation(() => handlers.copy(teamDirectory, copyDestination))
   await assertRejectsSwarmStateMutation(() => handlers.delete(teamDirectory))
   await assertRejectsSwarmStateMutation(() => handlers.rename(swarmDirectory, 'swarm-renamed'))
   await assertRejectsSwarmStateMutation(() => handlers.copy(swarmDirectory, copyDestination))
   await assertRejectsSwarmStateMutation(() => handlers.delete(swarmDirectory))
-  await assertRejectsSwarmStateMutation(() => handlers.rename(teamSymlinkPath, 'team-link-renamed'))
-  await assertRejectsSwarmStateMutation(() => handlers.copy(teamSymlinkPath, copyDestination))
-  await assertRejectsSwarmStateMutation(() => handlers.delete(teamSymlinkPath))
+  if (hasTeamSymlink) {
+    await assertRejectsSwarmStateMutation(() => handlers.rename(teamSymlinkPath, 'team-link-renamed'))
+    await assertRejectsSwarmStateMutation(() => handlers.copy(teamSymlinkPath, copyDestination))
+    await assertRejectsSwarmStateMutation(() => handlers.delete(teamSymlinkPath))
+  }
 
   assert.equal(await readFile(statePath, 'utf8'), 'canonical swarm state\n')
 
@@ -600,6 +616,22 @@ async function assertFilesystemMutationHandlersProtectSwarmStateAliases(): Promi
   await assert.rejects(() => access(copiedSafeDirectoryPath))
   await handlers.delete(renamedSafeDirectoryPath)
   await assert.rejects(() => access(renamedSafeDirectoryPath))
+}
+
+async function tryCreateSymlink(targetPath: string, linkPath: string, type: 'file' | 'dir' | 'junction'): Promise<boolean> {
+  try {
+    await symlink(targetPath, linkPath, type)
+    return true
+  } catch (error) {
+    if (
+      error instanceof Error
+      && 'code' in error
+      && (error.code === 'EPERM' || error.code === 'EACCES')
+    ) {
+      return false
+    }
+    throw error
+  }
 }
 
 type FilesystemMutationHandlers = {
@@ -643,6 +675,7 @@ async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandler
           handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => {
             ipcHandlers.set(channel, handler)
           },
+          on: () => undefined,
         },
         Menu: {
           buildFromTemplate: () => ({}),

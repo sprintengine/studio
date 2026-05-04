@@ -109,6 +109,16 @@ type SpecialistActionId =
 type SpecialistPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
+type MultiloopAgentSoulRole =
+  | 'coordinator'
+  | 'architect'
+  | 'product'
+  | 'developer'
+  | 'frontend'
+  | 'tester'
+  | 'security'
+  | 'code_reviewer'
+  | 'performance'
 type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
 type GitStatusEntry = {
   path: string
@@ -235,6 +245,24 @@ type WindowState = {
 }
 type SwarmArtifactCommandResult =
   | { ok: true; data: unknown }
+  | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
+type MultiloopInitInput = {
+  workspaceRoot: string
+  loopName: string
+  finalGoal: string
+}
+type MultiloopInitResult =
+  | {
+      ok: true
+      data: {
+        workspaceRoot: string
+        loopName: string
+        loopSlug: string
+        loopDirectory: string
+        statePath: string
+        created: boolean
+      }
+    }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 type SessionUser = {
   id: string
@@ -415,12 +443,35 @@ const specialistPromptFiles: Record<SpecialistActionId, string> = {
   'security-review': 'security-review-prompt.md',
   'code-review': 'code-reviewer-pre-prompt.md',
 }
+const multiloopAgentSoulFiles: Record<MultiloopAgentSoulRole, string> = {
+  coordinator: 'coordinator.md',
+  architect: 'architect.md',
+  product: 'product.md',
+  developer: 'developer.md',
+  frontend: 'frontend.md',
+  tester: 'tester.md',
+  security: 'security.md',
+  code_reviewer: 'code_reviewer.md',
+  performance: 'performance.md',
+}
 
 function getSpecialistPromptCandidates(fileName: string): string[] {
   return [
     join(process.cwd(), 'specialist-prompts', fileName),
     join(__dirname, '..', '..', 'specialist-prompts', fileName),
     join(__dirname, '..', '..', '..', 'specialist-prompts', fileName),
+  ]
+}
+
+function getMultiloopAgentSoulCandidates(fileName: string): string[] {
+  if (process.env.NODE_ENV !== 'development' && !process.env.ELECTRON_RENDERER_URL) {
+    return []
+  }
+
+  return [
+    join(process.cwd(), 'multiloop-agent-souls', fileName),
+    join(__dirname, '..', '..', 'multiloop-agent-souls', fileName),
+    join(__dirname, '..', '..', '..', 'multiloop-agent-souls', fileName),
   ]
 }
 
@@ -457,6 +508,52 @@ async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<S
     const message = error instanceof Error ? error.message : String(error)
     if (message.includes("No handler registered for 'specialist:read-prompt'")) {
       return readSpecialistPromptFallback(specialistId)
+    }
+    throw error
+  }
+}
+
+async function readMultiloopAgentSoulFallback(role: MultiloopAgentSoulRole): Promise<SpecialistPromptResult> {
+  const fileName = multiloopAgentSoulFiles[role]
+  if (!fileName) {
+    return {
+      ok: false,
+      message: `Unknown Multiloop agent soul: ${role}`,
+      path: null,
+    }
+  }
+
+  const candidates = getMultiloopAgentSoulCandidates(fileName)
+  if (candidates.length === 0) {
+    return {
+      ok: false,
+      message: `Packaged Multiloop agent soul missing from trusted app assets: multiloop-agent-souls/${fileName}`,
+      path: null,
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return { ok: true, prompt: await readFile(candidate, 'utf-8'), path: candidate }
+    } catch {
+      // Keep checking the next dev/build prompt path.
+    }
+  }
+
+  return {
+    ok: false,
+    message: `Prompt file missing: multiloop-agent-souls/${fileName}`,
+    path: candidates[0] ?? null,
+  }
+}
+
+async function readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<SpecialistPromptResult> {
+  try {
+    return await ipcRenderer.invoke('multiloop:read-agent-soul', role)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes("No handler registered for 'multiloop:read-agent-soul'")) {
+      return readMultiloopAgentSoulFallback(role)
     }
     throw error
   }
@@ -550,6 +647,7 @@ contextBridge.exposeInMainWorld('api', {
   openDiagnosticsLogsFolder: (): Promise<{ opened: true; path: string }> =>
     ipcRenderer.invoke('diagnostics:open-logs-folder'),
   readSpecialistPrompt,
+  readMultiloopAgentSoul,
   writefile: (path: string, content: string)   => ipcRenderer.invoke('fs:writefile', path, content),
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),
   createDir:  (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-dir', parentDir, name),
@@ -636,6 +734,8 @@ contextBridge.exposeInMainWorld('api', {
     feedback: string
   ): Promise<SwarmArtifactCommandResult> =>
     ipcRenderer.invoke('swarm:artifact:request-changes', { statePath, artifactId, feedback }),
+  initializeMultiloopState: (input: MultiloopInitInput): Promise<MultiloopInitResult> =>
+    ipcRenderer.invoke('multiloop:init', input),
 
   // Agent CLI Terminal
   terminalSpawn:  (sessionId: string, cols: number, rows: number, cwd?: string, resume?: boolean, swarmStatePath?: string, cli?: AgentCli, initialPrompt?: string, cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>, shellOnly?: boolean, metadata?: TerminalSpawnMetadata): Promise<TerminalSpawnResult> => ipcRenderer.invoke('terminal:spawn', { sessionId, cols, rows, cwd, resume, swarmStatePath, cli, initialPrompt, cliRuntimes, shellOnly, ...metadata }),

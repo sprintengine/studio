@@ -35,6 +35,11 @@ const swarmKanbanTab = () => ({
   name: 'Kanban',
   component: 'swarm-kanban',
 })
+const multiloopBoardTab = () => ({
+  type: 'tab',
+  name: 'Multiloop',
+  component: 'multiloop-board',
+})
 
 export function createSwarmTemplate(_config: SwarmMockConfig): LayoutTemplate {
   return {
@@ -62,6 +67,33 @@ export function createSwarmTemplate(_config: SwarmMockConfig): LayoutTemplate {
               swarmTaskGraphTab(),
               swarmKanbanTab(),
             ],
+          },
+        ],
+      },
+    },
+  }
+}
+
+export function createMultiloopTemplate(): LayoutTemplate {
+  return {
+    id: 'multiloop-mode',
+    name: 'Multiloop Mode',
+    description: 'Milestone roadmap, active work, blockers, and evidence.',
+    previewSlots: [
+      editor('Goal', 4, 4, 292, 22),
+      editor('Roadmap', 4, 30, 92, 76),
+      editor('Active Milestone', 100, 30, 196, 76),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          {
+            type: 'tabset',
+            weight: 100,
+            children: [multiloopBoardTab()],
           },
         ],
       },

@@ -15,6 +15,8 @@ import type {
   SwarmCliPermissionPreset,
   SwarmState,
   SwarmWorkspaceContext,
+  MultiloopState,
+  MultiloopWorkspaceContext,
   SwarmRole,
   SwarmRoleCliDefaults,
   AgentCli,
@@ -23,6 +25,7 @@ import type {
   CliRuntimeSettings,
   AgentKind,
   SpecialistActionId,
+  MultiloopAgentSoulRole,
   AgentExecution,
   WorkspaceWorktreeState,
   WorktreeEntry,
@@ -42,6 +45,11 @@ import {
   getSwarmStateFilePath,
   slugifySwarmName,
 } from '../utils/swarmStateFile'
+import {
+  getMultiloopDirectoryPath,
+  getMultiloopStateFilePath,
+  slugifyMultiloopName,
+} from '../utils/multiloopStateFile'
 import {
   deleteEditorBuffer,
   remapEditorBuffers,
@@ -76,6 +84,8 @@ interface WorkspaceStore {
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
+  setLastSelectedMultiloopRole: (role: MultiloopAgentSoulRole) => void
+  setLastAgentSpawnPermissionPreset: (preset: SwarmCliPermissionPreset) => void
   setSearchExcludes: (patterns: string[]) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   addWorkspace: (
@@ -85,6 +95,8 @@ interface WorkspaceStore {
       folderPath?: string | null
       swarmState?: SwarmState | null
       swarmContext?: SwarmWorkspaceContext | null
+      multiloopState?: MultiloopState | null
+      multiloopContext?: MultiloopWorkspaceContext | null
       swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
       swarmAutoState?: Partial<SwarmAutoState> | null
     }
@@ -95,6 +107,10 @@ interface WorkspaceStore {
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   setSwarmContext: (id: WorkspaceId, swarmContext: SwarmWorkspaceContext | null) => void
+  setMultiloopContext: (
+    id: WorkspaceId,
+    multiloopContext: MultiloopWorkspaceContext | null
+  ) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   setAgentExecution: (
@@ -110,6 +126,7 @@ interface WorkspaceStore {
   markWorktreeMissing: (workspaceId: WorkspaceId, worktreeId: string, missingAt?: number) => void
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
   setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
+  setMultiloopState: (workspaceId: WorkspaceId, multiloopState: MultiloopState | null) => void
   setSwarmAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setSwarmAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
   setSwarmKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void
@@ -152,6 +169,8 @@ const defaultAppSettings = (): AppSettings => ({
   },
   lastSelectedCli: 'claude',
   lastSelectedSpecialist: 'architect',
+  lastSelectedMultiloopRole: 'coordinator',
+  lastAgentSpawnPermissionPreset: 'default',
   searchExcludes: [],
   recentWorkspaceFolders: [],
   usageTelemetry: defaultUsageTelemetrySettings(),
@@ -345,6 +364,7 @@ const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'): Agen
   cliStartupPrompt: undefined,
   kind,
   specialistId: undefined,
+  multiloopRole: undefined,
 })
 
 const defaultEditorState = (): EditorState => ({
@@ -466,6 +486,56 @@ function normalizeSwarmWorkspaceContext(
   return createSwarmWorkspaceContext(folderPath, swarmState?.name)
 }
 
+function createMultiloopWorkspaceContext(
+  folderPath: string | null | undefined,
+  loopName: string | null | undefined,
+  loopSlug?: string | null
+): MultiloopWorkspaceContext | null {
+  if (!folderPath || !loopName?.trim()) return null
+
+  const slug = loopSlug?.trim() || slugifyMultiloopName(loopName)
+  return {
+    loopName: loopName.trim(),
+    loopSlug: slug,
+    loopDirectoryPath: getMultiloopDirectoryPath(folderPath, slug),
+    statePath: getMultiloopStateFilePath(folderPath, slug),
+  }
+}
+
+function isCompleteMultiloopWorkspaceContext(
+  input: Partial<MultiloopWorkspaceContext> | null | undefined
+): input is MultiloopWorkspaceContext {
+  return Boolean(
+    input?.loopName?.trim()
+    && input.loopSlug?.trim()
+    && input.loopDirectoryPath?.trim()
+    && input.statePath?.trim()
+  )
+}
+
+function normalizeMultiloopWorkspaceContext(
+  input: Partial<MultiloopWorkspaceContext> | null | undefined,
+  folderPath: string | null | undefined,
+  multiloopState: MultiloopState | null
+): MultiloopWorkspaceContext | null {
+  const loopName = input?.loopName ?? multiloopState?.loop.displayName ?? multiloopState?.loop.name
+
+  if (folderPath && loopName) {
+    return createMultiloopWorkspaceContext(folderPath, loopName, input?.loopSlug)
+  }
+
+  if (isCompleteMultiloopWorkspaceContext(input)) {
+    return {
+      loopName: input.loopName.trim(),
+      loopSlug: input.loopSlug.trim(),
+      loopDirectoryPath: input.loopDirectoryPath,
+      statePath: input.statePath,
+    }
+  }
+
+  return null
+}
+
 const swarmAgentTab = (id: string, name: string) => ({
   type: 'tab',
   name,
@@ -521,6 +591,44 @@ const swarmTabsLayoutModel = (
     ],
   },
 })
+
+const multiloopTabsLayoutModel = (): IJsonModel => ({
+  global: { tabSetEnableDrop: true, tabEnableClose: true },
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        weight: 100,
+        children: [
+          { type: 'tab', name: 'Multiloop', component: 'multiloop-board' },
+        ],
+      },
+    ],
+  },
+})
+
+function modelContainsComponent(value: unknown, component: string): boolean {
+  if (!value) return false
+  if (Array.isArray(value)) {
+    return value.some((entry) => modelContainsComponent(entry, component))
+  }
+  if (typeof value !== 'object') return false
+
+  const record = value as Record<string, unknown>
+  if (record.component === component) return true
+
+  return Object.values(record).some((entry) => modelContainsComponent(entry, component))
+}
+
+function hasMultiloopBoardLayout(model: IJsonModel | null | undefined): boolean {
+  return modelContainsComponent(model, 'multiloop-board')
+}
+
+function ensureMultiloopLayoutModel(model: IJsonModel | null | undefined): IJsonModel {
+  return model && hasMultiloopBoardLayout(model) ? model : multiloopTabsLayoutModel()
+}
 
 function isLegacySwarmLayout(model: IJsonModel): boolean {
   const serialized = JSON.stringify(model)
@@ -717,6 +825,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.appSettings.lastSelectedSpecialist = specialistId
         }),
 
+      setLastSelectedMultiloopRole: (role) =>
+        set((state) => {
+          state.appSettings.lastSelectedMultiloopRole = role
+        }),
+
+      setLastAgentSpawnPermissionPreset: (preset) =>
+        set((state) => {
+          state.appSettings.lastAgentSpawnPermissionPreset = normalizeCliPermissionPreset(preset)
+        }),
+
       setSearchExcludes: (patterns) =>
         set((state) => {
           state.appSettings.searchExcludes = normalizeSearchExcludes(patterns)
@@ -737,6 +855,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const folderPath = options?.folderPath ?? null
           const fallbackName = `${template.name} ${state.workspaces.length + 1}`
           const isSwarm = template.id === 'swarm-mode' || Boolean(options?.swarmState)
+          const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
           const swarmState = isSwarm
             ? normalizeSwarmState(options?.swarmState)
               ?? createInitialSwarmState({
@@ -745,6 +864,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 roleCounts: options?.swarmState?.roleCounts ?? createDefaultSwarmRoleCounts(),
               })
             : null
+          const multiloopState = isMultiloop ? options?.multiloopState ?? null : null
           const agents: Workspace['agents'] = {}
           const swarmRoleCliDefaults = swarmState
             ? normalizeSwarmRoleCliDefaults(options?.swarmRoleCliDefaults)
@@ -765,7 +885,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.workspaces.push({
             id,
             name: options?.name?.trim() || fallbackName,
-            mode: swarmState ? 'swarm' : 'standard',
+            mode: multiloopState || isMultiloop ? 'multiloop' : swarmState ? 'swarm' : 'standard',
             folderPath,
             folderMissing: false,
             swarmContext: normalizeSwarmWorkspaceContext(
@@ -773,14 +893,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               folderPath,
               swarmState
             ),
+            multiloopContext: normalizeMultiloopWorkspaceContext(
+              options?.multiloopContext,
+              folderPath,
+              multiloopState
+            ),
             templateId: template.id,
-            layoutModel: swarmState
+            layoutModel: isMultiloop
+              ? multiloopTabsLayoutModel()
+              : swarmState
               ? swarmTabsLayoutModel(swarmState, agents, { includeAgentTabs: false })
               : template.layout,
             agents,
             worktreeState: defaultWorkspaceWorktreeState(),
             editorState: defaultEditorState(),
             swarmState,
+            multiloopState,
             swarmRoleCliDefaults,
             swarmAutoState: normalizeSwarmAutoState(options?.swarmAutoState),
             createdAt: Date.now(),
@@ -839,6 +967,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               folderPath,
               normalizeSwarmState(ws.swarmState)
             )
+            ws.multiloopContext = normalizeMultiloopWorkspaceContext(
+              ws.multiloopContext,
+              folderPath,
+              ws.multiloopState ?? null
+            )
           }
         }),
 
@@ -846,6 +979,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === id)
           if (ws) ws.swarmContext = swarmContext
+        }),
+
+      setMultiloopContext: (id, multiloopContext) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === id)
+          if (ws) ws.multiloopContext = multiloopContext
         }),
 
       setFolderMissing: (id, folderMissing) =>
@@ -936,6 +1075,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.swarmAutoState = normalized
             ? normalizeSwarmAutoState(ws.swarmAutoState)
             : defaultSwarmAutoState()
+        }),
+
+      setMultiloopState: (workspaceId, multiloopState) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          ws.multiloopState = multiloopState
+          ws.mode = multiloopState ? 'multiloop' : ws.swarmState ? 'swarm' : 'standard'
+          ws.multiloopContext = normalizeMultiloopWorkspaceContext(
+            ws.multiloopContext,
+            ws.folderPath,
+            multiloopState
+          )
+          if (multiloopState) ws.layoutModel = ensureMultiloopLayoutModel(ws.layoutModel)
         }),
 
       setSwarmAutoEnabled: (workspaceId, enabled) =>
@@ -1102,11 +1255,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       importWorkspace: (ws) =>
         set((state) => {
           const id = nanoid()
+          const swarmState = normalizeSwarmState(ws.swarmState)
+          const multiloopState = ws.multiloopState ?? null
+          const mode = multiloopState ? 'multiloop' : swarmState ? 'swarm' : ws.mode ?? 'standard'
           state.workspaces.push({
             ...ws,
             id,
             name: `${ws.name} (imported)`,
-            mode: ws.mode ?? (ws.swarmState ? 'swarm' : 'standard'),
+            mode,
             folderPath: ws.folderPath ?? null,
             folderMissing: false,
             agents: Object.fromEntries(
@@ -1122,13 +1278,25 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ),
             worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
             editorState: ws.editorState ?? defaultEditorState(),
-            swarmState: normalizeSwarmState(ws.swarmState),
+            swarmState,
+            swarmContext: normalizeSwarmWorkspaceContext(ws.swarmContext, ws.folderPath, swarmState),
+            multiloopState,
+            multiloopContext: normalizeMultiloopWorkspaceContext(
+              ws.multiloopContext,
+              ws.folderPath,
+              multiloopState
+            ),
             swarmRoleCliDefaults: normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults),
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           } satisfies Workspace)
           const imported = state.workspaces.at(-1)
           if (imported) {
-            Object.assign(imported, migrateSwarmLayout(imported))
+            Object.assign(
+              imported,
+              imported.mode === 'multiloop'
+                ? { ...imported, layoutModel: ensureMultiloopLayoutModel(imported.layoutModel) }
+                : migrateSwarmLayout(imported)
+            )
           }
           state.activeWorkspaceId = id
         }),
@@ -1241,7 +1409,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 29,
+      version: 31,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1519,6 +1687,62 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
+        if (version < 30) {
+          state.workspaces = state.workspaces.map((ws) => {
+            const swarmState = normalizeSwarmState(ws.swarmState)
+            const multiloopState = ws.multiloopState ?? null
+            const mode = multiloopState ? 'multiloop' : swarmState ? 'swarm' : ws.mode ?? 'standard'
+            const nextWorkspace = {
+              ...ws,
+              mode,
+              swarmState,
+              swarmContext: normalizeSwarmWorkspaceContext(
+                ws.swarmContext,
+                ws.folderPath,
+                swarmState
+              ),
+              multiloopState,
+              multiloopContext: normalizeMultiloopWorkspaceContext(
+                ws.multiloopContext,
+                ws.folderPath,
+                multiloopState
+              ),
+              swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
+            }
+
+            return mode === 'multiloop'
+              ? { ...nextWorkspace, layoutModel: ensureMultiloopLayoutModel(nextWorkspace.layoutModel) }
+              : migrateSwarmLayout(nextWorkspace)
+          })
+        }
+        if (version < 31) {
+          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const defaults = defaultAppSettings()
+          current.appSettings = {
+            ...defaults,
+            ...(current.appSettings ?? {}),
+            cliRuntimes: {
+              ...defaults.cliRuntimes,
+              ...(current.appSettings?.cliRuntimes ?? {}),
+            },
+            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
+            lastSelectedSpecialist:
+              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
+            lastSelectedMultiloopRole:
+              current.appSettings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
+            lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(
+              current.appSettings?.lastAgentSpawnPermissionPreset
+            ),
+            searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
+            recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
+              current.appSettings?.recentWorkspaceFolders,
+              state.workspaces.map((ws) => ws.folderPath)
+            ),
+            usageTelemetry: normalizeUsageTelemetrySettings(
+              current.appSettings?.usageTelemetry
+            ),
+          }
+        }
         return state as never
       },
       partialize: (s) => ({
@@ -1527,9 +1751,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ...ws,
           agents: Object.fromEntries(
             Object.entries(ws.agents).map(([id, a]) => {
-              const shouldKeepSpecialistPrompt =
-                a.kind === 'specialist' && !a.cliOnboardingPromptSent && Boolean(a.specialistId)
-              const cliStartupPrompt = shouldKeepSpecialistPrompt ? a.cliStartupPrompt : undefined
+              const shouldKeepStartupPrompt =
+                !a.cliOnboardingPromptSent
+                && (
+                  (a.kind === 'specialist' && Boolean(a.specialistId))
+                  || (a.kind === 'multiloop' && Boolean(a.multiloopRole))
+                )
+              const cliStartupPrompt = shouldKeepStartupPrompt ? a.cliStartupPrompt : undefined
 
               return [
                 id,

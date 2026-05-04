@@ -1,4 +1,6 @@
-import type { SpecialistActionId } from '../types/workspace'
+import type { MultiloopAgentSoulRole, SpecialistActionId } from '../types/workspace'
+
+export type { MultiloopAgentSoulRole }
 
 export type SpecialistIcon =
   | 'architecture'
@@ -20,6 +22,26 @@ export type SpecialistAction = {
   promptFile: string
   shortcut?: string
 }
+
+export type MultiloopAgentSoul = {
+  role: MultiloopAgentSoulRole
+  label: string
+  shortLabel: string
+  promptFile: string
+  icon: SpecialistIcon
+}
+
+export const MULTILOOP_AGENT_SOULS: MultiloopAgentSoul[] = [
+  { role: 'coordinator', label: 'Coordinator', shortLabel: 'Coordinator', promptFile: 'coordinator.md', icon: 'architecture' },
+  { role: 'architect', label: 'Architect', shortLabel: 'Architect', promptFile: 'architect.md', icon: 'architecture' },
+  { role: 'product', label: 'Product', shortLabel: 'Product', promptFile: 'product.md', icon: 'product' },
+  { role: 'developer', label: 'Developer', shortLabel: 'Developer', promptFile: 'developer.md', icon: 'code' },
+  { role: 'frontend', label: 'Frontend', shortLabel: 'Frontend', promptFile: 'frontend.md', icon: 'design' },
+  { role: 'tester', label: 'Tester', shortLabel: 'Tester', promptFile: 'tester.md', icon: 'test' },
+  { role: 'security', label: 'Security', shortLabel: 'Security', promptFile: 'security.md', icon: 'shield' },
+  { role: 'code_reviewer', label: 'Code Reviewer', shortLabel: 'Code Reviewer', promptFile: 'code_reviewer.md', icon: 'review' },
+  { role: 'performance', label: 'Performance', shortLabel: 'Performance', promptFile: 'performance.md', icon: 'performance' },
+]
 
 export const SPECIALIST_ACTIONS: SpecialistAction[] = [
   {
@@ -103,6 +125,10 @@ export function getSpecialistAction(id: SpecialistActionId | string | null | und
   return SPECIALIST_ACTIONS.find((action) => action.id === id) ?? SPECIALIST_ACTIONS[0]
 }
 
+export function getMultiloopAgentSoul(role: MultiloopAgentSoulRole | string | null | undefined): MultiloopAgentSoul {
+  return MULTILOOP_AGENT_SOULS.find((soul) => soul.role === role) ?? MULTILOOP_AGENT_SOULS[0]
+}
+
 export function buildMissingSpecialistPrompt(action: SpecialistAction, message?: string): string {
   return [
     'Specialist prompt file missing.',
@@ -121,5 +147,26 @@ export async function loadSpecialistPrompt(specialistId: SpecialistActionId): Pr
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return buildMissingSpecialistPrompt(action, message)
+  }
+}
+
+export function buildMissingMultiloopAgentSoulPrompt(soul: MultiloopAgentSoul, message?: string): string {
+  return [
+    'Multiloop agent soul file missing.',
+    '',
+    message ?? `Could not load multiloop-agent-souls/${soul.promptFile}.`,
+    'Restore the prompt file or update the Multiloop role mapping, then restart this agent.',
+  ].join('\n')
+}
+
+export async function loadMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<string> {
+  const soul = getMultiloopAgentSoul(role)
+
+  try {
+    const result = await window.api.readMultiloopAgentSoul(soul.role)
+    return result.ok ? result.prompt : buildMissingMultiloopAgentSoulPrompt(soul, result.message)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return buildMissingMultiloopAgentSoulPrompt(soul, message)
   }
 }

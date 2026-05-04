@@ -29,6 +29,7 @@ const ContentSearchPanel = React.lazy(() => import('../panels/ContentSearchPanel
 const GitPanel = React.lazy(() => import('../panels/GitPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SwarmBoardPanel = React.lazy(() => import('../panels/SwarmBoardPanel'))
+const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
 type AgentTabActivity = 'needs-input' | 'running' | 'idle'
@@ -268,6 +269,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="task-graph" />)
         case 'swarm-kanban':
           return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="kanban" />)
+        case 'multiloop-board':
+          return timedPanel(
+            'MultiloopBoardPanel',
+            <MultiloopBoardPanel workspaceId={workspaceId} />
+          )
         default:
           return <div className="h-full bg-[#08090b]" />
       }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { createSwarmTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { createMultiloopTemplate, createSwarmTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -21,6 +21,10 @@ import {
   PlanSourcedSwarmWorkspaceError,
 } from '../../utils/swarmWorkspaceCreation'
 import {
+  createMultiloopWorkspace,
+  MultiloopWorkspaceCreationError,
+} from '../../utils/multiloopWorkspaceCreation'
+import {
   countSwarmAgents,
   createInitialSwarmState,
   swarmRoleLabels,
@@ -41,7 +45,7 @@ type ExistingTeam = {
   state: SwarmState
 }
 
-type CreationMode = 'swarm' | 'standard'
+type CreationMode = 'standard' | 'swarm' | 'multiloop'
 
 type MarkdownPlanOption = {
   path: string
@@ -288,6 +292,7 @@ function getSwarmAccessState(authState: MulticodeAuthState, requestedAgents: num
 export default function TemplateSelector({ onCreate, onClose, allowClose = true, initialState = null }: Props) {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
+  const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const storedRecentFolders = useWorkspaceStore((s) => s.appSettings.recentWorkspaceFolders ?? [])
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const initialFuturePlan = initialState?.futurePlanSource ?? null
@@ -299,6 +304,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const [swarmTeamName, setSwarmTeamName] = useState(initialFuturePlan?.teamName ?? '')
   const [swarmTeamNameTouched, setSwarmTeamNameTouched] = useState(Boolean(initialFuturePlan))
   const [swarmGoal, setSwarmGoal] = useState(initialFuturePlan?.goal ?? '')
+  const [multiloopName, setMultiloopName] = useState('')
+  const [multiloopNameTouched, setMultiloopNameTouched] = useState(false)
+  const [multiloopGoal, setMultiloopGoal] = useState('')
+  const [multiloopError, setMultiloopError] = useState<string | null>(null)
   const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(initialSwarmRoleCounts)
   const [swarmRoleCliDefaults, setSwarmRoleCliDefaults] = useState<Required<SwarmRoleCliDefaults>>(
     initialSwarmRoleCliDefaults
@@ -347,15 +356,23 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const detailsComplete = name.trim().length > 0
   const swarmObjectiveComplete =
     selectedExistingTeam != null || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0)
+  const multiloopObjectiveComplete =
+    Boolean(folderPath?.trim()) && multiloopName.trim().length > 0 && multiloopGoal.trim().length > 0
   const futurePlanReady = selectedExistingTeam != null || !selectedFuturePlanPath || (futurePlanContent != null && !futurePlanError)
   const canCreate =
     !isCreating
     && detailsComplete
-    && (mode === 'standard' || (
+    && (
+      mode === 'standard'
+      || (mode === 'multiloop' && multiloopObjectiveComplete)
+      || (mode === 'swarm'
+        && (
       swarmAccess.allowed
       && futurePlanReady
       && (selectedExistingTeam != null || (swarmObjectiveComplete && totalAgents > 0))
-    ))
+        )
+      )
+    )
 
   const swarmConfig = useMemo<SwarmMockConfig>(
     () => ({
@@ -406,6 +423,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     setSelectedFuturePlanPath('')
     if (!nameTouched) setName(folderName || 'workspace')
     if (!swarmTeamNameTouched) setSwarmTeamName(toTitleName(folderName) || 'Swarm Team')
+    if (!multiloopNameTouched) setMultiloopName(toTitleName(folderName) || 'Product Loop')
+    setMultiloopError(null)
 
     setIsScanning(true)
     try {
@@ -462,7 +481,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
 
   const handleModeChange = (nextMode: CreationMode) => {
     setMode(nextMode)
-    if (nextMode === 'standard') setSelectedExistingTeam(null)
+    if (nextMode !== 'swarm') setSelectedExistingTeam(null)
+    if (nextMode === 'multiloop' && !multiloopNameTouched) {
+      setMultiloopName(toTitleName(name || basename(folderPath ?? '')) || 'Product Loop')
+    }
   }
 
   const selectExistingTeam = (team: ExistingTeam) => {
@@ -488,6 +510,39 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
 
   const handleCreate = async () => {
     if (!canCreate) return
+
+    if (mode === 'multiloop') {
+      if (!folderPath) return
+
+      setIsCreating(true)
+      setMultiloopError(null)
+      try {
+        const created = await createMultiloopWorkspace({
+          rootPath: folderPath,
+          loopName: multiloopName,
+          finalGoal: multiloopGoal,
+          initializeState: window.api.initializeMultiloopState,
+          readFile: window.api.readfile,
+        })
+
+        addWorkspace(createMultiloopTemplate(), {
+          name: name.trim(),
+          folderPath,
+          multiloopState: created.state,
+          multiloopContext: created.context,
+        })
+        onClose()
+      } catch (error) {
+        setMultiloopError(
+          error instanceof MultiloopWorkspaceCreationError || error instanceof Error
+            ? error.message
+            : 'Could not create the Multiloop workspace.'
+        )
+      } finally {
+        setIsCreating(false)
+      }
+      return
+    }
 
     const swarmAutoState = mode === 'swarm'
       ? {
@@ -602,7 +657,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               disabled={!canCreate}
               className="h-9 rounded-md border border-[#ececee] bg-[#ececee] px-4 text-sm font-semibold text-[#08090b] transition-colors hover:bg-white disabled:border-[#303139] disabled:bg-[#17181d] disabled:text-[#5a5a63]"
             >
-              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
+              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'swarm' ? 'Create Swarm' : mode === 'multiloop' ? 'Create Multiloop' : 'Create Workspace'}
             </button>
           </div>
         </header>
@@ -613,9 +668,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               {[
                 { id: 'standard' as const, label: 'Standard' },
                 { id: 'swarm' as const, label: 'Swarm' },
+                { id: 'multiloop' as const, label: 'Multiloop' },
               ].map((option) => {
                 const active = mode === option.id
                 const swarmOption = option.id === 'swarm'
+                const multiloopOption = option.id === 'multiloop'
                 return (
                   <button
                     key={option.id}
@@ -625,15 +682,22 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                     className={`inline-flex h-8 items-center gap-2 rounded border px-3 text-sm font-semibold transition-colors ${
                       active && swarmOption
                         ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
+                        : active && multiloopOption
+                          ? 'border-[#26373a] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(110,231,216,0.42)]'
                         : active
                           ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
                           : swarmOption
                             ? 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
+                            : multiloopOption
+                              ? 'border-transparent text-[#9a9aa2] hover:bg-[#6ee7d8]/8 hover:text-[#d8fffb]'
                             : 'border-transparent text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                     }`}
                   >
-                    {swarmOption ? (
-                      <WorkspaceTypeIcon mode="swarm" className="h-3.5 w-3.5 shrink-0 text-[#ffbf2f]" />
+                    {swarmOption || multiloopOption ? (
+                      <WorkspaceTypeIcon
+                        mode={swarmOption ? 'swarm' : 'multiloop'}
+                        className={`h-3.5 w-3.5 shrink-0 ${swarmOption ? 'text-[#ffbf2f]' : 'text-[#6ee7d8]'}`}
+                      />
                     ) : null}
                     {option.label}
                   </button>
@@ -771,6 +835,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                       if (mode === 'swarm' && !swarmTeamNameTouched) {
                         setSwarmTeamName(toTitleName(nextName))
                       }
+                      if (mode === 'multiloop' && !multiloopNameTouched) {
+                        setMultiloopName(toTitleName(nextName))
+                      }
                     }}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') void handleCreate()
@@ -782,7 +849,64 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               </div>
             </section>
 
-            {mode === 'swarm' ? (
+            {mode === 'multiloop' ? (
+              <section>
+                <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+                  <div className="space-y-4">
+                    <label className="flex min-w-0 flex-col gap-2">
+                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                        Loop name
+                      </span>
+                      <input
+                        value={multiloopName}
+                        onChange={(event) => {
+                          setMultiloopName(event.target.value)
+                          setMultiloopNameTouched(true)
+                          setMultiloopError(null)
+                        }}
+                        placeholder="Release Readiness"
+                        className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-xs font-medium text-[#9a9aa2]">
+                        Final goal
+                      </span>
+                      <textarea
+                        value={multiloopGoal}
+                        onChange={(event) => {
+                          setMultiloopGoal(event.target.value)
+                          setMultiloopError(null)
+                        }}
+                        placeholder="Describe the long-running outcome this loop should reach..."
+                        className="mt-2 min-h-[160px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-3 text-[14px] leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
+                      />
+                    </label>
+
+                    {multiloopError ? (
+                      <div className="border-l border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+                        {multiloopError}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-lg border border-[#24252b] bg-[#0d0e11] p-3">
+                    <div className="mb-3 flex items-baseline justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-[#ececee]">Multiloop workspace</div>
+                        <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
+                          Milestones, blockers, decisions, and evidence
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-[#303139] bg-[#08090b] p-3">
+                      <MultiloopWorkspacePreview />
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : mode === 'swarm' ? (
               <>
                 <section className="border-b border-[#1f2025] pb-5">
                   <div className="grid gap-4 lg:grid-cols-2">
@@ -1071,7 +1195,7 @@ function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
   )
 }
 
-function WorkspaceChrome() {
+function WorkspaceChrome({ modeLabel = 'Swarm' }: { modeLabel?: string }) {
   return (
     <g>
       <rect x="0" y="0" width="300" height="18" rx="8" fill="#08090b" />
@@ -1081,7 +1205,7 @@ function WorkspaceChrome() {
       </text>
       <rect x="80" y="5" width="46" height="9" rx="3.5" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
       <text x="88" y="11.6" fill="#9a9aa2" fontSize="5.2" fontWeight="600">
-        Swarm
+        {modeLabel}
       </text>
       <rect x="132" y="5" width="12" height="9" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
       <path d="M138 7.5 V11.5 M136 9.5 H140" stroke="#9a9aa2" strokeWidth="0.9" strokeLinecap="round" />
@@ -1227,6 +1351,41 @@ function SwarmWorkspacePreview() {
           </g>
         ))}
       </g>
+    </svg>
+  )
+}
+
+function MultiloopWorkspacePreview() {
+  return (
+    <svg
+      viewBox="0 0 300 110"
+      preserveAspectRatio="xMidYMid meet"
+      className="block aspect-[300/110] w-full"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect x="0" y="0" width="300" height="110" rx="8" fill="#0d0e11" />
+      <WorkspaceChrome modeLabel="Loop" />
+      <rect x="6" y="22" width="288" height="82" rx="5" fill="#101116" stroke="#3a3b43" strokeWidth="1" />
+      <rect x="15" y="31" width="72" height="6" rx="2" fill="#6ee7d8" opacity="0.82" />
+      <rect x="15" y="43" width="120" height="3" rx="1.5" fill="#74757d" />
+      <rect x="15" y="52" width="100" height="3" rx="1.5" fill="#5a5b63" />
+
+      <rect x="15" y="68" width="74" height="23" rx="4" fill="#14151a" stroke="#303139" strokeWidth="0.8" />
+      <rect x="24" y="76" width="38" height="3" rx="1.5" fill="#6ee7d8" opacity="0.85" />
+      <rect x="24" y="84" width="48" height="2" rx="1" fill="#62636b" />
+
+      <rect x="103" y="68" width="74" height="23" rx="4" fill="#17181d" stroke="#6ee7d8" strokeWidth="0.9" />
+      <rect x="112" y="76" width="44" height="3" rx="1.5" fill="#d8fffb" opacity="0.86" />
+      <rect x="112" y="84" width="36" height="2" rx="1" fill="#7c7d86" />
+
+      <rect x="191" y="68" width="74" height="23" rx="4" fill="#14151a" stroke="#303139" strokeWidth="0.8" />
+      <rect x="200" y="76" width="34" height="3" rx="1.5" fill="#74757d" />
+      <rect x="200" y="84" width="46" height="2" rx="1" fill="#62636b" />
+
+      <rect x="157" y="31" width="110" height="23" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.8" />
+      <rect x="167" y="38" width="16" height="3" rx="1.5" fill="#ff787c" />
+      <rect x="190" y="38" width="52" height="3" rx="1.5" fill="#8a8b93" />
+      <rect x="167" y="46" width="70" height="2" rx="1" fill="#62636b" />
     </svg>
   )
 }

@@ -1105,6 +1105,16 @@ type SpecialistActionId =
 type SpecialistPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
+type MultiloopAgentSoulRole =
+  | 'coordinator'
+  | 'architect'
+  | 'product'
+  | 'developer'
+  | 'frontend'
+  | 'tester'
+  | 'security'
+  | 'code_reviewer'
+  | 'performance'
 
 const specialistPromptFiles: Record<SpecialistActionId, string> = {
   architect: 'architect-prompt.md',
@@ -1117,6 +1127,17 @@ const specialistPromptFiles: Record<SpecialistActionId, string> = {
   'security-review': 'security-review-prompt.md',
   'code-review': 'code-reviewer-pre-prompt.md',
 }
+const multiloopAgentSoulFiles: Record<MultiloopAgentSoulRole, string> = {
+  coordinator: 'coordinator.md',
+  architect: 'architect.md',
+  product: 'product.md',
+  developer: 'developer.md',
+  frontend: 'frontend.md',
+  tester: 'tester.md',
+  security: 'security.md',
+  code_reviewer: 'code_reviewer.md',
+  performance: 'performance.md',
+}
 
 function getSpecialistPromptCandidates(fileName: string): string[] {
   return [
@@ -1124,6 +1145,22 @@ function getSpecialistPromptCandidates(fileName: string): string[] {
     join(app.getAppPath(), 'specialist-prompts', fileName),
     join(__dirname, '..', '..', 'specialist-prompts', fileName),
     join(__dirname, '..', '..', '..', 'specialist-prompts', fileName),
+  ]
+}
+
+function getMultiloopAgentSoulCandidates(fileName: string): string[] {
+  if (app.isPackaged) {
+    return [
+      join(process.resourcesPath, 'multiloop-agent-souls', fileName),
+      join(app.getAppPath(), 'multiloop-agent-souls', fileName),
+    ]
+  }
+
+  return [
+    join(process.cwd(), 'multiloop-agent-souls', fileName),
+    join(app.getAppPath(), 'multiloop-agent-souls', fileName),
+    join(__dirname, '..', '..', 'multiloop-agent-souls', fileName),
+    join(__dirname, '..', '..', '..', 'multiloop-agent-souls', fileName),
   ]
 }
 
@@ -1150,6 +1187,33 @@ async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<S
   return {
     ok: false,
     message: `Prompt file missing: specialist-prompts/${fileName}`,
+    path: candidates[0] ?? null,
+  }
+}
+
+async function readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<SpecialistPromptResult> {
+  const fileName = multiloopAgentSoulFiles[role]
+  if (!fileName) {
+    return {
+      ok: false,
+      message: `Unknown Multiloop agent soul: ${role}`,
+      path: null,
+    }
+  }
+
+  const candidates = getMultiloopAgentSoulCandidates(fileName)
+
+  for (const candidate of candidates) {
+    try {
+      return { ok: true, prompt: await readFile(candidate, 'utf-8'), path: candidate }
+    } catch {
+      // Try the next likely app/dev path before reporting a recoverable missing prompt.
+    }
+  }
+
+  return {
+    ok: false,
+    message: `Prompt file missing: multiloop-agent-souls/${fileName}`,
     path: candidates[0] ?? null,
   }
 }
@@ -1602,8 +1666,240 @@ function getBundledSwarmToolPath(): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
+function getBundledMultiloopToolPath(): string | null {
+  if (app.isPackaged) {
+    const packagedToolPath = join(process.resourcesPath, 'scripts', 'multiloop_tool.py')
+    return existsSync(packagedToolPath) ? packagedToolPath : null
+  }
+
+  const candidates = [
+    join(process.cwd(), 'scripts', 'multiloop_tool.py'),
+    join(app.getAppPath(), 'scripts', 'multiloop_tool.py'),
+    join(__dirname, '..', '..', 'scripts', 'multiloop_tool.py'),
+    join(__dirname, '..', '..', '..', 'scripts', 'multiloop_tool.py'),
+  ]
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? null
+}
+
+function getMultiloopPythonExecutable(toolPath: string): string {
+  const repoRoot = dirname(dirname(toolPath))
+  const venvPython = process.platform === 'win32'
+    ? join(repoRoot, '.venv', 'Scripts', 'python.exe')
+    : join(repoRoot, '.venv', 'bin', 'python')
+  if (existsSync(venvPython)) return venvPython
+  return process.platform === 'win32' ? 'python' : 'python3'
+}
+
+function slugifyMultiloopName(name: string): string {
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  if (!slug) {
+    throw new Error('Loop name must contain at least one letter or digit.')
+  }
+  return slug
+}
+
+async function resolveMultiloopWorkspaceRoot(input: unknown): Promise<string> {
+  if (typeof input !== 'string' || !input.trim()) {
+    throw new Error('Workspace root is required.')
+  }
+
+  const rawWorkspaceRoot = input.trim()
+  if (!isAbsolute(rawWorkspaceRoot)) {
+    throw new Error('Workspace root must be an absolute path.')
+  }
+
+  const workspaceRoot = resolve(rawWorkspaceRoot)
+  let workspaceStats
+  try {
+    workspaceStats = await stat(workspaceRoot)
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      throw new Error('Workspace root must be an existing directory.')
+    }
+    throw error
+  }
+  if (!workspaceStats.isDirectory()) {
+    throw new Error('Workspace root must be an existing directory.')
+  }
+
+  return realpath(workspaceRoot)
+}
+
+function readRequiredMultiloopText(input: unknown, label: string): string {
+  if (typeof input !== 'string' || !input.trim()) {
+    throw new Error(`${label} is required.`)
+  }
+  return input.trim()
+}
+
+async function readExistingMultiloopState(
+  statePath: string,
+  loopName: string,
+  loopSlug: string,
+  finalGoal: string
+): Promise<{ exists: false } | { exists: true; conflicting: false } | { exists: true; conflicting: true; message: string }> {
+  try {
+    const stateContent = await readFile(statePath, 'utf8')
+    const state = JSON.parse(stateContent) as unknown
+    if (!state || typeof state !== 'object' || !('loop' in state)) {
+      return { exists: true, conflicting: true, message: 'Existing Multiloop state file is not valid.' }
+    }
+
+    const loop = (state as { loop?: unknown }).loop
+    if (!loop || typeof loop !== 'object') {
+      return { exists: true, conflicting: true, message: 'Existing Multiloop state file has no loop metadata.' }
+    }
+
+    const record = loop as Record<string, unknown>
+    if (record.name !== loopSlug || record.displayName !== loopName) {
+      return { exists: true, conflicting: true, message: 'A different Multiloop state already exists for this loop path.' }
+    }
+    if (record.finalGoal !== finalGoal) {
+      return { exists: true, conflicting: true, message: 'A Multiloop state already exists with a different final goal.' }
+    }
+
+    return { exists: true, conflicting: false }
+  } catch (error) {
+    if (isMissingPathError(error)) return { exists: false }
+    if (error instanceof SyntaxError) {
+      return { exists: true, conflicting: true, message: 'Existing Multiloop state file is not valid JSON.' }
+    }
+    throw error
+  }
+}
+
+function runMultiloopInitTool(
+  workspaceRoot: string,
+  statePath: string,
+  loopName: string,
+  finalGoal: string
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolvePromise) => {
+    const toolPath = getBundledMultiloopToolPath()
+    if (!toolPath) {
+      resolvePromise({
+        exitCode: 127,
+        stdout: '',
+        stderr: 'Multiloop Python tool is unavailable: scripts/multiloop_tool.py was not found.',
+      })
+      return
+    }
+
+    const repoRoot = dirname(dirname(toolPath))
+    const child = spawn(
+      getMultiloopPythonExecutable(toolPath),
+      [toolPath, '--state', statePath, 'init', '--name', loopName, '--final-goal', finalGoal],
+      {
+        cwd: workspaceRoot,
+        env: {
+          ...process.env,
+          PYTHONPATH: [repoRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+        },
+        windowsHide: true,
+      }
+    )
+    let stdout = ''
+    let stderr = ''
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8')
+    })
+    child.on('error', (error) => {
+      resolvePromise({
+        exitCode: null,
+        stdout,
+        stderr: stderr || `Multiloop Python tool could not start: ${error.message}`,
+      })
+    })
+    child.on('close', (exitCode) => {
+      resolvePromise({ exitCode, stdout, stderr })
+    })
+  })
+}
+
+async function initializeMultiloopState(payload: MultiloopInitPayload): Promise<MultiloopInitResult> {
+  try {
+    const loopName = readRequiredMultiloopText(payload?.loopName, 'Loop name')
+    const finalGoal = readRequiredMultiloopText(payload?.finalGoal, 'Final goal')
+    const loopSlug = slugifyMultiloopName(loopName)
+    const workspaceRoot = await resolveMultiloopWorkspaceRoot(payload?.workspaceRoot)
+    const loopDirectory = resolve(workspaceRoot, 'multiloop', loopSlug)
+    const statePath = resolve(loopDirectory, 'state.json')
+
+    if (!isPathInsideOrEqual(workspaceRoot, statePath) || basename(dirname(loopDirectory)) !== 'multiloop') {
+      throw new Error('Multiloop state path must stay inside multiloop/<loop>/state.json.')
+    }
+
+    const existing = await readExistingMultiloopState(statePath, loopName, loopSlug, finalGoal)
+    if (existing.exists) {
+      if (existing.conflicting) {
+        return { ok: false, message: existing.message }
+      }
+      return {
+        ok: true,
+        data: { workspaceRoot, loopName, loopSlug, loopDirectory, statePath, created: false },
+      }
+    }
+
+    const completed = await runMultiloopInitTool(workspaceRoot, statePath, loopName, finalGoal)
+    if (completed.exitCode !== 0) {
+      return {
+        ok: false,
+        message: completed.stderr.trim() || completed.stdout.trim() || 'Multiloop initialization failed.',
+        stdout: completed.stdout,
+        stderr: completed.stderr,
+        exitCode: completed.exitCode ?? 'spawn-error',
+      }
+    }
+
+    const created = await readExistingMultiloopState(statePath, loopName, loopSlug, finalGoal)
+    if (!created.exists || created.conflicting) {
+      return {
+        ok: false,
+        message: created.exists && created.conflicting
+          ? created.message
+          : 'Multiloop initialization did not create state.json.',
+        stdout: completed.stdout,
+        stderr: completed.stderr,
+        exitCode: completed.exitCode ?? undefined,
+      }
+    }
+
+    return {
+      ok: true,
+      data: { workspaceRoot, loopName, loopSlug, loopDirectory, statePath, created: true },
+    }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 type SwarmArtifactCommandResult =
   | { ok: true; data: unknown }
+  | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
+
+type MultiloopInitPayload = {
+  workspaceRoot: string
+  loopName: string
+  finalGoal: string
+}
+
+type MultiloopInitResult =
+  | {
+      ok: true
+      data: {
+        workspaceRoot: string
+        loopName: string
+        loopSlug: string
+        loopDirectory: string
+        statePath: string
+        created: boolean
+      }
+    }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 
 type SwarmArtifactOpenPayload = {
@@ -3311,6 +3607,10 @@ ipcMain.handle('swarm:artifact:request-changes', async (_, payload: SwarmArtifac
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
 
+ipcMain.handle('multiloop:init', async (_, payload: MultiloopInitPayload): Promise<MultiloopInitResult> => {
+  return initializeMultiloopState(payload)
+})
+
 function normalizeFileSearchLimit(limit: unknown): number {
   if (typeof limit !== 'number' || !Number.isFinite(limit)) return FILE_SEARCH_DEFAULT_LIMIT
   return Math.min(Math.max(Math.floor(limit), 1), FILE_SEARCH_MAX_LIMIT)
@@ -3849,6 +4149,10 @@ ipcMain.handle('diagnostics:open-logs-folder', async () => {
 
 ipcMain.handle('specialist:read-prompt', async (_, specialistId: SpecialistActionId) => {
   return readSpecialistPrompt(specialistId)
+})
+
+ipcMain.handle('multiloop:read-agent-soul', async (_, role: MultiloopAgentSoulRole) => {
+  return readMultiloopAgentSoul(role)
 })
 
 ipcMain.handle('fs:writefile', async (_, filePath: string, content: string) => {

@@ -8,15 +8,20 @@ import SettingsModal from '../settings/SettingsModal'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
+  MULTILOOP_AGENT_SOULS,
   SPECIALIST_ACTIONS,
+  getMultiloopAgentSoul,
   getSpecialistAction,
+  loadMultiloopAgentSoul,
   loadSpecialistPrompt,
+  type MultiloopAgentSoul,
 } from '../../specialists/specialistActions'
 import type {
   AgentCli,
   AppNotification,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
+  MultiloopAgentSoulRole,
   SpecialistActionId,
   SwarmCliPermissionPreset,
   Workspace,
@@ -27,9 +32,11 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SWARM_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/swarmHandoff'
+import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone } from '../../utils/multiloop'
 import { slugifySwarmName } from '../../utils/swarmStateFile'
 import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
+import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SwarmStateSynchronizer from './SwarmStateSynchronizer'
 import WorkspaceGitStatusButton from './WorkspaceGitStatusButton'
 import WorkspaceLayout from './WorkspaceLayout'
@@ -211,6 +218,42 @@ function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]): stri
     .join('\u001e')
 }
 
+function toProjectRelativeStatePath(path: string | null | undefined, workspaceRoot: string | null | undefined): string {
+  if (!path) return 'multiloop/<loop>/state.json'
+
+  const normalizedPath = path.replace(/\\/g, '/')
+  const normalizedRoot = workspaceRoot?.replace(/\\/g, '/').replace(/\/+$/u, '')
+  if (normalizedRoot && (normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`))) {
+    return normalizedPath.slice(normalizedRoot.length).replace(/^\/+/u, '') || '.'
+  }
+
+  const multiloopIndex = normalizedPath.lastIndexOf('/multiloop/')
+  return multiloopIndex >= 0
+    ? normalizedPath.slice(multiloopIndex + 1)
+    : 'multiloop/<loop>/state.json'
+}
+
+function buildMultiloopSpawnPrompt({
+  soul,
+  soulPrompt,
+  workspace,
+}: {
+  soul: MultiloopAgentSoul
+  soulPrompt: string
+  workspace: Workspace
+}): string {
+  const state = workspace.multiloopState
+  const context = buildMultiloopLaunchContextLines({
+    roleLabel: soul.label,
+    loopName: state?.loop.displayName ?? workspace.multiloopContext?.loopName ?? workspace.name,
+    finalGoal: state?.loop.finalGoal ?? null,
+    currentMilestone: state ? getActiveMultiloopMilestone(state) : null,
+    statePath: toProjectRelativeStatePath(workspace.multiloopContext?.statePath, workspace.folderPath),
+  })
+
+  return [soulPrompt.trim(), ...context].join('\n')
+}
+
 export default function WorkspaceManager() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -228,6 +271,16 @@ export default function WorkspaceManager() {
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
   const setLastSelectedSpecialist = useWorkspaceStore((s) => s.setLastSelectedSpecialist)
+  const lastSelectedMultiloopRole = useWorkspaceStore(
+    (s) => s.appSettings.lastSelectedMultiloopRole ?? MULTILOOP_AGENT_SOULS[0].role
+  )
+  const setLastSelectedMultiloopRole = useWorkspaceStore((s) => s.setLastSelectedMultiloopRole)
+  const lastAgentSpawnPermissionPreset = useWorkspaceStore(
+    (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? 'default'
+  )
+  const setLastAgentSpawnPermissionPreset = useWorkspaceStore(
+    (s) => s.setLastAgentSpawnPermissionPreset
+  )
   const notifications = useNotificationStore((s) => s.notifications)
   const markNotificationRead = useNotificationStore((s) => s.markRead)
   const markAllNotificationsRead = useNotificationStore((s) => s.markAllRead)
@@ -236,6 +289,8 @@ export default function WorkspaceManager() {
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
   const selectedCliOption = AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === lastSelectedCli) ?? AGENT_SPAWN_CLI_OPTIONS[0]
   const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
+  const selectedMultiloopSoul = getMultiloopAgentSoul(lastSelectedMultiloopRole)
+  const multiloopLaunchMenu = activeWorkspace?.mode === 'multiloop'
   const proAccount = hasActiveProPlan(authState)
 
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
@@ -244,7 +299,9 @@ export default function WorkspaceManager() {
   const [showPalette, setShowPalette] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   const [agentCliDropdownOpen, setAgentCliDropdownOpen] = useState(false)
-  const [agentSpawnPermissionPreset, setAgentSpawnPermissionPreset] = useState<SwarmCliPermissionPreset>('default')
+  const [agentSpawnPermissionPreset, setAgentSpawnPermissionPresetState] = useState<SwarmCliPermissionPreset>(
+    lastAgentSpawnPermissionPreset
+  )
   const selectedAgentPermissionOption = AGENT_SPAWN_PERMISSION_OPTIONS.find(
     (option) => option.value === agentSpawnPermissionPreset
   ) ?? AGENT_SPAWN_PERMISSION_OPTIONS[0]
@@ -299,6 +356,11 @@ export default function WorkspaceManager() {
     setHandoffOpen(false)
   }
 
+  const setAgentSpawnPermissionPreset = (preset: SwarmCliPermissionPreset) => {
+    setAgentSpawnPermissionPresetState(preset)
+    setLastAgentSpawnPermissionPreset(preset)
+  }
+
   const clearWorkspaceLayoutUnloadTimer = (workspaceId: string) => {
     const timer = workspaceLayoutUnloadTimersRef.current[workspaceId]
     if (timer === undefined) return
@@ -310,6 +372,10 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (!specialistMenuOpen) setAgentCliDropdownOpen(false)
   }, [specialistMenuOpen])
+
+  useEffect(() => {
+    setAgentSpawnPermissionPresetState(lastAgentSpawnPermissionPreset)
+  }, [lastAgentSpawnPermissionPreset])
 
   useEffect(() => {
     const workspaceIds = new Set(workspaces.map((workspace) => workspace.id))
@@ -720,6 +786,58 @@ export default function WorkspaceManager() {
     )
   }
 
+  const addNewMultiloopAgent = async (
+    role: MultiloopAgentSoulRole = lastSelectedMultiloopRole,
+    requestedName = ''
+  ) => {
+    if (showTemplateSelector || !activeWorkspaceId) return
+    const model = getModel(activeWorkspaceId)
+    if (!model) return
+
+    const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    if (!activeWorkspace || activeWorkspace.mode !== 'multiloop') return
+
+    const soul = getMultiloopAgentSoul(role)
+    const agentName = normalizeAgentIdentifier(requestedName)
+    const tabName = agentName || uniqueAgentName(soul.label, activeWorkspace.agents)
+    const newId = `multiloop-${role}-${nanoid(6)}`
+    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+    if (!targetTabset) return
+
+    const prompt = await loadMultiloopAgentSoul(soul.role)
+    const startupPrompt = buildMultiloopSpawnPrompt({
+      soul,
+      soulPrompt: prompt,
+      workspace: activeWorkspace,
+    })
+
+    updateAgent(activeWorkspaceId, newId, {
+      name: tabName,
+      cli: lastSelectedCli,
+      cliPermissionPreset: agentSpawnPermissionPreset,
+      kind: 'multiloop',
+      specialistId: undefined,
+      multiloopRole: soul.role,
+      cliStartupPrompt: prependAgentIdentifier(startupPrompt, tabName, `Multiloop ${soul.shortLabel}`),
+      cliOnboardingPromptSent: false,
+      cliHasLaunched: false,
+    })
+    model.doAction(
+      Actions.addNode(
+        {
+          type: 'tab',
+          name: tabName,
+          component: 'agent',
+          config: { agentId: newId },
+        },
+        targetTabset.getId(),
+        DockLocation.CENTER,
+        -1,
+        true
+      )
+    )
+  }
+
   const addNewCliAgent = (cli: AgentCli, label: string) => {
     if (showTemplateSelector || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
@@ -808,6 +926,12 @@ export default function WorkspaceManager() {
     setLastSelectedSpecialist(specialistId)
     setSpecialistMenuOpen(false)
     void addNewSpecialist(specialistId)
+  }
+
+  const handleSelectMultiloopRole = (role: MultiloopAgentSoulRole) => {
+    setLastSelectedMultiloopRole(role)
+    setSpecialistMenuOpen(false)
+    void addNewMultiloopAgent(role)
   }
 
   const handleSelectSpawnCli = (cli: AgentCli) => {
@@ -912,6 +1036,11 @@ export default function WorkspaceManager() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       <SwarmAutoRunSupervisor />
+      {workspaces.map((workspace) => (
+        workspace.id === activeWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
+          ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
+          : null
+      ))}
       {!MULTICODE_DISABLE_SWARM_SYNC && workspaces.map((workspace) => (
         workspace.id === activeWorkspaceId && (workspace.mode === 'swarm' || workspace.swarmContext)
           ? <SwarmStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
@@ -1144,13 +1273,30 @@ export default function WorkspaceManager() {
             <div ref={specialistMenuRef} className="relative inline-flex">
               <div className="inline-flex overflow-hidden rounded-md border border-[#4b4d55] bg-[#181a20] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.025)]">
                 <button
-                  onClick={() => void addNewSpecialist()}
+                  onClick={() => {
+                    if (multiloopLaunchMenu) {
+                      void addNewMultiloopAgent()
+                    } else {
+                      void addNewSpecialist()
+                    }
+                  }}
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-8 items-center justify-center text-[#d7d7dc] transition-colors hover:bg-[#22252c] hover:text-[#f3f3f5] disabled:opacity-40 disabled:hover:bg-[#181a20]"
-                  title={`Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${selectedSpecialistAction.shortcut})` : ''}`}
-                  aria-label={`Spawn ${selectedSpecialistAction.label} specialist`}
+                  title={
+                    multiloopLaunchMenu
+                      ? `Spawn Multiloop ${selectedMultiloopSoul.label} with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}`
+                      : `Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${selectedSpecialistAction.shortcut})` : ''}`
+                  }
+                  aria-label={
+                    multiloopLaunchMenu
+                      ? `Spawn Multiloop ${selectedMultiloopSoul.label}`
+                      : `Spawn ${selectedSpecialistAction.label} specialist`
+                  }
                 >
-                  <SpecialistActionIcon icon={selectedSpecialistAction.icon} className="h-[18px] w-[18px]" />
+                  <SpecialistActionIcon
+                    icon={multiloopLaunchMenu ? selectedMultiloopSoul.icon : selectedSpecialistAction.icon}
+                    className="h-[18px] w-[18px]"
+                  />
                 </button>
                 <button
                   onClick={() => {
@@ -1286,51 +1432,99 @@ export default function WorkspaceManager() {
                     </span>
                   </button>
                   <div className="my-1 border-t border-[#24252b]" />
-                  <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                    Specialist Agents
-                  </div>
-                  {SPECIALIST_ACTIONS.map((action) => {
-                    const selected = action.id === selectedSpecialistAction.id
-                    return (
-                      <button
-                        key={action.id}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={selected}
-                        onClick={() => handleSelectSpecialist(action.id)}
-                        className={`flex w-full items-start gap-3 rounded px-2.5 py-2 text-left transition-colors ${
-                          selected
-                            ? 'bg-[#ffbf2f]/8 text-[#ececee]'
-                            : 'text-[#d7d7dc] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
-                        }`}
-                      >
-                        <span
-                          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
-                            selected
-                              ? 'border-[#ffbf2f]/40 bg-[#ffbf2f]/8 text-[#ffbf2f]'
-                              : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
-                          }`}
-                        >
-                          <SpecialistActionIcon icon={action.icon} className="h-[18px] w-[18px]" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-semibold">
-                            {action.label}
-                          </span>
-                          <span className="mt-0.5 block text-[11px] leading-4 text-[#8a8a92]">
-                            {action.description}
-                          </span>
-                        </span>
-                        {selected ? (
-                          <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f]" />
-                        ) : action.shortcut ? (
-                          <kbd className="mt-2.5 shrink-0 rounded bg-[#111216] px-1.5 py-0.5 text-[10px] text-[#5a5a63]">
-                            {action.shortcut}
-                          </kbd>
-                        ) : null}
-                      </button>
-                    )
-                  })}
+                  {multiloopLaunchMenu ? (
+                    <>
+                      <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                        Multiloop Roles
+                      </div>
+                      {MULTILOOP_AGENT_SOULS.map((soul) => {
+                        const selected = soul.role === selectedMultiloopSoul.role
+                        return (
+                          <button
+                            key={soul.role}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={selected}
+                            onClick={() => handleSelectMultiloopRole(soul.role)}
+                            className={`flex w-full items-start gap-3 rounded px-2.5 py-2 text-left transition-colors ${
+                              selected
+                                ? 'bg-[#ffbf2f]/8 text-[#ececee]'
+                                : 'text-[#d7d7dc] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
+                            }`}
+                          >
+                            <span
+                              className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
+                                selected
+                                  ? 'border-[#ffbf2f]/40 bg-[#ffbf2f]/8 text-[#ffbf2f]'
+                                  : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
+                              }`}
+                            >
+                              <SpecialistActionIcon icon={soul.icon} className="h-[18px] w-[18px]" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13px] font-semibold">
+                                {soul.label}
+                              </span>
+                              <span className="mt-0.5 block text-[11px] leading-4 text-[#8a8a92]">
+                                multiloop-agent-souls/{soul.promptFile}
+                              </span>
+                            </span>
+                            {selected ? (
+                              <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f]" />
+                            ) : null}
+                          </button>
+                        )
+                      })}
+                    </>
+                  ) : (
+                    <>
+                      <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                        Specialist Agents
+                      </div>
+                      {SPECIALIST_ACTIONS.map((action) => {
+                        const selected = action.id === selectedSpecialistAction.id
+                        return (
+                          <button
+                            key={action.id}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={selected}
+                            onClick={() => handleSelectSpecialist(action.id)}
+                            className={`flex w-full items-start gap-3 rounded px-2.5 py-2 text-left transition-colors ${
+                              selected
+                                ? 'bg-[#ffbf2f]/8 text-[#ececee]'
+                                : 'text-[#d7d7dc] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
+                            }`}
+                          >
+                            <span
+                              className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
+                                selected
+                                  ? 'border-[#ffbf2f]/40 bg-[#ffbf2f]/8 text-[#ffbf2f]'
+                                  : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
+                              }`}
+                            >
+                              <SpecialistActionIcon icon={action.icon} className="h-[18px] w-[18px]" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13px] font-semibold">
+                                {action.label}
+                              </span>
+                              <span className="mt-0.5 block text-[11px] leading-4 text-[#8a8a92]">
+                                {action.description}
+                              </span>
+                            </span>
+                            {selected ? (
+                              <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f]" />
+                            ) : action.shortcut ? (
+                              <kbd className="mt-2.5 shrink-0 rounded bg-[#111216] px-1.5 py-0.5 text-[10px] text-[#5a5a63]">
+                                {action.shortcut}
+                              </kbd>
+                            ) : null}
+                          </button>
+                        )
+                      })}
+                    </>
+                  )}
                 </div>
               ) : null}
             </div>

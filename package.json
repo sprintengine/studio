@@ -26,7 +26,28 @@
     "files": [
       "out/**/*",
       "specialist-prompts/**/*",
+      "multiloop-agent-souls/**/*",
       "!out/**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "multiloop-agent-souls",
+        "to": "multiloop-agent-souls",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scripts/multiloop_tool.py",
+        "to": "scripts/multiloop_tool.py"
+      },
+      {
+        "from": "multiloop_core",
+        "to": "multiloop_core",
+        "filter": [
+          "**/*.py"
+        ]
+      }
     ],
     "win": {
       "target": [

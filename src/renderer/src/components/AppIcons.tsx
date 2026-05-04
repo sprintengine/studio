@@ -52,6 +52,39 @@ export function WorkspaceTypeIcon({
     )
   }
 
+  if (mode === 'multiloop') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M6.25 8.25C7.7 5.95 10 4.75 12.45 4.75C16.2 4.75 19.25 7.8 19.25 11.55C19.25 13.8 18.15 15.8 16.45 17.05"
+          stroke="currentColor"
+          strokeWidth={iconStroke}
+          strokeLinecap="round"
+        />
+        <path
+          d="M17.5 7.25H19.25V5.5M17.75 16.25H16V18"
+          stroke="currentColor"
+          strokeWidth={iconStroke}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M17.75 15.75C16.3 18.05 14 19.25 11.55 19.25C7.8 19.25 4.75 16.2 4.75 12.45C4.75 10.2 5.85 8.2 7.55 6.95"
+          stroke="currentColor"
+          strokeWidth={iconStroke}
+          strokeLinecap="round"
+        />
+        <path
+          d="M9 12.15L11.05 14.2L15.15 9.8"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth={iconStroke} />
