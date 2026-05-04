@@ -126,6 +126,26 @@ function getNextRecommendation(milestone: MultiloopMilestone | null): string {
   return latestVerdict?.nextRecommendation || 'Continue the active milestone until acceptance evidence is complete.'
 }
 
+function formatMultiloopGoal(goal: string): string {
+  const trimmed = goal.trim()
+  return trimmed || 'No final goal recorded.'
+}
+
+function formatMultiloopGoalPreview(goal: string): string {
+  const formatted = formatMultiloopGoal(goal)
+  if (formatted === 'No final goal recorded.') return formatted
+
+  const firstLine = goal
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find(Boolean)
+
+  if (!firstLine) return formatted
+
+  const firstSentence = firstLine.match(/^(.+?[.!?])(?:\s|$)/u)?.[1]?.trim()
+  return firstSentence || firstLine
+}
+
 function getRelatedArtifacts(artifacts: MultiloopArtifact[], milestoneId: string | null, tasks: MultiloopTask[]): MultiloopArtifact[] {
   if (!milestoneId) return []
   const taskIds = new Set(tasks.map((task) => task.id))
@@ -189,6 +209,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const [roleLaunchState, setRoleLaunchState] = useState<RoleLaunchState>({ status: 'idle' })
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [goalExpanded, setGoalExpanded] = useState(false)
 
   const multiloopState = workspace?.multiloopState ?? null
   const statePath = workspace?.multiloopContext?.statePath ?? null
@@ -332,6 +353,9 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     () => getRelatedArtifacts(multiloopState?.artifacts ?? [], selectedMilestone?.id ?? null, visibleTasks),
     [multiloopState?.artifacts, selectedMilestone?.id, visibleTasks]
   )
+  const fullGoal = formatMultiloopGoal(multiloopState?.loop.finalGoal ?? '')
+  const goalPreview = formatMultiloopGoalPreview(multiloopState?.loop.finalGoal ?? '')
+  const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 260
 
   if (!workspace) return null
   if (readState.status === 'loading') return <StateMessage title="Loading Multiloop state" message="Reading the loop state file." tone="loading" />
@@ -364,15 +388,39 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-[#08090b] text-[#ececee]" aria-label="Multiloop milestone board">
+    <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#08090b] text-[#ececee] [overflow-wrap:anywhere]" aria-label="Multiloop milestone board">
       <header className="shrink-0 border-b border-[#202127] px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-[18rem] flex-1">
+          <div className="min-w-0 flex-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#81828c]">Multiloop</p>
             <h1 className="mt-1 text-[20px] font-semibold leading-7 text-[#f5f5f6]">{multiloopState.loop.displayName}</h1>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-[#b7b8bf]">{multiloopState.loop.finalGoal || 'No final goal recorded.'}</p>
+            <button
+              type="button"
+              disabled={!canExpandGoal}
+              onClick={() => {
+                if (canExpandGoal) setGoalExpanded((current) => !current)
+              }}
+              aria-expanded={canExpandGoal ? goalExpanded : undefined}
+              className={`mt-3 block w-full max-w-4xl rounded-[6px] border border-[#24252c] bg-[#0d0e12] px-3 py-2.5 text-left ${
+                canExpandGoal ? 'transition hover:border-[#3a3c45] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]' : 'cursor-default'
+              }`}
+            >
+              <span className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#777882]">Final goal</span>
+                {canExpandGoal ? (
+                  <span className="shrink-0 text-[11px] font-medium text-[#9fb4ff]">
+                    {goalExpanded ? 'Collapse' : 'Expand'}
+                  </span>
+                ) : null}
+              </span>
+              <span className={`mt-1 block whitespace-pre-wrap text-sm leading-6 text-[#b7b8bf] ${
+                goalExpanded ? 'max-h-72 overflow-y-auto pr-2' : 'line-clamp-3'
+              }`}>
+                {goalExpanded ? fullGoal : goalPreview}
+              </span>
+            </button>
           </div>
-          <div className="grid grid-cols-2 gap-2 text-right sm:grid-cols-4">
+          <div className="grid min-w-0 grid-cols-2 gap-2 text-right sm:grid-cols-4">
             <Meta label="Loop" value={multiloopState.loop.status} />
             <Meta label="Iteration" value={String(multiloopState.loop.iteration)} />
             <Meta label="Active blockers" value={String(activeBlockers.length)} tone={activeBlockers.length ? 'warn' : 'normal'} />
@@ -422,7 +470,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
           </div>
         </aside>
 
-        <main className="min-h-0 overflow-y-auto">
+        <main className="min-h-0 min-w-0 overflow-y-auto">
           <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_21rem]">
             <div className="min-w-0 space-y-4">
               <MilestoneSummary milestone={selectedMilestone} activeMilestoneId={activeMilestone?.id ?? null} />
@@ -488,8 +536,8 @@ function MultiloopRoleLauncher({
 function StateMessage({ title, message, tone }: { title: string; message: string; tone: 'empty' | 'error' | 'loading' }) {
   const toneClass = tone === 'error' ? 'border-[#6f3131] text-[#ffb5b8]' : 'border-[#25262d] text-[#b9bac2]'
   return (
-    <section className="flex h-full items-center justify-center bg-[#08090b] px-6 text-center text-[#ececee]" role={tone === 'loading' ? 'status' : 'region'} aria-live="polite">
-      <div className={`max-w-md rounded-[8px] border ${toneClass} bg-[#0d0e12] p-5`}>
+    <section className="flex h-full min-w-0 items-center justify-center bg-[#08090b] px-6 text-center text-[#ececee] [overflow-wrap:anywhere]" role={tone === 'loading' ? 'status' : 'region'} aria-live="polite">
+      <div className={`min-w-0 max-w-md rounded-[8px] border ${toneClass} bg-[#0d0e12] p-5`}>
         <h1 className="text-base font-semibold text-[#f2f2f4]">{title}</h1>
         <p className="mt-2 text-sm leading-6 text-[#a9aab2]">{message}</p>
       </div>

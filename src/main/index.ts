@@ -1253,6 +1253,7 @@ type TerminalSession = {
   lastOutputAt: number | null
   lastInputAt: number | null
   pendingResize?: TerminalSize
+  startupScriptPath?: string
 }
 
 const TERMINAL_REPLAY_BUFFER_LIMIT = 512 * 1024
@@ -1468,6 +1469,7 @@ type ShellLaunchConfig = {
   cwd?: string
   initialInput?: string
   env?: Record<string, string>
+  startupScriptPath?: string
 }
 
 function getTerminalEnv(): Record<string, string> {
@@ -1614,16 +1616,12 @@ function quotePosixCommand(value: string): string {
   return /^[A-Za-z0-9._/-]+$/.test(value) ? value : quotePosix(value)
 }
 
-function quoteCmd(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`
+function quotePowerShell(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`
 }
 
-function quoteCmdPrompt(value: string): string {
-  return quoteCmd(value.replace(/\r?\n/g, ' '))
-}
-
-function quoteCmdIfNeeded(value: string): string {
-  return /[\s&()^|<>"]/g.test(value) ? quoteCmd(value) : value
+function powerShellBase64Literal(value: string): string {
+  return `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(${quotePowerShell(Buffer.from(value, 'utf8').toString('base64'))}))`
 }
 
 function getCliPermissionArgs(
@@ -2439,6 +2437,33 @@ function buildUserShellStartup(): string {
   ].join('; ')
 }
 
+function isLoginShell(shellName: string | undefined): boolean {
+  return shellName === 'bash' || shellName === 'zsh'
+}
+
+function buildInteractiveShellExec(shellPath: string, shellName: string | undefined): string {
+  const loginArg = isLoginShell(shellName) ? ' -l' : ''
+  return `exec ${quotePosixCommand(shellPath)}${loginArg}`
+}
+
+function createTerminalStartupScript(
+  sessionId: string,
+  extension: 'sh' | 'ps1',
+  content: string
+): string {
+  const scriptDirectory = join(app.getPath('userData'), 'terminal-startup')
+  const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
+  const scriptPath = join(scriptDirectory, `${safeSessionId}-${Date.now()}.${extension}`)
+  mkdirSync(scriptDirectory, { recursive: true })
+  writeFileSync(scriptPath, `${content.trim()}\n`, { encoding: 'utf8', mode: 0o600 })
+  return scriptPath
+}
+
+function cleanupTerminalStartupScript(scriptPath: string | undefined): void {
+  if (!scriptPath) return
+  void unlink(scriptPath).catch(() => {})
+}
+
 function buildWslShellScript(
   cwd: string,
   sessionId: string,
@@ -2480,34 +2505,34 @@ function getShellLaunchConfig(
         `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`
       )
     }
-    const commandLine = buildNativeAgentLaunchCommand(
-      cli,
+    const startupScriptPath = createTerminalStartupScript(
       sessionId,
-      resume,
-      windowsCwd,
-      shellInitialPrompt,
-      cliRuntime,
-      cliPermissionPreset
+      'ps1',
+      buildNativeAgentLaunchPowerShellScript(
+        cli,
+        sessionId,
+        resume,
+        windowsCwd,
+        shellInitialPrompt,
+        cliRuntime,
+        cliPermissionPreset
+      )
     )
 
     return {
-      command: 'cmd.exe',
-      args: ['/d', '/k'],
-      initialInput: `${commandLine}\r`,
+      command: 'powershell.exe',
+      args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
       env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
       cwd: windowsCwd,
+      startupScriptPath,
     }
   }
 
   if (process.platform === 'win32') {
-    return {
-      command: 'wsl.exe',
-      args: [
-        '-e',
-        'bash',
-        '-li',
-      ],
-      initialInput: `${buildWslShellScript(
+    const startupScriptPath = createTerminalStartupScript(
+      sessionId,
+      'sh',
+      buildWslShellScript(
         cwd,
         sessionId,
         resume,
@@ -2516,27 +2541,41 @@ function getShellLaunchConfig(
         initialPrompt,
         cliRuntime,
         cliPermissionPreset
-      )}\r`,
+      )
+    )
+    return {
+      command: 'wsl.exe',
+      args: [
+        '-e',
+        'bash',
+        '-li',
+        toWslPath(startupScriptPath),
+      ],
+      startupScriptPath,
     }
   }
 
   const shellPath = process.env.SHELL || 'bash'
   const shellName = shellPath.split(/[\\/]/).at(-1)
-  const args = shellName === 'bash' || shellName === 'zsh' ? ['-l'] : []
+  const launchCommand = [
+    buildSwarmShellBootstrap(swarmStatePath),
+    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset),
+    buildInteractiveShellExec(shellPath, shellName),
+  ].join('; ')
+  const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
 
   return {
     command: shellPath,
-    args,
-    initialInput: `${[
-      buildSwarmShellBootstrap(swarmStatePath),
-      buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset),
-    ].join('; ')}\r`,
+    args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
+    cwd,
+    startupScriptPath,
   }
 }
 
 function getPlainShellLaunchConfig(
   cwd: string,
-  swarmStatePath?: string
+  swarmStatePath?: string,
+  sessionId = 'plain-terminal'
 ): ShellLaunchConfig {
   if (process.platform === 'win32') {
     const windowsCwd = toWindowsPath(cwd)
@@ -2551,35 +2590,46 @@ function getPlainShellLaunchConfig(
       }
     }
 
+    const startupScriptPath = createTerminalStartupScript(
+      sessionId,
+      'sh',
+      [
+        buildUserShellStartup(),
+        `cd ${quotePosix(toWslPath(cwd))}`,
+        buildSwarmShellBootstrap(swarmStatePath),
+        'exec bash -li',
+      ].join('; ')
+    )
+
     return {
       command: 'wsl.exe',
       args: [
         '-e',
         'bash',
-        '-lic',
-        [
-          buildUserShellStartup(),
-          `cd ${quotePosix(toWslPath(cwd))}`,
-          buildSwarmShellBootstrap(swarmStatePath),
-          'exec bash -li',
-        ].join('; '),
+        '-li',
+        toWslPath(startupScriptPath),
       ],
+      startupScriptPath,
     }
   }
 
   const shellPath = process.env.SHELL || 'bash'
   const shellName = shellPath.split(/[\\/]/).at(-1)
-  const args = shellName === 'bash' || shellName === 'zsh' ? ['-l'] : []
+  const launchCommand = [
+    buildSwarmShellBootstrap(swarmStatePath),
+    buildInteractiveShellExec(shellPath, shellName),
+  ].join('; ')
+  const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
 
   return {
     command: shellPath,
-    args,
     cwd,
-    initialInput: `${buildSwarmShellBootstrap(swarmStatePath)}\r`,
+    args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
+    startupScriptPath,
   }
 }
 
-function buildNativeAgentLaunchCommand(
+function buildNativeAgentLaunchPowerShellScript(
   cli: AgentCli,
   sessionId: string,
   resume: boolean,
@@ -2588,22 +2638,30 @@ function buildNativeAgentLaunchCommand(
   cliRuntime: CliRuntimeSettings,
   cliPermissionPreset: SwarmCliPermissionPreset = 'default'
 ): string {
-  const command = quoteCmdIfNeeded(cliRuntime.command || cli)
-  const permissionArgs = getCliPermissionArgs(cli, cliPermissionPreset).map(quoteCmdIfNeeded)
-  const permissionArgText = permissionArgs.length ? ` ${permissionArgs.join(' ')}` : ''
+  const permissionArgs = getCliPermissionArgs(cli, cliPermissionPreset)
+  const command = cliRuntime.command || cli
+  const args = cli === 'codex'
+    ? [
+        ...permissionArgs,
+        ...(resume ? ['resume'] : []),
+        '-C',
+        cwd,
+        ...(!resume && initialPrompt ? [initialPrompt] : []),
+      ]
+    : [
+        ...permissionArgs,
+        resume ? '--resume' : '--session-id',
+        sessionId,
+        ...(initialPrompt ? [initialPrompt] : []),
+      ]
 
-  if (cli === 'codex') {
-    if (resume) {
-      return `${command}${permissionArgText} resume -C ${quoteCmdIfNeeded(cwd)}`
-    }
-
-    const promptArg = initialPrompt ? ` ${quoteCmdPrompt(initialPrompt)}` : ''
-    return `${command}${permissionArgText} -C ${quoteCmdIfNeeded(cwd)}${promptArg}`
-  }
-
-  const sessionFlag = resume ? '--resume' : '--session-id'
-  const promptArg = initialPrompt ? ` ${quoteCmdPrompt(initialPrompt)}` : ''
-  return `${command}${permissionArgText} ${sessionFlag} ${quoteCmdIfNeeded(sessionId)}${promptArg}`
+  return [
+    `$ErrorActionPreference = 'Continue'`,
+    `Set-Location -LiteralPath ${quotePowerShell(cwd)}`,
+    `$command = ${quotePowerShell(command)}`,
+    `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
+    `& $command @arguments`,
+  ].join('\r\n')
 }
 
 function buildAgentLaunchCommand(
@@ -3031,6 +3089,7 @@ function disposeTerminal(sessionId: string): void {
   const session = terminals.get(sessionId)
   if (!session) return
 
+  cleanupTerminalStartupScript(session.startupScriptPath)
   flushTerminalData(sessionId, 'dispose')
   terminalBatchDiagnostics.delete(sessionId)
   terminalInputDiagnostics.delete(sessionId)
@@ -3170,7 +3229,7 @@ async function spawnMobileAgentTerminal(input: {
   disposeTerminal(input.sessionId)
 
   try {
-    const { command, args, cwd: launchCwd, initialInput, env } = getShellLaunchConfig(
+    const { command, args, cwd: launchCwd, initialInput, env, startupScriptPath } = getShellLaunchConfig(
       input.cwd,
       input.sessionId,
       false,
@@ -3211,6 +3270,7 @@ async function spawnMobileAgentTerminal(input: {
       startedAt: Date.now(),
       lastOutputAt: null,
       lastInputAt: null,
+      startupScriptPath,
     }
 
     terminals.set(input.sessionId, terminalSession)
@@ -3224,6 +3284,7 @@ async function spawnMobileAgentTerminal(input: {
       sendTerminalData(terminalSession, data)
     })
     termProcess.onExit((event) => {
+      cleanupTerminalStartupScript(terminalSession.startupScriptPath)
       flushTerminalData(input.sessionId, 'exit')
       terminalBatchDiagnostics.delete(input.sessionId)
       terminalInputDiagnostics.delete(input.sessionId)
@@ -3418,8 +3479,8 @@ ipcMain.handle(
         disposeOtherAgentSessions(sessionId, workspaceId, agentId, swarmStatePath)
       }
 
-      const { command, args, cwd: launchCwd, initialInput, env } = shellOnly
-        ? getPlainShellLaunchConfig(workingDirectory, swarmStatePath)
+      const { command, args, cwd: launchCwd, initialInput, env, startupScriptPath } = shellOnly
+        ? getPlainShellLaunchConfig(workingDirectory, swarmStatePath, sessionId)
         : getShellLaunchConfig(
           workingDirectory,
           sessionId,
@@ -3463,6 +3524,7 @@ ipcMain.handle(
         startedAt: Date.now(),
         lastOutputAt: null,
         lastInputAt: null,
+        startupScriptPath,
       }
 
       terminals.set(sessionId, terminalSession)
@@ -3478,6 +3540,7 @@ ipcMain.handle(
       })
 
       termProcess.onExit((e) => {
+        cleanupTerminalStartupScript(terminalSession.startupScriptPath)
         flushTerminalData(sessionId, 'exit')
         terminalBatchDiagnostics.delete(sessionId)
         terminalInputDiagnostics.delete(sessionId)

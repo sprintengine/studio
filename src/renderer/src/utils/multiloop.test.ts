@@ -268,6 +268,23 @@ function testMalformedFixtureIsRejectedWithDisplayError() {
   assert.equal(missingRequired.ok, false)
   assert.equal(missingRequired.error.title, 'Invalid Multiloop state')
   assert.match(missingRequired.error.message, /\$\.tasks\[0\]\.milestoneId/)
+
+  const nullableEvidenceState = baseMultiloopState() as any
+  nullableEvidenceState.tasks[0].evidence = null
+  const nullableEvidence = parseMultiloopStateFileContent(JSON.stringify(nullableEvidenceState))
+  assert.equal(nullableEvidence.ok, true)
+  assert.deepEqual(nullableEvidence.state.tasks[0].evidence, {
+    summary: '',
+    touchedFiles: [],
+    commandsRan: [],
+    results: [],
+  })
+
+  const invalidEvidenceState = baseMultiloopState() as any
+  invalidEvidenceState.tasks[0].evidence = []
+  const invalidEvidence = parseMultiloopStateFileContent(JSON.stringify(invalidEvidenceState))
+  assert.equal(invalidEvidence.ok, false)
+  assert.match(invalidEvidence.error.message, /\$\.tasks\[0\]\.evidence: expected object/)
 }
 
 function testRendererPromptContextRedactsSensitiveStateText() {

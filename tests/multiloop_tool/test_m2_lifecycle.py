@@ -84,12 +84,134 @@ def test_task_next_claims_only_active_milestone_ready_tasks_and_resumes_owner(tm
     assert state["tasks"][2]["status"] == "ready"
 
 
+def test_task_create_builds_valid_active_milestone_task_and_supports_lifecycle(tmp_path: Path) -> None:
+    state_path = tmp_path / "multiloop" / "m2" / "state.json"
+    state = m2_state()
+    state["tasks"] = []
+    write_state(state_path, state)
+    cli = MultiloopCli(tmp_path, state_path)
+
+    created = cli.run(
+        "task",
+        "create",
+        "--task-id",
+        "M2-T1",
+        "--role",
+        "developer",
+        "--title",
+        "Build lifecycle task",
+        "--description",
+        "Create a valid task without hand-editing JSON.",
+        "--owned-path",
+        "multiloop_core/tool.py",
+        "--acceptance-criterion",
+        "Task can be claimed and completed.",
+        "--implementation-note",
+        "Use the Multiloop CLI.",
+    )
+    claimed = cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "M2-T1",
+        "--id",
+        "developer-1",
+        "--summary",
+        "Created task through CLI.",
+        "--file",
+        "multiloop_core/tool.py",
+        "--command",
+        "python3 scripts/multiloop_tool.py task create --help",
+        "--result",
+        "Help lists task creation arguments.",
+    )
+    completed = cli.run("task", "status", "--task-id", "M2-T1", "--status", "done", "--id", "developer-1")
+
+    assert "Created task: M2-T1 [ready]" in created.stdout
+    assert "Claimed task: M2-T1 [in_progress]" in claimed.stdout
+    assert "Updated task: M2-T1 [done]" in completed.stdout
+    final_state = read_state(state_path)
+    task = final_state["tasks"][0]
+    assert task["milestoneId"] == "M2"
+    assert task["role"] == "developer"
+    assert task["evidence"]["summary"] == "Created task through CLI."
+    assert task["ownedPaths"] == ["multiloop_core/tool.py"]
+    assert task["acceptanceCriteria"] == ["Task can be claimed and completed."]
+    assert task["implementationNotes"] == ["Use the Multiloop CLI."]
+
+
+def test_task_create_rejects_duplicate_inactive_done_and_unknown_dependencies(tmp_path: Path) -> None:
+    state_path = tmp_path / "multiloop" / "m2" / "state.json"
+    write_state(state_path, m2_state())
+    cli = MultiloopCli(tmp_path, state_path)
+
+    duplicate = cli.run_failure("task", "create", "--task-id", "T1", "--role", "developer", "--title", "Duplicate")
+    inactive = cli.run_failure(
+        "task",
+        "create",
+        "--task-id",
+        "M1-T4",
+        "--milestone-id",
+        "M1",
+        "--role",
+        "developer",
+        "--title",
+        "Inactive milestone task",
+    )
+    done = cli.run_failure("task", "create", "--task-id", "M2-DONE", "--role", "developer", "--status", "done", "--title", "Done")
+    bad_dependency = cli.run_failure(
+        "task",
+        "create",
+        "--task-id",
+        "M2-T4",
+        "--role",
+        "developer",
+        "--title",
+        "Bad dependency",
+        "--depends-on",
+        "NOPE",
+    )
+
+    assert "Task already exists: T1" in duplicate.stderr
+    assert "Can only create tasks for the active milestone: M2" in inactive.stderr
+    assert "Cannot create a task directly as done" in done.stderr
+    assert "unknown task id 'NOPE'" in bad_dependency.stderr
+
+
+def test_task_create_help_shows_usage_and_enum_values(tmp_path: Path) -> None:
+    state_path = tmp_path / "multiloop" / "m2" / "state.json"
+    cli = MultiloopCli(tmp_path, state_path)
+
+    help_output = cli.run("task", "create", "--help").stdout
+
+    assert "usage:" in help_output
+    assert "--role" in help_output
+    assert "developer" in help_output
+    assert "code_reviewer" in help_output
+    assert "--status" in help_output
+    assert "todo,ready,in_progress,needs_input,done,blocked" in help_output
+
+
 def test_state_validation_rejects_bad_dependencies_feedback_and_agent_ownership() -> None:
     state = m2_state()
     state["tasks"][0]["feedback"] = {"confidencePct": 91, "topFriction": "runtime"}
     state["tasks"][0]["ownerAgentId"] = "developer-1"
     state["agents"] = {"developer-1": {"role": "developer", "status": "running", "currentTaskId": "T1"}}
     validate_state(state)
+
+    nullable_evidence = deepcopy(state)
+    nullable_evidence["tasks"][0]["evidence"] = None
+    validate_state(nullable_evidence)
+
+    missing_evidence = deepcopy(state)
+    del missing_evidence["tasks"][0]["evidence"]
+    validate_state(missing_evidence)
+
+    bad_evidence = deepcopy(state)
+    bad_evidence["tasks"][0]["evidence"] = []
+    with pytest.raises(StateValidationError, match=r"\$\.tasks\[0\]\.evidence: expected object"):
+        validate_state(bad_evidence)
 
     bad_feedback = deepcopy(state)
     bad_feedback["tasks"][0]["feedback"] = {"confidencePct": 101}

@@ -322,7 +322,7 @@ function validateTaskDependencies(tasks: MultiloopTask[]): void {
 }
 
 function normalizeTaskEvidence(input: unknown, path: string): MultiloopTaskEvidence {
-  if (input === undefined) {
+  if (input === undefined || input === null) {
     return { summary: '', touchedFiles: [], commandsRan: [], results: [] }
   }
 
