@@ -2703,6 +2703,18 @@ function buildNativeAgentLaunchPowerShellScript(
     `Set-Location -LiteralPath ${quotePowerShell(cwd)}`,
     `$command = ${quotePowerShell(command)}`,
     `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
+    ...(cli === 'codex' ? [
+      `$resolvedCommand = Get-Command $command -ErrorAction SilentlyContinue`,
+      `$resolvedSource = if ($resolvedCommand) { $resolvedCommand.Source } else { $null }`,
+      `$resolvedLeaf = if ($resolvedSource) { Split-Path -Leaf $resolvedSource } else { '' }`,
+      `$isCodexNpmShim = $resolvedLeaf -in @('codex.cmd', 'codex.ps1')`,
+      `if ($isCodexNpmShim) {`,
+      `  $codexJs = Join-Path (Split-Path -Parent $resolvedSource) 'node_modules\\@openai\\codex\\bin\\codex.js'`,
+      `  if (!(Test-Path -LiteralPath $codexJs)) { throw "Codex npm shim detected, but codex.js was not found at $codexJs." }`,
+      `  $command = 'node.exe'`,
+      `  $arguments = @($codexJs) + $arguments`,
+      `}`,
+    ] : []),
     `& $command @arguments`,
   ].join('\r\n')
 }
