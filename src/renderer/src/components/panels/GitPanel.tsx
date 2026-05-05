@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
+import { isImageFile } from '../../utils/files'
 import WorktreeManager from '../worktree/WorktreeManager'
 
 type GitPanelMessage = {
@@ -545,12 +546,14 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     const name = entry.relativePath.split('/').filter(Boolean).pop() ?? entry.relativePath
     let content = ''
 
-    try {
-      content = await window.api.readfile(entry.path)
-    } catch {
-      if (repoRoot && typeof window.api.getGitFileBase === 'function') {
-        const result = await window.api.getGitFileBase(repoRoot, entry.path)
-        content = result.ok ? result.content : ''
+    if (!isImageFile(entry.path || name)) {
+      try {
+        content = await window.api.readfile(entry.path)
+      } catch {
+        if (repoRoot && typeof window.api.getGitFileBase === 'function') {
+          const result = await window.api.getGitFileBase(repoRoot, entry.path)
+          content = result.ok ? result.content : ''
+        }
       }
     }
 

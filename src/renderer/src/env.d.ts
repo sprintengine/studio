@@ -400,6 +400,7 @@ declare interface Window {
     searchContent: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }) => Promise<ContentSearchResult>
     cancelContentSearch: () => Promise<void>
     readfile:  (path: string) => Promise<string>
+    readImageDataUrl: (path: string) => Promise<string>
     pathExists: (path: string) => Promise<boolean>
     checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
     logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>

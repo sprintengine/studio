@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from 'electron'
 import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { access, appendFile, chmod, cp, lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
-import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
+import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
 import { createHash, randomBytes } from 'crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { autoUpdater } from 'electron-updater'
@@ -4192,6 +4192,32 @@ function isMissingPathError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
 }
 
+function imageMimeType(filePath: string): string | null {
+  switch (extname(filePath).toLowerCase()) {
+    case '.apng':
+      return 'image/apng'
+    case '.avif':
+      return 'image/avif'
+    case '.bmp':
+      return 'image/bmp'
+    case '.gif':
+      return 'image/gif'
+    case '.ico':
+      return 'image/x-icon'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.png':
+      return 'image/png'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.webp':
+      return 'image/webp'
+    default:
+      return null
+  }
+}
+
 ipcMain.handle('fs:watch-start', async (event, dirPath: string) => {
   if (!trackedWatcherSenders.has(event.sender.id)) {
     trackedWatcherSenders.add(event.sender.id)
@@ -4259,6 +4285,13 @@ ipcMain.handle('fs:readdir', async (_, dirPath: string) => {
 
 ipcMain.handle('fs:readfile', async (_, filePath: string) => {
   return readFile(filePath, 'utf-8')
+})
+
+ipcMain.handle('fs:read-image-data-url', async (_, filePath: string) => {
+  const mimeType = imageMimeType(filePath)
+  if (!mimeType) throw new Error('Unsupported image file type.')
+  const content = await readFile(filePath)
+  return `data:${mimeType};base64,${content.toString('base64')}`
 })
 
 ipcMain.handle('fs:path-exists', async (_, targetPath: string) => {

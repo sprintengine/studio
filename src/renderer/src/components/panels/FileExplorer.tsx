@@ -5,6 +5,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { isImageFile } from '../../utils/files'
 import { slugifySwarmName } from '../../utils/sprintengineStateFile'
 import type { FuturePlanWorkspaceSource } from '../../types/workspace'
 
@@ -1348,6 +1349,12 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
   }
 
   const handleOpenFile = async (path: string, name: string) => {
+    if (isImageFile(path || name)) {
+      openFile(workspaceId, path, name, '')
+      focusOrAddFileTab(workspaceId, path, name)
+      return
+    }
+
     try {
       const content = await window.api.readfile(path)
       openFile(workspaceId, path, name, content)

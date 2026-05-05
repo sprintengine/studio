@@ -228,7 +228,7 @@ function resolveArtifactPathForEditor(statePath: string, artifactPathInput: stri
   }
 
   const teamDirectory = getParentDirectoryPath(statePath)
-  const workspaceRoot = getParentDirectoryPath(getParentDirectoryPath(teamDirectory))
+  const workspaceRoot = getParentDirectoryPath(getParentDirectoryPath(getParentDirectoryPath(teamDirectory)))
   const targetPath = isAbsoluteFilePath(artifactPath)
     ? artifactPath
     : [

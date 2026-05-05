@@ -639,6 +639,7 @@ contextBridge.exposeInMainWorld('api', {
   cancelContentSearch: (): Promise<void> =>
     ipcRenderer.invoke('fs:cancel-content-search'),
   readfile:  (path: string)                    => ipcRenderer.invoke('fs:readfile', path),
+  readImageDataUrl: (path: string)             => ipcRenderer.invoke('fs:read-image-data-url', path),
   pathExists: (path: string)                   => ipcRenderer.invoke('fs:path-exists', path),
   checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>
     ipcRenderer.invoke('fs:check-workspace-folder', path),

@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getGitEntry, useGitStatus } from '../../hooks/useGitStatus'
 import { getGitLineChanges, type GitLineChange } from '../../utils/gitDiff'
 import { renderMarkdown } from '../../utils/markdown'
+import { isImageFile } from '../../utils/files'
 import {
   getEditorBuffer,
   hasEditorBuffer,
@@ -38,10 +39,12 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const openFiles = editorState?.openFiles ?? []
   const activeFilePath = filePath ?? null
   const activeFile = openFiles.find((f) => f.path === activeFilePath)
+  const isImage = Boolean(activeFilePath && activeFile && isImageFile(activeFile.path || activeFile.name))
   const activeFileHasRuntimeBuffer = activeFilePath
     ? hasEditorBuffer(workspaceId, activeFilePath)
     : false
   const activeFileContentReady = !activeFilePath
+    || isImage
     || activeFileHasRuntimeBuffer
     || typeof activeFile?.content === 'string'
   const activeContent = useSyncExternalStore(
@@ -54,6 +57,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const gitDecorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
   const [gitBaseContent, setGitBaseContent] = useState<{ path: string; content: string } | null>(null)
   const [contentLoadError, setContentLoadError] = useState<{ path: string; message: string } | null>(null)
+  const [imageDataUrl, setImageDataUrl] = useState<{ path: string; url: string } | null>(null)
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
   const isMarkdown = activeFile?.language === 'markdown'
   const showPreview = isMarkdown && markdownMode === 'preview'
@@ -90,6 +94,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       const pathToSave = filePath ?? ws?.editorState?.activeFilePath
       const file = ws?.editorState?.openFiles.find((f) => f.path === pathToSave)
       if (!file) return
+      if (isImageFile(file.path || file.name)) return
       if (!hasEditorBuffer(workspaceId, file.path) && typeof file.content !== 'string') return
       await window.api.writefile(file.path, getEditorBuffer(workspaceId, file.path, file.content ?? ''))
       markFileClean(workspaceId, file.path)
@@ -130,6 +135,36 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       cancelled = true
     }
   }, [activeFile, activeFileContentReady, activeFilePath, workspaceId])
+
+  useEffect(() => {
+    if (!isImage || !activeFilePath) {
+      setImageDataUrl(null)
+      return
+    }
+
+    let cancelled = false
+    setContentLoadError(null)
+    setImageDataUrl((current) => current?.path === activeFilePath ? current : null)
+
+    const loadImage = async () => {
+      try {
+        const url = await window.api.readImageDataUrl(activeFilePath)
+        if (!cancelled) setImageDataUrl({ path: activeFilePath, url })
+      } catch (error) {
+        if (cancelled) return
+        setContentLoadError({
+          path: activeFilePath,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    void loadImage()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeFilePath, isImage])
 
   useEffect(() => {
     if (showPreview) return
@@ -317,6 +352,29 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       {showPreview ? 'Edit' : 'Preview'}
     </button>
   ) : null
+
+  if (isImage && activeFilePath) {
+    if (!imageDataUrl || imageDataUrl.path !== activeFilePath) {
+      return (
+        <div className="h-full flex items-center justify-center bg-[#08090b] text-[#5a5a63] text-[13px] font-mono">
+          Loading image...
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex h-full flex-col bg-[#08090b]">
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6">
+          <img
+            src={imageDataUrl.url}
+            alt={activeFile.name}
+            className="max-h-full max-w-full object-contain"
+            draggable={false}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#08090b]">
