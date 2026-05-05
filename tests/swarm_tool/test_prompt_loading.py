@@ -237,6 +237,28 @@ def test_handover_records_markdown_file_source_metadata(tmp_path) -> None:
     assert state["source"]["originalPath"].endswith("future-plans/source-plan.md")
 
 
+def test_product_intake_task_includes_handover_note_without_duplicates(tmp_path) -> None:
+    state_path = tmp_path / "swarm" / "handover-product-note" / "state.yaml"
+    cli = SwarmCli(state_path)
+    cli.run(
+        "handover",
+        "--name",
+        "Handover Product Note",
+        "--goal",
+        "Create a sourced swarm",
+        "--handover-text",
+        "# Source Plan\n\nProduct must read this.",
+    )
+
+    first = cli.run("init", "--goal", "Create a sourced swarm")
+    second = cli.run("init", "--goal", "Create a sourced swarm")
+
+    source_path = read_state(state_path)["source"]["path"]
+    expected_note = f"Read `{source_path}` as incoming context before writing product-requirements.md."
+    assert expected_note in first["productTask"]["implementationNotes"]
+    assert second["productTask"]["implementationNotes"].count(expected_note) == 1
+
+
 def test_merge_start_returns_instruction_only_prompt(tmp_path) -> None:
     fixture = create_team(tmp_path, "merge-start", [task("T1", "Done task", "developer", status="done")])
     payload = fixture.cli.run("merge", "start", "--id", "architect", "--target", "main")
