@@ -1,9 +1,9 @@
 ---
 name: sprintengine-kanban
-description: Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, and plan reviews for projects that use named `sprintengine/<team>/state.yaml` and `sprintengine/<team>/plan.md` files. Use when acting as a sprintengine architect or worker in this repo's sprintengine-mode workflow.
+description: Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, and plan reviews for projects that use named `.multi-code/sprintengine/<team>/state.yaml` and `.multi-code/sprintengine/<team>/plan.md` files. Use when acting as a sprintengine architect or worker in this repo's sprintengine-mode workflow.
 ---
 
-Use the bundled coordination command instead of hand-editing `sprintengine/state.yaml` or named `sprintengine/<team>/state.yaml` files.
+Use the bundled coordination command instead of hand-editing `.multi-code/sprintengine/state.yaml` or named `.multi-code/sprintengine/<team>/state.yaml` files.
 
 Primary command:
 
@@ -32,7 +32,7 @@ API discovery:
 
 Worker workflow:
 
-1. Read `sprintengine/plan.md` for the human-authored plan and task context.
+1. Read `.multi-code/sprintengine/plan.md` for the human-authored plan and task context.
 2. Run `sprintengine --help` and `sprintengine task next --help` before the first claim in a fresh terminal. On Windows PowerShell, run `.\scripts\sprintengine.cmd --help` and `.\scripts\sprintengine.cmd task next --help`.
 3. Run `sprintengine task next --role <your-role> --id <your-agent-id>` to atomically claim the next ready task for your role. On Windows PowerShell, run `.\scripts\sprintengine.cmd task next --role <your-role> --id <your-agent-id>`.
 4. If this Claude process was restarted, reuse the same `--id`; `task next` returns that slot's existing active task before claiming new work.
@@ -52,11 +52,11 @@ Worker workflow:
 Architect workflow:
 
 1. New sprintengine runs start with product intake. Do not plan until the product intake artifact is approved, unless you are resuming a legacy architect-first sprintengine.
-2. Treat `sprintengine/plan.md` as the final artifact you create, not as a source of truth that already exists.
+2. Treat `.multi-code/sprintengine/plan.md` as the final artifact you create, not as a source of truth that already exists.
 3. Study the approved product artifact, repository, and current implementation deeply before planning.
 4. Ask the user clarifying questions until they confirm the intended outcome, constraints, and acceptance criteria.
 5. Use plan reviews when specialist input would improve the plan.
-6. Write `sprintengine/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
+6. Write `.multi-code/sprintengine/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
 7. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
 8. Add task cards one at a time with `Sprint Engine plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
 9. Include an architect-owned final review scheduling task after implementation, validation, and code review. This task decides which product, security, and performance final reviews are actually needed, records skip rationale for unneeded reviews, adds only the selected specialist review tasks, and then adds a later architect final review task.
@@ -64,7 +64,7 @@ Architect workflow:
 11. During architect final review, never reopen completed tasks. If product, security, performance, code review, validation, or architect findings require follow-up work, create new tasks and also create a later architect final review task that depends on those follow-ups.
 12. During user review, revise the board with `Sprint Engine plan update-task`, `Sprint Engine plan delete-task`, `Sprint Engine plan add-dependency`, and `Sprint Engine plan remove-dependency`.
 13. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
-14. Do not manually edit `sprintengine/state.yaml`.
+14. Do not manually edit `.multi-code/sprintengine/state.yaml`.
 
 Use plan reviews when the architect has drafted a complete plan and wants the specialist roster to critique it before execution:
 

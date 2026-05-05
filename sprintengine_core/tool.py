@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sprint Engine coordination tool for specialist agents.
 
-WARNING: Do not edit sprintengine/state.yaml directly.
+WARNING: Do not edit .multi-code/sprintengine/state.yaml directly.
 All updates must go through this tool.
 """
 
@@ -228,6 +228,17 @@ STATE_NOTICE = (
     "Direct edits will be overwritten and may corrupt Sprint Engine state."
 )
 
+MULTICODE_DIR_NAME = ".multi-code"
+SPRINTENGINE_DIR_NAME = "sprintengine"
+
+
+def sprintengine_root_for(workspace_root: Path) -> Path:
+    return workspace_root / MULTICODE_DIR_NAME / SPRINTENGINE_DIR_NAME
+
+
+def sprintengine_state_path_for(workspace_root: Path, team_slug: str) -> Path:
+    return sprintengine_root_for(workspace_root) / team_slug / "state.yaml"
+
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -246,23 +257,24 @@ def default_state_path(start: Optional[Path] = None) -> Path:
     current = (start or Path.cwd()).resolve()
     print(f"[sprintengine] SPRINTENGINE_STATE_PATH not set, scanning from: {current}", file=sys.stderr)
     for candidate in [current, *current.parents]:
-        p = candidate / "sprintengine" / "state.yaml"
+        sprintengine_root = sprintengine_root_for(candidate)
+        p = sprintengine_root / "state.yaml"
         if p.exists():
             print(f"[sprintengine] found: {p}", file=sys.stderr)
             return p
-        nested = sorted((candidate / "sprintengine").glob("*/state.yaml"))
+        nested = sorted(sprintengine_root.glob("*/state.yaml"))
         if len(nested) == 1:
             print(f"[sprintengine] found nested: {nested[0]}", file=sys.stderr)
             return nested[0]
         if len(nested) > 1:
             names = [f.parent.name for f in nested]
-            print(f"[sprintengine] multiple teams found in {candidate}/sprintengine/: {names}", file=sys.stderr)
+            print(f"[sprintengine] multiple teams found in {sprintengine_root}/: {names}", file=sys.stderr)
             raise SystemExit(
                 f"Multiple Sprint Engine teams found: {', '.join(names)}\n"
                 f"Specify which one with: --state <path>\n"
                 + "\n".join(f"  {f}" for f in nested)
             )
-    fallback = current / "sprintengine" / "state.yaml"
+    fallback = sprintengine_root_for(current) / "state.yaml"
     print(f"[sprintengine] nothing found, defaulting to: {fallback}", file=sys.stderr)
     return fallback
 
@@ -311,7 +323,7 @@ def project_relative_path_guidance() -> str:
         (
             "All file and directory references must be relative to the project root, using forward "
             "slashes where practical, for example `src/renderer/src/App.tsx`, "
-            "`specialist-prompts/developer-prompt.md`, or `sprintengine/<team>/reviews/code-review-1.md`."
+            "`specialist-prompts/developer-prompt.md`, or `.multi-code/sprintengine/<team>/reviews/code-review-1.md`."
         ),
         (
             "For `Sprint Engine plan --path`, `sprintengine task log --file`, and `sprintengine artifact add --path`, "
@@ -1119,7 +1131,9 @@ def repository_root_for_state(state_path: Path) -> Path:
             seen.add(key)
             if (candidate / ".git").exists():
                 return candidate
-    if state_path.parent.parent.name == "sprintengine":
+    if state_path.parent.parent.name == SPRINTENGINE_DIR_NAME and state_path.parent.parent.parent.name == MULTICODE_DIR_NAME:
+        return state_path.parent.parent.parent.parent.resolve()
+    if state_path.parent.parent.name == SPRINTENGINE_DIR_NAME:
         return state_path.parent.parent.parent.resolve()
     return state_path.parent.resolve()
 
@@ -1846,7 +1860,7 @@ def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
     team_slug = slugify_team_name(args.name)
-    state_path = (args.state or (Path.cwd() / "sprintengine" / team_slug / "state.yaml")).resolve()
+    state_path = (args.state or sprintengine_state_path_for(Path.cwd(), team_slug)).resolve()
     team_dir = state_path.parent
     handover_path = handover_path_for_state(state_path)
 
@@ -2031,7 +2045,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
                 f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
                 f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.\n\n"
-                "**IMPORTANT: Do not edit sprintengine/state.yaml directly. "
+                "**IMPORTANT: Do not edit .multi-code/sprintengine/state.yaml directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "prompt": prompt + directive, "write": runtime["dirty"]}
@@ -2050,7 +2064,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
             f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
             f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.\n\n"
-            "**IMPORTANT: Do not edit sprintengine/state.yaml directly. "
+            "**IMPORTANT: Do not edit .multi-code/sprintengine/state.yaml directly. "
             "All updates must go through the Sprint Engine tool.**"
         )
         return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "prompt": prompt + directive, "write": runtime["dirty"]}
@@ -2649,9 +2663,9 @@ Plan commands (architect only):
   sprintengine plan list
 
 Artifact commands:
-  sprintengine artifact add --task-id T1 --kind product_strategy --title "Strategy" --path sprintengine/team/documents/strategy.md --created-by product
-  sprintengine artifact add --task-id T4 --kind code_review --title "Code review" --path sprintengine/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
-  sprintengine artifact add --task-id T5 --kind performance_review --title "Performance review" --path sprintengine/team/reviews/performance-review.md --created-by performance --recommended-task "Fix unbounded render work"
+  sprintengine artifact add --task-id T1 --kind product_strategy --title "Strategy" --path .multi-code/sprintengine/team/documents/strategy.md --created-by product
+  sprintengine artifact add --task-id T4 --kind code_review --title "Code review" --path .multi-code/sprintengine/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
+  sprintengine artifact add --task-id T5 --kind performance_review --title "Performance review" --path .multi-code/sprintengine/team/reviews/performance-review.md --created-by performance --recommended-task "Fix unbounded render work"
   sprintengine artifact list --task-id T1
   sprintengine artifact ready --artifact-id A1 --id product
   sprintengine artifact ready --artifact-id A1 --id product --confidence-pct 85 --hallucination-risk-pct 10

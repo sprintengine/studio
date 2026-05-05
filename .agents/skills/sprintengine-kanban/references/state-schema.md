@@ -2,18 +2,18 @@
 
 The shared Sprint Engine coordination files are:
 
-- `sprintengine/plan.md`
+- `.multi-code/sprintengine/plan.md`
   - architect-authored low-level design and task plan
-- `sprintengine/<team-slug>/state.yaml`
+- `.multi-code/sprintengine/<team-slug>/state.yaml`
   - machine-readable kanban board and run state
-- `sprintengine/<team-slug>/handover.md`
+- `.multi-code/sprintengine/<team-slug>/handover.md`
   - optional incoming planning context created before the sprintengine architect starts
-- `sprintengine/<team-slug>/plan.md`
+- `.multi-code/sprintengine/<team-slug>/plan.md`
   - architect-authored final execution plan for that named team
-- `sprintengine/<team-slug>/plan-reviews/<agent-id>.md`
+- `.multi-code/sprintengine/<team-slug>/plan-reviews/<agent-id>.md`
   - specialist-authored markdown review of the current architect plan
 
-The Python tool is the preferred write path for `sprintengine/state.yaml`.
+The Python tool is the preferred write path for `.multi-code/sprintengine/state.yaml`.
 
 Use `sprintengine handover --name <team> --goal "..." --handover <path>` to create a named team bootstrap and canonical `handover.md`.
 Use `sprintengine handover --name <team> --goal "..." --handover-stdin` when an active planning agent should stream its full handover through the Python tool.
@@ -101,7 +101,7 @@ The app uses narrow IPC to request artifact review mutations through the Python 
 - `startedAt`
 - `completedAt`
 
-When feedback is supplied, the tool also appends a normalized record to `sprintengine/<team-slug>/metrics/agent-feedback.jsonl`. This JSONL file is append-only benchmark/analytics history; `task.feedback` is only the latest compact task-linked value for UI and summaries.
+When feedback is supplied, the tool also appends a normalized record to `.multi-code/sprintengine/<team-slug>/metrics/agent-feedback.jsonl`. This JSONL file is append-only benchmark/analytics history; `task.feedback` is only the latest compact task-linked value for UI and summaries.
 
 ## Artifact Fields
 
@@ -122,7 +122,7 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 - `title`
 - `path`
   - Stored as a repository-relative path when possible.
-  - Must resolve under the active `sprintengine/<team-slug>/` folder.
+  - Must resolve under the active `.multi-code/sprintengine/<team-slug>/` folder.
 - `status`
   - `draft`
   - `ready_for_review`

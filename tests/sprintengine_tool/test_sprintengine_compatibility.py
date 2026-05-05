@@ -78,7 +78,7 @@ def test_sprintengine_cli_imports_sprint_engine_tool() -> None:
 def test_swarm_commands_preserve_lifecycle_shape_through_sprint_engine_facade(
     tmp_path: Path,
 ) -> None:
-    state_path = tmp_path / "sprintengine" / "compat" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "compat" / "state.yaml"
     write_state(state_path)
 
     claimed = run_swarm(

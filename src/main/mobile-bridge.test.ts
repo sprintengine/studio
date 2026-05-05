@@ -566,7 +566,7 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
 
 async function writeSwarmFixture(): Promise<{ workspaceRoot: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-'))
-  const teamDirectory = join(workspaceRoot, 'sprintengine', 'relay-team')
+  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'relay-team')
   await mkdir(join(teamDirectory, 'documents'), { recursive: true })
   await writeFile(join(teamDirectory, 'documents', 'requirements.md'), '# Requirements\n', 'utf8')
   const statePath = join(teamDirectory, 'state.yaml')
@@ -590,7 +590,7 @@ async function writeSwarmFixture(): Promise<{ workspaceRoot: string; statePath: 
         id: 'A1',
         kind: 'requirements',
         title: 'Requirements',
-        path: 'sprintengine/relay-team/documents/requirements.md',
+        path: '.multi-code/sprintengine/relay-team/documents/requirements.md',
         status: 'ready_for_review',
         taskId: 'T1',
       },

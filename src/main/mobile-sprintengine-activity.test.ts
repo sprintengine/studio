@@ -125,8 +125,8 @@ function sprintengine(
     swarmId,
     name: 'Mobile SprintEngine',
     workspacePath: '/private/workspace',
-    statePath: `/private/workspace/sprintengine/${swarmId}/state.yaml`,
-    planPath: `/private/workspace/sprintengine/${swarmId}/plan.md`,
+    statePath: `/private/workspace/.multi-code/sprintengine/${swarmId}/state.yaml`,
+    planPath: `/private/workspace/.multi-code/sprintengine/${swarmId}/plan.md`,
     snapshotVersion: `snap_${swarmId}`,
     updatedAt: now.toISOString(),
     board: {
@@ -162,7 +162,7 @@ function artifact(
     kind: 'requirements',
     status,
     taskId: 'T1',
-    path: `/private/workspace/sprintengine/team/documents/${artifactId}.md`,
+    path: `/private/workspace/.multi-code/sprintengine/team/documents/${artifactId}.md`,
   }
 }
 
@@ -177,7 +177,7 @@ function commandAudit(): MobileSwarmCommandAuditEntry {
     code: 'python_tool_failed',
     message: 'Sprint Engine tool failed without exposing output.',
     recordedAt: now.toISOString(),
-    statePath: '/private/workspace/sprintengine/team/state.yaml',
+    statePath: '/private/workspace/.multi-code/sprintengine/team/state.yaml',
     artifactId: 'A1',
     toolArgs: ['artifact', 'approve'],
     exitCode: 1,

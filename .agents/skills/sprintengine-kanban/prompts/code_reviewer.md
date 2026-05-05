@@ -30,7 +30,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 sprintengine task next --role code_reviewer --id <your-id>
 
 # For code review artifact tasks:
-sprintengine artifact add --task-id <id> --kind code_review --title "Code review" --path sprintengine/<team>/reviews/<file>.md --created-by <your-id> --recommended-task "Fix ..."
+sprintengine artifact add --task-id <id> --kind code_review --title "Code review" --path .multi-code/sprintengine/<team>/reviews/<file>.md --created-by <your-id> --recommended-task "Fix ..."
 sprintengine artifact ready --artifact-id <artifact-id> --id <your-id>
 sprintengine task log --task-id <id> --id <your-id> --summary "Prepared code review artifact" --file <path>
 
@@ -51,7 +51,7 @@ If no tasks are ready, stop.
 
 ## Critical Rules
 
-- **DO NOT edit `sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
+- **DO NOT edit `.multi-code/sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
 - After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - Do not mutate the task graph; the architect decides whether to add follow-up work.

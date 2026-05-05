@@ -63,7 +63,7 @@ def use_python_sprintengine_tool_on_windows(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_init_bootstraps_board_without_returning_role_prompt(tmp_path) -> None:
-    state_path = tmp_path / "sprintengine" / "init-prompt" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "init-prompt" / "state.yaml"
     payload = SwarmCli(state_path).run("init", "--goal", "Capture current prompt behavior")
 
     assert payload["ok"] is True
@@ -95,7 +95,7 @@ def test_init_accepts_worktree_preference_without_claiming_architect_work(tmp_pa
 
 
 def test_init_rejects_invalid_worktree_preference(tmp_path) -> None:
-    state_path = tmp_path / "sprintengine" / "invalid-worktree-flag" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "invalid-worktree-flag" / "state.yaml"
     completed = SwarmCli(state_path).run_failure("init", "--use-worktrees", "maybe")
 
     assert completed.returncode == 2
@@ -130,7 +130,7 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
             "## Execution Workspace Discipline",
             "If `plan.md` declares `Worktree: enabled`",
             "Commit: abc1234",
-            "Do not edit sprintengine/state.yaml directly",
+            "Do not edit .multi-code/sprintengine/state.yaml directly",
         ],
     )
 
@@ -176,7 +176,7 @@ def test_recover_returns_audit_only_prompt_and_backup_path(tmp_path) -> None:
 
 
 def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_path) -> None:
-    state_path = tmp_path / "sprintengine" / "handover-prompt" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "handover-prompt" / "state.yaml"
     payload = SwarmCli(state_path).run(
         "handover",
         "--name",
@@ -207,11 +207,11 @@ def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_
     assert isinstance(state["source"]["capturedAt"], str)
     assert state["source"]["kind"] == "markdown"
     assert state["source"]["origin"] == "inline"
-    assert state["source"]["path"].endswith("sprintengine/handover-prompt/handover.md")
+    assert state["source"]["path"].endswith(".multi-code/sprintengine/handover-prompt/handover.md")
 
 
 def test_handover_records_markdown_file_source_metadata(tmp_path) -> None:
-    state_path = tmp_path / "sprintengine" / "file-handover" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "file-handover" / "state.yaml"
     source_path = tmp_path / "future-plans" / "source-plan.md"
     source_path.parent.mkdir(parents=True)
     source_path.write_text("# Source Plan\n\nBuild the feature.\n", encoding="utf-8")
@@ -234,12 +234,12 @@ def test_handover_records_markdown_file_source_metadata(tmp_path) -> None:
     assert isinstance(state["source"]["capturedAt"], str)
     assert state["source"]["kind"] == "markdown"
     assert state["source"]["origin"] == "file"
-    assert state["source"]["path"].endswith("sprintengine/file-handover/handover.md")
+    assert state["source"]["path"].endswith(".multi-code/sprintengine/file-handover/handover.md")
     assert state["source"]["originalPath"].endswith("future-plans/source-plan.md")
 
 
 def test_product_intake_task_includes_handover_note_without_duplicates(tmp_path) -> None:
-    state_path = tmp_path / "sprintengine" / "handover-product-note" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "handover-product-note" / "state.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "handover",

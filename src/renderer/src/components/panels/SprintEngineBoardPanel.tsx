@@ -2422,7 +2422,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   Architect Plan
                 </div>
                 <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  {planFilePath ?? 'sprintengine/plan.md'}
+                  {planFilePath ?? '.multi-code/sprintengine/plan.md'}
                 </h3>
               </div>
               <div className="flex flex-wrap items-center gap-2">

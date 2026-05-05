@@ -340,7 +340,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   )
 
   const scanFolder = async (dir: string) => {
-    const entries = await window.api.readdir(joinPath(dir, 'sprintengine')).catch(() => [])
+    const entries = await window.api.readdir(joinPath(joinPath(dir, '.multi-code'), 'sprintengine')).catch(() => [])
     const teams: ExistingTeam[] = []
     for (const entry of entries) {
       if (!entry.isDir) continue

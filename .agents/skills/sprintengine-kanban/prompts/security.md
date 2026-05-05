@@ -50,7 +50,7 @@ If no tasks are ready, stop.
 
 ## Critical Rules
 
-- **DO NOT edit `sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
+- **DO NOT edit `.multi-code/sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
 - After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - For review/report artifact tasks, the markdown file, task evidence, and registered artifact are three separate requirements.

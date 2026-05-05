@@ -29,7 +29,7 @@ scripts/sprintengine_tool.py artifact list --run sprint:<team-slug>
 scripts/sprintengine_tool.py report export --run sprint:<team-slug> --format json
 ```
 
-Run ids currently use `sprint:<team-slug>` for state files under `sprintengine/<team-slug>/state.yaml`.
+Run ids currently use `sprint:<team-slug>` for state files under `.multi-code/sprintengine/<team-slug>/state.yaml`.
 
 ## Execution Authority
 
@@ -53,7 +53,7 @@ Sprint Engine mutation commands are intentionally unavailable in Milestone 01. I
 - Windows PowerShell: `.\scripts\sprintengine.cmd <args>`
 - POSIX shells: `sprintengine <args>` or the repo Python fallback
 
-Do not edit `sprintengine/<team>/state.yaml` directly.
+Do not edit `.multi-code/sprintengine/<team>/state.yaml` directly.
 
 ## Path Discipline
 
@@ -62,7 +62,7 @@ Use project-root-relative paths in examples, evidence, artifacts, reports, and h
 ```text
 docs/sprintengine-cli.md
 sprintengine_core/cli.py
-sprintengine/01-shared-domain-cli-readonly/state.yaml
+.multi-code/sprintengine/01-shared-domain-cli-readonly/state.yaml
 specialist-prompts/developer-prompt.md
 ```
 

@@ -531,7 +531,7 @@ export class MobileSwarmCommandService {
 
     const statePath = this.statePaths.length > 0
       ? this.statePaths.find((candidate) => basename(dirname(candidate)) === swarmId)
-      : join(this.workspaceRoot, 'sprintengine', swarmId, 'state.yaml')
+      : join(this.workspaceRoot, '.multi-code', 'sprintengine', swarmId, 'state.yaml')
 
     if (!statePath) {
       throw new MobileSwarmCommandError('swarm_not_found', 'Requested sprintengine is not available to mobile control.', false)
@@ -973,10 +973,16 @@ function validateSwarmStatePath(input: string): ValidSwarmStatePath {
   const statePath = resolve(rawStatePath)
   const teamDirectory = dirname(statePath)
   const swarmDirectory = dirname(teamDirectory)
-  const workspaceRoot = dirname(swarmDirectory)
+  const multiCodeDirectory = dirname(swarmDirectory)
+  const workspaceRoot = dirname(multiCodeDirectory)
 
-  if (basename(statePath) !== 'state.yaml' || basename(swarmDirectory) !== 'sprintengine' || workspaceRoot === swarmDirectory) {
-    throw new MobileSwarmCommandError('path_not_allowed', 'Sprint Engine state path must point to sprintengine/<team>/state.yaml.', false)
+  if (
+    basename(statePath) !== 'state.yaml'
+    || basename(swarmDirectory) !== 'sprintengine'
+    || basename(multiCodeDirectory) !== '.multi-code'
+    || workspaceRoot === multiCodeDirectory
+  ) {
+    throw new MobileSwarmCommandError('path_not_allowed', 'Sprint Engine state path must point to .multi-code/sprintengine/<team>/state.yaml.', false)
   }
 
   return { statePath, teamDirectory, workspaceRoot }

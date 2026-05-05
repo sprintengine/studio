@@ -52,7 +52,7 @@ def test_ready_column_is_derived_from_todo_tasks_with_satisfied_dependencies(tmp
 
 
 def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_path) -> None:
-    state_path = tmp_path / "sprintengine" / "approval-gates" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "approval-gates" / "state.yaml"
     cli = SwarmCli(state_path)
 
     init_payload = cli.run("init", "--goal", "Exercise approval gates")

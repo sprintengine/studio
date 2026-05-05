@@ -96,7 +96,7 @@ async function assertSnapshotOmitsNonMobileStatePayloads(): Promise<void> {
   assert.equal(serialized.includes('raw terminal stream'), false)
   assert.equal(serialized.includes('private source output'), false)
   assert.equal(serialized.includes('secret-ish-hash'), false)
-  assert.equal(snapshot.artifacts[0].path, 'sprintengine/team/product-requirements.md')
+  assert.equal(snapshot.artifacts[0].path, '.multi-code/sprintengine/team/product-requirements.md')
 }
 
 async function assertPublishingIsThrottled(): Promise<void> {
@@ -132,7 +132,7 @@ async function assertPublishingIsThrottled(): Promise<void> {
 
 async function writeStateFixture(state: Record<string, unknown>): Promise<string> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-snapshot-'))
-  const teamDirectory = join(workspacePath, 'sprintengine', 'team')
+  const teamDirectory = join(workspacePath, '.multi-code', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'state.yaml')
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
@@ -155,7 +155,7 @@ function artifact(id: string, kind: string, status: string, taskId: string): Rec
     id,
     kind,
     title: `Artifact ${id}`,
-    path: 'sprintengine/team/product-requirements.md',
+    path: '.multi-code/sprintengine/team/product-requirements.md',
     status,
     createdBy: 'product',
     taskId,

@@ -2017,10 +2017,16 @@ function validateSwarmStatePath(input: unknown): ValidSwarmStatePath {
   const statePath = resolve(rawStatePath)
   const teamDirectory = dirname(statePath)
   const swarmDirectory = dirname(teamDirectory)
-  const workspaceRoot = dirname(swarmDirectory)
+  const multiCodeDirectory = dirname(swarmDirectory)
+  const workspaceRoot = dirname(multiCodeDirectory)
 
-  if (basename(statePath) !== 'state.yaml' || basename(swarmDirectory) !== 'sprintengine' || workspaceRoot === swarmDirectory) {
-    throw new Error('Sprint Engine state path must point to sprintengine/<team>/state.yaml.')
+  if (
+    basename(statePath) !== 'state.yaml'
+    || basename(swarmDirectory) !== 'sprintengine'
+    || basename(multiCodeDirectory) !== '.multi-code'
+    || workspaceRoot === multiCodeDirectory
+  ) {
+    throw new Error('Sprint Engine state path must point to .multi-code/sprintengine/<team>/state.yaml.')
   }
 
   return { statePath, teamDirectory, workspaceRoot }
@@ -2038,12 +2044,14 @@ function isSwarmStateFilePath(input: string): boolean {
   const statePath = resolve(input)
   const teamDirectory = dirname(statePath)
   const swarmDirectory = dirname(teamDirectory)
-  const workspaceRoot = dirname(swarmDirectory)
+  const multiCodeDirectory = dirname(swarmDirectory)
+  const workspaceRoot = dirname(multiCodeDirectory)
 
   return (
     basename(statePath) === 'state.yaml'
     && basename(swarmDirectory) === 'sprintengine'
-    && workspaceRoot !== swarmDirectory
+    && basename(multiCodeDirectory) === '.multi-code'
+    && workspaceRoot !== multiCodeDirectory
   )
 }
 
@@ -3369,7 +3377,7 @@ async function spawnMobileAgentTerminal(input: {
 }
 
 async function discoverMobileSwarmStatePaths(): Promise<string[]> {
-  const swarmRoot = join(process.cwd(), 'sprintengine')
+  const swarmRoot = join(process.cwd(), '.multi-code', 'sprintengine')
   let entries
   try {
     entries = await readdir(swarmRoot, { withFileTypes: true })

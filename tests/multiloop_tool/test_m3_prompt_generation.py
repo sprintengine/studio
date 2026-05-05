@@ -70,7 +70,7 @@ def m3_state() -> dict:
             "title": "Review prompt output",
             "description": "Review whether prompt output matches product intent.",
             "dependsOn": ["T1"],
-            "ownedPaths": ["sprintengine/multicode-m3/reviews/product-review.md"],
+            "ownedPaths": [".multi-code/sprintengine/multicode-m3/reviews/product-review.md"],
             "acceptanceCriteria": ["Verdict is separate from final-goal acceptance"],
             "implementationNotes": [],
             "ownerAgentId": None,

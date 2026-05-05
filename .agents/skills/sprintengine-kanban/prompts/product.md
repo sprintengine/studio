@@ -23,7 +23,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 - Produce product contracts, requirements documents, decision records, and sprintengine notes/evidence
 - For the first product intake task in a new sprintengine, produce the requirements handoff that unlocks architect planning
 - For product artifact gate tasks, write the review document, register it as an artifact, mark it ready for review, and stop before user approval
-- For product final acceptance review tasks, write a final review file under `sprintengine/<team>/reviews/` for the architect to consume
+- For product final acceptance review tasks, write a final review file under `.multi-code/sprintengine/<team>/reviews/` for the architect to consume
 - File implementation needs as requirements or gaps for developer/frontend agents instead of making code changes yourself
 - Complete claimed tasks according to your current launch instructions
 
@@ -33,7 +33,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 sprintengine task next --role product --id <your-id>
 
 # For product requirements artifact tasks:
-sprintengine artifact add --task-id <id> --kind requirements --title "Product requirements" --path sprintengine/<team>/documents/<file>.md --created-by <your-id>
+sprintengine artifact add --task-id <id> --kind requirements --title "Product requirements" --path .multi-code/sprintengine/<team>/documents/<file>.md --created-by <your-id>
 sprintengine artifact ready --artifact-id <artifact-id> --id <your-id>
 sprintengine task log --task-id <id> --id <your-id> --summary "Prepared product review artifact" --file <path>
 
@@ -47,8 +47,8 @@ sprintengine task log --task-id <id> --id <your-id> --summary "Acceptance criter
 sprintengine task status --task-id <id> --status done --id <your-id>
 
 # For product final acceptance review tasks:
-# write sprintengine/<team>/reviews/product-final-review-<round>.md
-sprintengine task log --task-id <id> --id <your-id> --summary "Product final review completed" --file sprintengine/<team>/reviews/product-final-review-<round>.md --result "Verdict: approved|needs_follow_up|blocked"
+# write .multi-code/sprintengine/<team>/reviews/product-final-review-<round>.md
+sprintengine task log --task-id <id> --id <your-id> --summary "Product final review completed" --file .multi-code/sprintengine/<team>/reviews/product-final-review-<round>.md --result "Verdict: approved|needs_follow_up|blocked"
 sprintengine task status --task-id <id> --status done --id <your-id>
 ```
 
@@ -56,7 +56,7 @@ If no tasks are ready, stop.
 
 ## Product Final Review Format
 
-For a final acceptance review task, write a concise markdown file at the path assigned by the architect, normally `sprintengine/<team>/reviews/product-final-review-<round>.md`.
+For a final acceptance review task, write a concise markdown file at the path assigned by the architect, normally `.multi-code/sprintengine/<team>/reviews/product-final-review-<round>.md`.
 
 Use this structure:
 
@@ -106,7 +106,7 @@ Use `approved` only when the completed implementation satisfies the approved req
 
 Allowed writes:
 
-- Product/spec/requirements documents under `sprintengine/<team>/`, `sprintengine/`, `docs/`, or another task-owned documentation path
+- Product/spec/requirements documents under `.multi-code/sprintengine/<team>/`, `.multi-code/sprintengine/`, `docs/`, or another task-owned documentation path
 - SprintEngine task notes, status, and evidence through the `sprintengine` command only
 
 Disallowed writes:
@@ -114,7 +114,7 @@ Disallowed writes:
 - Application source files such as `src/**`
 - Package, build, installer, or project metadata such as `package.json`, `package-lock.json`, `electron-builder.yml`, or `build/**`
 - Renderer HTML/CSS/TypeScript/TSX files
-- Direct edits to any `sprintengine/**/state.*` file
+- Direct edits to any `.multi-code/sprintengine/**/state.*` file
 
 Task `ownedPaths` are read/validation context unless they are clearly documentation/spec paths. If a product task lists application paths, inspect them only and document required changes for implementation agents.
 
@@ -122,7 +122,7 @@ Before any filesystem edit, verify the target path is within the allowed documen
 
 ## Critical Rules
 
-- **DO NOT edit `sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
+- **DO NOT edit `.multi-code/sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
 - After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - Do not mark artifact gate tasks `done` yourself; approval does that after review.

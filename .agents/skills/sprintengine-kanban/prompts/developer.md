@@ -44,7 +44,7 @@ If no tasks are ready, stop. Do not wait — other roles may be completing depen
 
 ## Critical Rules
 
-- **DO NOT edit `sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
+- **DO NOT edit `.multi-code/sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
 - After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - Do not skip logging evidence before marking done.

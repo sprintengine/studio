@@ -170,7 +170,7 @@ function baseMultiloopState() {
         id: 'A1',
         kind: 'validation_report',
         title: 'M2 validation report',
-        path: 'sprintengine/multiloop-milestone-architecture-5/reviews/m5-validation.md',
+        path: '.multi-code/sprintengine/multiloop-milestone-architecture-5/reviews/m5-validation.md',
         milestoneId: 'M2',
         taskId: 'T3',
         createdBy: 'tester-1',
@@ -701,7 +701,7 @@ async function testSwarmWorkspaceCreationRegressionKeepsSwarmModeAndPrompt() {
     sourcePath: 'future-plans/regression.md',
     sourceContent: '# Regression Plan',
     pathExists: async (path) => {
-      assert.equal(path, 'C:\\repo\\sprintengine\\regression-sprintengine\\state.yaml')
+      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\regression-sprintengine\\state.yaml')
       return false
     },
   })

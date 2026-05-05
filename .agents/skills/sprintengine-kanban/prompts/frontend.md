@@ -25,7 +25,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 ```
 sprintengine task next --role frontend --id <your-id>
 # For mockup/design artifact tasks:
-sprintengine artifact add --task-id <id> --kind html_mockup --title "Feature mockup" --path sprintengine/<team>/designs/<file>.html --created-by <your-id>
+sprintengine artifact add --task-id <id> --kind html_mockup --title "Feature mockup" --path .multi-code/sprintengine/<team>/designs/<file>.html --created-by <your-id>
 sprintengine artifact ready --artifact-id <artifact-id> --id <your-id>
 sprintengine task log --task-id <id> --id <your-id> --summary "Prepared frontend review artifact" --file <path>
 
@@ -44,13 +44,13 @@ If no tasks are ready, stop.
 - Run `npm run typecheck` before marking done
 - Only touch files listed in the task's `ownedPaths`
 - Use only project-root-relative paths in `sprintengine task log --file`, artifact paths, notes, and handoff text. Never use absolute or machine-specific paths.
-- Treat tasks that own `sprintengine/<team>/designs/**` or request mockups/design notes as artifact tasks, not production implementation tasks.
+- Treat tasks that own `.multi-code/sprintengine/<team>/designs/**` or request mockups/design notes as artifact tasks, not production implementation tasks.
 - Register HTML mockups as `html_mockup` artifacts and design rationale as `design_notes` artifacts.
 - Before a production UI task, confirm the task depends on approved frontend mockup/design artifacts when the feature is user-facing. If a required approval is missing, add a task note and stop instead of building.
 
 ## Critical Rules
 
-- **DO NOT edit `sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
+- **DO NOT edit `.multi-code/sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
 - After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - Do not mark mockup artifact gate tasks `done` yourself; approval does that after review.

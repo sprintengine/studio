@@ -29,7 +29,7 @@ export function slugifySwarmName(name: string | null | undefined): string {
 }
 
 export function getSwarmRootDirectoryPath(folderPath: string): string {
-  return joinPath(folderPath, 'sprintengine')
+  return joinPath(joinPath(folderPath, '.multi-code'), 'sprintengine')
 }
 
 export function getSwarmDirectoryPath(folderPath: string, swarmName?: string): string {

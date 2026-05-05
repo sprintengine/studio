@@ -179,7 +179,7 @@ async function writeFixture(swarmId: string): Promise<{
   worktreePath: string
 }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-session-'))
-  const teamDirectory = join(workspaceRoot, 'sprintengine', swarmId)
+  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', swarmId)
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'state.yaml')
   await writeFile(statePath, `${JSON.stringify({

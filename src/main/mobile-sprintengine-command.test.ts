@@ -36,7 +36,7 @@ async function main(): Promise<void> {
 }
 
 async function assertArtifactApproveInvokesSwarmTool(): Promise<void> {
-  const fixture = await writeSwarmFixture('review-team', 'sprintengine/review-team/documents/requirements.md')
+  const fixture = await writeSwarmFixture('review-team', '.multi-code/sprintengine/review-team/documents/requirements.md')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSwarmCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -70,7 +70,7 @@ async function assertArtifactApproveInvokesSwarmTool(): Promise<void> {
 }
 
 async function assertArtifactRequestChangesInvokesSwarmTool(): Promise<void> {
-  const fixture = await writeSwarmFixture('request-changes-team', 'sprintengine/request-changes-team/documents/requirements.md')
+  const fixture = await writeSwarmFixture('request-changes-team', '.multi-code/sprintengine/request-changes-team/documents/requirements.md')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSwarmCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -107,13 +107,13 @@ async function assertArtifactRequestChangesInvokesSwarmTool(): Promise<void> {
 
 function assertAutoRunArtifactApproveArgsUseCanonicalActor(): void {
   assert.deepEqual(buildSwarmArtifactReviewArgs({
-    statePath: '/workspace/sprintengine/team/state.yaml',
+    statePath: '/workspace/.multi-code/sprintengine/team/state.yaml',
     action: 'approve',
     artifactId: 'A1',
     actorId: 'auto-run',
   }), [
     '--state',
-    '/workspace/sprintengine/team/state.yaml',
+    '/workspace/.multi-code/sprintengine/team/state.yaml',
     'artifact',
     'approve',
     '--artifact-id',
@@ -124,7 +124,7 @@ function assertAutoRunArtifactApproveArgsUseCanonicalActor(): void {
 }
 
 async function assertArtifactRequestChangesRejectsStaleSnapshot(): Promise<void> {
-  const fixture = await writeSwarmFixture('stale-team', 'sprintengine/stale-team/documents/requirements.md')
+  const fixture = await writeSwarmFixture('stale-team', '.multi-code/sprintengine/stale-team/documents/requirements.md')
   const service = new MobileSwarmCommandService({
     workspaceRoot: fixture.workspaceRoot,
     statePaths: [fixture.statePath],
@@ -148,7 +148,7 @@ async function assertArtifactRequestChangesRejectsStaleSnapshot(): Promise<void>
 }
 
 async function assertSameIdempotencyKeyAndBodyReplaysCachedResult(): Promise<void> {
-  const fixture = await writeSwarmFixture('replay-team', 'sprintengine/replay-team/documents/requirements.md')
+  const fixture = await writeSwarmFixture('replay-team', '.multi-code/sprintengine/replay-team/documents/requirements.md')
   let invocationCount = 0
   const service = new MobileSwarmCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -179,7 +179,7 @@ async function assertSameIdempotencyKeyAndBodyReplaysCachedResult(): Promise<voi
 }
 
 async function assertSameIdempotencyKeyWithDifferentBodyIsRejected(): Promise<void> {
-  const fixture = await writeSwarmFixture('replay-conflict-team', 'sprintengine/replay-conflict-team/documents/requirements.md')
+  const fixture = await writeSwarmFixture('replay-conflict-team', '.multi-code/sprintengine/replay-conflict-team/documents/requirements.md')
   let invocationCount = 0
   const service = new MobileSwarmCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -220,7 +220,7 @@ async function assertSameIdempotencyKeyWithDifferentBodyIsRejected(): Promise<vo
 }
 
 async function assertIdempotencyReplaySurvivesServiceRecreation(): Promise<void> {
-  const fixture = await writeSwarmFixture('replay-recreate-team', 'sprintengine/replay-recreate-team/documents/requirements.md')
+  const fixture = await writeSwarmFixture('replay-recreate-team', '.multi-code/sprintengine/replay-recreate-team/documents/requirements.md')
   let invocationCount = 0
   const firstService = new MobileSwarmCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -257,7 +257,7 @@ async function assertIdempotencyReplaySurvivesServiceRecreation(): Promise<void>
 }
 
 async function assertToolSuccessResponseLossRetryDoesNotReinvokeTool(): Promise<void> {
-  const fixture = await writeSwarmFixture('response-loss-team', 'sprintengine/response-loss-team/documents/requirements.md')
+  const fixture = await writeSwarmFixture('response-loss-team', '.multi-code/sprintengine/response-loss-team/documents/requirements.md')
   let invocationCount = 0
   const service = new MobileSwarmCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -336,7 +336,7 @@ async function assertSwarmCreateUsesControlledHandover(): Promise<void> {
 }
 
 async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {
-  const fixture = await writeSwarmFixture('task-start-team', 'sprintengine/task-start-team/documents/requirements.md', {
+  const fixture = await writeSwarmFixture('task-start-team', '.multi-code/sprintengine/task-start-team/documents/requirements.md', {
     tasks: [
       task('T1', 'architect', 'done'),
       task('T2', 'developer', 'todo', { dependsOn: ['T1'] }),
@@ -386,7 +386,7 @@ async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {
 }
 
 async function assertTaskStartRejectsBlockedDependencies(): Promise<void> {
-  const fixture = await writeSwarmFixture('task-blocked-team', 'sprintengine/task-blocked-team/documents/requirements.md', {
+  const fixture = await writeSwarmFixture('task-blocked-team', '.multi-code/sprintengine/task-blocked-team/documents/requirements.md', {
     tasks: [
       task('T1', 'architect', 'todo'),
       task('T2', 'developer', 'todo', { dependsOn: ['T1'] }),
@@ -423,7 +423,7 @@ async function assertTaskStartRejectsBlockedDependencies(): Promise<void> {
 }
 
 async function assertFollowUpUsesKnownAgentSessionOrchestration(): Promise<void> {
-  const fixture = await writeSwarmFixture('follow-up-team', 'sprintengine/follow-up-team/documents/requirements.md', {
+  const fixture = await writeSwarmFixture('follow-up-team', '.multi-code/sprintengine/follow-up-team/documents/requirements.md', {
     tasks: [
       task('T1', 'developer', 'in_progress', { ownerAgentId: 'developer-1' }),
     ],
@@ -462,7 +462,7 @@ async function assertFollowUpUsesKnownAgentSessionOrchestration(): Promise<void>
 }
 
 async function assertFollowUpRejectsTerminalControlCharacters(): Promise<void> {
-  const fixture = await writeSwarmFixture('follow-up-control-team', 'sprintengine/follow-up-control-team/documents/requirements.md', {
+  const fixture = await writeSwarmFixture('follow-up-control-team', '.multi-code/sprintengine/follow-up-control-team/documents/requirements.md', {
     tasks: [
       task('T1', 'developer', 'in_progress', { ownerAgentId: 'developer-1' }),
     ],
@@ -530,7 +530,7 @@ async function assertUnsupportedCommandIsRejected(): Promise<void> {
 async function assertFilesystemMutationHandlersProtectSwarmStateAliases(): Promise<void> {
   const handlers = await importMainProcessIpcHandlers()
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-fs-guard-'))
-  const swarmDirectory = join(workspaceRoot, 'sprintengine')
+  const swarmDirectory = join(workspaceRoot, '.multi-code', 'sprintengine')
   const teamDirectory = join(swarmDirectory, 'team')
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'state.yaml')
@@ -752,7 +752,7 @@ async function writeSwarmFixture(
   } = {}
 ): Promise<{ workspaceRoot: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-'))
-  const teamDirectory = join(workspaceRoot, 'sprintengine', swarmId)
+  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', swarmId)
   await mkdir(join(teamDirectory, 'documents'), { recursive: true })
   await writeFile(join(teamDirectory, 'documents', 'requirements.md'), '# Requirements\n', 'utf8')
   const statePath = join(teamDirectory, 'state.yaml')

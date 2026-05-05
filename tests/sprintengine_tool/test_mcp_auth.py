@@ -140,7 +140,7 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path / "allowed"])
 
     out_of_scope = server.call_tool("sprintengine.summary", {"statePath": str(fixture.state_path)}, actor("workspace-user"))
-    platform_confused = server.call_tool("sprintengine.summary", {"statePath": r"C:\workspace\sprintengine\state.yaml"}, actor("workspace-user"))
+    platform_confused = server.call_tool("sprintengine.summary", {"statePath": r"C:\workspace\.multi-code\sprintengine\state.yaml"}, actor("workspace-user"))
 
     assert out_of_scope["ok"] is False
     assert out_of_scope["error"]["code"] == "state_path_not_allowed"
@@ -153,7 +153,7 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
 
 
 def test_authenticated_mcp_user_can_invoke_artifact_review_with_payload_actor(tmp_path) -> None:
-    artifact_file = tmp_path / "sprintengine" / "mcp-artifact-auth" / "review.md"
+    artifact_file = tmp_path / ".multi-code" / "sprintengine" / "mcp-artifact-auth" / "review.md"
     artifact_file.parent.mkdir(parents=True)
     artifact_file.write_text("review", encoding="utf-8")
     fixture = create_team(
