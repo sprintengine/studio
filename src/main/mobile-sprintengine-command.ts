@@ -920,7 +920,7 @@ function createSwarmToolExecutor(swarmToolPath: string): SwarmToolExecutor {
       env: {
         ...process.env,
         SPRINTENGINE_REPO_WRAPPER_PATH: join(invocation.cwd, 'scripts', 'sprintengine_tool.py'),
-        SPRINTENGINE_REPO_TOOL_PATH: join(invocation.cwd, '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
+        SPRINTENGINE_REPO_TOOL_PATH: join(invocation.cwd, '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
       },
       windowsHide: true,
     })

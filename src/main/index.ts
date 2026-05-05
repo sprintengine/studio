@@ -1491,7 +1491,7 @@ function withSwarmEnv(
   const bundledToolPath = getBundledSwarmToolPath()
   const nextEnv = {
     ...env,
-    SPRINTENGINE_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
+    SPRINTENGINE_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
     SPRINTENGINE_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
     ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
     ...(swarmStatePath ? { SPRINTENGINE_STATE_PATH: swarmStatePath } : {}),
@@ -1661,10 +1661,10 @@ function getCliRuntimeSettings(
 
 function getBundledSwarmToolPath(): string | null {
   const candidates = [
-    join(process.cwd(), '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
-    join(app.getAppPath(), '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
-    join(__dirname, '..', '..', '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
-    join(__dirname, '..', '..', '..', '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
+    join(process.cwd(), '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
+    join(app.getAppPath(), '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
+    join(__dirname, '..', '..', '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
+    join(__dirname, '..', '..', '..', '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
   ]
 
   return candidates.find((candidate) => existsSync(candidate)) ?? null
@@ -2454,7 +2454,7 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
   const shellBundledToolPath =
     bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
   const lines = [
-    'export SPRINTENGINE_REPO_TOOL_PATH="$PWD/.agents/skills/sprintengine-kanban/scripts/sprintengine_tool.py"',
+    'export SPRINTENGINE_REPO_TOOL_PATH="$PWD/.agents/skills/sprintengine/scripts/sprintengine_tool.py"',
     'export SPRINTENGINE_REPO_WRAPPER_PATH="$PWD/scripts/sprintengine_tool.py"',
   ]
 

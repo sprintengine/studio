@@ -1,5 +1,5 @@
 ---
-name: sprintengine-kanban
+name: sprintengine
 description: Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, and plan reviews for projects that use named `.multi-code/sprintengine/<team>/state.yaml` and `.multi-code/sprintengine/<team>/plan.md` files. Use when acting as a sprintengine architect or worker in this repo's sprintengine-mode workflow.
 ---
 

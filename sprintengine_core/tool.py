@@ -203,13 +203,13 @@ def repository_root_for_tool() -> Path:
             if key in seen:
                 continue
             seen.add(key)
-            if (candidate / ".agents" / "skills" / "sprintengine-kanban").exists() or (candidate / ".git").exists():
+            if (candidate / ".agents" / "skills" / "sprintengine").exists() or (candidate / ".git").exists():
                 return candidate
     return Path(__file__).resolve().parents[1]
 
 
 REPO_ROOT = repository_root_for_tool()
-PROMPTS_DIR = REPO_ROOT / ".agents" / "skills" / "sprintengine-kanban" / "prompts"
+PROMPTS_DIR = REPO_ROOT / ".agents" / "skills" / "sprintengine" / "prompts"
 SPECIALIST_PROMPT_FILES = {
     "architect": "architect-prompt.md",
     "product": "product-strategist-prompt.md",
