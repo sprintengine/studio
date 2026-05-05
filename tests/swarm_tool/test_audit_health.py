@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 
 from helpers import create_team, task
-import swarm_core.tool as swarm_tool
-from swarm_core.audit import append_audit_event, audit_log_path, build_audit_event, record_audit_event
-from swarm_core.health import CORE_VERSION, build_health_report
+import sprintengine_core.tool as sprint_tool
+from sprintengine_core.audit import append_audit_event, audit_log_path, build_audit_event, record_audit_event
+from sprintengine_core.health import CORE_VERSION, build_health_report
 
 
 def test_load_state_uses_json_fast_path_without_yaml_parser(tmp_path, monkeypatch) -> None:
@@ -29,9 +29,9 @@ def test_load_state_uses_json_fast_path_without_yaml_parser(tmp_path, monkeypatc
     def fail_yaml_load(_raw):
         raise AssertionError("JSON state should not use the YAML parser")
 
-    monkeypatch.setattr(swarm_tool.yaml, "safe_load", fail_yaml_load)
+    monkeypatch.setattr(sprint_tool.yaml, "safe_load", fail_yaml_load)
 
-    state = swarm_tool.load_state(state_path)
+    state = sprint_tool.load_state(state_path)
 
     assert state["swarm"]["name"] == "json-fast-path"
 

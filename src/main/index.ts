@@ -1491,8 +1491,8 @@ function withSwarmEnv(
   const bundledToolPath = getBundledSwarmToolPath()
   const nextEnv = {
     ...env,
-    SWARM_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
-    SWARM_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'swarm_tool.py'),
+    SWARM_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
+    SWARM_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
     ...(bundledToolPath ? { MULTICODE_SWARM_TOOL_PATH: bundledToolPath } : {}),
     ...(swarmStatePath ? { SWARM_STATE_PATH: swarmStatePath } : {}),
   }
@@ -1661,10 +1661,10 @@ function getCliRuntimeSettings(
 
 function getBundledSwarmToolPath(): string | null {
   const candidates = [
-    join(process.cwd(), '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
-    join(app.getAppPath(), '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
-    join(__dirname, '..', '..', '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
-    join(__dirname, '..', '..', '..', '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
+    join(process.cwd(), '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
+    join(app.getAppPath(), '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
+    join(__dirname, '..', '..', '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
+    join(__dirname, '..', '..', '..', '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
   ]
 
   return candidates.find((candidate) => existsSync(candidate)) ?? null
@@ -2446,8 +2446,8 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
   const shellBundledToolPath =
     bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
   const lines = [
-    'export SWARM_REPO_TOOL_PATH="$PWD/.agents/skills/swarm-kanban/scripts/swarm_tool.py"',
-    'export SWARM_REPO_WRAPPER_PATH="$PWD/scripts/swarm_tool.py"',
+    'export SWARM_REPO_TOOL_PATH="$PWD/.agents/skills/swarm-kanban/scripts/sprintengine_tool.py"',
+    'export SWARM_REPO_WRAPPER_PATH="$PWD/scripts/sprintengine_tool.py"',
   ]
 
   if (shellStatePath) {

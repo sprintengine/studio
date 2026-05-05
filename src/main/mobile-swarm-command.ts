@@ -919,8 +919,8 @@ function createSwarmToolExecutor(swarmToolPath: string): SwarmToolExecutor {
       cwd: invocation.cwd,
       env: {
         ...process.env,
-        SWARM_REPO_WRAPPER_PATH: join(invocation.cwd, 'scripts', 'swarm_tool.py'),
-        SWARM_REPO_TOOL_PATH: join(invocation.cwd, '.agents', 'skills', 'swarm-kanban', 'scripts', 'swarm_tool.py'),
+        SWARM_REPO_WRAPPER_PATH: join(invocation.cwd, 'scripts', 'sprintengine_tool.py'),
+        SWARM_REPO_TOOL_PATH: join(invocation.cwd, '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
       },
       windowsHide: true,
     })
@@ -957,7 +957,7 @@ function getWorkspacePythonExecutable(workspaceRoot: string): string {
 }
 
 function defaultSwarmToolPath(): string {
-  return resolve(process.cwd(), 'scripts', 'swarm_tool.py')
+  return resolve(process.cwd(), 'scripts', 'sprintengine_tool.py')
 }
 
 function validateSwarmStatePath(input: string): ValidSwarmStatePath {

@@ -36,7 +36,7 @@ function buildWindowsSwarmToolCommand(command: string, workspaceRoot?: string): 
   const python = workspaceRoot
     ? `${workspaceRoot.replace(/[\\/]+$/u, '')}\\.venv\\Scripts\\python.exe`
     : '.\\.venv\\Scripts\\python.exe'
-  return `& ${quotePowerShellArg(python)} .\\scripts\\swarm_tool.py ${command}`
+  return `& ${quotePowerShellArg(python)} .\\scripts\\sprintengine_tool.py ${command}`
 }
 
 function quotePowerShellArg(value: string): string {

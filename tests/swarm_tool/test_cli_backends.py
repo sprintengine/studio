@@ -31,7 +31,7 @@ def run_swarm(args: list[str], *, env: dict[str, str] | None = None) -> subproce
 
 def _swarm_command_without_state(args: list[str]) -> list[str]:
     if os.name == "nt":
-        return [sys.executable, str(REPO_ROOT / "scripts" / "swarm_tool.py"), *args]
+        return [sys.executable, str(REPO_ROOT / "scripts" / "sprintengine_tool.py"), *args]
     return [str(REPO_ROOT / "scripts" / "swarm"), *args]
 
 

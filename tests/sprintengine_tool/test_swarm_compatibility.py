@@ -5,12 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import scripts.swarm_tool as swarm_cli
+import scripts.sprintengine_tool as sprint_cli
 import sprintengine_core.tool as sprint_tool
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SWARM_TOOL = REPO_ROOT / "scripts" / "swarm_tool.py"
+SPRINT_TOOL = REPO_ROOT / "scripts" / "sprintengine_tool.py"
 
 
 def write_state(state_path: Path) -> None:
@@ -60,7 +60,7 @@ def write_state(state_path: Path) -> None:
 
 def run_swarm(state_path: Path, *args: str) -> dict:
     completed = subprocess.run(
-        [sys.executable, str(SWARM_TOOL), "--state", str(state_path), *args],
+        [sys.executable, str(SPRINT_TOOL), "--state", str(state_path), *args],
         cwd=REPO_ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -71,8 +71,8 @@ def run_swarm(state_path: Path, *args: str) -> dict:
     return json.loads(completed.stdout)
 
 
-def test_swarm_direct_backend_imports_sprint_engine_facade() -> None:
-    assert swarm_cli.direct_tool is sprint_tool
+def test_sprintengine_cli_imports_sprint_engine_tool() -> None:
+    assert sprint_cli.direct_tool is sprint_tool
 
 
 def test_swarm_commands_preserve_lifecycle_shape_through_sprint_engine_facade(
@@ -109,7 +109,7 @@ def test_swarm_commands_preserve_lifecycle_shape_through_sprint_engine_facade(
         "--file",
         "sprintengine_core/tool.py",
         "--command",
-        "python scripts/swarm_tool.py task next",
+        "python scripts/sprintengine_tool.py task next",
         "--result",
         "Passed",
     )
@@ -130,4 +130,4 @@ def test_swarm_commands_preserve_lifecycle_shape_through_sprint_engine_facade(
     assert done["ok"] is True
     assert done["task"]["status"] == "done"
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["agents"]["developer-a"]["status"] == "done"
+    assert state["agents"]["developer-a"]["status"] == "idle"

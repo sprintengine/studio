@@ -11,7 +11,7 @@ from fixtures import SwarmCli, assert_prompt_includes, create_team, read_state, 
 
 
 @pytest.fixture(autouse=True)
-def use_python_swarm_tool_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+def use_python_sprintengine_tool_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     if os.name != "nt":
         return
 
@@ -19,7 +19,7 @@ def use_python_swarm_tool_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
         swarm_helpers.assert_disposable_state_path(cli.state_path)
         return [
             sys.executable,
-            str(swarm_helpers.REPO_ROOT / "scripts" / "swarm_tool.py"),
+            str(swarm_helpers.REPO_ROOT / "scripts" / "sprintengine_tool.py"),
             "--state",
             str(cli.state_path),
             *args,

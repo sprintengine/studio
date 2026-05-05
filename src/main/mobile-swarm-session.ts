@@ -342,7 +342,7 @@ function buildStartupPrompt(input: {
     'Use the repo virtual environment directly on Windows if `swarm` or global Python is unreliable:',
     [
       '```powershell',
-      `& ${quotePowerShellArg(windowsPython)} .\\scripts\\swarm_tool.py join --role ${input.role} --id ${input.agentId}`,
+      `& ${quotePowerShellArg(windowsPython)} .\\scripts\\sprintengine_tool.py join --role ${input.role} --id ${input.agentId}`,
       '```',
     ].join('\n'),
     `Otherwise run \`swarm join --role ${input.role} --id ${input.agentId}\` to receive your full prompt and next directive.`,

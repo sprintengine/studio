@@ -11,7 +11,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWARM_COMMAND = REPO_ROOT / "scripts" / "swarm"
-SWARM_TOOL = REPO_ROOT / "scripts" / "swarm_tool.py"
+SWARM_TOOL = REPO_ROOT / "scripts" / "sprintengine_tool.py"
 REAL_REPO_SWARM_ROOT = (REPO_ROOT / "swarm").resolve()
 
 

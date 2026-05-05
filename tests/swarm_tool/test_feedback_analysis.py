@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 
 from helpers import create_team, task, write_state
-from swarm_core.analysis import build_recommendations, summarize_feedback_records
-from swarm_core.feedback import load_feedback_records
+from sprintengine_core.analysis import build_recommendations, summarize_feedback_records
+from sprintengine_core.feedback import load_feedback_records
 
 
 PRIVATE_MARKERS = [
@@ -32,7 +32,7 @@ def test_feedback_summary_aggregates_scores_friction_issues_and_findings_without
                 **task("T1", "Implement backend", "developer", "done"),
                 "evidence": {
                     "summary": "TERMINAL_OUTPUT_SECRET",
-                    "touchedFiles": ["swarm_core/analysis.py"],
+                    "touchedFiles": ["sprintengine_core/analysis.py"],
                     "commandsRan": ["pytest tests/swarm_tool/test_feedback_analysis.py"],
                     "results": ["passed"],
                 },

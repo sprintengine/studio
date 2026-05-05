@@ -3,7 +3,7 @@ setlocal
 
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%SCRIPT_DIR%.."
-set "TOOL_PATH=%SCRIPT_DIR%swarm_tool.py"
+set "TOOL_PATH=%SCRIPT_DIR%sprintengine_tool.py"
 set "VENV_PYTHON=%REPO_ROOT%\.venv\Scripts\python.exe"
 
 if exist "%VENV_PYTHON%" (

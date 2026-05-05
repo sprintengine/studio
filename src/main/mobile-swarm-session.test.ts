@@ -40,7 +40,7 @@ async function assertTaskStartPrefersWorktree(): Promise<void> {
   assert.equal(spawned[0].executionMode, 'worktree')
   assert.equal(spawned[0].cwd, fixture.worktreePath)
   assert.equal(spawned[0].worktreePath, fixture.worktreePath)
-  assert.match(spawned[0].initialPrompt, /\\.venv\\Scripts\\python\.exe" \.\\scripts\\swarm_tool\.py join --role developer --id developer-1/u)
+  assert.match(spawned[0].initialPrompt, /\\.venv\\Scripts\\python\.exe" \.\\scripts\\sprintengine_tool\.py join --role developer --id developer-1/u)
   assert.match(spawned[0].initialPrompt, /Otherwise run `swarm join --role developer --id developer-1`/u)
 }
 

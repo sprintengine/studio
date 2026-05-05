@@ -148,7 +148,7 @@ def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_fi
         "--summary",
         "Implemented behavior for full-run fixture.",
         "--file",
-        "swarm_core/tool.py",
+        "sprintengine_core/tool.py",
         "--command",
         "pytest tests/swarm_tool/test_full_run_mock_swarm.py",
         "--result",
