@@ -223,7 +223,7 @@ type GitWorktreeCopyIncludedInput = {
   worktreePath: string
 }
 type DiagnosticLevel = 'info' | 'warning' | 'error'
-type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'swarm' | 'terminal' | 'workspace'
+type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'workspace'
 type DiagnosticLogInput = {
   level: DiagnosticLevel
   source: DiagnosticSource

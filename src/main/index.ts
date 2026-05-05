@@ -32,9 +32,9 @@ import {
   type MobileBridgePresence,
   type MobileBridgeSettingsUpdate,
 } from './mobile-bridge'
-import { MobileSwarmCommandService } from './mobile-swarm-command'
-import { DesktopMobileSwarmSessionOrchestrator } from './mobile-swarm-session'
-import { MobileSwarmSnapshotService } from './mobile-swarm-snapshot'
+import { MobileSwarmCommandService } from './mobile-sprintengine-command'
+import { DesktopMobileSwarmSessionOrchestrator } from './mobile-sprintengine-session'
+import { MobileSwarmSnapshotService } from './mobile-sprintengine-snapshot'
 
 const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || 'http://localhost:3000').replace(/\/+$/u, '')
 const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
@@ -116,7 +116,7 @@ type UsageResult = {
 }
 
 type DiagnosticLevel = 'info' | 'warning' | 'error'
-type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'swarm' | 'terminal' | 'workspace'
+type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'workspace'
 
 type DiagnosticLogInput = {
   level: DiagnosticLevel
@@ -1046,8 +1046,8 @@ function createAppMenu(): Menu {
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-git'),
         },
         {
-          label: 'Open Swarm Kanban Board',
-          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'open-swarm-kanban'),
+          label: 'Open SprintEngine Kanban Board',
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'open-sprintengine-kanban'),
         },
         { type: 'separator' },
         { role: 'reload' },
@@ -1491,10 +1491,10 @@ function withSwarmEnv(
   const bundledToolPath = getBundledSwarmToolPath()
   const nextEnv = {
     ...env,
-    SWARM_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
-    SWARM_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
-    ...(bundledToolPath ? { MULTICODE_SWARM_TOOL_PATH: bundledToolPath } : {}),
-    ...(swarmStatePath ? { SWARM_STATE_PATH: swarmStatePath } : {}),
+    SPRINTENGINE_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
+    SPRINTENGINE_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
+    ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
+    ...(swarmStatePath ? { SPRINTENGINE_STATE_PATH: swarmStatePath } : {}),
   }
 
   if (process.platform !== 'win32') return nextEnv
@@ -1513,28 +1513,28 @@ function ensureWindowsSwarmShimDirectory(): string | null {
   if (process.platform !== 'win32') return null
 
   try {
-    const shimDirectory = join(app.getPath('userData'), 'swarm-bin')
-    const shimPath = join(shimDirectory, 'swarm.cmd')
+    const shimDirectory = join(app.getPath('userData'), 'sprintengine-bin')
+    const shimPath = join(shimDirectory, 'sprintengine.cmd')
     mkdirSync(shimDirectory, { recursive: true })
     writeFileSync(
       shimPath,
       [
         '@echo off',
         'setlocal',
-        'set "TOOL=%SWARM_REPO_WRAPPER_PATH%"',
+        'set "TOOL=%SPRINTENGINE_REPO_WRAPPER_PATH%"',
         'if exist "%TOOL%" goto run',
-        'set "TOOL=%SWARM_REPO_TOOL_PATH%"',
+        'set "TOOL=%SPRINTENGINE_REPO_TOOL_PATH%"',
         'if exist "%TOOL%" goto run',
-        'set "TOOL=%MULTICODE_SWARM_TOOL_PATH%"',
+        'set "TOOL=%MULTICODE_SPRINTENGINE_TOOL_PATH%"',
         'if exist "%TOOL%" goto run',
-        'echo swarm tool not found 1>&2',
+        'echo Sprint Engine tool not found 1>&2',
         'exit /b 127',
         ':run',
         'set "PYTHON_EXE="',
         'if exist ".venv\\Scripts\\python.exe" set "PYTHON_EXE=.venv\\Scripts\\python.exe"',
         'if defined PYTHON_EXE goto run_python',
-        'if "%SWARM_REPO_WRAPPER_PATH%"=="" goto global_python',
-        'for %%I in ("%SWARM_REPO_WRAPPER_PATH%") do set "WRAPPER_DIR=%%~dpI"',
+        'if "%SPRINTENGINE_REPO_WRAPPER_PATH%"=="" goto global_python',
+        'for %%I in ("%SPRINTENGINE_REPO_WRAPPER_PATH%") do set "WRAPPER_DIR=%%~dpI"',
         'if exist "%WRAPPER_DIR%..\\.venv\\Scripts\\python.exe" set "PYTHON_EXE=%WRAPPER_DIR%..\\.venv\\Scripts\\python.exe"',
         'if defined PYTHON_EXE goto run_python',
         ':global_python',
@@ -1661,10 +1661,10 @@ function getCliRuntimeSettings(
 
 function getBundledSwarmToolPath(): string | null {
   const candidates = [
-    join(process.cwd(), '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
-    join(app.getAppPath(), '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
-    join(__dirname, '..', '..', '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
-    join(__dirname, '..', '..', '..', '.agents', 'skills', 'swarm-kanban', 'scripts', 'sprintengine_tool.py'),
+    join(process.cwd(), '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
+    join(app.getAppPath(), '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
+    join(__dirname, '..', '..', '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
+    join(__dirname, '..', '..', '..', '.agents', 'skills', 'sprintengine-kanban', 'scripts', 'sprintengine_tool.py'),
   ]
 
   return candidates.find((candidate) => existsSync(candidate)) ?? null
@@ -1958,14 +1958,14 @@ type SwarmArtifactReviewPayload = {
 type SwarmArtifactReviewAction = 'approve' | 'request-changes'
 type SwarmArtifactReviewMode = 'user' | 'auto-run'
 
-type SwarmMcpActorContext = {
+type SprintEngineMcpActorContext = {
   id: string
   role: 'user'
   authenticated: true
   mcpAuthorized: true
 }
 
-type SwarmMcpToolResponse =
+type SprintEngineMcpToolResponse =
   | { ok: true; tool: string; result: unknown }
   | { ok: false; tool: string; error?: { code?: string; message?: string } }
 
@@ -2006,12 +2006,12 @@ type ValidSwarmStatePath = {
 
 function validateSwarmStatePath(input: unknown): ValidSwarmStatePath {
   if (typeof input !== 'string' || !input.trim()) {
-    throw new Error('A swarm state path is required.')
+    throw new Error('A Sprint Engine state path is required.')
   }
 
   const rawStatePath = input.trim()
   if (!isAbsolute(rawStatePath)) {
-    throw new Error('Swarm state path must be absolute.')
+    throw new Error('Sprint Engine state path must be absolute.')
   }
 
   const statePath = resolve(rawStatePath)
@@ -2019,8 +2019,8 @@ function validateSwarmStatePath(input: unknown): ValidSwarmStatePath {
   const swarmDirectory = dirname(teamDirectory)
   const workspaceRoot = dirname(swarmDirectory)
 
-  if (basename(statePath) !== 'state.yaml' || basename(swarmDirectory) !== 'swarm' || workspaceRoot === swarmDirectory) {
-    throw new Error('Swarm state path must point to swarm/<team>/state.yaml.')
+  if (basename(statePath) !== 'state.yaml' || basename(swarmDirectory) !== 'sprintengine' || workspaceRoot === swarmDirectory) {
+    throw new Error('Sprint Engine state path must point to sprintengine/<team>/state.yaml.')
   }
 
   return { statePath, teamDirectory, workspaceRoot }
@@ -2042,7 +2042,7 @@ function isSwarmStateFilePath(input: string): boolean {
 
   return (
     basename(statePath) === 'state.yaml'
-    && basename(swarmDirectory) === 'swarm'
+    && basename(swarmDirectory) === 'sprintengine'
     && workspaceRoot !== swarmDirectory
   )
 }
@@ -2137,7 +2137,7 @@ async function directorySubtreeContainsSwarmStatePath(directoryPath: string): Pr
 async function assertNotDirectSwarmStateMutation(targetPath: string): Promise<void> {
   const realTargetPath = await getRealMutationTargetPath(targetPath)
   if (isSwarmStateFilePath(targetPath) || (realTargetPath && isSwarmStateFilePath(realTargetPath))) {
-    throw new Error('Swarm state files must be updated through the swarm tool.')
+    throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
   }
 
   const existingDirectoryPath = await getExistingDirectoryPath(targetPath)
@@ -2146,14 +2146,14 @@ async function assertNotDirectSwarmStateMutation(targetPath: string): Promise<vo
   }
 
   if (await directorySubtreeContainsSwarmStatePath(existingDirectoryPath)) {
-    throw new Error('Swarm state files must be updated through the swarm tool.')
+    throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
   }
 
   const realDirectoryPath = realTargetPath && realTargetPath !== resolve(existingDirectoryPath)
     ? await getExistingDirectoryPath(realTargetPath)
     : null
   if (realDirectoryPath && await directorySubtreeContainsSwarmStatePath(realDirectoryPath)) {
-    throw new Error('Swarm state files must be updated through the swarm tool.')
+    throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
   }
 }
 
@@ -2178,7 +2178,7 @@ function resolveArtifactFilePath(state: ValidSwarmStatePath, artifactPathInput: 
       ].find((candidate) => isPathInsideOrEqual(state.teamDirectory, candidate))
         ?? resolve(state.workspaceRoot, artifactPath)
   if (!isPathInsideOrEqual(state.teamDirectory, fullPath)) {
-    throw new Error('Artifact path must stay inside the swarm team directory.')
+    throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
   }
 
   return fullPath
@@ -2190,12 +2190,12 @@ function resolveSwarmArtifactId(input: unknown): string {
   }
   const artifactId = input.trim()
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(artifactId)) {
-    throw new Error('Artifact id must be a safe swarm identifier.')
+    throw new Error('Artifact id must be a safe sprintengine identifier.')
   }
   return artifactId
 }
 
-function getSwarmMcpPythonExecutable(workspaceRoot: string): string {
+function getSprintEngineMcpPythonExecutable(workspaceRoot: string): string {
   const venvPython = process.platform === 'win32'
     ? join(workspaceRoot, '.venv', 'Scripts', 'python.exe')
     : join(workspaceRoot, '.venv', 'bin', 'python')
@@ -2203,25 +2203,25 @@ function getSwarmMcpPythonExecutable(workspaceRoot: string): string {
   return process.platform === 'win32' ? 'python' : 'python3'
 }
 
-function runSwarmMcpTool(
+function runSprintEngineMcpTool(
   state: ValidSwarmStatePath,
   tool: string,
   payload: Record<string, unknown>,
-  actor: SwarmMcpActorContext
+  actor: SprintEngineMcpActorContext
 ): Promise<{
   exitCode: number | null
   stdout: string
   stderr: string
-  response: SwarmMcpToolResponse | null
+  response: SprintEngineMcpToolResponse | null
 }> {
   return new Promise((resolvePromise) => {
-    const child = spawn(getSwarmMcpPythonExecutable(state.workspaceRoot), ['-m', 'swarm_mcp', '--allowed-root', state.workspaceRoot], {
+    const child = spawn(getSprintEngineMcpPythonExecutable(state.workspaceRoot), ['-m', 'sprintengine_mcp', '--allowed-root', state.workspaceRoot], {
       cwd: state.workspaceRoot,
       env: {
         ...process.env,
         PYTHONPATH: [state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
-        SWARM_MCP_USER_ID: actor.id,
-        SWARM_MCP_USER_AUTHORIZED: '1',
+        SPRINTENGINE_MCP_USER_ID: actor.id,
+        SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
       },
       windowsHide: true,
     })
@@ -2240,11 +2240,11 @@ function runSwarmMcpTool(
       resolvePromise({ exitCode: 1, stdout, stderr: stderr || error.message, response: null })
     })
     child.on('close', (exitCode) => {
-      let response: SwarmMcpToolResponse | null = null
+      let response: SprintEngineMcpToolResponse | null = null
       const responseLine = stdout.trim().split(/\r?\n/u).filter(Boolean).at(-1)
       if (responseLine) {
         try {
-          response = JSON.parse(responseLine) as SwarmMcpToolResponse
+          response = JSON.parse(responseLine) as SprintEngineMcpToolResponse
         } catch {
           response = null
         }
@@ -2255,7 +2255,7 @@ function runSwarmMcpTool(
   })
 }
 
-async function requireSwarmMcpAuthority(): Promise<SwarmMcpActorContext> {
+async function requireSprintEngineMcpAuthority(): Promise<SprintEngineMcpActorContext> {
   const userId = getAuthenticatedMulticodeUserId()
   if (!userId) {
     throw new Error('Artifact review requires an authenticated Multicode user.')
@@ -2355,7 +2355,7 @@ async function assertAutoApprovalAllowed(state: ValidSwarmStatePath, artifactId:
   const stateContent = await readFile(state.statePath, 'utf8')
   const { tasks, artifacts } = parseSwarmStateForArtifactReview(stateContent)
   const artifact = artifacts.find((candidate) => candidate.id === artifactId)
-  if (!artifact) throw new Error('Requested artifact was not found in the swarm state.')
+  if (!artifact) throw new Error('Requested artifact was not found in the Sprint Engine state.')
 
   const blocker = getArtifactAutoApprovalBlocker(artifact, tasks, artifacts)
   if (blocker) throw new Error(blocker)
@@ -2376,7 +2376,7 @@ async function reviewSwarmArtifact(
   try {
     const state = validateSwarmStatePath(payload?.statePath)
     const artifactId = resolveSwarmArtifactId(payload?.artifactId)
-    const actor = await requireSwarmMcpAuthority()
+    const actor = await requireSprintEngineMcpAuthority()
     let feedback: string | undefined
 
     if (action === 'request-changes') {
@@ -2406,16 +2406,16 @@ async function reviewSwarmArtifact(
       id: actor.id,
       ...(feedback ? { feedback } : {}),
     }
-    const toolName = action === 'approve' ? 'swarm.artifact.approve' : 'swarm.artifact.request_changes'
+    const toolName = action === 'approve' ? 'sprintengine.artifact.approve' : 'sprintengine.artifact.request_changes'
 
-    const toolResult = await runSwarmMcpTool(state, toolName, reviewPayload, actor)
+    const toolResult = await runSprintEngineMcpTool(state, toolName, reviewPayload, actor)
     if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
       const message = toolResult.response && !toolResult.response.ok
         ? toolResult.response.error?.message
         : undefined
       return {
         ok: false,
-        message: message ?? (toolResult.stderr.trim() || 'The swarm MCP command failed.'),
+        message: message ?? (toolResult.stderr.trim() || 'The sprintengine MCP command failed.'),
         stdout: toolResult.stdout,
         stderr: toolResult.stderr,
         exitCode: toolResult.exitCode ?? 'unknown',
@@ -2446,33 +2446,33 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
   const shellBundledToolPath =
     bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
   const lines = [
-    'export SWARM_REPO_TOOL_PATH="$PWD/.agents/skills/swarm-kanban/scripts/sprintengine_tool.py"',
-    'export SWARM_REPO_WRAPPER_PATH="$PWD/scripts/sprintengine_tool.py"',
+    'export SPRINTENGINE_REPO_TOOL_PATH="$PWD/.agents/skills/sprintengine-kanban/scripts/sprintengine_tool.py"',
+    'export SPRINTENGINE_REPO_WRAPPER_PATH="$PWD/scripts/sprintengine_tool.py"',
   ]
 
   if (shellStatePath) {
-    lines.push(`export SWARM_STATE_PATH=${quotePosix(shellStatePath)}`)
+    lines.push(`export SPRINTENGINE_STATE_PATH=${quotePosix(shellStatePath)}`)
   }
 
   if (shellBundledToolPath) {
-    lines.push(`export MULTICODE_SWARM_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
+    lines.push(`export MULTICODE_SPRINTENGINE_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
   }
 
   lines.push(
     [
-      'swarm() {',
+      'sprintengine() {',
       'local tool_path="";',
-      'if [ -f "$SWARM_REPO_WRAPPER_PATH" ]; then tool_path="$SWARM_REPO_WRAPPER_PATH";',
-      'elif [ -f "$SWARM_REPO_TOOL_PATH" ]; then tool_path="$SWARM_REPO_TOOL_PATH";',
-      'elif [ -n "${MULTICODE_SWARM_TOOL_PATH:-}" ] && [ -f "$MULTICODE_SWARM_TOOL_PATH" ]; then tool_path="$MULTICODE_SWARM_TOOL_PATH";',
-      'else echo "swarm tool not found" >&2; return 127; fi;',
+      'if [ -f "$SPRINTENGINE_REPO_WRAPPER_PATH" ]; then tool_path="$SPRINTENGINE_REPO_WRAPPER_PATH";',
+      'elif [ -f "$SPRINTENGINE_REPO_TOOL_PATH" ]; then tool_path="$SPRINTENGINE_REPO_TOOL_PATH";',
+      'elif [ -n "${MULTICODE_SPRINTENGINE_TOOL_PATH:-}" ] && [ -f "$MULTICODE_SPRINTENGINE_TOOL_PATH" ]; then tool_path="$MULTICODE_SPRINTENGINE_TOOL_PATH";',
+      'else echo "Sprint Engine tool not found" >&2; return 127; fi;',
       'local python_exe="python3";',
       'if [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
       'elif [ -x "$PWD/.venv/Scripts/python.exe" ]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi;',
       '"$python_exe" "$tool_path" "$@";',
       '}',
     ].join(' '),
-    'export -f swarm >/dev/null 2>&1 || true',
+    'export -f sprintengine >/dev/null 2>&1 || true',
   )
 
   return lines.join('; ')
@@ -3369,7 +3369,7 @@ async function spawnMobileAgentTerminal(input: {
 }
 
 async function discoverMobileSwarmStatePaths(): Promise<string[]> {
-  const swarmRoot = join(process.cwd(), 'swarm')
+  const swarmRoot = join(process.cwd(), 'sprintengine')
   let entries
   try {
     entries = await readdir(swarmRoot, { withFileTypes: true })
@@ -3688,12 +3688,12 @@ ipcMain.handle('terminal:kill', (_, sessionId: string) => {
   disposeTerminal(sessionId)
 })
 
-// ── Swarm artifact IPC handlers ──────────────────────────────────────────────
+// ── SprintEngine artifact IPC handlers ──────────────────────────────────────────────
 // Renderer IPC gets narrow artifact review commands only. The main process owns
 // authenticated MCP authority, review actor selection, auto-run policy checks,
 // and fresh state snapshots after mutations.
 
-ipcMain.handle('swarm:artifact:open', async (_, payload: SwarmArtifactOpenPayload): Promise<SwarmArtifactCommandResult> => {
+ipcMain.handle('sprintengine:artifact:open', async (_, payload: SwarmArtifactOpenPayload): Promise<SwarmArtifactCommandResult> => {
   try {
     const state = validateSwarmStatePath(payload?.statePath)
     const targetPath = resolveArtifactFilePath(state, payload?.artifactPath)
@@ -3715,15 +3715,15 @@ ipcMain.handle('swarm:artifact:open', async (_, payload: SwarmArtifactOpenPayloa
   }
 })
 
-ipcMain.handle('swarm:artifact:approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
+ipcMain.handle('sprintengine:artifact:approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
   return reviewSwarmArtifact(payload, 'approve', 'user')
 })
 
-ipcMain.handle('swarm:artifact:auto-approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
+ipcMain.handle('sprintengine:artifact:auto-approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
   return reviewSwarmArtifact(payload, 'approve', 'auto-run')
 })
 
-ipcMain.handle('swarm:artifact:request-changes', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
+ipcMain.handle('sprintengine:artifact:request-changes', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
   return reviewSwarmArtifact(payload, 'request-changes', 'user')
 })
 

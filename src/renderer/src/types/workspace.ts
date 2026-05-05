@@ -472,7 +472,7 @@ export type MultiloopAgentSoulRole =
   | 'code_reviewer'
   | 'performance'
 
-export type AgentKind = 'general' | 'specialist' | 'swarm' | 'multiloop'
+export type AgentKind = 'general' | 'specialist' | 'sprintengine' | 'multiloop'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
 export type SpecialistActionId =
@@ -538,7 +538,7 @@ export type DiagnosticSource =
   | 'auth'
   | 'filesystem'
   | 'git'
-  | 'swarm'
+  | 'sprintengine'
   | 'terminal'
   | 'workspace'
 
@@ -615,7 +615,7 @@ export type EditorState = {
 export type Workspace = {
   id: WorkspaceId
   name: string
-  mode: 'standard' | 'swarm' | 'multiloop'
+  mode: 'standard' | 'sprintengine' | 'multiloop'
   folderPath: string | null
   folderMissing?: boolean
   swarmContext?: SwarmWorkspaceContext | null

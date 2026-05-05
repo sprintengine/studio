@@ -9,7 +9,7 @@ interface Props {
 type MobileControlCommandType =
   | 'snapshot.request'
   | 'artifact.read'
-  | 'swarm.create'
+  | 'sprintengine.create'
   | 'task.start'
   | 'artifact.approve'
   | 'artifact.requestChanges'
@@ -351,7 +351,7 @@ export default function SettingsModal({ onClose }: Props) {
           </div>
           <UsageTelemetryToggle
             label="Reduce Token Consumption"
-            description="Reuse swarm agent terminals across ready tasks until the agent stops, needs input, is blocked, or reaches about 70% context."
+            description="Reuse Sprint Engine agent terminals across ready tasks until the agent stops, needs input, is blocked, or reaches about 70% context."
             enabled={reduceTokenConsumption}
             onChange={setReduceTokenConsumption}
           />
@@ -393,7 +393,7 @@ export default function SettingsModal({ onClose }: Props) {
                 Usage Telemetry
               </div>
               <div className="mt-1 text-sm font-semibold text-[#ececee]">
-                Swarm usage data and diagnostics
+                SprintEngine usage data and diagnostics
               </div>
             </div>
             <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-2.5 py-1 text-[11px] font-semibold text-[#9a9aa2]">
@@ -404,7 +404,7 @@ export default function SettingsModal({ onClose }: Props) {
           <div className="space-y-3">
             <UsageTelemetryToggle
               label="Send usage data"
-              description="Upload sanitized swarm usage records only after explicit consent. This stays off by default for production builds."
+              description="Upload sanitized sprintengine usage records only after explicit consent. This stays off by default for production builds."
               enabled={usageTelemetry.sendUsageData}
               onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
             />
@@ -444,7 +444,7 @@ export default function SettingsModal({ onClose }: Props) {
                 Mobile Companion
               </div>
               <div className="mt-1 text-sm font-semibold text-[#ececee]">
-                Desktop-authorized swarm control
+                Desktop-authorized sprintengine control
               </div>
             </div>
             <button
@@ -720,7 +720,7 @@ function MobileMeta({
 }
 
 function mobileStatusMessage(state: MobileBridgeState): string {
-  if (!state.enabled) return 'Mobile companion control is off. Desktop swarm behavior remains local-only.'
+  if (!state.enabled) return 'Mobile companion control is off. Desktop sprintengine behavior remains local-only.'
   if (state.relayStatus === 'connected') return 'Mobile companion control is enabled and connected to the relay.'
   if (state.relayStatus === 'unconfigured') return 'Mobile control is enabled, but no relay URL is configured.'
   return `Mobile companion control is enabled. Relay status: ${relayStatusLabel(state.relayStatus)}.`

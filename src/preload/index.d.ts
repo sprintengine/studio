@@ -207,7 +207,7 @@ declare global {
     worktreePath: string
   }
   type DiagnosticLevel = 'info' | 'warning' | 'error'
-  type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'swarm' | 'terminal' | 'workspace'
+  type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'workspace'
   type DiagnosticLogInput = {
     level: DiagnosticLevel
     source: DiagnosticSource
@@ -348,7 +348,7 @@ declare global {
   type MobileControlCommandType =
     | 'snapshot.request'
     | 'artifact.read'
-    | 'swarm.create'
+    | 'sprintengine.create'
     | 'task.start'
     | 'artifact.approve'
     | 'artifact.requestChanges'

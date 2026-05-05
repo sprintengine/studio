@@ -211,7 +211,7 @@ type GitWorktreeCopyIncludedInput = {
   worktreePath: string
 }
 type DiagnosticLevel = 'info' | 'warning' | 'error'
-type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'swarm' | 'terminal' | 'workspace'
+type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'workspace'
 type DiagnosticLogInput = {
   level: DiagnosticLevel
   source: DiagnosticSource
@@ -356,7 +356,7 @@ type SessionSnapshot =
 type MobileControlCommandType =
   | 'snapshot.request'
   | 'artifact.read'
-  | 'swarm.create'
+  | 'sprintengine.create'
   | 'task.start'
   | 'artifact.approve'
   | 'artifact.requestChanges'
@@ -717,23 +717,23 @@ contextBridge.exposeInMainWorld('api', {
     statePath: string,
     artifactPath: string
   ): Promise<SwarmArtifactCommandResult> =>
-    ipcRenderer.invoke('swarm:artifact:open', { statePath, artifactPath }),
+    ipcRenderer.invoke('sprintengine:artifact:open', { statePath, artifactPath }),
   approveSwarmArtifact: (
     statePath: string,
     artifactId: string
   ): Promise<SwarmArtifactCommandResult> =>
-    ipcRenderer.invoke('swarm:artifact:approve', { statePath, artifactId }),
+    ipcRenderer.invoke('sprintengine:artifact:approve', { statePath, artifactId }),
   autoApproveSwarmArtifact: (
     statePath: string,
     artifactId: string
   ): Promise<SwarmArtifactCommandResult> =>
-    ipcRenderer.invoke('swarm:artifact:auto-approve', { statePath, artifactId }),
+    ipcRenderer.invoke('sprintengine:artifact:auto-approve', { statePath, artifactId }),
   requestSwarmArtifactChanges: (
     statePath: string,
     artifactId: string,
     feedback: string
   ): Promise<SwarmArtifactCommandResult> =>
-    ipcRenderer.invoke('swarm:artifact:request-changes', { statePath, artifactId, feedback }),
+    ipcRenderer.invoke('sprintengine:artifact:request-changes', { statePath, artifactId, feedback }),
   initializeMultiloopState: (input: MultiloopInitInput): Promise<MultiloopInitResult> =>
     ipcRenderer.invoke('multiloop:init', input),
 

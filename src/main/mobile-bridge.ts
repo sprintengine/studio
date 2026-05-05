@@ -6,16 +6,16 @@ import {
   MobileSwarmCommandService,
   type MobileControlCommand,
   type MobileSwarmCommandResult,
-} from './mobile-swarm-command'
-import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile-swarm-activity'
-import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile-swarm-snapshot'
+} from './mobile-sprintengine-command'
+import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile-sprintengine-activity'
+import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile-sprintengine-snapshot'
 
 const mobileControlProtocolVersion = 1 as const
 
 type MobileControlCommandType =
   | 'snapshot.request'
   | 'artifact.read'
-  | 'swarm.create'
+  | 'sprintengine.create'
   | 'task.start'
   | 'artifact.approve'
   | 'artifact.requestChanges'
@@ -93,7 +93,7 @@ export type MobileRelayScope =
   | 'relay:snapshot:read'
   | 'relay:artifact:read'
   | 'relay:artifact:review'
-  | 'relay:swarm:create'
+  | 'relay:sprintengine:create'
   | 'relay:task:start'
   | 'relay:agent:followup'
   | 'relay:push:register'
@@ -102,7 +102,7 @@ export type MobileRelayScope =
 type RelayCommandType =
   | 'snapshot.request'
   | 'artifact.read'
-  | 'swarm.create'
+  | 'sprintengine.create'
   | 'task.start'
   | 'artifact.approve'
   | 'artifact.requestChanges'
@@ -295,7 +295,7 @@ const REQUESTED_SCOPES: MobileControlCapability[] = [
 const REQUESTED_RELAY_SCOPES: MobileRelayScope[] = [
   'relay:snapshot:read',
   'relay:artifact:read',
-  'relay:swarm:create',
+  'relay:sprintengine:create',
   'relay:task:start',
   'relay:artifact:review',
   'relay:agent:followup',
@@ -304,7 +304,7 @@ const REQUESTED_RELAY_SCOPES: MobileRelayScope[] = [
 const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
   'snapshot.request',
   'artifact.read',
-  'swarm.create',
+  'sprintengine.create',
   'task.start',
   'artifact.approve',
   'artifact.requestChanges',
@@ -314,7 +314,7 @@ const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
 const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
   'snapshot.request',
   'artifact.read',
-  'swarm.create',
+  'sprintengine.create',
   'task.start',
   'artifact.approve',
   'artifact.requestChanges',
@@ -322,7 +322,7 @@ const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
   'device.revoke',
 ]
 const SIDE_EFFECTING_COMMANDS = new Set<MobileControlCommandType>([
-  'swarm.create',
+  'sprintengine.create',
   'task.start',
   'artifact.approve',
   'artifact.requestChanges',
@@ -333,7 +333,7 @@ const SIDE_EFFECTING_COMMANDS = new Set<MobileControlCommandType>([
 const CAPABILITY_BY_COMMAND: Record<MobileControlCommandType, MobileControlCapability> = {
   'snapshot.request': 'snapshots.read',
   'artifact.read': 'artifacts.read',
-  'swarm.create': 'swarms.create',
+  'sprintengine.create': 'swarms.create',
   'task.start': 'tasks.start',
   'artifact.approve': 'artifacts.review',
   'artifact.requestChanges': 'artifacts.review',
@@ -346,7 +346,7 @@ const CAPABILITY_BY_RELAY_SCOPE: Record<MobileRelayScope, MobileControlCapabilit
   'relay:snapshot:read': 'snapshots.read',
   'relay:artifact:read': 'artifacts.read',
   'relay:artifact:review': 'artifacts.review',
-  'relay:swarm:create': 'swarms.create',
+  'relay:sprintengine:create': 'swarms.create',
   'relay:task:start': 'tasks.start',
   'relay:agent:followup': 'agents.followUp',
   'relay:push:register': null,
@@ -946,7 +946,7 @@ export class MobileBridge {
         return this.dispatchArtifactRead(command)
       case 'device.revoke':
         return this.dispatchDeviceRevoke(command)
-      case 'swarm.create':
+      case 'sprintengine.create':
       case 'task.start':
       case 'artifact.approve':
       case 'artifact.requestChanges':
@@ -1052,13 +1052,13 @@ export class MobileBridge {
       desktopSessionId: this.desktopRelaySessionId ?? this.desktopInstanceId,
       statePaths,
     })
-    const swarm = snapshot.swarms.find((candidate) => candidate.swarmId === swarmId)
-    const artifact = swarm?.artifacts.find((candidate) => candidate.artifactId === artifactId)
-    if (!swarm || !artifact?.path) {
+    const sprintengine = snapshot.swarms.find((candidate) => candidate.swarmId === swarmId)
+    const artifact = sprintengine?.artifacts.find((candidate) => candidate.artifactId === artifactId)
+    if (!sprintengine || !artifact?.path) {
       return failedCommandResult(command, 'artifact_not_found', 'Requested artifact was not found.')
     }
 
-    const artifactPath = resolveArtifactPathForRead(dirname(swarm.statePath), swarm.workspacePath, artifact.path)
+    const artifactPath = resolveArtifactPathForRead(dirname(sprintengine.statePath), sprintengine.workspacePath, artifact.path)
     const content = await readFile(artifactPath, 'utf8')
     return acceptedBridgeCommand(command, {
       artifactId,
@@ -1534,7 +1534,7 @@ function resolveArtifactPathForRead(teamDirectory: string, workspacePath: string
         ?? resolve(workspacePath, artifactPath)
 
   if (!isPathInsideOrEqual(teamDirectory, fullPath)) {
-    throw new Error('Artifact path must stay inside the swarm team directory.')
+    throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
   }
 
   return fullPath

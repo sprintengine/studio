@@ -28,12 +28,12 @@ const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const ContentSearchPanel = React.lazy(() => import('../panels/ContentSearchPanel'))
 const GitPanel = React.lazy(() => import('../panels/GitPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
-const SwarmBoardPanel = React.lazy(() => import('../panels/SwarmBoardPanel'))
+const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
 const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
 type AgentTabActivity = 'needs-input' | 'running' | 'idle'
-const SWARM_ROLES: SwarmRole[] = [
+const SPRINTENGINE_ROLES: SwarmRole[] = [
   'architect',
   'product',
   'developer',
@@ -79,7 +79,7 @@ function agentTabActivityDot(
 }
 
 function inferSwarmRoleFromAgentId(agentId: string): SwarmRole | null {
-  return SWARM_ROLES.find((role) => agentId === role || agentId.startsWith(`${role}-`)) ?? null
+  return SPRINTENGINE_ROLES.find((role) => agentId === role || agentId.startsWith(`${role}-`)) ?? null
 }
 
 function PanelLoadingFallback() {
@@ -259,16 +259,16 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
               terminalId={config?.terminalId ?? node.getId()}
             />
           ))
-        case 'swarm':
-          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} />)
-        case 'swarm-project':
-          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="project" />)
-        case 'swarm-map':
-          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="map" />)
-        case 'swarm-task-graph':
-          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="task-graph" />)
-        case 'swarm-kanban':
-          return timedPanel('SwarmBoardPanel', <SwarmBoardPanel workspaceId={workspaceId} fixedView="kanban" />)
+        case 'sprintengine':
+          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} />)
+        case 'sprintengine-project':
+          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="project" />)
+        case 'sprintengine-map':
+          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="map" />)
+        case 'sprintengine-task-graph':
+          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="task-graph" />)
+        case 'sprintengine-kanban':
+          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="kanban" />)
         case 'multiloop-board':
           return timedPanel(
             'MultiloopBoardPanel',
@@ -294,7 +294,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         const agent = workspace.agents[agentId]
         const sessionId = agent?.cliSessionId
         if (sessionId) void window.api.terminalKill(sessionId).catch(() => {})
-        if (agent?.kind === 'swarm') setSwarmAutoEnabled(workspaceId, false)
+        if (agent?.kind === 'sprintengine') setSwarmAutoEnabled(workspaceId, false)
         updateAgent(workspaceId, agentId, {
           cliStartRequested: false,
           cliHasLaunched: false,
@@ -440,7 +440,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const specialist = agent?.kind === 'specialist' && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
-      const swarmRole = agent?.kind === 'swarm'
+      const swarmRole = agent?.kind === 'sprintengine'
         ? runtimeAgent?.role ?? inferSwarmRoleFromAgentId(agentId)
         : null
 
@@ -458,8 +458,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.leading = (
           <span
             className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[#9a9aa2]"
-            title={`${swarmRole} swarm agent`}
-            aria-label={`${swarmRole} swarm agent`}
+            title={`${swarmRole} Sprint Engine agent`}
+            aria-label={`${swarmRole} Sprint Engine agent`}
           >
             <SwarmRoleIcon role={swarmRole} className="h-3.5 w-3.5" />
           </span>

@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
 import { getSpecialistAction, loadSpecialistPrompt } from '../../specialists/specialistActions'
-import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/swarm'
+import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/sprintengine'
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
@@ -69,14 +69,14 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const cliPermissionPreset = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     const currentAgent = workspace?.agents[agentId]
-    if (currentAgent?.kind !== 'swarm' && currentAgent?.cliPermissionPreset) {
+    if (currentAgent?.kind !== 'sprintengine' && currentAgent?.cliPermissionPreset) {
       return currentAgent.cliPermissionPreset
     }
 
     if (
-      workspace?.mode !== 'swarm'
+      workspace?.mode !== 'sprintengine'
       || !workspace.swarmAutoState.enabled
-      || currentAgent?.kind !== 'swarm'
+      || currentAgent?.kind !== 'sprintengine'
     ) {
       return undefined
     }
@@ -97,7 +97,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     const currentAgent = workspace?.agents[agentId]
     if (currentAgent?.cliStartupPrompt) return currentAgent.cliStartupPrompt
 
-    if (workspace?.mode !== 'swarm' || !workspace.swarmState) return null
+    if (workspace?.mode !== 'sprintengine' || !workspace.swarmState) return null
 
     const rosterAgent = buildSwarmAgentRosterForState(workspace.swarmState).find(
       (candidate) => candidate.id === agentId
@@ -376,7 +376,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         cliPermissionPreset ? `CLI permissions: ${cliPermissionPreset}` : null,
         `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
-        swarmStatePath ? `Swarm state: ${swarmStatePath}` : null,
+        swarmStatePath ? `Sprint Engine state: ${swarmStatePath}` : null,
       ].filter(Boolean).join('\n')
       const launchInitialPrompt = resumeExistingPty ? undefined : startupPromptRef.current ?? undefined
 

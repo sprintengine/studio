@@ -19,7 +19,7 @@ import type {
 import {
   createPlanSourcedSwarmWorkspace,
   PlanSourcedSwarmWorkspaceError,
-} from '../../utils/swarmWorkspaceCreation'
+} from '../../utils/sprintengineWorkspaceCreation'
 import {
   createMultiloopWorkspace,
   MultiloopWorkspaceCreationError,
@@ -29,14 +29,14 @@ import {
   createInitialSwarmState,
   swarmRoleLabels,
   swarmRoleOrder,
-} from '../../utils/swarm'
+} from '../../utils/sprintengine'
 import {
   getSwarmDirectoryPath,
   getExistingSwarmStateFilePath,
   getSwarmStateFilePath,
   parseSwarmStateFile,
   slugifySwarmName,
-} from '../../utils/swarmStateFile'
+} from '../../utils/sprintengineStateFile'
 
 type ExistingTeam = {
   slug: string
@@ -45,7 +45,7 @@ type ExistingTeam = {
   state: SwarmState
 }
 
-type CreationMode = 'standard' | 'swarm' | 'multiloop'
+type CreationMode = 'standard' | 'sprintengine' | 'multiloop'
 
 type MarkdownPlanOption = {
   path: string
@@ -232,7 +232,7 @@ function getSwarmAccessState(authState: MulticodeAuthState): SwarmAccessState {
   if (!authState.authenticated) {
     return {
       allowed: false,
-      title: 'Swarm mode is locked while signed out.',
+      title: 'Sprint Engine mode is locked while signed out.',
       body: 'Sign in to create or supervise local Sprint Engine specialist workflows. Standard workspaces remain available.',
       action: 'login',
     }
@@ -240,7 +240,7 @@ function getSwarmAccessState(authState: MulticodeAuthState): SwarmAccessState {
 
   return {
     allowed: true,
-    title: 'Swarm mode is available.',
+    title: 'Sprint Engine mode is available.',
     body: 'This signed-in Multicode session can create local Sprint Engine workflows.',
     action: 'login',
   }
@@ -255,7 +255,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const [folderPath, setFolderPath] = useState<string | null>(initialState?.folderPath ?? initialFuturePlan?.folderPath ?? null)
   const [name, setName] = useState(initialState?.workspaceName ?? initialFuturePlan?.teamName ?? '')
   const [nameTouched, setNameTouched] = useState(Boolean(initialState?.workspaceName ?? initialFuturePlan))
-  const [mode, setMode] = useState<CreationMode>(initialState?.mode ?? (initialFuturePlan ? 'swarm' : 'standard'))
+  const [mode, setMode] = useState<CreationMode>(initialState?.mode ?? (initialFuturePlan ? 'sprintengine' : 'standard'))
   const [selectedId, setSelectedId] = useState<string>(LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id)
   const [swarmTeamName, setSwarmTeamName] = useState(initialFuturePlan?.teamName ?? '')
   const [swarmTeamNameTouched, setSwarmTeamNameTouched] = useState(Boolean(initialFuturePlan))
@@ -321,7 +321,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     && (
       mode === 'standard'
       || (mode === 'multiloop' && multiloopObjectiveComplete)
-      || (mode === 'swarm'
+      || (mode === 'sprintengine'
         && (
       swarmAccess.allowed
       && futurePlanReady
@@ -332,7 +332,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
 
   const swarmConfig = useMemo<SwarmMockConfig>(
     () => ({
-      name: swarmTeamName.trim() || name.trim() || 'Swarm Team',
+      name: swarmTeamName.trim() || name.trim() || 'Sprint Engine Team',
       goal: swarmGoal.trim(),
       roleCounts: swarmRoleCounts,
     }),
@@ -340,7 +340,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   )
 
   const scanFolder = async (dir: string) => {
-    const entries = await window.api.readdir(joinPath(dir, 'swarm')).catch(() => [])
+    const entries = await window.api.readdir(joinPath(dir, 'sprintengine')).catch(() => [])
     const teams: ExistingTeam[] = []
     for (const entry of entries) {
       if (!entry.isDir) continue
@@ -355,7 +355,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
           state,
         })
       } catch {
-        // Ignore folders that are not swarm state directories.
+        // Ignore folders that are not Sprint Engine state directories.
       }
     }
 
@@ -378,7 +378,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     setFuturePlanError(null)
     setSelectedFuturePlanPath('')
     if (!nameTouched) setName(folderName || 'workspace')
-    if (!swarmTeamNameTouched) setSwarmTeamName(toTitleName(folderName) || 'Swarm Team')
+    if (!swarmTeamNameTouched) setSwarmTeamName(toTitleName(folderName) || 'Sprint Engine Team')
     if (!multiloopNameTouched) setMultiloopName(toTitleName(folderName) || 'Product Loop')
     setMultiloopError(null)
 
@@ -437,7 +437,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
 
   const handleModeChange = (nextMode: CreationMode) => {
     setMode(nextMode)
-    if (nextMode !== 'swarm') setSelectedExistingTeam(null)
+    if (nextMode !== 'sprintengine') setSelectedExistingTeam(null)
     if (nextMode === 'multiloop' && !multiloopNameTouched) {
       setMultiloopName(toTitleName(name || basename(folderPath ?? '')) || 'Product Loop')
     }
@@ -500,7 +500,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       return
     }
 
-    const swarmAutoState = mode === 'swarm'
+    const swarmAutoState = mode === 'sprintengine'
       ? {
         useWorktreesForSwarms,
         isolateWorkersInWorktrees: useWorktreesForSwarms,
@@ -527,7 +527,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       return
     }
 
-    if (mode === 'swarm' && selectedFuturePlanPath) {
+    if (mode === 'sprintengine' && selectedFuturePlanPath) {
       const option = futurePlanOptions.find((candidate) => candidate.path === selectedFuturePlanPath)
       if (!folderPath || !option || futurePlanContent == null) return
 
@@ -553,9 +553,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
         onClose()
       } catch (error) {
         if (error instanceof PlanSourcedSwarmWorkspaceError && error.code === 'team-exists') {
-          setFuturePlanError('A swarm team with this name already exists.')
+          setFuturePlanError('A Sprint Engine team with this name already exists.')
         } else {
-          setFuturePlanError(error instanceof Error ? error.message : 'Could not create the swarm workspace.')
+          setFuturePlanError(error instanceof Error ? error.message : 'Could not create the Sprint Engine workspace.')
         }
       } finally {
         setIsCreating(false)
@@ -563,9 +563,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       return
     }
 
-    const swarmState = mode === 'swarm' ? createInitialSwarmState(swarmConfig) : null
-    const template = mode === 'swarm' ? createSwarmTemplate(swarmConfig) : selected
-    const swarmContext = mode === 'swarm' && folderPath && swarmState
+    const swarmState = mode === 'sprintengine' ? createInitialSwarmState(swarmConfig) : null
+    const template = mode === 'sprintengine' ? createSwarmTemplate(swarmConfig) : selected
+    const swarmContext = mode === 'sprintengine' && folderPath && swarmState
       ? buildSwarmContext(folderPath, swarmState.name, slugifySwarmName(swarmState.name))
       : null
     onCreate({ template, name: name.trim(), folderPath, swarmState, swarmContext, swarmRoleCliDefaults, swarmAutoState })
@@ -598,7 +598,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               disabled={!canCreate}
               className="h-9 rounded-md border border-[#ececee] bg-[#ececee] px-4 text-sm font-semibold text-[#08090b] transition-colors hover:bg-white disabled:border-[#303139] disabled:bg-[#17181d] disabled:text-[#5a5a63]"
             >
-              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'swarm' ? 'Create Swarm' : mode === 'multiloop' ? 'Create Multiloop' : 'Create Workspace'}
+              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'sprintengine' ? 'Create SprintEngine' : mode === 'multiloop' ? 'Create Multiloop' : 'Create Workspace'}
             </button>
           </div>
         </header>
@@ -608,11 +608,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
             <div className="inline-flex rounded-md bg-[#111216] p-1">
               {[
                 { id: 'standard' as const, label: 'Standard' },
-                { id: 'swarm' as const, label: 'Swarm' },
+                { id: 'sprintengine' as const, label: 'SprintEngine' },
                 { id: 'multiloop' as const, label: 'Multiloop' },
               ].map((option) => {
                 const active = mode === option.id
-                const swarmOption = option.id === 'swarm'
+                const swarmOption = option.id === 'sprintengine'
                 const multiloopOption = option.id === 'multiloop'
                 return (
                   <button
@@ -636,7 +636,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                   >
                     {swarmOption || multiloopOption ? (
                       <WorkspaceTypeIcon
-                        mode={swarmOption ? 'swarm' : 'multiloop'}
+                        mode={swarmOption ? 'sprintengine' : 'multiloop'}
                         className={`h-3.5 w-3.5 shrink-0 ${swarmOption ? 'text-[#ffbf2f]' : 'text-[#6ee7d8]'}`}
                       />
                     ) : null}
@@ -646,7 +646,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               })}
             </div>
 
-            {mode === 'swarm' && !swarmAccess.allowed ? (
+            {mode === 'sprintengine' && !swarmAccess.allowed ? (
               <section
                 className="rounded-md border border-[#3a3426] bg-[#111216] p-4"
                 aria-live="polite"
@@ -748,7 +748,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                       const nextName = event.target.value
                       setName(nextName)
                       setNameTouched(true)
-                      if (mode === 'swarm' && !swarmTeamNameTouched) {
+                      if (mode === 'sprintengine' && !swarmTeamNameTouched) {
                         setSwarmTeamName(toTitleName(nextName))
                       }
                       if (mode === 'multiloop' && !multiloopNameTouched) {
@@ -822,7 +822,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                   </div>
                 </div>
               </section>
-            ) : mode === 'swarm' ? (
+            ) : mode === 'sprintengine' ? (
               <>
                 <section className="border-b border-[#1f2025] pb-5">
                   <div className="grid gap-4 lg:grid-cols-2">
@@ -943,7 +943,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                         setSwarmGoal(event.target.value)
                         setFuturePlanError(null)
                       }}
-                      placeholder="Describe the outcome this swarm should deliver..."
+                      placeholder="Describe the outcome this sprintengine should deliver..."
                       className="mt-2 min-h-[140px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-3 text-[14px] leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
                     />
                   </label>
@@ -952,7 +952,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                 <section>
                   <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
                     <div>
-                      <div className="mb-3 text-xs font-medium text-[#9a9aa2]">Swarm roles</div>
+                      <div className="mb-3 text-xs font-medium text-[#9a9aa2]">Sprint Engine roles</div>
                       <div className="border-t border-[#303139]">
                         {swarmRoleOrder.map((role) => (
                           <div
@@ -1005,7 +1005,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                     <div className="rounded-lg border border-[#24252b] bg-[#0d0e11] p-3">
                       <div className="mb-3 flex items-baseline justify-between gap-4">
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-[#ececee]">Swarm workspace</div>
+                          <div className="truncate text-sm font-semibold text-[#ececee]">Sprint Engine workspace</div>
                           <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
                             Project brief, map, task graph, and Kanban
                           </div>
@@ -1111,7 +1111,7 @@ function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
   )
 }
 
-function WorkspaceChrome({ modeLabel = 'Swarm' }: { modeLabel?: string }) {
+function WorkspaceChrome({ modeLabel = 'SprintEngine' }: { modeLabel?: string }) {
   return (
     <g>
       <rect x="0" y="0" width="300" height="18" rx="8" fill="#08090b" />

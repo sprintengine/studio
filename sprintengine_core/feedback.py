@@ -16,7 +16,7 @@ SCORE_LABELS = {
     "directive_clarity_pct": "Directive clarity",
     "task_clarity_pct": "Task clarity",
     "acceptance_criteria_clarity_pct": "Acceptance criteria clarity",
-    "swarm_tool_effectiveness_pct": "Swarm tool effectiveness",
+    "sprintengine_tool_effectiveness_pct": "Sprint Engine tool effectiveness",
     "prompt_optimization_pct": "Prompt optimization",
     "context_fit_pct": "Context fit",
     "hallucination_risk_pct": "Hallucination risk",
@@ -138,6 +138,6 @@ def proposed_change_for_category(category: str) -> str:
         "security_issue": "Route the issue through security review before release.",
         "task_card": "Rewrite the task card so scope and proof of completion are explicit.",
         "test_gap": "Add regression coverage for the missing scenario.",
-        "tooling": "Improve the swarm tool or harness behavior that caused repeated friction.",
+        "tooling": "Improve the Sprint Engine tool or harness behavior that caused repeated friction.",
         "validation": "Make validation steps reproducible and visible in task evidence.",
     }.get(category, "Review the grouped feedback and add a scoped follow-up task.")

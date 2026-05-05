@@ -22,7 +22,7 @@ const validCommand: MobileControlCommand = {
   idempotencyKey: "mobile:device_1:cmd_1",
   expectedSnapshotVersion: "snap_1",
   payload: {
-    swarmId: "mobile-swarm-companion-integration",
+    swarmId: "mobile-sprintengine-companion-integration",
     artifactId: "A1",
     feedback: "Clarify the acceptance criteria.",
   },
@@ -34,11 +34,11 @@ const validSnapshot: MobileControlSnapshot = {
   desktopSessionId: "desktop_session_1",
   swarms: [
     {
-      swarmId: "mobile-swarm-companion-integration",
-      name: "Mobile Swarm Companion Integration",
+      swarmId: "mobile-sprintengine-companion-integration",
+      name: "Mobile SprintEngine Companion Integration",
       workspacePath: "/workspace/multicode",
-      statePath: "/workspace/multicode/swarm/state.yaml",
-      planPath: "/workspace/multicode/swarm/plan.md",
+      statePath: "/workspace/multicode/sprintengine/state.yaml",
+      planPath: "/workspace/multicode/sprintengine/plan.md",
       snapshotVersion: "snap_1",
       updatedAt: now,
       board: {
@@ -66,7 +66,7 @@ const validSnapshot: MobileControlSnapshot = {
           kind: "architect_plan",
           status: "approved",
           taskId: "T1",
-          path: "swarm/mobile-swarm-companion-integration/plan.md",
+          path: "sprintengine/mobile-sprintengine-companion-integration/plan.md",
         },
       ],
     },
@@ -83,7 +83,7 @@ assertInvalid(
   validateMobileControlCommand({
     ...validCommand,
     payload: {
-      swarmId: "mobile-swarm-companion-integration",
+      swarmId: "mobile-sprintengine-companion-integration",
       artifactId: "A1",
     },
   }),
@@ -94,7 +94,7 @@ assertInvalid(
     ...validCommand,
     type: "task.start",
     payload: {
-      swarmId: "mobile-swarm-companion-integration",
+      swarmId: "mobile-sprintengine-companion-integration",
       taskId: "T3",
       role: "developer",
       worktreeIsolation: "sometimes",

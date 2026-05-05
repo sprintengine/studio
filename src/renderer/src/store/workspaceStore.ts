@@ -41,12 +41,12 @@ import {
   createInitialSwarmState,
   getNextSwarmAgentId,
   normalizeSwarmState,
-} from '../utils/swarm'
+} from '../utils/sprintengine'
 import {
   getSwarmDirectoryPath,
   getSwarmStateFilePath,
   slugifySwarmName,
-} from '../utils/swarmStateFile'
+} from '../utils/sprintengineStateFile'
 import {
   getMultiloopDirectoryPath,
   getMultiloopStateFilePath,
@@ -647,10 +647,10 @@ const swarmTabsLayoutModel = (
         type: 'tabset',
         weight: options?.includeAgentTabs === false ? 100 : 58,
         children: [
-          { type: 'tab', name: 'Project', component: 'swarm-project' },
-          { type: 'tab', name: 'Swarm Map', component: 'swarm-map' },
-          { type: 'tab', name: 'Task Graph', component: 'swarm-task-graph' },
-          { type: 'tab', name: 'Kanban', component: 'swarm-kanban' },
+          { type: 'tab', name: 'Project', component: 'sprintengine-project' },
+          { type: 'tab', name: 'SprintEngine Map', component: 'sprintengine-map' },
+          { type: 'tab', name: 'Task Graph', component: 'sprintengine-task-graph' },
+          { type: 'tab', name: 'Kanban', component: 'sprintengine-kanban' },
         ],
       },
       ...(options?.includeAgentTabs === false
@@ -706,8 +706,8 @@ function ensureMultiloopLayoutModel(model: IJsonModel | null | undefined): IJson
 
 function isLegacySwarmLayout(model: IJsonModel): boolean {
   const serialized = JSON.stringify(model)
-  if (serialized.includes('"component":"swarm"') && !serialized.includes('"component":"swarm-map"')) return true
-  if (serialized.includes('"component":"swarm-terminals"')) return true
+  if (serialized.includes('"component":"sprintengine"') && !serialized.includes('"component":"sprintengine-map"')) return true
+  if (serialized.includes('"component":"sprintengine-terminals"')) return true
 
   return false
 }
@@ -722,7 +722,7 @@ type LayoutTreeNode = {
 
 function addTaskGraphTabToSwarmLayout(model: IJsonModel): IJsonModel {
   const serialized = JSON.stringify(model)
-  if (serialized.includes('"component":"swarm-task-graph"')) return model
+  if (serialized.includes('"component":"sprintengine-task-graph"')) return model
 
   const nextModel = JSON.parse(serialized) as IJsonModel & { layout?: LayoutTreeNode }
   let inserted = false
@@ -732,14 +732,14 @@ function addTaskGraphTabToSwarmLayout(model: IJsonModel): IJsonModel {
 
     const children = node.children
     if (node.type === 'tabset' && Array.isArray(children)) {
-      const mapIndex = children.findIndex((child) => child.component === 'swarm-map')
-      const kanbanIndex = children.findIndex((child) => child.component === 'swarm-kanban')
+      const mapIndex = children.findIndex((child) => child.component === 'sprintengine-map')
+      const kanbanIndex = children.findIndex((child) => child.component === 'sprintengine-kanban')
       if (mapIndex >= 0 || kanbanIndex >= 0) {
         const insertIndex = mapIndex >= 0 ? mapIndex + 1 : kanbanIndex
         children.splice(insertIndex, 0, {
           type: 'tab',
           name: 'Task Graph',
-          component: 'swarm-task-graph',
+          component: 'sprintengine-task-graph',
         })
         inserted = true
         return
@@ -755,7 +755,7 @@ function addTaskGraphTabToSwarmLayout(model: IJsonModel): IJsonModel {
 
 function addProjectTabToSwarmLayout(model: IJsonModel): IJsonModel {
   const serialized = JSON.stringify(model)
-  if (serialized.includes('"component":"swarm-project"')) return model
+  if (serialized.includes('"component":"sprintengine-project"')) return model
 
   const nextModel = JSON.parse(serialized) as IJsonModel & { layout?: LayoutTreeNode }
   let inserted = false
@@ -765,9 +765,9 @@ function addProjectTabToSwarmLayout(model: IJsonModel): IJsonModel {
 
     const children = node.children
     if (node.type === 'tabset' && Array.isArray(children)) {
-      const mapIndex = children.findIndex((child) => child.component === 'swarm-map')
-      const taskGraphIndex = children.findIndex((child) => child.component === 'swarm-task-graph')
-      const kanbanIndex = children.findIndex((child) => child.component === 'swarm-kanban')
+      const mapIndex = children.findIndex((child) => child.component === 'sprintengine-map')
+      const taskGraphIndex = children.findIndex((child) => child.component === 'sprintengine-task-graph')
+      const kanbanIndex = children.findIndex((child) => child.component === 'sprintengine-kanban')
       const firstSwarmViewIndex = [mapIndex, taskGraphIndex, kanbanIndex]
         .filter((index) => index >= 0)
         .sort((a, b) => a - b)[0]
@@ -776,7 +776,7 @@ function addProjectTabToSwarmLayout(model: IJsonModel): IJsonModel {
         children.splice(firstSwarmViewIndex, 0, {
           type: 'tab',
           name: 'Project',
-          component: 'swarm-project',
+          component: 'sprintengine-project',
         })
         inserted = true
         return
@@ -791,7 +791,7 @@ function addProjectTabToSwarmLayout(model: IJsonModel): IJsonModel {
 }
 
 function migrateSwarmLayout(ws: Workspace): Workspace {
-  if (ws.mode !== 'swarm' && !ws.swarmState) return ws
+  if (ws.mode !== 'sprintengine' && !ws.swarmState) return ws
   if (!isLegacySwarmLayout(ws.layoutModel)) {
     return {
       ...ws,
@@ -807,7 +807,7 @@ function migrateSwarmLayout(ws: Workspace): Workspace {
 
 function migrateSwarmAgentNames(ws: Workspace): Workspace {
   const swarmState = normalizeSwarmState(ws.swarmState)
-  if (ws.mode !== 'swarm' && !swarmState) return ws
+  if (ws.mode !== 'sprintengine' && !swarmState) return ws
 
   const agents = reconcileSwarmAgents(ws.agents ?? {}, swarmState)
   return {
@@ -838,8 +838,8 @@ function reconcileSwarmAgents(
         ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
         : current?.name ?? agent.label
       const nextAgent = current
-        ? normalizeAgentState({ ...current, name: nextName, kind: 'swarm' as const })
-        : defaultAgent(agent.id, nextName, 'swarm')
+        ? normalizeAgentState({ ...current, name: nextName, kind: 'sprintengine' as const })
+        : defaultAgent(agent.id, nextName, 'sprintengine')
       nextAgents[agent.id] = nextAgent
       return [agent.id, nextAgent]
     })
@@ -852,7 +852,7 @@ function reconcileSwarmAgents(
   )
   const transientSwarmAgents = Object.fromEntries(
     Object.entries(currentAgents).filter(([id, agent]) =>
-      agent.kind === 'swarm'
+      agent.kind === 'sprintengine'
       && !rosterAgents[id]
       && Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
     ).map(([id, agent]) => [id, normalizeAgentState(agent)])
@@ -933,13 +933,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set((state) => {
           const folderPath = options?.folderPath ?? null
           const fallbackName = `${template.name} ${state.workspaces.length + 1}`
-          const isSwarm = template.id === 'swarm-mode' || Boolean(options?.swarmState)
+          const isSwarm = template.id === 'sprintengine-mode' || Boolean(options?.swarmState)
           const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
           const swarmState = isSwarm
             ? normalizeSwarmState(options?.swarmState)
               ?? createInitialSwarmState({
-                goal: options?.swarmState?.goal ?? 'Launch swarm mode',
-                name: options?.swarmState?.name ?? options?.name ?? 'Swarm Team',
+                goal: options?.swarmState?.goal ?? 'Launch Sprint Engine mode',
+                name: options?.swarmState?.name ?? options?.name ?? 'Sprint Engine Team',
                 roleCounts: options?.swarmState?.roleCounts ?? createDefaultSwarmRoleCounts(),
               })
             : null
@@ -954,7 +954,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 ...defaultAgent(
                   agent.id,
                   pickWorkspaceAgentName(agents),
-                  'swarm'
+                  'sprintengine'
                 ),
                 cli: swarmRoleCliDefaults?.[agent.role] ?? 'codex',
               }
@@ -964,7 +964,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.workspaces.push({
             id,
             name: options?.name?.trim() || fallbackName,
-            mode: multiloopState || isMultiloop ? 'multiloop' : swarmState ? 'swarm' : 'standard',
+            mode: multiloopState || isMultiloop ? 'multiloop' : swarmState ? 'sprintengine' : 'standard',
             folderPath,
             folderMissing: false,
             swarmContext: normalizeSwarmWorkspaceContext(
@@ -1145,7 +1145,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (!ws) return
           const normalized = normalizeSwarmState(swarmState)
           ws.swarmState = normalized
-          ws.mode = normalized ? 'swarm' : 'standard'
+          ws.mode = normalized ? 'sprintengine' : 'standard'
           ws.swarmContext = normalizeSwarmWorkspaceContext(
             ws.swarmContext,
             ws.folderPath,
@@ -1162,7 +1162,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           if (!ws) return
           ws.multiloopState = multiloopState
-          ws.mode = multiloopState ? 'multiloop' : ws.swarmState ? 'swarm' : 'standard'
+          ws.mode = multiloopState ? 'multiloop' : ws.swarmState ? 'sprintengine' : 'standard'
           ws.multiloopContext = normalizeMultiloopWorkspaceContext(
             ws.multiloopContext,
             ws.folderPath,
@@ -1335,7 +1335,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const agentLabel = pickWorkspaceAgentName(ws.agents)
           const roleCliDefaults = normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults)
           ws.agents[agentId] = {
-            ...defaultAgent(agentId, agentLabel, 'swarm'),
+            ...defaultAgent(agentId, agentLabel, 'sprintengine'),
             cli: roleCliDefaults[role],
           }
           ws.agents = reconcileSwarmAgents(ws.agents, ws.swarmState)
@@ -1344,7 +1344,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             timestamp: new Date().toISOString(),
             type: 'member_added',
             actor: 'user',
-            message: `${agentLabel} joined the swarm as ${agentRoleLabel}.`,
+            message: `${agentLabel} joined the sprintengine as ${agentRoleLabel}.`,
           })
 
           addedAgent = { id: agentId, label: agentLabel }
@@ -1387,7 +1387,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const id = nanoid()
           const swarmState = normalizeSwarmState(ws.swarmState)
           const multiloopState = ws.multiloopState ?? null
-          const mode = multiloopState ? 'multiloop' : swarmState ? 'swarm' : ws.mode ?? 'standard'
+          const mode = multiloopState ? 'multiloop' : swarmState ? 'sprintengine' : ws.mode ?? 'standard'
           state.workspaces.push({
             ...ws,
             id,
@@ -1556,7 +1556,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         if (version < 2) {
           state.workspaces = state.workspaces.map((ws) => ({
             ...ws,
-            mode: ws.mode ?? (ws.swarmState ? 'swarm' : 'standard'),
+            mode: ws.mode ?? (ws.swarmState ? 'sprintengine' : 'standard'),
             swarmState: normalizeSwarmState(ws.swarmState),
           }))
         }
@@ -1577,7 +1577,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
         if (version < 7) {
           state.workspaces = state.workspaces.map((ws) =>
-            ws.mode === 'swarm' || ws.swarmState
+            ws.mode === 'sprintengine' || ws.swarmState
               ? { ...ws, layoutModel: swarmTabsLayoutModel(ws.swarmState, ws.agents) }
               : ws
           )
@@ -1585,7 +1585,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         if (version < 8) {
           state.workspaces = state.workspaces.map((ws) => {
             const swarmState = normalizeSwarmState(ws.swarmState)
-            if (ws.mode !== 'swarm' && !swarmState) return ws
+            if (ws.mode !== 'sprintengine' && !swarmState) return ws
 
             return {
               ...ws,
@@ -1730,7 +1730,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         if (version < 23) {
           state.workspaces = state.workspaces.map((ws) => ({
             ...ws,
-            swarmRoleCliDefaults: ws.mode === 'swarm' || ws.swarmState
+            swarmRoleCliDefaults: ws.mode === 'sprintengine' || ws.swarmState
               ? normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults)
               : undefined,
           }))
@@ -1822,7 +1822,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.workspaces = state.workspaces.map((ws) => {
             const swarmState = normalizeSwarmState(ws.swarmState)
             const multiloopState = ws.multiloopState ?? null
-            const mode = multiloopState ? 'multiloop' : swarmState ? 'swarm' : ws.mode ?? 'standard'
+            const mode = multiloopState ? 'multiloop' : swarmState ? 'sprintengine' : ws.mode ?? 'standard'
             const nextWorkspace = {
               ...ws,
               mode,

@@ -10,12 +10,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import sprintengine_core.tool as direct_tool
-from swarm_mcp import SwarmMcpServer
-from swarm_mcp.auth import ActorContext
+from sprintengine_mcp import SprintEngineMcpServer
+from sprintengine_mcp.auth import ActorContext
 
 
-BACKEND_ENV = "SWARM_BACKEND"
-ALLOWED_ROOT_ENV = "SWARM_MCP_ALLOWED_ROOT"
+BACKEND_ENV = "SPRINTENGINE_BACKEND"
+ALLOWED_ROOT_ENV = "SPRINTENGINE_MCP_ALLOWED_ROOT"
 DIRECT_BACKENDS = {"direct", "direct-core", "core"}
 MCP_BACKENDS = {"mcp", "mcp-local"}
 
@@ -94,7 +94,7 @@ def _run_mcp_backend(argv: list[str], backend: str) -> int:
     try:
         state_path = Path(payload["statePath"]).resolve()
         actor = _actor_for(tool_name, payload, state_path)
-        response = SwarmMcpServer(allowed_roots=_allowed_roots(state_path)).call_tool(tool_name, payload, actor)
+        response = SprintEngineMcpServer(allowed_roots=_allowed_roots(state_path)).call_tool(tool_name, payload, actor)
     except Exception as exc:
         print(
             f"[sprintengine] backend mode {backend} failed before dispatch: {exc}",
@@ -106,7 +106,7 @@ def _run_mcp_backend(argv: list[str], backend: str) -> int:
         error = response.get("error") or {}
         print(
             f"[sprintengine] backend mode {backend} returned {error.get('code', 'error')}: "
-            f"{error.get('message', 'Swarm MCP operation failed.')}",
+            f"{error.get('message', 'SprintEngine MCP operation failed.')}",
             file=sys.stderr,
         )
         return 1
@@ -123,7 +123,7 @@ def _allowed_roots(state_path: Path) -> list[Path]:
 
 def _system_exit_message(exc: SystemExit) -> str:
     if exc.code is None:
-        return "Swarm command exited."
+        return "SprintEngine command exited."
     return str(exc.code)
 
 
@@ -136,13 +136,13 @@ def _mcp_payload(args) -> tuple[str, dict]:
     group = args.group
     action = getattr(args, "action", None)
     if group == "init":
-        return "swarm.init", {**base, "goal": args.goal, "useWorktrees": bool(args.use_worktrees)}
+        return "sprintengine.init", {**base, "goal": args.goal, "useWorktrees": bool(args.use_worktrees)}
     if group == "recover":
-        return "swarm.recover", base
+        return "sprintengine.recover", base
     if group == "join":
-        return "swarm.join", {**base, "role": args.role, "id": args.id}
+        return "sprintengine.join", {**base, "role": args.role, "id": args.id}
     if group == "summary":
-        return "swarm.summary", base
+        return "sprintengine.summary", base
     if group == "task":
         return _task_payload(action, args, base)
     if group == "plan":
@@ -154,15 +154,15 @@ def _mcp_payload(args) -> tuple[str, dict]:
 
 def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
     if action == "next":
-        return "swarm.task.next", {**base, "role": args.role, "id": args.id}
+        return "sprintengine.task.next", {**base, "role": args.role, "id": args.id}
     if action == "claim":
-        return "swarm.task.claim", {**base, "taskId": args.task_id, "id": args.id}
+        return "sprintengine.task.claim", {**base, "taskId": args.task_id, "id": args.id}
     if action == "status":
         payload = {**base, "taskId": args.task_id, "status": args.status, "id": args.id, "summary": args.summary}
         payload.update(_feedback_payload(args))
-        return "swarm.task.status", payload
+        return "sprintengine.task.status", payload
     if action == "log":
-        return "swarm.task.log", {
+        return "sprintengine.task.log", {
             **base,
             "taskId": args.task_id,
             "id": args.id,
@@ -172,15 +172,15 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "result": args.result or [],
         }
     if action == "note":
-        return "swarm.task.note", {**base, "taskId": args.task_id, "id": args.id, "note": args.note}
+        return "sprintengine.task.note", {**base, "taskId": args.task_id, "id": args.id, "note": args.note}
     if action == "list":
-        return "swarm.task.list", {**base, "role": args.role}
+        return "sprintengine.task.list", {**base, "role": args.role}
     raise SystemExit(f"MCP backend does not support task action: {action}")
 
 
 def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
     if action == "add-task":
-        return "swarm.plan.add_task", {
+        return "sprintengine.plan.add_task", {
             **base,
             "actor": args.actor,
             "taskId": args.task_id,
@@ -193,7 +193,7 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "note": args.note or [],
         }
     if action == "update-task":
-        return "swarm.plan.update_task", {
+        return "sprintengine.plan.update_task", {
             **base,
             "actor": args.actor,
             "taskId": args.task_id,
@@ -210,7 +210,7 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "force": args.force,
         }
     if action == "delete-task":
-        return "swarm.plan.delete_task", {
+        return "sprintengine.plan.delete_task", {
             **base,
             "actor": args.actor,
             "taskId": args.task_id,
@@ -218,7 +218,7 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "force": args.force,
         }
     if action in {"add-dependency", "remove-dependency"}:
-        tool = "swarm.plan.add_dependency" if action == "add-dependency" else "swarm.plan.remove_dependency"
+        tool = "sprintengine.plan.add_dependency" if action == "add-dependency" else "sprintengine.plan.remove_dependency"
         return tool, {
             **base,
             "actor": args.actor,
@@ -227,11 +227,11 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "force": args.force,
         }
     if action == "start-review":
-        return "swarm.plan.start_review", {**base, "role": args.role, "id": args.id}
+        return "sprintengine.plan.start_review", {**base, "role": args.role, "id": args.id}
     if action == "review-status":
-        return "swarm.plan.review_status", base
+        return "sprintengine.plan.review_status", base
     if action == "address-reviews":
-        return "swarm.plan.address_reviews", {**base, "actor": args.actor}
+        return "sprintengine.plan.address_reviews", {**base, "actor": args.actor}
     if action == "list":
         raise SystemExit("MCP backend does not support plan action: list")
     raise SystemExit(f"MCP backend does not support plan action: {action}")
@@ -239,7 +239,7 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
 
 def _artifact_payload(action: str, args, base: dict) -> tuple[str, dict]:
     if action == "add":
-        return "swarm.artifact.add", {
+        return "sprintengine.artifact.add", {
             **base,
             "actor": args.actor,
             "artifactId": args.artifact_id,
@@ -252,7 +252,7 @@ def _artifact_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "ready": args.ready,
         }
     if action == "list":
-        return "swarm.artifact.list", {
+        return "sprintengine.artifact.list", {
             **base,
             "taskId": args.task_id,
             "kind": args.kind,
@@ -261,11 +261,11 @@ def _artifact_payload(action: str, args, base: dict) -> tuple[str, dict]:
     if action == "ready":
         payload = {**base, "artifactId": args.artifact_id, "id": args.id}
         payload.update(_feedback_payload(args))
-        return "swarm.artifact.ready", payload
+        return "sprintengine.artifact.ready", payload
     if action == "approve":
-        return "swarm.artifact.approve", {**base, "artifactId": args.artifact_id, "id": args.id}
+        return "sprintengine.artifact.approve", {**base, "artifactId": args.artifact_id, "id": args.id}
     if action == "request-changes":
-        return "swarm.artifact.request_changes", {
+        return "sprintengine.artifact.request_changes", {
             **base,
             "artifactId": args.artifact_id,
             "id": args.id,

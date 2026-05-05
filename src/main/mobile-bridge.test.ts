@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice } from './mobile-bridge'
-import { MobileSwarmCommandService } from './mobile-swarm-command'
+import { MobileSwarmCommandService } from './mobile-sprintengine-command'
 
 const now = new Date('2026-04-28T22:00:00.000Z')
 
@@ -566,12 +566,12 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
 
 async function writeSwarmFixture(): Promise<{ workspaceRoot: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-'))
-  const teamDirectory = join(workspaceRoot, 'swarm', 'relay-team')
+  const teamDirectory = join(workspaceRoot, 'sprintengine', 'relay-team')
   await mkdir(join(teamDirectory, 'documents'), { recursive: true })
   await writeFile(join(teamDirectory, 'documents', 'requirements.md'), '# Requirements\n', 'utf8')
   const statePath = join(teamDirectory, 'state.yaml')
   await writeFile(statePath, `${JSON.stringify({
-    swarm: {
+    sprintengine: {
       name: 'relay-team',
       updatedAt: now.toISOString(),
     },
@@ -590,7 +590,7 @@ async function writeSwarmFixture(): Promise<{ workspaceRoot: string; statePath: 
         id: 'A1',
         kind: 'requirements',
         title: 'Requirements',
-        path: 'swarm/relay-team/documents/requirements.md',
+        path: 'sprintengine/relay-team/documents/requirements.md',
         status: 'ready_for_review',
         taskId: 'T1',
       },

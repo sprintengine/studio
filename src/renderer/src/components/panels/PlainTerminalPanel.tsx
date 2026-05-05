@@ -238,7 +238,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
             details: [
               `Session: ${sessionId}`,
               `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
-              swarmStatePath ? `Swarm state: ${swarmStatePath}` : null,
+              swarmStatePath ? `Sprint Engine state: ${swarmStatePath}` : null,
             ].filter(Boolean).join('\n'),
             workspaceId,
             workspaceName,

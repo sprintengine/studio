@@ -20,7 +20,7 @@ from multiloop_core.state import StateLock, create_state_file, save_state, with_
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MULTILOOP_COMMAND = REPO_ROOT / "scripts" / "multiloop"
 MULTILOOP_TOOL = REPO_ROOT / "scripts" / "multiloop_tool.py"
-REAL_REPO_SWARM_ROOT = (REPO_ROOT / "swarm").resolve()
+REAL_REPO_SPRINTENGINE_ROOT = (REPO_ROOT / "sprintengine").resolve()
 
 
 def _tool_command() -> list[str]:
@@ -68,8 +68,8 @@ def assert_disposable_state_path(state_path: Path) -> None:
     resolved = state_path.resolve()
     if resolved.name != "state.json":
         raise AssertionError(f"Multiloop fixture state must be named state.json: {state_path}")
-    if _is_relative_to(resolved, REAL_REPO_SWARM_ROOT):
-        raise AssertionError(f"Refusing to run harness against real repo swarm state: {state_path}")
+    if _is_relative_to(resolved, REAL_REPO_SPRINTENGINE_ROOT):
+        raise AssertionError(f"Refusing to run harness against real repo Sprint Engine state: {state_path}")
 
 
 def file_fingerprint(path: Path) -> tuple[str, int]:
@@ -207,7 +207,7 @@ def read_state(path: Path) -> dict[str, Any]:
 
 
 def write_swarm_canary(root: Path) -> Path:
-    path = root / "swarm" / "canary" / "state.yaml"
+    path = root / "sprintengine" / "canary" / "state.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("not valid multiloop json: [\n", encoding="utf-8")
     return path

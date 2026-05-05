@@ -18,22 +18,22 @@ const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
 const swarmProjectTab = () => ({
   type: 'tab',
   name: 'Project',
-  component: 'swarm-project',
+  component: 'sprintengine-project',
 })
 const swarmMapTab = () => ({
   type: 'tab',
-  name: 'Swarm Map',
-  component: 'swarm-map',
+  name: 'SprintEngine Map',
+  component: 'sprintengine-map',
 })
 const swarmTaskGraphTab = () => ({
   type: 'tab',
   name: 'Task Graph',
-  component: 'swarm-task-graph',
+  component: 'sprintengine-task-graph',
 })
 const swarmKanbanTab = () => ({
   type: 'tab',
   name: 'Kanban',
-  component: 'swarm-kanban',
+  component: 'sprintengine-kanban',
 })
 const multiloopBoardTab = () => ({
   type: 'tab',
@@ -43,8 +43,8 @@ const multiloopBoardTab = () => ({
 
 export function createSwarmTemplate(_config: SwarmMockConfig): LayoutTemplate {
   return {
-    id: 'swarm-mode',
-    name: 'Swarm Mode',
+    id: 'sprintengine-mode',
+    name: 'SprintEngine Mode',
     description: 'Project brief, map, task graph, and Kanban.',
     previewSlots: [
       editor('Brief', 4, 4, 168, 22),

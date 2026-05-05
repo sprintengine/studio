@@ -30,15 +30,15 @@ import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
-import { MULTICODE_DISABLE_SWARM_SYNC } from '../../utils/runtimeFlags'
-import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/swarmHandoff'
+import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
+import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
-import { slugifySwarmName } from '../../utils/swarmStateFile'
+import { slugifySwarmName } from '../../utils/sprintengineStateFile'
 import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
-import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
+import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
 import MultiloopAutoRunSupervisor from './MultiloopAutoRunSupervisor'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
-import SwarmStateSynchronizer from './SwarmStateSynchronizer'
+import SprintEngineStateSynchronizer from './SprintEngineStateSynchronizer'
 import WorkspaceGitStatusButton from './WorkspaceGitStatusButton'
 import WorkspaceLayout from './WorkspaceLayout'
 
@@ -357,7 +357,7 @@ export default function WorkspaceManager() {
 
   const openFuturePlanWorkspace = (source: FuturePlanWorkspaceSource) => {
     setTemplateSelectorInitialState({
-      mode: 'swarm',
+      mode: 'sprintengine',
       folderPath: source.folderPath,
       workspaceName: source.teamName,
       futurePlanSource: source,
@@ -703,10 +703,10 @@ export default function WorkspaceManager() {
         toggleWorkspacePanel(activeWorkspaceId, 'editor')
       } else if (command === 'toggle-git') {
         toggleWorkspacePanel(activeWorkspaceId, 'git')
-      } else if (command === 'open-swarm-kanban') {
+      } else if (command === 'open-sprintengine-kanban') {
         const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
-        if (workspace?.mode === 'swarm' || workspace?.swarmContext) {
-          focusOrAddComponentTab(activeWorkspaceId, 'swarm-kanban', 'Kanban')
+        if (workspace?.mode === 'sprintengine' || workspace?.swarmContext) {
+          focusOrAddComponentTab(activeWorkspaceId, 'sprintengine-kanban', 'Kanban')
         }
       }
     })
@@ -1046,7 +1046,7 @@ export default function WorkspaceManager() {
   const stopSession = (item: SessionItem) => {
     void window.api.terminalKill(item.sessionId).catch(() => {})
     setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
-    if (item.workspace.mode === 'swarm') setSwarmAutoEnabled(item.workspace.id, false)
+    if (item.workspace.mode === 'sprintengine') setSwarmAutoEnabled(item.workspace.id, false)
     if (item.agentId) {
       updateAgent(item.workspace.id, item.agentId, {
         cliStartRequested: false,
@@ -1069,16 +1069,16 @@ export default function WorkspaceManager() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
-      <SwarmAutoRunSupervisor />
+      <SprintEngineAutoRunSupervisor />
       <MultiloopAutoRunSupervisor />
       {workspaces.map((workspace) => (
         workspace.id === activeWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}
-      {!MULTICODE_DISABLE_SWARM_SYNC && workspaces.map((workspace) => (
-        workspace.id === activeWorkspaceId && (workspace.mode === 'swarm' || workspace.swarmContext)
-          ? <SwarmStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
+      {!MULTICODE_DISABLE_SPRINTENGINE_SYNC && workspaces.map((workspace) => (
+        workspace.id === activeWorkspaceId && (workspace.mode === 'sprintengine' || workspace.swarmContext)
+          ? <SprintEngineStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}
 
@@ -1106,7 +1106,7 @@ export default function WorkspaceManager() {
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {workspaces.map((workspace) => {
             const active = !showTemplateSelector && workspace.id === activeWorkspaceId
-            const swarmWorkspace = workspace.mode === 'swarm'
+            const sprintEngineWorkspace = workspace.mode === 'sprintengine'
             const activity = getWorkspaceActivity(workspace, terminalSessions)
             const activityLabel = workspaceActivityLabel(activity)
             const activityTone = workspaceActivityTone(activity)
@@ -1124,11 +1124,11 @@ export default function WorkspaceManager() {
                   }
                 }}
                 className={`group inline-flex h-[30px] max-w-[260px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
-                  active && swarmWorkspace
+                  active && sprintEngineWorkspace
                     ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
                     : active
                       ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
-                      : swarmWorkspace
+                      : sprintEngineWorkspace
                         ? 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
                         : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
                 }`}
@@ -1136,7 +1136,7 @@ export default function WorkspaceManager() {
                 <WorkspaceTypeIcon
                   mode={workspace.mode}
                   className={`h-3.5 w-3.5 shrink-0 ${
-                    swarmWorkspace ? 'text-[#ffbf2f]' : 'text-[#9a9aa2]'
+                    sprintEngineWorkspace ? 'text-[#ffbf2f]' : 'text-[#9a9aa2]'
                   }`}
                 />
                 {renamingId === workspace.id ? (
@@ -1281,10 +1281,10 @@ export default function WorkspaceManager() {
               onClick={openHandoffDialog}
               disabled={!activeWorkspaceId}
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#ffbf2f] transition-colors hover:border-[#3a3426] hover:bg-[#ffbf2f]/8 hover:text-[#ffe0a3] disabled:opacity-40 disabled:hover:bg-[#111216]"
-              title="Handoff current plan to swarm"
-              aria-label="Handoff current plan to swarm"
+              title="Handoff current plan to sprintengine"
+              aria-label="Handoff current plan to sprintengine"
             >
-              <WorkspaceTypeIcon mode="swarm" className="h-[18px] w-[18px]" />
+              <WorkspaceTypeIcon mode="sprintengine" className="h-[18px] w-[18px]" />
             </button>
           ) : null}
 
@@ -1660,7 +1660,7 @@ export default function WorkspaceManager() {
           >
             <div className="border-b border-[#1f2025] px-4 py-3">
               <div id="handoff-title" className="text-sm font-semibold text-[#ececee]">
-                Handoff To Swarm
+                Handoff To SprintEngine
               </div>
             </div>
             <div className="space-y-3 px-4 py-4">
@@ -1678,7 +1678,7 @@ export default function WorkspaceManager() {
                     if (event.key === 'Enter') void confirmHandoff()
                   }}
                   className="h-9 w-full rounded bg-[#111216] px-2.5 text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#ffbf2f]/45"
-                  placeholder="swarm-improvements"
+                  placeholder="sprintengine-improvements"
                 />
               </label>
               {handoffError ? (
@@ -1701,7 +1701,7 @@ export default function WorkspaceManager() {
                 disabled={!handoffTeamName.trim()}
                 className="inline-flex items-center gap-2 rounded-md bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/18 disabled:opacity-45 disabled:hover:bg-[#ffbf2f]/12"
               >
-                <WorkspaceTypeIcon mode="swarm" className="h-4 w-4" />
+                <WorkspaceTypeIcon mode="sprintengine" className="h-4 w-4" />
                 Handoff
               </button>
             </div>
@@ -2087,7 +2087,7 @@ function killTerminalForLayoutTab(workspaceId: string, node: TabNode): void {
     const agentId = config?.agentId ?? node.getId()
     const agent = workspace.agents[agentId]
     if (agent?.cliSessionId) void window.api.terminalKill(agent.cliSessionId).catch(() => {})
-    if (agent?.kind === 'swarm') state.setSwarmAutoEnabled(workspaceId, false)
+    if (agent?.kind === 'sprintengine') state.setSwarmAutoEnabled(workspaceId, false)
     state.updateAgent(workspaceId, agentId, {
       cliStartRequested: false,
       cliHasLaunched: false,

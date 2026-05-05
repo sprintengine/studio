@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sprint Engine coordination tool for specialist agents.
 
-WARNING: Do not edit swarm/state.yaml directly.
+WARNING: Do not edit sprintengine/state.yaml directly.
 All updates must go through this tool.
 """
 
@@ -49,7 +49,7 @@ FEEDBACK_SCORE_FIELDS = [
     ("directive_clarity_pct", "directiveClarityPct", "directive_clarity_pct"),
     ("task_clarity_pct", "taskClarityPct", "task_clarity_pct"),
     ("acceptance_criteria_clarity_pct", "acceptanceCriteriaClarityPct", "acceptance_criteria_clarity_pct"),
-    ("swarm_tool_effectiveness_pct", "swarmToolEffectivenessPct", "swarm_tool_effectiveness_pct"),
+    ("sprintengine_tool_effectiveness_pct", "swarmToolEffectivenessPct", "sprintengine_tool_effectiveness_pct"),
     ("prompt_optimization_pct", "promptOptimizationPct", "prompt_optimization_pct"),
     ("context_fit_pct", "contextFitPct", "context_fit_pct"),
     ("hallucination_risk_pct", "hallucinationRiskPct", "hallucination_risk_pct"),
@@ -123,9 +123,9 @@ def architect_worktree_preference_block(use_worktrees: bool) -> str:
     if use_worktrees:
         return "\n".join([
             "## Worktree Preference",
-            "The user enabled architect-managed swarm worktrees for this run.",
+            "The user enabled architect-managed sprintengine worktrees for this run.",
             "- Inspect the current Git status, branch, default branch, and existing worktrees before planning downstream execution.",
-            "- Create a dedicated Git worktree and branch for the swarm unless there is a concrete blocker.",
+            "- Create a dedicated Git worktree and branch for the sprintengine unless there is a concrete blocker.",
             "- Resolve reasonable setup issues directly, including branch-name conflicts, stale worktree paths, dirty main-checkout concerns, and base-ref selection.",
             "- Document the decision in `plan.md` before downstream task execution.",
             "- If you create a worktree, include an exact `## Execution Workspace` section with `Worktree: enabled`, `Repo root:`, `Worktree path:`, `Branch:`, `Base ref:`, `Merge target:`, and `Merge policy:` labels.",
@@ -133,7 +133,7 @@ def architect_worktree_preference_block(use_worktrees: bool) -> str:
         ])
     return "\n".join([
         "## Worktree Preference",
-        "The user has not enabled architect-managed swarm worktrees for this run.",
+        "The user has not enabled architect-managed sprintengine worktrees for this run.",
         "- Plan execution in the current workspace unless the user explicitly asks otherwise.",
         "- If worktrees are intentionally not used, you may document `Worktree: disabled` in `plan.md`, but do not invent worktree setup work.",
     ])
@@ -143,7 +143,7 @@ def worker_plan_worktree_block() -> str:
     return "\n".join([
         "## Execution Workspace Discipline",
         "- Read `plan.md` before claiming work.",
-        "- If `plan.md` declares `Worktree: enabled`, `cd` to the declared `Worktree path:` before running `swarm task next`.",
+        "- If `plan.md` declares `Worktree: enabled`, `cd` to the declared `Worktree path:` before running `sprintengine task next`.",
         "- In a declared worktree, verify `pwd`, `git status --short --branch`, and that the current branch matches the plan before editing.",
         "- If the declared worktree is missing, invalid, on the wrong branch, or dirty in a way that blocks your task, add a task note and leave or move the task to `needs_input` instead of guessing.",
         "- When working in a declared worktree, edit only task-owned paths, stage only task-owned files, and commit task changes before marking your task done.",
@@ -154,12 +154,12 @@ def worker_plan_worktree_block() -> str:
 
 
 def build_merge_start_prompt(state: Dict[str, Any], state_path: Path, actor_id: str, target: str) -> str:
-    swarm = state.get("swarm", {})
-    goal = swarm.get("goal") or "(not set - read the codebase for context)"
+    sprintengine = state.get("sprintengine", {})
+    goal = sprintengine.get("goal") or "(not set - read the codebase for context)"
     plan_path = plan_path_for_state(state_path)
     target_branch = target.strip()
     return "\n".join([
-        "You are the architect responsible for the post-run swarm merge.",
+        "You are the architect responsible for the post-run sprintengine merge.",
         f"Actor id: {actor_id}",
         f"Goal: {goal}",
         f"State file: {state_path}",
@@ -169,8 +169,8 @@ def build_merge_start_prompt(state: Dict[str, Any], state_path: Path, actor_id: 
         "This command only returns instructions. It has not changed task cards and has not run Git.",
         "",
         "Hard rules:",
-        "- Confirm the swarm run is complete before merging.",
-        "- Read `plan.md` and `swarm summary` before touching Git state.",
+        "- Confirm the sprintengine run is complete before merging.",
+        "- Read `plan.md` and `sprintengine summary` before touching Git state.",
         "- Locate the declared `Worktree path:` and `Branch:` from the `## Execution Workspace` section.",
         "- Verify the worktree exists, the branch is not the target branch, and `git status --short` is clean.",
         "- Verify the merge target branch and fetch or update only if the user has allowed network/remote operations.",
@@ -203,13 +203,13 @@ def repository_root_for_tool() -> Path:
             if key in seen:
                 continue
             seen.add(key)
-            if (candidate / ".agents" / "skills" / "swarm-kanban").exists() or (candidate / ".git").exists():
+            if (candidate / ".agents" / "skills" / "sprintengine-kanban").exists() or (candidate / ".git").exists():
                 return candidate
     return Path(__file__).resolve().parents[1]
 
 
 REPO_ROOT = repository_root_for_tool()
-PROMPTS_DIR = REPO_ROOT / ".agents" / "skills" / "swarm-kanban" / "prompts"
+PROMPTS_DIR = REPO_ROOT / ".agents" / "skills" / "sprintengine-kanban" / "prompts"
 SPECIALIST_PROMPT_FILES = {
     "architect": "architect-prompt.md",
     "product": "product-strategist-prompt.md",
@@ -223,9 +223,9 @@ SPECIALIST_PROMPT_FILES = {
 
 STATE_NOTICE = (
     "DO NOT EDIT THIS FILE DIRECTLY. "
-    "All updates must go through the swarm tool "
-    "(swarm plan add-task, swarm task status, swarm task log, etc.). "
-    "Direct edits will be overwritten and may corrupt swarm state."
+    "All updates must go through the Sprint Engine tool "
+    "(Sprint Engine plan add-task, sprintengine task status, sprintengine task log, etc.). "
+    "Direct edits will be overwritten and may corrupt Sprint Engine state."
 )
 
 
@@ -239,31 +239,31 @@ def now_iso() -> str:
 
 def default_state_path(start: Optional[Path] = None) -> Path:
     import sys
-    env_path = os.environ.get("SWARM_STATE_PATH")
+    env_path = os.environ.get("SPRINTENGINE_STATE_PATH")
     if env_path:
-        print(f"[swarm] state path from SWARM_STATE_PATH: {env_path}", file=sys.stderr)
+        print(f"[sprintengine] state path from SPRINTENGINE_STATE_PATH: {env_path}", file=sys.stderr)
         return Path(env_path)
     current = (start or Path.cwd()).resolve()
-    print(f"[swarm] SWARM_STATE_PATH not set, scanning from: {current}", file=sys.stderr)
+    print(f"[sprintengine] SPRINTENGINE_STATE_PATH not set, scanning from: {current}", file=sys.stderr)
     for candidate in [current, *current.parents]:
-        p = candidate / "swarm" / "state.yaml"
+        p = candidate / "sprintengine" / "state.yaml"
         if p.exists():
-            print(f"[swarm] found: {p}", file=sys.stderr)
+            print(f"[sprintengine] found: {p}", file=sys.stderr)
             return p
-        nested = sorted((candidate / "swarm").glob("*/state.yaml"))
+        nested = sorted((candidate / "sprintengine").glob("*/state.yaml"))
         if len(nested) == 1:
-            print(f"[swarm] found nested: {nested[0]}", file=sys.stderr)
+            print(f"[sprintengine] found nested: {nested[0]}", file=sys.stderr)
             return nested[0]
         if len(nested) > 1:
             names = [f.parent.name for f in nested]
-            print(f"[swarm] multiple teams found in {candidate}/swarm/: {names}", file=sys.stderr)
+            print(f"[sprintengine] multiple teams found in {candidate}/sprintengine/: {names}", file=sys.stderr)
             raise SystemExit(
-                f"Multiple swarm teams found: {', '.join(names)}\n"
+                f"Multiple Sprint Engine teams found: {', '.join(names)}\n"
                 f"Specify which one with: --state <path>\n"
                 + "\n".join(f"  {f}" for f in nested)
             )
-    fallback = current / "swarm" / "state.yaml"
-    print(f"[swarm] nothing found, defaulting to: {fallback}", file=sys.stderr)
+    fallback = current / "sprintengine" / "state.yaml"
+    print(f"[sprintengine] nothing found, defaulting to: {fallback}", file=sys.stderr)
     return fallback
 
 
@@ -311,10 +311,10 @@ def project_relative_path_guidance() -> str:
         (
             "All file and directory references must be relative to the project root, using forward "
             "slashes where practical, for example `src/renderer/src/App.tsx`, "
-            "`specialist-prompts/developer-prompt.md`, or `swarm/<team>/reviews/code-review-1.md`."
+            "`specialist-prompts/developer-prompt.md`, or `sprintengine/<team>/reviews/code-review-1.md`."
         ),
         (
-            "For `swarm plan --path`, `swarm task log --file`, and `swarm artifact add --path`, "
+            "For `Sprint Engine plan --path`, `sprintengine task log --file`, and `sprintengine artifact add --path`, "
             "pass only project-root-relative paths. If a tool prints an absolute path, convert it "
             "to a project-relative path before logging or writing it into an artifact."
         ),
@@ -323,9 +323,9 @@ def project_relative_path_guidance() -> str:
 
 def local_venv_install_guidance() -> str:
     return "\n".join([
-        "# Swarm Local Python Environment",
+        "# SprintEngine Local Python Environment",
         (
-            "When running swarm work, you may install task-required Python packages into the "
+            "When running sprintengine work, you may install task-required Python packages into the "
             "repository-local virtual environment. Use `.venv/bin/python -m pip install <package>` "
             "on POSIX shells, or `.venv\\Scripts\\python.exe -m pip install <package>` on Windows."
         ),
@@ -378,16 +378,16 @@ def load_prompt(role: str) -> str:
         raise SystemExit(f"Prompt file not found for role {role!r}: {path}")
     swarm_prompt = path.read_text(encoding="utf-8").strip()
     return compose_prompt(
-        "# Swarm Coordination Rules",
+        "# SprintEngine Coordination Rules",
         swarm_prompt,
         load_specialist_prompt(role),
         (
             "Use the specialist prompt above for role personality, judgment, and quality bar. "
-            "The swarm coordination rules below override it for tool mechanics: coordinate through "
-            "the swarm tool, do not edit swarm state files directly, respect task ownership and owned "
+            "The Sprint Engine coordination rules below override it for tool mechanics: coordinate through "
+            "the Sprint Engine tool, do not edit Sprint Engine state files directly, respect task ownership and owned "
             "paths, log evidence, create artifacts through the artifact commands, and stop when your "
-            "swarm role instructions tell you to stop. Current user and task instructions override both "
-            "when they are more specific and do not violate swarm coordination rules."
+            "Sprint Engine role instructions tell you to stop. Current user and task instructions override both "
+            "when they are more specific and do not violate Sprint Engine coordination rules."
         ),
     )
 
@@ -399,9 +399,9 @@ def artifact_registration_instruction(agent_id: str) -> str:
         "the file and logging evidence is not enough. Register the UI-visible artifact object "
         "before stopping. If the artifact needs human approval, register it ready for review:\n"
         "```\n"
-        f"swarm artifact add --actor {agent_id} --task-id <task-id> --kind <artifact-kind> "
+        f"sprintengine artifact add --actor {agent_id} --task-id <task-id> --kind <artifact-kind> "
         f"--title \"<title>\" --path <path-under-team-folder> --created-by {agent_id} --ready\n"
-        "swarm artifact list --task-id <task-id>\n"
+        "sprintengine artifact list --task-id <task-id>\n"
         "```\n"
         "Use the task's requested kind when specified. Otherwise use `security_review` for "
         "security reviews, `code_review` for code reviews, `performance_review` for performance "
@@ -487,7 +487,7 @@ def load_state(path: Path) -> Dict[str, Any]:
     data.setdefault("tasks", [])
     data.setdefault("agents", {})
     data.setdefault("roles", {})
-    data.setdefault("swarm", {})
+    data.setdefault("sprintengine", {})
     return data
 
 
@@ -544,7 +544,7 @@ def append_event(state: Dict[str, Any], event_type: str, actor: str, message: st
         "message": message,
     }
     state["events"].append(event)
-    state.setdefault("swarm", {})["updatedAt"] = now_iso()
+    state.setdefault("sprintengine", {})["updatedAt"] = now_iso()
     return event
 
 
@@ -643,13 +643,13 @@ def assign_task(state: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> D
 
 
 def recompute_phase(state: Dict[str, Any]) -> bool:
-    swarm = state.setdefault("swarm", {})
+    sprintengine = state.setdefault("sprintengine", {})
     tasks = state.get("tasks", [])
     if tasks and all(t.get("status") == "done" for t in tasks):
-        return set_if_changed(swarm, "status", "completed")
+        return set_if_changed(sprintengine, "status", "completed")
     if any(t.get("status") in ACTIVE_TASK_STATUSES for t in tasks):
-        return set_if_changed(swarm, "status", "executing")
-    return set_if_changed(swarm, "status", "planned" if tasks else "planning")
+        return set_if_changed(sprintengine, "status", "executing")
+    return set_if_changed(sprintengine, "status", "planned" if tasks else "planning")
 
 
 def ensure_evidence(task: Dict[str, Any]) -> Dict[str, Any]:
@@ -1028,7 +1028,7 @@ def build_feedback_payload(
     now = now_iso()
     role = str(task.get("role") or "")
     task_id = str(task.get("id") or "")
-    team_slug = str(state.get("swarm", {}).get("name") or state_path.parent.name)
+    team_slug = str(state.get("sprintengine", {}).get("name") or state_path.parent.name)
     issues = parse_feedback_issue_args(args, task_id)
     findings = parse_feedback_finding_args(args, task_id)
     state_feedback = {
@@ -1096,7 +1096,7 @@ def metrics_feedback_path(state_path: Path) -> Path:
     team_dir = state_path.parent.resolve()
     metrics_dir = (team_dir / "metrics").resolve()
     if not path_is_relative_to(metrics_dir, team_dir):
-        raise SystemExit(f"Metrics directory must stay under active swarm team folder: {team_dir}")
+        raise SystemExit(f"Metrics directory must stay under active Sprint Engine team folder: {team_dir}")
     return metrics_dir / "agent-feedback.jsonl"
 
 
@@ -1119,7 +1119,7 @@ def repository_root_for_state(state_path: Path) -> Path:
             seen.add(key)
             if (candidate / ".git").exists():
                 return candidate
-    if state_path.parent.parent.name == "swarm":
+    if state_path.parent.parent.name == "sprintengine":
         return state_path.parent.parent.parent.resolve()
     return state_path.parent.resolve()
 
@@ -1161,7 +1161,7 @@ def normalize_artifact_path(state_path: Path, value: str, require_file: bool = F
     absolute = artifact_absolute_path(state_path, raw)
     if not path_is_relative_to(absolute, team_dir):
         raise SystemExit(
-            "Artifact path must stay under the active swarm team folder: "
+            "Artifact path must stay under the active Sprint Engine team folder: "
             f"{team_dir}"
         )
     if absolute.exists() and not absolute.is_file():
@@ -1377,8 +1377,8 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
     if product_task is None:
         task_id = "T0" if "T0" not in task_ids(state) else next_task_id(state.get("tasks", []))
         implementation_notes = [
-            "Write the artifact at product-requirements.md in the active swarm team folder.",
-            "Use the existing requirements artifact created by swarm init; mark it ready after the file exists.",
+            "Write the artifact at product-requirements.md in the active Sprint Engine team folder.",
+            "Use the existing requirements artifact created by sprintengine init; mark it ready after the file exists.",
         ]
         if handover_note:
             implementation_notes.insert(0, handover_note)
@@ -1386,7 +1386,7 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
             "id": task_id,
             "title": "Define product requirements",
             "description": (
-                "Product strategist intake gate for this swarm run. Produce a requirements or "
+                "Product strategist intake gate for this sprintengine run. Produce a requirements or "
                 "product handoff artifact before architect planning begins."
             ),
             "role": "product",
@@ -1554,12 +1554,12 @@ def plan_reviews_dir_for_state(state_path: Path) -> Path:
 
 def default_swarm_name_for_state(state_path: Path) -> str:
     team_dir_name = state_path.parent.name
-    return "Swarm Team" if team_dir_name == "swarm" else team_dir_name
+    return "Sprint Engine Team" if team_dir_name == "sprintengine" else team_dir_name
 
 
 def slugify_team_name(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
-    return slug or "swarm-team"
+    return slug or "sprintengine-team"
 
 
 def handover_path_for_state(state_path: Path) -> Path:
@@ -1695,7 +1695,7 @@ def build_plan_review_prompt(
     plan_display_path = project_relative_display_path(state_path, plan_path)
     review_display_path = project_relative_display_path(state_path, review_path)
     review_prompt = "\n".join([
-        f"You are the {role} specialist reviewing the architect's swarm plan.",
+        f"You are the {role} specialist reviewing the architect's Sprint Engine plan.",
         "",
         "Do not claim tasks, do not implement, and do not edit state.yaml.",
         "",
@@ -1721,15 +1721,15 @@ def build_plan_review_prompt(
         "- Risks",
         "- Questions For Architect",
         "",
-        "Do not update the task board. The architect will address feedback with `swarm plan address-reviews`.",
+        "Do not update the task board. The architect will address feedback with `Sprint Engine plan address-reviews`.",
     ])
     return compose_prompt(
-        "# Swarm Plan Review Rules",
+        "# Sprint Engine Plan Review Rules",
         review_prompt,
         load_specialist_prompt(role),
         (
             "Use the specialist prompt above for review perspective and quality bar. The plan review "
-            "rules below override it for swarm mechanics: do not claim tasks, do not implement, do not "
+            "rules below override it for sprintengine mechanics: do not claim tasks, do not implement, do not "
             "edit state files, write only the assigned review file, and keep feedback concrete for the architect."
         ),
     )
@@ -1767,7 +1767,7 @@ def build_address_reviews_prompt(
     warning_block = "\n".join(warnings) if warnings else "- No missing, stale, or unexpected review files detected."
 
     return "\n".join([
-        "You are the swarm architect addressing specialist plan reviews.",
+        "You are the sprintengine architect addressing specialist plan reviews.",
         "",
         "Do not implement. Do not hand-edit state.yaml. Your job is to revise the plan and task graph.",
         "",
@@ -1781,12 +1781,12 @@ def build_address_reviews_prompt(
         "1. Read the current plan and all specialist review feedback below.",
         "2. Decide which feedback to accept, adapt, or reject.",
         "3. Update plan.md directly when the human-readable plan needs changes.",
-        "4. Update the task graph only with swarm plan commands:",
-        "   - swarm plan update-task",
-        "   - swarm plan add-task",
-        "   - swarm plan delete-task",
-        "   - swarm plan add-dependency",
-        "   - swarm plan remove-dependency",
+        "4. Update the task graph only with Sprint Engine plan commands:",
+        "   - Sprint Engine plan update-task",
+        "   - Sprint Engine plan add-task",
+        "   - Sprint Engine plan delete-task",
+        "   - Sprint Engine plan add-dependency",
+        "   - Sprint Engine plan remove-dependency",
         "5. Do not start implementation work.",
         "6. When done, tell the user which review items were accepted, adapted, or rejected.",
         "",
@@ -1827,10 +1827,10 @@ def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(q, str) and q.strip():
                 open_questions.append(f"{t.get('id')}: {q.strip()}")
 
-    swarm = state.get("swarm", {})
+    sprintengine = state.get("sprintengine", {})
     return {
-        "goal": swarm.get("goal", ""),
-        "status": swarm.get("status", "planning"),
+        "goal": sprintengine.get("goal", ""),
+        "status": sprintengine.get("status", "planning"),
         "tasks": {"total": len(tasks), "completed": len(completed), "remaining": max(0, len(tasks) - len(completed))},
         "touchedFiles": unique_strings(touched_files),
         "commandsRan": unique_strings(commands_ran),
@@ -1846,7 +1846,7 @@ def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
     team_slug = slugify_team_name(args.name)
-    state_path = (args.state or (Path.cwd() / "swarm" / team_slug / "state.yaml")).resolve()
+    state_path = (args.state or (Path.cwd() / "sprintengine" / team_slug / "state.yaml")).resolve()
     team_dir = state_path.parent
     handover_path = handover_path_for_state(state_path)
 
@@ -1891,7 +1891,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
 
     team_dir.mkdir(parents=True, exist_ok=True)
     initial: Dict[str, Any] = {
-        "swarm": {"name": team_slug, "goal": args.goal or "", "status": "planning"},
+        "sprintengine": {"name": team_slug, "goal": args.goal or "", "status": "planning"},
         "tasks": [],
         "agents": {},
         "events": [
@@ -1900,7 +1900,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
                 "timestamp": now_iso(),
                 "type": "handover_created",
                 "actor": args.actor,
-                "message": f"{args.actor} created swarm handover for team {team_slug}.",
+                "message": f"{args.actor} created sprintengine handover for team {team_slug}.",
             }
         ],
         "artifacts": [],
@@ -1916,12 +1916,12 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
         wrote_handover = True
 
     init_command = (
-        f"swarm --state {json.dumps(str(state_path))} init "
+        f"sprintengine --state {json.dumps(str(state_path))} init "
         f"--use-worktrees {str(bool(getattr(args, 'use_worktrees', False))).lower()}"
     )
     architect_startup_prompt = "\n\n".join([
-        f"Use the existing swarm team `{team_slug}`.",
-        "Fetch the canonical swarm startup instructions from the Python tool.",
+        f"Use the existing Sprint Engine team `{team_slug}`.",
+        "Fetch the canonical sprintengine startup instructions from the Python tool.",
         "Run:",
         f"```bash\n{init_command}\n```",
         "Then follow the returned prompt. If `handover.md` exists, treat it as incoming context, not as the final plan.",
@@ -1944,7 +1944,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     if not state_path.exists():
         state_path.parent.mkdir(parents=True, exist_ok=True)
         initial: Dict[str, Any] = {
-            "swarm": {"name": default_name, "goal": getattr(args, "goal", "") or "", "status": "planning"},
+            "sprintengine": {"name": default_name, "goal": getattr(args, "goal", "") or "", "status": "planning"},
             "tasks": [],
             "agents": {},
             "events": [],
@@ -1954,26 +1954,26 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         save_state(state_path, initial)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        swarm = state.setdefault("swarm", {})
-        if not swarm.get("name"):
-            swarm["name"] = default_name
-        if getattr(args, "goal", None) and not swarm.get("goal"):
-            swarm["goal"] = args.goal
+        sprintengine = state.setdefault("sprintengine", {})
+        if not sprintengine.get("name"):
+            sprintengine["name"] = default_name
+        if getattr(args, "goal", None) and not sprintengine.get("goal"):
+            sprintengine["goal"] = args.goal
         legacy_plan_gate = find_architect_plan_gate(state, state_path)
         if legacy_plan_gate["task"] and not any(
             isinstance(task, dict) and task.get("role") == "product"
             for task in state.get("tasks", [])
         ):
-            plan_gate = ensure_plan_approval_gate(state, state_path, "swarm", start_active=False)
+            plan_gate = ensure_plan_approval_gate(state, state_path, "sprintengine", start_active=False)
             recompute_phase(state)
             return {"ok": True, "planGate": plan_gate}
 
-        product_gate = ensure_product_intake_gate(state, state_path, "swarm")
+        product_gate = ensure_product_intake_gate(state, state_path, "sprintengine")
         product_task = product_gate["task"]
         plan_gate = ensure_plan_approval_gate(
             state,
             state_path,
-            "swarm",
+            "sprintengine",
             depends_on=str(product_task.get("id")),
             start_active=False,
         )
@@ -1986,13 +1986,13 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
 
     init_state = with_locked_state(state_path, run)
     state = load_state(state_path)
-    swarm = state.setdefault("swarm", {})
+    sprintengine = state.setdefault("sprintengine", {})
     plan_gate = init_state["planGate"]
     product_gate = init_state.get("productGate")
     return {
         "ok": True,
         "action": "initialized",
-        "team": swarm.get("name") or default_name,
+        "team": sprintengine.get("name") or default_name,
         "statePath": str(state_path),
         "productTask": product_gate["task"] if product_gate else None,
         "productArtifact": product_gate["artifact"] if product_gate else None,
@@ -2001,7 +2001,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     }
 def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     import sys
-    print(f"[swarm] reading state from: {args.state}", file=sys.stderr)
+    print(f"[sprintengine] reading state from: {args.state}", file=sys.stderr)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         runtime = reconcile_agent(state, args.id, args.role)
@@ -2021,18 +2021,18 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"## Your First Action\n"
                 f"You are agent `{args.id}` with role `{args.role}`.\n"
                 f"You already have active task `{task_id}`: {task_title}.\n\n"
-                f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
+                f"Run:\n```\nsprintengine task next --role {args.role} --id {args.id}\n```\n\n"
                 f"This reconnects you to your existing active task instead of claiming a new one. "
                 f"Continue the task and log evidence.\n\n"
                 f"{worker_plan_worktree_block()}\n\n"
                 f"{artifact_registration_instruction(args.id)}\n\n"
                 f"When complete: if you produced findings, issues, or changes_requested, move the task back to `needs_input` so the implementer/author can address them. "
                 f"Otherwise, mark it done. "
-                f"If you notice a prompt or process issue that would help improve future swarms, include it with repeatable `--issue-json` on your final feedback command. "
+                f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
                 f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
                 f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.\n\n"
-                "**IMPORTANT: Do not edit swarm/state.yaml directly. "
-                "All updates must go through the swarm tool.**"
+                "**IMPORTANT: Do not edit sprintengine/state.yaml directly. "
+                "All updates must go through the Sprint Engine tool.**"
             )
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "prompt": prompt + directive, "write": runtime["dirty"]}
 
@@ -2041,17 +2041,17 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"## Your First Action\n"
             f"You are agent `{args.id}` with role `{args.role}`.\n"
             f"There are **{len(ready)} task(s)** ready for your role.\n\n"
-            f"Run:\n```\nswarm task next --role {args.role} --id {args.id}\n```\n\n"
+            f"Run:\n```\nsprintengine task next --role {args.role} --id {args.id}\n```\n\n"
             f"Complete the claimed task and log evidence.\n\n"
             f"{worker_plan_worktree_block()}\n\n"
             f"{artifact_registration_instruction(args.id)}\n\n"
             f"When complete: if you produced findings, issues, or changes_requested, move the task back to `needs_input` so the implementer/author can address them. "
             f"Otherwise, mark it done. "
-            f"If you notice a prompt or process issue that would help improve future swarms, include it with repeatable `--issue-json` on your final feedback command. "
+            f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
             f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
             f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.\n\n"
-            "**IMPORTANT: Do not edit swarm/state.yaml directly. "
-            "All updates must go through the swarm tool.**"
+            "**IMPORTANT: Do not edit sprintengine/state.yaml directly. "
+            "All updates must go through the Sprint Engine tool.**"
         )
         return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "prompt": prompt + directive, "write": runtime["dirty"]}
 
@@ -2074,24 +2074,24 @@ def cmd_merge_start(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: Path) -> str:
-    swarm = state.get("swarm", {})
-    goal = swarm.get("goal") or "(not set - read the codebase for context)"
+    sprintengine = state.get("sprintengine", {})
+    goal = sprintengine.get("goal") or "(not set - read the codebase for context)"
     tasks = state.get("tasks", [])
     task_count = len(tasks)
     return "\n".join([
-        "You are the recovery architect for this swarm.",
+        "You are the recovery architect for this sprintengine.",
         f"Goal: {goal}",
         f"State file: {state_path}",
         f"Backup created: {backup_path}",
         f"Existing task count: {task_count}",
         "",
         "Keep this deliberately simple. This is an audit-only recovery pass, not a planning pass.",
-        "Your only job is to compare the existing tasks against the current codebase and update each existing task status/evidence through the swarm tool.",
+        "Your only job is to compare the existing tasks against the current codebase and update each existing task status/evidence through the Sprint Engine tool.",
         "",
         "Hard rules:",
-        "- Do NOT run `swarm init`.",
+        "- Do NOT run `sprintengine init`.",
         "- Do NOT rewrite, replace, delete, or add tasks.",
-        "- Do NOT run `swarm plan delete-task`, `swarm plan add-task`, `swarm plan update-task`, `swarm plan add-dependency`, `swarm plan remove-dependency`, or any task-board replanning command.",
+        "- Do NOT run `Sprint Engine plan delete-task`, `Sprint Engine plan add-task`, `Sprint Engine plan update-task`, `Sprint Engine plan add-dependency`, `Sprint Engine plan remove-dependency`, or any task-board replanning command.",
         "- Do NOT edit plan.md or create a new plan.",
         "- Do NOT clear the board because tasks look stale.",
         "- Preserve task IDs, titles, descriptions, paths, dependencies, and acceptance criteria.",
@@ -2108,15 +2108,15 @@ def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: 
         "6. If uncertain, mark needs_input or add a note. Do not guess.",
         "",
         "Use command discovery before your first mutation:",
-        "- `swarm --help`",
-        "- `swarm task status --help`",
-        "- `swarm task log --help`",
-        "- `swarm task note --help`",
+        "- `sprintengine --help`",
+        "- `sprintengine task status --help`",
+        "- `sprintengine task log --help`",
+        "- `sprintengine task note --help`",
         "",
         "Allowed write commands are limited to:",
-        "- `swarm task status`",
-        "- `swarm task log`",
-        "- `swarm task note`",
+        "- `sprintengine task status`",
+        "- `sprintengine task log`",
+        "- `sprintengine task note`",
         "",
         "If a needed command is unavailable or fails, stop and explain the blocker instead of changing the plan shape.",
     ])
@@ -2188,7 +2188,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         if feedback_args_present(args) and args.status != "done":
-            raise SystemExit("Feedback flags on `swarm task status` are only supported with --status done.")
+            raise SystemExit("Feedback flags on `sprintengine task status` are only supported with --status done.")
         task["status"] = args.status
         if args.status == "in_progress" and not task.get("startedAt"):
             task["startedAt"] = now_iso()
@@ -2500,7 +2500,7 @@ def set_artifact_ready(
     owner_id = str(task.get("ownerAgentId") or "").strip()
     task_role = str(task.get("role") or "").strip()
     created_by = str(artifact.get("createdBy") or "").strip()
-    if owner_id and (not created_by or created_by in {task_role, "swarm"}):
+    if owner_id and (not created_by or created_by in {task_role, "sprintengine"}):
         artifact["createdBy"] = owner_id
     path_info = normalize_artifact_path(state_path, str(artifact.get("path", "")), require_file=True)
     artifact["path"] = path_info["path"]
@@ -2649,9 +2649,9 @@ Plan commands (architect only):
   sprintengine plan list
 
 Artifact commands:
-  sprintengine artifact add --task-id T1 --kind product_strategy --title "Strategy" --path swarm/team/documents/strategy.md --created-by product
-  sprintengine artifact add --task-id T4 --kind code_review --title "Code review" --path swarm/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
-  sprintengine artifact add --task-id T5 --kind performance_review --title "Performance review" --path swarm/team/reviews/performance-review.md --created-by performance --recommended-task "Fix unbounded render work"
+  sprintengine artifact add --task-id T1 --kind product_strategy --title "Strategy" --path sprintengine/team/documents/strategy.md --created-by product
+  sprintengine artifact add --task-id T4 --kind code_review --title "Code review" --path sprintengine/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
+  sprintengine artifact add --task-id T5 --kind performance_review --title "Performance review" --path sprintengine/team/reviews/performance-review.md --created-by performance --recommended-task "Fix unbounded render work"
   sprintengine artifact list --task-id T1
   sprintengine artifact ready --artifact-id A1 --id product
   sprintengine artifact ready --artifact-id A1 --id product --confidence-pct 85 --hallucination-risk-pct 10
@@ -2669,7 +2669,7 @@ Post-run merge:
 def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: str) -> None:
     p = sub.add_parser(name, help=help_text)
     p.add_argument("--name", required=True, help="Team name; converted to a stable folder slug.")
-    p.add_argument("--goal", default="", help="Goal for the future architect/swarm run.")
+    p.add_argument("--goal", default="", help="Goal for the future architect/sprintengine run.")
     handover = p.add_mutually_exclusive_group()
     handover.add_argument("--handover", type=Path, help="Path to markdown handover context to copy into handover.md.")
     handover.add_argument("--handover-text", help="Inline handover context to write to handover.md.")
@@ -2679,7 +2679,7 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help="Whether the future architect startup prompt should preserve the swarm worktree preference.",
+        help="Whether the future architect startup prompt should preserve the sprintengine worktree preference.",
     )
     p.add_argument("--force", action="store_true", help="Replace existing state/handover bootstrap files.")
     p.set_defaults(handler=cmd_handover, uses_state=False)
@@ -2748,7 +2748,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help="Whether the architect should prefer creating a shared swarm worktree.",
+        help="Whether the architect should prefer creating a shared sprintengine worktree.",
     )
     p.set_defaults(handler=cmd_init)
 
@@ -2881,7 +2881,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task-id", required=True, help="Producing task id.")
     p.add_argument("--kind", required=True, choices=sorted(VALID_ARTIFACT_KINDS))
     p.add_argument("--title", required=True, help="Human-readable review title.")
-    p.add_argument("--path", required=True, help="Artifact file path under the active swarm team folder.")
+    p.add_argument("--path", required=True, help="Artifact file path under the active Sprint Engine team folder.")
     p.add_argument("--created-by", help="Agent or actor that produced the artifact.")
     p.add_argument("--recommended-task", action="append", default=[], help="Optional downstream task recommendation.")
     p.add_argument("--ready", action="store_true", help="Immediately mark the artifact ready for review.")

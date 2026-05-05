@@ -1,4 +1,4 @@
-"""Sanitized feedback analysis for swarm runs."""
+"""Sanitized feedback analysis for sprintengine runs."""
 
 from __future__ import annotations
 
@@ -244,7 +244,7 @@ def _objective_evidence(state: dict[str, Any]) -> dict[str, int]:
 def _dimension_category(dimension: str) -> str:
     if dimension in {"acceptance_criteria_clarity_pct", "task_clarity_pct"}:
         return "task_card"
-    if dimension == "swarm_tool_effectiveness_pct":
+    if dimension == "sprintengine_tool_effectiveness_pct":
         return "tooling"
     if dimension == "context_fit_pct":
         return "context"

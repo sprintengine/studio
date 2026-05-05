@@ -1,7 +1,7 @@
 import React from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli } from '../../types/workspace'
-import { MULTICODE_DISABLE_SWARM_TERMINALS, MULTICODE_SAFE_MODE } from '../../utils/runtimeFlags'
+import { MULTICODE_DISABLE_SPRINTENGINE_TERMINALS, MULTICODE_SAFE_MODE } from '../../utils/runtimeFlags'
 import TerminalView from './TerminalView'
 
 interface Props {
@@ -21,8 +21,8 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
   )
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const label = agent?.name ?? agentId
-  const isSwarmAgent = workspace?.mode === 'swarm' && Boolean(swarmRuntimeAgent)
-  const swarmTerminalBlocked = MULTICODE_DISABLE_SWARM_TERMINALS && isSwarmAgent
+  const isSwarmAgent = workspace?.mode === 'sprintengine' && Boolean(swarmRuntimeAgent)
+  const swarmTerminalBlocked = MULTICODE_DISABLE_SPRINTENGINE_TERMINALS && isSwarmAgent
   const hasStarted = !swarmTerminalBlocked && (!isSwarmAgent || Boolean(agent?.cliStartRequested))
   const needsInput = swarmRuntimeAgent?.status === 'needs_input'
   const cli: AgentCli = agent?.cli ?? 'codex'
@@ -54,8 +54,8 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
             {swarmTerminalBlocked ? (
               <div className="max-w-sm text-[12px] leading-5 text-[#8a8a92]">
                 {MULTICODE_SAFE_MODE
-                  ? 'Safe mode is active. Swarm agent terminals are not auto-mounted.'
-                  : 'Swarm agent terminals are disabled for this diagnostic run.'}
+                  ? 'Safe mode is active. Sprint Engine agent terminals are not auto-mounted.'
+                  : 'Sprint Engine agent terminals are disabled for this diagnostic run.'}
               </div>
             ) : null}
             <button

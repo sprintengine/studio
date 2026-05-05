@@ -61,22 +61,22 @@ export function buildSwarmStartupPrompt(
     ? `init --goal ${quoteShellArg(goal)} --use-worktrees ${options.useWorktreesForSwarms ? 'true' : 'false'}`
     : `join --role ${role} --id ${agentId}`
   const command = commandMode === 'init'
-    ? `Run \`swarm ${swarmCommand}\` to receive your full prompt and instructions.`
-    : `Run \`swarm ${swarmCommand}\` to receive your full prompt and next directive.`
+    ? `Run \`sprintengine ${swarmCommand}\` to receive your full prompt and instructions.`
+    : `Run \`sprintengine ${swarmCommand}\` to receive your full prompt and next directive.`
 
   const context = [
     options.executionCwd ? `Worker cwd: ${options.executionCwd}` : null,
-    options.swarmStatePath ? `Shared swarm state: ${options.swarmStatePath}` : null,
+    options.swarmStatePath ? `Shared Sprint Engine state: ${options.swarmStatePath}` : null,
   ].filter(Boolean)
 
   return [
-    'Fetch the canonical swarm instructions from the Python tool.',
+    'Fetch the canonical sprintengine instructions from the Python tool.',
     context.length > 0 ? context.join('\n') : null,
     options.reduceTokenConsumption
       ? 'Reduce Token Consumption is enabled. Keep picking up ready tasks with this same agent id until no task is ready, you are blocked, you need user input, or your context window is about 70% full.'
       : null,
     [
-      'On Windows, prefer the repo virtual environment command if `swarm` or global Python is unreliable:',
+      'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
       '```powershell',
       buildWindowsSwarmToolCommand(swarmCommand, options.workspaceRoot),
       '```',

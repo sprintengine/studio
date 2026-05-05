@@ -5,7 +5,7 @@ export type MobileControlProtocolVersion = typeof mobileControlProtocolVersion;
 export type MobileControlCommandType =
   | "snapshot.request"
   | "artifact.read"
-  | "swarm.create"
+  | "sprintengine.create"
   | "task.start"
   | "artifact.approve"
   | "artifact.requestChanges"
@@ -110,7 +110,7 @@ export type ArtifactReadCommand = MobileControlCommandBase<
 >;
 
 export type SwarmCreateCommand = MobileControlCommandBase<
-  "swarm.create",
+  "sprintengine.create",
   {
     workspacePath: string;
     productPrompt: string;
@@ -307,7 +307,7 @@ type ObjectValidationResult =
 const commandTypes = [
   "snapshot.request",
   "artifact.read",
-  "swarm.create",
+  "sprintengine.create",
   "task.start",
   "artifact.approve",
   "artifact.requestChanges",
@@ -462,8 +462,8 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
     return invalidPayload(baseError);
   }
 
-  for (const swarm of snapshot.value.swarms as unknown[]) {
-    const error = validateSwarmSnapshot(swarm);
+  for (const sprintengine of snapshot.value.swarms as unknown[]) {
+    const error = validateSwarmSnapshot(sprintengine);
     if (error) {
       return invalidPayload(error);
     }
@@ -608,7 +608,7 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
         requireString(payload, "artifactId") ??
         requireLiteral(payload, "previewMode", artifactPreviewModes)
       );
-    case "swarm.create":
+    case "sprintengine.create":
       return (
         requireString(payload, "workspacePath") ??
         requireString(payload, "productPrompt") ??
@@ -674,27 +674,27 @@ function validateEventPayload(type: MobileControlEventType, payload: Record<stri
 }
 
 function validateSwarmSnapshot(input: unknown): string | null {
-  const swarm = validateObject(input, "snapshot.swarm");
-  if (swarm.ok === false) {
-    return swarm.error;
+  const sprintengine = validateObject(input, "snapshot.sprintengine");
+  if (sprintengine.ok === false) {
+    return sprintengine.error;
   }
 
   const baseError =
-    requireString(swarm.value, "swarmId") ??
-    requireString(swarm.value, "name") ??
-    requireString(swarm.value, "workspacePath") ??
-    requireString(swarm.value, "statePath") ??
-    optionalString(swarm.value, "planPath") ??
-    requireString(swarm.value, "snapshotVersion") ??
-    requireString(swarm.value, "updatedAt") ??
-    requireIsoDate(swarm.value, "updatedAt") ??
-    requireArray(swarm.value, "tasks") ??
-    requireArray(swarm.value, "artifacts");
+    requireString(sprintengine.value, "swarmId") ??
+    requireString(sprintengine.value, "name") ??
+    requireString(sprintengine.value, "workspacePath") ??
+    requireString(sprintengine.value, "statePath") ??
+    optionalString(sprintengine.value, "planPath") ??
+    requireString(sprintengine.value, "snapshotVersion") ??
+    requireString(sprintengine.value, "updatedAt") ??
+    requireIsoDate(sprintengine.value, "updatedAt") ??
+    requireArray(sprintengine.value, "tasks") ??
+    requireArray(sprintengine.value, "artifacts");
   if (baseError) {
     return baseError;
   }
 
-  const board = validateObject(swarm.value.board, "swarm.board");
+  const board = validateObject(sprintengine.value.board, "sprintengine.board");
   if (board.ok === false) {
     return board.error;
   }
@@ -710,14 +710,14 @@ function validateSwarmSnapshot(input: unknown): string | null {
     return boardError;
   }
 
-  for (const task of swarm.value.tasks as unknown[]) {
+  for (const task of sprintengine.value.tasks as unknown[]) {
     const taskError = validateTaskSnapshot(task);
     if (taskError) {
       return taskError;
     }
   }
 
-  for (const artifact of swarm.value.artifacts as unknown[]) {
+  for (const artifact of sprintengine.value.artifacts as unknown[]) {
     const artifactError = validateArtifactSnapshot(artifact);
     if (artifactError) {
       return artifactError;

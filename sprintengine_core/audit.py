@@ -1,4 +1,4 @@
-"""Append-only audit event primitives for swarm operations."""
+"""Append-only audit event primitives for sprintengine operations."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def audit_log_path(state_path: Path) -> Path:
     team_dir = state_path.parent.resolve()
     metrics_dir = (team_dir / "metrics").resolve()
     if not path_is_relative_to(metrics_dir, team_dir):
-        raise ValueError(f"Audit metrics directory must stay under active swarm team folder: {team_dir}")
+        raise ValueError(f"Audit metrics directory must stay under active Sprint Engine team folder: {team_dir}")
     return metrics_dir / AUDIT_LOG_NAME
 
 

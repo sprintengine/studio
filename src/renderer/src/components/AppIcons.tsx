@@ -41,7 +41,7 @@ export function WorkspaceTypeIcon({
 }: IconProps & {
   mode: Workspace['mode']
 }) {
-  if (mode === 'swarm') {
+  if (mode === 'sprintengine') {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <circle cx="12" cy="6" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />

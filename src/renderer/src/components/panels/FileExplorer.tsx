@@ -5,7 +5,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { slugifySwarmName } from '../../utils/swarmStateFile'
+import { slugifySwarmName } from '../../utils/sprintengineStateFile'
 import type { FuturePlanWorkspaceSource } from '../../types/workspace'
 
 type Entry = {
@@ -901,7 +901,7 @@ function ExplorerTree({
     const command = await window.api.showContextMenu([
       ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
       ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
-      ...(canStartFuturePlan ? [{ id: 'create-markdown-swarm', label: 'Start Future Plan...' }] : []),
+      ...(canStartFuturePlan ? [{ id: 'create-markdown-sprintengine', label: 'Start Future Plan...' }] : []),
       ...(entry?.isDir && !isSearching && canUsePathCommands
         ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
         : []),
@@ -927,7 +927,7 @@ function ExplorerTree({
       }
       return
     }
-    if (command === 'create-markdown-swarm' && entry) return void startFuturePlan(entry)
+    if (command === 'create-markdown-sprintengine' && entry) return void startFuturePlan(entry)
     if (command === 'expand' && entry?.isDir) {
       if (!expandedPaths[entry.path]) {
         await ensureDirectoryLoaded(entry.path)

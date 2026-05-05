@@ -15,8 +15,8 @@ import { createMultiloopWorkspace, MultiloopWorkspaceCreationError } from './mul
 import { selectMultiloopAutoRunCandidates } from './multiloopAutoRun'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { createMultiloopTemplate } from '../layouts/templates'
-import { parseSwarmStateFile } from './swarmStateFile'
-import { createPlanSourcedSwarmWorkspace } from './swarmWorkspaceCreation'
+import { parseSwarmStateFile } from './sprintengineStateFile'
+import { createPlanSourcedSwarmWorkspace } from './sprintengineWorkspaceCreation'
 
 function baseMultiloopState() {
   return {
@@ -170,7 +170,7 @@ function baseMultiloopState() {
         id: 'A1',
         kind: 'validation_report',
         title: 'M2 validation report',
-        path: 'swarm/multiloop-milestone-architecture-5/reviews/m5-validation.md',
+        path: 'sprintengine/multiloop-milestone-architecture-5/reviews/m5-validation.md',
         milestoneId: 'M2',
         taskId: 'T3',
         createdBy: 'tester-1',
@@ -192,7 +192,7 @@ function baseMultiloopState() {
     decisions: [
       {
         id: 'D1',
-        summary: 'Keep M5 renderer reads separate from swarm state.',
+        summary: 'Keep M5 renderer reads separate from Sprint Engine state.',
         createdBy: 'architect-1',
         createdAt: '2026-05-02T10:30:00Z',
       },
@@ -247,7 +247,7 @@ function testValidBlockedAndAcceptedHistoryFixtures() {
   assert.equal(state.roadmap[0].reviewVerdicts[0].verdict, 'legacy')
   assert.equal(state.roadmap[1].learnedFacts[0], 'Renderer text is state-derived and bounded by parser validation.')
   assert.equal(state.artifacts[0].title, 'M2 validation report')
-  assert.equal(state.decisions[0].summary, 'Keep M5 renderer reads separate from swarm state.')
+  assert.equal(state.decisions[0].summary, 'Keep M5 renderer reads separate from Sprint Engine state.')
 }
 
 function testActiveMilestoneFilteringAndSignals() {
@@ -520,9 +520,9 @@ function testMultiloopAutoRunPausesForBlockersAndUnknownRoles() {
 
 function testSwarmParsingRegression() {
   const state = parseSwarmStateFile(JSON.stringify({
-    swarm: {
-      name: 'Regression Swarm',
-      goal: 'Keep swarm workspace parsing stable.',
+    sprintengine: {
+      name: 'Regression SprintEngine',
+      goal: 'Keep Sprint Engine workspace parsing stable.',
       updatedAt: '2026-05-02T15:00:00Z',
     },
     agents: {
@@ -539,7 +539,7 @@ function testSwarmParsingRegression() {
         ownerAgentId: 'tester',
         dependsOn: [],
         ownedPaths: ['src/renderer/src'],
-        acceptanceCriteria: ['Swarm parsing remains intact.'],
+        acceptanceCriteria: ['SprintEngine parsing remains intact.'],
         implementationNotes: [],
         evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
         notes: [],
@@ -551,7 +551,7 @@ function testSwarmParsingRegression() {
     events: [],
   }))
 
-  assert.equal(state.name, 'Regression Swarm')
+  assert.equal(state.name, 'Regression SprintEngine')
   assert.equal(state.roleCounts.architect, 1)
   assert.equal(state.roleCounts.tester, 1)
   assert.equal(state.tasks[0].status, 'in_progress')
@@ -696,12 +696,12 @@ async function testSwarmWorkspaceCreationRegressionKeepsSwarmModeAndPrompt() {
   const beforeIds = new Set(useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id))
   const result = await createPlanSourcedSwarmWorkspace({
     rootPath: 'C:\\repo',
-    teamName: 'Regression Swarm',
-    goal: 'Keep swarm creation stable.',
+    teamName: 'Regression SprintEngine',
+    goal: 'Keep sprintengine creation stable.',
     sourcePath: 'future-plans/regression.md',
     sourceContent: '# Regression Plan',
     pathExists: async (path) => {
-      assert.equal(path, 'C:\\repo\\swarm\\regression-swarm\\state.yaml')
+      assert.equal(path, 'C:\\repo\\sprintengine\\regression-sprintengine\\state.yaml')
       return false
     },
   })
@@ -709,11 +709,11 @@ async function testSwarmWorkspaceCreationRegressionKeepsSwarmModeAndPrompt() {
 
   assert.ok(createdWorkspace)
   assert.equal(createdWorkspace.id, result.workspaceId)
-  assert.equal(createdWorkspace.mode, 'swarm')
-  assert.equal(createdWorkspace.swarmContext?.teamSlug, 'regression-swarm')
+  assert.equal(createdWorkspace.mode, 'sprintengine')
+  assert.equal(createdWorkspace.swarmContext?.teamSlug, 'regression-sprintengine')
   assert.equal(createdWorkspace.multiloopContext, null)
-  assert.equal(createdWorkspace.swarmState?.name, 'Regression Swarm')
-  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('swarm handover'), true)
+  assert.equal(createdWorkspace.swarmState?.name, 'Regression SprintEngine')
+  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('sprintengine handover'), true)
   assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('multiloop'), false)
 }
 

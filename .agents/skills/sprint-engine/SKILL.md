@@ -1,6 +1,6 @@
 ---
 name: sprint-engine
-description: Use Sprint Engine as the canonical local execution authority for read/status/report access to specialist runs, with Swarm compatibility for Milestone 01 mutations.
+description: Use Sprint Engine as the canonical local execution authority for read/status/report access to specialist runs, with SprintEngine compatibility for Milestone 01 mutations.
 ---
 
 Use Sprint Engine when an agent needs canonical execution run, task, artifact, role, event, or report data.
@@ -29,7 +29,7 @@ scripts/sprintengine_tool.py artifact list --run sprint:<team-slug>
 scripts/sprintengine_tool.py report export --run sprint:<team-slug> --format json
 ```
 
-Run ids currently use `sprint:<team-slug>` for state files under `swarm/<team-slug>/state.yaml`.
+Run ids currently use `sprint:<team-slug>` for state files under `sprintengine/<team-slug>/state.yaml`.
 
 ## Execution Authority
 
@@ -48,12 +48,12 @@ Role prompts come from `specialist-prompts`. Do not use `multiloop-agent-souls` 
 
 ## Milestone 01 Write Limit
 
-Sprint Engine mutation commands are intentionally unavailable in Milestone 01. If a task requires claim, status, evidence, notes, artifact review, or plan mutation, use the Swarm compatibility tool for that mutation:
+Sprint Engine mutation commands are intentionally unavailable in Milestone 01. If a task requires claim, status, evidence, notes, artifact review, or plan mutation, use the SprintEngine compatibility tool for that mutation:
 
-- Windows PowerShell: `.\scripts\swarm.cmd <args>`
-- POSIX shells: `swarm <args>` or the repo Python fallback
+- Windows PowerShell: `.\scripts\sprintengine.cmd <args>`
+- POSIX shells: `sprintengine <args>` or the repo Python fallback
 
-Do not edit `swarm/<team>/state.yaml` directly.
+Do not edit `sprintengine/<team>/state.yaml` directly.
 
 ## Path Discipline
 
@@ -62,7 +62,7 @@ Use project-root-relative paths in examples, evidence, artifacts, reports, and h
 ```text
 docs/sprintengine-cli.md
 sprintengine_core/cli.py
-swarm/01-shared-domain-cli-readonly/state.yaml
+sprintengine/01-shared-domain-cli-readonly/state.yaml
 specialist-prompts/developer-prompt.md
 ```
 
