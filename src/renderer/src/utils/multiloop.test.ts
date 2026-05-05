@@ -709,6 +709,7 @@ async function testSwarmWorkspaceCreationRegressionKeepsSwarmModeAndPrompt() {
 
   assert.ok(createdWorkspace)
   assert.equal(createdWorkspace.id, result.workspaceId)
+  assert.equal(createdWorkspace.name, 'Regression SprintEngine')
   assert.equal(createdWorkspace.mode, 'sprintengine')
   assert.equal(createdWorkspace.swarmContext?.teamSlug, 'regression-sprintengine')
   assert.equal(createdWorkspace.multiloopContext, null)

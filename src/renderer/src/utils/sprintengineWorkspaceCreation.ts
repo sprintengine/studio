@@ -34,7 +34,6 @@ export type PlanSourcedSwarmWorkspaceArgs = {
   goal: string
   sourcePath: string
   sourceContent: string
-  workspaceName?: string
   roleCounts?: SwarmRoleCounts
   roleCliDefaults?: SwarmRoleCliDefaults
   useWorktreesForSwarms?: boolean
@@ -84,7 +83,6 @@ export async function createPlanSourcedSwarmWorkspace({
   goal,
   sourcePath,
   sourceContent,
-  workspaceName,
   roleCounts = planSourcedSwarmRoleCounts,
   roleCliDefaults,
   useWorktreesForSwarms = false,
@@ -119,7 +117,7 @@ export async function createPlanSourcedSwarmWorkspace({
     roleCounts: swarmState.roleCounts,
   })
   const workspaceId = useWorkspaceStore.getState().addWorkspace(template, {
-    name: workspaceName?.trim() || swarmContext.teamName,
+    name: swarmContext.teamName,
     folderPath: trimmedRoot,
     swarmState,
     swarmContext,

@@ -359,7 +359,6 @@ export default function WorkspaceManager() {
     setTemplateSelectorInitialState({
       mode: 'sprintengine',
       folderPath: source.folderPath,
-      workspaceName: source.teamName,
       futurePlanSource: source,
     })
     setShowTemplateSelector(true)

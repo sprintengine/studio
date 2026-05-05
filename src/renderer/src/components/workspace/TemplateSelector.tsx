@@ -57,7 +57,6 @@ type MarkdownPlanOption = {
 export type TemplateSelectorInitialState = {
   mode?: CreationMode
   folderPath?: string | null
-  workspaceName?: string
   futurePlanSource?: FuturePlanWorkspaceSource | null
 }
 
@@ -255,8 +254,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const [folderPath, setFolderPath] = useState<string | null>(initialState?.folderPath ?? initialFuturePlan?.folderPath ?? null)
-  const [name, setName] = useState(initialState?.workspaceName ?? initialFuturePlan?.teamName ?? '')
-  const [nameTouched, setNameTouched] = useState(Boolean(initialState?.workspaceName ?? initialFuturePlan))
+  const [name, setName] = useState('')
+  const [nameTouched, setNameTouched] = useState(false)
   const [mode, setMode] = useState<CreationMode>(initialState?.mode ?? (initialFuturePlan ? 'sprintengine' : 'standard'))
   const [selectedId, setSelectedId] = useState<string>(LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id)
   const [swarmTeamName, setSwarmTeamName] = useState(initialFuturePlan?.teamName ?? '')
@@ -311,7 +310,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const selected = LAYOUT_TEMPLATES.find((template) => template.id === selectedId) ?? LAYOUT_TEMPLATES[0]
   const totalAgents = countSwarmAgents(swarmRoleCounts)
   const swarmAccess = getSwarmAccessState(authState)
-  const detailsComplete = name.trim().length > 0
+  const detailsComplete = mode === 'sprintengine' || name.trim().length > 0
   const swarmObjectiveComplete =
     selectedExistingTeam != null || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0)
   const multiloopObjectiveComplete =
@@ -334,11 +333,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
 
   const swarmConfig = useMemo<SwarmMockConfig>(
     () => ({
-      name: swarmTeamName.trim() || name.trim() || 'Sprint Engine Team',
+      name: swarmTeamName.trim() || 'Sprint Engine Team',
       goal: swarmGoal.trim(),
       roleCounts: swarmRoleCounts,
     }),
-    [name, swarmGoal, swarmRoleCounts, swarmTeamName]
+    [swarmGoal, swarmRoleCounts, swarmTeamName]
   )
 
   const scanFolder = async (dir: string) => {
@@ -428,7 +427,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       const goal = markdownTitle(content) ?? toTitleName(fallbackName)
       setFuturePlanContent(content)
       if (!swarmTeamNameTouched) setSwarmTeamName(slugifySwarmName(fallbackName))
-      if (!nameTouched) setName(slugifySwarmName(fallbackName))
       setSwarmGoal(goal)
       setSelectedExistingTeam(null)
     } catch {
@@ -440,6 +438,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const handleModeChange = (nextMode: CreationMode) => {
     setMode(nextMode)
     if (nextMode !== 'sprintengine') setSelectedExistingTeam(null)
+    if (nextMode === 'standard' && !nameTouched) {
+      setName(basename(folderPath ?? '') || 'workspace')
+    }
     if (nextMode === 'multiloop' && !multiloopNameTouched) {
       setMultiloopName(toTitleName(name || basename(folderPath ?? '')) || 'Product Loop')
     }
@@ -456,7 +457,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     setSwarmTeamName(team.displayName)
     setSwarmGoal(team.state.goal)
     setSwarmRoleCounts(team.state.roleCounts)
-    if (!nameTouched) setName(team.displayName)
   }
 
   const setRoleCliDefault = (role: SwarmRole, cli: AgentCli) => {
@@ -519,7 +519,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       })
       onCreate({
         template,
-        name: name.trim(),
+        name: loadedState.name,
         folderPath,
         swarmState: loadedState,
         swarmContext: context,
@@ -546,7 +546,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
           goal: swarmGoal,
           sourcePath: option.relativePath,
           sourceContent: futurePlanContent,
-          workspaceName: name,
           roleCounts: swarmRoleCounts,
           roleCliDefaults: swarmRoleCliDefaults,
           useWorktreesForSwarms,
@@ -570,7 +569,15 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     const swarmContext = mode === 'sprintengine' && folderPath && swarmState
       ? buildSwarmContext(folderPath, swarmState.name, slugifySwarmName(swarmState.name))
       : null
-    onCreate({ template, name: name.trim(), folderPath, swarmState, swarmContext, swarmRoleCliDefaults, swarmAutoState })
+    onCreate({
+      template,
+      name: mode === 'sprintengine' && swarmState ? swarmState.name : name.trim(),
+      folderPath,
+      swarmState,
+      swarmContext,
+      swarmRoleCliDefaults,
+      swarmAutoState,
+    })
   }
 
   const startLogin = async () => {
@@ -684,7 +691,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
             ) : null}
 
             <section className="border-b border-[#1f2025] pb-5">
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className={mode === 'sprintengine' ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-2'}>
                 <div className="flex min-w-0 flex-col gap-2">
                   <div className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">Folder</div>
                   <button
@@ -743,30 +750,29 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                   ) : null}
                 </div>
 
-                <label className="flex min-w-0 flex-col gap-2">
-                  <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
-                    Workspace name
-                  </span>
-                  <input
-                    value={name}
-                    onChange={(event) => {
-                      const nextName = event.target.value
-                      setName(nextName)
-                      setNameTouched(true)
-                      if (mode === 'sprintengine' && !swarmTeamNameTouched) {
-                        setSwarmTeamName(toTitleName(nextName))
-                      }
-                      if (mode === 'multiloop' && !multiloopNameTouched) {
-                        setMultiloopName(toTitleName(nextName))
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') void handleCreate()
-                    }}
-                    placeholder="my-workspace"
-                    className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
-                  />
-                </label>
+                {mode !== 'sprintengine' ? (
+                  <label className="flex min-w-0 flex-col gap-2">
+                    <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                      Workspace name
+                    </span>
+                    <input
+                      value={name}
+                      onChange={(event) => {
+                        const nextName = event.target.value
+                        setName(nextName)
+                        setNameTouched(true)
+                        if (mode === 'multiloop' && !multiloopNameTouched) {
+                          setMultiloopName(toTitleName(nextName))
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void handleCreate()
+                      }}
+                      placeholder="my-workspace"
+                      className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
+                    />
+                  </label>
+                ) : null}
               </div>
             </section>
 

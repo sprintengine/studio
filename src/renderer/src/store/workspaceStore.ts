@@ -958,6 +958,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               })
             : null
           const multiloopState = isMultiloop ? options?.multiloopState ?? null : null
+          const workspaceName = swarmState
+            ? swarmState.name
+            : options?.name?.trim() || fallbackName
           const agents: Workspace['agents'] = {}
           const swarmRoleCliDefaults = swarmState
             ? normalizeSwarmRoleCliDefaults(options?.swarmRoleCliDefaults)
@@ -977,7 +980,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
           state.workspaces.push({
             id,
-            name: options?.name?.trim() || fallbackName,
+            name: workspaceName,
             mode: multiloopState || isMultiloop ? 'multiloop' : swarmState ? 'sprintengine' : 'standard',
             folderPath,
             folderMissing: false,
