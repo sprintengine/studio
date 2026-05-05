@@ -182,8 +182,16 @@ function buildMultiloopStartupPrompt({
   const soul = getMultiloopAgentSoul(role)
   const currentMilestone = getActiveMultiloopMilestone(state)
   const stateRelativePath = toProjectRelativePath(statePath, workspaceRoot)
+  const readyTaskIdsForRole = currentMilestone
+    ? getMultiloopTasksForMilestone(state, currentMilestone.id)
+      .filter((task) => task.role === role && task.status === 'ready')
+      .map((task) => task.id)
+    : []
   const context = buildMultiloopLaunchContextLines({
     roleLabel: soul.label,
+    role,
+    agentId: `multiloop-${role}`,
+    readyTaskIdsForRole,
     loopName: state.loop.displayName,
     finalGoal: state.loop.finalGoal,
     currentMilestone,
@@ -241,13 +249,19 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     const soul = getMultiloopAgentSoul(role)
     const agentId = `multiloop-${role}`
     const existingAgent = workspace.agents[agentId]
-    if (existingAgent) {
-      focusOrAddAgentTab(workspaceId, agentId, existingAgent.name || soul.label)
-      return
-    }
 
     setRoleLaunchState({ status: 'loading', role })
     try {
+      if (workspaceRoot) {
+        const repaired = await window.api.initializeMultiloopState({
+          workspaceRoot,
+          loopName: multiloopState.loop.displayName,
+          finalGoal: multiloopState.loop.finalGoal,
+        })
+        if (!repaired.ok) {
+          throw new Error(repaired.message || 'Could not prepare the Multiloop CLI wrapper for this workspace.')
+        }
+      }
       const soulPrompt = await loadMultiloopAgentSoul(role)
       const startupPrompt = buildMultiloopStartupPrompt({
         soulPrompt,
@@ -257,14 +271,20 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         workspaceRoot,
       })
       const tabName = soul.label
+      const previousSessionId = existingAgent?.cliSessionId
+      if (existingAgent?.cliStartRequested && previousSessionId) {
+        void window.api.terminalKill(previousSessionId).catch(() => {})
+      }
       updateAgent(workspaceId, agentId, {
         name: tabName,
-        cli: 'codex',
-        cliPermissionPreset: 'default',
-        kind: 'general',
+        cli: existingAgent?.cli ?? 'codex',
+        cliPermissionPreset: existingAgent?.cliPermissionPreset ?? 'default',
+        kind: 'multiloop',
         specialistId: undefined,
+        multiloopRole: soul.role,
         cliStartupPrompt: prependAgentIdentifier(startupPrompt, tabName, `Multiloop ${soul.shortLabel}`),
         cliOnboardingPromptSent: false,
+        cliStartRequested: true,
         cliHasLaunched: false,
         cliSessionId: `multiloop-${role}-${nanoid(6)}`,
       })
@@ -434,7 +454,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         />
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)]">
         <aside className="min-h-0 overflow-y-auto border-b border-[#202127] p-4 lg:border-b-0 lg:border-r" aria-label="Roadmap milestones">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-[13px] font-semibold text-[#f0f0f2]">Roadmap</h2>
@@ -471,7 +491,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         </aside>
 
         <main className="min-h-0 min-w-0 overflow-y-auto">
-          <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_21rem]">
+          <div className="grid gap-4 p-4 2xl:grid-cols-[minmax(0,1fr)_21rem]">
             <div className="min-w-0 space-y-4">
               <MilestoneSummary milestone={selectedMilestone} activeMilestoneId={activeMilestone?.id ?? null} />
               <TopLevelSignals milestone={activeMilestone} blockers={activeBlockers} />
@@ -637,7 +657,7 @@ function TaskBoard({ tasks, selectedTaskId, onSelectTask }: { tasks: MultiloopTa
         <h2 className="text-[13px] font-semibold text-[#f0f0f2]">Milestone Tasks</h2>
         <span className="text-[11px] text-[#898a93]">{formatCount(tasks.length, 'task')}</span>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-3">
         {taskColumns.map((column) => {
           const columnTasks = tasks.filter((task) => task.status === column.key)
           return (

@@ -197,6 +197,23 @@ def test_task_prompt_renders_all_required_multiloop_roles(tmp_path: Path) -> Non
         assert "Active milestone: M1 [active]: Coordinator and role prompts" in prompt
 
 
+def test_coordinator_and_developer_prompts_require_cli_state_mutations(tmp_path: Path) -> None:
+    state_path = tmp_path / "multiloop" / "m3" / "state.json"
+    write_state(state_path, m3_state())
+    cli = MultiloopCli(tmp_path, state_path)
+
+    coordinator_prompt = cli.run("milestone", "plan-next").stdout
+    developer_prompt = cli.run("task", "prompt", "--role", "developer").stdout
+
+    assert "Use `scripts/multiloop` for every Multiloop state mutation." in coordinator_prompt
+    assert "Do not edit `multiloop/<loop>/state.json` directly." in coordinator_prompt
+    assert "Create or revise active-milestone tasks with `task create`" in coordinator_prompt
+    assert "Claim work before changing files with `scripts/multiloop --state multiloop/<loop>/state.json task next --role developer --id <agent-id>`." in developer_prompt
+    assert "After finishing a task, run `task next --role developer --id <agent-id>` again" in developer_prompt
+    assert "context is getting too full for reliable work" in developer_prompt
+    assert "If no developer task is ready, report that exact CLI result and stop" in developer_prompt
+
+
 def test_prompt_output_bounds_instruction_like_evidence_and_redacts_sensitive_state_text(tmp_path: Path) -> None:
     state_path = tmp_path / "multiloop" / "m3-redaction" / "state.json"
     state = m3_state()

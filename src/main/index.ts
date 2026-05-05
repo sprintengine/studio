@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from 'electron'
 import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
-import { access, appendFile, cp, lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
+import { access, appendFile, chmod, cp, lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
 import { createHash, randomBytes } from 'crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
@@ -1689,6 +1689,41 @@ function getMultiloopPythonExecutable(toolPath: string): string {
   return process.platform === 'win32' ? 'python' : 'python3'
 }
 
+function quoteSh(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+async function installMultiloopWorkspaceCli(workspaceRoot: string): Promise<void> {
+  const toolPath = getBundledMultiloopToolPath()
+  if (!toolPath) {
+    throw new Error('Multiloop Python tool is unavailable: scripts/multiloop_tool.py was not found.')
+  }
+
+  const toolRoot = dirname(dirname(toolPath))
+  const pythonExecutable = getMultiloopPythonExecutable(toolPath)
+  const scriptDirectory = join(workspaceRoot, 'scripts')
+  await mkdir(scriptDirectory, { recursive: true })
+
+  const shellWrapper = [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    `export PYTHONPATH=${quoteSh(toolRoot)}:\${PYTHONPATH:-}`,
+    `exec ${quoteSh(pythonExecutable)} ${quoteSh(toolPath)} "$@"`,
+    '',
+  ].join('\n')
+  const shellPath = join(scriptDirectory, 'multiloop')
+  await writeFile(shellPath, shellWrapper, 'utf8')
+  await chmod(shellPath, 0o755).catch(() => {})
+
+  const cmdWrapper = [
+    '@echo off',
+    `set "PYTHONPATH=${toolRoot};%PYTHONPATH%"`,
+    `"${pythonExecutable}" "${toolPath}" %*`,
+    '',
+  ].join('\r\n')
+  await writeFile(join(scriptDirectory, 'multiloop.cmd'), cmdWrapper, 'utf8')
+}
+
 function slugifyMultiloopName(name: string): string {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
   if (!slug) {
@@ -1837,6 +1872,7 @@ async function initializeMultiloopState(payload: MultiloopInitPayload): Promise<
       if (existing.conflicting) {
         return { ok: false, message: existing.message }
       }
+      await installMultiloopWorkspaceCli(workspaceRoot)
       return {
         ok: true,
         data: { workspaceRoot, loopName, loopSlug, loopDirectory, statePath, created: false },
@@ -1866,6 +1902,8 @@ async function initializeMultiloopState(payload: MultiloopInitPayload): Promise<
         exitCode: completed.exitCode ?? undefined,
       }
     }
+
+    await installMultiloopWorkspaceCli(workspaceRoot)
 
     return {
       ok: true,

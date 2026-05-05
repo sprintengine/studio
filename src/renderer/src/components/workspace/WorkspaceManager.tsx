@@ -32,7 +32,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SWARM_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/swarmHandoff'
-import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone } from '../../utils/multiloop'
+import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
 import { slugifySwarmName } from '../../utils/swarmStateFile'
 import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
@@ -237,17 +237,28 @@ function buildMultiloopSpawnPrompt({
   soul,
   soulPrompt,
   workspace,
+  agentId,
 }: {
   soul: MultiloopAgentSoul
   soulPrompt: string
   workspace: Workspace
+  agentId: string
 }): string {
   const state = workspace.multiloopState
+  const currentMilestone = state ? getActiveMultiloopMilestone(state) : null
+  const readyTaskIdsForRole = state && currentMilestone
+    ? getMultiloopTasksForMilestone(state, currentMilestone.id)
+      .filter((task) => task.role === soul.role && task.status === 'ready')
+      .map((task) => task.id)
+    : []
   const context = buildMultiloopLaunchContextLines({
     roleLabel: soul.label,
+    role: soul.role,
+    agentId,
+    readyTaskIdsForRole,
     loopName: state?.loop.displayName ?? workspace.multiloopContext?.loopName ?? workspace.name,
     finalGoal: state?.loop.finalGoal ?? null,
-    currentMilestone: state ? getActiveMultiloopMilestone(state) : null,
+    currentMilestone,
     statePath: toProjectRelativeStatePath(workspace.multiloopContext?.statePath, workspace.folderPath),
   })
 
@@ -804,11 +815,31 @@ export default function WorkspaceManager() {
     const targetTabset = model.getActiveTabset() ?? firstTabset(model)
     if (!targetTabset) return
 
+    if (activeWorkspace.folderPath && activeWorkspace.multiloopState) {
+      const repaired = await window.api.initializeMultiloopState({
+        workspaceRoot: activeWorkspace.folderPath,
+        loopName: activeWorkspace.multiloopState.loop.displayName,
+        finalGoal: activeWorkspace.multiloopState.loop.finalGoal,
+      })
+      if (!repaired.ok) {
+        publishDiagnosticSync({
+          level: 'error',
+          source: 'workspace',
+          title: 'Multiloop CLI unavailable',
+          message: repaired.message || 'Could not prepare the Multiloop CLI wrapper for this workspace.',
+          workspaceId: activeWorkspaceId,
+          workspaceName: activeWorkspace.name,
+        })
+        return
+      }
+    }
+
     const prompt = await loadMultiloopAgentSoul(soul.role)
     const startupPrompt = buildMultiloopSpawnPrompt({
       soul,
       soulPrompt: prompt,
       workspace: activeWorkspace,
+      agentId: newId,
     })
 
     updateAgent(activeWorkspaceId, newId, {
@@ -819,8 +850,10 @@ export default function WorkspaceManager() {
       specialistId: undefined,
       multiloopRole: soul.role,
       cliStartupPrompt: prependAgentIdentifier(startupPrompt, tabName, `Multiloop ${soul.shortLabel}`),
+      cliStartRequested: true,
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
+      cliSessionId: crypto.randomUUID(),
     })
     model.doAction(
       Actions.addNode(

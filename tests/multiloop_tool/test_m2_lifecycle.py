@@ -218,6 +218,11 @@ def test_state_validation_rejects_bad_dependencies_feedback_and_agent_ownership(
     with pytest.raises(StateValidationError, match=r"\$\.tasks\[0\]\.feedback\.confidencePct: expected number between 0 and 100"):
         validate_state(bad_feedback)
 
+    bad_role = deepcopy(state)
+    bad_role["tasks"][0]["role"] = "Implementer"
+    with pytest.raises(StateValidationError, match=r"\$\.tasks\[0\]\.role: expected one of"):
+        validate_state(bad_role)
+
     self_dependency = deepcopy(state)
     self_dependency["tasks"][0]["dependsOn"] = ["T1"]
     with pytest.raises(StateValidationError, match=r"\$\.tasks\[0\]\.dependsOn\[0\]: task cannot depend on itself"):

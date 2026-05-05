@@ -13,6 +13,7 @@ import type {
   MultiloopMilestoneRevision,
   MultiloopMilestoneStatus,
   MultiloopMilestoneReviewVerdict,
+  MultiloopAgentSoulRole,
   MultiloopReviewVerdictValue,
   MultiloopState,
   MultiloopStateDisplayError,
@@ -160,22 +161,32 @@ export function boundedMultiloopPromptContext(value: unknown, fallback: string):
 
 export function buildMultiloopLaunchContextLines({
   roleLabel,
+  role,
+  agentId,
+  readyTaskIdsForRole,
   loopName,
   finalGoal,
   currentMilestone,
   statePath,
 }: {
   roleLabel: string
+  role?: MultiloopAgentSoulRole
+  agentId?: string | null
+  readyTaskIdsForRole?: string[]
   loopName: string
   finalGoal?: string | null
   currentMilestone?: Pick<MultiloopMilestone, 'id' | 'title' | 'goal'> | null
   statePath: string
 }): string[] {
+  const commandStatePath = boundedMultiloopPromptContext(statePath, 'multiloop/<loop>/state.json')
+  const safeAgentId = boundedMultiloopPromptContext(agentId, 'set-a-stable-agent-id')
   return [
     '---',
     'Multiloop launch context',
     multiloopUntrustedContextNotice,
     `Role: ${roleLabel}`,
+    agentId ? `Agent id: ${safeAgentId}` : null,
+    role ? `Ready tasks for this role: ${readyTaskIdsForRole?.length ? readyTaskIdsForRole.join(', ') : 'none'}` : null,
     `Loop: ${boundedMultiloopPromptContext(loopName, 'Unnamed loop')}`,
     `Final goal: ${boundedMultiloopPromptContext(finalGoal, 'No final goal recorded.')}`,
     currentMilestone
@@ -184,10 +195,45 @@ export function buildMultiloopLaunchContextLines({
     currentMilestone
       ? `Current milestone goal: ${boundedMultiloopPromptContext(currentMilestone.goal, 'No milestone goal recorded.')}`
       : null,
-    `Multiloop state file: ${boundedMultiloopPromptContext(statePath, 'multiloop/<loop>/state.json')}`,
+    `Multiloop state file: ${commandStatePath}`,
+    'Use the Multiloop CLI for every state mutation; do not edit state.json directly.',
+    `Inspect state: scripts/multiloop --state ${commandStatePath} status`,
+    ...buildMultiloopRoleCommandLines(role, commandStatePath, safeAgentId),
     'Use project-root-relative paths in evidence, notes, artifacts, and handoffs.',
     'Do not include unredacted final-review bundle evidence in prompts or handoffs.',
   ].filter((line): line is string => line !== null)
+}
+
+function buildMultiloopRoleCommandLines(
+  role: MultiloopAgentSoulRole | undefined,
+  statePath: string,
+  agentId: string
+): string[] {
+  if (role === 'coordinator') {
+    return [
+      `Render current coordinator context: scripts/multiloop --state ${statePath} milestone plan-next`,
+      `Create active-milestone tasks: scripts/multiloop --state ${statePath} task create --task-id <id> --role <role> --title "<title>"`,
+      `Accept only completed, unblocked milestones: scripts/multiloop --state ${statePath} milestone accept <milestone-id> --id ${agentId}`,
+    ]
+  }
+
+  if (role && !['product', 'tester', 'security', 'code_reviewer', 'performance'].includes(role)) {
+    return [
+      `Claim work first: scripts/multiloop --state ${statePath} task next --role ${role} --id ${agentId}`,
+      `Log evidence before handoff: scripts/multiloop --state ${statePath} task log --task-id <task-id> --id ${agentId} --summary "<summary>" --file <path> --command "<command>" --result "<result>"`,
+      `Mark completion after evidence: scripts/multiloop --state ${statePath} task status --task-id <task-id> --status done --id ${agentId}`,
+      `After completion, run task next again and continue ready ${role} tasks until none remain, a task blocks, or context is getting too full.`,
+    ]
+  }
+
+  if (role) {
+    return [
+      `Render review context: scripts/multiloop --state ${statePath} milestone review --role ${role}`,
+      `Record verdict: scripts/multiloop --state ${statePath} milestone verdict add <milestone-id> --id ${agentId} --role ${role} --verdict <accepted|needs_follow_up|blocked|revise_scope> --evidence "<evidence>" --final-goal-implication "<implication>" --next-recommendation "<recommendation>"`,
+    ]
+  }
+
+  return []
 }
 
 function normalizeLoop(input: unknown, milestoneIds: Set<string>): MultiloopLoop {
