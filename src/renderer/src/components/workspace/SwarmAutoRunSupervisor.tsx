@@ -706,6 +706,7 @@ function pickNextAutoRuns(
     pendingSpawns: SwarmAutoPendingSpawn[]
     runningAgentIds: Set<string>
     inFlightSpawns: Set<string>
+    reduceTokenConsumption: boolean
   }
 ): AutoRunCandidate[] {
   if (options.limit <= 0) return []
@@ -720,6 +721,7 @@ function pickNextAutoRuns(
     pendingSpawnCount: options.pendingSpawns.length,
     runningAgentCount: options.runningAgentIds.size,
     inFlightSpawnCount: options.inFlightSpawns.size,
+    reduceTokenConsumption: options.reduceTokenConsumption,
   })
   const roster = buildSwarmAgentRosterForState(swarmState)
   logPerfEvent('SwarmAutoRun', 'candidate-pick-roster', {
@@ -736,6 +738,23 @@ function pickNextAutoRuns(
 
   const hasInFlightSpawn = (agentId: string) =>
     options.inFlightSpawns.has(`${workspace.id}:${agentId}`)
+
+  const findReusableRoleAgent = (role: SwarmRole): AutoRunCandidate['agentId'] | null => {
+    if (!options.reduceTokenConsumption) return null
+
+    const agent = roster.find((candidate) => {
+      const runtime = swarmState.swarmAgents[candidate.id]
+      return candidate.role === role
+        && runtime?.status === 'idle'
+        && !runtime.currentTaskId
+        && !pendingAgentIds.has(candidate.id)
+        && !selectedAgentIds.has(candidate.id)
+        && !options.runningAgentIds.has(candidate.id)
+        && !hasInFlightSpawn(candidate.id)
+    })
+
+    return agent?.id ?? null
+  }
 
   const addCandidate = (task: SwarmTask, agentId: string, fallbackLabel: string) => {
     if (candidates.length >= options.limit) return false
@@ -825,11 +844,14 @@ function pickNextAutoRuns(
       dependsOnCount: task.dependsOn.length,
     })
 
-    const agent = {
-      id: buildAutoRunAgentId(task.role, task.id),
-      label: buildAutoRunAgentId(task.role, task.id),
-      role: task.role,
-    }
+    const reusableAgentId = findReusableRoleAgent(task.role)
+    const agent = reusableAgentId
+      ? rosterById[reusableAgentId] ?? { id: reusableAgentId, label: reusableAgentId, role: task.role }
+      : {
+          id: buildAutoRunAgentId(task.role, task.id),
+          label: buildAutoRunAgentId(task.role, task.id),
+          role: task.role,
+        }
 
     addCandidate(task, agent.id, agent.label)
     logPerfEvent('SwarmAutoRun', 'candidate-pick-ready-task-result', {
@@ -1104,6 +1126,7 @@ async function spawnAutoRunCandidate(
   swarmState: SwarmState,
   nextRun: AutoRunCandidate,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  reduceTokenConsumption: boolean,
   inFlightSpawns: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'skipped'> {
   const currentState = useWorkspaceStore.getState()
@@ -1190,6 +1213,7 @@ async function spawnAutoRunCandidate(
         swarmStatePath,
         commandMode: getSwarmStartupCommandMode(nextRun.role, nextRun.agentId, swarmState),
         useWorktreesForSwarms: workspace.swarmAutoState.useWorktreesForSwarms,
+        reduceTokenConsumption,
       }),
       nextRun.label,
       swarmRoleLabels[nextRun.role]
@@ -1299,6 +1323,7 @@ async function spawnAutoRunCandidate(
 async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  reduceTokenConsumption: boolean,
   inFlightSpawns: MutableRefObject<Set<string>>,
   sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
@@ -1455,6 +1480,7 @@ async function superviseWorkspace(
       pendingSpawns,
       runningAgentIds,
       inFlightSpawns: inFlightSpawns.current,
+      reduceTokenConsumption,
     })
   } catch (error) {
     logPerfEvent('SwarmAutoRun', 'candidate-pick-error', {
@@ -1496,6 +1522,7 @@ async function superviseWorkspace(
       swarmState,
       nextRun,
       cliRuntimes,
+      reduceTokenConsumption,
       inFlightSpawns
     )
     if (spawnResult === 'failed') return
@@ -1600,6 +1627,7 @@ export default function SwarmAutoRunSupervisor() {
           await superviseWorkspace(
             workspace,
             appSettings.cliRuntimes,
+            appSettings.reduceTokenConsumption,
             inFlightSpawns,
             sentArtifactApprovalMessages,
             autoApprovalDiagnostics,

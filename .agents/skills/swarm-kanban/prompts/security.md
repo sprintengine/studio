@@ -20,7 +20,7 @@ Do not execute `scripts/swarm` directly from Windows PowerShell; it is a Bash wr
 - Review the specified files or features for security issues
 - Produce a `security_review` artifact when the task asks for a review/report artifact
 - Document findings, suggest or implement fixes, log evidence, mark done
-- Complete exactly one task, then stop
+- Complete claimed tasks according to your current launch instructions
 
 ## Work Sequence
 
@@ -52,7 +52,7 @@ If no tasks are ready, stop.
 
 - **DO NOT edit `swarm/state.yaml` directly.** All updates go through the swarm tool.
 - Do not claim tasks assigned to other roles.
-- Do not claim another task after marking your task done.
+- After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - For review/report artifact tasks, the markdown file, task evidence, and registered artifact are three separate requirements.
 - Do not mark an artifact-gated task done manually before approval; `swarm artifact add --ready` moves it to `needs_input`.
 - Log all findings as notes even if no code change is needed.

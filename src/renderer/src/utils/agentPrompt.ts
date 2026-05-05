@@ -53,6 +53,7 @@ export function buildSwarmStartupPrompt(
     swarmStatePath?: string
     commandMode?: 'init' | 'join'
     useWorktreesForSwarms?: boolean
+    reduceTokenConsumption?: boolean
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
@@ -71,6 +72,9 @@ export function buildSwarmStartupPrompt(
   return [
     'Fetch the canonical swarm instructions from the Python tool.',
     context.length > 0 ? context.join('\n') : null,
+    options.reduceTokenConsumption
+      ? 'Reduce Token Consumption is enabled. Keep picking up ready tasks with this same agent id until no task is ready, you are blocked, you need user input, or your context window is about 70% full.'
+      : null,
     [
       'On Windows, prefer the repo virtual environment command if `swarm` or global Python is unreliable:',
       '```powershell',

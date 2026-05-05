@@ -170,10 +170,10 @@ def test_active_task_reconnect_and_join_do_not_rewrite_state(tmp_path) -> None:
     assert join_payload["task"]["id"] == "T1"
 
 
-def test_completed_agent_ids_cannot_claim_a_second_task(tmp_path) -> None:
+def test_completed_agent_ids_can_claim_a_second_ready_task(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
-        "completed-agent-refusal",
+        "completed-agent-reuse",
         [
             task("T1", "First implementation", "developer"),
             task("T2", "Second implementation", "developer"),
@@ -200,17 +200,14 @@ def test_completed_agent_ids_cannot_claim_a_second_task(tmp_path) -> None:
     fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
 
     next_payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    assert next_payload["claimed"] is False
-    assert next_payload["reason"] == "agent_completed_single_task"
-
-    claim_payload = fixture.cli.run("task", "claim", "--task-id", "T2", "--id", "developer-fixture")
-    assert claim_payload["ok"] is False
-    assert "already completed one task" in claim_payload["error"]
+    assert next_payload["claimed"] is True
+    assert next_payload["task"]["id"] == "T2"
+    assert next_payload["agent"]["status"] == "running"
+    assert next_payload["agent"]["currentTaskId"] == "T2"
 
     state = read_state(fixture.state_path)
     assert_task_status(state, "T1", "done")
-    assert_task_status(state, "T2", "todo")
-    assert_board_column(state, "T2", "ready")
+    assert_task_status(state, "T2", "in_progress")
 
 
 def test_task_claiming_is_restricted_to_the_requested_role(tmp_path) -> None:

@@ -88,6 +88,7 @@ interface WorkspaceStore {
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSelectedMultiloopRole: (role: MultiloopAgentSoulRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SwarmCliPermissionPreset) => void
+  setReduceTokenConsumption: (enabled: boolean) => void
   setSearchExcludes: (patterns: string[]) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   addWorkspace: (
@@ -184,6 +185,7 @@ const defaultAppSettings = (): AppSettings => ({
   lastSelectedSpecialist: 'architect',
   lastSelectedMultiloopRole: 'coordinator',
   lastAgentSpawnPermissionPreset: 'default',
+  reduceTokenConsumption: false,
   searchExcludes: [],
   recentWorkspaceFolders: [],
   usageTelemetry: defaultUsageTelemetrySettings(),
@@ -907,6 +909,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.appSettings.lastAgentSpawnPermissionPreset = normalizeCliPermissionPreset(preset)
         }),
 
+      setReduceTokenConsumption: (enabled) =>
+        set((state) => {
+          state.appSettings.reduceTokenConsumption = enabled
+        }),
+
       setSearchExcludes: (patterns) =>
         set((state) => {
           state.appSettings.searchExcludes = normalizeSearchExcludes(patterns)
@@ -1533,7 +1540,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 32,
+      version: 33,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1873,6 +1880,35 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...ws,
             multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
           }))
+        }
+        if (version < 33) {
+          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const defaults = defaultAppSettings()
+          current.appSettings = {
+            ...defaults,
+            ...(current.appSettings ?? {}),
+            cliRuntimes: {
+              ...defaults.cliRuntimes,
+              ...(current.appSettings?.cliRuntimes ?? {}),
+            },
+            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
+            lastSelectedSpecialist:
+              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
+            lastSelectedMultiloopRole:
+              current.appSettings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
+            lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(
+              current.appSettings?.lastAgentSpawnPermissionPreset
+            ),
+            reduceTokenConsumption: Boolean(current.appSettings?.reduceTokenConsumption),
+            searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
+            recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
+              current.appSettings?.recentWorkspaceFolders,
+              state.workspaces.map((ws) => ws.folderPath)
+            ),
+            usageTelemetry: normalizeUsageTelemetrySettings(
+              current.appSettings?.usageTelemetry
+            ),
+          }
         }
         return state as never
       },

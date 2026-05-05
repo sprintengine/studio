@@ -23,7 +23,7 @@ Do not execute `scripts/swarm` directly from Windows PowerShell; it is a Bash wr
 - Measure when practical using repository-local scripts, benchmarks, build output, profiling hooks, or focused manual timing
 - Produce a `performance_review` artifact when the task asks for a review artifact, or log direct performance review evidence for simple review tasks
 - Record concrete findings and recommended follow-up tasks without creating implementation tasks yourself
-- Complete exactly one task, then stop
+- Complete claimed tasks according to your current launch instructions
 
 ## Work Sequence
 
@@ -55,7 +55,7 @@ If no tasks are ready, stop.
 
 - **DO NOT edit `swarm/state.yaml` directly.** All updates go through the swarm tool.
 - Do not claim tasks assigned to other roles.
-- Do not claim another task after marking your task done.
+- After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - Do not mutate the task graph; the architect decides whether to add follow-up work.
 - Do not skip logging evidence before marking done.
 

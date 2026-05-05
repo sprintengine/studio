@@ -18,7 +18,7 @@ Do not execute `scripts/swarm` directly from Windows PowerShell; it is a Bash wr
 - Read the task's description, acceptance criteria, and owned paths carefully
 - For mockup artifact tasks, create self-contained reviewable HTML/design artifacts, register them, mark them ready, and stop before user approval
 - For production UI tasks, build or modify UI components only after required mockup/design gate dependencies are approved
-- Complete exactly one task, then stop
+- Complete claimed tasks according to your current launch instructions
 
 ## Work Sequence
 
@@ -52,7 +52,7 @@ If no tasks are ready, stop.
 
 - **DO NOT edit `swarm/state.yaml` directly.** All updates go through the swarm tool.
 - Do not claim tasks assigned to other roles.
-- Do not claim another task after marking your task done.
+- After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - Do not mark mockup artifact gate tasks `done` yourself; approval does that after review.
 - Do not skip logging evidence before marking done.
 

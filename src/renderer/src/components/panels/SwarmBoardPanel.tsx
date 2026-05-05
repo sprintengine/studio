@@ -296,10 +296,14 @@ type ArtifactActionState = {
 
 function buildWorkerRespawnStartupPrompt(
   role: SwarmRole,
-  agentId: string
+  agentId: string,
+  reduceTokenConsumption: boolean
 ): string {
   return [
     'Fetch the canonical swarm instructions from the Python tool.',
+    reduceTokenConsumption
+      ? 'Reduce Token Consumption is enabled. Keep picking up ready tasks with this same agent id until no task is ready, you are blocked, you need user input, or your context window is about 70% full.'
+      : null,
     'On Windows, prefer the repo virtual environment command if `swarm` or global Python is unreliable:',
     [
       '```powershell',
@@ -308,7 +312,7 @@ function buildWorkerRespawnStartupPrompt(
     ].join('\n'),
     'Otherwise run:',
     `\`\`\`\nswarm join --role ${role} --id ${agentId}\n\`\`\``,
-  ].join('\n\n')
+  ].filter(Boolean).join('\n\n')
 }
 
 type SwarmMergeEligibility =
@@ -381,6 +385,7 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
   const folderPath = folderReadyPath
   const agents = workspace?.agents ?? {}
   const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
+  const reduceTokenConsumption = useWorkspaceStore((s) => s.appSettings.reduceTokenConsumption)
   const autoApproveArtifacts = workspace?.swarmAutoState?.autoApproveArtifacts ?? false
   const keepDoneAgentTerminals = workspace?.swarmAutoState?.keepDoneAgentTerminals ?? false
   const cliPermissionPreset = workspace?.swarmAutoState?.cliPermissionPreset ?? 'default'
@@ -1019,7 +1024,8 @@ export default function SwarmBoardPanel({ workspaceId, fixedView }: Props) {
         agentName: getCustomAgentName(agentId, fallbackLabel),
         startupPrompt: buildWorkerRespawnStartupPrompt(
           agent?.role ?? task.role,
-          agentId
+          agentId,
+          reduceTokenConsumption
         ),
       })
       return

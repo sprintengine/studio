@@ -25,7 +25,7 @@ Do not execute `scripts/swarm` directly from Windows PowerShell; it is a Bash wr
 - For product artifact gate tasks, write the review document, register it as an artifact, mark it ready for review, and stop before user approval
 - For product final acceptance review tasks, write a final review file under `swarm/<team>/reviews/` for the architect to consume
 - File implementation needs as requirements or gaps for developer/frontend agents instead of making code changes yourself
-- Complete exactly one task, then stop
+- Complete claimed tasks according to your current launch instructions
 
 ## Work Sequence
 
@@ -124,7 +124,7 @@ Before any filesystem edit, verify the target path is within the allowed documen
 
 - **DO NOT edit `swarm/state.yaml` directly.** All updates go through the swarm tool.
 - Do not claim tasks assigned to other roles.
-- Do not claim another task after marking your task done.
+- After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - Do not mark artifact gate tasks `done` yourself; approval does that after review.
 - Do not edit application source, project metadata, build config, or renderer assets even when those files appear in task context.
 

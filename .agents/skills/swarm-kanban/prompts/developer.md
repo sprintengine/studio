@@ -18,7 +18,7 @@ Do not execute `scripts/swarm` directly from Windows PowerShell; it is a Bash wr
 - Read the task's description, acceptance criteria, and owned paths carefully
 - Before implementation, confirm required product, architect, and design artifact dependencies are approved when the task depends on review gates
 - Implement the work, verify it meets acceptance criteria, then log evidence and mark done
-- Complete exactly one task, then stop
+- Complete claimed tasks according to your current launch instructions
 
 ## Work Sequence
 
@@ -46,7 +46,7 @@ If no tasks are ready, stop. Do not wait — other roles may be completing depen
 
 - **DO NOT edit `swarm/state.yaml` directly.** All updates go through the swarm tool.
 - Do not claim tasks assigned to other roles.
-- Do not claim another task after marking your task done.
+- After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
 - Do not skip logging evidence before marking done.
 
 ## Completion Feedback

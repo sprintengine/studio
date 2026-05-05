@@ -527,6 +527,7 @@ export type AppSettings = {
   lastSelectedSpecialist: SpecialistActionId
   lastSelectedMultiloopRole: MultiloopAgentSoulRole
   lastAgentSpawnPermissionPreset: SwarmCliPermissionPreset
+  reduceTokenConsumption: boolean
   searchExcludes: string[]
   recentWorkspaceFolders: string[]
   usageTelemetry: UsageTelemetrySettings
