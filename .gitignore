@@ -20,9 +20,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest-tmp/
+.pytest-tmp*/
 .tmp/
 .codex-tmp/
 pytest-run-*/
+tmp/
 
 # electron-vite temp config
 electron.vite.config.*.mjs
