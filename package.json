@@ -27,6 +27,8 @@
     "files": [
       "out/**/*",
       "specialist-prompts/**/*",
+      "scripts/sprintengine_tool.py",
+      "sprintengine_core/**/*.py",
       "multiloop-agent-souls/**/*",
       "!out/**/*.map"
     ],
@@ -47,6 +49,24 @@
         "to": "multiloop_core",
         "filter": [
           "**/*.py"
+        ]
+      },
+      {
+        "from": "scripts/sprintengine_tool.py",
+        "to": "scripts/sprintengine_tool.py"
+      },
+      {
+        "from": "sprintengine_core",
+        "to": "sprintengine_core",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
+        "from": "specialist-prompts",
+        "to": "specialist-prompts",
+        "filter": [
+          "**/*"
         ]
       }
     ],

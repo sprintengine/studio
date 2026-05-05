@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -144,8 +145,11 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
     assert out_of_scope["ok"] is False
     assert out_of_scope["error"]["code"] == "state_path_not_allowed"
     assert platform_confused["ok"] is False
-    assert platform_confused["error"]["code"] == "invalid_state_path"
-    assert "Windows and POSIX" in platform_confused["error"]["message"]
+    if os.name == "nt":
+        assert platform_confused["error"]["code"] == "state_path_not_allowed"
+    else:
+        assert platform_confused["error"]["code"] == "invalid_state_path"
+        assert "Windows and POSIX" in platform_confused["error"]["message"]
 
 
 def test_authenticated_mcp_user_can_invoke_artifact_review_with_payload_actor(tmp_path) -> None:

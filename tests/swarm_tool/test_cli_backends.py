@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import textwrap
 
-from helpers import REPO_ROOT, SWARM_COMMAND, create_team, get_task, read_state, task
+from helpers import REPO_ROOT, create_team, get_task, read_state, task
 
 MCP_USER_ID_ENV = "SWARM_MCP_USER_ID"
 MCP_USER_AUTHORIZED_ENV = "SWARM_MCP_USER_AUTHORIZED"
@@ -18,7 +19,7 @@ def run_swarm(args: list[str], *, env: dict[str, str] | None = None) -> subproce
     if env:
         merged_env.update(env)
     return subprocess.run(
-        [str(SWARM_COMMAND), *args],
+        _swarm_command_without_state(args),
         cwd=REPO_ROOT,
         env=merged_env,
         text=True,
@@ -26,6 +27,12 @@ def run_swarm(args: list[str], *, env: dict[str, str] | None = None) -> subproce
         stderr=subprocess.PIPE,
         check=False,
     )
+
+
+def _swarm_command_without_state(args: list[str]) -> list[str]:
+    if os.name == "nt":
+        return [sys.executable, str(REPO_ROOT / "scripts" / "swarm_tool.py"), *args]
+    return [str(REPO_ROOT / "scripts" / "swarm"), *args]
 
 
 def parse_stdout_json(completed: subprocess.CompletedProcess[str]) -> dict:

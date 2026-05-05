@@ -3,15 +3,13 @@ from __future__ import annotations
 import json
 import subprocess
 
-from helpers import SWARM_COMMAND, create_team, get_task, read_state, task
+from helpers import create_team, get_task, read_state, swarm_command, task
 
 
 def run_claim_process(state_path, task_id: str, agent_id: str) -> subprocess.Popen[str]:
     return subprocess.Popen(
         [
-            str(SWARM_COMMAND),
-            "--state",
-            str(state_path),
+            *swarm_command(state_path, ()),
             "task",
             "claim",
             "--task-id",

@@ -271,7 +271,7 @@ print(json.dumps(server.call_tool("swarm.task.claim", payload, actor)))
 """
     processes = [
         subprocess.Popen(
-            ["python3", "-c", code, str(tmp_path), str(fixture.state_path), agent_id],
+            [sys.executable, "-c", code, str(tmp_path), str(fixture.state_path), agent_id],
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

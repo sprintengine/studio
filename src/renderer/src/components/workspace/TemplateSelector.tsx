@@ -63,8 +63,7 @@ type SwarmAccessState = {
   allowed: boolean
   title: string
   body: string
-  action: 'login' | 'upgrade' | 'refresh' | 'reduce'
-  limit: number
+  action: 'login'
 }
 
 interface Props {
@@ -229,69 +228,26 @@ function buildSwarmContext(folderPath: string, teamName: string, teamSlug: strin
   }
 }
 
-function getFeatureValue(authState: MulticodeAuthState, featureKey: string): FeatureValue | undefined {
-  if (!authState.entitlements) return undefined
-  if (featureKey in authState.entitlements.features) return authState.entitlements.features[featureKey]
-  if (featureKey in authState.entitlements.limits) return authState.entitlements.limits[featureKey]
-  return undefined
-}
-
-function getSwarmAccessState(authState: MulticodeAuthState, requestedAgents: number): SwarmAccessState {
-  const slotLimitValue = getFeatureValue(authState, 'multicode.max_agent_slots')
-  const slotLimit = typeof slotLimitValue === 'number' ? slotLimitValue : 1
-
+function getSwarmAccessState(authState: MulticodeAuthState): SwarmAccessState {
   if (!authState.authenticated) {
     return {
       allowed: false,
       title: 'Swarm mode is locked while signed out.',
-      body: 'Sign in to check this organization for Multicode premium access. Free workspace layouts remain available.',
+      body: 'Sign in to create or supervise local Sprint Engine specialist workflows. Standard workspaces remain available.',
       action: 'login',
-      limit: slotLimit,
-    }
-  }
-
-  if (authState.entitlementStatus === 'expired' || authState.entitlementStatus === 'missing') {
-    return {
-      allowed: false,
-      title: 'Swarm mode needs a fresh entitlement check.',
-      body: 'Premium access defaults to locked when the entitlement snapshot is missing, malformed, or past the offline grace window.',
-      action: 'refresh',
-      limit: slotLimit,
-    }
-  }
-
-  if (getFeatureValue(authState, 'multicode.swarm_mode') !== true) {
-    return {
-      allowed: false,
-      title: 'Swarm mode is locked for this organization.',
-      body: 'Upgrade this organization or switch to one with Multicode premium access.',
-      action: 'upgrade',
-      limit: slotLimit,
-    }
-  }
-
-  if (requestedAgents > slotLimit) {
-    return {
-      allowed: false,
-      title: 'This run exceeds your agent limit.',
-      body: `This organization allows ${slotLimit} agent${slotLimit === 1 ? '' : 's'}. Reduce the swarm size or upgrade before creating the run.`,
-      action: 'reduce',
-      limit: slotLimit,
     }
   }
 
   return {
     allowed: true,
     title: 'Swarm mode is available.',
-    body: 'This organization has active Multicode premium access.',
-    action: 'refresh',
-    limit: slotLimit,
+    body: 'This signed-in Multicode session can create local Sprint Engine workflows.',
+    action: 'login',
   }
 }
 
 export default function TemplateSelector({ onCreate, onClose, allowClose = true, initialState = null }: Props) {
   const authState = useWorkspaceStore((s) => s.authState)
-  const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const storedRecentFolders = useWorkspaceStore((s) => s.appSettings.recentWorkspaceFolders ?? [])
   const workspaces = useWorkspaceStore((s) => s.workspaces)
@@ -352,7 +308,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
 
   const selected = LAYOUT_TEMPLATES.find((template) => template.id === selectedId) ?? LAYOUT_TEMPLATES[0]
   const totalAgents = countSwarmAgents(swarmRoleCounts)
-  const swarmAccess = getSwarmAccessState(authState, totalAgents)
+  const swarmAccess = getSwarmAccessState(authState)
   const detailsComplete = name.trim().length > 0
   const swarmObjectiveComplete =
     selectedExistingTeam != null || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0)
@@ -619,21 +575,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     await window.api.authLogin(authState.selectedOrganization?.id ?? null)
   }
 
-  const refreshAccess = async () => {
-    setAuthState(await window.api.authRefreshEntitlements())
-  }
-
-  const openUpgrade = async () => {
-    await window.api.authOpenUpgrade('swarm_mode')
-  }
-
-  const switchOrganization = async () => {
-    const organizationId = window.prompt('Organization ID')
-    if (!organizationId?.trim()) return
-    await window.api.authSelectOrganization(organizationId.trim())
-    setAuthState(await window.api.authRefreshEntitlements())
-  }
-
   return (
     <div className="h-full overflow-auto bg-[#08090b] text-[#ececee]">
       <section className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-6 py-5">
@@ -732,31 +673,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                         Sign in
                       </button>
                     ) : null}
-                    {swarmAccess.action === 'upgrade' ? (
-                      <button
-                        type="button"
-                        onClick={() => void openUpgrade()}
-                        className="h-8 rounded-md border border-[#ececee] bg-[#ececee] px-3 text-[12px] font-semibold text-[#08090b] hover:bg-white"
-                      >
-                        Upgrade
-                      </button>
-                    ) : null}
-                    {swarmAccess.action === 'refresh' ? (
-                      <button
-                        type="button"
-                        onClick={() => void refreshAccess()}
-                        className="h-8 rounded-md border border-[#303139] bg-[#17181d] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#1f2025]"
-                      >
-                        Refresh
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void switchOrganization()}
-                      className="h-8 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#17181d]"
-                    >
-                      Switch organization
-                    </button>
                   </div>
                 </div>
               </section>

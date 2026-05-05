@@ -2250,14 +2250,7 @@ function runSwarmMcpTool(
 }
 
 async function requireSwarmMcpAuthority(): Promise<SwarmMcpActorContext> {
-  const accessDecision = await multicodeAuth.checkPremiumAccess({
-    featureKey: 'multicode.swarm_mode',
-  })
-  if (!accessDecision.allowed) {
-    throw new Error(accessDecision.message)
-  }
-
-  const userId = multicodeAuth.getState().user?.id?.trim()
+  const userId = getAuthenticatedMulticodeUserId()
   if (!userId) {
     throw new Error('Artifact review requires an authenticated Multicode user.')
   }
@@ -2267,6 +2260,18 @@ async function requireSwarmMcpAuthority(): Promise<SwarmMcpActorContext> {
     role: 'user',
     authenticated: true,
     mcpAuthorized: true,
+  }
+}
+
+function getAuthenticatedMulticodeUserId(): string | null {
+  const state = multicodeAuth.getState()
+  if (!state.authenticated) return null
+  return state.user?.id?.trim() || state.entitlements?.userId?.trim() || null
+}
+
+function requireAuthenticatedMulticodeUser(message: string): void {
+  if (!getAuthenticatedMulticodeUserId()) {
+    throw new Error(message)
   }
 }
 
@@ -3257,11 +3262,10 @@ async function spawnMobileAgentTerminal(input: {
     return { ok: false, message: 'No desktop window is available to host a mobile-started agent terminal.' }
   }
 
-  const accessDecision = await multicodeAuth.checkPremiumAccess({
-    featureKey: 'multicode.swarm_mode',
-  })
-  if (!accessDecision.allowed) {
-    return { ok: false, message: accessDecision.message }
+  try {
+    requireAuthenticatedMulticodeUser('Sign in to launch Sprint Engine specialist workflows from the app.')
+  } catch (error) {
+    return { ok: false, message: getErrorMessage(error) }
   }
 
   disposeTerminal(input.sessionId)
@@ -3497,18 +3501,16 @@ ipcMain.handle(
     try {
       const workingDirectory = cwd || process.cwd()
       if (swarmStatePath && (kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
-        // Local desktop gates improve UX only; hosted/cloud/model APIs must still
-        // enforce Multiauth entitlements before any cost-bearing work starts.
-        const accessDecision = await multicodeAuth.checkPremiumAccess({
-          featureKey: 'multicode.swarm_mode',
-        })
-        if (!accessDecision.allowed) {
-          sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, accessDecision.message)
+        try {
+          requireAuthenticatedMulticodeUser('Sign in to launch Sprint Engine specialist workflows from the app.')
+        } catch (error) {
+          const message = getErrorMessage(error)
+          sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, message)
           sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, 1)
           return {
             ok: false,
             sessionId,
-            message: accessDecision.message,
+            message,
             exitCode: 1,
           } satisfies TerminalSpawnResult
         }

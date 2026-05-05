@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import swarm_core.tool as direct_tool
+import sprintengine_core.tool as direct_tool
 from swarm_mcp import SwarmMcpServer
 from swarm_mcp.auth import ActorContext
 
