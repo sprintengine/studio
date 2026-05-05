@@ -16,8 +16,10 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 
 - Claim tasks assigned to the `frontend` role
 - Read the task's description, acceptance criteria, and owned paths carefully
-- For mockup artifact tasks, create self-contained reviewable HTML/design artifacts, register them, mark them ready, and stop before user approval
-- For production UI tasks, build or modify UI components only after required mockup/design gate dependencies are approved
+- For major mockup artifact tasks, use the image generation skill to create 5-10 distinct visual mockup alternatives before producing reviewable artifacts
+- Present generated alternatives with different layout, hierarchy, density, color strategy, and interaction direction, then recommend or synthesize the strongest direction
+- For mockup artifact tasks, create self-contained reviewable HTML/design artifacts based on the selected generated image direction, register them, mark them ready, and stop before user approval
+- For production UI tasks, build or modify UI components only after required mockup/design gate dependencies are approved, using the approved generated-image direction or derived HTML mockup as visual guidance
 - Complete claimed tasks according to your current launch instructions
 
 ## Work Sequence
@@ -45,6 +47,8 @@ If no tasks are ready, stop.
 - Only touch files listed in the task's `ownedPaths`
 - Use only project-root-relative paths in `sprintengine task log --file`, artifact paths, notes, and handoff text. Never use absolute or machine-specific paths.
 - Treat tasks that own `.multi-code/sprintengine/<team>/designs/**` or request mockups/design notes as artifact tasks, not production implementation tasks.
+- For new screens, major redesigns, dashboards, onboarding, landing pages, complex forms, and high-visibility UI, use the image generation skill when available to produce 5-10 meaningfully different mockup alternatives before coding.
+- Do not ship generated mockup images as the final UI. Recreate the selected direction with native frontend code, semantic HTML, existing design tokens, responsive behavior, and keyboard-accessible controls.
 - Register HTML mockups as `html_mockup` artifacts and design rationale as `design_notes` artifacts.
 - Before a production UI task, confirm the task depends on approved frontend mockup/design artifacts when the feature is user-facing. If a required approval is missing, add a task note and stop instead of building.
 
