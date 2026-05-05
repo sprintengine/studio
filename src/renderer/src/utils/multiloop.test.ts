@@ -12,6 +12,7 @@ import {
   sanitizeMultiloopRenderedStateText,
 } from './multiloop'
 import { createMultiloopWorkspace, MultiloopWorkspaceCreationError } from './multiloopWorkspaceCreation'
+import { selectMultiloopAutoRunCandidates } from './multiloopAutoRun'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { createMultiloopTemplate } from '../layouts/templates'
 import { parseSwarmStateFile } from './swarmStateFile'
@@ -360,6 +361,163 @@ function testRendererSanitizerMirrorsCoreSecretPatterns() {
   assert.match(sanitized, /\[redacted-path\]/)
 }
 
+function testMultiloopAutoRunSelectsReadyDeveloperTask() {
+  const state = parseFixture({
+    blockers: [],
+    agents: {},
+    tasks: [
+      {
+        id: 'T1',
+        milestoneId: 'M2',
+        role: 'developer',
+        status: 'ready',
+        title: 'Implement ready work',
+      },
+      {
+        id: 'T2',
+        milestoneId: 'M2',
+        role: 'developer',
+        status: 'ready',
+        title: 'Follow-up work',
+        dependsOn: ['T1'],
+      },
+    ],
+  })
+
+  const selection = selectMultiloopAutoRunCandidates({ state, limit: 1 })
+
+  assert.equal(selection.reason, 'ready')
+  assert.deepEqual(selection.candidates.map((candidate) => candidate.agentId), ['multiloop-developer'])
+  assert.deepEqual(selection.candidates.map((candidate) => candidate.taskId), ['T1'])
+}
+
+function testMultiloopAutoRunSelectsTodoTaskWithDoneDependencies() {
+  const state = parseFixture({
+    blockers: [],
+    agents: {},
+    tasks: [
+      {
+        id: 'T1',
+        milestoneId: 'M2',
+        role: 'developer',
+        status: 'done',
+        title: 'Completed dependency',
+      },
+      {
+        id: 'T2',
+        milestoneId: 'M2',
+        role: 'tester',
+        status: 'todo',
+        title: 'Validate completed work',
+        dependsOn: ['T1'],
+      },
+    ],
+  })
+
+  const selection = selectMultiloopAutoRunCandidates({ state, limit: 1 })
+
+  assert.equal(selection.reason, 'ready')
+  assert.deepEqual(selection.candidates.map((candidate) => candidate.agentId), ['multiloop-tester'])
+  assert.deepEqual(selection.candidates.map((candidate) => candidate.taskId), ['T2'])
+}
+
+function testMultiloopAutoRunAvoidsDuplicateRunningRole() {
+  const state = parseFixture({
+    blockers: [],
+    agents: {},
+    tasks: [
+      {
+        id: 'T1',
+        milestoneId: 'M2',
+        role: 'developer',
+        status: 'ready',
+        title: 'Implement ready work',
+      },
+    ],
+  })
+
+  const selection = selectMultiloopAutoRunCandidates({
+    state,
+    limit: 1,
+    runningAgentIds: new Set(['multiloop-developer']),
+  })
+
+  assert.equal(selection.reason, 'no-ready-tasks')
+  assert.equal(selection.candidates.length, 0)
+}
+
+function testMultiloopAutoRunSpawnsCoordinatorOnceWhenMilestoneDone() {
+  const state = parseFixture({
+    blockers: [],
+    agents: {},
+    tasks: [
+      {
+        id: 'T1',
+        milestoneId: 'M2',
+        role: 'developer',
+        status: 'done',
+        title: 'Implemented work',
+      },
+    ],
+  })
+
+  const firstSelection = selectMultiloopAutoRunCandidates({ state, limit: 1 })
+  assert.equal(firstSelection.reason, 'all-done')
+  assert.deepEqual(firstSelection.candidates.map((candidate) => candidate.agentId), ['multiloop-coordinator'])
+
+  const secondSelection = selectMultiloopAutoRunCandidates({
+    state,
+    limit: 1,
+    coordinatorAutoSpawnKey: 'M2',
+  })
+  assert.equal(secondSelection.reason, 'no-ready-tasks')
+  assert.equal(secondSelection.candidates.length, 0)
+}
+
+function testMultiloopAutoRunPausesForBlockersAndUnknownRoles() {
+  const blockedState = parseFixture({
+    agents: {},
+    blockers: [
+      {
+        id: 'B1',
+        scope: 'milestone',
+        status: 'active',
+        milestoneId: 'M2',
+        summary: 'Needs operator input.',
+      },
+    ],
+    tasks: [
+      {
+        id: 'T1',
+        milestoneId: 'M2',
+        role: 'developer',
+        status: 'ready',
+        title: 'Blocked work',
+      },
+    ],
+  })
+  const blockedSelection = selectMultiloopAutoRunCandidates({ state: blockedState, limit: 1 })
+  assert.equal(blockedSelection.reason, 'blocked')
+  assert.equal(blockedSelection.candidates.length, 0)
+
+  const unknownRoleState = parseFixture({
+    blockers: [],
+    agents: {},
+    tasks: [
+      {
+        id: 'T1',
+        milestoneId: 'M2',
+        role: 'implementor',
+        status: 'ready',
+        title: 'Corrupt role task',
+      },
+    ],
+  })
+  const unknownRoleSelection = selectMultiloopAutoRunCandidates({ state: unknownRoleState, limit: 1 })
+  assert.equal(unknownRoleSelection.reason, 'no-ready-tasks')
+  assert.deepEqual(unknownRoleSelection.skippedUnknownRoles, ['implementor'])
+}
+
 function testSwarmParsingRegression() {
   const state = parseSwarmStateFile(JSON.stringify({
     swarm: {
@@ -565,6 +723,11 @@ testMalformedFixtureIsRejectedWithDisplayError()
 testRendererPromptContextRedactsSensitiveStateText()
 testRendererPromptContextBoundsStateDerivedFields()
 testRendererSanitizerMirrorsCoreSecretPatterns()
+testMultiloopAutoRunSelectsReadyDeveloperTask()
+testMultiloopAutoRunSelectsTodoTaskWithDoneDependencies()
+testMultiloopAutoRunAvoidsDuplicateRunningRole()
+testMultiloopAutoRunSpawnsCoordinatorOnceWhenMilestoneDone()
+testMultiloopAutoRunPausesForBlockersAndUnknownRoles()
 testSwarmParsingRegression()
 testSetMultiloopStatePreservesExistingLayoutModel()
 

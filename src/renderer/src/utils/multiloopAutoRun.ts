@@ -1,0 +1,233 @@
+import {
+  MULTILOOP_AGENT_SOULS,
+  getMultiloopAgentSoul,
+} from '../specialists/specialistActions'
+import type {
+  MultiloopAgentSoulRole,
+  MultiloopAutoPendingSpawn,
+  MultiloopState,
+  MultiloopTask,
+} from '../types/workspace'
+import {
+  buildMultiloopLaunchContextLines,
+  getActiveMultiloopBlockers,
+  getActiveMultiloopMilestone,
+  getMultiloopTasksForMilestone,
+} from './multiloop'
+
+export type MultiloopAutoRunCandidate =
+  | {
+    kind: 'task'
+    agentId: string
+    label: string
+    role: MultiloopAgentSoulRole
+    taskId: string
+  }
+  | {
+    kind: 'coordinator'
+    agentId: string
+    label: string
+    role: 'coordinator'
+    taskId: null
+  }
+
+export type MultiloopAutoRunSelection = {
+  candidates: MultiloopAutoRunCandidate[]
+  skippedUnknownRoles: string[]
+  reason:
+    | 'ready'
+    | 'no-active-milestone'
+    | 'blocked'
+    | 'needs-input'
+    | 'all-done'
+    | 'no-ready-tasks'
+    | 'no-slots'
+}
+
+export type MultiloopAutoRunSelectionInput = {
+  state: MultiloopState
+  limit: number
+  runningAgentIds?: Set<string>
+  pendingSpawns?: MultiloopAutoPendingSpawn[]
+  inFlightAgentIds?: Set<string>
+  coordinatorAutoSpawnKey?: string | null
+}
+
+const spawnableRoles = new Set<MultiloopAgentSoulRole>(
+  MULTILOOP_AGENT_SOULS.map((soul) => soul.role)
+)
+
+export function toProjectRelativeMultiloopPath(
+  path: string | null | undefined,
+  workspaceRoot: string | null | undefined
+): string {
+  if (!path) return 'multiloop/<loop>/state.json'
+
+  const normalizedPath = path.replace(/\\/g, '/')
+  const normalizedRoot = workspaceRoot?.replace(/\\/g, '/').replace(/\/+$/u, '')
+  if (normalizedRoot && (normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`))) {
+    return normalizedPath.slice(normalizedRoot.length).replace(/^\/+/u, '') || '.'
+  }
+
+  const multiloopIndex = normalizedPath.lastIndexOf('/multiloop/')
+  if (multiloopIndex >= 0) return normalizedPath.slice(multiloopIndex + 1)
+  return 'multiloop/<loop>/state.json'
+}
+
+export function buildMultiloopRoleAgentId(role: MultiloopAgentSoulRole): string {
+  return `multiloop-${role}`
+}
+
+export function buildMultiloopAutoStartupPrompt({
+  soulPrompt,
+  role,
+  state,
+  statePath,
+  workspaceRoot,
+  agentId,
+  coordinatorReviewContext = false,
+}: {
+  soulPrompt: string
+  role: MultiloopAgentSoulRole
+  state: MultiloopState
+  statePath: string | null
+  workspaceRoot: string | null
+  agentId: string
+  coordinatorReviewContext?: boolean
+}): string {
+  const soul = getMultiloopAgentSoul(role)
+  const currentMilestone = getActiveMultiloopMilestone(state)
+  const stateRelativePath = toProjectRelativeMultiloopPath(statePath, workspaceRoot)
+  const readyTaskIdsForRole = currentMilestone
+    ? getMultiloopTasksForMilestone(state, currentMilestone.id)
+      .filter((task) => task.role === role && task.status === 'ready')
+      .map((task) => task.id)
+    : []
+  const context = buildMultiloopLaunchContextLines({
+    roleLabel: soul.label,
+    role,
+    agentId,
+    readyTaskIdsForRole,
+    loopName: state.loop.displayName,
+    finalGoal: state.loop.finalGoal,
+    currentMilestone,
+    statePath: stateRelativePath,
+  })
+
+  return [
+    soulPrompt.trim(),
+    ...context,
+    coordinatorReviewContext
+      ? 'All active milestone tasks appear done; inspect evidence and accept, block, or revise the milestone through the CLI.'
+      : null,
+  ].filter((line): line is string => Boolean(line)).join('\n')
+}
+
+export function selectMultiloopAutoRunCandidates({
+  state,
+  limit,
+  runningAgentIds = new Set(),
+  pendingSpawns = [],
+  inFlightAgentIds = new Set(),
+  coordinatorAutoSpawnKey = null,
+}: MultiloopAutoRunSelectionInput): MultiloopAutoRunSelection {
+  const activeMilestone = getActiveMultiloopMilestone(state)
+  if (!activeMilestone) {
+    return emptySelection('no-active-milestone')
+  }
+
+  const activeTasks = getMultiloopTasksForMilestone(state, activeMilestone.id)
+  const occupiedAgentIds = new Set([
+    ...runningAgentIds,
+    ...pendingSpawns.map((pending) => pending.agentId),
+    ...inFlightAgentIds,
+  ])
+  if (limit <= 0) {
+    return {
+      candidates: [],
+      skippedUnknownRoles: [],
+      reason: 'no-slots',
+    }
+  }
+
+  if (
+    activeTasks.length > 0
+    && activeTasks.every((task) => task.status === 'done')
+    && coordinatorAutoSpawnKey !== activeMilestone.id
+    && !occupiedAgentIds.has(buildMultiloopRoleAgentId('coordinator'))
+  ) {
+    return {
+      candidates: [coordinatorCandidate()].slice(0, limit),
+      skippedUnknownRoles: [],
+      reason: 'all-done',
+    }
+  }
+
+  const activeBlockers = getActiveMultiloopBlockers(state, activeMilestone.id)
+  if (state.loop.status === 'blocked' || activeMilestone.status === 'blocked' || activeBlockers.length > 0) {
+    return emptySelection('blocked')
+  }
+  if (activeTasks.some((task) => task.status === 'blocked')) {
+    return emptySelection('blocked')
+  }
+  if (activeTasks.some((task) => task.status === 'needs_input')) {
+    return emptySelection('needs-input')
+  }
+
+  const taskById = new Map(state.tasks.map((task) => [task.id, task]))
+  const readyTasks = activeTasks.filter((task) => isClaimableOrPromotableByCli(task, taskById))
+  const skippedUnknownRoles = readyTasks
+    .map((task) => task.role)
+    .filter((role) => !isSpawnableMultiloopRole(role))
+    .filter((role, index, roles) => roles.indexOf(role) === index)
+
+  const candidates: MultiloopAutoRunCandidate[] = []
+  for (const task of readyTasks) {
+    if (!isSpawnableMultiloopRole(task.role)) continue
+    const agentId = buildMultiloopRoleAgentId(task.role)
+    if (occupiedAgentIds.has(agentId)) continue
+
+    candidates.push({
+      kind: 'task',
+      agentId,
+      label: getMultiloopAgentSoul(task.role).label,
+      role: task.role,
+      taskId: task.id,
+    })
+    occupiedAgentIds.add(agentId)
+    if (candidates.length >= limit) break
+  }
+
+  return {
+    candidates,
+    skippedUnknownRoles,
+    reason: candidates.length > 0 ? 'ready' : 'no-ready-tasks',
+  }
+}
+
+function emptySelection(reason: MultiloopAutoRunSelection['reason']): MultiloopAutoRunSelection {
+  return {
+    candidates: [],
+    skippedUnknownRoles: [],
+    reason,
+  }
+}
+
+function isClaimableOrPromotableByCli(task: MultiloopTask, taskById: Map<string, MultiloopTask>): boolean {
+  if (task.status !== 'ready' && task.status !== 'todo') return false
+  return task.dependsOn.every((dependencyId) => taskById.get(dependencyId)?.status === 'done')
+}
+
+function isSpawnableMultiloopRole(role: string): role is MultiloopAgentSoulRole {
+  return spawnableRoles.has(role as MultiloopAgentSoulRole)
+}
+
+function coordinatorCandidate(): MultiloopAutoRunCandidate {
+  return {
+    kind: 'coordinator',
+    agentId: buildMultiloopRoleAgentId('coordinator'),
+    label: getMultiloopAgentSoul('coordinator').label,
+    role: 'coordinator',
+    taskId: null,
+  }
+}

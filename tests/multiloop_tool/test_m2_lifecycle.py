@@ -259,6 +259,55 @@ def test_task_claim_rejects_inactive_milestone_and_unfinished_dependencies(tmp_p
     assert read_state(state_path)["tasks"][1]["status"] == "ready"
 
 
+def test_task_done_promotes_dependent_todo_tasks_to_ready(tmp_path: Path) -> None:
+    state_path = tmp_path / "multiloop" / "m2" / "state.json"
+    state = m2_state()
+    state["tasks"][1]["status"] = "todo"
+    write_state(state_path, state)
+    cli = MultiloopCli(tmp_path, state_path)
+
+    cli.run("task", "claim", "--task-id", "T1", "--id", "developer-1")
+    cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-1",
+        "--summary",
+        "Implemented lifecycle.",
+        "--file",
+        "multiloop_core/tool.py",
+        "--command",
+        "pytest tests/multiloop_tool/test_m2_lifecycle.py",
+        "--result",
+        "Passed.",
+    )
+    completed = cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-1")
+
+    assert "Updated task: T1 [done]" in completed.stdout
+    assert "Promoted ready tasks: T2" in completed.stdout
+    state_after_done = read_state(state_path)
+    assert state_after_done["tasks"][1]["status"] == "ready"
+
+
+def test_task_next_promotes_existing_todo_tasks_before_claiming(tmp_path: Path) -> None:
+    state_path = tmp_path / "multiloop" / "m2" / "state.json"
+    state = m2_state()
+    state["tasks"][0]["status"] = "done"
+    state["tasks"][1]["status"] = "todo"
+    write_state(state_path, state)
+    cli = MultiloopCli(tmp_path, state_path)
+
+    claimed = cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+
+    assert "Claimed task: T2 [in_progress]" in claimed.stdout
+    assert "Promoted ready tasks: T2" in claimed.stdout
+    state_after_claim = read_state(state_path)
+    assert state_after_claim["tasks"][1]["status"] == "in_progress"
+    assert state_after_claim["tasks"][1]["ownerAgentId"] == "developer-1"
+
+
 def test_done_requires_evidence_and_clears_agent_after_log(tmp_path: Path) -> None:
     state_path = tmp_path / "multiloop" / "m2" / "state.json"
     write_state(state_path, m2_state())

@@ -216,6 +216,21 @@ export type SwarmAutoState = {
   pendingSpawns: SwarmAutoPendingSpawn[]
 }
 
+export type MultiloopAutoPendingSpawn = {
+  role: MultiloopAgentSoulRole
+  taskId?: string | null
+  agentId: string
+  startedAt?: number
+}
+
+export type MultiloopAutoState = {
+  enabled: boolean
+  cliPermissionPreset: SwarmCliPermissionPreset
+  maxConcurrentAgents: number
+  coordinatorAutoSpawnKey?: string | null
+  pendingSpawns: MultiloopAutoPendingSpawn[]
+}
+
 export type SwarmWorkspaceContext = {
   teamName: string
   teamSlug: string
@@ -613,5 +628,6 @@ export type Workspace = {
   multiloopState?: MultiloopState | null
   swarmRoleCliDefaults?: SwarmRoleCliDefaults
   swarmAutoState: SwarmAutoState
+  multiloopAutoState: MultiloopAutoState
   createdAt: number
 }

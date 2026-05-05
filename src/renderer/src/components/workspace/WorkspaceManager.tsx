@@ -36,6 +36,7 @@ import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMulti
 import { slugifySwarmName } from '../../utils/swarmStateFile'
 import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
 import SwarmAutoRunSupervisor from './SwarmAutoRunSupervisor'
+import MultiloopAutoRunSupervisor from './MultiloopAutoRunSupervisor'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SwarmStateSynchronizer from './SwarmStateSynchronizer'
 import WorkspaceGitStatusButton from './WorkspaceGitStatusButton'
@@ -1069,6 +1070,7 @@ export default function WorkspaceManager() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       <SwarmAutoRunSupervisor />
+      <MultiloopAutoRunSupervisor />
       {workspaces.map((workspace) => (
         workspace.id === activeWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />

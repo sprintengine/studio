@@ -13,6 +13,8 @@ import type {
   SwarmAutoPendingSpawn,
   SwarmAutoState,
   SwarmCliPermissionPreset,
+  MultiloopAutoPendingSpawn,
+  MultiloopAutoState,
   SwarmState,
   SwarmWorkspaceContext,
   MultiloopState,
@@ -99,6 +101,7 @@ interface WorkspaceStore {
       multiloopContext?: MultiloopWorkspaceContext | null
       swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
       swarmAutoState?: Partial<SwarmAutoState> | null
+      multiloopAutoState?: Partial<MultiloopAutoState> | null
     }
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -141,6 +144,16 @@ interface WorkspaceStore {
     workspaceId: WorkspaceId,
     pendingSpawns: SwarmAutoPendingSpawn[]
   ) => void
+  setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
+  setMultiloopCliPermissionPreset: (
+    workspaceId: WorkspaceId,
+    cliPermissionPreset: SwarmCliPermissionPreset
+  ) => void
+  setMultiloopAutoPendingSpawns: (
+    workspaceId: WorkspaceId,
+    pendingSpawns: MultiloopAutoPendingSpawn[]
+  ) => void
+  setMultiloopCoordinatorAutoSpawnKey: (workspaceId: WorkspaceId, key: string | null) => void
   addSwarmMember: (
     workspaceId: WorkspaceId,
     role: SwarmRole
@@ -383,6 +396,14 @@ const defaultSwarmAutoState = (): SwarmAutoState => ({
   pendingSpawns: [],
 })
 
+const defaultMultiloopAutoState = (): MultiloopAutoState => ({
+  enabled: false,
+  cliPermissionPreset: 'default',
+  maxConcurrentAgents: 1,
+  coordinatorAutoSpawnKey: null,
+  pendingSpawns: [],
+})
+
 const defaultSwarmRoleCliDefaults = (): Required<SwarmRoleCliDefaults> => ({
   architect: 'codex',
   product: 'codex',
@@ -422,6 +443,31 @@ function normalizeSwarmAutoPendingSpawn(
     : null
 }
 
+function isMultiloopAutoRole(input: unknown): input is MultiloopAgentSoulRole {
+  return input === 'coordinator'
+    || input === 'architect'
+    || input === 'product'
+    || input === 'developer'
+    || input === 'frontend'
+    || input === 'tester'
+    || input === 'security'
+    || input === 'code_reviewer'
+    || input === 'performance'
+}
+
+function normalizeMultiloopAutoPendingSpawn(
+  input: Partial<MultiloopAutoPendingSpawn> | null | undefined
+): MultiloopAutoPendingSpawn | null {
+  if (!input || !isMultiloopAutoRole(input.role) || typeof input.agentId !== 'string') return null
+
+  return {
+    role: input.role,
+    agentId: input.agentId,
+    taskId: typeof input.taskId === 'string' ? input.taskId : null,
+    ...(typeof input.startedAt === 'number' ? { startedAt: input.startedAt } : {}),
+  }
+}
+
 function normalizeCliPermissionPreset(
   input: SwarmCliPermissionPreset | null | undefined
 ): SwarmCliPermissionPreset {
@@ -451,6 +497,32 @@ function normalizeSwarmAutoState(
     architectMergeAutoTriggeredKey:
       typeof input?.architectMergeAutoTriggeredKey === 'string'
         ? input.architectMergeAutoTriggeredKey
+        : null,
+    pendingSpawns,
+  }
+}
+
+function normalizeMultiloopAutoState(
+  input: Partial<MultiloopAutoState> | null | undefined
+): MultiloopAutoState {
+  const pendingSpawns = Array.isArray(input?.pendingSpawns)
+    ? input.pendingSpawns
+      .map((pending) => normalizeMultiloopAutoPendingSpawn(pending))
+      .filter((pending): pending is MultiloopAutoPendingSpawn => Boolean(pending))
+    : []
+
+  const maxConcurrentAgents =
+    typeof input?.maxConcurrentAgents === 'number' && Number.isFinite(input.maxConcurrentAgents)
+      ? Math.max(1, Math.min(4, Math.floor(input.maxConcurrentAgents)))
+      : 1
+
+  return {
+    enabled: Boolean(input?.enabled),
+    cliPermissionPreset: normalizeCliPermissionPreset(input?.cliPermissionPreset),
+    maxConcurrentAgents,
+    coordinatorAutoSpawnKey:
+      typeof input?.coordinatorAutoSpawnKey === 'string'
+        ? input.coordinatorAutoSpawnKey
         : null,
     pendingSpawns,
   }
@@ -911,6 +983,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             multiloopState,
             swarmRoleCliDefaults,
             swarmAutoState: normalizeSwarmAutoState(options?.swarmAutoState),
+            multiloopAutoState: normalizeMultiloopAutoState(options?.multiloopAutoState),
             createdAt: Date.now(),
           })
           if (folderPath) {
@@ -1089,6 +1162,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             multiloopState
           )
           if (multiloopState) ws.layoutModel = ensureMultiloopLayoutModel(ws.layoutModel)
+          ws.multiloopAutoState = multiloopState
+            ? normalizeMultiloopAutoState(ws.multiloopAutoState)
+            : defaultMultiloopAutoState()
         }),
 
       setSwarmAutoEnabled: (workspaceId, enabled) =>
@@ -1180,6 +1256,53 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.swarmAutoState = {
             ...current,
             pendingSpawns,
+          }
+        }),
+
+      setMultiloopAutoEnabled: (workspaceId, enabled) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
+          ws.multiloopAutoState = {
+            ...current,
+            enabled,
+            pendingSpawns: enabled ? current.pendingSpawns : [],
+          }
+        }),
+
+      setMultiloopCliPermissionPreset: (workspaceId, cliPermissionPreset) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
+          ws.multiloopAutoState = {
+            ...current,
+            cliPermissionPreset,
+          }
+        }),
+
+      setMultiloopAutoPendingSpawns: (workspaceId, pendingSpawns) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
+          ws.multiloopAutoState = {
+            ...current,
+            pendingSpawns: pendingSpawns
+              .map((pending) => normalizeMultiloopAutoPendingSpawn(pending))
+              .filter((pending): pending is MultiloopAutoPendingSpawn => Boolean(pending)),
+          }
+        }),
+
+      setMultiloopCoordinatorAutoSpawnKey: (workspaceId, key) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
+          ws.multiloopAutoState = {
+            ...current,
+            coordinatorAutoSpawnKey: key,
           }
         }),
 
@@ -1288,6 +1411,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ),
             swarmRoleCliDefaults: normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults),
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
+            multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
           } satisfies Workspace)
           const imported = state.workspaces.at(-1)
           if (imported) {
@@ -1409,7 +1533,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 31,
+      version: 32,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1708,6 +1832,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 multiloopState
               ),
               swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
+              multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
             }
 
             return mode === 'multiloop'
@@ -1742,6 +1867,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               current.appSettings?.usageTelemetry
             ),
           }
+        }
+        if (version < 32) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
+          }))
         }
         return state as never
       },

@@ -24,6 +24,7 @@ import type {
   MultiloopStateDisplayError,
   MultiloopTask,
   MultiloopTaskStatus,
+  SwarmCliPermissionPreset,
   WorkspaceId,
 } from '../../types/workspace'
 import { prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -96,6 +97,28 @@ const taskStatusClass: Record<MultiloopTaskStatus, string> = {
   ready: 'bg-[#163021] text-[#c6f5d2]',
   todo: 'bg-[#191a20] text-[#b6b7bf]',
 }
+
+const multiloopCliPermissionOptions: Array<{
+  value: SwarmCliPermissionPreset
+  label: string
+  title: string
+}> = [
+  {
+    value: 'default',
+    label: 'Default permissions',
+    title: 'Use the CLI default permission behavior.',
+  },
+  {
+    value: 'auto_workspace',
+    label: 'Auto in workspace',
+    title: 'Reduce prompts while keeping workspace-scoped guardrails where the CLI supports them.',
+  },
+  {
+    value: 'bypass_all',
+    label: 'Bypass permissions',
+    title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
+  },
+]
 
 function hasEvidence(task: MultiloopTask): boolean {
   return Boolean(
@@ -213,6 +236,8 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const workspace = useWorkspaceStore((state) => state.workspaces.find((item) => item.id === workspaceId))
   const setMultiloopState = useWorkspaceStore((state) => state.setMultiloopState)
   const updateAgent = useWorkspaceStore((state) => state.updateAgent)
+  const setMultiloopAutoEnabled = useWorkspaceStore((state) => state.setMultiloopAutoEnabled)
+  const setMultiloopCliPermissionPreset = useWorkspaceStore((state) => state.setMultiloopCliPermissionPreset)
   const [readState, setReadState] = useState<ReadState>({ status: 'idle' })
   const [roleLaunchState, setRoleLaunchState] = useState<RoleLaunchState>({ status: 'idle' })
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
@@ -376,6 +401,9 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const fullGoal = formatMultiloopGoal(multiloopState?.loop.finalGoal ?? '')
   const goalPreview = formatMultiloopGoalPreview(multiloopState?.loop.finalGoal ?? '')
   const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 260
+  const multiloopAutoState = workspace?.multiloopAutoState
+  const autoRunEnabled = Boolean(multiloopAutoState?.enabled)
+  const autoRunBlocked = activeBlockers.length > 0 || activeTasks.some((task) => task.status === 'needs_input' || task.status === 'blocked')
 
   if (!workspace) return null
   if (readState.status === 'loading') return <StateMessage title="Loading Multiloop state" message="Reading the loop state file." tone="loading" />
@@ -450,6 +478,11 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         <MultiloopRoleLauncher
           agents={workspace.agents}
           launchState={roleLaunchState}
+          autoRunEnabled={autoRunEnabled}
+          autoRunBlocked={autoRunBlocked}
+          cliPermissionPreset={multiloopAutoState?.cliPermissionPreset ?? 'default'}
+          onToggleAutoRun={() => setMultiloopAutoEnabled(workspaceId, !autoRunEnabled)}
+          onPermissionPresetChange={(preset) => setMultiloopCliPermissionPreset(workspaceId, preset)}
           onOpenRole={(role) => void openRoleAgent(role)}
         />
       </header>
@@ -514,19 +547,63 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
 function MultiloopRoleLauncher({
   agents,
   launchState,
+  autoRunEnabled,
+  autoRunBlocked,
+  cliPermissionPreset,
+  onToggleAutoRun,
+  onPermissionPresetChange,
   onOpenRole,
 }: {
   agents: Record<string, AgentState>
   launchState: RoleLaunchState
+  autoRunEnabled: boolean
+  autoRunBlocked: boolean
+  cliPermissionPreset: SwarmCliPermissionPreset
+  onToggleAutoRun: () => void
+  onPermissionPresetChange: (preset: SwarmCliPermissionPreset) => void
   onOpenRole: (role: MultiloopAgentSoulRole) => void
 }) {
   return (
     <div className="mt-4 border-t border-[#202127] pt-3" aria-label="Multiloop role terminals">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-[12px] font-semibold text-[#f0f0f2]">Role Terminals</h2>
-        {launchState.status === 'error' ? (
-          <span className="text-[11px] text-[#ffb5b8]">{getMultiloopAgentSoul(launchState.role).label}: {launchState.message}</span>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-[12px] font-semibold text-[#f0f0f2]">Role Terminals</h2>
+          <button
+            type="button"
+            onClick={onToggleAutoRun}
+            className={`inline-flex h-7 items-center rounded-[6px] border px-2.5 text-[11px] font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#5c7cff] ${
+              autoRunEnabled
+                ? 'border-[#2f5f3f] bg-[#112318] text-[#bff7ce] hover:border-[#407a51]'
+                : 'border-[#303139] bg-[#111216] text-[#c8c9d0] hover:border-[#444751]'
+            }`}
+          >
+            Auto-run {autoRunEnabled ? 'on' : 'off'}
+          </button>
+          {autoRunEnabled && autoRunBlocked ? (
+            <span className="text-[11px] font-medium text-[#ffd39a]">Paused by blocker or input</span>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {launchState.status === 'error' ? (
+            <span className="text-[11px] text-[#ffb5b8]">{getMultiloopAgentSoul(launchState.role).label}: {launchState.message}</span>
+          ) : null}
+          <select
+            value={cliPermissionPreset}
+            onChange={(event) => onPermissionPresetChange(event.currentTarget.value as SwarmCliPermissionPreset)}
+            title={multiloopCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title}
+            className={`h-7 rounded-[6px] border bg-[#0f1014] px-2 text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-[#5c7cff] ${
+              cliPermissionPreset === 'bypass_all'
+                ? 'border-[#6f3131] text-[#ffb5b8]'
+                : cliPermissionPreset === 'auto_workspace'
+                ? 'border-[#355da8] text-[#b8ccff]'
+                : 'border-[#303139] text-[#d7d7dc]'
+            }`}
+          >
+            {multiloopCliPermissionOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
         {MULTILOOP_AGENT_SOULS.map((soul) => {
