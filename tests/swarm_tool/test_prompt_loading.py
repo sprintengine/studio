@@ -62,26 +62,22 @@ def use_python_swarm_tool_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(swarm_helpers.SwarmCli, "run_failure", run_failure)
 
 
-def test_init_returns_product_intake_prompt_from_python_tool(tmp_path) -> None:
+def test_init_bootstraps_board_without_returning_role_prompt(tmp_path) -> None:
     state_path = tmp_path / "swarm" / "init-prompt" / "state.yaml"
     payload = SwarmCli(state_path).run("init", "--goal", "Capture current prompt behavior")
 
     assert payload["ok"] is True
-    assert payload["role"] == "product"
-    assert payload["action"] == "product_intake"
-    assert_prompt_includes(
-        payload["prompt"],
-        [
-            "# Specialist Personality And Quality Bar",
-            "## Product-First Intake",
-            "swarm artifact ready",
-            "Do not create implementation tasks.",
-            "Do not edit swarm/state.yaml directly",
-        ],
-    )
+    assert payload["action"] == "initialized"
+    assert "role" not in payload
+    assert "prompt" not in payload
+    assert payload["productTask"]["role"] == "product"
+    assert payload["productTask"]["status"] == "todo"
+    assert payload["productTask"]["ownerAgentId"] is None
+    assert payload["planTask"]["role"] == "architect"
+    assert payload["planTask"]["status"] == "todo"
 
 
-def test_init_accepts_worktree_preference_and_injects_architect_guidance(tmp_path) -> None:
+def test_init_accepts_worktree_preference_without_claiming_architect_work(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "worktree-init-prompt",
@@ -90,17 +86,12 @@ def test_init_accepts_worktree_preference_and_injects_architect_guidance(tmp_pat
     payload = fixture.cli.run("init", "--goal", "Plan in a shared worktree", "--use-worktrees", "true")
 
     assert payload["ok"] is True
-    assert payload["role"] == "architect"
-    assert_prompt_includes(
-        payload["prompt"],
-        [
-            "## Worktree Preference",
-            "The user enabled architect-managed swarm worktrees for this run.",
-            "Worktree: enabled",
-            "Worktree path:",
-            "Merge target:",
-        ],
-    )
+    assert payload["action"] == "initialized"
+    assert "role" not in payload
+    assert "prompt" not in payload
+    assert payload["planTask"]["role"] == "architect"
+    assert payload["planTask"]["status"] == "todo"
+    assert payload["planTask"]["ownerAgentId"] is None
 
 
 def test_init_rejects_invalid_worktree_preference(tmp_path) -> None:

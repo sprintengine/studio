@@ -64,6 +64,6 @@ export function buildPlanFileSwarmHandoffPrompt({
     `swarm --state ${quoteShellArg(statePath)} init --goal ${quoteShellArg(goal)} --use-worktrees ${useWorktreesForSwarms ? 'true' : 'false'}`,
     '```',
     '',
-    `After initialization, follow the prompt returned by the swarm tool. Product and architect agents must read \`${sourcePath}\` and the copied \`handover.md\` before producing artifacts or task cards, and should treat that markdown file as the incoming plan context. New swarms begin with product intake; architect planning starts after the product artifact is approved.`,
+    `After initialization, do not treat \`swarm init\` as task assignment. Agents should use the normal ready-task flow with \`swarm task next --role <role> --id <agent-id>\`. Product and architect agents must read \`${sourcePath}\` and the copied \`handover.md\` when their own task is claimed, and should treat that markdown file as incoming context.`,
   ].join('\n')
 }

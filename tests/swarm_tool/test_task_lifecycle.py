@@ -57,20 +57,30 @@ def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_p
 
     init_payload = cli.run("init", "--goal", "Exercise approval gates")
     assert init_payload["ok"] is True
-    assert init_payload["role"] == "product"
-    assert init_payload["action"] == "product_intake"
+    assert init_payload["action"] == "initialized"
+    assert "role" not in init_payload
+    assert "prompt" not in init_payload
 
     state = read_state(state_path)
     product_task = init_payload["productTask"]
     plan_task = init_payload["planTask"]
-    assert_task_status(state, product_task["id"], "in_progress")
+    assert_task_status(state, product_task["id"], "todo")
+    assert get_task(state, product_task["id"])["ownerAgentId"] is None
     assert_task_status(state, plan_task["id"], "todo")
+    assert_board_column(state, product_task["id"], "ready")
     assert_board_column(state, plan_task["id"], "todo")
+    assert_ready_tasks(cli, "product", [product_task["id"]])
     assert_ready_tasks(cli, "architect", [])
 
+    claimed = cli.run("task", "next", "--role", "product", "--id", "product-fixture")
+    assert claimed["claimed"] is True
+    claimed_state = read_state(state_path)
+    assert_task_status(claimed_state, product_task["id"], "in_progress")
+    assert get_task(claimed_state, product_task["id"])["ownerAgentId"] == "product-fixture"
+
     product_artifact = init_payload["productArtifact"]
-    (state_path.parent / product_artifact["path"]).write_text("# Product Requirements\n", encoding="utf-8")
-    cli.run("artifact", "ready", "--artifact-id", product_artifact["id"], "--id", "product")
+    (state_path.parent / "product-requirements.md").write_text("# Product Requirements\n", encoding="utf-8")
+    cli.run("artifact", "ready", "--artifact-id", product_artifact["id"], "--id", "product-fixture")
     cli.run("artifact", "approve", "--artifact-id", product_artifact["id"], "--id", "user")
 
     product_approved = read_state(state_path)
@@ -87,7 +97,7 @@ def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_p
         "architect-fixture",
     )
     plan_artifact = artifact_by_kind(read_state(state_path), "architect_plan")
-    (state_path.parent / plan_artifact["path"]).write_text("# Architect Plan\n", encoding="utf-8")
+    (state_path.parent / "plan.md").write_text("# Architect Plan\n", encoding="utf-8")
     cli.run("artifact", "ready", "--artifact-id", plan_artifact["id"], "--id", "architect-fixture")
     plan_ready = read_state(state_path)
     assert artifact_by_kind(plan_ready, "architect_plan")["createdBy"] == "architect-fixture"

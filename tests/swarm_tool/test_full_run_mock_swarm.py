@@ -61,9 +61,11 @@ def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_fi
     plan_task_id = init_payload["planTask"]["id"]
     product_artifact_id = init_payload["productArtifact"]["id"]
 
+    assert_ready_tasks(cli, "product", [product_task_id])
     assert_ready_tasks(cli, "architect", [])
+    cli.run("task", "next", "--role", "product", "--id", "product-intake")
     write_team_file(state_path, "product-requirements.md", "# Requirements\n")
-    cli.run("artifact", "ready", "--artifact-id", product_artifact_id, "--id", "product")
+    cli.run("artifact", "ready", "--artifact-id", product_artifact_id, "--id", "product-intake")
     cli.run("artifact", "approve", "--artifact-id", product_artifact_id, "--id", "user")
     assert_ready_tasks(cli, "architect", [plan_task_id])
 
