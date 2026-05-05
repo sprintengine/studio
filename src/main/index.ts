@@ -1624,6 +1624,10 @@ function powerShellBase64Literal(value: string): string {
   return `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(${quotePowerShell(Buffer.from(value, 'utf8').toString('base64'))}))`
 }
 
+function nativeWindowsPromptArg(value: string | undefined): string | undefined {
+  return value?.replace(/\r\n|\r|\n/g, '\\n')
+}
+
 function getCliPermissionArgs(
   cli: AgentCli,
   preset: SwarmCliPermissionPreset = 'default'
@@ -2683,19 +2687,20 @@ function buildNativeAgentLaunchPowerShellScript(
 ): string {
   const permissionArgs = getCliPermissionArgs(cli, cliPermissionPreset)
   const command = cliRuntime.command || cli
+  const promptArg = cli === 'codex' ? nativeWindowsPromptArg(initialPrompt) : initialPrompt
   const args = cli === 'codex'
     ? [
         ...permissionArgs,
         ...(resume ? ['resume'] : []),
         '-C',
         cwd,
-        ...(!resume && initialPrompt ? [initialPrompt] : []),
+        ...(!resume && promptArg ? [promptArg] : []),
       ]
     : [
         ...permissionArgs,
         resume ? '--resume' : '--session-id',
         sessionId,
-        ...(initialPrompt ? [initialPrompt] : []),
+        ...(promptArg ? [promptArg] : []),
       ]
 
   return [
