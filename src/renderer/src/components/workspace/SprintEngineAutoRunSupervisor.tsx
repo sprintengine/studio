@@ -32,8 +32,9 @@ import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 const AUTO_RUN_POLL_MS = 2000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
-const AUTO_RUN_MAX_CONCURRENT_AGENTS = 2
+const AUTO_RUN_MAX_CONCURRENT_AGENTS = 10
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
+const AUTO_RUN_ROLE_CONTINUATION_GRACE_MS = 30000
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
 const TERMINAL_IPC_TIMEOUT_MS = 3000
@@ -70,6 +71,15 @@ type SwarmAutoStateWithWorktreeIsolation = Workspace['swarmAutoState'] & {
 
 type DoneAgentTerminalObservation = {
   firstSeenAt: number
+}
+
+type RoleContinuationGrace = {
+  startedAt: number
+}
+
+type RunningContinuationCapacity = {
+  capacityByRole: Map<SwarmRole, number>
+  agentIds: Set<string>
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -706,7 +716,8 @@ function pickNextAutoRuns(
     pendingSpawns: SwarmAutoPendingSpawn[]
     runningAgentIds: Set<string>
     inFlightSpawns: Set<string>
-    reduceTokenConsumption: boolean
+    continuationCapacityByRole: Map<SwarmRole, number>
+    continuationGraceByTask: Map<string, RoleContinuationGrace>
   }
 ): AutoRunCandidate[] {
   if (options.limit <= 0) return []
@@ -721,7 +732,7 @@ function pickNextAutoRuns(
     pendingSpawnCount: options.pendingSpawns.length,
     runningAgentCount: options.runningAgentIds.size,
     inFlightSpawnCount: options.inFlightSpawns.size,
-    reduceTokenConsumption: options.reduceTokenConsumption,
+    continuationCapacity: Object.fromEntries(options.continuationCapacityByRole),
   })
   const roster = buildSwarmAgentRosterForState(swarmState)
   logPerfEvent('SwarmAutoRun', 'candidate-pick-roster', {
@@ -740,8 +751,6 @@ function pickNextAutoRuns(
     options.inFlightSpawns.has(`${workspace.id}:${agentId}`)
 
   const findReusableRoleAgent = (role: SwarmRole): AutoRunCandidate['agentId'] | null => {
-    if (!options.reduceTokenConsumption) return null
-
     const agent = roster.find((candidate) => {
       const runtime = swarmState.swarmAgents[candidate.id]
       return candidate.role === role
@@ -832,9 +841,43 @@ function pickNextAutoRuns(
     workspaceName: workspace.name,
     readyTaskCount: readyTasks.length,
   })
+  const continuationKeyForTask = (taskId: string) =>
+    [
+      workspace.id,
+      workspace.swarmContext?.statePath ?? '',
+      taskId,
+    ].join(':')
+  const readyTaskKeys = new Set(readyTasks.map((task) => continuationKeyForTask(task.id)))
+  for (const taskKey of options.continuationGraceByTask.keys()) {
+    if (taskKey.startsWith(`${workspace.id}:`) && !readyTaskKeys.has(taskKey)) {
+      options.continuationGraceByTask.delete(taskKey)
+    }
+  }
+  const reservedContinuationByRole = new Map<SwarmRole, number>()
 
   for (const task of readyTasks) {
     if (candidates.length >= options.limit) break
+    const continuationCapacity = options.continuationCapacityByRole.get(task.role) ?? 0
+    const reservedForRole = reservedContinuationByRole.get(task.role) ?? 0
+    if (reservedForRole < continuationCapacity) {
+      const taskKey = continuationKeyForTask(task.id)
+      const grace = options.continuationGraceByTask.get(taskKey) ?? { startedAt: Date.now() }
+      options.continuationGraceByTask.set(taskKey, grace)
+      const elapsedMs = Date.now() - grace.startedAt
+      if (elapsedMs < AUTO_RUN_ROLE_CONTINUATION_GRACE_MS) {
+        reservedContinuationByRole.set(task.role, reservedForRole + 1)
+        logPerfEvent('SwarmAutoRun', 'candidate-pick-ready-task-reserved-for-continuation', {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          taskId: task.id,
+          role: task.role,
+          elapsedMs,
+          graceMs: AUTO_RUN_ROLE_CONTINUATION_GRACE_MS,
+        })
+        continue
+      }
+    }
+
     logPerfEvent('SwarmAutoRun', 'candidate-pick-ready-task', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -1023,6 +1066,39 @@ async function getRunningAutoRunAgentIds(
   return runningAgentIds
 }
 
+async function getRunningContinuationCapacityByRole(
+  workspace: Workspace,
+  swarmState: SwarmState
+): Promise<RunningContinuationCapacity> {
+  const capacityByRole = new Map<SwarmRole, number>()
+  const countedAgentIds = new Set<string>()
+  const sessions = await listTerminalSessionsForAutoRun(workspace, 'role-continuation-capacity')
+
+  for (const session of sessions) {
+    if (!session.agentId || countedAgentIds.has(session.agentId)) continue
+    if (!sessionBelongsToWorkspaceSwarm(session, workspace)) continue
+
+    const runtimeAgent = swarmState.swarmAgents[session.agentId]
+    if (!runtimeAgent || runtimeAgent.status === 'needs_input') continue
+
+    const currentTask = runtimeAgent.currentTaskId
+      ? swarmState.tasks.find((task) => task.id === runtimeAgent.currentTaskId)
+      : null
+    if (currentTask && currentTask.status !== 'done') continue
+
+    const ownedActiveTask = swarmState.tasks.find((task) =>
+      task.ownerAgentId === session.agentId
+      && (task.status === 'in_progress' || task.status === 'needs_input')
+    )
+    if (ownedActiveTask) continue
+
+    countedAgentIds.add(session.agentId)
+    capacityByRole.set(runtimeAgent.role, (capacityByRole.get(runtimeAgent.role) ?? 0) + 1)
+  }
+
+  return { capacityByRole, agentIds: countedAgentIds }
+}
+
 async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<void> {
   const sessions = await listTerminalSessionsForAutoRun(workspace, 'reconcile-duplicates')
   const sessionsByAgentId = new Map<string, TerminalSessionSnapshot[]>()
@@ -1126,7 +1202,6 @@ async function spawnAutoRunCandidate(
   swarmState: SwarmState,
   nextRun: AutoRunCandidate,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
-  reduceTokenConsumption: boolean,
   inFlightSpawns: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'skipped'> {
   const currentState = useWorkspaceStore.getState()
@@ -1213,7 +1288,6 @@ async function spawnAutoRunCandidate(
         swarmStatePath,
         commandMode: getSwarmStartupCommandMode(nextRun.role, nextRun.agentId, swarmState),
         useWorktreesForSwarms: workspace.swarmAutoState.useWorktreesForSwarms,
-        reduceTokenConsumption,
       }),
       nextRun.label,
       swarmRoleLabels[nextRun.role]
@@ -1323,10 +1397,10 @@ async function spawnAutoRunCandidate(
 async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
-  reduceTokenConsumption: boolean,
   inFlightSpawns: MutableRefObject<Set<string>>,
   sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
+  continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
   const superviseStartedAt = performance.now()
@@ -1397,10 +1471,12 @@ async function superviseWorkspace(
     workspaceName: workspace.name,
   })
   const runningAgentIds = await getRunningAutoRunAgentIds(workspace, swarmState)
+  const continuationCapacity = await getRunningContinuationCapacityByRole(workspace, swarmState)
   logPerfEvent('SwarmAutoRun', 'running-agents-end', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
     runningAgentCount: runningAgentIds.size,
+    continuationCapacity: Object.fromEntries(continuationCapacity.capacityByRole),
   })
 
   const runningNeedsInputAgentIds = Object.entries(swarmState.swarmAgents)
@@ -1451,6 +1527,26 @@ async function superviseWorkspace(
     ...runningAgentIds,
     ...pendingSpawns.map((pending) => pending.agentId),
   ])
+  const doneTaskIdsForSlotAccounting = new Set(
+    swarmState.tasks
+      .filter((task) => task.status === 'done')
+      .map((task) => task.id)
+  )
+  const readyRolesForSlotAccounting = new Set(
+    swarmState.tasks
+      .filter((task) =>
+        task.status !== 'in_progress'
+        && task.status !== 'needs_input'
+        && task.status !== 'done'
+        && !task.ownerAgentId
+        && task.dependsOn.every((dependencyId) => doneTaskIdsForSlotAccounting.has(dependencyId))
+      )
+      .map((task) => task.role)
+  )
+  continuationCapacity.agentIds.forEach((agentId) => {
+    const role = swarmState.swarmAgents[agentId]?.role
+    if (role && readyRolesForSlotAccounting.has(role)) occupiedAgentIds.add(agentId)
+  })
   for (const spawnKey of inFlightSpawns.current) {
     if (!spawnKey.startsWith(`${workspace.id}:`)) continue
     occupiedAgentIds.add(spawnKey.slice(workspace.id.length + 1))
@@ -1480,7 +1576,8 @@ async function superviseWorkspace(
       pendingSpawns,
       runningAgentIds,
       inFlightSpawns: inFlightSpawns.current,
-      reduceTokenConsumption,
+      continuationCapacityByRole: continuationCapacity.capacityByRole,
+      continuationGraceByTask: continuationGraceByTask.current,
     })
   } catch (error) {
     logPerfEvent('SwarmAutoRun', 'candidate-pick-error', {
@@ -1522,7 +1619,6 @@ async function superviseWorkspace(
       swarmState,
       nextRun,
       cliRuntimes,
-      reduceTokenConsumption,
       inFlightSpawns
     )
     if (spawnResult === 'failed') return
@@ -1550,6 +1646,7 @@ export default function SprintEngineAutoRunSupervisor() {
   const inFlightSpawns = useRef(new Set<string>())
   const sentArtifactApprovalMessages = useRef(new Map<string, number>())
   const autoApprovalDiagnostics = useRef(new Map<string, number>())
+  const continuationGraceByTask = useRef(new Map<string, RoleContinuationGrace>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
   const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
   const doneAgentTerminalObservations = useRef(new Map<string, DoneAgentTerminalObservation>())
@@ -1627,10 +1724,10 @@ export default function SprintEngineAutoRunSupervisor() {
           await superviseWorkspace(
             workspace,
             appSettings.cliRuntimes,
-            appSettings.reduceTokenConsumption,
             inFlightSpawns,
             sentArtifactApprovalMessages,
             autoApprovalDiagnostics,
+            continuationGraceByTask,
             lastContentByWorkspace
           )
         }

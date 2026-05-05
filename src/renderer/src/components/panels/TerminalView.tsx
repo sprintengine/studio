@@ -89,7 +89,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     return worktreeId ? workspace?.worktreeState.entries[worktreeId]?.path : undefined
   })
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const reduceTokenConsumption = useWorkspaceStore((s) => s.appSettings.reduceTokenConsumption)
   const cli = agent?.cli ?? 'codex'
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const startupPrompt = useWorkspaceStore((s) => {
@@ -114,7 +113,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         workspaceRoot: folderReadyPath ?? undefined,
         commandMode: getSwarmStartupCommandMode(rosterAgent.role, agentId, workspace.swarmState),
         useWorktreesForSwarms: workspace.swarmAutoState.useWorktreesForSwarms,
-        reduceTokenConsumption,
       }
     )
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label

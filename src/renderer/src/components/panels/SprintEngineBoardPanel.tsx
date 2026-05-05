@@ -296,14 +296,11 @@ type ArtifactActionState = {
 
 function buildWorkerRespawnStartupPrompt(
   role: SwarmRole,
-  agentId: string,
-  reduceTokenConsumption: boolean
+  agentId: string
 ): string {
   return [
-    'Fetch the canonical sprintengine instructions from the Python tool.',
-    reduceTokenConsumption
-      ? 'Reduce Token Consumption is enabled. Keep picking up ready tasks with this same agent id until no task is ready, you are blocked, you need user input, or your context window is about 70% full.'
-      : null,
+    'Fetch the canonical Sprint Engine instructions from the Python tool.',
+    `You are assigned role: ${role}. Only claim and work Sprint Engine tasks whose role exactly matches ${role}. Keep picking up ready ${role} tasks with this same agent id until no ${role} task is ready, you are blocked, you need user input, or your context window is about 70% full. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
     'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
     [
       '```powershell',
@@ -311,7 +308,7 @@ function buildWorkerRespawnStartupPrompt(
       '```',
     ].join('\n'),
     'Otherwise run:',
-    `\`\`\`\nswarm join --role ${role} --id ${agentId}\n\`\`\``,
+    `\`\`\`\nsprintengine join --role ${role} --id ${agentId}\n\`\`\``,
   ].filter(Boolean).join('\n\n')
 }
 
@@ -385,7 +382,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const folderPath = folderReadyPath
   const agents = workspace?.agents ?? {}
   const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
-  const reduceTokenConsumption = useWorkspaceStore((s) => s.appSettings.reduceTokenConsumption)
   const autoApproveArtifacts = workspace?.swarmAutoState?.autoApproveArtifacts ?? false
   const keepDoneAgentTerminals = workspace?.swarmAutoState?.keepDoneAgentTerminals ?? false
   const cliPermissionPreset = workspace?.swarmAutoState?.cliPermissionPreset ?? 'default'
@@ -1022,11 +1018,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       void startAgentTerminalWhenReady(agentId, label, agents[agentId]?.cli ?? 'codex', {
         freshSession: true,
         agentName: getCustomAgentName(agentId, fallbackLabel),
-        startupPrompt: buildWorkerRespawnStartupPrompt(
-          agent?.role ?? task.role,
-          agentId,
-          reduceTokenConsumption
-        ),
+        startupPrompt: buildWorkerRespawnStartupPrompt(agent?.role ?? task.role, agentId),
       })
       return
     }

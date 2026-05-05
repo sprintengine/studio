@@ -15,7 +15,8 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentState, FuturePlanWorkspaceSource, SwarmRole, SwarmRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { SpecialistActionIcon, StatusDot, SwarmRoleIcon } from '../AppIcons'
+import { SpecialistActionIcon, StatusDot, SwarmRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import MulticodeBlackHoleSpinner from '../brand/MulticodeBlackHoleSpinner'
 import AgentPanel from '../panels/AgentPanel'
 import FileExplorer from '../panels/FileExplorer'
 
@@ -85,7 +86,10 @@ function inferSwarmRoleFromAgentId(agentId: string): SwarmRole | null {
 function PanelLoadingFallback() {
   return (
     <div className="flex h-full items-center justify-center bg-[#08090b] text-[12px] font-mono text-[#6f7078]">
-      Loading panel...
+      <span className="flex items-center gap-3">
+        <MulticodeBlackHoleSpinner className="h-8 w-8" />
+        <span>Loading panel...</span>
+      </span>
     </div>
   )
 }
@@ -443,6 +447,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const swarmRole = agent?.kind === 'sprintengine'
         ? runtimeAgent?.role ?? inferSwarmRoleFromAgentId(agentId)
         : null
+      const multiloopRole = agent?.kind === 'multiloop' ? agent.multiloopRole : null
 
       if (specialist) {
         renderValues.leading = (
@@ -462,6 +467,16 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             aria-label={`${swarmRole} Sprint Engine agent`}
           >
             <SwarmRoleIcon role={swarmRole} className="h-3.5 w-3.5" />
+          </span>
+        )
+      } else if (multiloopRole) {
+        renderValues.leading = (
+          <span
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]"
+            title={`${multiloopRole} Multiloop agent`}
+            aria-label={`${multiloopRole} Multiloop agent`}
+          >
+            <WorkspaceTypeIcon mode="multiloop" className="h-3.5 w-3.5" />
           </span>
         )
       } else {

@@ -115,11 +115,9 @@ function parseSearchExcludeText(value: string): string[] {
 
 export default function SettingsModal({ onClose }: Props) {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const reduceTokenConsumption = useWorkspaceStore((s) => s.appSettings.reduceTokenConsumption)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
-  const setReduceTokenConsumption = useWorkspaceStore((s) => s.setReduceTokenConsumption)
   const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
   const isWindows = window.api.platform === 'win32'
@@ -349,12 +347,6 @@ export default function SettingsModal({ onClose }: Props) {
             <span className="font-mono text-[#d7d7dc]">claude</span>{isWindows ? ' through WSL' : ''}.
             Use a full executable path if your CLI is not on PATH.
           </div>
-          <UsageTelemetryToggle
-            label="Reduce Token Consumption"
-            description="Reuse Sprint Engine agent terminals across ready tasks until the agent stops, needs input, is blocked, or reaches about 70% context."
-            enabled={reduceTokenConsumption}
-            onChange={setReduceTokenConsumption}
-          />
         </div>
 
         <div className="mt-4 space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">

@@ -336,9 +336,10 @@ function buildStartupPrompt(input: {
 }): string {
   const windowsPython = join(input.workspaceRoot, '.venv', 'Scripts', 'python.exe')
   return [
-    `${input.label}: ${input.label} - Fetch the canonical sprintengine instructions from the Python tool.`,
+    `${input.label}: ${input.label} - Fetch the canonical Sprint Engine instructions from the Python tool.`,
     `Worker cwd: ${input.executionCwd}`,
     `Shared Sprint Engine state: ${input.statePath}`,
+    `You are assigned role: ${input.role}. Only claim and work Sprint Engine tasks whose role exactly matches ${input.role}. Keep picking up ready ${input.role} tasks with this same agent id until no ${input.role} task is ready, you are blocked, you need user input, or your context window is about 70% full. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
     'Use the repo virtual environment directly on Windows if `sprintengine` or global Python is unreliable:',
     [
       '```powershell',

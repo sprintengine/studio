@@ -1935,7 +1935,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
     )
     architect_startup_prompt = "\n\n".join([
         f"Use the existing Sprint Engine team `{team_slug}`.",
-        "Fetch the canonical sprintengine startup instructions from the Python tool.",
+        "Fetch the canonical Sprint Engine startup instructions from the Python tool.",
         "Run:",
         f"```bash\n{init_command}\n```",
         "Then follow the returned prompt. If `handover.md` exists, treat it as incoming context, not as the final plan.",
@@ -2017,6 +2017,17 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     import sys
     print(f"[sprintengine] reading state from: {args.state}", file=sys.stderr)
 
+    def role_boundary_instruction() -> str:
+        return (
+            f"You are assigned role `{args.role}`. Only claim and work tasks whose Sprint Engine "
+            f"`task.role` exactly matches `{args.role}`. When instructed to keep picking up ready tasks, "
+            f"interpret that as ready `{args.role}` tasks only. Do not run `sprintengine task claim`, "
+            f"`sprintengine task status`, `sprintengine artifact ready`, `sprintengine plan`, or similar "
+            f"mutating commands for another role's task unless the user explicitly changes your assigned role. "
+            f"You may inspect other roles read-only to diagnose blockers. If no task is ready for `{args.role}`, "
+            f"stop and report the blocker id if one is visible."
+        )
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         runtime = reconcile_agent(state, args.id, args.role)
         agent = runtime["agent"]
@@ -2038,13 +2049,14 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"Run:\n```\nsprintengine task next --role {args.role} --id {args.id}\n```\n\n"
                 f"This reconnects you to your existing active task instead of claiming a new one. "
                 f"Continue the task and log evidence.\n\n"
+                f"{role_boundary_instruction()}\n\n"
                 f"{worker_plan_worktree_block()}\n\n"
                 f"{artifact_registration_instruction(args.id)}\n\n"
                 f"When complete: if you produced findings, issues, or changes_requested, move the task back to `needs_input` so the implementer/author can address them. "
                 f"Otherwise, mark it done. "
                 f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
                 f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
-                f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.\n\n"
+                f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready {args.role} tasks.\n\n"
                 "**IMPORTANT: Do not edit .multi-code/sprintengine/state.yaml directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
@@ -2057,13 +2069,14 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"There are **{len(ready)} task(s)** ready for your role.\n\n"
             f"Run:\n```\nsprintengine task next --role {args.role} --id {args.id}\n```\n\n"
             f"Complete the claimed task and log evidence.\n\n"
+            f"{role_boundary_instruction()}\n\n"
             f"{worker_plan_worktree_block()}\n\n"
             f"{artifact_registration_instruction(args.id)}\n\n"
             f"When complete: if you produced findings, issues, or changes_requested, move the task back to `needs_input` so the implementer/author can address them. "
             f"Otherwise, mark it done. "
             f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
             f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
-            f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.\n\n"
+            f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready {args.role} tasks.\n\n"
             "**IMPORTANT: Do not edit .multi-code/sprintengine/state.yaml directly. "
             "All updates must go through the Sprint Engine tool.**"
         )

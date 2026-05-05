@@ -53,7 +53,6 @@ export function buildSwarmStartupPrompt(
     swarmStatePath?: string
     commandMode?: 'init' | 'join'
     useWorktreesForSwarms?: boolean
-    reduceTokenConsumption?: boolean
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
@@ -70,11 +69,9 @@ export function buildSwarmStartupPrompt(
   ].filter(Boolean)
 
   return [
-    'Fetch the canonical sprintengine instructions from the Python tool.',
+    'Fetch the canonical Sprint Engine instructions from the Python tool.',
     context.length > 0 ? context.join('\n') : null,
-    options.reduceTokenConsumption
-      ? 'Reduce Token Consumption is enabled. Keep picking up ready tasks with this same agent id until no task is ready, you are blocked, you need user input, or your context window is about 70% full.'
-      : null,
+    `You are assigned role: ${role}. Only claim and work Sprint Engine tasks whose role exactly matches ${role}. Keep picking up ready ${role} tasks with this same agent id until no ${role} task is ready, you are blocked, you need user input, or your context window is about 70% full. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
     [
       'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
       '```powershell',

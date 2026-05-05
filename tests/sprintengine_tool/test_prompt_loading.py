@@ -120,7 +120,10 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
             "You are agent `developer-fixture` with role `developer`.",
             "sprintengine task next --role developer --id developer-fixture",
             "Complete the claimed task and log evidence.",
-            "After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.",
+            "Only claim and work tasks whose Sprint Engine `task.role` exactly matches `developer`.",
+            "interpret that as ready `developer` tasks only.",
+            "Do not run `sprintengine task claim`, `sprintengine task status`, `sprintengine artifact ready`, `sprintengine plan`, or similar mutating commands for another role's task",
+            "After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready developer tasks.",
             "# Project-Relative Paths",
             "Never use absolute or machine-specific paths",
             "pass only project-root-relative paths",
@@ -147,6 +150,30 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
             "## Execution Workspace Discipline",
         ],
     )
+
+
+def test_join_stops_when_only_other_role_tasks_are_ready(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "join-role-boundary",
+        [task("T1", "Write product brief", "product")],
+    )
+
+    payload = fixture.cli.run("join", "--role", "architect", "--id", "Riley")
+
+    assert payload["ok"] is True
+    assert payload["action"] == "stop"
+    assert payload["role"] == "architect"
+    assert payload["agentId"] == "Riley"
+    assert "No tasks are currently ready for the 'architect' role" in payload["message"]
+    assert "prompt" not in payload
+
+    state = read_state(fixture.state_path)
+    product_task = state["tasks"][0]
+    assert product_task["id"] == "T1"
+    assert product_task["role"] == "product"
+    assert product_task["status"] == "todo"
+    assert product_task["ownerAgentId"] is None
 
 
 def test_recover_returns_audit_only_prompt_and_backup_path(tmp_path) -> None:
@@ -195,7 +222,7 @@ def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_
     assert_prompt_includes(
         payload["architectStartupPrompt"],
         [
-            "Fetch the canonical sprintengine startup instructions from the Python tool.",
+            "Fetch the canonical Sprint Engine startup instructions from the Python tool.",
             "sprintengine --state",
             "init",
             "--use-worktrees false",

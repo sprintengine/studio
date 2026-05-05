@@ -37,6 +37,8 @@ import {
   parseSwarmStateFile,
   slugifySwarmName,
 } from '../../utils/sprintengineStateFile'
+import multiloopSplash from '../../assets/brand/multiloop-splash.png'
+import sprintEngineSplash from '../../assets/brand/sprintengine-splash.png'
 
 type ExistingTeam = {
   slug: string
@@ -646,6 +648,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               })}
             </div>
 
+            {mode === 'sprintengine' ? <SprintEngineSplash /> : null}
+            {mode === 'multiloop' ? <MultiloopSplash /> : null}
+
             {mode === 'sprintengine' && !swarmAccess.allowed ? (
               <section
                 className="rounded-md border border-[#3a3426] bg-[#111216] p-4"
@@ -1108,6 +1113,32 @@ function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
         })}
       </g>
     </svg>
+  )
+}
+
+function SprintEngineSplash() {
+  return (
+    <div className="flex min-h-[112px] items-center justify-center px-2 py-3">
+      <img
+        src={sprintEngineSplash}
+        alt="Sprint Engine"
+        className="block w-full max-w-[620px] select-none object-contain"
+        draggable={false}
+      />
+    </div>
+  )
+}
+
+function MultiloopSplash() {
+  return (
+    <div className="flex min-h-[112px] items-center justify-center px-2 py-3">
+      <img
+        src={multiloopSplash}
+        alt="Multiloop"
+        className="block w-full max-w-[620px] select-none object-contain"
+        draggable={false}
+      />
+    </div>
   )
 }
 
