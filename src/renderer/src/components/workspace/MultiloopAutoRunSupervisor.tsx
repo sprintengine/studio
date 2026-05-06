@@ -5,15 +5,18 @@ import type {
   CliRuntimeSettings,
   MultiloopAutoPendingSpawn,
   MultiloopState,
+  SwarmState,
   Workspace,
 } from '../../types/workspace'
 import { loadMultiloopAgentSoul } from '../../specialists/specialistActions'
-import { prependAgentIdentifier } from '../../utils/agentPrompt'
+import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { ensureAgentTabInLayoutModel, focusOrAddAgentTab } from '../../utils/modelRegistry'
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
 import { getActiveMultiloopMilestone } from '../../utils/multiloop'
+import { parseSwarmStateFile } from '../../utils/sprintengineStateFile'
+import { swarmRoleLabels } from '../../utils/sprintengine'
 import {
   buildMultiloopAutoStartupPrompt,
   selectMultiloopAutoRunCandidates,
@@ -56,7 +59,7 @@ function revealMultiloopAgentTerminal(workspaceId: string, agentId: string, labe
   }
 }
 
-function isMatchingMultiloopAgentSession(
+function isMatchingMultiloopAutoRunSession(
   session: TerminalSessionSnapshot,
   workspace: Workspace,
   agentId: string
@@ -67,6 +70,12 @@ function isMatchingMultiloopAgentSession(
     && session.workspaceId === workspace.id
     && session.agentId === agentId
   )
+}
+
+function resolveProjectPath(path: string, workspaceRoot: string): string {
+  if (/^[A-Za-z]:[\\/]/u.test(path) || path.startsWith('/') || path.startsWith('\\\\')) return path
+  const sep = workspaceRoot.includes('\\') && !workspaceRoot.includes('/') ? '\\' : '/'
+  return `${workspaceRoot.replace(/[\\/]+$/u, '')}${sep}${path.replace(/^[\\/]+/u, '')}`
 }
 
 async function listTerminalSessionsForMultiloopAutoRun(
@@ -131,9 +140,38 @@ async function refreshMultiloopWorkspaceState(
   }
 }
 
+async function readLinkedSprintEngineState(
+  workspace: Workspace,
+  multiloopState: MultiloopState
+): Promise<SwarmState | null> {
+  if (!workspace.folderPath) return null
+  const activeMilestone = getActiveMultiloopMilestone(multiloopState)
+  const link = activeMilestone?.sprintEngine
+  if (!link) return null
+
+  try {
+    const content = await window.api.readfile(resolveProjectPath(link.statePath, workspace.folderPath))
+    return parseSwarmStateFile(content, link.teamSlug)
+  } catch (error) {
+    await publishDiagnostic({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Multiloop auto-run skipped linked Sprint Engine state',
+      message: error instanceof Error ? error.message : String(error),
+      details: [
+        `Workspace: ${workspace.name}`,
+        `Sprint Engine state: ${link.statePath}`,
+      ].join('\n'),
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    })
+    return null
+  }
+}
+
 async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
   for (const agent of Object.values(workspace.agents)) {
-    if (agent.kind !== 'multiloop' || !agent.cliStartRequested || !agent.cliHasLaunched || !agent.cliSessionId) continue
+    if (!['multiloop', 'sprintengine'].includes(agent.kind ?? '') || !agent.cliStartRequested || !agent.cliHasLaunched || !agent.cliSessionId) continue
 
     const status = await window.api.terminalStatus(agent.cliSessionId)
     if (status.running) continue
@@ -154,7 +192,7 @@ async function getRunningMultiloopAgentIds(workspace: Workspace): Promise<Set<st
     sessions
       .filter((session) =>
         typeof session.agentId === 'string'
-        && isMatchingMultiloopAgentSession(session, workspace, session.agentId)
+        && isMatchingMultiloopAutoRunSession(session, workspace, session.agentId)
       )
       .map((session) => session.agentId!)
   )
@@ -183,6 +221,7 @@ async function reconcileMultiloopAutoPendingSpawns(
 async function spawnMultiloopAutoRunCandidate(
   workspace: Workspace,
   multiloopState: MultiloopState,
+  linkedSwarmState: SwarmState | null,
   candidate: MultiloopAutoRunCandidate,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   inFlightSpawns: MutableRefObject<Set<string>>
@@ -219,40 +258,59 @@ async function spawnMultiloopAutoRunCandidate(
 
     if (currentAgent?.cliStartRequested && currentAgent.cliSessionId) return 'skipped'
 
-    const repaired = await window.api.initializeMultiloopState({
-      workspaceRoot: workspace.folderPath,
-      loopName: multiloopState.loop.displayName,
-      finalGoal: multiloopState.loop.finalGoal,
-    })
-    if (!repaired.ok) {
-      currentState.setMultiloopAutoEnabled(workspace.id, false)
-      await publishDiagnostic({
-        level: 'error',
-        source: 'workspace',
-        title: 'Multiloop CLI unavailable',
-        message: repaired.message || 'Could not prepare the Multiloop CLI wrapper for this workspace.',
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId: candidate.agentId,
-        taskId: candidate.taskId ?? undefined,
-      })
-      return 'failed'
-    }
-
-    const soulPrompt = await loadMultiloopAgentSoul(candidate.role)
-    const startupPrompt = prependAgentIdentifier(
-      buildMultiloopAutoStartupPrompt({
-        soulPrompt,
-        role: candidate.role,
-        state: multiloopState,
-        statePath: workspace.multiloopContext.statePath,
+    const activeMilestone = getActiveMultiloopMilestone(multiloopState)
+    const linkedStatePath = activeMilestone?.sprintEngine
+      ? resolveProjectPath(activeMilestone.sprintEngine.statePath, workspace.folderPath)
+      : null
+    let startupPrompt: string
+    if (candidate.kind === 'sprintengine-task') {
+      if (!linkedSwarmState || !activeMilestone?.sprintEngine || !linkedStatePath) return 'skipped'
+      startupPrompt = prependAgentIdentifier(
+        buildSwarmStartupPrompt(candidate.role, candidate.agentId, linkedSwarmState.goal, {
+          executionCwd: workspace.folderPath,
+          workspaceRoot: workspace.folderPath,
+          swarmStatePath: activeMilestone.sprintEngine.statePath,
+          commandMode: getSwarmStartupCommandMode(candidate.role, candidate.agentId, linkedSwarmState),
+        }),
+        candidate.label,
+        swarmRoleLabels[candidate.role]
+      )
+    } else {
+      const repaired = await window.api.initializeMultiloopState({
         workspaceRoot: workspace.folderPath,
-        agentId: candidate.agentId,
-        coordinatorReviewContext: candidate.kind === 'coordinator',
-      }),
-      candidate.label,
-      `Multiloop ${candidate.label}`
-    )
+        loopName: multiloopState.loop.displayName,
+        finalGoal: multiloopState.loop.finalGoal,
+      })
+      if (!repaired.ok) {
+        currentState.setMultiloopAutoEnabled(workspace.id, false)
+        await publishDiagnostic({
+          level: 'error',
+          source: 'workspace',
+          title: 'Multiloop CLI unavailable',
+          message: repaired.message || 'Could not prepare the Multiloop CLI wrapper for this workspace.',
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          agentId: candidate.agentId,
+          taskId: candidate.taskId ?? undefined,
+        })
+        return 'failed'
+      }
+
+      const soulPrompt = await loadMultiloopAgentSoul(candidate.role)
+      startupPrompt = prependAgentIdentifier(
+        buildMultiloopAutoStartupPrompt({
+          soulPrompt,
+          role: candidate.role,
+          state: multiloopState,
+          statePath: workspace.multiloopContext.statePath,
+          workspaceRoot: workspace.folderPath,
+          agentId: candidate.agentId,
+          coordinatorReviewContext: candidate.kind === 'coordinator',
+        }),
+        candidate.label,
+        `Multiloop ${candidate.label}`
+      )
+    }
     const pendingSpawn: MultiloopAutoPendingSpawn = {
       role: candidate.role,
       taskId: candidate.taskId,
@@ -279,9 +337,9 @@ async function spawnMultiloopAutoRunCandidate(
       cli: selectedCli,
       cliPermissionPreset: workspace.multiloopAutoState.cliPermissionPreset,
       cliStartupPrompt: undefined,
-      kind: 'multiloop',
+      kind: candidate.kind === 'sprintengine-task' ? 'sprintengine' : 'multiloop',
       specialistId: undefined,
-      multiloopRole: candidate.role,
+      multiloopRole: candidate.kind === 'sprintengine-task' ? undefined : candidate.role,
     })
 
     const memoryRelativeRoot = workspace.memory.relativeRoot
@@ -313,7 +371,7 @@ async function spawnMultiloopAutoRunCandidate(
       BACKGROUND_TERMINAL_ROWS,
       workspace.folderPath,
       false,
-      undefined,
+      candidate.kind === 'sprintengine-task' ? linkedStatePath ?? undefined : undefined,
       selectedCli,
       launchPrompt,
       cliRuntimes,
@@ -322,6 +380,7 @@ async function spawnMultiloopAutoRunCandidate(
         kind: 'agent',
         workspaceId: workspace.id,
         agentId: candidate.agentId,
+        ...(candidate.kind === 'sprintengine-task' && linkedStatePath ? { swarmStatePath: linkedStatePath } : {}),
         cliPermissionPreset: workspace.multiloopAutoState.cliPermissionPreset,
         memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
         memoryRelativeRoot: memoryRelativeRoot ?? undefined,
@@ -355,7 +414,9 @@ async function spawnMultiloopAutoRunCandidate(
           candidate.taskId ? `Task: ${candidate.taskId}` : 'Task: milestone coordination',
           `Session: ${sessionId}`,
           `Cwd: ${workspace.folderPath}`,
-          `Multiloop state: ${workspace.multiloopContext.statePath}`,
+          candidate.kind === 'sprintengine-task'
+            ? `Sprint Engine state: ${linkedStatePath ?? 'Unavailable'}`
+            : `Multiloop state: ${workspace.multiloopContext.statePath}`,
         ].join('\n'),
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -392,6 +453,7 @@ async function superviseWorkspace(
   workspace = latestWorkspace
   multiloopState = latestWorkspace.multiloopState
 
+  const linkedSwarmState = await readLinkedSprintEngineState(workspace, multiloopState)
   const runningAgentIds = await getRunningMultiloopAgentIds(workspace)
   const pendingSpawns = await reconcileMultiloopAutoPendingSpawns(workspace, runningAgentIds)
   const inFlightAgentIds = new Set(
@@ -412,6 +474,7 @@ async function superviseWorkspace(
     pendingSpawns,
     inFlightAgentIds,
     coordinatorAutoSpawnKey: workspace.multiloopAutoState.coordinatorAutoSpawnKey,
+    linkedSwarmState,
   })
 
   logPerfEvent('MultiloopAutoRun', 'selection', {
@@ -425,7 +488,7 @@ async function superviseWorkspace(
   for (const candidate of selection.candidates) {
     const latest = useWorkspaceStore.getState().workspaces.find((item) => item.id === workspace.id)
     if (!latest?.multiloopAutoState.enabled) return
-    const result = await spawnMultiloopAutoRunCandidate(latest, multiloopState, candidate, cliRuntimes, inFlightSpawns)
+    const result = await spawnMultiloopAutoRunCandidate(latest, multiloopState, linkedSwarmState, candidate, cliRuntimes, inFlightSpawns)
     if (result === 'started' && candidate.kind === 'coordinator') {
       const activeMilestoneId = getActiveMultiloopMilestone(multiloopState)?.id ?? null
       if (activeMilestoneId) {

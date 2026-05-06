@@ -1,242 +1,41 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import MemoryPreviewModal from '../memory/MemoryPreviewModal'
+import MemoryGraphCanvas, { MemoryGraphCanvasHandle } from '../memory/MemoryGraphCanvas'
+import MemoryGraphSidebar from '../memory/MemoryGraphSidebar'
+import {
+  MemoryGraphStats,
+  MemoryGraphTooltip,
+  MemoryGraphZoomHud,
+} from '../memory/MemoryGraphHud'
+import {
+  DEFAULT_GRAPH_SETTINGS,
+  GRAPH_PALETTE,
+  ruleId,
+} from '../memory/memoryGraphTypes'
+import type { Camera as CameraType } from '../memory/memoryGraphTypes'
+import type { MemoryGraphSettings } from '../../types/workspace'
 
-type PositionedNode = MemoryGraphNode & {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  radius: number
-  color: string
-}
-
-type Camera = {
-  x: number
-  y: number
-  scale: number
-}
-
-const GROUP_COLORS = [
-  '#77d6ff',
-  '#ffbf5f',
-  '#a78bfa',
-  '#7ee787',
-  '#ff7ab6',
-  '#f4d35e',
-  '#6ee7d8',
-  '#ff8f70',
-  '#b8f7d4',
-  '#d7b8ff',
-]
-
-function hashValue(value: string): number {
-  let hash = 0
-  for (let i = 0; i < value.length; i += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0
-  }
-  return Math.abs(hash)
-}
-
-function colorForGroup(group: string): string {
-  return GROUP_COLORS[hashValue(group) % GROUP_COLORS.length]
-}
-
-function nodeRadius(node: MemoryGraphNode): number {
-  return Math.max(4, Math.min(18, 4 + Math.sqrt(node.degree) * 3))
-}
-
-function createPositionedNodes(nodes: MemoryGraphNode[], width: number, height: number): PositionedNode[] {
-  const centerX = width / 2
-  const centerY = height / 2
-  const radius = Math.max(120, Math.min(width, height) * 0.34)
-
-  return nodes.map((node, index) => {
-    const angle = (index / Math.max(1, nodes.length)) * Math.PI * 2
-    const jitter = (hashValue(node.relativePath) % 100) / 100
-    return {
-      ...node,
-      x: centerX + Math.cos(angle) * radius * (0.45 + jitter * 0.65),
-      y: centerY + Math.sin(angle) * radius * (0.45 + jitter * 0.65),
-      vx: 0,
-      vy: 0,
-      radius: nodeRadius(node),
-      color: node.kind === 'image' ? '#f4f7fb' : colorForGroup(node.group),
-    }
-  })
-}
-
-function buildNeighbors(edges: MemoryGraphEdge[]): Map<string, Set<string>> {
-  const neighbors = new Map<string, Set<string>>()
-  edges.forEach((edge) => {
-    if (!neighbors.has(edge.source)) neighbors.set(edge.source, new Set())
-    if (!neighbors.has(edge.target)) neighbors.set(edge.target, new Set())
-    neighbors.get(edge.source)?.add(edge.target)
-    neighbors.get(edge.target)?.add(edge.source)
-  })
-  return neighbors
-}
-
-function drawGraph(
-  canvas: HTMLCanvasElement,
-  nodes: PositionedNode[],
-  edges: MemoryGraphEdge[],
-  camera: Camera,
-  hoveredId: string | null,
-  selectedId: string | null,
-  neighbors: Map<string, Set<string>>
-) {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
-  const width = canvas.clientWidth
-  const height = canvas.clientHeight
-  const ratio = window.devicePixelRatio || 1
-  if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
-    canvas.width = Math.floor(width * ratio)
-    canvas.height = Math.floor(height * ratio)
-  }
-
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-  ctx.clearRect(0, 0, width, height)
-  ctx.fillStyle = '#08090b'
-  ctx.fillRect(0, 0, width, height)
-
-  ctx.save()
-  ctx.globalAlpha = 0.55
-  for (let i = 0; i < 120; i += 1) {
-    const x = (hashValue(`x-${i}`) % Math.max(1, width))
-    const y = (hashValue(`y-${i}`) % Math.max(1, height))
-    const size = 0.45 + (hashValue(`s-${i}`) % 100) / 180
-    ctx.fillStyle = i % 9 === 0 ? '#6ee7d8' : '#d7d7dc'
-    ctx.beginPath()
-    ctx.arc(x, y, size, 0, Math.PI * 2)
-    ctx.fill()
-  }
-  ctx.restore()
-
-  ctx.save()
-  ctx.translate(camera.x, camera.y)
-  ctx.scale(camera.scale, camera.scale)
-
-  const nodeById = new Map(nodes.map((node) => [node.id, node]))
-  const activeNeighborIds = hoveredId ? neighbors.get(hoveredId) ?? new Set<string>() : new Set<string>()
-
-  edges.forEach((edge) => {
-    const source = nodeById.get(edge.source)
-    const target = nodeById.get(edge.target)
-    if (!source || !target) return
-    const active = hoveredId && (edge.source === hoveredId || edge.target === hoveredId)
-    ctx.strokeStyle = active ? 'rgba(216, 255, 251, 0.74)' : 'rgba(150, 154, 170, 0.16)'
-    ctx.lineWidth = active ? 1.3 / camera.scale : 0.75 / camera.scale
-    ctx.beginPath()
-    ctx.moveTo(source.x, source.y)
-    ctx.lineTo(target.x, target.y)
-    ctx.stroke()
-  })
-
-  nodes.forEach((node) => {
-    const active = node.id === hoveredId || node.id === selectedId || activeNeighborIds.has(node.id)
-    const dimmed = Boolean(hoveredId && !active)
-    const radius = node.radius * (node.id === selectedId ? 1.35 : node.id === hoveredId ? 1.25 : 1)
-
-    ctx.globalAlpha = dimmed ? 0.34 : 1
-    ctx.shadowColor = node.color
-    ctx.shadowBlur = active ? 18 : node.degree > 0 ? 9 : 3
-    ctx.fillStyle = node.color
-    ctx.beginPath()
-    ctx.arc(node.x, node.y, radius, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.shadowBlur = 0
-
-    if (node.kind === 'markdown') {
-      ctx.strokeStyle = active ? '#ffffff' : 'rgba(255,255,255,0.42)'
-      ctx.lineWidth = 1.2 / camera.scale
-      ctx.stroke()
-    } else if (node.kind === 'image') {
-      ctx.fillStyle = 'rgba(8, 9, 11, 0.72)'
-      ctx.fillRect(node.x - radius * 0.42, node.y - radius * 0.3, radius * 0.84, radius * 0.6)
-    }
-  })
-
-  ctx.globalAlpha = 1
-  const labelNodes = nodes
-    .filter((node) => node.degree >= 2 || node.id === hoveredId || node.id === selectedId)
-    .sort((a, b) => b.degree - a.degree)
-    .slice(0, hoveredId ? 18 : 28)
-
-  ctx.font = `${11 / camera.scale}px Inter, Segoe UI, sans-serif`
-  labelNodes.forEach((node) => {
-    const active = node.id === hoveredId || node.id === selectedId
-    ctx.fillStyle = active ? '#ececee' : 'rgba(215, 215, 220, 0.76)'
-    ctx.fillText(node.name, node.x + node.radius + 5 / camera.scale, node.y + 4 / camera.scale)
-  })
-
-  ctx.restore()
-}
-
-function simulate(nodes: PositionedNode[], edges: MemoryGraphEdge[], width: number, height: number) {
-  const nodeById = new Map(nodes.map((node) => [node.id, node]))
-  const centerX = width / 2
-  const centerY = height / 2
-
-  for (let i = 0; i < nodes.length; i += 1) {
-    const a = nodes[i]
-    for (let j = i + 1; j < nodes.length; j += 1) {
-      const b = nodes[j]
-      const dx = a.x - b.x
-      const dy = a.y - b.y
-      const distanceSq = Math.max(60, dx * dx + dy * dy)
-      const force = 900 / distanceSq
-      const distance = Math.sqrt(distanceSq)
-      const fx = (dx / distance) * force
-      const fy = (dy / distance) * force
-      a.vx += fx
-      a.vy += fy
-      b.vx -= fx
-      b.vy -= fy
-    }
-  }
-
-  edges.forEach((edge) => {
-    const source = nodeById.get(edge.source)
-    const target = nodeById.get(edge.target)
-    if (!source || !target) return
-    const dx = target.x - source.x
-    const dy = target.y - source.y
-    const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy))
-    const desired = 92 + Math.min(80, source.radius + target.radius)
-    const force = (distance - desired) * 0.0024
-    const fx = (dx / distance) * force
-    const fy = (dy / distance) * force
-    source.vx += fx
-    source.vy += fy
-    target.vx -= fx
-    target.vy -= fy
-  })
-
-  nodes.forEach((node) => {
-    node.vx += (centerX - node.x) * 0.0006
-    node.vy += (centerY - node.y) * 0.0006
-    node.vx *= 0.82
-    node.vy *= 0.82
-    node.x += Math.max(-8, Math.min(8, node.vx))
-    node.y += Math.max(-8, Math.min(8, node.vy))
-  })
-}
+type Coordinate = { x: number; y: number }
 
 export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const nodesRef = useRef<PositionedNode[]>([])
-  const cameraRef = useRef<Camera>({ x: 0, y: 0, scale: 1 })
-  const dragRef = useRef<{ x: number; y: number; camera: Camera } | null>(null)
+  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const updateMemoryGraphSettings = useWorkspaceStore((s) => s.updateMemoryGraphSettings)
+
+  const settings: MemoryGraphSettings = workspace?.memory.graphSettings ?? DEFAULT_GRAPH_SETTINGS
+
   const [indexResult, setIndexResult] = useState<MemoryGraphIndexResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [query, setQuery] = useState('')
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [hovered, setHovered] = useState<MemoryGraphNode | null>(null)
+  const [hoverPos, setHoverPos] = useState<Coordinate | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [preview, setPreview] = useState<MemoryPreviewResult | null>(null)
-  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const [camera, setCamera] = useState<CameraType>({ x: 0, y: 0, scale: 1 })
+
+  const canvasRef = useRef<MemoryGraphCanvasHandle>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const loadGraph = useCallback(async () => {
     setLoading(true)
@@ -247,7 +46,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       })
       setIndexResult(result)
       setSelectedId(null)
-      setHoveredId(null)
+      setHovered(null)
     } finally {
       setLoading(false)
     }
@@ -257,77 +56,157 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
     void loadGraph()
   }, [loadGraph])
 
-  const visibleData = useMemo(() => {
-    if (!indexResult?.ok) return { nodes: [], edges: [] }
+  // Seed default color rules the first time we have groups but no rules.
+  useEffect(() => {
+    if (!indexResult?.ok) return
+    if (settings.colorRules.length > 0) return
+    if (indexResult.groups.length === 0) return
+    const seeded = indexResult.groups.slice(0, GRAPH_PALETTE.length).map((group, idx) => ({
+      id: ruleId(),
+      pattern: `path:${group}/`,
+      color: GRAPH_PALETTE[idx],
+    }))
+    updateMemoryGraphSettings(workspaceId, { colorRules: seeded })
+    // Only seed on the very first load — relying on settings.colorRules.length === 0 as the sentinel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indexResult, workspaceId])
+
+  const onSettingsChange = useCallback(
+    (
+      update:
+        | Partial<MemoryGraphSettings>
+        | ((current: MemoryGraphSettings) => Partial<MemoryGraphSettings> | MemoryGraphSettings)
+    ) => {
+      updateMemoryGraphSettings(workspaceId, update)
+    },
+    [updateMemoryGraphSettings, workspaceId]
+  )
+
+  // Build the visible graph based on filters + search.
+  const { visibleNodes, visibleEdges, ghostNodes } = useMemo(() => {
+    const empty = { visibleNodes: [] as MemoryGraphNode[], visibleEdges: [] as MemoryGraphEdge[], ghostNodes: [] as MemoryGraphNode[] }
+    if (!indexResult?.ok) return empty
     const trimmed = query.trim().toLowerCase()
-    if (!trimmed) return { nodes: indexResult.nodes, edges: indexResult.edges }
-    const nodes = indexResult.nodes.filter((node) =>
-      node.name.toLowerCase().includes(trimmed)
-      || node.relativePath.toLowerCase().includes(trimmed)
-      || node.group.toLowerCase().includes(trimmed)
-    )
-    const nodeIds = new Set(nodes.map((node) => node.id))
-    return {
-      nodes,
-      edges: indexResult.edges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)),
+
+    let filtered = indexResult.nodes.slice()
+
+    if (settings.filters.hideAttachments) {
+      filtered = filtered.filter((node) => node.kind === 'markdown' || node.kind === 'text')
     }
-  }, [indexResult, query])
-
-  const neighbors = useMemo(() => buildNeighbors(visibleData.edges), [visibleData.edges])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const width = Math.max(600, canvas.clientWidth)
-    const height = Math.max(420, canvas.clientHeight)
-    nodesRef.current = createPositionedNodes(visibleData.nodes, width, height)
-    cameraRef.current = { x: 0, y: 0, scale: 1 }
-  }, [visibleData.nodes])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    let frame = 0
-    let disposed = false
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-    const tick = () => {
-      if (disposed) return
-      const width = Math.max(600, canvas.clientWidth)
-      const height = Math.max(420, canvas.clientHeight)
-      if (!reducedMotion) simulate(nodesRef.current, visibleData.edges, width, height)
-      drawGraph(canvas, nodesRef.current, visibleData.edges, cameraRef.current, hoveredId, selectedId, neighbors)
-      frame = requestAnimationFrame(tick)
+    if (settings.filters.disabledGroups.length > 0) {
+      const disabled = new Set(settings.filters.disabledGroups)
+      filtered = filtered.filter((node) => !disabled.has(node.group))
     }
-    tick()
-    return () => {
-      disposed = true
-      cancelAnimationFrame(frame)
+    if (trimmed) {
+      filtered = filtered.filter((node) =>
+        node.name.toLowerCase().includes(trimmed)
+        || node.relativePath.toLowerCase().includes(trimmed)
+        || node.group.toLowerCase().includes(trimmed)
+      )
     }
-  }, [hoveredId, neighbors, selectedId, visibleData.edges])
 
-  const hitTest = (clientX: number, clientY: number): PositionedNode | null => {
-    const canvas = canvasRef.current
-    if (!canvas) return null
-    const rect = canvas.getBoundingClientRect()
-    const camera = cameraRef.current
-    const x = (clientX - rect.left - camera.x) / camera.scale
-    const y = (clientY - rect.top - camera.y) / camera.scale
-    let best: PositionedNode | null = null
-    let bestDistance = Infinity
-    nodesRef.current.forEach((node) => {
-      const dx = x - node.x
-      const dy = y - node.y
-      const distance = Math.sqrt(dx * dx + dy * dy)
-      if (distance <= node.radius + 5 && distance < bestDistance) {
-        best = node
-        bestDistance = distance
+    const filteredIds = new Set(filtered.map((node) => node.id))
+    let edgeSet = indexResult.edges.filter((edge) => filteredIds.has(edge.source) && filteredIds.has(edge.target))
+
+    if (settings.filters.depthFromSelection !== null && selectedId && filteredIds.has(selectedId)) {
+      const depth = settings.filters.depthFromSelection
+      const adj = new Map<string, Set<string>>()
+      edgeSet.forEach((edge) => {
+        if (!adj.has(edge.source)) adj.set(edge.source, new Set())
+        if (!adj.has(edge.target)) adj.set(edge.target, new Set())
+        adj.get(edge.source)?.add(edge.target)
+        adj.get(edge.target)?.add(edge.source)
+      })
+      const allowed = new Set<string>([selectedId])
+      let frontier = new Set<string>([selectedId])
+      for (let i = 0; i < depth; i += 1) {
+        const next = new Set<string>()
+        frontier.forEach((id) => {
+          adj.get(id)?.forEach((peer) => {
+            if (!allowed.has(peer)) {
+              next.add(peer)
+              allowed.add(peer)
+            }
+          })
+        })
+        frontier = next
+        if (frontier.size === 0) break
       }
-    })
-    return best
-  }
+      filtered = filtered.filter((node) => allowed.has(node.id))
+      edgeSet = edgeSet.filter((edge) => allowed.has(edge.source) && allowed.has(edge.target))
+    }
 
-  const openPreview = async (node: MemoryGraphNode) => {
+    if (settings.filters.hideOrphans) {
+      const linked = new Set<string>()
+      edgeSet.forEach((edge) => {
+        linked.add(edge.source)
+        linked.add(edge.target)
+      })
+      filtered = filtered.filter((node) => linked.has(node.id) || node.degree > 0)
+    }
+
+    const finalIds = new Set(filtered.map((node) => node.id))
+    edgeSet = edgeSet.filter((edge) => finalIds.has(edge.source) && finalIds.has(edge.target))
+
+    let ghosts: MemoryGraphNode[] = []
+    if (!settings.filters.hideUnresolved) {
+      const ghostMap = new Map<string, MemoryGraphNode>()
+      indexResult.unresolvedLinks.forEach((link) => {
+        if (!finalIds.has(link.sourcePath)) return
+        if (link.reason !== 'missing' || !link.resolvedRelativePath) return
+        const id = `__unresolved__:${link.resolvedRelativePath}`
+        if (ghostMap.has(id)) return
+        const name = link.resolvedRelativePath.split('/').filter(Boolean).pop() ?? link.resolvedRelativePath
+        ghostMap.set(id, {
+          id,
+          path: link.resolvedRelativePath,
+          relativePath: link.resolvedRelativePath,
+          name,
+          kind: 'asset',
+          extension: '',
+          sizeBytes: 0,
+          degree: 1,
+          group: '(unresolved)',
+        })
+      })
+      ghosts = [...ghostMap.values()]
+      // Synthesise edges so the canvas can draw the dashed connection.
+      ghosts.forEach((ghost) => {
+        const target = ghost.id
+        indexResult.unresolvedLinks
+          .filter((link) => link.resolvedRelativePath === ghost.relativePath && finalIds.has(link.sourcePath))
+          .forEach((link) => {
+            edgeSet = edgeSet.concat([{
+              id: `${link.sourcePath}->${target}`,
+              source: link.sourcePath,
+              target,
+              sourcePath: link.sourcePath,
+              targetPath: ghost.relativePath,
+            }])
+          })
+      })
+    }
+
+    return { visibleNodes: filtered, visibleEdges: edgeSet, ghostNodes: ghosts }
+  }, [indexResult, query, settings.filters, selectedId])
+
+  const stats = useMemo(() => {
+    if (!indexResult?.ok) {
+      return { noteCount: 0, linkCount: 0, orphanCount: 0, unresolvedCount: 0, topConnected: [] }
+    }
+    const orphanCount = visibleNodes.filter((node) => node.degree === 0).length
+    const top = [...visibleNodes].sort((a, b) => b.degree - a.degree).slice(0, 3).map((n) => n.name)
+    return {
+      noteCount: visibleNodes.length,
+      linkCount: visibleEdges.filter((edge) => !edge.target.startsWith('__unresolved__')).length,
+      orphanCount,
+      unresolvedCount: indexResult.unresolvedLinks.filter((l) => l.reason === 'missing').length,
+      topConnected: top,
+    }
+  }, [indexResult, visibleNodes, visibleEdges])
+
+  const openPreview = useCallback(async (node: MemoryGraphNode) => {
+    if (node.id.startsWith('__unresolved__')) return
     setSelectedId(node.id)
     const result = await window.api.memoryReadPreview({
       workspaceRoot: workspace?.folderPath ?? null,
@@ -335,104 +214,192 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       relativePath: node.relativePath,
     })
     setPreview(result)
-  }
+  }, [workspace?.folderPath, workspace?.memory.relativeRoot])
 
-  const topNodes = indexResult?.ok
-    ? [...indexResult.nodes].sort((a, b) => b.degree - a.degree).slice(0, 6)
-    : []
+  // Track hover position for the tooltip.
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const onMove = (event: MouseEvent) => {
+      const rect = container.getBoundingClientRect()
+      setHoverPos({ x: event.clientX - rect.left, y: event.clientY - rect.top })
+    }
+    container.addEventListener('mousemove', onMove)
+    return () => container.removeEventListener('mousemove', onMove)
+  }, [])
+
+  // Keyboard shortcuts (panel-scoped).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (preview) return
+      const target = event.target as HTMLElement | null
+      const isTextInput =
+        target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || (target?.isContentEditable ?? false)
+
+      if (event.key === '/' && !isTextInput) {
+        event.preventDefault()
+        searchInputRef.current?.focus()
+        return
+      }
+      if (event.key === 'Escape' && !isTextInput) {
+        if (selectedId) {
+          setSelectedId(null)
+        } else if (settings.filters.depthFromSelection !== null) {
+          onSettingsChange({ filters: { ...settings.filters, depthFromSelection: null } })
+        }
+        return
+      }
+      if (isTextInput) return
+      if (event.key === 'f' || event.key === 'F') {
+        canvasRef.current?.fitToView()
+      } else if (event.key === 'r' || event.key === 'R') {
+        canvasRef.current?.resetView()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [preview, selectedId, settings.filters, onSettingsChange])
+
+  const setSidebarOpen = (open: boolean) => onSettingsChange({ sidebarOpen: open })
+
+  const showCanvas =
+    !!workspace?.memory.relativeRoot
+    && !loading
+    && indexResult?.ok
+    && visibleNodes.length > 0
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-[#08090b] text-[#d7d7dc]">
-      <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0d0e11] px-3">
-        <div className="min-w-0">
-          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#8a8a92]">
-            Memory Graph
-          </div>
-        </div>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search memory..."
-            className="h-7 w-56 max-w-[40vw] rounded-md border border-[#24252b] bg-[#090a0c] px-2.5 text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#4b4c55]"
+    <div className="relative flex h-full flex-col overflow-hidden bg-zinc-950 text-zinc-200">
+      <header className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-900 px-3">
+        <div className="flex min-w-0 items-center gap-2 text-xs text-zinc-300">
+          <span
+            className="h-1.5 w-1.5 rounded-full bg-indigo-500"
+            style={{ boxShadow: '0 0 6px rgb(99 102 241 / 0.7)' }}
+            aria-hidden
           />
+          <span className="font-medium">Memory Graph</span>
+          {workspace?.memory.relativeRoot ? (
+            <span className="truncate font-mono text-[11px] text-zinc-500">
+              {workspace.memory.relativeRoot}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div className="relative">
+            <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-zinc-500" aria-hidden>
+              ⌕
+            </span>
+            <input
+              ref={searchInputRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search notes…"
+              className="h-7 w-56 rounded border border-zinc-800 bg-zinc-950 pl-7 pr-7 text-xs text-zinc-200 placeholder-zinc-600 transition-colors focus:border-indigo-500 focus:outline-none"
+            />
+            <kbd className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded bg-zinc-800 px-1 py-0.5 font-mono text-[10px] text-zinc-500">
+              /
+            </kbd>
+          </div>
           <button
             type="button"
             onClick={() => void loadGraph()}
-            className="h-7 rounded-md border border-[#24252b] bg-[#111216] px-2.5 text-[12px] font-semibold text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee]"
+            className="flex h-7 items-center gap-1.5 rounded px-2 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+            title="Refresh index"
+            aria-label="Refresh index"
           >
-            Refresh
+            <span aria-hidden>↻</span>
+            <span>Refresh</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(!settings.sidebarOpen)}
+            className={`flex h-7 items-center gap-1.5 rounded px-2 text-xs transition-colors ${
+              settings.sidebarOpen
+                ? 'bg-zinc-800 text-zinc-100'
+                : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+            }`}
+            title={settings.sidebarOpen ? 'Hide settings' : 'Show settings'}
+            aria-label="Toggle settings sidebar"
+            aria-pressed={settings.sidebarOpen}
+          >
+            <span aria-hidden>⇥</span>
+            <span>Settings</span>
           </button>
         </div>
-      </div>
+      </header>
 
-      {!workspace?.memory.relativeRoot ? (
-        <MemoryNotice title="Memory is not configured" message="Set a workspace-relative memory path in Settings to render the graph." />
-      ) : loading ? (
-        <MemoryNotice title="Indexing memory" message="Reading local Markdown links and assets..." />
-      ) : indexResult && !indexResult.ok ? (
-        <MemoryNotice title="Memory folder unavailable" message={`${indexResult.message} Do not guess another folder.`} />
-      ) : indexResult?.ok && visibleData.nodes.length === 0 ? (
-        <MemoryNotice title="No memory files found" message="The configured memory folder is empty or the current filter has no matches." />
-      ) : (
-        <>
-          <canvas
-            ref={canvasRef}
-            className="min-h-0 flex-1 cursor-grab active:cursor-grabbing"
-            onMouseMove={(event) => {
-              if (dragRef.current) {
-                const dx = event.clientX - dragRef.current.x
-                const dy = event.clientY - dragRef.current.y
-                cameraRef.current = {
-                  ...dragRef.current.camera,
-                  x: dragRef.current.camera.x + dx,
-                  y: dragRef.current.camera.y + dy,
-                }
-                return
+      <div className="relative flex min-h-0 flex-1">
+        <div ref={containerRef} className="relative min-w-0 flex-1">
+          {!workspace?.memory.relativeRoot ? (
+            <MemoryNotice
+              tone="info"
+              title="Memory is not configured"
+              message="Set a workspace-relative memory path in Settings → Memory to render the graph. Multicode never guesses a folder for you."
+            />
+          ) : loading ? (
+            <MemoryNotice tone="info" title="Indexing memory" message="Reading local Markdown links and assets…" />
+          ) : indexResult && !indexResult.ok ? (
+            <MemoryNotice
+              tone="error"
+              title="Memory folder unavailable"
+              message={indexResult.message}
+              hint="Do not guess another folder — check Settings or create the configured path."
+            />
+          ) : indexResult?.ok && visibleNodes.length === 0 ? (
+            <MemoryNotice
+              tone="info"
+              title={query.trim() ? 'No matches' : 'No memory files found'}
+              message={
+                query.trim()
+                  ? `No notes match "${query.trim()}". Clear the search or adjust filters.`
+                  : 'The configured memory folder is empty. Add a Markdown file to start building the graph.'
               }
-              setHoveredId(hitTest(event.clientX, event.clientY)?.id ?? null)
-            }}
-            onMouseLeave={() => {
-              setHoveredId(null)
-              dragRef.current = null
-            }}
-            onMouseDown={(event) => {
-              dragRef.current = { x: event.clientX, y: event.clientY, camera: { ...cameraRef.current } }
-            }}
-            onMouseUp={(event) => {
-              const wasDragging = dragRef.current
-                ? Math.abs(event.clientX - dragRef.current.x) + Math.abs(event.clientY - dragRef.current.y) > 4
-                : false
-              dragRef.current = null
-              if (wasDragging) return
-              const node = hitTest(event.clientX, event.clientY)
-              if (node) void openPreview(node)
-            }}
-            onWheel={(event) => {
-              event.preventDefault()
-              const nextScale = Math.max(0.35, Math.min(2.6, cameraRef.current.scale * (event.deltaY > 0 ? 0.92 : 1.08)))
-              cameraRef.current = { ...cameraRef.current, scale: nextScale }
-            }}
-          />
-          {indexResult?.ok ? (
-            <div className="pointer-events-none absolute bottom-3 left-3 max-w-[360px] rounded-md border border-[#24252b] bg-[#0d0e11]/88 px-3 py-2 text-[11px] text-[#9a9aa2] shadow-[0_16px_42px_rgba(0,0,0,0.35)]">
-              <div className="mb-1 font-semibold text-[#d7d7dc]">
-                {indexResult.nodes.length} files, {indexResult.edges.length} links
-              </div>
-              {topNodes.length > 0 ? (
-                <div className="truncate">
-                  Most connected: {topNodes.map((node) => node.name).join(', ')}
-                </div>
+            />
+          ) : (
+            <MemoryGraphCanvas
+              ref={canvasRef}
+              nodes={visibleNodes}
+              edges={visibleEdges}
+              unresolvedNodes={ghostNodes}
+              display={settings.display}
+              forces={settings.forces}
+              colorRules={settings.colorRules}
+              hoveredId={hovered?.id ?? null}
+              selectedId={selectedId}
+              onHoverNode={setHovered}
+              onSelectNode={(node) => void openPreview(node)}
+              onCameraChange={setCamera}
+            />
+          )}
+
+          {showCanvas ? (
+            <>
+              <MemoryGraphStats {...stats} />
+              <MemoryGraphZoomHud
+                scale={camera.scale}
+                onZoomIn={() => canvasRef.current?.zoomBy(1.2)}
+                onZoomOut={() => canvasRef.current?.zoomBy(1 / 1.2)}
+                onFit={() => canvasRef.current?.fitToView()}
+                onReset={() => canvasRef.current?.resetView()}
+              />
+              {hovered && hoverPos ? (
+                <MemoryGraphTooltip node={hovered} x={hoverPos.x} y={hoverPos.y} />
               ) : null}
-              {indexResult.unresolvedLinks.length > 0 ? (
-                <div className="mt-1 text-[#ffd58a]">
-                  {indexResult.unresolvedLinks.length} unresolved local link{indexResult.unresolvedLinks.length === 1 ? '' : 's'}
-                </div>
-              ) : null}
-            </div>
+            </>
           ) : null}
-        </>
-      )}
+        </div>
+
+        {settings.sidebarOpen ? (
+          <MemoryGraphSidebar
+            settings={settings}
+            groups={indexResult?.ok ? indexResult.groups : []}
+            onSettingsChange={onSettingsChange}
+            onClose={() => setSidebarOpen(false)}
+          />
+        ) : null}
+      </div>
 
       {preview ? (
         <MemoryPreviewModal
@@ -445,12 +412,32 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
   )
 }
 
-function MemoryNotice({ title, message }: { title: string; message: string }) {
+function MemoryNotice({
+  title,
+  message,
+  hint,
+  tone,
+}: {
+  title: string
+  message: string
+  hint?: string
+  tone: 'info' | 'error'
+}) {
   return (
     <div className="flex h-full items-center justify-center px-6 text-center">
       <div className="max-w-md">
-        <div className="text-sm font-semibold text-[#ececee]">{title}</div>
-        <div className="mt-2 text-[13px] leading-6 text-[#7a7a83]">{message}</div>
+        <div className="mb-3 text-xl text-zinc-700" aria-hidden>
+          {tone === 'error' ? '!' : '◌'}
+        </div>
+        <div className="text-sm font-semibold text-zinc-100">{title}</div>
+        {tone === 'error' ? (
+          <div className="mx-auto mt-3 max-w-md rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-left font-mono text-[11px] text-zinc-400">
+            {message}
+          </div>
+        ) : (
+          <div className="mt-2 text-xs leading-6 text-zinc-500">{message}</div>
+        )}
+        {hint ? <div className="mt-3 text-xs leading-6 text-zinc-500">{hint}</div> : null}
       </div>
     </div>
   )

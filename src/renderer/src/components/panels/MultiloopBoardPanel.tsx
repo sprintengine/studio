@@ -33,10 +33,14 @@ import {
   buildMultiloopLaunchContextLines,
   getActiveMultiloopBlockers,
   getActiveMultiloopMilestone,
-  getLatestMultiloopEvidenceTasks,
+  getLatestExecutionEvidenceTasks,
+  getMilestoneExecutionArtifacts,
+  getMilestoneExecutionTasks,
   getMultiloopTasksForMilestone,
 } from '../../utils/multiloop'
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
+import { parseSwarmStateFile } from '../../utils/sprintengineStateFile'
+import type { SwarmState } from '../../types/workspace'
 
 type Props = {
   workspaceId: WorkspaceId
@@ -50,6 +54,10 @@ type RoleLaunchState =
   | { status: 'idle' }
   | { status: 'loading'; role: MultiloopAgentSoulRole }
   | { status: 'error'; role: MultiloopAgentSoulRole; message: string }
+type LinkedExecutionReadState =
+  | { status: 'idle' }
+  | { status: 'loading'; path: string }
+  | { status: 'error'; path: string; message: string }
 
 type TaskColumn = {
   key: MultiloopTaskStatus
@@ -189,6 +197,12 @@ function toProjectRelativePath(path: string | null | undefined, workspaceRoot: s
   return 'multiloop/<loop>/state.json'
 }
 
+function resolveProjectPath(path: string, workspaceRoot: string | null | undefined): string {
+  if (!workspaceRoot || /^[A-Za-z]:[\\/]/u.test(path) || path.startsWith('/') || path.startsWith('\\\\')) return path
+  const sep = workspaceRoot.includes('\\') && !workspaceRoot.includes('/') ? '\\' : '/'
+  return `${workspaceRoot.replace(/[\\/]+$/u, '')}${sep}${path.replace(/^[\\/]+/u, '')}`
+}
+
 function buildMultiloopStartupPrompt({
   soulPrompt,
   role,
@@ -243,6 +257,8 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [goalExpanded, setGoalExpanded] = useState(false)
+  const [linkedSwarmStatesByPath, setLinkedSwarmStatesByPath] = useState<Record<string, SwarmState>>({})
+  const [linkedExecutionReadStatesByPath, setLinkedExecutionReadStatesByPath] = useState<Record<string, LinkedExecutionReadState>>({})
 
   const multiloopState = workspace?.multiloopState ?? null
   const statePath = workspace?.multiloopContext?.statePath ?? null
@@ -375,29 +391,92 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     [activeMilestone, multiloopState?.roadmap, selectedMilestoneId]
   )
 
+  useEffect(() => {
+    const links = (multiloopState?.roadmap ?? [])
+      .flatMap((milestone) => milestone.sprintEngine ? [milestone.sprintEngine] : [])
+    if (links.length === 0) {
+      setLinkedSwarmStatesByPath({})
+      setLinkedExecutionReadStatesByPath({})
+      return
+    }
+
+    let cancelled = false
+
+    for (const link of links) {
+      const resolvedStatePath = resolveProjectPath(link.statePath, workspaceRoot)
+      setLinkedExecutionReadStatesByPath((current) => ({
+        ...current,
+        [link.statePath]: { status: 'loading', path: link.statePath },
+      }))
+      void window.api.readfile(resolvedStatePath)
+        .then((content) => {
+          if (cancelled) return
+          const parsed = parseSwarmStateFile(content, link.teamSlug)
+          setLinkedSwarmStatesByPath((current) => ({ ...current, [link.statePath]: parsed }))
+          setLinkedExecutionReadStatesByPath((current) => ({
+            ...current,
+            [link.statePath]: { status: 'idle' },
+          }))
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return
+          setLinkedSwarmStatesByPath((current) => {
+            const next = { ...current }
+            delete next[link.statePath]
+            return next
+          })
+          setLinkedExecutionReadStatesByPath((current) => ({
+            ...current,
+            [link.statePath]: {
+              status: 'error',
+              path: link.statePath,
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }))
+        })
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [multiloopState?.roadmap, workspaceRoot])
+
+  const selectedLinkedSwarmState = selectedMilestone?.sprintEngine
+    ? linkedSwarmStatesByPath[selectedMilestone.sprintEngine.statePath] ?? null
+    : null
+  const activeLinkedSwarmState = activeMilestone?.sprintEngine
+    ? linkedSwarmStatesByPath[activeMilestone.sprintEngine.statePath] ?? null
+    : null
+  const selectedLinkedExecutionReadState = selectedMilestone?.sprintEngine
+    ? linkedExecutionReadStatesByPath[selectedMilestone.sprintEngine.statePath] ?? { status: 'idle' }
+    : { status: 'idle' } as const
+
   const visibleTasks = useMemo(
-    () => (multiloopState && selectedMilestone ? getMultiloopTasksForMilestone(multiloopState, selectedMilestone.id) : []),
-    [multiloopState, selectedMilestone]
+    () => (multiloopState ? getMilestoneExecutionTasks(multiloopState, selectedMilestone, selectedLinkedSwarmState) : []),
+    [multiloopState, selectedLinkedSwarmState, selectedMilestone]
   )
   const activeTasks = useMemo(
-    () => (multiloopState && activeMilestone ? getMultiloopTasksForMilestone(multiloopState, activeMilestone.id) : []),
-    [activeMilestone, multiloopState]
+    () => (multiloopState ? getMilestoneExecutionTasks(multiloopState, activeMilestone, activeLinkedSwarmState) : []),
+    [activeLinkedSwarmState, activeMilestone, multiloopState]
   )
   const activeBlockers = useMemo(
     () => (multiloopState ? getActiveMultiloopBlockers(multiloopState, activeMilestone?.id) : []),
     [activeMilestone?.id, multiloopState]
   )
   const latestEvidenceTasks = useMemo(
-    () => (multiloopState ? getLatestMultiloopEvidenceTasks(multiloopState, 4) : []),
-    [multiloopState]
+    () => (multiloopState ? getLatestExecutionEvidenceTasks(multiloopState, activeLinkedSwarmState, 4) : []),
+    [activeLinkedSwarmState, multiloopState]
   )
   const selectedTask = useMemo(
     () => visibleTasks.find((task) => task.id === selectedTaskId) ?? visibleTasks.find((task) => task.status !== 'done') ?? visibleTasks[0] ?? null,
     [selectedTaskId, visibleTasks]
   )
   const relatedArtifacts = useMemo(
-    () => getRelatedArtifacts(multiloopState?.artifacts ?? [], selectedMilestone?.id ?? null, visibleTasks),
-    [multiloopState?.artifacts, selectedMilestone?.id, visibleTasks]
+    () => [
+      ...getRelatedArtifacts(multiloopState?.artifacts ?? [], selectedMilestone?.id ?? null, visibleTasks),
+      ...getMilestoneExecutionArtifacts(selectedMilestone, selectedLinkedSwarmState),
+    ],
+    [multiloopState?.artifacts, selectedLinkedSwarmState, selectedMilestone, visibleTasks]
   )
   const fullGoal = formatMultiloopGoal(multiloopState?.loop.finalGoal ?? '')
   const goalPreview = formatMultiloopGoalPreview(multiloopState?.loop.finalGoal ?? '')
@@ -527,7 +606,11 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         <main className="min-h-0 min-w-0 overflow-y-auto">
           <div className="grid gap-4 p-4 2xl:grid-cols-[minmax(0,1fr)_21rem]">
             <div className="min-w-0 space-y-4">
-              <MilestoneSummary milestone={selectedMilestone} activeMilestoneId={activeMilestone?.id ?? null} />
+              <MilestoneSummary
+                milestone={selectedMilestone}
+                activeMilestoneId={activeMilestone?.id ?? null}
+                linkedExecutionReadState={selectedLinkedExecutionReadState}
+              />
               <TopLevelSignals milestone={activeMilestone} blockers={activeBlockers} />
               <TaskBoard tasks={visibleTasks} selectedTaskId={selectedTask?.id ?? null} onSelectTask={setSelectedTaskId} />
             </div>
@@ -660,7 +743,15 @@ function StatusPill({ label, className }: { label: string; className: string }) 
   )
 }
 
-function MilestoneSummary({ milestone, activeMilestoneId }: { milestone: MultiloopMilestone | null; activeMilestoneId: string | null }) {
+function MilestoneSummary({
+  milestone,
+  activeMilestoneId,
+  linkedExecutionReadState,
+}: {
+  milestone: MultiloopMilestone | null
+  activeMilestoneId: string | null
+  linkedExecutionReadState: LinkedExecutionReadState
+}) {
   if (!milestone) {
     return <PanelSection title="Milestone" empty="No milestone selected." />
   }
@@ -678,6 +769,18 @@ function MilestoneSummary({ milestone, activeMilestoneId }: { milestone: Multilo
           <p className="mt-1 text-sm leading-6 text-[#b8b9c1]">{milestone.goal || 'No milestone goal recorded.'}</p>
         </div>
       </div>
+      {milestone.sprintEngine ? (
+        <div className="mt-3 rounded-[6px] bg-[#101116] p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#777882]">Sprint Engine execution</div>
+          <p className="mt-1 break-all font-mono text-[11px] leading-5 text-[#9fb4ff]">{milestone.sprintEngine.statePath}</p>
+          {linkedExecutionReadState.status === 'loading' ? (
+            <p className="mt-1 text-xs text-[#8e8f98]">Reading linked execution state.</p>
+          ) : null}
+          {linkedExecutionReadState.status === 'error' ? (
+            <p className="mt-1 text-xs text-[#ffb5b8]">{linkedExecutionReadState.message}</p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <ListBlock title="Entry criteria" items={milestone.entryCriteria} />
         <ListBlock title="Acceptance criteria" items={milestone.acceptanceCriteria} />

@@ -7,6 +7,8 @@ import {
   getActiveMultiloopMilestone,
   getActiveMultiloopMilestoneTasks,
   getLatestMultiloopEvidenceTasks,
+  getMilestoneExecutionArtifacts,
+  getMilestoneExecutionTasks,
   getMultiloopTasksForMilestone,
   parseMultiloopStateFileContent,
   sanitizeMultiloopRenderedStateText,
@@ -244,10 +246,81 @@ function testValidBlockedAndAcceptedHistoryFixtures() {
 
   assert.equal(state.loop.finalGoal, 'Ship a milestone-first Multiloop board.')
   assert.equal(state.roadmap[0].status, 'accepted')
+  assert.equal(state.roadmap[1].sprintEngine, null)
   assert.equal(state.roadmap[0].reviewVerdicts[0].verdict, 'legacy')
   assert.equal(state.roadmap[1].learnedFacts[0], 'Renderer text is state-derived and bounded by parser validation.')
   assert.equal(state.artifacts[0].title, 'M2 validation report')
   assert.equal(state.decisions[0].summary, 'Keep M5 renderer reads separate from Sprint Engine state.')
+}
+
+function testMilestoneSprintEngineLinkParsingAndExecutionMapping() {
+  const state = parseFixture({
+    roadmap: [
+      {
+        ...baseMultiloopState().roadmap[1],
+        sprintEngine: {
+          teamSlug: 'fixture-loop-m2',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
+        },
+      },
+    ],
+    loop: {
+      ...baseMultiloopState().loop,
+      currentMilestoneId: 'M2',
+    },
+    tasks: [],
+    agents: {},
+    blockers: [],
+  })
+  const linkedSwarmState = parseSwarmStateFile(JSON.stringify({
+    sprintengine: {
+      name: 'Fixture Loop M2',
+      goal: 'Execute the active milestone through Sprint Engine.',
+    },
+    agents: {
+      developer: { role: 'developer', status: 'idle', currentTaskId: null },
+    },
+    tasks: [
+      {
+        id: 'S1',
+        title: 'Implement linked task',
+        description: 'Sprint Engine owns execution.',
+        role: 'developer',
+        status: 'todo',
+        ownerAgentId: null,
+        dependsOn: [],
+        ownedPaths: ['src/renderer/src/utils/multiloop.ts'],
+        acceptanceCriteria: ['Task appears in the Multiloop board.'],
+        implementationNotes: [],
+        evidence: { summary: 'Linked evidence.', touchedFiles: ['src/renderer/src/utils/multiloop.ts'], commandsRan: ['npm run typecheck'], results: ['Passed'] },
+        notes: [],
+        startedAt: null,
+        completedAt: null,
+      },
+    ],
+    artifacts: [
+      {
+        id: 'A-linked',
+        kind: 'validation_report',
+        title: 'Linked validation',
+        path: 'artifacts/linked.md',
+        status: 'ready_for_review',
+        createdBy: 'developer',
+        taskId: 'S1',
+        fingerprint: null,
+        reviewHistory: [],
+        recommendedTasks: [],
+        createdAt: null,
+        updatedAt: null,
+      },
+    ],
+    events: [],
+  }))
+
+  assert.equal(state.roadmap[0].sprintEngine?.teamSlug, 'fixture-loop-m2')
+  assert.deepEqual(getMilestoneExecutionTasks(state, state.roadmap[0], linkedSwarmState).map((task) => [task.id, task.status]), [['S1', 'ready']])
+  assert.deepEqual(getMilestoneExecutionArtifacts(state.roadmap[0], linkedSwarmState).map((artifact) => artifact.id), ['A-linked'])
 }
 
 function testActiveMilestoneFilteringAndSignals() {
@@ -472,6 +545,120 @@ function testMultiloopAutoRunSpawnsCoordinatorOnceWhenMilestoneDone() {
   })
   assert.equal(secondSelection.reason, 'no-ready-tasks')
   assert.equal(secondSelection.candidates.length, 0)
+}
+
+function testMultiloopAutoRunSelectsLinkedSprintEngineTask() {
+  const state = parseFixture({
+    blockers: [],
+    agents: {},
+    roadmap: [
+      baseMultiloopState().roadmap[0],
+      {
+        ...baseMultiloopState().roadmap[1],
+        sprintEngine: {
+          teamSlug: 'fixture-loop-m2',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
+        },
+      },
+    ],
+    tasks: [
+      {
+        id: 'legacy-task',
+        milestoneId: 'M2',
+        role: 'developer',
+        status: 'ready',
+        title: 'Legacy task should not drive linked execution',
+      },
+    ],
+  })
+  const linkedSwarmState = parseSwarmStateFile(JSON.stringify({
+    sprintengine: {
+      name: 'Fixture Loop M2',
+      goal: 'Execute linked work.',
+    },
+    agents: {
+      developer: { role: 'developer', status: 'idle', currentTaskId: null },
+    },
+    tasks: [
+      {
+        id: 'S1',
+        title: 'Linked implementation',
+        description: '',
+        role: 'developer',
+        status: 'todo',
+        ownerAgentId: null,
+        dependsOn: [],
+        ownedPaths: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        notes: [],
+        startedAt: null,
+        completedAt: null,
+      },
+    ],
+    artifacts: [],
+    events: [],
+  }))
+
+  const selection = selectMultiloopAutoRunCandidates({ state, linkedSwarmState, limit: 1 })
+
+  assert.equal(selection.reason, 'ready')
+  assert.equal(selection.candidates[0].kind, 'sprintengine-task')
+  assert.deepEqual(selection.candidates.map((candidate) => candidate.agentId), ['developer'])
+  assert.deepEqual(selection.candidates.map((candidate) => candidate.taskId), ['S1'])
+}
+
+function testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone() {
+  const state = parseFixture({
+    blockers: [],
+    agents: {},
+    roadmap: [
+      baseMultiloopState().roadmap[0],
+      {
+        ...baseMultiloopState().roadmap[1],
+        sprintEngine: {
+          teamSlug: 'fixture-loop-m2',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
+        },
+      },
+    ],
+    tasks: [],
+  })
+  const linkedSwarmState = parseSwarmStateFile(JSON.stringify({
+    sprintengine: {
+      name: 'Fixture Loop M2',
+      goal: 'Execute linked work.',
+    },
+    agents: {},
+    tasks: [
+      {
+        id: 'S1',
+        title: 'Linked implementation',
+        description: '',
+        role: 'developer',
+        status: 'done',
+        ownerAgentId: null,
+        dependsOn: [],
+        ownedPaths: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        notes: [],
+        startedAt: null,
+        completedAt: null,
+      },
+    ],
+    artifacts: [],
+    events: [],
+  }))
+
+  const selection = selectMultiloopAutoRunCandidates({ state, linkedSwarmState, limit: 1 })
+
+  assert.equal(selection.reason, 'all-done')
+  assert.deepEqual(selection.candidates.map((candidate) => candidate.agentId), ['multiloop-coordinator'])
 }
 
 function testMultiloopAutoRunPausesForBlockersAndUnknownRoles() {
@@ -719,6 +906,7 @@ async function testSwarmWorkspaceCreationRegressionKeepsSwarmModeAndPrompt() {
 }
 
 testValidBlockedAndAcceptedHistoryFixtures()
+testMilestoneSprintEngineLinkParsingAndExecutionMapping()
 testActiveMilestoneFilteringAndSignals()
 testMalformedFixtureIsRejectedWithDisplayError()
 testRendererPromptContextRedactsSensitiveStateText()
@@ -728,6 +916,8 @@ testMultiloopAutoRunSelectsReadyDeveloperTask()
 testMultiloopAutoRunSelectsTodoTaskWithDoneDependencies()
 testMultiloopAutoRunAvoidsDuplicateRunningRole()
 testMultiloopAutoRunSpawnsCoordinatorOnceWhenMilestoneDone()
+testMultiloopAutoRunSelectsLinkedSprintEngineTask()
+testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone()
 testMultiloopAutoRunPausesForBlockersAndUnknownRoles()
 testSwarmParsingRegression()
 testSetMultiloopStatePreservesExistingLayoutModel()

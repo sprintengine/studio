@@ -11,6 +11,7 @@ import type {
   MultiloopLoopStatus,
   MultiloopMilestone,
   MultiloopMilestoneRevision,
+  MultiloopMilestoneSprintEngineLink,
   MultiloopMilestoneStatus,
   MultiloopMilestoneReviewVerdict,
   MultiloopAgentSoulRole,
@@ -21,7 +22,11 @@ import type {
   MultiloopTask,
   MultiloopTaskEvidence,
   MultiloopTaskStatus,
+  SwarmArtifact,
+  SwarmState,
+  SwarmTask,
 } from '../types/workspace'
+import { getSwarmTaskBoardColumn } from './sprintengine'
 
 const currentSchemaVersion = 1
 
@@ -123,6 +128,39 @@ export function getLatestMultiloopEvidenceTasks(state: MultiloopState, limit = 5
     .slice(0, Math.max(0, limit))
 }
 
+export function getMilestoneExecutionTasks(
+  state: MultiloopState,
+  milestone: MultiloopMilestone | null | undefined,
+  linkedSwarmState?: SwarmState | null
+): MultiloopTask[] {
+  if (!milestone) return []
+  if (milestone.sprintEngine && linkedSwarmState) {
+    return linkedSwarmState.tasks.map((task) => swarmTaskToMultiloopTask(task, linkedSwarmState, milestone.id))
+  }
+  return getMultiloopTasksForMilestone(state, milestone.id)
+}
+
+export function getLatestExecutionEvidenceTasks(
+  state: MultiloopState,
+  linkedSwarmState?: SwarmState | null,
+  limit = 5
+): MultiloopTask[] {
+  const activeMilestone = getActiveMultiloopMilestone(state)
+  const sourceTasks = getMilestoneExecutionTasks(state, activeMilestone, linkedSwarmState)
+  return sourceTasks
+    .filter((task) => hasTaskEvidence(task.evidence))
+    .sort((a, b) => evidenceSortKey(b).localeCompare(evidenceSortKey(a)))
+    .slice(0, Math.max(0, limit))
+}
+
+export function getMilestoneExecutionArtifacts(
+  milestone: MultiloopMilestone | null | undefined,
+  linkedSwarmState?: SwarmState | null
+): MultiloopArtifact[] {
+  if (!milestone?.sprintEngine || !linkedSwarmState) return []
+  return linkedSwarmState.artifacts.map((artifact) => swarmArtifactToMultiloopArtifact(artifact, milestone.id))
+}
+
 const renderedStateRedaction = '[redacted]'
 const renderedStatePathRedaction = '[redacted-path]'
 const promptContextFieldLimit = 480
@@ -175,11 +213,14 @@ export function buildMultiloopLaunchContextLines({
   readyTaskIdsForRole?: string[]
   loopName: string
   finalGoal?: string | null
-  currentMilestone?: Pick<MultiloopMilestone, 'id' | 'title' | 'goal'> | null
+  currentMilestone?: Pick<MultiloopMilestone, 'id' | 'title' | 'goal' | 'sprintEngine'> | null
   statePath: string
 }): string[] {
   const commandStatePath = boundedMultiloopPromptContext(statePath, 'multiloop/<loop>/state.json')
   const safeAgentId = boundedMultiloopPromptContext(agentId, 'set-a-stable-agent-id')
+  const sprintEngineStatePath = currentMilestone?.sprintEngine?.statePath
+    ? boundedMultiloopPromptContext(currentMilestone.sprintEngine.statePath, '.multi-code/sprintengine/<team>/state.yaml')
+    : null
   return [
     '---',
     'Multiloop launch context',
@@ -196,9 +237,10 @@ export function buildMultiloopLaunchContextLines({
       ? `Current milestone goal: ${boundedMultiloopPromptContext(currentMilestone.goal, 'No milestone goal recorded.')}`
       : null,
     `Multiloop state file: ${commandStatePath}`,
+    sprintEngineStatePath ? `Linked Sprint Engine state file: ${sprintEngineStatePath}` : null,
     'Use the Multiloop CLI for every state mutation; do not edit state.json directly.',
     `Inspect state: scripts/multiloop --state ${commandStatePath} status`,
-    ...buildMultiloopRoleCommandLines(role, commandStatePath, safeAgentId),
+    ...buildMultiloopRoleCommandLines(role, commandStatePath, safeAgentId, sprintEngineStatePath),
     'Use project-root-relative paths in evidence, notes, artifacts, and handoffs.',
     'Do not include unredacted final-review bundle evidence in prompts or handoffs.',
   ].filter((line): line is string => line !== null)
@@ -207,17 +249,27 @@ export function buildMultiloopLaunchContextLines({
 function buildMultiloopRoleCommandLines(
   role: MultiloopAgentSoulRole | undefined,
   statePath: string,
-  agentId: string
+  agentId: string,
+  sprintEngineStatePath: string | null
 ): string[] {
   if (role === 'coordinator') {
     return [
       `Render current coordinator context: scripts/multiloop --state ${statePath} milestone plan-next`,
-      `Create active-milestone tasks: scripts/multiloop --state ${statePath} task create --task-id <id> --role <role> --title "<title>"`,
+      sprintEngineStatePath
+        ? `Create or revise executable milestone tasks with Sprint Engine planning commands against ${sprintEngineStatePath}.`
+        : `Create active-milestone tasks: scripts/multiloop --state ${statePath} task create --task-id <id> --role <role> --title "<title>"`,
       `Accept only completed, unblocked milestones: scripts/multiloop --state ${statePath} milestone accept <milestone-id> --id ${agentId}`,
     ]
   }
 
   if (role && !['product', 'tester', 'security', 'code_reviewer', 'performance'].includes(role)) {
+    if (sprintEngineStatePath) {
+      return [
+        `Claim work first: scripts/sprintengine --state ${sprintEngineStatePath} task next --role ${role} --id ${agentId}`,
+        `Log evidence before handoff: scripts/sprintengine --state ${sprintEngineStatePath} task log --task-id <task-id> --id ${agentId} --summary "<summary>" --file <path> --command "<command>" --result "<result>"`,
+        `Mark completion after evidence: scripts/sprintengine --state ${sprintEngineStatePath} task status --task-id <task-id> --status done --id ${agentId}`,
+      ]
+    }
     return [
       `Claim work first: scripts/multiloop --state ${statePath} task next --role ${role} --id ${agentId}`,
       `Log evidence before handoff: scripts/multiloop --state ${statePath} task log --task-id <task-id> --id ${agentId} --summary "<summary>" --file <path> --command "<command>" --result "<result>"`,
@@ -303,10 +355,21 @@ function normalizeRoadmap(input: unknown): MultiloopMilestone[] {
       blockers: expectStringArray(milestone.blockers, `${path}.blockers`),
       reviewVerdicts: normalizeReviewVerdicts(milestone.reviewVerdicts, `${path}.reviewVerdicts`),
       revisions: normalizeMilestoneRevisions(milestone.revisions, `${path}.revisions`),
+      sprintEngine: normalizeSprintEngineLink(milestone.sprintEngine, `${path}.sprintEngine`),
       createdAt: optionalString(milestone.createdAt, `${path}.createdAt`) ?? null,
       updatedAt: optionalString(milestone.updatedAt, `${path}.updatedAt`) ?? null,
     }
   })
+}
+
+function normalizeSprintEngineLink(input: unknown, path: string): MultiloopMilestoneSprintEngineLink | null {
+  if (input === undefined || input === null) return null
+  const link = expectRecord(input, path)
+  return {
+    teamSlug: expectNonEmptyString(link.teamSlug, `${path}.teamSlug`),
+    statePath: expectNonEmptyString(link.statePath, `${path}.statePath`),
+    planPath: expectNonEmptyString(link.planPath, `${path}.planPath`),
+  }
 }
 
 function normalizeTasks(input: unknown, milestoneIds: Set<string>): MultiloopTask[] {
@@ -576,6 +639,50 @@ function hasTaskEvidence(evidence: MultiloopTaskEvidence): boolean {
 
 function evidenceSortKey(task: MultiloopTask): string {
   return task.updatedAt ?? task.completedAt ?? task.startedAt ?? task.createdAt ?? task.id
+}
+
+function swarmTaskToMultiloopTask(task: SwarmTask, swarmState: SwarmState, milestoneId: string): MultiloopTask {
+  return {
+    id: task.id,
+    milestoneId,
+    role: task.role,
+    status: getSwarmTaskBoardColumn(task, swarmState.tasks),
+    title: task.title,
+    description: task.description,
+    ownerAgentId: task.ownerAgentId,
+    dependsOn: task.dependsOn,
+    ownedPaths: task.ownedPaths,
+    acceptanceCriteria: task.acceptanceCriteria,
+    implementationNotes: task.implementationNotes,
+    learnedFacts: [],
+    blockers: task.status === 'needs_input' ? task.notes : [],
+    evidence: {
+      summary: task.evidence.summary,
+      touchedFiles: task.evidence.touchedFiles,
+      commandsRan: task.evidence.commandsRan,
+      results: task.evidence.results,
+    },
+    feedback: {},
+    createdAt: null,
+    updatedAt: null,
+    startedAt: task.startedAt,
+    completedAt: task.completedAt,
+  }
+}
+
+function swarmArtifactToMultiloopArtifact(artifact: SwarmArtifact, milestoneId: string): MultiloopArtifact {
+  return {
+    id: artifact.id,
+    kind: artifact.kind,
+    title: artifact.title,
+    path: artifact.path,
+    milestoneId,
+    taskId: artifact.taskId || null,
+    createdBy: artifact.createdBy || null,
+    createdAt: artifact.createdAt,
+    updatedAt: artifact.updatedAt,
+    raw: artifact as unknown as Record<string, unknown>,
+  }
 }
 
 function expectRecord(value: unknown, path: string): Record<string, unknown> {

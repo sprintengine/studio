@@ -293,6 +293,12 @@ export type MultiloopMilestoneRevision = {
   revisedBy?: string
 }
 
+export type MultiloopMilestoneSprintEngineLink = {
+  teamSlug: string
+  statePath: string
+  planPath: string
+}
+
 export type MultiloopMilestone = {
   id: string
   title: string
@@ -305,6 +311,7 @@ export type MultiloopMilestone = {
   blockers: string[]
   reviewVerdicts: Array<MultiloopMilestoneReviewVerdict | MultiloopLegacyMilestoneReviewVerdict>
   revisions: MultiloopMilestoneRevision[]
+  sprintEngine: MultiloopMilestoneSprintEngineLink | null
   createdAt: string | null
   updatedAt: string | null
 }
@@ -511,8 +518,49 @@ export type WorkspaceWorktreeState = {
   updatedAt: number | null
 }
 
+export type MemoryGraphColorRule = {
+  id: string
+  pattern: string
+  color: string
+}
+
+export type MemoryGraphFiltersConfig = {
+  hideOrphans: boolean
+  hideAttachments: boolean
+  hideUnresolved: boolean
+  depthFromSelection: number | null
+  disabledGroups: string[]
+}
+
+export type MemoryGraphDisplayConfig = {
+  nodeSizeScale: number
+  lineThicknessScale: number
+  labelFadeThreshold: number
+  labelFontSize: number
+  showArrows: boolean
+  curvedEdges: boolean
+  glowHalos: boolean
+}
+
+export type MemoryGraphForcesConfig = {
+  centerForce: number
+  repelForce: number
+  linkForce: number
+  linkDistance: number
+}
+
+export type MemoryGraphSettings = {
+  sidebarOpen: boolean
+  activeTab: 'filters' | 'groups' | 'display' | 'forces'
+  filters: MemoryGraphFiltersConfig
+  colorRules: MemoryGraphColorRule[]
+  display: MemoryGraphDisplayConfig
+  forces: MemoryGraphForcesConfig
+}
+
 export type WorkspaceMemoryConfig = {
   relativeRoot: string | null
+  graphSettings?: MemoryGraphSettings
 }
 
 export type UsageTelemetrySettings = {

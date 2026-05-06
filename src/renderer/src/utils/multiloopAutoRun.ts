@@ -7,6 +7,9 @@ import type {
   MultiloopAutoPendingSpawn,
   MultiloopState,
   MultiloopTask,
+  SwarmRole,
+  SwarmState,
+  SwarmTask,
 } from '../types/workspace'
 import {
   buildMultiloopLaunchContextLines,
@@ -14,6 +17,11 @@ import {
   getActiveMultiloopMilestone,
   getMultiloopTasksForMilestone,
 } from './multiloop'
+import {
+  buildSwarmAgentRosterForState,
+  getSwarmTaskBoardColumn,
+  swarmRoleLabels,
+} from './sprintengine'
 
 export type MultiloopAutoRunCandidate =
   | {
@@ -21,6 +29,13 @@ export type MultiloopAutoRunCandidate =
     agentId: string
     label: string
     role: MultiloopAgentSoulRole
+    taskId: string
+  }
+  | {
+    kind: 'sprintengine-task'
+    agentId: string
+    label: string
+    role: SwarmRole
     taskId: string
   }
   | {
@@ -51,6 +66,7 @@ export type MultiloopAutoRunSelectionInput = {
   pendingSpawns?: MultiloopAutoPendingSpawn[]
   inFlightAgentIds?: Set<string>
   coordinatorAutoSpawnKey?: string | null
+  linkedSwarmState?: SwarmState | null
 }
 
 const spawnableRoles = new Set<MultiloopAgentSoulRole>(
@@ -130,10 +146,24 @@ export function selectMultiloopAutoRunCandidates({
   pendingSpawns = [],
   inFlightAgentIds = new Set(),
   coordinatorAutoSpawnKey = null,
+  linkedSwarmState = null,
 }: MultiloopAutoRunSelectionInput): MultiloopAutoRunSelection {
   const activeMilestone = getActiveMultiloopMilestone(state)
   if (!activeMilestone) {
     return emptySelection('no-active-milestone')
+  }
+
+  if (activeMilestone.sprintEngine) {
+    if (!linkedSwarmState) return emptySelection('no-ready-tasks')
+    return selectLinkedSprintEngineAutoRunCandidates({
+      state,
+      swarmState: linkedSwarmState,
+      limit,
+      runningAgentIds,
+      pendingSpawns,
+      inFlightAgentIds,
+      coordinatorAutoSpawnKey,
+    })
   }
 
   const activeTasks = getMultiloopTasksForMilestone(state, activeMilestone.id)
@@ -203,6 +233,97 @@ export function selectMultiloopAutoRunCandidates({
     skippedUnknownRoles,
     reason: candidates.length > 0 ? 'ready' : 'no-ready-tasks',
   }
+}
+
+function selectLinkedSprintEngineAutoRunCandidates({
+  state,
+  swarmState,
+  limit,
+  runningAgentIds,
+  pendingSpawns,
+  inFlightAgentIds,
+  coordinatorAutoSpawnKey,
+}: {
+  state: MultiloopState
+  swarmState: SwarmState
+  limit: number
+  runningAgentIds: Set<string>
+  pendingSpawns: MultiloopAutoPendingSpawn[]
+  inFlightAgentIds: Set<string>
+  coordinatorAutoSpawnKey: string | null
+}): MultiloopAutoRunSelection {
+  const activeMilestone = getActiveMultiloopMilestone(state)
+  if (!activeMilestone) return emptySelection('no-active-milestone')
+
+  const occupiedAgentIds = new Set([
+    ...runningAgentIds,
+    ...pendingSpawns.map((pending) => pending.agentId),
+    ...inFlightAgentIds,
+  ])
+  if (limit <= 0) {
+    return {
+      candidates: [],
+      skippedUnknownRoles: [],
+      reason: 'no-slots',
+    }
+  }
+
+  if (
+    swarmState.tasks.length > 0
+    && swarmState.tasks.every((task) => task.status === 'done')
+    && coordinatorAutoSpawnKey !== activeMilestone.id
+    && !occupiedAgentIds.has(buildMultiloopRoleAgentId('coordinator'))
+  ) {
+    return {
+      candidates: [coordinatorCandidate()].slice(0, limit),
+      skippedUnknownRoles: [],
+      reason: 'all-done',
+    }
+  }
+
+  const activeBlockers = getActiveMultiloopBlockers(state, activeMilestone.id)
+  if (state.loop.status === 'blocked' || activeMilestone.status === 'blocked' || activeBlockers.length > 0) {
+    return emptySelection('blocked')
+  }
+  if (swarmState.tasks.some((task) => task.status === 'needs_input')) {
+    return emptySelection('needs-input')
+  }
+
+  const roster = buildSwarmAgentRosterForState(swarmState)
+  const rosterByRole = new Map<SwarmRole, string[]>()
+  for (const agent of roster) {
+    rosterByRole.set(agent.role, [...(rosterByRole.get(agent.role) ?? []), agent.id])
+  }
+
+  const candidates: MultiloopAutoRunCandidate[] = []
+  const readyTasks = swarmState.tasks.filter((task) => isReadySprintEngineTask(task, swarmState))
+  for (const task of readyTasks) {
+    const agentId = (rosterByRole.get(task.role) ?? []).find((candidateId) => !occupiedAgentIds.has(candidateId))
+      ?? `${task.role}-${task.id.toLowerCase().replace(/[^a-z0-9._-]+/gu, '-')}`
+    if (occupiedAgentIds.has(agentId)) continue
+
+    candidates.push({
+      kind: 'sprintengine-task',
+      agentId,
+      label: swarmRoleLabels[task.role],
+      role: task.role,
+      taskId: task.id,
+    })
+    occupiedAgentIds.add(agentId)
+    if (candidates.length >= limit) break
+  }
+
+  return {
+    candidates,
+    skippedUnknownRoles: [],
+    reason: candidates.length > 0 ? 'ready' : 'no-ready-tasks',
+  }
+}
+
+function isReadySprintEngineTask(task: SwarmTask, swarmState: SwarmState): boolean {
+  if (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'done') return false
+  if (task.ownerAgentId) return false
+  return getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready'
 }
 
 function emptySelection(reason: MultiloopAutoRunSelection['reason']): MultiloopAutoRunSelection {

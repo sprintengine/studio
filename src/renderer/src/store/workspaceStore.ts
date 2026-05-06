@@ -32,7 +32,12 @@ import type {
   WorkspaceWorktreeState,
   WorktreeEntry,
   WorkspaceMemoryConfig,
+  MemoryGraphSettings,
 } from '../types/workspace'
+import {
+  DEFAULT_GRAPH_SETTINGS,
+  normalizeGraphSettings,
+} from '../components/memory/memoryGraphTypes'
 import { getSpecialistAction } from '../specialists/specialistActions'
 import { pickRandomAgentName } from '../utils/agentNames'
 import { detectLanguage } from '../utils/files'
@@ -127,6 +132,12 @@ interface WorkspaceStore {
     worktreeState: Partial<WorkspaceWorktreeState> | null
   ) => void
   setWorkspaceMemoryRelativeRoot: (workspaceId: WorkspaceId, relativeRoot: string | null) => void
+  updateMemoryGraphSettings: (
+    workspaceId: WorkspaceId,
+    update:
+      | Partial<MemoryGraphSettings>
+      | ((current: MemoryGraphSettings) => Partial<MemoryGraphSettings> | MemoryGraphSettings)
+  ) => void
   upsertWorktreeEntry: (workspaceId: WorkspaceId, entry: WorktreeEntry) => void
   markWorktreeMissing: (workspaceId: WorkspaceId, worktreeId: string, missingAt?: number) => void
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
@@ -328,6 +339,7 @@ const defaultWorkspaceWorktreeState = (): WorkspaceWorktreeState => ({
 
 const defaultWorkspaceMemoryConfig = (): WorkspaceMemoryConfig => ({
   relativeRoot: null,
+  graphSettings: { ...DEFAULT_GRAPH_SETTINGS },
 })
 
 function isAbsolutePath(value: string): boolean {
@@ -346,6 +358,7 @@ function normalizeWorkspaceMemoryConfig(
 ): WorkspaceMemoryConfig {
   return {
     relativeRoot: normalizeMemoryRelativeRoot(input?.relativeRoot),
+    graphSettings: normalizeGraphSettings(input?.graphSettings),
   }
 }
 
@@ -1147,6 +1160,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (!ws) return
           ws.memory = {
             relativeRoot: normalizeMemoryRelativeRoot(relativeRoot),
+            graphSettings: normalizeGraphSettings(ws.memory?.graphSettings),
+          }
+        }),
+
+      updateMemoryGraphSettings: (workspaceId, update) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeGraphSettings(ws.memory?.graphSettings)
+          const patch = typeof update === 'function' ? update(current) : update
+          const next = normalizeGraphSettings({ ...current, ...patch })
+          ws.memory = {
+            relativeRoot: normalizeMemoryRelativeRoot(ws.memory?.relativeRoot),
+            graphSettings: next,
           }
         }),
 
