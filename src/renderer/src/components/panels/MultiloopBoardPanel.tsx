@@ -25,9 +25,11 @@ import type {
   MultiloopTask,
   MultiloopTaskStatus,
   SwarmCliPermissionPreset,
+  SwarmRole,
+  SwarmState,
   WorkspaceId,
 } from '../../types/workspace'
-import { prependAgentIdentifier } from '../../utils/agentPrompt'
+import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import {
   buildMultiloopLaunchContextLines,
@@ -40,7 +42,7 @@ import {
 } from '../../utils/multiloop'
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
 import { parseSwarmStateFile } from '../../utils/sprintengineStateFile'
-import type { SwarmState } from '../../types/workspace'
+import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/sprintengine'
 
 type Props = {
   workspaceId: WorkspaceId
@@ -203,6 +205,14 @@ function resolveProjectPath(path: string, workspaceRoot: string | null | undefin
   return `${workspaceRoot.replace(/[\\/]+$/u, '')}${sep}${path.replace(/^[\\/]+/u, '')}`
 }
 
+function isSwarmRole(role: MultiloopAgentSoulRole): role is SwarmRole {
+  return role !== 'coordinator'
+}
+
+function getLinkedSprintEngineAgentId(role: SwarmRole, linkedState: SwarmState | null): string {
+  return buildSwarmAgentRosterForState(linkedState).find((agent) => agent.role === role)?.id ?? role
+}
+
 function buildMultiloopStartupPrompt({
   soulPrompt,
   role,
@@ -288,11 +298,53 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     if (!workspace || !multiloopState) return
 
     const soul = getMultiloopAgentSoul(role)
-    const agentId = `multiloop-${role}`
-    const existingAgent = workspace.agents[agentId]
-
     setRoleLaunchState({ status: 'loading', role })
     try {
+      const currentMilestone = getActiveMultiloopMilestone(multiloopState)
+      const sprintEngineLink = currentMilestone?.sprintEngine ?? null
+      const linkedState = sprintEngineLink ? linkedSwarmStatesByPath[sprintEngineLink.statePath] ?? null : null
+      if (sprintEngineLink && isSwarmRole(role)) {
+        if (!workspaceRoot) throw new Error('Open this Multiloop workspace from a project folder before launching Sprint Engine workers.')
+        if (!linkedState) throw new Error(`Linked Sprint Engine state is not readable yet: ${sprintEngineLink.statePath}`)
+
+        const agentId = getLinkedSprintEngineAgentId(role, linkedState)
+        const existingAgent = workspace.agents[agentId]
+        const tabName = swarmRoleLabels[role]
+        const startupPrompt = prependAgentIdentifier(
+          buildSwarmStartupPrompt(role, agentId, linkedState.goal, {
+            executionCwd: workspaceRoot,
+            workspaceRoot,
+            swarmStatePath: sprintEngineLink.statePath,
+            commandMode: getSwarmStartupCommandMode(role, agentId, linkedState),
+          }),
+          tabName,
+          tabName
+        )
+        const previousSessionId = existingAgent?.cliSessionId
+        if (existingAgent?.cliStartRequested && previousSessionId) {
+          void window.api.terminalKill(previousSessionId).catch(() => {})
+        }
+        updateAgent(workspaceId, agentId, {
+          name: tabName,
+          cli: existingAgent?.cli ?? 'codex',
+          cliPermissionPreset: existingAgent?.cliPermissionPreset ?? 'default',
+          kind: 'sprintengine',
+          specialistId: undefined,
+          multiloopRole: undefined,
+          cliStartupPrompt: startupPrompt,
+          cliOnboardingPromptSent: false,
+          cliStartRequested: true,
+          cliHasLaunched: false,
+          cliResumeAvailable: false,
+          cliSessionId: `sprintengine-${role}-${nanoid(6)}`,
+        })
+        focusOrAddAgentTab(workspaceId, agentId, tabName)
+        setRoleLaunchState({ status: 'idle' })
+        return
+      }
+
+      const agentId = `multiloop-${role}`
+      const existingAgent = workspace.agents[agentId]
       if (workspaceRoot) {
         const repaired = await window.api.initializeMultiloopState({
           workspaceRoot,
@@ -558,6 +610,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         <MultiloopRoleLauncher
           agents={workspace.agents}
           launchState={roleLaunchState}
+          linkedSprintEngineState={activeMilestone?.sprintEngine ? activeLinkedSwarmState : null}
           autoRunEnabled={autoRunEnabled}
           autoRunBlocked={autoRunBlocked}
           cliPermissionPreset={multiloopAutoState?.cliPermissionPreset ?? 'default'}
@@ -631,6 +684,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
 function MultiloopRoleLauncher({
   agents,
   launchState,
+  linkedSprintEngineState,
   autoRunEnabled,
   autoRunBlocked,
   cliPermissionPreset,
@@ -640,6 +694,7 @@ function MultiloopRoleLauncher({
 }: {
   agents: Record<string, AgentState>
   launchState: RoleLaunchState
+  linkedSprintEngineState: SwarmState | null
   autoRunEnabled: boolean
   autoRunBlocked: boolean
   cliPermissionPreset: SwarmCliPermissionPreset
@@ -691,9 +746,12 @@ function MultiloopRoleLauncher({
       </div>
       <div className="flex flex-wrap gap-2">
         {MULTILOOP_AGENT_SOULS.map((soul) => {
-          const agentId = `multiloop-${soul.role}`
+          const agentId = linkedSprintEngineState && isSwarmRole(soul.role)
+            ? getLinkedSprintEngineAgentId(soul.role, linkedSprintEngineState)
+            : `multiloop-${soul.role}`
           const exists = Boolean(agents[agentId])
           const loading = launchState.status === 'loading' && launchState.role === soul.role
+          const terminalKind = linkedSprintEngineState && isSwarmRole(soul.role) ? 'Sprint Engine' : 'Multiloop'
           return (
             <button
               key={soul.role}
@@ -701,7 +759,7 @@ function MultiloopRoleLauncher({
               onClick={() => onOpenRole(soul.role)}
               disabled={loading}
               className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[#303139] bg-[#111216] px-2.5 text-[12px] font-semibold text-[#d7d7dc] transition hover:border-[#444751] hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:opacity-60"
-              title={`${exists ? 'Focus' : 'Create'} ${soul.label} role terminal`}
+              title={`${exists ? 'Focus' : 'Create'} ${terminalKind} ${soul.label} role terminal`}
             >
               <SpecialistActionIcon icon={soul.icon} className="h-4 w-4 shrink-0 text-[#9a9aa2]" />
               <span>{loading ? 'Opening...' : soul.label}</span>
