@@ -36,7 +36,6 @@ export type PlanSourcedSwarmWorkspaceArgs = {
   sourceContent: string
   roleCounts?: SwarmRoleCounts
   roleCliDefaults?: SwarmRoleCliDefaults
-  useWorktreesForSwarms?: boolean
   pathExists?: (path: string) => boolean | Promise<boolean>
 }
 
@@ -85,7 +84,6 @@ export async function createPlanSourcedSwarmWorkspace({
   sourceContent,
   roleCounts = planSourcedSwarmRoleCounts,
   roleCliDefaults,
-  useWorktreesForSwarms = false,
   pathExists,
 }: PlanSourcedSwarmWorkspaceArgs): Promise<PlanSourcedSwarmWorkspaceResult> {
   const trimmedRoot = rootPath.trim()
@@ -122,10 +120,6 @@ export async function createPlanSourcedSwarmWorkspace({
     swarmState,
     swarmContext,
     swarmRoleCliDefaults: roleCliDefaults,
-    swarmAutoState: {
-      useWorktreesForSwarms,
-      isolateWorkersInWorktrees: useWorktreesForSwarms,
-    },
   })
 
   const startupPrompt = buildPlanFileSwarmHandoffPrompt({
@@ -134,7 +128,6 @@ export async function createPlanSourcedSwarmWorkspace({
     sourcePath: trimmedSourcePath,
     sourceContent,
     statePath: swarmContext.statePath,
-    useWorktreesForSwarms,
   })
 
   useWorkspaceStore.getState().updateAgent(workspaceId, architect.id, {

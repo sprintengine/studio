@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
-import { basename, dirname, join, resolve } from 'path'
+import { join } from 'path'
 import {
   MobileSwarmCommandError,
   type MobileSwarmFollowUpRequest,
@@ -24,19 +24,6 @@ type TerminalSessionSnapshot = {
   worktreePath?: string
 }
 
-type WorktreeEntry = {
-  path: string
-  branch: string | null
-}
-
-type GitWorktreeListResult =
-  | { ok: true; data: { worktrees: WorktreeEntry[] } }
-  | { ok: false; message: string }
-
-type GitWorktreeCreateResult =
-  | { ok: true; data: { path: string; branch: string | null } }
-  | { ok: false; message: string }
-
 type SpawnMobileAgentTerminalInput = {
   sessionId: string
   cwd: string
@@ -45,8 +32,6 @@ type SpawnMobileAgentTerminalInput = {
   initialPrompt: string
   cli: AgentCli
   executionMode: 'current_workspace' | 'worktree'
-  worktreeId?: string
-  worktreePath?: string
 }
 
 type SpawnMobileAgentTerminalResult =
@@ -57,16 +42,6 @@ export type DesktopMobileSwarmSessionAdapters = {
   listTerminals(): Promise<TerminalSessionSnapshot[]>
   spawnAgentTerminal(input: SpawnMobileAgentTerminalInput): Promise<SpawnMobileAgentTerminalResult>
   writeTerminal(sessionId: string, data: string): Promise<void> | void
-  pathExists(path: string): Promise<boolean>
-  listGitWorktrees(repoRoot: string): Promise<GitWorktreeListResult>
-  createGitWorktree(input: {
-    repoRoot: string
-    containerPath: string
-    destinationPath: string
-    branchName: string
-    baseRef: string
-    copyIncludedFiles: boolean
-  }): Promise<GitWorktreeCreateResult>
 }
 
 type DesktopMobileSwarmSessionOptions = {
@@ -132,22 +107,8 @@ export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSession
       throw new MobileSwarmCommandError('task_not_ready', 'The selected Sprint Engine agent already has a running terminal.', false)
     }
 
-    let executionCwd = request.workspaceRoot
-    let executionMode: MobileSwarmTaskStartResult['executionMode'] = 'current_workspace'
-    let worktreeId: string | undefined
-    let worktreePath: string | undefined
-
-    if (request.worktreeIsolation !== 'disabled') {
-      const worktree = await this.prepareWorktree(request, agentId)
-      if (worktree.ok) {
-        executionCwd = worktree.path
-        executionMode = 'worktree'
-        worktreeId = worktree.id
-        worktreePath = worktree.path
-      } else if (request.worktreeIsolation === 'required') {
-        throw new MobileSwarmCommandError('task_not_ready', worktree.message, true)
-      }
-    }
+    const executionCwd = request.workspaceRoot
+    const executionMode: MobileSwarmTaskStartResult['executionMode'] = 'current_workspace'
 
     const sessionId = randomUUID()
     const spawn = await this.options.adapters.spawnAgentTerminal({
@@ -166,8 +127,6 @@ export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSession
         statePath: request.statePath,
       }),
       executionMode,
-      worktreeId,
-      worktreePath,
     })
 
     if (!spawn.ok) {
@@ -178,8 +137,6 @@ export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSession
       sessionId: spawn.sessionId,
       agentId,
       executionMode,
-      ...(worktreeId ? { worktreeId } : {}),
-      ...(worktreePath ? { worktreePath } : {}),
     }
   }
 
@@ -210,40 +167,6 @@ export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSession
       agentId: request.agentId,
       acceptedAt: this.now().toISOString(),
     }
-  }
-
-  private async prepareWorktree(
-    request: MobileSwarmTaskStartRequest,
-    agentId: string
-  ): Promise<{ ok: true; id: string; path: string } | { ok: false; message: string }> {
-    const spec = buildWorktreeSpec(request, agentId)
-    const listed = await this.options.adapters.listGitWorktrees(request.workspaceRoot)
-    if (!listed.ok) return { ok: false, message: listed.message }
-
-    const existing = listed.data.worktrees.find((worktree) =>
-      samePath(worktree.path, spec.destinationPath) || worktree.branch === spec.branch
-    )
-    if (existing) {
-      if (!(await this.options.adapters.pathExists(existing.path))) {
-        return { ok: false, message: `Worktree path is missing: ${existing.path}` }
-      }
-      return { ok: true, id: spec.id, path: existing.path }
-    }
-
-    if (await this.options.adapters.pathExists(spec.destinationPath)) {
-      return { ok: false, message: `Worktree destination already exists: ${spec.destinationPath}` }
-    }
-
-    const created = await this.options.adapters.createGitWorktree({
-      repoRoot: request.workspaceRoot,
-      containerPath: spec.containerPath,
-      destinationPath: spec.destinationPath,
-      branchName: spec.branch,
-      baseRef: 'HEAD',
-      copyIncludedFiles: true,
-    })
-    if (!created.ok) return { ok: false, message: created.message }
-    return { ok: true, id: spec.id, path: created.data.path }
   }
 }
 
@@ -306,25 +229,6 @@ function agentIdSortValue(agentId: string, role: string): number {
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER
 }
 
-function buildWorktreeSpec(request: MobileSwarmTaskStartRequest, agentId: string): {
-  id: string
-  branch: string
-  containerPath: string
-  destinationPath: string
-} {
-  const teamSlug = slugify(basename(request.teamDirectory), 'sprintengine')
-  const taskSlug = slugify(request.taskId, 'task')
-  const agentSlug = slugify(agentId, 'agent')
-  const name = `${taskSlug}-${agentSlug}`
-  const containerPath = join(dirname(request.workspaceRoot), '.multicode-worktrees', basename(request.workspaceRoot))
-  return {
-    id: `sprintengine-${teamSlug}-${name}`,
-    branch: `multicode/${teamSlug}/${name}`,
-    containerPath,
-    destinationPath: join(containerPath, name),
-  }
-}
-
 function buildStartupPrompt(input: {
   role: string
   agentId: string
@@ -352,25 +256,6 @@ function buildStartupPrompt(input: {
 
 function quotePowerShellArg(value: string): string {
   return `"${value.replace(/"/g, '`"')}"`
-}
-
-function slugify(value: string, fallback: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/gu, '-')
-    .replace(/-+/gu, '-')
-    .replace(/^[.-]+|[.-]+$/gu, '')
-  return slug || fallback
-}
-
-function normalizePath(path: string): string {
-  const normalized = resolve(path).replace(/\\/gu, '/').replace(/\/+$/u, '')
-  return /^[A-Za-z]:/u.test(normalized) ? normalized.toLowerCase() : normalized
-}
-
-function samePath(first: string, second: string): boolean {
-  return normalizePath(first) === normalizePath(second)
 }
 
 function escapeRegExp(value: string): string {

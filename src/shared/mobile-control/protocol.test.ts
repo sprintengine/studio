@@ -89,19 +89,6 @@ assertInvalid(
   }),
 );
 assertInvalid(
-  "invalid task-start worktree policy",
-  validateMobileControlCommand({
-    ...validCommand,
-    type: "task.start",
-    payload: {
-      swarmId: "mobile-sprintengine-companion-integration",
-      taskId: "T3",
-      role: "developer",
-      worktreeIsolation: "sometimes",
-    },
-  }),
-);
-assertInvalid(
   "invalid snapshot board count",
   validateMobileControlSnapshot({
     ...validSnapshot,

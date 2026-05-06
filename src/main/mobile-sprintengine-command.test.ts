@@ -356,9 +356,7 @@ async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {
         return {
           sessionId: 'session_1',
           agentId: 'developer-1',
-          executionMode: 'worktree',
-          worktreeId: 'sprintengine-task-start-team-t2-developer-1',
-          worktreePath: join(fixture.workspaceRoot, '..', '.multicode-worktrees', 'multicode', 't2-developer-1'),
+          executionMode: 'current_workspace',
         }
       },
       sendFollowUp: async () => {
@@ -380,7 +378,6 @@ async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {
   assert.equal(starts[0].statePath, fixture.statePath)
   assert.equal(starts[0].taskId, 'T2')
   assert.equal(starts[0].role, 'developer')
-  assert.equal(starts[0].worktreeIsolation, 'preferred')
   assert.equal(result.ok === true ? (result.data as { sessionId: string }).sessionId : '', 'session_1')
   assert.equal(service.getAuditLog()[0].status, 'accepted')
 }
@@ -412,7 +409,6 @@ async function assertTaskStartRejectsBlockedDependencies(): Promise<void> {
     swarmId: 'task-blocked-team',
     taskId: 'T2',
     role: 'developer',
-    worktreeIsolation: 'required',
   }, {
     idempotencyKey: 'mobile:device_1:task-blocked',
   }))
@@ -520,7 +516,6 @@ async function assertUnsupportedCommandIsRejected(): Promise<void> {
     swarmId: 'team',
     taskId: 'T1',
     role: 'developer',
-    worktreeIsolation: 'preferred',
   }))
 
   assert.equal(result.ok, false)

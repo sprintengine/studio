@@ -124,7 +124,6 @@ export type TaskStartCommand = MobileControlCommandBase<
     swarmId: string;
     taskId: string;
     role: string;
-    worktreeIsolation: "required" | "preferred" | "disabled";
   }
 >;
 
@@ -360,7 +359,6 @@ const taskStatuses = ["todo", "ready", "in_progress", "needs_input", "blocked", 
 const artifactStatuses = ["draft", "ready_for_review", "approved", "changes_requested"] as const;
 const presenceValues = ["online", "offline", "revoked"] as const;
 const severityValues = ["info", "warning", "error"] as const;
-const worktreeIsolationValues = ["required", "preferred", "disabled"] as const;
 
 export function validateMobileControlCommand(input: unknown): ValidationResult<MobileControlCommand> {
   const base = validateObject(input, "command");
@@ -618,8 +616,7 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       return (
         requireString(payload, "swarmId") ??
         requireString(payload, "taskId") ??
-        requireString(payload, "role") ??
-        requireLiteral(payload, "worktreeIsolation", worktreeIsolationValues)
+        requireString(payload, "role")
       );
     case "artifact.approve":
       return requireString(payload, "swarmId") ?? requireString(payload, "artifactId") ?? optionalString(payload, "feedback");

@@ -77,13 +77,13 @@ def test_init_bootstraps_board_without_returning_role_prompt(tmp_path) -> None:
     assert payload["planTask"]["status"] == "todo"
 
 
-def test_init_accepts_worktree_preference_without_claiming_architect_work(tmp_path) -> None:
+def test_init_ignores_legacy_worktree_preference_without_claiming_architect_work(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "worktree-init-prompt",
         [task("T0", "Completed product intake", "product", status="done")],
     )
-    payload = fixture.cli.run("init", "--goal", "Plan in a shared worktree", "--use-worktrees", "true")
+    payload = fixture.cli.run("init", "--goal", "Plan in the current workspace", "--use-worktrees", "true")
 
     assert payload["ok"] is True
     assert payload["action"] == "initialized"
@@ -92,14 +92,6 @@ def test_init_accepts_worktree_preference_without_claiming_architect_work(tmp_pa
     assert payload["planTask"]["role"] == "architect"
     assert payload["planTask"]["status"] == "todo"
     assert payload["planTask"]["ownerAgentId"] is None
-
-
-def test_init_rejects_invalid_worktree_preference(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "invalid-worktree-flag" / "state.yaml"
-    completed = SwarmCli(state_path).run_failure("init", "--use-worktrees", "maybe")
-
-    assert completed.returncode == 2
-    assert "expected true or false" in completed.stderr
 
 
 def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
@@ -131,8 +123,7 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
             "you may install task-required Python packages into the repository-local virtual environment",
             ".venv\\Scripts\\python.exe -m pip install <package>",
             "## Execution Workspace Discipline",
-            "If `plan.md` declares `Worktree: enabled`",
-            "Commit: abc1234",
+            "Do not create Sprint Engine worktrees.",
             "Do not edit .multi-code/sprintengine/state.yaml directly",
         ],
     )
@@ -225,7 +216,6 @@ def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_
             "Fetch the canonical Sprint Engine startup instructions from the Python tool.",
             "sprintengine --state",
             "init",
-            "--use-worktrees false",
             "Then follow the returned prompt.",
         ],
     )

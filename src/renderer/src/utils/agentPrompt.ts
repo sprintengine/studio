@@ -52,12 +52,11 @@ export function buildSwarmStartupPrompt(
     workspaceRoot?: string
     swarmStatePath?: string
     commandMode?: 'init' | 'join'
-    useWorktreesForSwarms?: boolean
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
   const swarmCommand = commandMode === 'init'
-    ? `init --goal ${quoteShellArg(goal)} --use-worktrees ${options.useWorktreesForSwarms ? 'true' : 'false'}`
+    ? `init --goal ${quoteShellArg(goal)}`
     : `join --role ${role} --id ${agentId}`
   const command = commandMode === 'init'
     ? `Run \`sprintengine ${swarmCommand}\` to receive your full prompt and instructions.`

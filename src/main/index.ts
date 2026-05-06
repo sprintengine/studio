@@ -3252,18 +3252,6 @@ function createMobileCommandService(): MobileSwarmCommandService {
         }
         session.process.write(data)
       },
-      pathExists,
-      listGitWorktrees: async (repoRoot) => {
-        const snapshot = await listGitWorktrees(repoRoot)
-        if (!snapshot.ok) return { ok: false, message: snapshot.message }
-        return {
-          ok: true,
-          data: {
-            worktrees: snapshot.data.worktrees.map((worktree) => ({ path: worktree.path, branch: worktree.branch })),
-          },
-        }
-      },
-      createGitWorktree,
     },
   })
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
-import { dirname, join } from 'path'
+import { join } from 'path'
 import { DesktopMobileSwarmSessionOrchestrator, type DesktopMobileSwarmSessionAdapters } from './mobile-sprintengine-session'
 import type { MobileSwarmTaskStartRequest } from './mobile-sprintengine-command'
 
@@ -10,22 +10,21 @@ const now = new Date('2026-04-28T20:20:00.000Z')
 void main()
 
 async function main(): Promise<void> {
-  await assertTaskStartPrefersWorktree()
+  await assertTaskStartUsesCurrentWorkspace()
   await assertTaskStartRejectsTerminalLimit()
   await assertFollowUpWritesOnlyToKnownAgentTerminal()
   await assertFollowUpRejectsCrLfBeforeTerminalWrite()
 }
 
-async function assertTaskStartPrefersWorktree(): Promise<void> {
+async function assertTaskStartUsesCurrentWorkspace(): Promise<void> {
   const fixture = await writeFixture('session-worktree-team')
-  const spawned: Array<{ cwd: string; executionMode: string; initialPrompt: string; worktreePath?: string }> = []
-  const adapters = adaptersForFixture(fixture, {
+  const spawned: Array<{ cwd: string; executionMode: string; initialPrompt: string }> = []
+  const adapters = adaptersForFixture({
     spawnAgentTerminal: async (input) => {
       spawned.push({
         cwd: input.cwd,
         executionMode: input.executionMode,
         initialPrompt: input.initialPrompt,
-        worktreePath: input.worktreePath,
       })
       return { ok: true, sessionId: input.sessionId }
     },
@@ -34,12 +33,11 @@ async function assertTaskStartPrefersWorktree(): Promise<void> {
 
   const result = await orchestrator.startTask(taskStartRequest(fixture))
 
-  assert.equal(result.executionMode, 'worktree')
+  assert.equal(result.executionMode, 'current_workspace')
   assert.equal(result.agentId, 'developer-1')
   assert.equal(spawned.length, 1)
-  assert.equal(spawned[0].executionMode, 'worktree')
-  assert.equal(spawned[0].cwd, fixture.worktreePath)
-  assert.equal(spawned[0].worktreePath, fixture.worktreePath)
+  assert.equal(spawned[0].executionMode, 'current_workspace')
+  assert.equal(spawned[0].cwd, fixture.workspaceRoot)
   assert.match(spawned[0].initialPrompt, /\\.venv\\Scripts\\python\.exe" \.\\scripts\\sprintengine_tool\.py join --role developer --id developer-1/u)
   assert.match(spawned[0].initialPrompt, /Otherwise run `sprintengine join --role developer --id developer-1`/u)
 }
@@ -47,7 +45,7 @@ async function assertTaskStartPrefersWorktree(): Promise<void> {
 async function assertTaskStartRejectsTerminalLimit(): Promise<void> {
   const fixture = await writeFixture('session-limit-team')
   const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
-    adapters: adaptersForFixture(fixture, {
+    adapters: adaptersForFixture({
       listTerminals: async () => [
         {
           sessionId: 'session_existing',
@@ -72,7 +70,7 @@ async function assertFollowUpWritesOnlyToKnownAgentTerminal(): Promise<void> {
   const fixture = await writeFixture('session-follow-up-team')
   const writes: Array<{ sessionId: string; data: string }> = []
   const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
-    adapters: adaptersForFixture(fixture, {
+    adapters: adaptersForFixture({
       listTerminals: async () => [
         {
           sessionId: 'session_developer',
@@ -116,7 +114,7 @@ async function assertFollowUpRejectsCrLfBeforeTerminalWrite(): Promise<void> {
   ] as const) {
     const writes: Array<{ sessionId: string; data: string }> = []
     const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
-      adapters: adaptersForFixture(fixture, {
+      adapters: adaptersForFixture({
         listTerminals: async () => [
           {
             sessionId: 'session_developer',
@@ -150,23 +148,11 @@ async function assertFollowUpRejectsCrLfBeforeTerminalWrite(): Promise<void> {
   }
 }
 
-function adaptersForFixture(
-  fixture: Awaited<ReturnType<typeof writeFixture>>,
-  overrides: Partial<DesktopMobileSwarmSessionAdapters> = {}
-): DesktopMobileSwarmSessionAdapters {
+function adaptersForFixture(overrides: Partial<DesktopMobileSwarmSessionAdapters> = {}): DesktopMobileSwarmSessionAdapters {
   return {
     listTerminals: async () => [],
     spawnAgentTerminal: async (input) => ({ ok: true, sessionId: input.sessionId }),
     writeTerminal: () => undefined,
-    pathExists: async (targetPath) => targetPath !== fixture.worktreePath,
-    listGitWorktrees: async () => ({ ok: true, data: { worktrees: [] } }),
-    createGitWorktree: async () => ({
-      ok: true,
-      data: {
-        path: fixture.worktreePath,
-        branch: 'multicode/session-worktree-team/t2-developer-1',
-      },
-    }),
     ...overrides,
   }
 }
@@ -176,7 +162,6 @@ async function writeFixture(swarmId: string): Promise<{
   workspaceRoot: string
   teamDirectory: string
   statePath: string
-  worktreePath: string
 }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-session-'))
   const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', swarmId)
@@ -207,7 +192,6 @@ async function writeFixture(swarmId: string): Promise<{
     workspaceRoot,
     teamDirectory,
     statePath,
-    worktreePath: join(dirname(workspaceRoot), '.multicode-worktrees', workspaceRoot.split(/[\\/]/).at(-1) ?? 'repo', 't2-developer-1'),
   }
 }
 
@@ -221,6 +205,5 @@ function taskStartRequest(fixture: Awaited<ReturnType<typeof writeFixture>>): Mo
     role: 'developer',
     deviceId: 'device_1',
     commandId: 'cmd_start',
-    worktreeIsolation: 'preferred',
   }
 }

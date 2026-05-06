@@ -71,7 +71,6 @@ type TaskStartCommand = MobileControlCommandBase<
     swarmId: string
     taskId: string
     role: string
-    worktreeIsolation?: MobileTaskStartWorktreeIsolation
   }
 >
 
@@ -115,8 +114,6 @@ export type MobileControlCommand =
   | ArtifactRequestChangesCommand
   | UnsupportedMobileControlCommand
 
-export type MobileTaskStartWorktreeIsolation = 'preferred' | 'required' | 'disabled'
-
 export type MobileSwarmTaskStartRequest = {
   swarmId: string
   statePath: string
@@ -126,15 +123,12 @@ export type MobileSwarmTaskStartRequest = {
   role: string
   deviceId: string
   commandId: string
-  worktreeIsolation: MobileTaskStartWorktreeIsolation
 }
 
 export type MobileSwarmTaskStartResult = {
   sessionId: string
   agentId: string
   executionMode: 'current_workspace' | 'worktree'
-  worktreeId?: string
-  worktreePath?: string
 }
 
 export type MobileSwarmFollowUpRequest = {
@@ -411,7 +405,6 @@ export class MobileSwarmCommandService {
     const state = await this.resolveStateForSwarm(command.payload.swarmId)
     await this.assertExpectedSnapshotVersion(command, state.statePath)
     const task = await this.findReadyTask(state, command.payload.taskId, command.payload.role)
-    const worktreeIsolation = normalizeWorktreeIsolation(command.payload.worktreeIsolation)
 
     const data = await this.sessionOrchestrator.startTask({
       swarmId: command.payload.swarmId,
@@ -422,7 +415,6 @@ export class MobileSwarmCommandService {
       role: task.role,
       deviceId: command.deviceId,
       commandId: command.commandId,
-      worktreeIsolation,
     })
 
     return this.acceptSessionCommand(
@@ -1081,7 +1073,7 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
     case 'artifact.read':
       return requireString(payload, 'swarmId') ?? requireString(payload, 'artifactId') ?? requireString(payload, 'previewMode')
     case 'task.start':
-      return requireString(payload, 'swarmId') ?? requireString(payload, 'taskId') ?? requireString(payload, 'role') ?? optionalWorktreeIsolation(payload, 'worktreeIsolation')
+      return requireString(payload, 'swarmId') ?? requireString(payload, 'taskId') ?? requireString(payload, 'role')
     case 'agent.followUp':
       return requireString(payload, 'swarmId') ?? requireString(payload, 'agentId') ?? requireString(payload, 'text')
     case 'device.revoke':
@@ -1115,10 +1107,6 @@ function normalizeSwarmTasks(value: unknown): SwarmTaskRecord[] {
 function normalizeTaskStatus(value: unknown): SwarmTaskRecord['status'] {
   if (value === 'in_progress' || value === 'needs_input' || value === 'done') return value
   return 'todo'
-}
-
-function normalizeWorktreeIsolation(value: unknown): MobileTaskStartWorktreeIsolation {
-  return value === 'required' || value === 'disabled' ? value : 'preferred'
 }
 
 function normalizeFollowUpText(value: string): string {
@@ -1170,13 +1158,6 @@ function optionalString(record: Record<string, unknown>, field: string): string 
   return record[field] === undefined || (typeof record[field] === 'string' && record[field].length > 0)
     ? null
     : `${field} must be a non-empty string when provided`
-}
-
-function optionalWorktreeIsolation(record: Record<string, unknown>, field: string): string | null {
-  const value = record[field]
-  return value === undefined || value === 'preferred' || value === 'required' || value === 'disabled'
-    ? null
-    : `${field} must be preferred, required, or disabled when provided`
 }
 
 function requireIsoDate(record: Record<string, unknown>, field: string): string | null {

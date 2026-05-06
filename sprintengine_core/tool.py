@@ -120,22 +120,11 @@ def parse_bool(value: str) -> bool:
 
 
 def architect_worktree_preference_block(use_worktrees: bool) -> str:
-    if use_worktrees:
-        return "\n".join([
-            "## Worktree Preference",
-            "The user enabled architect-managed sprintengine worktrees for this run.",
-            "- Inspect the current Git status, branch, default branch, and existing worktrees before planning downstream execution.",
-            "- Create a dedicated Git worktree and branch for the sprintengine unless there is a concrete blocker.",
-            "- Resolve reasonable setup issues directly, including branch-name conflicts, stale worktree paths, dirty main-checkout concerns, and base-ref selection.",
-            "- Document the decision in `plan.md` before downstream task execution.",
-            "- If you create a worktree, include an exact `## Execution Workspace` section with `Worktree: enabled`, `Repo root:`, `Worktree path:`, `Branch:`, `Base ref:`, `Merge target:`, and `Merge policy:` labels.",
-            "- If you decline the enabled preference, include `Worktree: disabled` and a specific `Reason:` in that section.",
-        ])
     return "\n".join([
-        "## Worktree Preference",
-        "The user has not enabled architect-managed sprintengine worktrees for this run.",
-        "- Plan execution in the current workspace unless the user explicitly asks otherwise.",
-        "- If worktrees are intentionally not used, you may document `Worktree: disabled` in `plan.md`, but do not invent worktree setup work.",
+        "## Execution Workspace",
+        "Sprint Engine worktree orchestration is disabled.",
+        "- Plan execution in the current workspace.",
+        "- Do not create Sprint Engine worktrees or add worktree setup tasks.",
     ])
 
 
@@ -143,13 +132,10 @@ def worker_plan_worktree_block() -> str:
     return "\n".join([
         "## Execution Workspace Discipline",
         "- Read `plan.md` before claiming work.",
-        "- If `plan.md` declares `Worktree: enabled`, `cd` to the declared `Worktree path:` before running `sprintengine task next`.",
-        "- In a declared worktree, verify `pwd`, `git status --short --branch`, and that the current branch matches the plan before editing.",
-        "- If the declared worktree is missing, invalid, on the wrong branch, or dirty in a way that blocks your task, add a task note and leave or move the task to `needs_input` instead of guessing.",
-        "- When working in a declared worktree, edit only task-owned paths, stage only task-owned files, and commit task changes before marking your task done.",
-        "- When working in a declared worktree, include the commit hash in final evidence, for example `--result \"Commit: abc1234\"`.",
+        "- Work in the current workspace directory used to launch this agent.",
+        "- Do not create Sprint Engine worktrees.",
+        "- Edit only task-owned paths and log evidence before marking your task done.",
         "- Do not merge or push.",
-        "- If `plan.md` does not declare `Worktree: enabled`, proceed in the current working directory and do not create a worktree.",
     ])
 
 
@@ -171,8 +157,7 @@ def build_merge_start_prompt(state: Dict[str, Any], state_path: Path, actor_id: 
         "Hard rules:",
         "- Confirm the sprintengine run is complete before merging.",
         "- Read `plan.md` and `sprintengine summary` before touching Git state.",
-        "- Locate the declared `Worktree path:` and `Branch:` from the `## Execution Workspace` section.",
-        "- Verify the worktree exists, the branch is not the target branch, and `git status --short` is clean.",
+        "- Verify the current branch is the intended source branch and `git status --short` is clean.",
         "- Verify the merge target branch and fetch or update only if the user has allowed network/remote operations.",
         "- Perform the merge to the requested target branch, resolving conflicts where reasonable.",
         "- Run relevant validation after the merge.",
@@ -1929,10 +1914,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
         handover_path.write_text(handover_text.rstrip() + "\n", encoding="utf-8")
         wrote_handover = True
 
-    init_command = (
-        f"sprintengine --state {json.dumps(str(state_path))} init "
-        f"--use-worktrees {str(bool(getattr(args, 'use_worktrees', False))).lower()}"
-    )
+    init_command = f"sprintengine --state {json.dumps(str(state_path))} init"
     architect_startup_prompt = "\n\n".join([
         f"Use the existing Sprint Engine team `{team_slug}`.",
         "Fetch the canonical Sprint Engine startup instructions from the Python tool.",
@@ -2648,7 +2630,7 @@ Sprint Engine - all state mutations go through here. Never edit state.yaml direc
 
 Entry points (return full system prompt for the agent):
   sprintengine handover --name my-team --goal "..." --handover handover.md
-  sprintengine init [--goal "..."] [--use-worktrees true|false]   # bootstraps the board; agents claim ready tasks separately
+  sprintengine init [--goal "..."]                                # bootstraps the board; agents claim ready tasks separately
   sprintengine recover
   sprintengine join --role developer --id developer-1
   sprintengine merge start --id architect --target main
@@ -2706,7 +2688,7 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help="Whether the future architect startup prompt should preserve the sprintengine worktree preference.",
+        help=argparse.SUPPRESS,
     )
     p.add_argument("--force", action="store_true", help="Replace existing state/handover bootstrap files.")
     p.set_defaults(handler=cmd_handover, uses_state=False)
@@ -2775,7 +2757,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help="Whether the architect should prefer creating a shared sprintengine worktree.",
+        help=argparse.SUPPRESS,
     )
     p.set_defaults(handler=cmd_init)
 
