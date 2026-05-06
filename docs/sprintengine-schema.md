@@ -132,8 +132,8 @@ policies stay outside the core schema.
 - `expectedArtifactKinds`
 - `stopConditions`
 
-Milestone 01 uses `specialist-prompts` as the prompt source. The execution
-schema must not load roles from `multiloop-agent-souls`.
+Milestone 01 uses Souls (`souls/prompts/*.md`) as the prompt source. The
+execution schema must not load Sprint Engine roles from `multiloop-agent-souls`.
 
 ## Auto-Run State
 

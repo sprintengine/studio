@@ -66,7 +66,7 @@ Top-level state contains:
 - `artifacts`: reviewable task outputs with kind, status, path, review history, approvals, and recommendations.
 - `agents`: specialist execution slots.
 - `events`: append-only run history.
-- `specialistRoles`: role registry references backed by `specialist-prompts`.
+- `specialistRoles`: role registry references backed by Souls role prompts.
 - `autoRun`: local execution state only.
 - `source`: project-relative source metadata where practical.
 
@@ -98,11 +98,11 @@ CLI output is deterministic JSON with sorted keys. Source metadata and examples 
 swarm/01-shared-domain-cli-readonly/state.yaml
 docs/sprintengine-cli.md
 sprintengine_core/cli.py
-specialist-prompts/developer-prompt.md
+souls/prompts/developer.md
 ```
 
 Avoid absolute or machine-specific paths in docs, task evidence, artifacts, reports, and scripts.
 
 ## Packaging
 
-The desktop package includes the Sprint Engine Python entry point, core Python modules, and `specialist-prompts` resources needed by the role registry. Existing Swarm and Multiloop package resources remain intact.
+The desktop package includes the Sprint Engine Python entry point, core Python modules, and `souls` resources needed by the role registry. Existing Swarm and Multiloop package resources remain intact.
