@@ -1056,7 +1056,29 @@ async function spawnAutoRunCandidate(
     let executionCwd = workspaceFolderPath
     let executionMode: 'current_workspace' | 'worktree' = 'current_workspace'
 
-    const startupPrompt = prependAgentIdentifier(
+    const memoryRelativeRoot = workspace.memory.relativeRoot
+    const memoryStatus = memoryRelativeRoot
+      ? await window.api.memoryResolveRoot({
+        workspaceRoot: workspaceFolderPath,
+        relativeRoot: memoryRelativeRoot,
+      }).catch((): MemoryRootStatus => ({
+        ok: false,
+        status: 'inaccessible',
+        relativeRoot: memoryRelativeRoot,
+        message: 'Unable to resolve workspace memory.',
+      }))
+      : null
+    const memoryPrompt = memoryStatus
+      ? memoryStatus.ok
+        ? [
+          `Workspace memory is configured at ${memoryStatus.relativeRoot}.`,
+          'This is a local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
+          'Inspect it when relevant instead of assuming project context.',
+        ].join(' ')
+        : `Workspace memory is configured at ${memoryRelativeRoot}, but the folder is currently missing or inaccessible. Do not guess another memory folder.`
+      : null
+    const startupPrompt = [
+      prependAgentIdentifier(
       buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal, {
         executionCwd,
         workspaceRoot: workspaceFolderPath,
@@ -1065,7 +1087,9 @@ async function spawnAutoRunCandidate(
       }),
       nextRun.label,
       swarmRoleLabels[nextRun.role]
-    )
+      ),
+      memoryPrompt,
+    ].filter(Boolean).join('\n\n')
 
     addAutoRunPendingSpawn(workspace.id, pendingSpawn)
     currentState.updateAgent(workspace.id, nextRun.agentId, {
@@ -1091,6 +1115,8 @@ async function spawnAutoRunCandidate(
       agentId: nextRun.agentId,
       executionMode,
       cliPermissionPreset: workspace.swarmAutoState.cliPermissionPreset,
+      memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
+      memoryRelativeRoot: memoryRelativeRoot ?? undefined,
     } as TerminalSpawnMetadata & {
       executionMode: 'current_workspace' | 'worktree'
     }

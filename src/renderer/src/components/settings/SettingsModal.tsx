@@ -113,13 +113,57 @@ function parseSearchExcludeText(value: string): string[] {
     .filter(Boolean)
 }
 
+function isAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('/') || value.startsWith('\\\\')
+}
+
+function normalizePathParts(value: string): { drive: string | null; parts: string[] } {
+  const normalized = value.replace(/\\/g, '/').replace(/\/+$/u, '')
+  const driveMatch = normalized.match(/^([A-Za-z]:)\/(.*)$/)
+  if (driveMatch) {
+    return {
+      drive: driveMatch[1].toLowerCase(),
+      parts: driveMatch[2].split('/').filter(Boolean),
+    }
+  }
+  return {
+    drive: null,
+    parts: normalized.split('/').filter(Boolean),
+  }
+}
+
+function relativePathBetween(fromPath: string, toPath: string): string | null {
+  const from = normalizePathParts(fromPath)
+  const to = normalizePathParts(toPath)
+  if (from.drive !== to.drive) return null
+
+  let common = 0
+  while (
+    common < from.parts.length
+    && common < to.parts.length
+    && from.parts[common].toLowerCase() === to.parts[common].toLowerCase()
+  ) {
+    common += 1
+  }
+
+  return [
+    ...from.parts.slice(common).map(() => '..'),
+    ...to.parts.slice(common),
+  ].join('/') || '.'
+}
+
 export default function SettingsModal({ onClose }: Props) {
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const activeWorkspace = useWorkspaceStore((s) =>
+    s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
+  )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
+  const setWorkspaceMemoryRelativeRoot = useWorkspaceStore((s) => s.setWorkspaceMemoryRelativeRoot)
   const isWindows = window.api.platform === 'win32'
   const [mobileState, setMobileState] = useState<MobileBridgeState | null>(null)
   const [pairingChallenge, setPairingChallenge] = useState<MobileBridgePairingChallenge | null>(null)
@@ -130,11 +174,20 @@ export default function SettingsModal({ onClose }: Props) {
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
   const [showMobileDiagnostics, setShowMobileDiagnostics] = useState(false)
   const [searchExcludesDraft, setSearchExcludesDraft] = useState(() => searchExcludes.join('\n'))
+  const [memoryDraft, setMemoryDraft] = useState(() => activeWorkspace?.memory.relativeRoot ?? '')
+  const [memoryStatus, setMemoryStatus] = useState<MemoryRootStatus | null>(null)
+
+  const commitMemoryDraft = useCallback((value: string) => {
+    if (!activeWorkspaceId) return
+    const trimmed = value.trim().replace(/\\/g, '/').replace(/\/+$/u, '')
+    setWorkspaceMemoryRelativeRoot(activeWorkspaceId, trimmed || null)
+  }, [activeWorkspaceId, setWorkspaceMemoryRelativeRoot])
 
   const closeSettings = useCallback(() => {
     setSearchExcludes(parseSearchExcludeText(searchExcludesDraft))
+    commitMemoryDraft(memoryDraft)
     onClose()
-  }, [onClose, searchExcludesDraft, setSearchExcludes])
+  }, [commitMemoryDraft, memoryDraft, onClose, searchExcludesDraft, setSearchExcludes])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -182,6 +235,69 @@ export default function SettingsModal({ onClose }: Props) {
   useEffect(() => {
     setSearchExcludesDraft(searchExcludes.join('\n'))
   }, [searchExcludes])
+
+  useEffect(() => {
+    setMemoryDraft(activeWorkspace?.memory.relativeRoot ?? '')
+  }, [activeWorkspace?.id, activeWorkspace?.memory.relativeRoot])
+
+  useEffect(() => {
+    let cancelled = false
+    const relativeRoot = memoryDraft.trim()
+    if (!activeWorkspaceId || !relativeRoot) {
+      setMemoryStatus(null)
+      return
+    }
+    if (isAbsolutePath(relativeRoot)) {
+      setMemoryStatus({
+        ok: false,
+        status: 'invalid-relative-path',
+        relativeRoot: null,
+        message: 'Memory path must be relative to the workspace folder.',
+      })
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      void window.api.memoryResolveRoot({
+        workspaceRoot: activeWorkspace?.folderPath ?? null,
+        relativeRoot,
+      }).then((status) => {
+        if (!cancelled) setMemoryStatus(status)
+      }).catch((error) => {
+        if (!cancelled) {
+          setMemoryStatus({
+            ok: false,
+            status: 'inaccessible',
+            relativeRoot,
+            message: error instanceof Error ? error.message : 'Unable to check memory path.',
+          })
+        }
+      })
+    }, 150)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [activeWorkspace?.folderPath, activeWorkspaceId, memoryDraft])
+
+  const chooseMemoryFolder = async () => {
+    if (!activeWorkspace?.folderPath || !activeWorkspaceId) return
+    const dir = await window.api.openDir()
+    if (!dir) return
+    const relativePath = relativePathBetween(activeWorkspace.folderPath, dir)
+    if (!relativePath || relativePath === '.') {
+      setMemoryStatus({
+        ok: false,
+        status: 'invalid-relative-path',
+        relativeRoot: null,
+        message: 'Choose a folder that can be expressed relative to the workspace folder.',
+      })
+      return
+    }
+    setMemoryDraft(relativePath)
+    setWorkspaceMemoryRelativeRoot(activeWorkspaceId, relativePath)
+  }
 
   const toggleMobileControl = async () => {
     if (mobileAction.status === 'busy') return
@@ -375,6 +491,69 @@ export default function SettingsModal({ onClose }: Props) {
             Defaults still exclude heavy folders like <span className="font-mono text-[#d7d7dc]">.git</span>,{' '}
             <span className="font-mono text-[#d7d7dc]">node_modules</span>, and{' '}
             <span className="font-mono text-[#d7d7dc]">dist</span>. Add one pattern per line or separate entries with commas.
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Workspace Memory
+              </div>
+              <div className="mt-1 text-sm font-semibold text-[#ececee]">
+                Markdown knowledge graph
+              </div>
+            </div>
+            {activeWorkspace ? (
+              <div className="max-w-[260px] truncate rounded-md border border-[#24252b] bg-[#0d0e11] px-2.5 py-1 text-[11px] text-[#9a9aa2]">
+                {activeWorkspace.name}
+              </div>
+            ) : null}
+          </div>
+
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+              Memory folder
+            </span>
+            <div className="flex gap-2">
+              <input
+                value={memoryDraft}
+                onChange={(event) => setMemoryDraft(event.target.value)}
+                onBlur={(event) => commitMemoryDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.currentTarget.blur()
+                  }
+                }}
+                placeholder="../ecosystem-memory"
+                disabled={!activeWorkspace}
+                className="h-9 min-w-0 flex-1 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#6ee7d8]/70 disabled:opacity-45"
+              />
+              <button
+                type="button"
+                onClick={() => void chooseMemoryFolder()}
+                disabled={!activeWorkspace?.folderPath}
+                className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
+              >
+                Choose
+              </button>
+            </div>
+          </label>
+
+          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${
+            memoryStatus?.ok
+              ? 'border-[#6ee7d8]/70 text-[#bff7f1]'
+              : memoryStatus
+                ? 'border-[#ffbf2f]/75 text-[#ffd58a]'
+                : 'border-[#303139] text-[#9a9aa2]'
+          }`}>
+            {memoryStatus?.ok
+              ? `Ready: ${memoryStatus.relativeRoot}`
+              : memoryStatus
+                ? `${memoryStatus.message} Do not guess another folder.`
+                : activeWorkspace?.folderPath
+                  ? 'Set a relative path from the workspace folder. Leave empty to disable memory for this workspace.'
+                  : 'Open a workspace folder before configuring memory.'}
           </div>
         </div>
 

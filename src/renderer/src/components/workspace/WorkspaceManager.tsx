@@ -75,7 +75,7 @@ const SPECIALIST_KEYBOARD_SHORTCUTS: Record<string, SpecialistActionId> = {
   m: 'performance',
   p: 'architect',
 }
-type WorkspacePanelComponent = 'explorer' | 'editor' | 'git'
+type WorkspacePanelComponent = 'explorer' | 'editor' | 'git' | 'memory-graph'
 type WorkspaceActivity = 'needs-input' | 'running' | 'idle'
 type SessionStatus = 'needs-input' | 'running'
 type SessionItem = {
@@ -932,6 +932,15 @@ export default function WorkspaceManager() {
     )
   }
 
+  const openMemoryGraph = () => {
+    if (!activeWorkspaceId) return
+    focusOrAddComponentTab(activeWorkspaceId, 'memory-graph', 'Memory Graph')
+    setSessionsOpen(false)
+    setNotificationsOpen(false)
+    setSpecialistMenuOpen(false)
+    setAccountOpen(false)
+  }
+
   const openHandoffDialog = () => {
     if (!activeWorkspace) return
     setHandoffTeamName(slugifySwarmName(activeWorkspace.name))
@@ -1238,6 +1247,19 @@ export default function WorkspaceManager() {
                 setAccountOpen(false)
               }}
             />
+          ) : null}
+
+          {workspaceActionsEnabled ? (
+            <button
+              type="button"
+              onClick={openMemoryGraph}
+              disabled={!activeWorkspaceId}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
+              title="Memory Graph"
+              aria-label="Memory Graph"
+            >
+              <MemoryGraphIcon className="h-[18px] w-[18px]" />
+            </button>
           ) : null}
 
           <div ref={notificationsRef} className="relative inline-flex">
@@ -1987,6 +2009,18 @@ function NotificationBellIcon({ className }: { className?: string }) {
   )
 }
 
+function MemoryGraphIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="6.5" cy="8" r="2.35" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="16.75" cy="6.25" r="2.15" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="17.5" cy="16.75" r="2.75" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="7.25" cy="17.25" r="1.75" fill="currentColor" />
+      <path d="M8.8 7.6L14.65 6.6M8.15 9.9L15.7 15.1M9 17.15H14.75" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function TerminalSessionIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2333,7 +2367,13 @@ function toggleWorkspacePanel(workspaceId: string, component: WorkspacePanelComp
     return
   }
 
-  const tabName = component === 'explorer' ? 'Files' : component === 'git' ? 'Git' : 'Editor'
+  const tabName = component === 'explorer'
+    ? 'Files'
+    : component === 'git'
+      ? 'Git'
+      : component === 'memory-graph'
+        ? 'Memory Graph'
+        : 'Editor'
   const target = getPreferredPanelTarget(model, component)
 
   model.doAction(
@@ -2351,6 +2391,14 @@ function getPreferredPanelTarget(
   model: Model,
   component: WorkspacePanelComponent
 ): { id: string; location: DockLocation } {
+  if (component === 'memory-graph') {
+    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+    return {
+      id: targetTabset?.getId() ?? model.getRoot().getId(),
+      location: DockLocation.CENTER,
+    }
+  }
+
   if (component === 'git') {
     const explorerTab = findPanelTab(model, 'explorer')
     const explorerParent = explorerTab?.getParent()

@@ -24,6 +24,12 @@ type AgentExecutionRoot = {
   worktreePath: string | undefined
 }
 
+type MemoryLaunchContext = {
+  promptSuffix: string | null
+  rootPath: string | undefined
+  relativeRoot: string | undefined
+}
+
 function resolveAgentExecutionRoot(
   execution: AgentExecution | undefined,
   storedWorktreePath: string | undefined,
@@ -48,6 +54,48 @@ function resolveAgentExecutionRoot(
   }
 }
 
+async function resolveMemoryLaunchContext(
+  workspaceRoot: string | null,
+  relativeRoot: string | null
+): Promise<MemoryLaunchContext> {
+  const configuredRoot = relativeRoot?.trim()
+  if (!configuredRoot) return { promptSuffix: null, rootPath: undefined, relativeRoot: undefined }
+
+  const status = await window.api.memoryResolveRoot({
+    workspaceRoot,
+    relativeRoot: configuredRoot,
+  }).catch((error): MemoryRootStatus => ({
+    ok: false,
+    status: 'inaccessible',
+    relativeRoot: configuredRoot,
+    message: error instanceof Error ? error.message : 'Unable to resolve workspace memory.',
+  }))
+
+  if (status.ok) {
+    return {
+      rootPath: status.rootPath,
+      relativeRoot: status.relativeRoot,
+      promptSuffix: [
+        `Workspace memory is configured at ${status.relativeRoot}.`,
+        'This is a local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
+        'Inspect it when relevant instead of assuming project context.',
+      ].join(' '),
+    }
+  }
+
+  return {
+    rootPath: undefined,
+    relativeRoot: configuredRoot,
+    promptSuffix: `Workspace memory is configured at ${configuredRoot}, but the folder is currently missing or inaccessible. Do not guess another memory folder.`,
+  }
+}
+
+function appendMemoryPrompt(prompt: string | undefined, memoryContext: MemoryLaunchContext): string | undefined {
+  if (!memoryContext.promptSuffix) return prompt
+  if (!prompt) return memoryContext.promptSuffix
+  return `${prompt}\n\n${memoryContext.promptSuffix}`
+}
+
 export default function TerminalView({ workspaceId, agentId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const agent = useWorkspaceStore((s) =>
@@ -65,6 +113,9 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   } = useWorkspaceFolderStatus(workspaceId)
   const swarmContext = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.swarmContext ?? null
+  )
+  const memoryRelativeRoot = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.memory.relativeRoot ?? null
   )
   const cliPermissionPreset = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
@@ -377,7 +428,11 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
         swarmStatePath ? `Sprint Engine state: ${swarmStatePath}` : null,
       ].filter(Boolean).join('\n')
-      const launchInitialPrompt = shouldResumeCli ? undefined : startupPromptRef.current ?? undefined
+      const memoryContext = await resolveMemoryLaunchContext(folderReadyPath ?? null, memoryRelativeRoot)
+      if (disposed) return
+      const launchInitialPrompt = shouldResumeCli
+        ? undefined
+        : appendMemoryPrompt(startupPromptRef.current ?? undefined, memoryContext)
 
       const spawnResult = await window.api.terminalSpawn(
         sessionId,
@@ -398,6 +453,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           worktreeId: executionRoot.worktreeId,
           worktreePath: executionRoot.worktreePath,
           cliPermissionPreset,
+          memoryRootPath: memoryContext.rootPath,
+          memoryRelativeRoot: memoryContext.relativeRoot,
         } as TerminalSpawnMetadata & {
           executionMode: AgentExecutionMode
           worktreeId?: string
@@ -498,6 +555,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     workspaceName,
     savedFolderPath,
     swarmContext?.statePath,
+    memoryRelativeRoot,
     storedExecutionWorktreePath,
     updateAgent,
   ])

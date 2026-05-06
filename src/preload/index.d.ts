@@ -47,11 +47,61 @@ declare global {
         elapsedMs: number
         resultCount: number
       }
+      | {
+          ok: false
+          message: string
+          engine: 'ripgrep' | null
+        }
+  type MemoryGraphNodeKind = 'markdown' | 'image' | 'text' | 'asset'
+  type MemoryGraphNode = {
+    id: string
+    path: string
+    relativePath: string
+    name: string
+    kind: MemoryGraphNodeKind
+    extension: string
+    sizeBytes: number
+    degree: number
+    group: string
+  }
+  type MemoryGraphEdge = {
+    id: string
+    source: string
+    target: string
+    sourcePath: string
+    targetPath: string
+  }
+  type MemoryUnresolvedLink = {
+    sourcePath: string
+    href: string
+    resolvedRelativePath: string | null
+    reason: 'missing' | 'outside-root'
+  }
+  type MemoryRootStatus =
+    | { ok: true; rootPath: string; relativeRoot: string }
     | {
         ok: false
+        status: 'missing-workspace' | 'invalid-relative-path' | 'missing-memory-root' | 'inaccessible'
+        relativeRoot: string | null
         message: string
-        engine: 'ripgrep' | null
       }
+  type MemoryGraphIndexResult =
+    | {
+        ok: true
+        rootPath: string
+        relativeRoot: string
+        nodes: MemoryGraphNode[]
+        edges: MemoryGraphEdge[]
+        groups: string[]
+        unresolvedLinks: MemoryUnresolvedLink[]
+        indexedAt: number
+      }
+    | Extract<MemoryRootStatus, { ok: false }>
+  type MemoryPreviewResult =
+    | { ok: true; node: MemoryGraphNode; previewKind: 'markdown' | 'text'; content: string }
+    | { ok: true; node: MemoryGraphNode; previewKind: 'image'; dataUrl: string }
+    | { ok: true; node: MemoryGraphNode; previewKind: 'unsupported'; message: string }
+    | { ok: false; message: string }
 
   type AgentCli = 'codex' | 'claude'
   type AgentExecutionMode = 'current_workspace' | 'worktree'
@@ -70,6 +120,8 @@ declare global {
     worktreeId?: string
     worktreePath?: string
     cliPermissionPreset?: SwarmCliPermissionPreset
+    memoryRootPath?: string
+    memoryRelativeRoot?: string
   }
   type TerminalSpawnResult =
     | { ok: true; sessionId: string }
@@ -460,6 +512,11 @@ declare global {
       readImageDataUrl: (path: string) => Promise<string>
       pathExists: (path: string) => Promise<boolean>
       checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
+      memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryRootStatus>
+      memoryIndex: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryGraphIndexResult>
+      memoryReadPreview: (
+        input: { workspaceRoot: string | null; relativeRoot: string | null; relativePath: string }
+      ) => Promise<MemoryPreviewResult>
       logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
       openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
       readSpecialistPrompt: (specialistId: SpecialistActionId) => Promise<SpecialistPromptResult>

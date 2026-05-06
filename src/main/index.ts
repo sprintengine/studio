@@ -32,6 +32,14 @@ import {
   type MobileBridgePresence,
   type MobileBridgeSettingsUpdate,
 } from './mobile-bridge'
+import {
+  indexMemoryGraph,
+  readMemoryPreview,
+  resolveMemoryRoot,
+  type MemoryGraphIndexResult,
+  type MemoryPreviewResult,
+  type MemoryRootStatus,
+} from './memory-graph'
 import { MobileSwarmCommandService } from './mobile-sprintengine-command'
 import { DesktopMobileSwarmSessionOrchestrator } from './mobile-sprintengine-session'
 import { MobileSwarmSnapshotService } from './mobile-sprintengine-snapshot'
@@ -153,6 +161,15 @@ type WorkspaceFolderCheckResult =
       message: string
       code?: string
     }
+
+type MemoryRootRequest = {
+  workspaceRoot: string | null
+  relativeRoot: string | null
+}
+
+type MemoryPreviewRequest = MemoryRootRequest & {
+  relativePath: string
+}
 
 type ElectronRendererAuthState = {
   authenticated: boolean
@@ -1438,6 +1455,8 @@ type TerminalSpawnPayload = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: SwarmCliPermissionPreset
+  memoryRootPath?: string
+  memoryRelativeRoot?: string
 }
 
 type TerminalSessionSnapshot = {
@@ -1486,7 +1505,9 @@ function getTerminalEnv(): Record<string, string> {
 function withSwarmEnv(
   env: Record<string, string>,
   cwd: string,
-  swarmStatePath?: string
+  swarmStatePath?: string,
+  memoryRootPath?: string,
+  memoryRelativeRoot?: string
 ): Record<string, string> {
   const bundledToolPath = getBundledSwarmToolPath()
   const nextEnv = {
@@ -1495,6 +1516,8 @@ function withSwarmEnv(
     SPRINTENGINE_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
     ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
     ...(swarmStatePath ? { SPRINTENGINE_STATE_PATH: swarmStatePath } : {}),
+    ...(memoryRootPath ? { MULTICODE_MEMORY_ROOT: memoryRootPath } : {}),
+    ...(memoryRelativeRoot ? { MULTICODE_MEMORY_RELATIVE_ROOT: memoryRelativeRoot } : {}),
   }
 
   if (process.platform !== 'win32') return nextEnv
@@ -2447,9 +2470,15 @@ async function reviewSwarmArtifact(
   }
 }
 
-function buildSwarmShellBootstrap(swarmStatePath?: string): string {
+function buildSwarmShellBootstrap(
+  swarmStatePath?: string,
+  memoryRootPath?: string,
+  memoryRelativeRoot?: string
+): string {
   const shellStatePath =
     swarmStatePath && process.platform === 'win32' ? toWslPath(swarmStatePath) : swarmStatePath
+  const shellMemoryRootPath =
+    memoryRootPath && process.platform === 'win32' ? toWslPath(memoryRootPath) : memoryRootPath
   const bundledToolPath = getBundledSwarmToolPath()
   const shellBundledToolPath =
     bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
@@ -2460,6 +2489,14 @@ function buildSwarmShellBootstrap(swarmStatePath?: string): string {
 
   if (shellStatePath) {
     lines.push(`export SPRINTENGINE_STATE_PATH=${quotePosix(shellStatePath)}`)
+  }
+
+  if (shellMemoryRootPath) {
+    lines.push(`export MULTICODE_MEMORY_ROOT=${quotePosix(shellMemoryRootPath)}`)
+  }
+
+  if (memoryRelativeRoot) {
+    lines.push(`export MULTICODE_MEMORY_RELATIVE_ROOT=${quotePosix(memoryRelativeRoot)}`)
   }
 
   if (shellBundledToolPath) {
@@ -2529,13 +2566,15 @@ function buildWslShellScript(
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
+  cliPermissionPreset: SwarmCliPermissionPreset = 'default',
+  memoryRootPath?: string,
+  memoryRelativeRoot?: string
 ): string {
-  const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'wsl', [cwd, swarmStatePath])
+  const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'wsl', [cwd, swarmStatePath, memoryRootPath])
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
-    buildSwarmShellBootstrap(swarmStatePath),
+    buildSwarmShellBootstrap(swarmStatePath, memoryRootPath, memoryRelativeRoot),
     buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset),
     'exec bash -li',
   ].join('; ')
@@ -2549,14 +2588,17 @@ function getShellLaunchConfig(
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
-  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
+  cliPermissionPreset: SwarmCliPermissionPreset = 'default',
+  memoryRootPath?: string,
+  memoryRelativeRoot?: string
 ): ShellLaunchConfig {
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
 
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
     const windowsCwd = toWindowsPath(cwd)
     const windowsStatePath = swarmStatePath ? toWindowsPath(swarmStatePath) : undefined
-    const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'windows', [cwd, swarmStatePath])
+    const windowsMemoryRootPath = memoryRootPath ? toWindowsPath(memoryRootPath) : undefined
+    const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'windows', [cwd, swarmStatePath, memoryRootPath])
     if (!isNativeWindowsPath(windowsCwd)) {
       throw new Error(
         `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`
@@ -2579,7 +2621,7 @@ function getShellLaunchConfig(
     return {
       command: 'powershell.exe',
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
-      env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
+      env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, memoryRelativeRoot),
       cwd: windowsCwd,
       startupScriptPath,
     }
@@ -2597,7 +2639,9 @@ function getShellLaunchConfig(
         cli,
         initialPrompt,
         cliRuntime,
-        cliPermissionPreset
+        cliPermissionPreset,
+        memoryRootPath,
+        memoryRelativeRoot
       )
     )
     return {
@@ -2615,7 +2659,7 @@ function getShellLaunchConfig(
   const shellPath = process.env.SHELL || 'bash'
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
-    buildSwarmShellBootstrap(swarmStatePath),
+    buildSwarmShellBootstrap(swarmStatePath, memoryRootPath, memoryRelativeRoot),
     buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
@@ -2625,6 +2669,7 @@ function getShellLaunchConfig(
     command: shellPath,
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
     cwd,
+    env: withSwarmEnv(getTerminalEnv(), cwd, swarmStatePath, memoryRootPath, memoryRelativeRoot),
     startupScriptPath,
   }
 }
@@ -3491,6 +3536,8 @@ ipcMain.handle(
     worktreeId,
     worktreePath,
     cliPermissionPreset = 'default',
+    memoryRootPath,
+    memoryRelativeRoot,
   }: TerminalSpawnPayload) => {
     const existingSession = terminals.get(sessionId)
     if (existingSession && !existingSession.hasExited && !existingSession.isDisposed) {
@@ -3544,7 +3591,9 @@ ipcMain.handle(
           cli,
           initialPrompt,
           cliRuntimes,
-          cliPermissionPreset
+          cliPermissionPreset,
+          memoryRootPath,
+          memoryRelativeRoot
         )
       const initialSize = getTerminalSize(cols, rows)
       const termProcess = pty.spawn(command, args, {
@@ -4288,6 +4337,18 @@ ipcMain.handle('fs:path-exists', async (_, targetPath: string) => {
 
 ipcMain.handle('fs:check-workspace-folder', async (_, targetPath: string) => {
   return checkWorkspaceFolder(targetPath)
+})
+
+ipcMain.handle('memory:resolve-root', async (_, input: MemoryRootRequest): Promise<MemoryRootStatus> => {
+  return resolveMemoryRoot(input.workspaceRoot, input.relativeRoot)
+})
+
+ipcMain.handle('memory:index', async (_, input: MemoryRootRequest): Promise<MemoryGraphIndexResult> => {
+  return indexMemoryGraph(input.workspaceRoot, input.relativeRoot)
+})
+
+ipcMain.handle('memory:read-preview', async (_, input: MemoryPreviewRequest): Promise<MemoryPreviewResult> => {
+  return readMemoryPreview(input.workspaceRoot, input.relativeRoot, input.relativePath)
 })
 
 ipcMain.handle('diagnostics:log', async (_, input: DiagnosticLogInput) => {
