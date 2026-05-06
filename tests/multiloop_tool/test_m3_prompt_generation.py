@@ -205,11 +205,12 @@ def test_coordinator_and_developer_prompts_require_cli_state_mutations(tmp_path:
     coordinator_prompt = cli.run("milestone", "plan-next").stdout
     developer_prompt = cli.run("task", "prompt", "--role", "developer").stdout
 
-    assert "Use `scripts/multiloop` for every Multiloop state mutation." in coordinator_prompt
+    assert "Use `scripts/multiloop` for roadmap, milestone, blocker, and milestone verdict mutations." in coordinator_prompt
     assert "Do not edit `multiloop/<loop>/state.json` directly." in coordinator_prompt
-    assert "Create or revise active-milestone tasks with `task create`" in coordinator_prompt
-    assert "Claim work before changing files with `scripts/multiloop --state multiloop/<loop>/state.json task next --role developer --id <agent-id>`." in developer_prompt
-    assert "After finishing a task, run `task next --role developer --id <agent-id>` again" in developer_prompt
+    assert "Create or revise executable active-milestone tasks only through the linked Sprint Engine state" in coordinator_prompt
+    assert "Claim work before changing files with `scripts/sprintengine --state .multi-code/sprintengine/<team>/state.yaml task next --role developer --id <agent-id>`." in developer_prompt
+    assert "Do not use `scripts/multiloop task ...`" in developer_prompt
+    assert "After finishing a task, run `scripts/sprintengine --state .multi-code/sprintengine/<team>/state.yaml task next --role developer --id <agent-id>` again" in developer_prompt
     assert "context is getting too full for reliable work" in developer_prompt
     assert "If no developer task is ready, report that exact CLI result and stop" in developer_prompt
 
