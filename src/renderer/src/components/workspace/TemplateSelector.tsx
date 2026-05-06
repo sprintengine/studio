@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createMultiloopTemplate, createSwarmTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
@@ -39,6 +39,9 @@ import {
 } from '../../utils/sprintengineStateFile'
 import multiloopSplash from '../../assets/brand/multiloop-splash.png'
 import sprintEngineSplash from '../../assets/brand/sprintengine-splash.png'
+import multiloopWorkspacePreview from '../../assets/brand/multiloop-workspace-preview.png'
+import sprintEngineWorkspacePreview from '../../assets/brand/sprintengine-workspace-preview.png'
+import standardWorkspacePreview from '../../assets/brand/standard-workspace-preview.png'
 
 type ExistingTeam = {
   slug: string
@@ -273,7 +276,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const [selectedExistingTeam, setSelectedExistingTeam] = useState<ExistingTeam | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
-  const [useWorktreesForSwarms, setUseWorktreesForSwarms] = useState(false)
   const [futurePlanOptions, setFuturePlanOptions] = useState<MarkdownPlanOption[]>(
     initialFuturePlan ? [{ path: initialFuturePlan.sourcePath, relativePath: initialFuturePlan.sourceRelativePath }] : []
   )
@@ -502,13 +504,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       return
     }
 
-    const swarmAutoState = mode === 'sprintengine'
-      ? {
-        useWorktreesForSwarms,
-        isolateWorkersInWorktrees: useWorktreesForSwarms,
-      }
-      : null
-
     if (selectedExistingTeam) {
       const { displayName, state, context } = selectedExistingTeam
       const loadedState = { ...state, name: displayName }
@@ -524,7 +519,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
         swarmState: loadedState,
         swarmContext: context,
         swarmRoleCliDefaults,
-        swarmAutoState,
       })
       return
     }
@@ -548,7 +542,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
           sourceContent: futurePlanContent,
           roleCounts: swarmRoleCounts,
           roleCliDefaults: swarmRoleCliDefaults,
-          useWorktreesForSwarms,
           pathExists: window.api.pathExists,
         })
         onClose()
@@ -576,7 +569,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       swarmState,
       swarmContext,
       swarmRoleCliDefaults,
-      swarmAutoState,
     })
   }
 
@@ -904,37 +896,6 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                         ))}
                       </select>
                     </label>
-
-                    <div className="flex min-w-0 flex-col gap-2">
-                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
-                        Worktrees
-                      </span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={useWorktreesForSwarms}
-                        onClick={() => setUseWorktreesForSwarms((enabled) => !enabled)}
-                        className={`flex h-[42px] items-center justify-between gap-3 rounded-md border px-3 text-sm font-semibold transition-colors ${
-                          useWorktreesForSwarms
-                            ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb]'
-                            : 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2] hover:bg-[#111216] hover:text-[#d7d7dc]'
-                        }`}
-                      >
-                        <span>Use worktrees</span>
-                        <span
-                          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                            useWorktreesForSwarms ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
-                          }`}
-                          aria-hidden="true"
-                        >
-                          <span
-                            className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
-                              useWorktreesForSwarms ? 'translate-x-4' : 'translate-x-0'
-                            }`}
-                          />
-                        </span>
-                      </button>
-                    </div>
                   </div>
 
                   {futurePlanError ? (
@@ -1099,26 +1060,13 @@ function agentCountLabel(slots: PreviewSlot[]): string {
 }
 
 function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
+  const agentCount = agentCountLabel(slots)
+
   return (
-    <svg
-      viewBox="0 0 300 110"
-      preserveAspectRatio="xMidYMid meet"
-      className="block aspect-[300/110] w-full"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <rect x="0" y="0" width="300" height="110" rx="8" fill="#0d0e11" />
-      <WorkspaceChrome />
-      <g transform="translate(0 18) scale(1 0.82)">
-        {slots.map((slot) => {
-          const key = `${slot.type}-${slot.label}-${slot.x}-${slot.y}`
-
-          if (slot.type === 'explorer') return <ExplorerPreview key={key} slot={slot} />
-          if (slot.type === 'editor') return <EditorPreview key={key} slot={slot} />
-
-          return <AgentPreview key={key} slot={slot} />
-        })}
-      </g>
-    </svg>
+    <WorkspacePreviewImage
+      src={standardWorkspacePreview}
+      alt={`Standard workspace layout preview, ${agentCount}`}
+    />
   )
 }
 
@@ -1148,197 +1096,28 @@ function MultiloopSplash() {
   )
 }
 
-function WorkspaceChrome({ modeLabel = 'SprintEngine' }: { modeLabel?: string }) {
-  return (
-    <g>
-      <rect x="0" y="0" width="300" height="18" rx="8" fill="#08090b" />
-      <rect x="8" y="4" width="68" height="11" rx="4" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
-      <text x="16" y="12" fill="#d7d7dc" fontSize="5.8" fontWeight="600">
-        Workspace
-      </text>
-      <rect x="80" y="5" width="46" height="9" rx="3.5" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-      <text x="88" y="11.6" fill="#9a9aa2" fontSize="5.2" fontWeight="600">
-        {modeLabel}
-      </text>
-      <rect x="132" y="5" width="12" height="9" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-      <path d="M138 7.5 V11.5 M136 9.5 H140" stroke="#9a9aa2" strokeWidth="0.9" strokeLinecap="round" />
-    </g>
-  )
-}
-
-function PaneShell({ slot, children }: { slot: PreviewSlot; children: React.ReactNode }) {
-  return (
-    <g>
-      <rect
-        x={slot.x}
-        y={slot.y}
-        width={slot.w}
-        height={slot.h}
-        rx="5"
-        fill="#101116"
-        stroke="#3a3b43"
-        strokeWidth="1"
-      />
-      <rect
-        x={slot.x + 1}
-        y={slot.y + 1}
-        width={Math.max(0, slot.w - 2)}
-        height="11"
-        rx="4"
-        fill="#17181d"
-      />
-      {children}
-    </g>
-  )
-}
-
-function ExplorerPreview({ slot }: { slot: PreviewSlot }) {
-  const rows = previewRows(slot.h, 20, 10, 4)
-
-  return (
-    <PaneShell slot={slot}>
-      <rect x={slot.x + 6} y={slot.y + 6} width="10" height="2" rx="1" fill="#74757d" />
-      {rows.map((row) => {
-        const y = slot.y + 20 + row * 10
-        const width = Math.max(9, Math.min(slot.w - 16, slot.w * (row % 2 === 0 ? 0.62 : 0.48)))
-        return (
-          <rect
-            key={row}
-            x={slot.x + 8}
-            y={y}
-            width={width}
-            height="2"
-            rx="1"
-            fill={row === 0 ? '#b88928' : '#5a5b63'}
-          />
-        )
-      })}
-    </PaneShell>
-  )
-}
-
-function EditorPreview({ slot }: { slot: PreviewSlot }) {
-  const rows = previewRows(slot.h, 20, 9, 5)
-
-  return (
-    <PaneShell slot={slot}>
-      <rect x={slot.x + 7} y={slot.y + 6} width="20" height="2" rx="1" fill="#74757d" />
-      {rows.map((row) => {
-        const y = slot.y + 20 + row * 9
-        const indent = row === 2 || row === 3 ? 7 : 0
-        const width = Math.max(14, Math.min(slot.w - 22 - indent, slot.w * (row % 2 === 0 ? 0.66 : 0.46)))
-        return (
-          <rect
-            key={row}
-            x={slot.x + 8 + indent}
-            y={y}
-            width={width}
-            height="2"
-            rx="1"
-            fill={row === 0 ? '#6fbd85' : '#64656d'}
-          />
-        )
-      })}
-    </PaneShell>
-  )
-}
-
-function AgentPreview({ slot }: { slot: PreviewSlot }) {
-  const rows = previewRows(slot.h, 21, 9, 4)
-
-  return (
-    <PaneShell slot={slot}>
-      <circle cx={slot.x + 8} cy={slot.y + 7} r="1.5" fill="#6ee7d8" />
-      <rect x={slot.x + 13} y={slot.y + 6} width="18" height="2" rx="1" fill="#74757d" />
-      {rows.map((row) => {
-        const y = slot.y + 21 + row * 9
-        const width = Math.max(12, Math.min(slot.w - 19, slot.w * (row % 2 === 0 ? 0.58 : 0.42)))
-        return (
-          <g key={row}>
-            <rect x={slot.x + 8} y={y} width="4" height="2" rx="1" fill="#6ee7d8" />
-            <rect x={slot.x + 16} y={y} width={width} height="2" rx="1" fill="#62636b" />
-          </g>
-        )
-      })}
-    </PaneShell>
-  )
-}
-
-function previewRows(height: number, firstY: number, gap: number, maxRows: number): number[] {
-  return Array.from({ length: maxRows }, (_, row) => row).filter((row) => firstY + row * gap + 2 <= height - 6)
-}
-
 function SwarmWorkspacePreview() {
   return (
-    <svg
-      viewBox="0 0 300 110"
-      preserveAspectRatio="xMidYMid meet"
-      className="block aspect-[300/110] w-full"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <rect x="0" y="0" width="300" height="110" rx="8" fill="#0d0e11" />
-      <WorkspaceChrome />
-      <rect x="5" y="21" width="290" height="84" rx="5" fill="#101116" stroke="#3a3b43" strokeWidth="1" />
-      <rect x="11" y="28" width="32" height="8" rx="3" fill="#17181d" stroke="#303139" strokeWidth="0.8" />
-      <rect x="47" y="28" width="24" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-      <rect x="75" y="28" width="30" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-      <rect x="109" y="28" width="34" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-      <rect x="149" y="28" width="15" height="8" rx="3" fill="#111216" stroke="#24252b" strokeWidth="0.8" />
-
-      <path d="M51 53 H91 M118 62 L91 75 M42 76 H75" stroke="#5f6068" strokeWidth="1" />
-      <rect x="18" y="45" width="34" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
-      <rect x="92" y="45" width="44" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
-      <rect x="75" y="72" width="46" height="16" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.9" />
-      <rect x="25" y="52" width="19" height="2" rx="1" fill="#ffbf2f" opacity="0.86" />
-      <rect x="100" y="52" width="26" height="2" rx="1" fill="#6ee7d8" opacity="0.88" />
-      <rect x="84" y="79" width="24" height="2" rx="1" fill="#6fbd85" opacity="0.88" />
-
-      <g>
-        <rect x="154" y="46" width="36" height="45" rx="3" fill="#14151a" stroke="#303139" strokeWidth="0.7" />
-        <rect x="198" y="46" width="36" height="45" rx="3" fill="#14151a" stroke="#303139" strokeWidth="0.7" />
-        <rect x="242" y="46" width="36" height="45" rx="3" fill="#14151a" stroke="#303139" strokeWidth="0.7" />
-        {[51, 62, 75].map((y, index) => (
-          <g key={y}>
-            <rect x={160 + index * 44} y={y} width="22" height="6" rx="2" fill={index === 0 ? '#3a3426' : '#17181d'} />
-            <rect x={160 + index * 44} y={y + 14} width="18" height="6" rx="2" fill="#17181d" />
-          </g>
-        ))}
-      </g>
-    </svg>
+    <WorkspacePreviewImage
+      src={sprintEngineWorkspacePreview}
+      alt="SprintEngine swarm Kanban workspace preview"
+    />
   )
 }
 
 function MultiloopWorkspacePreview() {
   return (
-    <svg
-      viewBox="0 0 300 110"
-      preserveAspectRatio="xMidYMid meet"
-      className="block aspect-[300/110] w-full"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <rect x="0" y="0" width="300" height="110" rx="8" fill="#0d0e11" />
-      <WorkspaceChrome modeLabel="Loop" />
-      <rect x="6" y="22" width="288" height="82" rx="5" fill="#101116" stroke="#3a3b43" strokeWidth="1" />
-      <rect x="15" y="31" width="72" height="6" rx="2" fill="#6ee7d8" opacity="0.82" />
-      <rect x="15" y="43" width="120" height="3" rx="1.5" fill="#74757d" />
-      <rect x="15" y="52" width="100" height="3" rx="1.5" fill="#5a5b63" />
+    <WorkspacePreviewImage src={multiloopWorkspacePreview} alt="Multiloop milestone board workspace preview" />
+  )
+}
 
-      <rect x="15" y="68" width="74" height="23" rx="4" fill="#14151a" stroke="#303139" strokeWidth="0.8" />
-      <rect x="24" y="76" width="38" height="3" rx="1.5" fill="#6ee7d8" opacity="0.85" />
-      <rect x="24" y="84" width="48" height="2" rx="1" fill="#62636b" />
-
-      <rect x="103" y="68" width="74" height="23" rx="4" fill="#17181d" stroke="#6ee7d8" strokeWidth="0.9" />
-      <rect x="112" y="76" width="44" height="3" rx="1.5" fill="#d8fffb" opacity="0.86" />
-      <rect x="112" y="84" width="36" height="2" rx="1" fill="#7c7d86" />
-
-      <rect x="191" y="68" width="74" height="23" rx="4" fill="#14151a" stroke="#303139" strokeWidth="0.8" />
-      <rect x="200" y="76" width="34" height="3" rx="1.5" fill="#74757d" />
-      <rect x="200" y="84" width="46" height="2" rx="1" fill="#62636b" />
-
-      <rect x="157" y="31" width="110" height="23" rx="4" fill="#17181d" stroke="#3a3b43" strokeWidth="0.8" />
-      <rect x="167" y="38" width="16" height="3" rx="1.5" fill="#ff787c" />
-      <rect x="190" y="38" width="52" height="3" rx="1.5" fill="#8a8b93" />
-      <rect x="167" y="46" width="70" height="2" rx="1" fill="#62636b" />
-    </svg>
+function WorkspacePreviewImage({ src, alt }: { src: string; alt: string }) {
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="block aspect-[16/9] w-full rounded-md object-cover"
+      draggable={false}
+    />
   )
 }
