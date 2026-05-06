@@ -85,6 +85,8 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
   const cameraRef = useRef<Camera>({ x: 0, y: 0, scale: 1 })
   const positionedRef = useRef<PositionedNode[]>([])
   const ghostsRef = useRef<PositionedNode[]>([])
+  const starsRef = useRef<Star[]>([])
+  const starfieldDimsRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 })
   const dragStateRef = useRef<
     | { kind: 'pan'; startX: number; startY: number; camera: Camera; moved: boolean }
     | { kind: 'node'; nodeId: string; offsetX: number; offsetY: number; moved: boolean }
@@ -172,11 +174,10 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
       : false
 
-  const sim = useMemoryGraphSimulation(positionedRef, edges, {
+  const sim = useMemoryGraphSimulation(positionedRef, nodes, edges, {
     forces,
     width: canvasRef.current?.clientWidth ?? 800,
     height: canvasRef.current?.clientHeight ?? 600,
-    isDragging: dragStateRef.current?.kind === 'node',
     reducedMotion,
   })
 
@@ -211,6 +212,18 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       ctx.fillStyle = '#09090b'
       ctx.fillRect(0, 0, width, height)
 
+      if (display.starfield) {
+        if (
+          starsRef.current.length === 0
+          || starfieldDimsRef.current.width !== width
+          || starfieldDimsRef.current.height !== height
+        ) {
+          starsRef.current = generateStars(width, height)
+          starfieldDimsRef.current = { width, height }
+        }
+        drawStarfield(ctx, starsRef.current, performance.now())
+      }
+
       const camera = cameraRef.current
       ctx.save()
       ctx.translate(camera.x, camera.y)
@@ -238,11 +251,11 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         const dimmed = focusId && !isActive
 
         ctx.strokeStyle = isActive
-          ? 'rgba(165, 180, 252, 0.85)'
+          ? 'rgba(199, 210, 254, 0.95)'
           : dimmed
-            ? 'rgba(82, 82, 91, 0.18)'
-            : 'rgba(82, 82, 91, 0.42)'
-        ctx.lineWidth = isActive ? baseLineWidth * 1.7 : baseLineWidth
+            ? 'rgba(113, 113, 122, 0.22)'
+            : 'rgba(161, 161, 170, 0.62)'
+        ctx.lineWidth = isActive ? baseLineWidth * 1.8 : baseLineWidth * 1.15
 
         const ghostEdge = target.color === UNRESOLVED_COLOR || source.color === UNRESOLVED_COLOR
         ctx.setLineDash(ghostEdge ? [3 / camera.scale, 3 / camera.scale] : [])
@@ -314,10 +327,6 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         ctx.globalAlpha = dimmed ? 0.32 : 1
         const radius = node.radius * (isSelected ? 1.35 : isHovered ? 1.2 : 1)
 
-        if (display.glowHalos && isActive && !focusId) {
-          // ambient glow on degree-heavy nodes
-        }
-
         ctx.fillStyle = node.color
         ctx.beginPath()
         ctx.arc(node.x, node.y, radius, 0, Math.PI * 2)
@@ -365,7 +374,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       disposed = true
       cancelAnimationFrame(frame)
     }
-  }, [edges, neighbors, display.curvedEdges, display.glowHalos, display.labelFadeThreshold, display.labelFontSize, display.lineThicknessScale, display.showArrows])
+  }, [edges, neighbors, display.curvedEdges, display.glowHalos, display.labelFadeThreshold, display.labelFontSize, display.lineThicknessScale, display.showArrows, display.starfield])
 
   // Imperative camera handles for the zoom HUD.
   useImperativeHandle(forwardedRef, () => ({
@@ -636,4 +645,84 @@ function pickLabelNodes(
   return out
     .sort((a, b) => (b.node.degree - a.node.degree))
     .slice(0, cap)
+}
+
+type Star = {
+  x: number
+  y: number
+  radius: number
+  baseAlpha: number
+  amp: number
+  period: number
+  phase: number
+  hue: 'white' | 'indigo' | 'cyan'
+}
+
+function generateStars(width: number, height: number): Star[] {
+  // Density tuned for a calm starfield — roughly one star per 4500 px².
+  const count = Math.max(40, Math.min(180, Math.round((width * height) / 4500)))
+  const stars: Star[] = []
+  for (let i = 0; i < count; i += 1) {
+    const r = mulberry(i + 1)
+    const sizeRoll = r()
+    const radius = sizeRoll < 0.78 ? 0.6 + r() * 0.5 : sizeRoll < 0.96 ? 1 + r() * 0.6 : 1.6 + r() * 0.7
+    const hueRoll = r()
+    const hue: Star['hue'] = hueRoll < 0.82 ? 'white' : hueRoll < 0.94 ? 'indigo' : 'cyan'
+    stars.push({
+      x: r() * width,
+      y: r() * height,
+      radius,
+      baseAlpha: 0.18 + r() * 0.42,
+      amp: 0.12 + r() * 0.28,
+      period: 1800 + r() * 4200,
+      phase: r() * Math.PI * 2,
+      hue,
+    })
+  }
+  return stars
+}
+
+function drawStarfield(ctx: CanvasRenderingContext2D, stars: Star[], now: number) {
+  ctx.save()
+  for (const star of stars) {
+    const t = (now / star.period) * Math.PI * 2 + star.phase
+    const twinkle = Math.sin(t)
+    const alpha = clamp01(star.baseAlpha + twinkle * star.amp)
+    if (alpha <= 0.02) continue
+
+    const rgb =
+      star.hue === 'indigo'
+        ? '165, 180, 252'
+        : star.hue === 'cyan'
+          ? '125, 211, 252'
+          : '244, 244, 245'
+
+    if (star.radius >= 1.4 && twinkle > 0.7) {
+      const grad = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, star.radius * 4.5)
+      grad.addColorStop(0, `rgba(${rgb}, ${alpha * 0.55})`)
+      grad.addColorStop(1, `rgba(${rgb}, 0)`)
+      ctx.fillStyle = grad
+      ctx.beginPath()
+      ctx.arc(star.x, star.y, star.radius * 4.5, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    ctx.fillStyle = `rgba(${rgb}, ${alpha})`
+    ctx.beginPath()
+    ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.restore()
+}
+
+// Tiny seeded PRNG so the starfield is stable across redraws of the same canvas size.
+function mulberry(seed: number): () => number {
+  let a = seed >>> 0
+  return function rand() {
+    a += 0x6d2b79f5
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
 }

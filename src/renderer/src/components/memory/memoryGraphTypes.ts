@@ -62,6 +62,7 @@ export const DEFAULT_DISPLAY: MemoryGraphDisplayConfig = {
   showArrows: false,
   curvedEdges: true,
   glowHalos: true,
+  starfield: false,
 }
 
 export const DEFAULT_FORCES: MemoryGraphForcesConfig = {
@@ -144,6 +145,7 @@ export function normalizeDisplay(
     showArrows: Boolean(input?.showArrows),
     curvedEdges: input?.curvedEdges !== false,
     glowHalos: input?.glowHalos !== false,
+    starfield: Boolean(input?.starfield),
   }
 }
 

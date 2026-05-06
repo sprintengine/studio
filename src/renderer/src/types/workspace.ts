@@ -540,6 +540,7 @@ export type MemoryGraphDisplayConfig = {
   showArrows: boolean
   curvedEdges: boolean
   glowHalos: boolean
+  starfield: boolean
 }
 
 export type MemoryGraphForcesConfig = {

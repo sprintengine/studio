@@ -1,59 +1,144 @@
 import { useEffect, useRef } from 'react'
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  type Simulation,
+  type ForceCenter,
+  type ForceCollide,
+  type ForceLink,
+  type ForceManyBody,
+  type SimulationLinkDatum,
+} from 'd3-force'
 import type { MemoryGraphForcesConfig } from '../../types/workspace'
 import type { PositionedNode } from './memoryGraphTypes'
 
-const COOLING = 0.985
-const VELOCITY_DECAY = 0.78
-const MAX_STEP = 12
+const ALPHA_MIN = 0.005
+const TICK_PER_FRAME = 1
 
 type SimulationOptions = {
   forces: MemoryGraphForcesConfig
   width: number
   height: number
-  isDragging: boolean
   reducedMotion: boolean
 }
 
 export type GraphSimulationHandle = {
-  /**
-   * Reset the simulation alpha so the layout settles again, e.g. after
-   * filters change or new nodes are introduced.
-   */
+  /** Re-energise the simulation after a topology or filter change. */
   bump: (alpha?: number) => void
 }
 
+type LinkDatum = SimulationLinkDatum<PositionedNode> & { id: string }
+
 export function useMemoryGraphSimulation(
   nodesRef: React.MutableRefObject<PositionedNode[]>,
+  visibleNodes: MemoryGraphNode[],
   edges: MemoryGraphEdge[],
   options: SimulationOptions
 ): GraphSimulationHandle {
-  const alphaRef = useRef(1)
+  const simRef = useRef<Simulation<PositionedNode, LinkDatum> | null>(null)
   const optionsRef = useRef(options)
-  const edgesRef = useRef(edges)
   optionsRef.current = options
-  edgesRef.current = edges
 
+  // Build the simulation once and stop its internal timer — we tick from RAF.
   useEffect(() => {
-    alphaRef.current = 1
+    const sim = forceSimulation<PositionedNode>([])
+      .alphaDecay(0.02)
+      .velocityDecay(0.32)
+      .stop()
+
+    sim.force('charge', forceManyBody<PositionedNode>().strength(-180))
+    sim.force(
+      'link',
+      forceLink<PositionedNode, LinkDatum>([])
+        .id((node) => node.id)
+        .distance(90)
+        .strength(0.4)
+    )
+    sim.force('center', forceCenter<PositionedNode>(0, 0).strength(0.2))
+    sim.force(
+      'collide',
+      forceCollide<PositionedNode>().radius((node) => node.radius + 2).strength(0.85)
+    )
+
+    simRef.current = sim
+    return () => {
+      sim.stop()
+      simRef.current = null
+    }
+  }, [])
+
+  // Re-bind the live nodes array whenever the visible set changes. The canvas
+  // rebuilds nodesRef.current synchronously before this effect runs, so d3
+  // ticks against the same array reference the renderer reads from.
+  useEffect(() => {
+    const sim = simRef.current
+    if (!sim) return
+    sim.nodes(nodesRef.current)
+    sim.alpha(0.85).restart()
+  }, [visibleNodes, nodesRef])
+
+  // Wire the link force whenever the edge set changes.
+  useEffect(() => {
+    const sim = simRef.current
+    if (!sim) return
+    const linkForce = sim.force('link') as ForceLink<PositionedNode, LinkDatum> | undefined
+    if (!linkForce) return
+    linkForce.links(
+      edges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+      }))
+    )
+    sim.alpha(0.7).restart()
   }, [edges])
 
+  // Apply force tunables + viewport center whenever they change.
+  useEffect(() => {
+    const sim = simRef.current
+    if (!sim) return
+    const { forces, width, height } = options
+
+    const charge = sim.force('charge') as ForceManyBody<PositionedNode> | undefined
+    if (charge) {
+      charge.strength(-280 * Math.max(0.05, forces.repelForce))
+    }
+    const linkForce = sim.force('link') as ForceLink<PositionedNode, LinkDatum> | undefined
+    if (linkForce) {
+      linkForce.distance(forces.linkDistance).strength(forces.linkForce)
+    }
+    const center = sim.force('center') as ForceCenter<PositionedNode> | undefined
+    if (center) {
+      center.x(width / 2).y(height / 2).strength(forces.centerForce)
+    }
+    const collide = sim.force('collide') as ForceCollide<PositionedNode> | undefined
+    if (collide) {
+      collide.radius((node) => node.radius + 2)
+    }
+    sim.alpha(Math.max(sim.alpha(), 0.45)).restart()
+  }, [
+    options.forces.centerForce,
+    options.forces.repelForce,
+    options.forces.linkForce,
+    options.forces.linkDistance,
+    options.width,
+    options.height,
+  ])
+
+  // Manual tick from rAF so we share a single frame budget with the renderer.
   useEffect(() => {
     let frame = 0
     let disposed = false
-
     const tick = () => {
       if (disposed) return
+      const sim = simRef.current
       const opts = optionsRef.current
-      const nodes = nodesRef.current
-      const alpha = alphaRef.current
-
-      if (!opts.reducedMotion && alpha > 0.005 && nodes.length > 0) {
-        step(nodes, edgesRef.current, opts, alpha)
-        alphaRef.current = alpha * COOLING
-      } else if (opts.isDragging && nodes.length > 0) {
-        step(nodes, edgesRef.current, opts, Math.max(0.2, alpha))
+      if (sim && !opts.reducedMotion && sim.alpha() > ALPHA_MIN) {
+        for (let i = 0; i < TICK_PER_FRAME; i += 1) sim.tick()
       }
-
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
@@ -61,104 +146,13 @@ export function useMemoryGraphSimulation(
       disposed = true
       cancelAnimationFrame(frame)
     }
-  }, [nodesRef])
+  }, [])
 
   return {
-    bump: (alpha = 1) => {
-      alphaRef.current = Math.max(alphaRef.current, alpha)
+    bump: (alpha = 0.6) => {
+      const sim = simRef.current
+      if (!sim) return
+      sim.alpha(Math.max(sim.alpha(), alpha)).restart()
     },
   }
-}
-
-function step(
-  nodes: PositionedNode[],
-  edges: MemoryGraphEdge[],
-  options: SimulationOptions,
-  alpha: number
-): void {
-  const { forces, width, height } = options
-  const centerX = width / 2
-  const centerY = height / 2
-  const repelStrength = 220 * forces.repelForce
-  const linkStrength = 0.06 * forces.linkForce
-  const centerStrength = 0.0015 * forces.centerForce
-  const linkDistance = forces.linkDistance
-
-  const nodeById = new Map(nodes.map((node) => [node.id, node] as const))
-
-  for (let i = 0; i < nodes.length; i += 1) {
-    const a = nodes[i]
-    for (let j = i + 1; j < nodes.length; j += 1) {
-      const b = nodes[j]
-      const dx = a.x - b.x
-      const dy = a.y - b.y
-      let distSq = dx * dx + dy * dy
-      const minDist = a.radius + b.radius + 4
-      const minDistSq = minDist * minDist
-      if (distSq < 0.01) distSq = 0.01
-      const dist = Math.sqrt(distSq)
-
-      const force = repelStrength / distSq
-      const fx = (dx / dist) * force * alpha
-      const fy = (dy / dist) * force * alpha
-      a.vx += fx
-      a.vy += fy
-      b.vx -= fx
-      b.vy -= fy
-
-      if (distSq < minDistSq) {
-        const overlap = (minDist - dist) * 0.5
-        const ox = (dx / dist) * overlap
-        const oy = (dy / dist) * overlap
-        if (a.fx === null) { a.x += ox; }
-        if (a.fy === null) { a.y += oy; }
-        if (b.fx === null) { b.x -= ox; }
-        if (b.fy === null) { b.y -= oy; }
-      }
-    }
-  }
-
-  edges.forEach((edge) => {
-    const source = nodeById.get(edge.source)
-    const target = nodeById.get(edge.target)
-    if (!source || !target) return
-    const dx = target.x - source.x
-    const dy = target.y - source.y
-    const distance = Math.max(0.1, Math.sqrt(dx * dx + dy * dy))
-    const desired = linkDistance + (source.radius + target.radius) * 0.5
-    const force = (distance - desired) * linkStrength * alpha
-    const fx = (dx / distance) * force
-    const fy = (dy / distance) * force
-    source.vx += fx
-    source.vy += fy
-    target.vx -= fx
-    target.vy -= fy
-  })
-
-  nodes.forEach((node) => {
-    node.vx += (centerX - node.x) * centerStrength * alpha
-    node.vy += (centerY - node.y) * centerStrength * alpha
-
-    node.vx *= VELOCITY_DECAY
-    node.vy *= VELOCITY_DECAY
-
-    if (node.fx !== null) {
-      node.x = node.fx
-      node.vx = 0
-    } else {
-      const dx = clamp(node.vx, -MAX_STEP, MAX_STEP)
-      node.x += dx
-    }
-    if (node.fy !== null) {
-      node.y = node.fy
-      node.vy = 0
-    } else {
-      const dy = clamp(node.vy, -MAX_STEP, MAX_STEP)
-      node.y += dy
-    }
-  })
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return value < min ? min : value > max ? max : value
 }

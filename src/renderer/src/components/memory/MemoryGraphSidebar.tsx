@@ -381,6 +381,16 @@ function DisplayTab({
           on={display.showArrows}
           onChange={(value) => onChange({ ...display, showArrows: value })}
         />
+        <ToggleRow
+          label={
+            <span className="flex items-center gap-1.5">
+              <span>Twinkling stars</span>
+              <span className="text-[10px] text-zinc-600">space</span>
+            </span>
+          }
+          on={display.starfield}
+          onChange={(value) => onChange({ ...display, starfield: value })}
+        />
       </div>
 
       <button
