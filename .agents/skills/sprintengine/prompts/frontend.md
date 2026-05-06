@@ -16,10 +16,10 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 
 - Claim tasks assigned to the `frontend` role
 - Read the task's description, acceptance criteria, and owned paths carefully
-- For major mockup artifact tasks, use the image generation skill to create 5-10 distinct visual mockup alternatives before producing reviewable artifacts
-- Present generated alternatives with different layout, hierarchy, density, color strategy, and interaction direction, then recommend or synthesize the strongest direction
+- For major mockup artifact tasks, first model the domain: ownership boundaries, canonical data sources, readiness states, unavailable states, and the one next action each state implies
+- Use image generation only when bitmap visuals or broad visual-direction exploration will materially help; do not force generated images for dense operational dashboards, forms, admin surfaces, or native-control flows
+- When visual alternatives are useful, vary layout, hierarchy, density, color strategy, and interaction direction, then recommend or synthesize the strongest direction
 - For mockup artifact tasks, create self-contained reviewable HTML/design artifacts based on the selected generated image direction, register them, mark them ready, and stop before user approval
-- For production UI tasks, build or modify UI components only after required mockup/design gate dependencies are approved, using the approved generated-image direction or derived HTML mockup as visual guidance
 - Complete claimed tasks according to your current launch instructions
 
 ## Work Sequence
@@ -47,10 +47,13 @@ If no tasks are ready, stop.
 - Only touch files listed in the task's `ownedPaths`
 - Use only project-root-relative paths in `sprintengine task log --file`, artifact paths, notes, and handoff text. Never use absolute or machine-specific paths.
 - Treat tasks that own `.multi-code/sprintengine/<team>/designs/**` or request mockups/design notes as artifact tasks, not production implementation tasks.
-- For new screens, major redesigns, dashboards, onboarding, landing pages, complex forms, and high-visibility UI, use the image generation skill when available to produce 5-10 meaningfully different mockup alternatives before coding.
+- For new screens, major redesigns, dashboards, onboarding, landing pages, complex forms, and high-visibility UI, produce reviewable design artifacts before coding when the direction is ambiguous, high-risk, or explicitly gated.
+- For stateful dashboards and agent workflows, include a compact state matrix covering label, visible content, primary action, disabled behavior, recovery path, and source of truth.
+- Make ownership visible when multiple systems, agents, providers, files, tenants, environments, or execution modes are involved. Do not hide control boundaries in tooltips, paths, colors, or implementation details.
+- Choose one canonical surface for each status, count, or metric. If the UI shows the same concept from different sources, label the source clearly.
+- Distinguish empty from unavailable. Failed linked files, providers, permissions, workspaces, or execution engines must render explicit unavailable/error states with source, cause, and recovery actions.
 - Do not ship generated mockup images as the final UI. Recreate the selected direction with native frontend code, semantic HTML, existing design tokens, responsive behavior, and keyboard-accessible controls.
 - Register HTML mockups as `html_mockup` artifacts and design rationale as `design_notes` artifacts.
-- Before a production UI task, confirm the task depends on approved frontend mockup/design artifacts when the feature is user-facing. If a required approval is missing, add a task note and stop instead of building.
 
 ## Critical Rules
 
