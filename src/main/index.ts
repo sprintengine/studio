@@ -51,6 +51,7 @@ const MULTICODE_PRODUCT = 'multicode' as const
 const ENTITLEMENT_GRACE_MS = 72 * 60 * 60 * 1000
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const DIAGNOSTIC_SLOW_IPC_MS = 250
+const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
 
 type FeatureValue = boolean | number | string
 
@@ -451,6 +452,8 @@ class MulticodeAuthBridge {
   }
 
   async login(organizationId?: string | null): Promise<{ state: string; authorizationUrl: string }> {
+    await this.preflightAuthServer()
+
     const state = randomBase64Url(24)
     const nonce = randomBase64Url(24)
     const codeVerifier = randomBase64Url(48)
@@ -480,8 +483,18 @@ class MulticodeAuthBridge {
       createdAt: Date.now(),
     }
     const authorizationUrl = `${MULTIAUTH_BASE_URL}/?${search.toString()}`
-    await shell.openExternal(authorizationUrl)
+    try {
+      await shell.openExternal(authorizationUrl)
+    } catch (error) {
+      this.pendingLogin = null
+      const message = `Could not open Multiauth sign-in: ${getErrorMessage(error)}`
+      this.setState({ ...this.state, status: 'error', message })
+      console.error('[auth] login-open-failed', { authorizationUrl, message })
+      throw new Error(message)
+    }
+
     this.setState({ ...this.state, message: 'Complete sign-in in your browser.' })
+    console.info('[auth] login-started', { authorizationUrl, organizationId: selectedOrganizationId ?? null })
 
     return { state, authorizationUrl }
   }
@@ -714,6 +727,29 @@ class MulticodeAuthBridge {
     const url = `${MULTIAUTH_BASE_URL}/?${search.toString()}`
     await shell.openExternal(url)
     return { opened: true, url }
+  }
+
+  private async preflightAuthServer(): Promise<void> {
+    const healthUrl = `${MULTIAUTH_BASE_URL}/api/health`
+
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), AUTH_PREFLIGHT_TIMEOUT_MS)
+      const response = await fetch(healthUrl, {
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout))
+
+      if (!response.ok) {
+        throw new Error(`Multiauth health returned ${response.status}.`)
+      }
+    } catch (error) {
+      const message = `Multiauth is not reachable at ${MULTIAUTH_BASE_URL}. ${getErrorMessage(error)}`
+      this.pendingLogin = null
+      this.setState({ ...this.state, status: 'error', message })
+      console.error('[auth] login-preflight-failed', { healthUrl, message })
+      throw new Error(message)
+    }
   }
 
   private async readSessionFromEntitlements(entitlements: EntitlementSnapshot): Promise<ElectronRendererAuthState> {

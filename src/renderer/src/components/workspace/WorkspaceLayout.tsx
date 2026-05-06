@@ -32,6 +32,7 @@ const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
 const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
 const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
+const MobileCompanionPanel = React.lazy(() => import('../panels/MobileCompanionPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
 type AgentTabActivity = 'needs-input' | 'running' | 'idle'
@@ -281,6 +282,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           )
         case 'memory-graph':
           return timedPanel('MemoryGraphPanel', <MemoryGraphPanel workspaceId={workspaceId} />)
+        case 'mobile-companion':
+          return timedPanel('MobileCompanionPanel', <MobileCompanionPanel />)
         default:
           return <div className="h-full bg-[#08090b]" />
       }

@@ -150,6 +150,7 @@ type RelayConnectResult = {
 
 type RelayPairingChallengeResult = {
   pairingChallengeId: string
+  manualPairingCode?: string
   pairingUri: string
   pairingPayload?: {
     mobileControlProtocolVersion: 1
@@ -1190,6 +1191,9 @@ class FetchMobileRelayTransport implements MobileRelayTransport {
 
     return {
       pairingChallengeId: requireRelayString(payload, 'pairingChallengeId'),
+      ...(typeof payload['manualPairingCode'] === 'string' && payload['manualPairingCode'].trim()
+        ? { manualPairingCode: payload['manualPairingCode'].trim() }
+        : {}),
       pairingUri: requireRelayString(payload, 'pairingUri'),
       ...(pairingPayload ? { pairingPayload } : {}),
       expiresAt: requireRelayString(payload, 'expiresAt'),
@@ -1502,7 +1506,7 @@ function summarizeCommandResult(result: MobileSwarmCommandResult): Record<string
 function sanitizeResultData(data: unknown): unknown {
   if (!data || typeof data !== 'object') return data
   const json = JSON.stringify(data)
-  if (json.length > 2048) {
+  if (json.length > 256 * 1024) {
     return { truncated: true }
   }
   return data
@@ -1561,6 +1565,8 @@ function getDesktopDisplayName(): string {
 }
 
 function manualPairingValueFromRelayChallenge(challenge: RelayPairingChallengeResult): string {
+  if (challenge.manualPairingCode) return challenge.manualPairingCode
+
   if (!challenge.pairingPayload) {
     if (isCurrentMobilePairingUri(challenge.pairingUri)) return challenge.pairingUri
     throw new Error('Relay pairing challenge did not include a mobile-compatible pairing payload.')

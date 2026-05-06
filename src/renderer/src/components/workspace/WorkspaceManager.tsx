@@ -75,7 +75,7 @@ const SPECIALIST_KEYBOARD_SHORTCUTS: Record<string, SpecialistActionId> = {
   m: 'performance',
   p: 'architect',
 }
-type WorkspacePanelComponent = 'explorer' | 'editor' | 'git' | 'memory-graph'
+type WorkspacePanelComponent = 'explorer' | 'editor' | 'git' | 'memory-graph' | 'mobile-companion'
 type WorkspaceActivity = 'needs-input' | 'running' | 'idle'
 type SessionStatus = 'needs-input' | 'running'
 type SessionItem = {
@@ -941,6 +941,15 @@ export default function WorkspaceManager() {
     setAccountOpen(false)
   }
 
+  const openMobileCompanion = () => {
+    if (!activeWorkspaceId) return
+    focusOrAddComponentTab(activeWorkspaceId, 'mobile-companion', 'Mobile')
+    setSessionsOpen(false)
+    setNotificationsOpen(false)
+    setSpecialistMenuOpen(false)
+    setAccountOpen(false)
+  }
+
   const openHandoffDialog = () => {
     if (!activeWorkspace) return
     setHandoffTeamName(slugifySwarmName(activeWorkspace.name))
@@ -989,7 +998,27 @@ export default function WorkspaceManager() {
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
-    await window.api.authLogin(authState.selectedOrganization?.id ?? null)
+    setAuthMessage('Opening sign-in.')
+
+    try {
+      await window.api.authLogin(authState.selectedOrganization?.id ?? null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setAuthMessage(message)
+      setAuthState(await window.api.authGetState().catch(() => ({
+        ...authState,
+        status: 'error' as const,
+        message,
+      })))
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'auth',
+        title: 'Sign-in did not open',
+        message,
+        details: 'Check that the Multiauth server is running and reachable from this desktop process.',
+      })
+      setNotificationsOpen(true)
+    }
   }
 
   const refreshAuthState = async () => {
@@ -1259,6 +1288,19 @@ export default function WorkspaceManager() {
               aria-label="Memory Graph"
             >
               <MemoryGraphIcon className="h-[18px] w-[18px]" />
+            </button>
+          ) : null}
+
+          {workspaceActionsEnabled ? (
+            <button
+              type="button"
+              onClick={openMobileCompanion}
+              disabled={!activeWorkspaceId}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
+              title="Mobile Companion"
+              aria-label="Mobile Companion"
+            >
+              <MobileCompanionIcon className="h-[18px] w-[18px]" />
             </button>
           ) : null}
 
@@ -2021,6 +2063,18 @@ function MemoryGraphIcon({ className }: { className?: string }) {
   )
 }
 
+function MobileCompanionIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="7.25" y="3.75" width="9.5" height="16.5" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M10.25 6.5H13.75" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M11.25 17.45H12.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M9.75 10.3L12 12.55L14.25 10.3" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 12.55V8.8" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function TerminalSessionIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2373,7 +2427,9 @@ function toggleWorkspacePanel(workspaceId: string, component: WorkspacePanelComp
       ? 'Git'
       : component === 'memory-graph'
         ? 'Memory Graph'
-        : 'Editor'
+        : component === 'mobile-companion'
+          ? 'Mobile'
+          : 'Editor'
   const target = getPreferredPanelTarget(model, component)
 
   model.doAction(
