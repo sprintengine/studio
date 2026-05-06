@@ -780,6 +780,7 @@ export default function WorkspaceManager() {
       cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
+      cliResumeAvailable: false,
     })
     model.doAction(
       Actions.addNode(
@@ -853,6 +854,7 @@ export default function WorkspaceManager() {
       cliStartRequested: true,
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
+      cliResumeAvailable: false,
       cliSessionId: crypto.randomUUID(),
     })
     model.doAction(
@@ -891,6 +893,7 @@ export default function WorkspaceManager() {
       cliStartupPrompt: undefined,
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
+      cliResumeAvailable: false,
     })
     model.doAction(
       Actions.addNode(
@@ -1018,6 +1021,7 @@ export default function WorkspaceManager() {
         cliSessionId: item.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
+        cliResumeAvailable: item.cli === 'codex' ? true : undefined,
       })
     }
 
@@ -2091,6 +2095,7 @@ function killTerminalForLayoutTab(workspaceId: string, node: TabNode): void {
       cliStartRequested: false,
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
+      cliResumeAvailable: false,
     })
     return
   }

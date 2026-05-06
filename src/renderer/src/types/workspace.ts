@@ -210,9 +210,6 @@ export type SwarmAutoState = {
   autoApproveArtifacts: boolean
   keepDoneAgentTerminals: boolean
   cliPermissionPreset: SwarmCliPermissionPreset
-  useWorktreesForSwarms: boolean
-  isolateWorkersInWorktrees?: boolean
-  architectMergeAutoTriggeredKey?: string | null
   pendingSpawns: SwarmAutoPendingSpawn[]
 }
 
@@ -514,6 +511,10 @@ export type WorkspaceWorktreeState = {
   updatedAt: number | null
 }
 
+export type WorkspaceMemoryConfig = {
+  relativeRoot: string | null
+}
+
 export type UsageTelemetrySettings = {
   sendUsageData: boolean
   localDevExportEnabled: boolean
@@ -576,6 +577,7 @@ export type AgentState = {
   cliRestartNonce?: number
   cliHasLaunched?: boolean
   cliOnboardingPromptSent?: boolean
+  cliResumeAvailable?: boolean
   cli?: AgentCli
   cliPermissionPreset?: SwarmCliPermissionPreset
   cliStartupPrompt?: string
@@ -623,6 +625,7 @@ export type Workspace = {
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>
   worktreeState: WorkspaceWorktreeState
+  memory: WorkspaceMemoryConfig
   editorState: EditorState
   swarmState: SwarmState | null
   multiloopState?: MultiloopState | null

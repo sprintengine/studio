@@ -139,9 +139,11 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     if (status.running) continue
 
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
+      cliSessionId: undefined,
       cliStartRequested: false,
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
+      cliResumeAvailable: (agent.cli ?? 'codex') === 'codex' ? agent.cliResumeAvailable ?? true : false,
     })
   }
 }
@@ -273,6 +275,7 @@ async function spawnMultiloopAutoRunCandidate(
       cliSessionId: sessionId,
       cliHasLaunched: true,
       cliOnboardingPromptSent: true,
+      cliResumeAvailable: selectedCli === 'codex',
       cli: selectedCli,
       cliPermissionPreset: workspace.multiloopAutoState.cliPermissionPreset,
       cliStartupPrompt: undefined,
@@ -313,6 +316,7 @@ async function spawnMultiloopAutoRunCandidate(
         cliStartRequested: true,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
+        cliResumeAvailable: false,
       })
       await publishDiagnostic({
         level: 'error',

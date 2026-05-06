@@ -31,6 +31,7 @@ import type {
   AgentExecution,
   WorkspaceWorktreeState,
   WorktreeEntry,
+  WorkspaceMemoryConfig,
 } from '../types/workspace'
 import { getSpecialistAction } from '../specialists/specialistActions'
 import { pickRandomAgentName } from '../utils/agentNames'
@@ -125,6 +126,7 @@ interface WorkspaceStore {
     workspaceId: WorkspaceId,
     worktreeState: Partial<WorkspaceWorktreeState> | null
   ) => void
+  setWorkspaceMemoryRelativeRoot: (workspaceId: WorkspaceId, relativeRoot: string | null) => void
   upsertWorktreeEntry: (workspaceId: WorkspaceId, entry: WorktreeEntry) => void
   markWorktreeMissing: (workspaceId: WorkspaceId, worktreeId: string, missingAt?: number) => void
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
@@ -137,9 +139,6 @@ interface WorkspaceStore {
     workspaceId: WorkspaceId,
     cliPermissionPreset: SwarmCliPermissionPreset
   ) => void
-  setSwarmUseWorktreesForSwarms: (workspaceId: WorkspaceId, useWorktreesForSwarms: boolean) => void
-  setSwarmArchitectMergeAutoTriggeredKey: (workspaceId: WorkspaceId, key: string | null) => void
-  setSwarmAutoWorktreeIsolation: (workspaceId: WorkspaceId, isolateWorkersInWorktrees: boolean) => void
   setSwarmAutoPendingSpawns: (
     workspaceId: WorkspaceId,
     pendingSpawns: SwarmAutoPendingSpawn[]
@@ -327,6 +326,29 @@ const defaultWorkspaceWorktreeState = (): WorkspaceWorktreeState => ({
   updatedAt: null,
 })
 
+const defaultWorkspaceMemoryConfig = (): WorkspaceMemoryConfig => ({
+  relativeRoot: null,
+})
+
+function isAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('/') || value.startsWith('\\\\')
+}
+
+function normalizeMemoryRelativeRoot(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().replace(/\\/g, '/').replace(/\/+$/u, '')
+  if (!normalized || normalized === '.' || isAbsolutePath(normalized)) return null
+  return normalized
+}
+
+function normalizeWorkspaceMemoryConfig(
+  input: Partial<WorkspaceMemoryConfig> | null | undefined
+): WorkspaceMemoryConfig {
+  return {
+    relativeRoot: normalizeMemoryRelativeRoot(input?.relativeRoot),
+  }
+}
+
 function normalizeWorktreeEntry(input: Partial<WorktreeEntry> | null | undefined): WorktreeEntry | null {
   if (!input || typeof input.id !== 'string' || !input.id.trim()) return null
   if (typeof input.path !== 'string' || !input.path.trim()) return null
@@ -393,6 +415,7 @@ const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'): Agen
   cliRestartNonce: 0,
   cliHasLaunched: false,
   cliOnboardingPromptSent: false,
+  cliResumeAvailable: false,
   cli: 'codex' as AgentCli,
   cliPermissionPreset: 'default',
   cliStartupPrompt: undefined,
@@ -411,9 +434,6 @@ const defaultSwarmAutoState = (): SwarmAutoState => ({
   autoApproveArtifacts: false,
   keepDoneAgentTerminals: false,
   cliPermissionPreset: 'default',
-  useWorktreesForSwarms: false,
-  isolateWorkersInWorktrees: false,
-  architectMergeAutoTriggeredKey: null,
   pendingSpawns: [],
 })
 
@@ -513,12 +533,6 @@ function normalizeSwarmAutoState(
     autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
     keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
     cliPermissionPreset,
-    useWorktreesForSwarms: Boolean(input?.useWorktreesForSwarms),
-    isolateWorkersInWorktrees: Boolean(input?.isolateWorkersInWorktrees),
-    architectMergeAutoTriggeredKey:
-      typeof input?.architectMergeAutoTriggeredKey === 'string'
-        ? input.architectMergeAutoTriggeredKey
-        : null,
     pendingSpawns,
   }
 }
@@ -1002,6 +1016,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               : template.layout,
             agents,
             worktreeState: defaultWorkspaceWorktreeState(),
+            memory: defaultWorkspaceMemoryConfig(),
             editorState: defaultEditorState(),
             swarmState,
             multiloopState,
@@ -1126,6 +1141,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           )
         }),
 
+      setWorkspaceMemoryRelativeRoot: (workspaceId, relativeRoot) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          ws.memory = {
+            relativeRoot: normalizeMemoryRelativeRoot(relativeRoot),
+          }
+        }),
+
       upsertWorktreeEntry: (workspaceId, entry) =>
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
@@ -1233,42 +1257,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.swarmAutoState = {
             ...current,
             cliPermissionPreset,
-          }
-        }),
-
-      setSwarmUseWorktreesForSwarms: (workspaceId, useWorktreesForSwarms) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSwarmAutoState(ws.swarmAutoState)
-          ws.swarmAutoState = {
-            ...current,
-            useWorktreesForSwarms,
-            architectMergeAutoTriggeredKey: useWorktreesForSwarms
-              ? current.architectMergeAutoTriggeredKey
-              : null,
-          }
-        }),
-
-      setSwarmArchitectMergeAutoTriggeredKey: (workspaceId, key) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSwarmAutoState(ws.swarmAutoState)
-          ws.swarmAutoState = {
-            ...current,
-            architectMergeAutoTriggeredKey: key,
-          }
-        }),
-
-      setSwarmAutoWorktreeIsolation: (workspaceId, isolateWorkersInWorktrees) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSwarmAutoState(ws.swarmAutoState)
-          ws.swarmAutoState = {
-            ...current,
-            isolateWorkersInWorktrees,
           }
         }),
 
@@ -1557,7 +1545,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 34,
+      version: 35,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1906,12 +1894,19 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const current = state as typeof state & { appSettings?: Partial<AppSettings> }
           current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
         }
+        if (version < 35) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            memory: normalizeWorkspaceMemoryConfig(ws.memory),
+          }))
+        }
         return state as never
       },
       partialize: (s) => ({
         appSettings: s.appSettings,
         workspaces: s.workspaces.map((ws) => ({
           ...ws,
+          memory: normalizeWorkspaceMemoryConfig(ws.memory),
           agents: Object.fromEntries(
             Object.entries(ws.agents).map(([id, a]) => {
               const shouldKeepStartupPrompt =

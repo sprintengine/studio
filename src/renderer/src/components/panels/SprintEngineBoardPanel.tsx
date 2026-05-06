@@ -15,7 +15,6 @@ import type {
   SwarmTaskFeedbackFinding,
   SwarmTaskFeedbackIssue,
   SwarmTaskStatus,
-  Workspace,
 } from '../../types/workspace'
 import { SwarmRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
@@ -312,23 +311,6 @@ function buildWorkerRespawnStartupPrompt(
   ].filter(Boolean).join('\n\n')
 }
 
-type SwarmMergeEligibility =
-  | { eligible: false; reason: string }
-  | {
-      eligible: true
-      key: string
-      targetBranch: string
-      worktreePath: string
-      worktreeBranch: string
-    }
-
-type ExecutionWorkspacePlan = {
-  worktreeEnabled: boolean
-  worktreePath: string | null
-  branch: string | null
-  mergeTarget: string | null
-}
-
 export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props) {
   const workspace = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
@@ -338,7 +320,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const setSwarmAutoApproveArtifacts = useWorkspaceStore((s) => s.setSwarmAutoApproveArtifacts)
   const setSwarmKeepDoneAgentTerminals = useWorkspaceStore((s) => s.setSwarmKeepDoneAgentTerminals)
   const setSwarmCliPermissionPreset = useWorkspaceStore((s) => s.setSwarmCliPermissionPreset)
-  const setSwarmUseWorktreesForSwarms = useWorkspaceStore((s) => s.setSwarmUseWorktreesForSwarms)
   const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
@@ -385,7 +366,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const autoApproveArtifacts = workspace?.swarmAutoState?.autoApproveArtifacts ?? false
   const keepDoneAgentTerminals = workspace?.swarmAutoState?.keepDoneAgentTerminals ?? false
   const cliPermissionPreset = workspace?.swarmAutoState?.cliPermissionPreset ?? 'default'
-  const useWorktreesForSwarms = workspace?.swarmAutoState?.useWorktreesForSwarms ?? false
 
   const resolveReadableSwarmStatePath = async (): Promise<string | null> => {
     if (!folderPath) return null
@@ -496,6 +476,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       cliSessionId: nextSessionId,
       cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
       cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
+      cliResumeAvailable: shouldStartFresh ? false : current?.cliResumeAvailable ?? false,
       cli: selectedCli,
       cliStartupPrompt: startupPrompt,
     })
@@ -799,6 +780,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       cliSessionId: runningSession.sessionId,
       cliStartRequested: true,
       cliHasLaunched: true,
+      cliResumeAvailable: (runningSession.cli ?? agents[agentId]?.cli ?? 'codex') === 'codex',
       cli: runningSession.cli ?? agents[agentId]?.cli ?? 'codex',
     })
     return runningSession.sessionId
@@ -912,10 +894,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
   const toggleKeepDoneAgentTerminals = () => {
     setSwarmKeepDoneAgentTerminals(workspaceId, !keepDoneAgentTerminals)
-  }
-
-  const toggleUseWorktreesForSwarms = () => {
-    setSwarmUseWorktreesForSwarms(workspaceId, !useWorktreesForSwarms)
   }
 
   const updateCliPermissionPreset = (preset: SwarmCliPermissionPreset) => {
@@ -1142,33 +1120,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     setSelectedAgentId(architectAgentId)
   }
 
-  const startArchitectMerge = (eligibility: Extract<SwarmMergeEligibility, { eligible: true }>) => {
-    if (!architectAgentId) return
-    const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
-    const label = getAgentName(architectAgentId, fallbackLabel)
-    const startupPrompt = buildArchitectMergeStartupPrompt(eligibility.targetBranch, eligibility.worktreePath)
-    const existingArchitect = agents[architectAgentId]
-
-    if (existingArchitect?.cliStartRequested && existingArchitect.cliSessionId) {
-      focusOrAddAgentTab(workspaceId, architectAgentId, label)
-      void window.api.terminalWrite(existingArchitect.cliSessionId, `${startupPrompt}\r`)
-      setSelectedAgentId(architectAgentId)
-      return
-    }
-
-    void startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
-      freshSession: true,
-      agentName: getCustomAgentName(architectAgentId, fallbackLabel),
-      startupPrompt,
-      execution: {
-        mode: 'worktree',
-        worktreeId: null,
-        cwd: eligibility.worktreePath,
-      },
-    })
-    setSelectedAgentId(architectAgentId)
-  }
-
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[#08090b] text-[#ececee]">
       <div className="border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
@@ -1247,33 +1198,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 />
               </span>
               <span>Keep terminals</span>
-            </button>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={useWorktreesForSwarms}
-              aria-label="Use shared sprintengine worktree"
-              onClick={toggleUseWorktreesForSwarms}
-              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
-                useWorktreesForSwarms
-                  ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/65 hover:bg-[#6ee7d8]/16'
-                  : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
-              }`}
-              title="Ask the architect to plan a shared sprintengine worktree"
-            >
-              <span
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                  useWorktreesForSwarms ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
-                }`}
-                aria-hidden="true"
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
-                    useWorktreesForSwarms ? 'translate-x-4' : 'translate-x-0'
-                  }`}
-                />
-              </span>
-              <span>Shared worktree</span>
             </button>
             <label className="sr-only" htmlFor={`sprintengine-cli-permissions-${workspaceId}`}>
               CLI permissions for sprintengine auto-run
@@ -1485,15 +1409,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               >
                 View Run Summary
               </button>
-              <SwarmArchitectMergeAction
-                workspaceId={workspaceId}
-                workspace={workspace}
-                swarmState={swarmState}
-                planFilePath={planFilePath}
-                repoRoot={folderPath}
-                architectAgentId={architectAgentId}
-                onStart={startArchitectMerge}
-              />
             </div>
           </div>
         ) : null}
@@ -4369,186 +4284,6 @@ function getTaskOwnerLabel(
   return task.status === 'done' ? swarmRoleLabels[task.role] : 'No active worker'
 }
 
-function SwarmArchitectMergeAction({
-  workspaceId,
-  workspace,
-  swarmState,
-  planFilePath,
-  repoRoot,
-  architectAgentId,
-  onStart,
-}: {
-  workspaceId: string
-  workspace: Workspace | null
-  swarmState: SwarmState
-  planFilePath: string | null
-  repoRoot: string | null
-  architectAgentId: string | null
-  onStart: (eligibility: Extract<SwarmMergeEligibility, { eligible: true }>) => void
-}) {
-  const setTriggeredKey = useWorkspaceStore((s) => s.setSwarmArchitectMergeAutoTriggeredKey)
-  const [eligibility, setEligibility] = useState<SwarmMergeEligibility>({
-    eligible: false,
-    reason: 'Checking merge eligibility.',
-  })
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function checkEligibility() {
-      const next = await resolveArchitectMergeEligibility({
-        workspace,
-        swarmState,
-        planFilePath,
-        repoRoot,
-        architectAgentId,
-      })
-      if (!cancelled) setEligibility(next)
-    }
-
-    void checkEligibility()
-    return () => {
-      cancelled = true
-    }
-  }, [architectAgentId, planFilePath, repoRoot, swarmState, workspace])
-
-  useEffect(() => {
-    if (!eligibility.eligible || !workspace?.swarmAutoState.enabled) return
-    if (workspace.swarmAutoState.architectMergeAutoTriggeredKey === eligibility.key) return
-
-    setTriggeredKey(workspaceId, eligibility.key)
-    onStart(eligibility)
-  }, [eligibility, onStart, setTriggeredKey, workspace?.swarmAutoState.enabled, workspace?.swarmAutoState.architectMergeAutoTriggeredKey, workspaceId])
-
-  if (!eligibility.eligible) return null
-
-  return (
-    <button
-      onClick={() => onStart(eligibility)}
-      className="rounded-md bg-[#d4ffdc] px-3 py-1.5 text-sm font-semibold text-[#08210f] transition-colors hover:bg-[#b9f7c8]"
-    >
-      Architect Merge to {eligibility.targetBranch}
-    </button>
-  )
-}
-
-async function resolveArchitectMergeEligibility({
-  workspace,
-  swarmState,
-  planFilePath,
-  repoRoot,
-  architectAgentId,
-}: {
-  workspace: Workspace | null
-  swarmState: SwarmState
-  planFilePath: string | null
-  repoRoot: string | null
-  architectAgentId: string | null
-}): Promise<SwarmMergeEligibility> {
-  if (!workspace?.swarmAutoState.useWorktreesForSwarms) {
-    return { eligible: false, reason: 'Shared sprintengine worktrees are disabled.' }
-  }
-  if (!architectAgentId) return { eligible: false, reason: 'No architect agent is available.' }
-  if (!repoRoot || !planFilePath) return { eligible: false, reason: 'Workspace folder or plan path is unavailable.' }
-  if (swarmState.tasks.length === 0 || swarmState.tasks.some((task) => task.status !== 'done')) {
-    return { eligible: false, reason: 'SprintEngine tasks are not complete.' }
-  }
-  if (swarmState.artifacts.some((artifact) =>
-    artifact.status !== 'approved' && artifact.status !== 'superseded'
-  )) {
-    return { eligible: false, reason: 'Review artifacts still need approval or changes.' }
-  }
-
-  const planContent = await window.api.readfile(planFilePath).catch(() => '')
-  const executionWorkspace = parseExecutionWorkspacePlan(planContent)
-  if (!executionWorkspace.worktreeEnabled) {
-    return { eligible: false, reason: 'The plan does not declare an enabled worktree.' }
-  }
-  if (!executionWorkspace.worktreePath) {
-    return { eligible: false, reason: 'The plan does not declare a worktree path.' }
-  }
-
-  const worktreeExists = await window.api.pathExists(executionWorkspace.worktreePath).catch(() => false)
-  if (!worktreeExists) return { eligible: false, reason: 'The declared worktree path is missing.' }
-
-  const listedWorktrees = await window.api.listGitWorktrees(repoRoot).catch(() => null)
-  if (!listedWorktrees?.ok) {
-    return { eligible: false, reason: listedWorktrees?.message ?? 'Unable to list Git worktrees.' }
-  }
-
-  const listedWorktree = listedWorktrees.data.worktrees.find((worktree) =>
-    sameFilePath(worktree.path, executionWorkspace.worktreePath ?? '')
-  )
-  if (!listedWorktree) {
-    return { eligible: false, reason: 'The declared worktree is not registered with Git.' }
-  }
-  if (
-    executionWorkspace.branch
-    && listedWorktree.branch
-    && executionWorkspace.branch !== listedWorktree.branch
-  ) {
-    return { eligible: false, reason: 'The declared worktree branch does not match Git.' }
-  }
-  const worktreeBranch = executionWorkspace.branch ?? listedWorktree?.branch ?? null
-  if (!worktreeBranch) return { eligible: false, reason: 'The worktree branch is unknown.' }
-  if (worktreeBranch === 'main' || worktreeBranch === 'master') {
-    return { eligible: false, reason: 'The worktree is already on a protected target branch.' }
-  }
-
-  const branchSnapshot = await window.api.getGitBranches(repoRoot).catch(() => null)
-  const targetBranch = executionWorkspace.mergeTarget
-    ?? branchSnapshot?.branches.find((branch) => branch.name === 'main')?.name
-    ?? branchSnapshot?.branches.find((branch) => branch.name === 'master')?.name
-    ?? 'main'
-  if (targetBranch === worktreeBranch) {
-    return { eligible: false, reason: 'The merge target is the same as the worktree branch.' }
-  }
-
-  const status = await window.api.getGitStatus(executionWorkspace.worktreePath).catch(() => null)
-  if (!status || Object.keys(status.files).length > 0) {
-    return { eligible: false, reason: 'The worktree has uncommitted changes.' }
-  }
-
-  return {
-    eligible: true,
-    key: [
-      workspace.id,
-      planFilePath,
-      executionWorkspace.worktreePath,
-      worktreeBranch,
-      targetBranch,
-      swarmState.updatedAt ?? swarmState.tasks.map((task) => task.completedAt ?? task.id).join(','),
-    ].join('|'),
-    targetBranch,
-    worktreePath: executionWorkspace.worktreePath,
-    worktreeBranch,
-  }
-}
-
-function parseExecutionWorkspacePlan(content: string): ExecutionWorkspacePlan {
-  const worktreeValue = readPlanLabel(content, 'Worktree')?.toLowerCase() ?? ''
-  return {
-    worktreeEnabled: worktreeValue === 'enabled',
-    worktreePath: readPlanLabel(content, 'Worktree path'),
-    branch: readPlanLabel(content, 'Branch'),
-    mergeTarget: readPlanLabel(content, 'Merge target'),
-  }
-}
-
-function readPlanLabel(content: string, label: string): string | null {
-  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = content.match(new RegExp(`^${escapedLabel}:\\s*(.+?)\\s*$`, 'im'))
-  return match?.[1]?.trim() || null
-}
-
-function sameFilePath(firstPath: string, secondPath: string): boolean {
-  const normalize = (path: string) => {
-    const normalized = path.replace(/\\/g, '/').replace(/\/+$/u, '')
-    return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
-  }
-  return normalize(firstPath) === normalize(secondPath)
-}
-
 function getRunPhase(swarmState: SwarmState, runtimeAgents: RuntimeAgentView[]): string {
   if (swarmState.tasks.length > 0 && swarmState.tasks.every((task) => task.status === 'done')) {
     return 'Complete'
@@ -4604,14 +4339,6 @@ function buildAddressPlanReviewsPrompt(): string {
   return [
     'Fetch the canonical plan review feedback instructions from the Python tool.',
     'Run `Sprint Engine plan address-reviews --actor architect` now.',
-  ].join('\n')
-}
-
-function buildArchitectMergeStartupPrompt(targetBranch: string, worktreePath: string): string {
-  return [
-    'Fetch the canonical post-run merge instructions from the Python tool.',
-    `Use worktree cwd: \`${worktreePath}\`. If this terminal is not already there, run \`cd ${JSON.stringify(worktreePath)}\` first.`,
-    `Run \`sprintengine merge start --id architect --target ${JSON.stringify(targetBranch)}\` now and follow the returned instructions.`,
   ].join('\n')
 }
 

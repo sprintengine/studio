@@ -311,6 +311,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         cliOnboardingPromptSent: false,
         cliStartRequested: true,
         cliHasLaunched: false,
+        cliResumeAvailable: false,
         cliSessionId: `multiloop-${role}-${nanoid(6)}`,
       })
       focusOrAddAgentTab(workspaceId, agentId, tabName)

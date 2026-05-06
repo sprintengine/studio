@@ -112,7 +112,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath).cwd,
         workspaceRoot: folderReadyPath ?? undefined,
         commandMode: getSwarmStartupCommandMode(rosterAgent.role, agentId, workspace.swarmState),
-        useWorktreesForSwarms: workspace.swarmAutoState.useWorktreesForSwarms,
       }
     )
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
@@ -141,6 +140,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     const sessionId = agent.cliSessionId
     const shouldResume = agent.cliHasLaunched ?? false
+    const shouldResumeCodexConversation = cli === 'codex' && Boolean(agent.cliResumeAvailable)
     const term = new Terminal({
       theme: {
         background: '#09090b',
@@ -358,7 +358,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (savedFolderPath && !folderReadyPath) return
 
       const resumeExistingPty = shouldResume && terminalStatus.running
-      const promptAlreadySentForActiveSession = Boolean(resumeExistingPty && agent.cliOnboardingPromptSent)
+      const shouldResumeCli = resumeExistingPty || shouldResumeCodexConversation
+      const promptAlreadySentForActiveSession = Boolean(shouldResumeCli && agent.cliOnboardingPromptSent)
       await ensureSpecialistStartupPrompt(promptAlreadySentForActiveSession)
       if (disposed) return
 
@@ -376,14 +377,14 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
         swarmStatePath ? `Sprint Engine state: ${swarmStatePath}` : null,
       ].filter(Boolean).join('\n')
-      const launchInitialPrompt = resumeExistingPty ? undefined : startupPromptRef.current ?? undefined
+      const launchInitialPrompt = shouldResumeCli ? undefined : startupPromptRef.current ?? undefined
 
       const spawnResult = await window.api.terminalSpawn(
         sessionId,
         term.cols,
         term.rows,
         executionRoot.cwd,
-        resumeExistingPty,
+        shouldResumeCli,
         swarmStatePath,
         cli,
         launchInitialPrompt,
@@ -441,6 +442,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (!resumeExistingPty) {
         updateAgent(workspaceId, agentId, {
           cliHasLaunched: true,
+          ...(cli === 'codex' ? { cliResumeAvailable: true } : {}),
           ...(launchInitialPrompt
             ? {
                 cliOnboardingPromptSent: true,

@@ -53,22 +53,6 @@ type AutoRunCandidate = {
   taskId: string
 }
 
-type AutoRunWorktreeSpec = {
-  id: string
-  name: string
-  branch: string
-  containerPath: string
-  destinationPath: string
-}
-
-type AutoRunWorktreeResult =
-  | { ok: true; spec: AutoRunWorktreeSpec; path: string; branch: string | null }
-  | { ok: false; spec: AutoRunWorktreeSpec; message: string; details?: string[] }
-
-type SwarmAutoStateWithWorktreeIsolation = Workspace['swarmAutoState'] & {
-  isolateWorkersInWorktrees?: boolean
-}
-
 type DoneAgentTerminalObservation = {
   firstSeenAt: number
 }
@@ -227,31 +211,12 @@ async function refreshAutoWorkspaceState(
   }
 }
 
-function getParentDirectoryPath(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, '')
-  const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  return separatorIndex >= 0 ? trimmed.slice(0, separatorIndex) : trimmed
+function normalizeComparablePath(path: string): string {
+  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
 }
 
-function getBaseName(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, '')
-  const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  return separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed
-}
-
-function joinFilePath(basePath: string, childPath: string): string {
-  const separator = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/'
-  return `${basePath.replace(/[\\/]+$/, '')}${separator}${childPath.replace(/^[\\/]+/, '')}`
-}
-
-function defaultWorktreeContainerPath(repoRoot: string): string {
-  return joinFilePath(
-    joinFilePath(getParentDirectoryPath(repoRoot), '.multicode-worktrees'),
-    getBaseName(repoRoot)
-  )
-}
-
-function slugifyWorktreeToken(value: string, fallback: string): string {
+function slugifyAgentToken(value: string, fallback: string): string {
   const slug = value
     .trim()
     .toLowerCase()
@@ -262,47 +227,10 @@ function slugifyWorktreeToken(value: string, fallback: string): string {
   return slug || fallback
 }
 
-function normalizeComparablePath(path: string): string {
-  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
-  return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
-}
-
-function sameFilePath(firstPath: string, secondPath: string): boolean {
-  return normalizeComparablePath(firstPath) === normalizeComparablePath(secondPath)
-}
-
-function isSwarmWorktreeIsolationEnabled(workspace: Workspace): boolean {
-  return Boolean((workspace.swarmAutoState as SwarmAutoStateWithWorktreeIsolation).isolateWorkersInWorktrees)
-}
-
 function shouldCloseDoneAgentTerminals(workspace: Workspace): boolean {
   return workspace.mode === 'sprintengine'
     && Boolean(workspace.swarmState)
     && !workspace.swarmAutoState.keepDoneAgentTerminals
-}
-
-function buildAutoRunWorktreeSpec(
-  workspace: Workspace,
-  nextRun: { agentId: string; taskId: string }
-): AutoRunWorktreeSpec {
-  if (!workspace.folderPath || !workspace.swarmContext) {
-    throw new Error('Workspace folder and sprintengine context are required.')
-  }
-
-  const teamSlug = slugifyWorktreeToken(workspace.swarmContext.teamSlug, 'sprintengine')
-  const taskSlug = slugifyWorktreeToken(nextRun.taskId, 'task')
-  const agentSlug = slugifyWorktreeToken(nextRun.agentId, 'agent')
-  const name = `${taskSlug}-${agentSlug}`
-  const containerPath = workspace.worktreeState?.containerPath
-    ?? defaultWorktreeContainerPath(workspace.folderPath)
-
-  return {
-    id: `sprintengine-${teamSlug}-${name}`,
-    name,
-    branch: `multicode/${teamSlug}/${name}`,
-    containerPath,
-    destinationPath: joinFilePath(containerPath, name),
-  }
 }
 
 async function publishArtifactApprovalWarning(
@@ -333,150 +261,6 @@ async function publishArtifactApprovalWarning(
     workspaceName: workspace.name,
     taskId: artifact.taskId || undefined,
   })
-}
-
-async function pauseAutoRunForWorktreeFailure(
-  workspace: Workspace,
-  nextRun: { agentId: string; label: string; taskId: string },
-  result: Extract<AutoRunWorktreeResult, { ok: false }>
-): Promise<void> {
-  const state = useWorkspaceStore.getState()
-  state.setSwarmAutoEnabled(workspace.id, false)
-  state.setSwarmAutoPendingSpawns(workspace.id, [])
-  state.updateAgent(workspace.id, nextRun.agentId, {
-    cliStartRequested: false,
-    cliHasLaunched: false,
-    cliOnboardingPromptSent: false,
-  })
-
-  await publishDiagnostic({
-    level: 'error',
-    source: 'git',
-    title: `${nextRun.label} was not started`,
-    message: result.message,
-    details: [
-      `Workspace: ${workspace.name}`,
-      `Agent: ${nextRun.agentId}`,
-      `Task: ${nextRun.taskId}`,
-      `Worktree id: ${result.spec.id}`,
-      `Worktree path: ${result.spec.destinationPath}`,
-      `Branch: ${result.spec.branch}`,
-      ...(result.details ?? []),
-    ].join('\n'),
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    agentId: nextRun.agentId,
-    taskId: nextRun.taskId,
-  })
-}
-
-async function ensureAutoRunWorktree(
-  workspace: Workspace,
-  nextRun: { agentId: string; taskId: string }
-): Promise<AutoRunWorktreeResult> {
-  const spec = buildAutoRunWorktreeSpec(workspace, nextRun)
-  const repoRoot = workspace.folderPath
-  if (!repoRoot) {
-    return { ok: false, spec, message: 'Workspace folder is not available.' }
-  }
-
-  const state = useWorkspaceStore.getState()
-  state.setWorkspaceWorktreeState(workspace.id, { containerPath: spec.containerPath })
-
-  const listedResult = await window.api.listGitWorktrees(repoRoot)
-  if (!listedResult.ok) {
-    return {
-      ok: false,
-      spec,
-      message: listedResult.message,
-      details: [
-        listedResult.stderr ? `stderr: ${listedResult.stderr}` : '',
-        listedResult.stdout ? `stdout: ${listedResult.stdout}` : '',
-      ].filter(Boolean),
-    }
-  }
-
-  const listedWorktree = listedResult.data.worktrees.find((worktree) =>
-    sameFilePath(worktree.path, spec.destinationPath) || worktree.branch === spec.branch
-  )
-
-  if (listedWorktree) {
-    const worktreeExists = await window.api.pathExists(listedWorktree.path).catch(() => false)
-    const now = Date.now()
-    if (!worktreeExists) {
-      state.upsertWorktreeEntry(workspace.id, {
-        id: spec.id,
-        path: listedWorktree.path,
-        branch: listedWorktree.branch,
-        ownerAgentId: nextRun.agentId,
-        status: 'missing',
-        createdAt: now,
-        updatedAt: now,
-        missingAt: now,
-      })
-      return {
-        ok: false,
-        spec,
-        message: `Worktree path is missing: ${listedWorktree.path}. Run worktree prune or remove the stale worktree before retrying auto-run.`,
-      }
-    }
-
-    state.upsertWorktreeEntry(workspace.id, {
-      id: spec.id,
-      path: listedWorktree.path,
-      branch: listedWorktree.branch,
-      ownerAgentId: nextRun.agentId,
-      status: 'assigned',
-      createdAt: now,
-      updatedAt: now,
-      missingAt: null,
-    })
-    return { ok: true, spec, path: listedWorktree.path, branch: listedWorktree.branch }
-  }
-
-  const destinationExists = await window.api.pathExists(spec.destinationPath).catch(() => false)
-  if (destinationExists) {
-    return {
-      ok: false,
-      spec,
-      message: `Worktree destination already exists but is not registered with Git: ${spec.destinationPath}`,
-    }
-  }
-
-  const createResult = await window.api.createGitWorktree({
-    repoRoot,
-    containerPath: spec.containerPath,
-    destinationPath: spec.destinationPath,
-    branchName: spec.branch,
-    baseRef: 'HEAD',
-    copyIncludedFiles: true,
-  })
-
-  if (!createResult.ok) {
-    return {
-      ok: false,
-      spec,
-      message: createResult.message,
-      details: [
-        createResult.stderr ? `stderr: ${createResult.stderr}` : '',
-        createResult.stdout ? `stdout: ${createResult.stdout}` : '',
-      ].filter(Boolean),
-    }
-  }
-
-  const now = Date.now()
-  state.upsertWorktreeEntry(workspace.id, {
-    id: spec.id,
-    path: createResult.data.path,
-    branch: createResult.data.branch,
-    ownerAgentId: nextRun.agentId,
-    status: 'assigned',
-    createdAt: now,
-    updatedAt: now,
-    missingAt: null,
-  })
-
-  return { ok: true, spec, path: createResult.data.path, branch: createResult.data.branch }
 }
 
 function artifactApprovalMessageKey(workspace: Workspace, artifact: SwarmArtifact): string {
@@ -574,6 +358,7 @@ async function findRunningAgentSession(
     cliSessionId: runningSession.sessionId,
     cliStartRequested: true,
     cliHasLaunched: true,
+    cliResumeAvailable: (runningSession.cli ?? agent?.cli ?? 'codex') === 'codex',
     cli: runningSession.cli ?? agent?.cli ?? 'codex',
     kind: 'sprintengine',
   })
@@ -705,7 +490,7 @@ async function sendApprovalToNextEligibleArtifactProducer(
 }
 
 function buildAutoRunAgentId(role: SwarmRole, taskId: string): string {
-  return `${role}-${slugifyWorktreeToken(taskId, 'task')}`
+  return `${role}-${slugifyAgentToken(taskId, 'task')}`
 }
 
 function pickNextAutoRuns(
@@ -1019,6 +804,7 @@ async function closeDoneAgentSessions(
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
         cliStartupPrompt: undefined,
+        cliResumeAvailable: false,
       })
     }
     if (!removeAgentTab(workspace.id, agentId)) {
@@ -1057,6 +843,7 @@ async function getRunningAutoRunAgentIds(
         cliSessionId: session.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
+        cliResumeAvailable: (session.cli ?? agent?.cli ?? 'codex') === 'codex',
         cli: session.cli ?? agent?.cli ?? 'codex',
         kind: 'sprintengine',
       })
@@ -1135,6 +922,7 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<vo
         cliSessionId: preferredSession.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
+        cliResumeAvailable: (preferredSession.cli ?? agent?.cli ?? 'codex') === 'codex',
         cli: preferredSession.cli ?? agent?.cli ?? 'codex',
         kind: 'sprintengine',
       })
@@ -1186,9 +974,11 @@ async function reconcileAutoRunPendingSpawns(
     changed = true
     if (pendingAgent && pendingAgent.cliStartRequested && !pendingAgentHasProcess) {
       useWorkspaceStore.getState().updateAgent(workspace.id, pending.agentId, {
+        cliSessionId: undefined,
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
+        cliResumeAvailable: false,
       })
     }
   }
@@ -1265,21 +1055,6 @@ async function spawnAutoRunCandidate(
 
     let executionCwd = workspaceFolderPath
     let executionMode: 'current_workspace' | 'worktree' = 'current_workspace'
-    let worktreeId: string | undefined
-    let worktreePath: string | undefined
-
-    if (isSwarmWorktreeIsolationEnabled(workspace)) {
-      const worktreeResult = await ensureAutoRunWorktree(workspace, nextRun)
-      if (!worktreeResult.ok) {
-        await pauseAutoRunForWorktreeFailure(workspace, nextRun, worktreeResult)
-        return 'failed'
-      }
-
-      executionCwd = worktreeResult.path
-      executionMode = 'worktree'
-      worktreeId = worktreeResult.spec.id
-      worktreePath = worktreeResult.path
-    }
 
     const startupPrompt = prependAgentIdentifier(
       buildSwarmStartupPrompt(nextRun.role, nextRun.agentId, swarmState.goal, {
@@ -1287,7 +1062,6 @@ async function spawnAutoRunCandidate(
         workspaceRoot: workspaceFolderPath,
         swarmStatePath,
         commandMode: getSwarmStartupCommandMode(nextRun.role, nextRun.agentId, swarmState),
-        useWorktreesForSwarms: workspace.swarmAutoState.useWorktreesForSwarms,
       }),
       nextRun.label,
       swarmRoleLabels[nextRun.role]
@@ -1298,13 +1072,14 @@ async function spawnAutoRunCandidate(
       name: nextRun.label,
       execution: {
         mode: executionMode,
-        worktreeId: worktreeId ?? null,
-        cwd: executionMode === 'worktree' ? executionCwd : null,
+        worktreeId: null,
+        cwd: null,
       },
       cliStartRequested: true,
       cliSessionId: sessionId,
       cliHasLaunched: true,
       cliOnboardingPromptSent: true,
+      cliResumeAvailable: selectedCli === 'codex',
       cli: selectedCli,
       cliStartupPrompt: undefined,
       kind: 'sprintengine',
@@ -1315,13 +1090,9 @@ async function spawnAutoRunCandidate(
       workspaceId: workspace.id,
       agentId: nextRun.agentId,
       executionMode,
-      worktreeId,
-      worktreePath,
       cliPermissionPreset: workspace.swarmAutoState.cliPermissionPreset,
     } as TerminalSpawnMetadata & {
       executionMode: 'current_workspace' | 'worktree'
-      worktreeId?: string
-      worktreePath?: string
     }
 
     const spawnResult = await window.api.terminalSpawn(
@@ -1361,6 +1132,7 @@ async function spawnAutoRunCandidate(
         cliStartRequested: true,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
+        cliResumeAvailable: false,
       })
       await publishDiagnostic({
         level: 'error',
@@ -1374,7 +1146,6 @@ async function spawnAutoRunCandidate(
           `Task: ${nextRun.taskId}`,
           `Session: ${sessionId}`,
           `Cwd: ${executionCwd}`,
-          executionMode === 'worktree' ? `Worktree: ${worktreePath ?? 'Unavailable'}` : null,
           `Sprint Engine state: ${swarmStatePath}`,
         ].filter(Boolean).join('\n'),
         workspaceId: workspace.id,
@@ -1635,9 +1406,11 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     if (status.running) continue
 
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
+      cliSessionId: undefined,
       cliStartRequested: false,
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
+      cliResumeAvailable: (agent.cli ?? 'codex') === 'codex' ? agent.cliResumeAvailable ?? true : false,
     })
   }
 }

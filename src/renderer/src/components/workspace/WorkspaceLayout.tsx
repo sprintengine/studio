@@ -303,6 +303,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           cliStartRequested: false,
           cliHasLaunched: false,
           cliOnboardingPromptSent: false,
+          cliResumeAvailable: false,
         })
         return
       }
