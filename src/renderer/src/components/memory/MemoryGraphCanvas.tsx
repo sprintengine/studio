@@ -33,7 +33,7 @@ type Props = {
 const PADDING = 60
 
 function nodeRadius(node: MemoryGraphNode, scale: number): number {
-  return Math.max(3.5, Math.min(18, 4 + Math.sqrt(Math.max(0, node.degree)) * 2.6)) * scale
+  return Math.max(5, Math.min(24, 5 + Math.sqrt(Math.max(0, node.degree)) * 3)) * scale
 }
 
 function buildNeighbors(edges: MemoryGraphEdge[]): Map<string, Set<string>> {
@@ -622,29 +622,28 @@ function pickLabelNodes(
   focusNeighbors: Set<string> | null,
   zoomAlpha: number
 ): Array<{ node: PositionedNode; alpha: number }> {
-  const out: Array<{ node: PositionedNode; alpha: number }> = []
-  positioned.forEach((node) => {
-    if (focusedNode && node.id === focusedNode.id) {
-      out.push({ node, alpha: 1 })
-      return
-    }
-    if (focusNeighbors?.has(node.id)) {
-      out.push({ node, alpha: 0.95 })
-      return
-    }
-    if (focusedNode) return
-    if (node.degree >= 3 && zoomAlpha > 0) {
-      out.push({ node, alpha: Math.min(0.9, zoomAlpha) })
-    } else if (node.degree >= 1 && zoomAlpha > 0.5) {
-      out.push({ node, alpha: Math.min(0.7, (zoomAlpha - 0.5) * 1.6) })
-    }
-  })
-  // Cap labels so dense graphs don't get unreadable.
-  const cap = focusedNode ? 24 : 36
-  if (out.length <= cap) return out
-  return out
-    .sort((a, b) => (b.node.degree - a.node.degree))
-    .slice(0, cap)
+  if (focusedNode) {
+    const out: Array<{ node: PositionedNode; alpha: number }> = []
+    positioned.forEach((node) => {
+      if (node.id === focusedNode.id) {
+        out.push({ node, alpha: 1 })
+      } else if (focusNeighbors?.has(node.id)) {
+        out.push({ node, alpha: 0.95 })
+      }
+    })
+    return out
+  }
+
+  if (zoomAlpha <= 0) return []
+
+  // Show every node when the graph is small enough to be readable; for denser
+  // graphs, cap to the highest-degree nodes so labels do not overlap into mush.
+  const cap = 80
+  const visibleAlpha = Math.min(0.95, 0.45 + zoomAlpha * 0.55)
+  const candidates = positioned.length <= cap
+    ? positioned
+    : [...positioned].sort((a, b) => b.degree - a.degree).slice(0, cap)
+  return candidates.map((node) => ({ node, alpha: visibleAlpha }))
 }
 
 type Star = {

@@ -55,6 +55,27 @@ export const DEFAULT_FILTERS: MemoryGraphFiltersConfig = {
 }
 
 export const DEFAULT_DISPLAY: MemoryGraphDisplayConfig = {
+  nodeSizeScale: 1.25,
+  lineThicknessScale: 1,
+  labelFadeThreshold: 0.35,
+  labelFontSize: 13,
+  showArrows: false,
+  curvedEdges: true,
+  glowHalos: true,
+  starfield: false,
+}
+
+export const DEFAULT_FORCES: MemoryGraphForcesConfig = {
+  centerForce: 0.32,
+  repelForce: 0.3,
+  linkForce: 0.5,
+  linkDistance: 60,
+}
+
+// Snapshots of the original defaults used before this tuning pass. Workspaces
+// whose stored settings exactly match these have not been hand-tuned, so we
+// upgrade them silently to the new defaults during normalization.
+const LEGACY_DISPLAY: MemoryGraphDisplayConfig = {
   nodeSizeScale: 1,
   lineThicknessScale: 1,
   labelFadeThreshold: 0.65,
@@ -65,7 +86,7 @@ export const DEFAULT_DISPLAY: MemoryGraphDisplayConfig = {
   starfield: false,
 }
 
-export const DEFAULT_FORCES: MemoryGraphForcesConfig = {
+const LEGACY_FORCES: MemoryGraphForcesConfig = {
   centerForce: 0.2,
   repelForce: 0.5,
   linkForce: 0.4,
@@ -133,6 +154,9 @@ export function normalizeFilters(
 export function normalizeDisplay(
   input: Partial<MemoryGraphDisplayConfig> | null | undefined
 ): MemoryGraphDisplayConfig {
+  if (input && shallowEqual(input, LEGACY_DISPLAY)) {
+    return { ...DEFAULT_DISPLAY }
+  }
   const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
     typeof value === 'number' && Number.isFinite(value)
       ? Math.min(max, Math.max(min, value))
@@ -152,6 +176,9 @@ export function normalizeDisplay(
 export function normalizeForces(
   input: Partial<MemoryGraphForcesConfig> | null | undefined
 ): MemoryGraphForcesConfig {
+  if (input && shallowEqual(input, LEGACY_FORCES)) {
+    return { ...DEFAULT_FORCES }
+  }
   const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
     typeof value === 'number' && Number.isFinite(value)
       ? Math.min(max, Math.max(min, value))
@@ -162,6 +189,14 @@ export function normalizeForces(
     linkForce: clamp(input?.linkForce, 0, 1, DEFAULT_FORCES.linkForce),
     linkDistance: clamp(input?.linkDistance, 20, 240, DEFAULT_FORCES.linkDistance),
   }
+}
+
+function shallowEqual<T extends Record<string, unknown>>(a: Partial<T>, b: T): boolean {
+  const keys = Object.keys(b) as Array<keyof T>
+  for (const key of keys) {
+    if (a[key as string] !== b[key]) return false
+  }
+  return true
 }
 
 export function normalizeColorRules(
