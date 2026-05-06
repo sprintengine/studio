@@ -54,10 +54,15 @@ export const DEFAULT_FILTERS: MemoryGraphFiltersConfig = {
   disabledGroups: [],
 }
 
+/** Bumped any time DEFAULT_DISPLAY or DEFAULT_FORCES move enough that we want
+ *  untuned workspaces to inherit the new feel. Stored settings with a lower
+ *  version trigger a one-shot upgrade in the panel. */
+export const GRAPH_SETTINGS_VERSION = 2
+
 export const DEFAULT_DISPLAY: MemoryGraphDisplayConfig = {
-  nodeSizeScale: 1.25,
+  nodeSizeScale: 1.5,
   lineThicknessScale: 1,
-  labelFadeThreshold: 0.35,
+  labelFadeThreshold: 0.25,
   labelFontSize: 13,
   showArrows: false,
   curvedEdges: true,
@@ -66,34 +71,14 @@ export const DEFAULT_DISPLAY: MemoryGraphDisplayConfig = {
 }
 
 export const DEFAULT_FORCES: MemoryGraphForcesConfig = {
-  centerForce: 0.32,
-  repelForce: 0.3,
-  linkForce: 0.5,
-  linkDistance: 60,
-}
-
-// Snapshots of the original defaults used before this tuning pass. Workspaces
-// whose stored settings exactly match these have not been hand-tuned, so we
-// upgrade them silently to the new defaults during normalization.
-const LEGACY_DISPLAY: MemoryGraphDisplayConfig = {
-  nodeSizeScale: 1,
-  lineThicknessScale: 1,
-  labelFadeThreshold: 0.65,
-  labelFontSize: 12,
-  showArrows: false,
-  curvedEdges: true,
-  glowHalos: true,
-  starfield: false,
-}
-
-const LEGACY_FORCES: MemoryGraphForcesConfig = {
-  centerForce: 0.2,
-  repelForce: 0.5,
-  linkForce: 0.4,
-  linkDistance: 90,
+  centerForce: 0.45,
+  repelForce: 0.15,
+  linkForce: 0.55,
+  linkDistance: 42,
 }
 
 export const DEFAULT_GRAPH_SETTINGS: MemoryGraphSettings = {
+  version: GRAPH_SETTINGS_VERSION,
   sidebarOpen: false,
   activeTab: 'filters',
   filters: DEFAULT_FILTERS,
@@ -154,9 +139,6 @@ export function normalizeFilters(
 export function normalizeDisplay(
   input: Partial<MemoryGraphDisplayConfig> | null | undefined
 ): MemoryGraphDisplayConfig {
-  if (input && shallowEqual(input, LEGACY_DISPLAY)) {
-    return { ...DEFAULT_DISPLAY }
-  }
   const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
     typeof value === 'number' && Number.isFinite(value)
       ? Math.min(max, Math.max(min, value))
@@ -176,9 +158,6 @@ export function normalizeDisplay(
 export function normalizeForces(
   input: Partial<MemoryGraphForcesConfig> | null | undefined
 ): MemoryGraphForcesConfig {
-  if (input && shallowEqual(input, LEGACY_FORCES)) {
-    return { ...DEFAULT_FORCES }
-  }
   const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
     typeof value === 'number' && Number.isFinite(value)
       ? Math.min(max, Math.max(min, value))
@@ -189,14 +168,6 @@ export function normalizeForces(
     linkForce: clamp(input?.linkForce, 0, 1, DEFAULT_FORCES.linkForce),
     linkDistance: clamp(input?.linkDistance, 20, 240, DEFAULT_FORCES.linkDistance),
   }
-}
-
-function shallowEqual<T extends Record<string, unknown>>(a: Partial<T>, b: T): boolean {
-  const keys = Object.keys(b) as Array<keyof T>
-  for (const key of keys) {
-    if (a[key as string] !== b[key]) return false
-  }
-  return true
 }
 
 export function normalizeColorRules(
@@ -227,12 +198,31 @@ export function normalizeGraphSettings(
     || input?.activeTab === 'forces'
       ? input.activeTab
       : 'filters'
+  const storedVersion = typeof input?.version === 'number' && input.version > 0 ? input.version : 0
+  const needsLayoutMigration = storedVersion < GRAPH_SETTINGS_VERSION
+
+  // When upgrading legacy settings, replace the layout-affecting numerics with
+  // the current defaults but preserve user toggles (starfield, glow, arrows,
+  // curved edges) and any explicit color rules / filter choices.
+  const display = needsLayoutMigration
+    ? {
+        ...DEFAULT_DISPLAY,
+        showArrows: Boolean(input?.display?.showArrows),
+        curvedEdges: input?.display?.curvedEdges !== false,
+        glowHalos: input?.display?.glowHalos !== false,
+        starfield: Boolean(input?.display?.starfield),
+      }
+    : normalizeDisplay(input?.display)
+
+  const forces = needsLayoutMigration ? { ...DEFAULT_FORCES } : normalizeForces(input?.forces)
+
   return {
+    version: GRAPH_SETTINGS_VERSION,
     sidebarOpen: Boolean(input?.sidebarOpen),
     activeTab: tab,
     filters: normalizeFilters(input?.filters),
     colorRules: normalizeColorRules(input?.colorRules),
-    display: normalizeDisplay(input?.display),
-    forces: normalizeForces(input?.forces),
+    display,
+    forces,
   }
 }

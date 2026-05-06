@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
-import { getSpecialistAction, loadSpecialistPrompt } from '../../specialists/specialistActions'
+import { buildSpecialistSoulStartupPrompt, getSpecialistAction } from '../../specialists/specialistActions'
 import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/sprintengine'
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -395,7 +395,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (agent.kind !== 'specialist' || !agent.specialistId) return
 
       const specialist = getSpecialistAction(agent.specialistId)
-      const prompt = await loadSpecialistPrompt(specialist.id)
+      const prompt = buildSpecialistSoulStartupPrompt(specialist)
       if (disposed) return
 
       const identifiedPrompt = prependAgentIdentifier(prompt, agent.name, specialist.shortLabel)

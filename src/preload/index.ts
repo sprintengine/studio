@@ -158,7 +158,7 @@ type SpecialistActionId =
   | 'security-review'
   | 'frontend-design-review'
   | 'code-review'
-type SpecialistPromptResult =
+type SoulPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
 type MultiloopAgentSoulRole =
@@ -528,7 +528,7 @@ function getMultiloopAgentSoulCandidates(fileName: string): string[] {
   ]
 }
 
-async function readSpecialistPromptFallback(specialistId: SpecialistActionId): Promise<SpecialistPromptResult> {
+async function readSpecialistSoulFallback(specialistId: SpecialistActionId): Promise<SoulPromptResult> {
   const role = specialistSoulRoles[specialistId]
   if (!role) {
     return {
@@ -554,19 +554,19 @@ async function readSpecialistPromptFallback(specialistId: SpecialistActionId): P
   }
 }
 
-async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<SpecialistPromptResult> {
+async function readSpecialistSoul(specialistId: SpecialistActionId): Promise<SoulPromptResult> {
   try {
-    return await ipcRenderer.invoke('specialist:read-prompt', specialistId)
+    return await ipcRenderer.invoke('souls:read-specialist', specialistId)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (message.includes("No handler registered for 'specialist:read-prompt'")) {
-      return readSpecialistPromptFallback(specialistId)
+    if (message.includes("No handler registered for 'souls:read-specialist'")) {
+      return readSpecialistSoulFallback(specialistId)
     }
     throw error
   }
 }
 
-async function readMultiloopAgentSoulFallback(role: MultiloopAgentSoulRole): Promise<SpecialistPromptResult> {
+async function readMultiloopAgentSoulFallback(role: MultiloopAgentSoulRole): Promise<SoulPromptResult> {
   const fileName = multiloopAgentSoulFiles[role]
   if (!fileName) {
     return {
@@ -600,7 +600,7 @@ async function readMultiloopAgentSoulFallback(role: MultiloopAgentSoulRole): Pro
   }
 }
 
-async function readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<SpecialistPromptResult> {
+async function readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<SoulPromptResult> {
   try {
     return await ipcRenderer.invoke('multiloop:read-agent-soul', role)
   } catch (error) {
@@ -708,7 +708,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('diagnostics:log', input),
   openDiagnosticsLogsFolder: (): Promise<{ opened: true; path: string }> =>
     ipcRenderer.invoke('diagnostics:open-logs-folder'),
-  readSpecialistPrompt,
+  readSpecialistSoul,
   readMultiloopAgentSoul,
   writefile: (path: string, content: string)   => ipcRenderer.invoke('fs:writefile', path, content),
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),

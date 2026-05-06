@@ -1119,7 +1119,7 @@ type SpecialistActionId =
   | 'frontend-design-review'
   | 'code-review'
 
-type SpecialistPromptResult =
+type SoulPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
 type MultiloopAgentSoulRole =
@@ -1182,7 +1182,7 @@ function getMultiloopAgentSoulCandidates(fileName: string): string[] {
   ]
 }
 
-async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<SpecialistPromptResult> {
+async function readSpecialistSoul(specialistId: SpecialistActionId): Promise<SoulPromptResult> {
   const role = specialistSoulRoles[specialistId]
   if (!role) {
     return {
@@ -1209,7 +1209,7 @@ async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<S
   }
 }
 
-async function readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<SpecialistPromptResult> {
+async function readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<SoulPromptResult> {
   const fileName = multiloopAgentSoulFiles[role]
   if (!fileName) {
     return {
@@ -1511,11 +1511,13 @@ function withSwarmEnv(
   memoryRelativeRoot?: string
 ): Record<string, string> {
   const bundledToolPath = getBundledSwarmToolPath()
+  const soulsRoot = getBundledSoulsRoot()
   const nextEnv = {
     ...env,
     SPRINTENGINE_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
     SPRINTENGINE_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
     ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
+    ...(soulsRoot ? { MULTICODE_SOULS_ROOT: soulsRoot } : {}),
     ...(swarmStatePath ? { SPRINTENGINE_STATE_PATH: swarmStatePath } : {}),
     ...(memoryRootPath ? { MULTICODE_MEMORY_ROOT: memoryRootPath } : {}),
     ...(memoryRelativeRoot ? { MULTICODE_MEMORY_RELATIVE_ROOT: memoryRelativeRoot } : {}),
@@ -1539,6 +1541,7 @@ function ensureWindowsSwarmShimDirectory(): string | null {
   try {
     const shimDirectory = join(app.getPath('userData'), 'sprintengine-bin')
     const shimPath = join(shimDirectory, 'sprintengine.cmd')
+    const soulsShimPath = join(shimDirectory, 'souls.cmd')
     mkdirSync(shimDirectory, { recursive: true })
     writeFileSync(
       shimPath,
@@ -1568,6 +1571,26 @@ function ensureWindowsSwarmShimDirectory(): string | null {
         'exit /b 127',
         ':run_python',
         '"%PYTHON_EXE%" "%TOOL%" %*',
+        'exit /b %errorlevel%',
+        '',
+      ].join('\r\n'),
+      'utf8'
+    )
+    writeFileSync(
+      soulsShimPath,
+      [
+        '@echo off',
+        'setlocal',
+        'set "PYTHON_EXE="',
+        'if exist ".venv\\Scripts\\python.exe" set "PYTHON_EXE=.venv\\Scripts\\python.exe"',
+        'if defined PYTHON_EXE goto run_python',
+        'for /f "delims=" %%P in (\'where python 2^>nul\') do if not defined PYTHON_EXE if /I not "%%~dpP"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\" set "PYTHON_EXE=%%P"',
+        'if defined PYTHON_EXE goto run_python',
+        'echo python not found; expected repo venv at .venv\\Scripts\\python.exe 1>&2',
+        'exit /b 127',
+        ':run_python',
+        'if not "%MULTICODE_SOULS_ROOT%"=="" set "PYTHONPATH=%MULTICODE_SOULS_ROOT%;%PYTHONPATH%"',
+        '"%PYTHON_EXE%" -m souls %*',
         'exit /b %errorlevel%',
         '',
       ].join('\r\n'),
@@ -1692,6 +1715,19 @@ function getBundledSwarmToolPath(): string | null {
   ]
 
   return candidates.find((candidate) => existsSync(candidate)) ?? null
+}
+
+function getBundledSoulsRoot(): string | null {
+  const candidates = app.isPackaged
+    ? [process.resourcesPath, app.getAppPath()]
+    : [
+        process.cwd(),
+        app.getAppPath(),
+        join(__dirname, '..', '..'),
+        join(__dirname, '..', '..', '..'),
+      ]
+
+  return candidates.find((candidate) => existsSync(join(candidate, 'souls', '__main__.py'))) ?? null
 }
 
 function getBundledMultiloopToolPath(): string | null {
@@ -2481,8 +2517,11 @@ function buildSwarmShellBootstrap(
   const shellMemoryRootPath =
     memoryRootPath && process.platform === 'win32' ? toWslPath(memoryRootPath) : memoryRootPath
   const bundledToolPath = getBundledSwarmToolPath()
+  const soulsRoot = getBundledSoulsRoot()
   const shellBundledToolPath =
     bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
+  const shellSoulsRoot =
+    soulsRoot && process.platform === 'win32' ? toWslPath(soulsRoot) : soulsRoot
   const lines = [
     'export SPRINTENGINE_REPO_TOOL_PATH="$PWD/.agents/skills/sprintengine/scripts/sprintengine_tool.py"',
     'export SPRINTENGINE_REPO_WRAPPER_PATH="$PWD/scripts/sprintengine_tool.py"',
@@ -2504,6 +2543,10 @@ function buildSwarmShellBootstrap(
     lines.push(`export MULTICODE_SPRINTENGINE_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
   }
 
+  if (shellSoulsRoot) {
+    lines.push(`export MULTICODE_SOULS_ROOT=${quotePosix(shellSoulsRoot)}`)
+  }
+
   lines.push(
     [
       'sprintengine() {',
@@ -2519,6 +2562,16 @@ function buildSwarmShellBootstrap(
       '}',
     ].join(' '),
     'export -f sprintengine >/dev/null 2>&1 || true',
+    [
+      'souls() {',
+      'local python_exe="python3";',
+      'if [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
+      'elif [ -x "$PWD/.venv/Scripts/python.exe" ]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi;',
+      'if [ -n "${MULTICODE_SOULS_ROOT:-}" ]; then PYTHONPATH="$MULTICODE_SOULS_ROOT:${PYTHONPATH:-}" "$python_exe" -m souls "$@";',
+      'else "$python_exe" -m souls "$@"; fi;',
+      '}',
+    ].join(' '),
+    'export -f souls >/dev/null 2>&1 || true',
   )
 
   return lines.join('; ')
@@ -4360,8 +4413,8 @@ ipcMain.handle('diagnostics:open-logs-folder', async () => {
   return openDiagnosticsLogsFolder()
 })
 
-ipcMain.handle('specialist:read-prompt', async (_, specialistId: SpecialistActionId) => {
-  return readSpecialistPrompt(specialistId)
+ipcMain.handle('souls:read-specialist', async (_, specialistId: SpecialistActionId) => {
+  return readSpecialistSoul(specialistId)
 })
 
 ipcMain.handle('multiloop:read-agent-soul', async (_, role: MultiloopAgentSoulRole) => {

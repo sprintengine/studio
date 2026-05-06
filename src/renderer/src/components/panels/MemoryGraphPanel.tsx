@@ -36,9 +36,11 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
   const canvasRef = useRef<MemoryGraphCanvasHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const hasAutoFitRef = useRef(false)
 
   const loadGraph = useCallback(async () => {
     setLoading(true)
+    hasAutoFitRef.current = false
     try {
       const result = await window.api.memoryIndex({
         workspaceRoot: workspace?.folderPath ?? null,
@@ -189,6 +191,20 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
 
     return { visibleNodes: filtered, visibleEdges: edgeSet, ghostNodes: ghosts }
   }, [indexResult, query, settings.filters, selectedId])
+
+  // Once nodes have been positioned and the simulation has had time to settle,
+  // fit the camera so the whole graph is visible. Runs once per (re)load —
+  // user-driven panning/zooming after that is preserved.
+  useEffect(() => {
+    if (hasAutoFitRef.current) return
+    if (loading) return
+    if (visibleNodes.length === 0) return
+    const handle = window.setTimeout(() => {
+      canvasRef.current?.fitToView()
+      hasAutoFitRef.current = true
+    }, 1200)
+    return () => window.clearTimeout(handle)
+  }, [loading, visibleNodes.length])
 
   const stats = useMemo(() => {
     if (!indexResult?.ok) {

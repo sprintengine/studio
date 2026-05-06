@@ -33,7 +33,7 @@ type Props = {
 const PADDING = 60
 
 function nodeRadius(node: MemoryGraphNode, scale: number): number {
-  return Math.max(5, Math.min(24, 5 + Math.sqrt(Math.max(0, node.degree)) * 3)) * scale
+  return Math.max(7, Math.min(28, 7 + Math.sqrt(Math.max(0, node.degree)) * 3.6)) * scale
 }
 
 function buildNeighbors(edges: MemoryGraphEdge[]): Map<string, Set<string>> {
@@ -435,14 +435,24 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
     if (!canvas) return
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
+      // Ignore zero-delta scrolls (sideways trackpad nudges, some pinch
+      // gestures) — without this, the previous "deltaY > 0 ? 0.9 : 1.1"
+      // logic ratcheted the zoom in on every empty event.
+      if (event.deltaY === 0) return
       const camera = cameraRef.current
       const rect = canvas.getBoundingClientRect()
       const mx = event.clientX - rect.left
       const my = event.clientY - rect.top
       const wx = (mx - camera.x) / camera.scale
       const wy = (my - camera.y) / camera.scale
-      const factor = event.deltaY > 0 ? 0.9 : 1.1
+
+      // Normalise deltaMode so mouse-wheel ticks (lines) and trackpad
+      // gestures (pixels) produce comparable zoom speeds, then clamp to
+      // stop a single fast scroll from snapping across the whole range.
+      const normalised = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY
+      const factor = Math.exp(-clamp(normalised, -120, 120) * 0.0035)
       const nextScale = clamp(camera.scale * factor, 0.25, 3)
+      if (nextScale === camera.scale) return
       cameraRef.current = {
         scale: nextScale,
         x: mx - wx * nextScale,
@@ -654,28 +664,22 @@ type Star = {
   amp: number
   period: number
   phase: number
-  hue: 'white' | 'indigo' | 'cyan'
 }
 
 function generateStars(width: number, height: number): Star[] {
-  // Density tuned for a calm starfield — roughly one star per 4500 px².
-  const count = Math.max(40, Math.min(180, Math.round((width * height) / 4500)))
+  // Sparse, calm starfield — roughly one star per 8000 px².
+  const count = Math.max(30, Math.min(120, Math.round((width * height) / 8000)))
   const stars: Star[] = []
   for (let i = 0; i < count; i += 1) {
     const r = mulberry(i + 1)
-    const sizeRoll = r()
-    const radius = sizeRoll < 0.78 ? 0.6 + r() * 0.5 : sizeRoll < 0.96 ? 1 + r() * 0.6 : 1.6 + r() * 0.7
-    const hueRoll = r()
-    const hue: Star['hue'] = hueRoll < 0.82 ? 'white' : hueRoll < 0.94 ? 'indigo' : 'cyan'
     stars.push({
       x: r() * width,
       y: r() * height,
-      radius,
-      baseAlpha: 0.18 + r() * 0.42,
-      amp: 0.12 + r() * 0.28,
-      period: 1800 + r() * 4200,
+      radius: 0.5 + r() * 0.7,
+      baseAlpha: 0.18 + r() * 0.32,
+      amp: 0.1 + r() * 0.22,
+      period: 2200 + r() * 4800,
       phase: r() * Math.PI * 2,
-      hue,
     })
   }
   return stars
@@ -683,30 +687,12 @@ function generateStars(width: number, height: number): Star[] {
 
 function drawStarfield(ctx: CanvasRenderingContext2D, stars: Star[], now: number) {
   ctx.save()
+  ctx.fillStyle = '#f4f4f5'
   for (const star of stars) {
     const t = (now / star.period) * Math.PI * 2 + star.phase
-    const twinkle = Math.sin(t)
-    const alpha = clamp01(star.baseAlpha + twinkle * star.amp)
+    const alpha = clamp01(star.baseAlpha + Math.sin(t) * star.amp)
     if (alpha <= 0.02) continue
-
-    const rgb =
-      star.hue === 'indigo'
-        ? '165, 180, 252'
-        : star.hue === 'cyan'
-          ? '125, 211, 252'
-          : '244, 244, 245'
-
-    if (star.radius >= 1.4 && twinkle > 0.7) {
-      const grad = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, star.radius * 4.5)
-      grad.addColorStop(0, `rgba(${rgb}, ${alpha * 0.55})`)
-      grad.addColorStop(1, `rgba(${rgb}, 0)`)
-      ctx.fillStyle = grad
-      ctx.beginPath()
-      ctx.arc(star.x, star.y, star.radius * 4.5, 0, Math.PI * 2)
-      ctx.fill()
-    }
-
-    ctx.fillStyle = `rgba(${rgb}, ${alpha})`
+    ctx.globalAlpha = alpha
     ctx.beginPath()
     ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2)
     ctx.fill()

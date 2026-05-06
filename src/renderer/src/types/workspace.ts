@@ -551,6 +551,8 @@ export type MemoryGraphForcesConfig = {
 }
 
 export type MemoryGraphSettings = {
+  /** Bumped when default tuning changes so the renderer can migrate stored values. */
+  version?: number
   sidebarOpen: boolean
   activeTab: 'filters' | 'groups' | 'display' | 'forces'
   filters: MemoryGraphFiltersConfig

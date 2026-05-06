@@ -171,7 +171,7 @@ type SpecialistActionId =
   | 'security-review'
   | 'frontend-design-review'
   | 'code-review'
-type SpecialistPromptResult =
+type SoulPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
 type MultiloopAgentSoulRole =
@@ -463,8 +463,8 @@ declare interface Window {
     ) => Promise<MemoryPreviewResult>
     logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
     openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
-    readSpecialistPrompt: (specialistId: SpecialistActionId) => Promise<SpecialistPromptResult>
-    readMultiloopAgentSoul: (role: MultiloopAgentSoulRole) => Promise<SpecialistPromptResult>
+    readSpecialistSoul: (specialistId: SpecialistActionId) => Promise<SoulPromptResult>
+    readMultiloopAgentSoul: (role: MultiloopAgentSoulRole) => Promise<SoulPromptResult>
     writefile: (path: string, content: string) => Promise<void>
     createFile: (parentDir: string, name: string) => Promise<string>
     createDir: (parentDir: string, name: string) => Promise<string>

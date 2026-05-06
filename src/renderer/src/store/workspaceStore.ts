@@ -1572,7 +1572,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 35,
+      version: 36,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
@@ -1922,6 +1922,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
         }
         if (version < 35) {
+          state.workspaces = state.workspaces.map((ws) => ({
+            ...ws,
+            memory: normalizeWorkspaceMemoryConfig(ws.memory),
+          }))
+        }
+        if (version < 36) {
+          // Re-run memory normalization so the bumped GRAPH_SETTINGS_VERSION
+          // upgrades layout numerics (link distance, node size, forces) on
+          // workspaces that pre-date the tighter defaults.
           state.workspaces = state.workspaces.map((ws) => ({
             ...ws,
             memory: normalizeWorkspaceMemoryConfig(ws.memory),

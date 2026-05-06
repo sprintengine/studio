@@ -105,4 +105,4 @@ Avoid absolute or machine-specific paths in docs, task evidence, artifacts, repo
 
 ## Packaging
 
-The desktop package includes the Sprint Engine Python entry point, core Python modules, and `souls` resources needed by the role registry. Existing Swarm and Multiloop package resources remain intact.
+The desktop package includes the Sprint Engine Python entry point, core Python modules, and `souls` resources needed by the role registry. See `docs/souls.md` for the Souls CLI and role mapping. Existing Swarm and Multiloop package resources remain intact.

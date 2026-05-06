@@ -12,8 +12,8 @@ import {
   SPECIALIST_ACTIONS,
   getMultiloopAgentSoul,
   getSpecialistAction,
+  buildSpecialistSoulStartupPrompt,
   loadMultiloopAgentSoul,
-  loadSpecialistPrompt,
   type MultiloopAgentSoul,
 } from '../../specialists/specialistActions'
 import type {
@@ -769,7 +769,7 @@ export default function WorkspaceManager() {
     const newId = `specialist-${specialist.id}-${nanoid(6)}`
     const targetTabset = model.getActiveTabset() ?? firstTabset(model)
     if (!targetTabset) return
-    const prompt = await loadSpecialistPrompt(specialist.id)
+    const prompt = buildSpecialistSoulStartupPrompt(specialist)
 
     updateAgent(activeWorkspaceId, newId, {
       name: tabName,
