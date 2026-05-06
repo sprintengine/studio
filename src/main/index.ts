@@ -1133,16 +1133,16 @@ type MultiloopAgentSoulRole =
   | 'code_reviewer'
   | 'performance'
 
-const specialistPromptFiles: Record<SpecialistActionId, string> = {
-  architect: 'architect-prompt.md',
-  'product-strategist': 'product-strategist-prompt.md',
-  developer: 'developer-prompt.md',
-  'devops-infra': 'devops-infra-prompt.md',
-  performance: 'performance-engineer-prompt.md',
-  'frontend-design-review': 'frontend-design-promt.md',
-  'qa-test': 'qa-test-prompt.md',
-  'security-review': 'security-review-prompt.md',
-  'code-review': 'code-reviewer-pre-prompt.md',
+const specialistSoulRoles: Record<SpecialistActionId, string> = {
+  architect: 'architect',
+  'product-strategist': 'product',
+  developer: 'developer',
+  'devops-infra': 'devops',
+  performance: 'performance',
+  'frontend-design-review': 'frontend',
+  'qa-test': 'tester',
+  'security-review': 'security',
+  'code-review': 'code_reviewer',
 }
 const multiloopAgentSoulFiles: Record<MultiloopAgentSoulRole, string> = {
   coordinator: 'coordinator.md',
@@ -1156,12 +1156,13 @@ const multiloopAgentSoulFiles: Record<MultiloopAgentSoulRole, string> = {
   performance: 'performance.md',
 }
 
-function getSpecialistPromptCandidates(fileName: string): string[] {
+function getSoulPromptCandidates(role: string): string[] {
+  const fileName = `${role}.md`
   return [
-    join(process.cwd(), 'specialist-prompts', fileName),
-    join(app.getAppPath(), 'specialist-prompts', fileName),
-    join(__dirname, '..', '..', 'specialist-prompts', fileName),
-    join(__dirname, '..', '..', '..', 'specialist-prompts', fileName),
+    join(process.cwd(), 'souls', 'prompts', fileName),
+    join(app.getAppPath(), 'souls', 'prompts', fileName),
+    join(__dirname, '..', '..', 'souls', 'prompts', fileName),
+    join(__dirname, '..', '..', '..', 'souls', 'prompts', fileName),
   ]
 }
 
@@ -1182,16 +1183,16 @@ function getMultiloopAgentSoulCandidates(fileName: string): string[] {
 }
 
 async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<SpecialistPromptResult> {
-  const fileName = specialistPromptFiles[specialistId]
-  if (!fileName) {
+  const role = specialistSoulRoles[specialistId]
+  if (!role) {
     return {
       ok: false,
-      message: `Unknown specialist prompt: ${specialistId}`,
+      message: `Unknown Soul: ${specialistId}`,
       path: null,
     }
   }
 
-  const candidates = getSpecialistPromptCandidates(fileName)
+  const candidates = getSoulPromptCandidates(role)
 
   for (const candidate of candidates) {
     try {
@@ -1203,7 +1204,7 @@ async function readSpecialistPrompt(specialistId: SpecialistActionId): Promise<S
 
   return {
     ok: false,
-    message: `Prompt file missing: specialist-prompts/${fileName}`,
+    message: `Soul file missing: souls/prompts/${role}.md`,
     path: candidates[0] ?? null,
   }
 }

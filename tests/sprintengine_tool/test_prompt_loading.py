@@ -108,7 +108,7 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
     assert_prompt_includes(
         work_payload["prompt"],
         [
-            "# Specialist Personality And Quality Bar",
+            "# Soul Personality And Quality Bar",
             "You are agent `developer-fixture` with role `developer`.",
             "sprintengine task next --role developer --id developer-fixture",
             "Complete the claimed task and log evidence.",

@@ -26,7 +26,10 @@
     },
     "files": [
       "out/**/*",
-      "specialist-prompts/**/*",
+      "souls/**/*.py",
+      "souls/prompts/**/*.md",
+      "scripts/souls",
+      "scripts/souls.cmd",
       "scripts/sprintengine_tool.py",
       "sprintengine_core/**/*.py",
       "multiloop-agent-souls/**/*",
@@ -63,8 +66,8 @@
         ]
       },
       {
-        "from": "specialist-prompts",
-        "to": "specialist-prompts",
+        "from": "souls",
+        "to": "souls",
         "filter": [
           "**/*"
         ]

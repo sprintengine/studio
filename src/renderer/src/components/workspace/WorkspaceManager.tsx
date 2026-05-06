@@ -1487,7 +1487,7 @@ export default function WorkspaceManager() {
                         General Agent
                       </span>
                       <span className="mt-0.5 block whitespace-normal break-words text-[11px] leading-4 text-[#8a8a92]">
-                        {selectedCliOption.label}, {selectedAgentPermissionOption.label.toLowerCase()}, no specialist prompt
+                        {selectedCliOption.label}, {selectedAgentPermissionOption.label.toLowerCase()}, no Soul prompt
                       </span>
                     </span>
                   </button>

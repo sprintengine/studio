@@ -50,7 +50,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Architect',
     description: 'Create implementation plans, compare approaches, and shape system design.',
     icon: 'architecture',
-    promptFile: 'architect-prompt.md',
+    promptFile: 'architect.md',
     shortcut: 'Ctrl+Alt+P',
   },
   {
@@ -59,7 +59,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Product Strategist',
     description: 'Research competitors, evaluate product value, sharpen positioning, and challenge weak strategy.',
     icon: 'product',
-    promptFile: 'product-strategist-prompt.md',
+    promptFile: 'product.md',
   },
   {
     id: 'developer',
@@ -67,7 +67,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Developer',
     description: 'Build reliable backend, API, data, and server-side implementation work.',
     icon: 'code',
-    promptFile: 'developer-prompt.md',
+    promptFile: 'developer.md',
   },
   {
     id: 'devops-infra',
@@ -75,7 +75,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'DevOps',
     description: 'Review deployment, infrastructure, observability, reliability, and operations.',
     icon: 'infra',
-    promptFile: 'devops-infra-prompt.md',
+    promptFile: 'devops.md',
   },
   {
     id: 'performance',
@@ -83,7 +83,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Performance Engineer',
     description: 'Profile runtime behavior, memory use, CPU hot spots, bundle size, latency, and resource leaks.',
     icon: 'performance',
-    promptFile: 'performance-engineer-prompt.md',
+    promptFile: 'performance.md',
     shortcut: 'Ctrl+Alt+M',
   },
   {
@@ -92,7 +92,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Frontend Designer',
     description: 'Design and implement polished frontend experiences, UI architecture, accessibility, and responsive behavior.',
     icon: 'design',
-    promptFile: 'frontend-design-promt.md',
+    promptFile: 'frontend.md',
     shortcut: 'Ctrl+Alt+F',
   },
   {
@@ -101,7 +101,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'QA Specialist',
     description: 'Plan test strategy, cover edge cases, verify regressions, and assess release quality.',
     icon: 'test',
-    promptFile: 'qa-test-prompt.md',
+    promptFile: 'tester.md',
   },
   {
     id: 'security-review',
@@ -109,7 +109,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'Security Specialist',
     description: 'Inspect vulnerabilities, trust boundaries, secrets, permissions, and risky defaults.',
     icon: 'shield',
-    promptFile: 'security-review-prompt.md',
+    promptFile: 'security.md',
   },
   {
     id: 'code-review',
@@ -117,7 +117,7 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     shortLabel: 'AI Slop Reviewer',
     description: 'Review implementation quality, generic AI-code patterns, regressions, edge cases, and missing tests.',
     icon: 'review',
-    promptFile: 'code-reviewer-pre-prompt.md',
+    promptFile: 'code_reviewer.md',
   },
 ]
 
@@ -131,10 +131,10 @@ export function getMultiloopAgentSoul(role: MultiloopAgentSoulRole | string | nu
 
 export function buildMissingSpecialistPrompt(action: SpecialistAction, message?: string): string {
   return [
-    'Specialist prompt file missing.',
+    'Soul file missing.',
     '',
-    message ?? `Could not load specialist-prompts/${action.promptFile}.`,
-    'Restore the prompt file or update the specialist prompt mapping, then restart this agent.',
+    message ?? `Could not load souls/prompts/${action.promptFile}.`,
+    'Restore the Soul file or update the Soul mapping, then restart this agent.',
   ].join('\n')
 }
 
