@@ -69,6 +69,25 @@ export type MultiloopAutoRunSelectionInput = {
   linkedSwarmState?: SwarmState | null
 }
 
+export function autoRunReasonToLabel(reason: MultiloopAutoRunSelection['reason']): string {
+  switch (reason) {
+    case 'ready':
+      return 'ready'
+    case 'no-active-milestone':
+      return 'no active milestone'
+    case 'blocked':
+      return 'blocked'
+    case 'needs-input':
+      return 'needs input'
+    case 'all-done':
+      return 'all done'
+    case 'no-ready-tasks':
+      return 'no ready tasks'
+    case 'no-slots':
+      return 'no slots'
+  }
+}
+
 const spawnableRoles = new Set<MultiloopAgentSoulRole>(
   MULTILOOP_AGENT_SOULS.map((soul) => soul.role)
 )

@@ -141,6 +141,92 @@ export function getMilestoneExecutionTasks(
   return getMultiloopTasksForMilestone(state, milestone.id)
 }
 
+export type MultiloopExecutionReadiness =
+  | 'ready'
+  | 'blocked'
+  | 'needs_input'
+  | 'all_done'
+  | 'loading_execution'
+  | 'execution_unavailable'
+  | 'no_tasks'
+  | 'multiloop_no_tasks'
+  | 'no_active_milestone'
+
+export type LinkedExecutionReadinessReadState =
+  | { status: 'idle' }
+  | { status: 'loading'; path?: string }
+  | { status: 'error'; path?: string; message: string }
+
+export type MultiloopPrimaryNextAction =
+  | { kind: 'open_role'; role: MultiloopAgentSoulRole }
+  | { kind: 'open_coordinator'; reason: 'blocked' | 'all_done' | 'needs_input' | 'plan_execution' | 'no_active_milestone' }
+  | { kind: 'retry_execution_read' }
+  | { kind: 'plan_execution' }
+
+export function getMilestoneExecutionReadiness({
+  state,
+  milestone,
+  linkedSwarmState,
+  linkedReadState,
+  activeBlockers,
+}: {
+  state: MultiloopState
+  milestone: MultiloopMilestone | null | undefined
+  linkedSwarmState?: SwarmState | null
+  linkedReadState?: LinkedExecutionReadinessReadState
+  activeBlockers?: MultiloopBlocker[]
+}): MultiloopExecutionReadiness {
+  if (!milestone) return 'no_active_milestone'
+
+  if (milestone.sprintEngine) {
+    if (linkedReadState?.status === 'loading') return 'loading_execution'
+    if (linkedReadState?.status === 'error') return 'execution_unavailable'
+    if (!linkedSwarmState) return 'loading_execution'
+  }
+
+  const tasks = getMilestoneExecutionTasks(state, milestone, linkedSwarmState)
+  if (tasks.length === 0) return milestone.sprintEngine ? 'no_tasks' : 'multiloop_no_tasks'
+  if (tasks.every((task) => task.status === 'done')) return 'all_done'
+
+  const blockers = activeBlockers ?? getActiveMultiloopBlockers(state, milestone.id)
+  if (state.loop.status === 'blocked' || milestone.status === 'blocked' || blockers.length > 0) return 'blocked'
+  if (tasks.some((task) => task.status === 'blocked')) return 'blocked'
+  if (tasks.some((task) => task.status === 'needs_input')) return 'needs_input'
+
+  return 'ready'
+}
+
+export function getPrimaryNextAction(
+  readiness: MultiloopExecutionReadiness,
+  {
+    linkedSwarmState,
+    milestone,
+    tasks,
+  }: {
+    linkedSwarmState?: SwarmState | null
+    milestone: MultiloopMilestone | null | undefined
+    tasks: MultiloopTask[]
+  }
+): MultiloopPrimaryNextAction {
+  if (readiness === 'execution_unavailable') return { kind: 'retry_execution_read' }
+  if (readiness === 'blocked') return { kind: 'open_coordinator', reason: 'blocked' }
+  if (readiness === 'all_done') return { kind: 'open_coordinator', reason: 'all_done' }
+  if (readiness === 'needs_input') {
+    const needsInputTask = tasks.find((task) => task.status === 'needs_input')
+    return isMultiloopAgentSoulRole(needsInputTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSwarmState))
+      ? { kind: 'open_role', role: needsInputTask.role }
+      : { kind: 'open_coordinator', reason: 'needs_input' }
+  }
+  if (readiness === 'no_tasks' || readiness === 'multiloop_no_tasks') return { kind: 'plan_execution' }
+  if (readiness === 'no_active_milestone') return { kind: 'open_coordinator', reason: 'no_active_milestone' }
+
+  const readyTask = tasks.find((task) => task.status === 'ready' || task.status === 'todo' || task.status === 'in_progress')
+  if (isMultiloopAgentSoulRole(readyTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSwarmState))) {
+    return { kind: 'open_role', role: readyTask.role }
+  }
+  return { kind: 'open_coordinator', reason: 'plan_execution' }
+}
+
 export function getLatestExecutionEvidenceTasks(
   state: MultiloopState,
   linkedSwarmState?: SwarmState | null,
@@ -287,6 +373,20 @@ function buildMultiloopRoleCommandLines(
   }
 
   return []
+}
+
+function isMultiloopAgentSoulRole(role: string | null | undefined): role is MultiloopAgentSoulRole {
+  return typeof role === 'string' && [
+    'architect',
+    'product',
+    'developer',
+    'frontend',
+    'tester',
+    'security',
+    'code_reviewer',
+    'performance',
+    'coordinator',
+  ].includes(role)
 }
 
 function normalizeLoop(input: unknown, milestoneIds: Set<string>): MultiloopLoop {
