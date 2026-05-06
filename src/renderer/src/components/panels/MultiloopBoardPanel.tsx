@@ -229,7 +229,7 @@ function buildMultiloopStartupPrompt({
   const soul = getMultiloopAgentSoul(role)
   const currentMilestone = getActiveMultiloopMilestone(state)
   const stateRelativePath = toProjectRelativePath(statePath, workspaceRoot)
-  const readyTaskIdsForRole = currentMilestone
+  const readyTaskIdsForRole = currentMilestone && !currentMilestone.sprintEngine
     ? getMultiloopTasksForMilestone(state, currentMilestone.id)
       .filter((task) => task.role === role && task.status === 'ready')
       .map((task) => task.id)

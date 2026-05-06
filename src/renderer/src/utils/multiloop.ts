@@ -137,6 +137,7 @@ export function getMilestoneExecutionTasks(
   if (milestone.sprintEngine && linkedSwarmState) {
     return linkedSwarmState.tasks.map((task) => swarmTaskToMultiloopTask(task, linkedSwarmState, milestone.id))
   }
+  if (milestone.sprintEngine) return []
   return getMultiloopTasksForMilestone(state, milestone.id)
 }
 

@@ -6,6 +6,7 @@ import {
   getActiveMultiloopBlockers,
   getActiveMultiloopMilestone,
   getActiveMultiloopMilestoneTasks,
+  getLatestExecutionEvidenceTasks,
   getLatestMultiloopEvidenceTasks,
   getMilestoneExecutionArtifacts,
   getMilestoneExecutionTasks,
@@ -321,6 +322,44 @@ function testMilestoneSprintEngineLinkParsingAndExecutionMapping() {
   assert.equal(state.roadmap[0].sprintEngine?.teamSlug, 'fixture-loop-m2')
   assert.deepEqual(getMilestoneExecutionTasks(state, state.roadmap[0], linkedSwarmState).map((task) => [task.id, task.status]), [['S1', 'ready']])
   assert.deepEqual(getMilestoneExecutionArtifacts(state.roadmap[0], linkedSwarmState).map((artifact) => artifact.id), ['A-linked'])
+}
+
+function testLinkedMilestoneDoesNotFallbackToLegacyTasksWhenStateMissing() {
+  const state = parseFixture({
+    roadmap: [
+      baseMultiloopState().roadmap[0],
+      {
+        ...baseMultiloopState().roadmap[1],
+        sprintEngine: {
+          teamSlug: 'fixture-loop-m2',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
+        },
+      },
+    ],
+    blockers: [],
+    agents: {},
+    tasks: [
+      {
+        id: 'legacy-ready',
+        milestoneId: 'M2',
+        role: 'developer',
+        status: 'ready',
+        title: 'Legacy task must not appear for linked milestone',
+        evidence: {
+          summary: 'Legacy evidence must not be treated as linked execution evidence.',
+          touchedFiles: ['src/legacy.ts'],
+          commandsRan: ['legacy command'],
+          results: ['legacy result'],
+        },
+      },
+    ],
+  })
+
+  const activeMilestone = getActiveMultiloopMilestone(state)
+  assert.equal(activeMilestone?.id, 'M2')
+  assert.deepEqual(getMilestoneExecutionTasks(state, activeMilestone, null).map((task) => task.id), [])
+  assert.deepEqual(getLatestExecutionEvidenceTasks(state, null, 4).map((task) => task.id), [])
 }
 
 function testActiveMilestoneFilteringAndSignals() {
@@ -907,6 +946,7 @@ async function testSwarmWorkspaceCreationRegressionKeepsSwarmModeAndPrompt() {
 
 testValidBlockedAndAcceptedHistoryFixtures()
 testMilestoneSprintEngineLinkParsingAndExecutionMapping()
+testLinkedMilestoneDoesNotFallbackToLegacyTasksWhenStateMissing()
 testActiveMilestoneFilteringAndSignals()
 testMalformedFixtureIsRejectedWithDisplayError()
 testRendererPromptContextRedactsSensitiveStateText()
