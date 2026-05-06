@@ -558,6 +558,26 @@ function testMultiloopAutoRunAvoidsDuplicateRunningRole() {
   assert.equal(selection.candidates.length, 0)
 }
 
+function testMultiloopAutoRunSpawnsCoordinatorWhenActiveMilestoneNeedsPlanning() {
+  const state = parseFixture({
+    blockers: [],
+    agents: {},
+    tasks: [],
+  })
+
+  const firstSelection = selectMultiloopAutoRunCandidates({ state, limit: 1 })
+  assert.equal(firstSelection.reason, 'no-ready-tasks')
+  assert.deepEqual(firstSelection.candidates.map((candidate) => candidate.agentId), ['multiloop-coordinator'])
+
+  const secondSelection = selectMultiloopAutoRunCandidates({
+    state,
+    limit: 1,
+    coordinatorAutoSpawnKey: 'M2',
+  })
+  assert.equal(secondSelection.reason, 'no-ready-tasks')
+  assert.equal(secondSelection.candidates.length, 0)
+}
+
 function testMultiloopAutoRunSpawnsCoordinatorOnceWhenMilestoneDone() {
   const state = parseFixture({
     blockers: [],
@@ -955,6 +975,7 @@ testRendererSanitizerMirrorsCoreSecretPatterns()
 testMultiloopAutoRunSelectsReadyDeveloperTask()
 testMultiloopAutoRunSelectsTodoTaskWithDoneDependencies()
 testMultiloopAutoRunAvoidsDuplicateRunningRole()
+testMultiloopAutoRunSpawnsCoordinatorWhenActiveMilestoneNeedsPlanning()
 testMultiloopAutoRunSpawnsCoordinatorOnceWhenMilestoneDone()
 testMultiloopAutoRunSelectsLinkedSprintEngineTask()
 testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone()

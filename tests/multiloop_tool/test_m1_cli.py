@@ -256,11 +256,9 @@ def test_init_creates_m1_state_without_tasks_or_detailed_future_task_graph(tmp_p
     assert state["loop"]["iteration"] == 1
     assert state["loop"]["currentMilestoneId"] == "M1"
     assert state["tasks"] == []
-    assert [milestone["id"] for milestone in state["roadmap"]] == ["M1", "M2", "M3"]
-    assert state["roadmap"][0]["title"] == "Goal alignment and first executable slice"
+    assert [milestone["id"] for milestone in state["roadmap"]] == ["M1"]
+    assert state["roadmap"][0]["title"] == "Goal alignment and execution planning"
     assert "Ship M1" in state["roadmap"][0]["goal"]
-    assert state["roadmap"][1]["title"] == "Implement and validate the selected slice"
-    assert state["roadmap"][2]["title"] == "Review, learn, and adapt the roadmap"
     required_milestone_fields = {
         "id",
         "title",
@@ -274,12 +272,11 @@ def test_init_creates_m1_state_without_tasks_or_detailed_future_task_graph(tmp_p
         "reviewVerdicts",
     }
     assert all(required_milestone_fields <= set(milestone) for milestone in state["roadmap"])
-    future_milestones = state["roadmap"][1:]
-    assert all(milestone["entryCriteria"] == [] for milestone in future_milestones)
-    assert all(milestone["acceptanceCriteria"] == [] for milestone in future_milestones)
-    assert all(milestone["learnedFacts"] == [] for milestone in future_milestones)
-    assert all(milestone["blockers"] == [] for milestone in future_milestones)
-    assert all(milestone["reviewVerdicts"] == [] for milestone in future_milestones)
+    assert state["roadmap"][0]["entryCriteria"]
+    assert state["roadmap"][0]["acceptanceCriteria"]
+    assert state["roadmap"][0]["learnedFacts"] == []
+    assert state["roadmap"][0]["blockers"] == []
+    assert state["roadmap"][0]["reviewVerdicts"] == []
 
 
 def test_pending_init_fails_if_state_file_is_created_while_waiting_for_lock(tmp_path: Path) -> None:

@@ -342,6 +342,7 @@ function buildMultiloopRoleCommandLines(
   if (role === 'coordinator') {
     return [
       `Render current coordinator context: scripts/multiloop --state ${statePath} milestone plan-next`,
+      `Create linked Sprint Engine execution for the active milestone: scripts/multiloop --state ${statePath} milestone start <milestone-id>`,
       sprintEngineStatePath
         ? `Create or revise executable milestone tasks with Sprint Engine planning commands against ${sprintEngineStatePath}.`
         : `Create active-milestone tasks: scripts/multiloop --state ${statePath} task create --task-id <id> --role <role> --title "<title>"`,

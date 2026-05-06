@@ -200,6 +200,18 @@ export function selectMultiloopAutoRunCandidates({
   }
 
   if (
+    activeTasks.length === 0
+    && coordinatorAutoSpawnKey !== activeMilestone.id
+    && !occupiedAgentIds.has(buildMultiloopRoleAgentId('coordinator'))
+  ) {
+    return {
+      candidates: [coordinatorCandidate()].slice(0, limit),
+      skippedUnknownRoles: [],
+      reason: 'no-ready-tasks',
+    }
+  }
+
+  if (
     activeTasks.length > 0
     && activeTasks.every((task) => task.status === 'done')
     && coordinatorAutoSpawnKey !== activeMilestone.id

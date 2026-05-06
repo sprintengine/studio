@@ -74,6 +74,34 @@ def test_two_milestone_fixture_preserves_accepted_history_and_surfaces_next_mile
     cli = MultiloopCli(tmp_path, state_path)
     cli.run("init", "--name", "M7 Two Milestone", "--final-goal", "Ship a validated adaptive loop.")
     state = read_state(state_path)
+    state["roadmap"].extend(
+        [
+            {
+                "id": "M2",
+                "title": "Implement and validate fixture slice",
+                "status": "planned",
+                "goal": "Complete the second validation slice.",
+                "entryCriteria": [],
+                "acceptanceCriteria": [],
+                "finalGoalContribution": "Validates next-milestone execution after accepted history.",
+                "learnedFacts": [],
+                "blockers": [],
+                "reviewVerdicts": [],
+            },
+            {
+                "id": "M3",
+                "title": "Review-informed continuation",
+                "status": "planned",
+                "goal": "Use evidence to decide whether more roadmap work is needed.",
+                "entryCriteria": [],
+                "acceptanceCriteria": [],
+                "finalGoalContribution": "Keeps future roadmap decisions evidence-backed.",
+                "learnedFacts": [],
+                "blockers": [],
+                "reviewVerdicts": [],
+            },
+        ]
+    )
     state["tasks"] = [_task("T1", "M1", "Build state reader"), _task("T2", "M2", "Validate renderer fixture")]
     write_state(state_path, state)
 
@@ -139,12 +167,12 @@ def test_two_milestone_fixture_preserves_accepted_history_and_surfaces_next_mile
     m2_detail = cli.run("milestone", "show", "M2", "--tasks").stdout
     final_state = read_state(state_path)
 
-    assert "Started milestone: M2 [active]: Implement and validate the selected slice" in started
-    assert "* M2 [accepted]: Implement and validate the selected slice" in roadmap
-    assert "- M3 [planned]: Review, learn, and adapt the roadmap" in roadmap
+    assert "Started milestone: M2 [active]: Implement and validate fixture slice" in started
+    assert "* M2 [accepted]: Implement and validate fixture slice" in roadmap
+    assert "- M3 [planned]: Review-informed continuation" in roadmap
     assert "Latest revision: R1 - M1 tester verdict narrowed the future validation scope." in roadmap
     verdicts = cli.run("milestone", "verdict", "list", "M2").stdout
-    assert "Verdicts for M2 [accepted]: Implement and validate the selected slice" in verdicts
+    assert "Verdicts for M2 [accepted]: Implement and validate fixture slice" in verdicts
     assert "V1 tester [accepted] by tester-m2" in verdicts
     assert "T2 [done]" in m2_detail
     assert "Renderer fixture passed." in m2_detail
