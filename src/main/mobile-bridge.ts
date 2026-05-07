@@ -23,7 +23,7 @@ import {
   summarizeCommandResult,
 } from './mobile-bridge-command-results'
 import { authorizeRelayCommand } from './mobile-bridge-relay-auth'
-import { normalizeDevicePlatform, relayDeviceCapabilities } from './mobile-bridge-relay-device'
+import { upsertRelayDevice } from './mobile-bridge-relay-device'
 import {
   getDefaultMobileBridgeStorePath,
   readMobileBridgeStore,
@@ -840,7 +840,12 @@ export class MobileBridge {
       return failedCommandResult(envelope, authorizationError.code, authorizationError.message)
     }
 
-    const activeDevice = this.upsertRelayDevice(device as MobileRelayAuthenticatedDevice)
+    const { pairedDevice: activeDevice, inserted } = upsertRelayDevice(
+      this.pairedDevices,
+      device as MobileRelayAuthenticatedDevice,
+      mobileControlProtocolVersion
+    )
+    if (inserted) void this.persist().then(() => this.emitStateChanged())
     const command = {
       protocolVersion: mobileControlProtocolVersion,
       commandId: envelope.commandId,
@@ -866,34 +871,6 @@ export class MobileBridge {
       case 'agent.followUp':
         return this.commandService.dispatch(command)
     }
-  }
-
-  private upsertRelayDevice(device: MobileRelayAuthenticatedDevice): MobileControlDevice {
-    const now = new Date().toISOString()
-    const capabilities = relayDeviceCapabilities(device)
-    const existing = this.pairedDevices.find((candidate) => candidate.deviceId === device.deviceId)
-    if (existing) {
-      existing.displayName = device.displayName?.trim() || existing.displayName
-      existing.lastSeenAt = device.lastSeenAt ?? now
-      existing.revokedAt = device.revokedAt
-      existing.capabilities = capabilities
-      return existing
-    }
-
-    const pairedDevice: MobileControlDevice = {
-      protocolVersion: mobileControlProtocolVersion,
-      deviceId: device.deviceId,
-      displayName: device.displayName?.trim() || 'Mobile device',
-      platform: normalizeDevicePlatform(device.platform),
-      appVersion: device.appVersion?.trim() || 'unknown',
-      pairedAt: device.pairedAt ?? now,
-      lastSeenAt: device.lastSeenAt ?? now,
-      ...(device.revokedAt ? { revokedAt: device.revokedAt } : {}),
-      capabilities,
-    }
-    this.pairedDevices.push(pairedDevice)
-    void this.persist().then(() => this.emitStateChanged())
-    return pairedDevice
   }
 
   private async dispatchSnapshotRequest(command: MobileControlCommand): Promise<MobileSwarmCommandResult> {
