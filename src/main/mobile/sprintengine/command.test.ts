@@ -9,8 +9,8 @@ import {
   MobileSwarmCommandService,
   type MobileControlCommand,
   type MobileSwarmSessionOrchestrator,
-} from './mobile-sprintengine-command'
-import { readSwarmSnapshot } from './mobile-sprintengine-snapshot'
+} from './command'
+import { readSwarmSnapshot } from './snapshot'
 
 const now = new Date('2026-04-28T19:45:00.000Z')
 
@@ -704,7 +704,7 @@ async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandler
   }
 
   try {
-    await import('./index')
+    await import('../../index')
   } finally {
     moduleLoader._load = originalLoad
   }

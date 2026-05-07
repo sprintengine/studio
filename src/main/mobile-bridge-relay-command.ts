@@ -1,4 +1,4 @@
-import type { MobileControlCommand } from './mobile-sprintengine-command'
+import type { MobileControlCommand } from './mobile/sprintengine/command'
 import type { MobileControlCommandType, MobileControlDevice, RelayCommandEnvelope, RelayCommandType } from './mobile-bridge'
 
 export function relayCommandTypeToMobile(type: RelayCommandType): MobileControlCommandType {

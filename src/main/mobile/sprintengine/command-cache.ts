@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import type {
   MobileControlCommand,
   MobileSwarmCommandResult,
-} from './mobile-sprintengine-command'
+} from './command'
 
 const maxRememberedIdempotencyKeys = 500
 

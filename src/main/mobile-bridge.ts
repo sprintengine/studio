@@ -1,9 +1,9 @@
 import {
   MobileSwarmCommandService,
   type MobileSwarmCommandResult,
-} from './mobile-sprintengine-command'
-import type { MobilePushRegistrationTarget } from './mobile-sprintengine-activity'
-import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile-sprintengine-snapshot'
+} from './mobile/sprintengine/command'
+import type { MobilePushRegistrationTarget } from './mobile/sprintengine/activity'
+import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile/sprintengine/snapshot'
 import { getErrorMessage } from './error-message'
 import { hashSecret } from './mobile-bridge-crypto'
 import { getDesktopDisplayName } from './mobile-bridge-desktop'

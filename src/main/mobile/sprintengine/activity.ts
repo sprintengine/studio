@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto'
-import type { MobileSwarmCommandAuditEntry } from './mobile-sprintengine-command'
-import type { MobileControlSnapshot, MobileSwarmArtifactSnapshot, MobileSwarmSnapshot, MobileSwarmTaskSnapshot } from './mobile-sprintengine-snapshot'
+import type { MobileSwarmCommandAuditEntry } from './command'
+import type { MobileControlSnapshot, MobileSwarmArtifactSnapshot, MobileSwarmSnapshot, MobileSwarmTaskSnapshot } from './snapshot'
 
 const mobileControlProtocolVersion = 1 as const
 

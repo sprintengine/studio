@@ -1,9 +1,9 @@
 import type { TerminalSessionSnapshot } from '../shared/electron-api'
-import { MobileSwarmCommandService } from './mobile-sprintengine-command'
+import { MobileSwarmCommandService } from './mobile/sprintengine/command'
 import {
   DesktopMobileSwarmSessionOrchestrator,
   type DesktopMobileSwarmSessionAdapters,
-} from './mobile-sprintengine-session'
+} from './mobile/sprintengine/session'
 
 type TerminalMobileCommandServiceOptions = {
   listTerminals(): Promise<TerminalSessionSnapshot[]>

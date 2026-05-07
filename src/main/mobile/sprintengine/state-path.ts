@@ -1,5 +1,5 @@
 import { basename, dirname, isAbsolute, resolve } from 'path'
-import { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
+import { MobileSwarmCommandError } from './command-error'
 
 export type ValidSwarmStatePath = {
   statePath: string

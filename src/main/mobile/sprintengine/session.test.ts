@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { DesktopMobileSwarmSessionOrchestrator, type DesktopMobileSwarmSessionAdapters } from './mobile-sprintengine-session'
-import type { MobileSwarmTaskStartRequest } from './mobile-sprintengine-command'
+import { DesktopMobileSwarmSessionOrchestrator, type DesktopMobileSwarmSessionAdapters } from './session'
+import type { MobileSwarmTaskStartRequest } from './command'
 
 const now = new Date('2026-04-28T20:20:00.000Z')
 

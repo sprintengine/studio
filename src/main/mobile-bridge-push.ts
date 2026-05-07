@@ -1,4 +1,4 @@
-import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile-sprintengine-activity'
+import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile/sprintengine/activity'
 import type {
   MobileControlDevice,
   MobilePushRegistration,

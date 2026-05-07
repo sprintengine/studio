@@ -1,5 +1,5 @@
-import type { MobileControlCommand, MobileSwarmCommandResult } from './mobile-sprintengine-command'
-import { MobileSwarmSnapshotService } from './mobile-sprintengine-snapshot'
+import type { MobileControlCommand, MobileSwarmCommandResult } from './mobile/sprintengine/command'
+import { MobileSwarmSnapshotService } from './mobile/sprintengine/snapshot'
 import { acceptedBridgeCommand } from './mobile-bridge-command-results'
 
 export async function dispatchSnapshotRequest(input: {

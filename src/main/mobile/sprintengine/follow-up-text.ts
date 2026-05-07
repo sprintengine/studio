@@ -1,4 +1,4 @@
-import { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
+import { MobileSwarmCommandError } from './command-error'
 
 const maxFollowUpCharacters = 2_000
 

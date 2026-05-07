@@ -2,7 +2,7 @@ import type {
   MobileControlCommand,
   MobileControlCommandType,
   MobileControlError,
-} from './mobile-sprintengine-command'
+} from './command'
 
 type ValidationResult<T> =
   | { ok: true; value: T }

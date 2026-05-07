@@ -1,4 +1,4 @@
-import type { MobileControlCommand, MobileSwarmCommandResult } from './mobile-sprintengine-command'
+import type { MobileControlCommand, MobileSwarmCommandResult } from './mobile/sprintengine/command'
 import type { MobileControlDevice } from './mobile-bridge'
 import { getErrorMessage } from './error-message'
 import { acceptedBridgeCommand, failedCommandResult } from './mobile-bridge-command-results'

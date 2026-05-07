@@ -1,7 +1,7 @@
 import { isAbsolute, resolve } from 'path'
-import { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
-import { isPathInsideOrEqual } from './mobile-sprintengine-path-utils'
-import type { ValidSwarmStatePath } from './mobile-sprintengine-state-path'
+import { MobileSwarmCommandError } from './command-error'
+import { isPathInsideOrEqual } from './path-utils'
+import type { ValidSwarmStatePath } from './state-path'
 
 export function resolveSprintEngineArtifactFilePath(
   state: ValidSwarmStatePath,

@@ -1,11 +1,11 @@
 import { readFile } from 'fs/promises'
-import { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
-import { resolveSprintEngineArtifactFilePath } from './mobile-sprintengine-artifact-path'
-import type { ValidSwarmStatePath } from './mobile-sprintengine-state-path'
+import { MobileSwarmCommandError } from './command-error'
+import { resolveSprintEngineArtifactFilePath } from './artifact-path'
+import type { ValidSwarmStatePath } from './state-path'
 import {
   normalizeSwarmTasks,
   type SwarmTaskRecord,
-} from './mobile-sprintengine-task-normalizer'
+} from './task-normalizer'
 
 export type SwarmArtifactRecord = {
   id: string

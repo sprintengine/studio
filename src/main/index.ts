@@ -30,7 +30,7 @@ import { createTerminalRuntime } from './terminal-runtime'
 import {
   MobileBridge,
 } from './mobile-bridge'
-import { MobileSwarmSnapshotService } from './mobile-sprintengine-snapshot'
+import { MobileSwarmSnapshotService } from './mobile/sprintengine/snapshot'
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({

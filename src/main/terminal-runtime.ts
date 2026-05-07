@@ -15,7 +15,7 @@ import {
 } from './terminal-launch'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
-import { MobileSwarmCommandService } from './mobile-sprintengine-command'
+import { MobileSwarmCommandService } from './mobile/sprintengine/command'
 import {
   appendTerminalOutput,
   getTerminalSize,

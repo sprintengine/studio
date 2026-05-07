@@ -4,9 +4,9 @@ import {
   pushTokenHash,
   type MobileNotificationDelivery,
   type MobilePushRegistrationTarget,
-} from './mobile-sprintengine-activity'
-import type { MobileControlSnapshot, MobileSwarmSnapshot } from './mobile-sprintengine-snapshot'
-import type { MobileSwarmCommandAuditEntry } from './mobile-sprintengine-command'
+} from './activity'
+import type { MobileControlSnapshot, MobileSwarmSnapshot } from './snapshot'
+import type { MobileSwarmCommandAuditEntry } from './command'
 
 const now = new Date('2026-04-28T20:40:00.000Z')
 

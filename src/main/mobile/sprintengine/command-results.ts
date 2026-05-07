@@ -4,10 +4,10 @@ import type {
   MobileControlError,
   MobileSwarmCommandAuditEntry,
   MobileSwarmCommandResult,
-} from './mobile-sprintengine-command'
-import type { ValidSwarmStatePath } from './mobile-sprintengine-state-path'
-import { buildError } from './mobile-sprintengine-command-validation'
-import { redactToolArgs } from './mobile-sprintengine-tool-runner'
+} from './command'
+import type { ValidSwarmStatePath } from './state-path'
+import { buildError } from './command-validation'
+import { redactToolArgs } from './tool-runner'
 
 type MobileSwarmCommandAuditStatus = 'accepted' | 'rejected' | 'failed'
 

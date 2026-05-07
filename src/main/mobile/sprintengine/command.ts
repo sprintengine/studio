@@ -4,41 +4,41 @@ import {
   rememberedCommandResult,
   rememberCommandResult,
   requestHashFor,
-} from './mobile-sprintengine-command-cache'
-import { validateMobileControlCommand } from './mobile-sprintengine-command-validation'
+} from './command-cache'
+import { validateMobileControlCommand } from './command-validation'
 import {
   mobileActorId,
   safeSlug,
   uniqueResolved,
-} from './mobile-sprintengine-path-utils'
+} from './path-utils'
 import {
   createSwarmToolExecutor,
   defaultSwarmToolPath,
   parseToolJson,
   type SwarmToolExecutor,
-} from './mobile-sprintengine-tool-runner'
+} from './tool-runner'
 import {
   getMobileSwarmCommandErrorMessage,
   MobileSwarmCommandError,
-} from './mobile-sprintengine-command-error'
+} from './command-error'
 import {
   validateSwarmStatePath,
   type ValidSwarmStatePath,
-} from './mobile-sprintengine-state-path'
-import { normalizeFollowUpText } from './mobile-sprintengine-follow-up-text'
+} from './state-path'
+import { normalizeFollowUpText } from './follow-up-text'
 import {
   assertKnownActiveSwarmAgent,
   findReadySwarmTask,
   findSwarmArtifact,
-} from './mobile-sprintengine-state-reader'
-import { MobileSwarmCommandResultRecorder } from './mobile-sprintengine-command-results'
+} from './state-reader'
+import { MobileSwarmCommandResultRecorder } from './command-results'
 import {
   assertExpectedSnapshotVersion,
   resolveStateForSwarm,
   validateMobileWorkspacePath,
-} from './mobile-sprintengine-workspace'
+} from './workspace'
 
-export { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
+export { MobileSwarmCommandError } from './command-error'
 
 export const mobileControlProtocolVersion = 1 as const
 

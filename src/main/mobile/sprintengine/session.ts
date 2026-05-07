@@ -8,7 +8,7 @@ import {
   type MobileSwarmSessionOrchestrator,
   type MobileSwarmTaskStartRequest,
   type MobileSwarmTaskStartResult,
-} from './mobile-sprintengine-command'
+} from './command'
 
 type AgentCli = 'codex' | 'claude'
 

@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import type {
   MobileControlCommand,
   MobileSwarmCommandResult,
-} from './mobile-sprintengine-command'
+} from './mobile/sprintengine/command'
 import type {
   MobileControlErrorCode,
   RelayCommandEnvelope,

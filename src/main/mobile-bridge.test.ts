@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice } from './mobile-bridge'
-import { MobileSwarmCommandService } from './mobile-sprintengine-command'
+import { MobileSwarmCommandService } from './mobile/sprintengine/command'
 
 const now = new Date('2026-04-28T22:00:00.000Z')
 

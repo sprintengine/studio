@@ -1,13 +1,13 @@
 import { constants } from 'fs'
 import { access, stat } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'path'
-import { readSwarmSnapshot } from './mobile-sprintengine-snapshot'
-import { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
-import { isPathInsideOrEqual, isSafePathSegment } from './mobile-sprintengine-path-utils'
+import { readSwarmSnapshot } from './snapshot'
+import { MobileSwarmCommandError } from './command-error'
+import { isPathInsideOrEqual, isSafePathSegment } from './path-utils'
 import {
   validateSwarmStatePath,
   type ValidSwarmStatePath,
-} from './mobile-sprintengine-state-path'
+} from './state-path'
 
 export async function resolveStateForSwarm(input: {
   swarmId: string

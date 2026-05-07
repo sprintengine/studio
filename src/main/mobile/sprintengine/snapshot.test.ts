@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 import {
   MobileSwarmSnapshotService,
   readSwarmSnapshot,
-} from './mobile-sprintengine-snapshot'
+} from './snapshot'
 
 const generatedAt = '2026-04-28T19:30:00.000Z'
 

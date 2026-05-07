@@ -1,4 +1,4 @@
-import type { MobileControlError } from './mobile-sprintengine-command'
+import type { MobileControlError } from './command'
 
 export class MobileSwarmCommandError extends Error {
   constructor(
