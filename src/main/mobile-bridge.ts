@@ -12,6 +12,7 @@ import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile
 import { getErrorMessage } from './error-message'
 import { hashSecret, randomBase64Url } from './mobile-bridge-crypto'
 import { getAllBrowserWindows, getDesktopDisplayName } from './mobile-bridge-desktop'
+import { manualPairingValueFromRelayChallenge } from './mobile-bridge-pairing'
 import {
   isMobileBridgePresence,
   isMobileControlCapability,
@@ -1565,48 +1566,6 @@ function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
 
 async function defaultSwarmStatePaths(): Promise<string[]> {
   return []
-}
-
-function manualPairingValueFromRelayChallenge(challenge: RelayPairingChallengeResult): string {
-  if (challenge.manualPairingCode) return challenge.manualPairingCode
-
-  if (!challenge.pairingPayload) {
-    if (isCurrentMobilePairingUri(challenge.pairingUri)) return challenge.pairingUri
-    throw new Error('Relay pairing challenge did not include a mobile-compatible pairing payload.')
-  }
-
-  let url: URL
-  try {
-    url = new URL(challenge.pairingUri)
-  } catch {
-    url = new URL('multicode://mobile/pair')
-  }
-
-  url.searchParams.set('mobileControlProtocolVersion', String(challenge.pairingPayload.mobileControlProtocolVersion))
-  url.searchParams.set('pairingChallengeId', challenge.pairingPayload.pairingChallengeId)
-  url.searchParams.set('relayUrl', challenge.pairingPayload.relayUrl)
-  url.searchParams.set('pairingSecret', challenge.pairingPayload.pairingSecret)
-  url.searchParams.set('expiresAt', challenge.pairingPayload.expiresAt)
-  url.searchParams.set('desktopName', challenge.pairingPayload.desktop.displayName)
-  url.searchParams.set('desktopInstanceId', challenge.pairingPayload.desktop.desktopInstanceId)
-  url.searchParams.set('desktopRelaySessionId', challenge.pairingPayload.desktop.desktopRelaySessionId)
-
-  return url.toString()
-}
-
-function isCurrentMobilePairingUri(pairingUri: string): boolean {
-  try {
-    const params = new URL(pairingUri).searchParams
-    return params.get('mobileControlProtocolVersion') === String(mobileControlProtocolVersion)
-      && Boolean(params.get('pairingChallengeId')?.trim())
-      && Boolean(params.get('relayUrl')?.trim() || params.get('relay')?.trim())
-      && Boolean(params.get('pairingSecret')?.trim())
-      && Boolean(params.get('expiresAt')?.trim())
-      && Boolean((params.get('desktopName') ?? params.get('desktopDisplayName'))?.trim())
-      && Boolean(params.get('desktopInstanceId')?.trim())
-  } catch {
-    return false
-  }
 }
 
 function readRelayErrorMessage(payload: Record<string, unknown>, status: number): string {
