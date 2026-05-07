@@ -23,6 +23,12 @@ import {
   normalizeSwarmTasks,
   type SwarmTaskRecord,
 } from './mobile-sprintengine-task-normalizer'
+import {
+  getMobileSwarmCommandErrorMessage,
+  MobileSwarmCommandError,
+} from './mobile-sprintengine-command-error'
+
+export { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
 
 export const mobileControlProtocolVersion = 1 as const
 
@@ -353,7 +359,7 @@ export class MobileSwarmCommandService {
         this.rememberIdempotencyResult(idempotencyKey, requestHash, result)
         return result
       }
-      const result = this.reject(command, 'internal_error', getErrorMessage(error), false)
+      const result = this.reject(command, 'internal_error', getMobileSwarmCommandErrorMessage(error), false)
       this.rememberIdempotencyResult(idempotencyKey, requestHash, result)
       return result
     }
@@ -877,16 +883,6 @@ export class MobileSwarmCommandService {
   }
 }
 
-export class MobileSwarmCommandError extends Error {
-  constructor(
-    readonly code: MobileControlError['code'],
-    message: string,
-    readonly retryable: boolean
-  ) {
-    super(message)
-  }
-}
-
 function validateSwarmStatePath(input: string): ValidSwarmStatePath {
   if (typeof input !== 'string' || !input.trim()) {
     throw new MobileSwarmCommandError('path_not_allowed', 'A Sprint Engine state path is required.', false)
@@ -928,9 +924,4 @@ function normalizeFollowUpText(value: string): string {
     throw new MobileSwarmCommandError('invalid_payload', `Follow-up text must be ${maxFollowUpCharacters} characters or less.`, false)
   }
   return text
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof MobileSwarmCommandError) return error.message
-  return error instanceof Error ? error.message : String(error)
 }
