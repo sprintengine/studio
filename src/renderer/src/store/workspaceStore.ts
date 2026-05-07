@@ -221,6 +221,21 @@ function normalizeAppSettings(settings: Partial<AppSettings> | undefined, worksp
   }
 }
 
+type WorkspaceMigrationState = {
+  workspaces: Workspace[]
+  activeWorkspaceId?: WorkspaceId | null
+  appSettings?: Partial<AppSettings> & {
+    cliCommands?: Partial<Record<AgentCli, string>>
+  }
+}
+
+function mapMigrationWorkspaces(
+  state: WorkspaceMigrationState,
+  migrate: (workspace: Workspace) => Workspace
+): void {
+  state.workspaces = state.workspaces.map(migrate)
+}
+
 function defaultUsageTelemetrySettings(): UsageTelemetrySettings {
   return {
     sendUsageData: false,
@@ -1586,47 +1601,48 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       version: 36,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
-        const state = persisted as { workspaces?: Workspace[]; activeWorkspaceId?: WorkspaceId | null } | undefined
+        const state = persisted as Partial<WorkspaceMigrationState> | undefined
         if (!state) return state as never
         state.workspaces = state.workspaces ?? []
+        const migrationState = state as WorkspaceMigrationState
         if (version < 1) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             folderPath: ws.folderPath ?? null,
             editorState: ws.editorState ?? defaultEditorState(),
           }))
         }
         if (version < 2) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             mode: ws.mode ?? (ws.swarmState ? 'sprintengine' : 'standard'),
             swarmState: normalizeSwarmState(ws.swarmState),
           }))
         }
         if (version < 3) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             swarmState: normalizeSwarmState(ws.swarmState),
           }))
         }
         if (version < 4) {
-          state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
+          mapMigrationWorkspaces(migrationState, migrateSwarmLayout)
         }
         if (version < 5) {
-          state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
+          mapMigrationWorkspaces(migrationState, migrateSwarmLayout)
         }
         if (version < 6) {
-          state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
+          mapMigrationWorkspaces(migrationState, migrateSwarmLayout)
         }
         if (version < 7) {
-          state.workspaces = state.workspaces.map((ws) =>
+          mapMigrationWorkspaces(migrationState, (ws) =>
             ws.mode === 'sprintengine' || ws.mode === 'symphony' || ws.swarmState
               ? { ...ws, layoutModel: swarmTabsLayoutModel(ws.swarmState, ws.agents) }
               : ws
           )
         }
         if (version < 8) {
-          state.workspaces = state.workspaces.map((ws) => {
+          mapMigrationWorkspaces(migrationState, (ws) => {
             const swarmState = normalizeSwarmState(ws.swarmState)
             if (ws.mode !== 'sprintengine' && ws.mode !== 'symphony' && !swarmState) return ws
 
@@ -1638,10 +1654,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           })
         }
         if (version < 10) {
-          type LegacyAppSettings = Partial<AppSettings> & {
-            cliCommands?: Partial<Record<AgentCli, string>>
-          }
-          const current = state as typeof state & { appSettings?: LegacyAppSettings }
+          const current = migrationState
           const defaults = defaultAppSettings()
           const existing = current.appSettings ?? {}
           current.appSettings = {
@@ -1667,7 +1680,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }
         if (version < 11) {
-          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const current = migrationState
           const defaults = defaultAppSettings()
           current.appSettings = {
             ...defaults,
@@ -1680,7 +1693,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }
         if (version < 12) {
-          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const current = migrationState
           const defaults = defaultAppSettings()
           current.appSettings = {
             ...defaults,
@@ -1695,7 +1708,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }
         if (version < 13) {
-          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const current = migrationState
           const defaults = defaultAppSettings()
           const selectedSpecialist =
             current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist
@@ -1712,28 +1725,28 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }
         if (version < 14) {
-          state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
+          mapMigrationWorkspaces(migrationState, migrateSwarmLayout)
         }
         if (version < 15) {
-          state.workspaces = state.workspaces.map((ws) => migrateSwarmLayout(ws))
+          mapMigrationWorkspaces(migrationState, migrateSwarmLayout)
         }
         if (version < 16) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             folderMissing: false,
           }))
         }
         if (version < 17) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
         if (version < 18) {
-          state.workspaces = state.workspaces.map((ws) => migrateSwarmAgentNames(ws))
+          mapMigrationWorkspaces(migrationState, migrateSwarmAgentNames)
         }
         if (version < 19) {
-          state.workspaces = state.workspaces.map((ws) => {
+          mapMigrationWorkspaces(migrationState, (ws) => {
             const swarmState = normalizeSwarmState(ws.swarmState)
             return {
               ...ws,
@@ -1747,13 +1760,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           })
         }
         if (version < 20) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
         if (version < 21) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             agents: Object.fromEntries(
               Object.entries(ws.agents ?? {}).map(([id, agent]) => [
@@ -1765,13 +1778,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }))
         }
         if (version < 22) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
         if (version < 23) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             swarmRoleCliDefaults: ws.mode === 'sprintengine' || ws.mode === 'symphony' || ws.swarmState
               ? normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults)
@@ -1779,13 +1792,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }))
         }
         if (version < 24) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
         if (version < 25) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             editorState: {
               openFiles: (ws.editorState?.openFiles ?? []).map(({ content: _content, ...file }) => ({
@@ -1797,7 +1810,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }))
         }
         if (version < 26) {
-          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const current = migrationState
           const defaults = defaultAppSettings()
           current.appSettings = {
             ...defaults,
@@ -1813,7 +1826,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }
         if (version < 27) {
-          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const current = migrationState
           const defaults = defaultAppSettings()
           current.appSettings = {
             ...defaults,
@@ -1833,7 +1846,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }
         if (version < 28) {
-          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const current = migrationState
           const defaults = defaultAppSettings()
           current.appSettings = {
             ...defaults,
@@ -1856,17 +1869,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }
         if (version < 29) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             swarmAutoState: normalizeSwarmAutoState(ws.swarmAutoState),
           }))
         }
         if (version < 30) {
-          state.workspaces = state.workspaces.map((ws) => {
+          mapMigrationWorkspaces(migrationState, (ws) => {
             const swarmState = normalizeSwarmState(ws.swarmState)
             const multiloopState = ws.multiloopState ?? null
             const mode = multiloopState ? 'multiloop' : swarmState ? 'sprintengine' : ws.mode ?? 'standard'
-            const nextWorkspace = {
+            const nextWorkspace: Workspace = {
               ...ws,
               mode,
               swarmState,
@@ -1891,7 +1904,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           })
         }
         if (version < 31) {
-          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const current = migrationState
           const defaults = defaultAppSettings()
           current.appSettings = {
             ...defaults,
@@ -1925,15 +1938,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }))
         }
         if (version < 33) {
-          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const current = migrationState
           current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
         }
         if (version < 34) {
-          const current = state as typeof state & { appSettings?: Partial<AppSettings> }
+          const current = migrationState
           current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
         }
         if (version < 35) {
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             memory: normalizeWorkspaceMemoryConfig(ws.memory),
           }))
@@ -1942,7 +1955,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           // Re-run memory normalization so the bumped GRAPH_SETTINGS_VERSION
           // upgrades layout numerics (link distance, node size, forces) on
           // workspaces that pre-date the tighter defaults.
-          state.workspaces = state.workspaces.map((ws) => ({
+          mapMigrationWorkspaces(migrationState, (ws) => ({
             ...ws,
             memory: normalizeWorkspaceMemoryConfig(ws.memory),
           }))

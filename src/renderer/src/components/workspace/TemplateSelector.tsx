@@ -902,7 +902,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                       </div>
                     </div>
                     <div className="rounded-md border border-[#303139] bg-[#08090b] p-3">
-                      <SprintEngineWorkspacePreview />
+                      <SwarmWorkspacePreview />
                     </div>
                   </div>
                 </div>
