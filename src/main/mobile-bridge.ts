@@ -20,6 +20,7 @@ import {
   summarizeCommandResult,
 } from './mobile-bridge-command-results'
 import { dispatchArtifactRead } from './mobile-bridge-artifact-read'
+import { dispatchSnapshotRequest } from './mobile-bridge-snapshot-request'
 import { stringPayload } from './mobile-bridge-command-payload'
 import { authorizeRelayCommand } from './mobile-bridge-relay-auth'
 import { upsertRelayDevice } from './mobile-bridge-relay-device'
@@ -858,7 +859,12 @@ export class MobileBridge {
 
     switch (commandType) {
       case 'snapshot.request':
-        return this.dispatchSnapshotRequest(command)
+        return dispatchSnapshotRequest({
+          command,
+          snapshotService: this.snapshotService,
+          desktopSessionId: this.desktopRelaySessionId ?? this.desktopInstanceId,
+          statePathsProvider: this.statePathsProvider,
+        })
       case 'artifact.read':
         return dispatchArtifactRead({
           command,
@@ -875,15 +881,6 @@ export class MobileBridge {
       case 'agent.followUp':
         return this.commandService.dispatch(command)
     }
-  }
-
-  private async dispatchSnapshotRequest(command: MobileControlCommand): Promise<MobileSwarmCommandResult> {
-    const statePaths = await this.statePathsProvider()
-    const snapshot = await this.snapshotService.readSnapshot({
-      desktopSessionId: this.desktopRelaySessionId ?? this.desktopInstanceId,
-      statePaths,
-    })
-    return acceptedBridgeCommand(command, snapshot)
   }
 
   private async dispatchDeviceRevoke(command: MobileControlCommand): Promise<MobileSwarmCommandResult> {
