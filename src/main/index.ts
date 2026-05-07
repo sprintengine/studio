@@ -29,7 +29,7 @@ import { createMainDiagnostics } from './main-diagnostics'
 import { createTerminalRuntime } from './terminal-runtime'
 import {
   MobileBridge,
-} from './mobile-bridge'
+} from './mobile/bridge'
 import { MobileSwarmSnapshotService } from './mobile/sprintengine/snapshot'
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'

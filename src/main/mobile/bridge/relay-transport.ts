@@ -9,7 +9,7 @@ import type {
   RelayCommandType,
   RelayConnectResult,
   RelayPairingChallengeResult,
-} from './mobile-bridge'
+} from './index'
 
 const mobileControlProtocolVersion = 1 as const
 

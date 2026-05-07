@@ -1,5 +1,5 @@
-import type { MobileControlCommand } from './mobile/sprintengine/command'
-import type { MobileControlCommandType, MobileControlDevice, RelayCommandEnvelope, RelayCommandType } from './mobile-bridge'
+import type { MobileControlCommand } from '../sprintengine/command'
+import type { MobileControlCommandType, MobileControlDevice, RelayCommandEnvelope, RelayCommandType } from './index'
 
 export function relayCommandTypeToMobile(type: RelayCommandType): MobileControlCommandType {
   return type === 'agent.followup' ? 'agent.followUp' : type

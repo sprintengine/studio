@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice } from './mobile-bridge'
-import { MobileSwarmCommandService } from './mobile/sprintengine/command'
+import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice } from './index'
+import { MobileSwarmCommandService } from '../sprintengine/command'
 
 const now = new Date('2026-04-28T22:00:00.000Z')
 
@@ -373,11 +373,11 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
   private readonly relayStore: unknown
 
   constructor() {
-    const { AuthService, MemoryAuthStore } = require('../../../multiauth/src/auth') as {
+    const { AuthService, MemoryAuthStore } = require('../../../../../multiauth/src/auth') as {
       AuthService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['auth']
       MemoryAuthStore: new () => unknown
     }
-    const { MemoryRelayStore, RelayService } = require('../../../multiauth/src/relay') as {
+    const { MemoryRelayStore, RelayService } = require('../../../../../multiauth/src/relay') as {
       MemoryRelayStore: new () => unknown
       RelayService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['relay']
     }
@@ -523,7 +523,7 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
   }
 
   private recreateRelayService(): RelayServiceBackedTransport['relay'] {
-    const { RelayService } = require('../../../multiauth/src/relay') as {
+    const { RelayService } = require('../../../../../multiauth/src/relay') as {
       RelayService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['relay']
     }
     return new RelayService({

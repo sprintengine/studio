@@ -1,14 +1,14 @@
-import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile/sprintengine/activity'
+import { pushTokenHash, type MobilePushRegistrationTarget } from '../sprintengine/activity'
 import type {
   MobileControlDevice,
   MobilePushRegistration,
   MobilePushRegistrationInput,
-} from './mobile-bridge'
-import { randomBase64Url } from './mobile-bridge-crypto'
+} from './index'
+import { randomBase64Url } from './crypto'
 import {
   isMobilePushProvider,
   redactPushRegistration,
-} from './mobile-bridge-validation'
+} from './validation'
 
 const mobileControlProtocolVersion = 1 as const
 

@@ -2,8 +2,8 @@ import { randomUUID } from 'crypto'
 import type {
   MobileBridgeDiagnosticEntry,
   MobileBridgeState,
-} from './mobile-bridge'
-import { getAllBrowserWindows } from './mobile-bridge-desktop'
+} from './index'
+import { getAllBrowserWindows } from './desktop'
 
 const MAX_DIAGNOSTICS = 50
 

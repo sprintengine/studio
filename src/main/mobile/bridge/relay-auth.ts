@@ -5,8 +5,8 @@ import type {
   MobileControlErrorCode,
   MobileRelayAuthenticatedDevice,
   RelayCommandEnvelope,
-} from './mobile-bridge'
-import { relayDeviceCapabilities } from './mobile-bridge-relay-device'
+} from './index'
+import { relayDeviceCapabilities } from './relay-device'
 
 const SIDE_EFFECTING_COMMANDS = new Set<MobileControlCommandType>([
   'sprintengine.create',

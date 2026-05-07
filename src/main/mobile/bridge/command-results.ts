@@ -2,12 +2,12 @@ import { randomUUID } from 'crypto'
 import type {
   MobileControlCommand,
   MobileSwarmCommandResult,
-} from './mobile/sprintengine/command'
+} from '../sprintengine/command'
 import type {
   MobileControlErrorCode,
   RelayCommandEnvelope,
-} from './mobile-bridge'
-import { relayCommandTypeToMobile } from './mobile-bridge-relay-command'
+} from './index'
+import { relayCommandTypeToMobile } from './relay-command'
 
 const mobileControlProtocolVersion = 1 as const
 

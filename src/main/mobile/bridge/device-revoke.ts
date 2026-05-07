@@ -1,8 +1,8 @@
-import type { MobileControlCommand, MobileSwarmCommandResult } from './mobile/sprintengine/command'
-import type { MobileControlDevice } from './mobile-bridge'
-import { getErrorMessage } from './error-message'
-import { acceptedBridgeCommand, failedCommandResult } from './mobile-bridge-command-results'
-import { stringPayload } from './mobile-bridge-command-payload'
+import type { MobileControlCommand, MobileSwarmCommandResult } from '../sprintengine/command'
+import type { MobileControlDevice } from './index'
+import { getErrorMessage } from '../../error-message'
+import { acceptedBridgeCommand, failedCommandResult } from './command-results'
+import { stringPayload } from './command-payload'
 
 export async function dispatchDeviceRevoke(input: {
   command: MobileControlCommand

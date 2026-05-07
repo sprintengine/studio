@@ -3,8 +3,8 @@ import type {
   MobileControlDevice,
   MobileRelayAuthenticatedDevice,
   MobileRelayScope,
-} from './mobile-bridge'
-import { isMobileControlCapability } from './mobile-bridge-validation'
+} from './index'
+import { isMobileControlCapability } from './validation'
 
 const CAPABILITY_BY_RELAY_SCOPE: Record<MobileRelayScope, MobileControlCapability | null> = {
   'relay:presence:read': null,

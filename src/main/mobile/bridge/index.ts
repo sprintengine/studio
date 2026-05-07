@@ -1,43 +1,43 @@
 import {
   MobileSwarmCommandService,
   type MobileSwarmCommandResult,
-} from './mobile/sprintengine/command'
-import type { MobilePushRegistrationTarget } from './mobile/sprintengine/activity'
-import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile/sprintengine/snapshot'
-import { getErrorMessage } from './error-message'
-import { hashSecret } from './mobile-bridge-crypto'
-import { getDesktopDisplayName } from './mobile-bridge-desktop'
-import { manualPairingValueFromRelayChallenge } from './mobile-bridge-pairing'
-import { FetchMobileRelayTransport } from './mobile-relay-transport'
+} from '../sprintengine/command'
+import type { MobilePushRegistrationTarget } from '../sprintengine/activity'
+import { MobileSwarmSnapshotService, type MobileControlSnapshot } from '../sprintengine/snapshot'
+import { getErrorMessage } from '../../error-message'
+import { hashSecret } from './crypto'
+import { getDesktopDisplayName } from './desktop'
+import { manualPairingValueFromRelayChallenge } from './pairing'
+import { FetchMobileRelayTransport } from './relay-transport'
 import {
   isMobileBridgePresence,
-} from './mobile-bridge-validation'
+} from './validation'
 import {
   failedCommandResult,
   summarizeCommandResult,
-} from './mobile-bridge-command-results'
-import { relayCommandTypeToMobile, relayEnvelopeToMobileCommand } from './mobile-bridge-relay-command'
-import { dispatchArtifactRead } from './mobile-bridge-artifact-read'
-import { dispatchDeviceRevoke } from './mobile-bridge-device-revoke'
-import { dispatchSnapshotRequest } from './mobile-bridge-snapshot-request'
-import { authorizeRelayCommand } from './mobile-bridge-relay-auth'
-import { upsertRelayDevice } from './mobile-bridge-relay-device'
+} from './command-results'
+import { relayCommandTypeToMobile, relayEnvelopeToMobileCommand } from './relay-command'
+import { dispatchArtifactRead } from './artifact-read'
+import { dispatchDeviceRevoke } from './device-revoke'
+import { dispatchSnapshotRequest } from './snapshot-request'
+import { authorizeRelayCommand } from './relay-auth'
+import { upsertRelayDevice } from './relay-device'
 import {
   getDefaultMobileBridgeStorePath,
   readMobileBridgeStore,
   writeMobileBridgeStore,
-} from './mobile-bridge-store'
+} from './store'
 import {
   emitMobileBridgeStateChanged,
   recordMobileBridgeDiagnostic,
-} from './mobile-bridge-notifications'
+} from './notifications'
 import {
   listActiveMobilePushTargets,
   listMobilePushRegistrations,
   registerMobilePushToken,
   revokeMobilePushRegistration,
   revokePushRegistrationsForDevice,
-} from './mobile-bridge-push'
+} from './push'
 
 const mobileControlProtocolVersion = 1 as const
 

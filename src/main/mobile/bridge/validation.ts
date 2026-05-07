@@ -4,7 +4,7 @@ import type {
   MobileControlDevice,
   MobilePushProvider,
   MobilePushRegistration,
-} from './mobile-bridge'
+} from './index'
 
 const MOBILE_CONTROL_CAPABILITIES: MobileControlCapability[] = [
   'snapshots.read',

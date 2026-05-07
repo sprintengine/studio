@@ -4,12 +4,12 @@ import { dirname, join } from 'path'
 import type {
   MobileControlDevice,
   MobilePushRegistration,
-} from './mobile-bridge'
-import { randomBase64Url } from './mobile-bridge-crypto'
+} from './index'
+import { randomBase64Url } from './crypto'
 import {
   isMobileControlDevice,
   isMobilePushRegistration,
-} from './mobile-bridge-validation'
+} from './validation'
 
 export type MobileBridgeStoredState = {
   enabled: boolean

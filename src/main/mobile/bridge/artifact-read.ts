@@ -1,10 +1,10 @@
 import { readFile } from 'fs/promises'
 import { basename, dirname } from 'path'
-import type { MobileControlCommand, MobileSwarmCommandResult } from './mobile/sprintengine/command'
-import { MobileSwarmSnapshotService } from './mobile/sprintengine/snapshot'
-import { resolveArtifactPathForRead } from './mobile-bridge-artifact-path'
-import { acceptedBridgeCommand, failedCommandResult } from './mobile-bridge-command-results'
-import { stringPayload } from './mobile-bridge-command-payload'
+import type { MobileControlCommand, MobileSwarmCommandResult } from '../sprintengine/command'
+import { MobileSwarmSnapshotService } from '../sprintengine/snapshot'
+import { resolveArtifactPathForRead } from './artifact-path'
+import { acceptedBridgeCommand, failedCommandResult } from './command-results'
+import { stringPayload } from './command-payload'
 
 export async function dispatchArtifactRead(input: {
   command: MobileControlCommand
