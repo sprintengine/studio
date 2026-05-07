@@ -32,6 +32,7 @@ import {
   type ValidSwarmStatePath,
 } from './mobile-sprintengine-state-path'
 import { resolveSprintEngineArtifactFilePath } from './mobile-sprintengine-artifact-path'
+import { normalizeFollowUpText } from './mobile-sprintengine-follow-up-text'
 
 export { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
 
@@ -187,7 +188,6 @@ const defaultCommandTtlMs = 30_000
 const maxRememberedIdempotencyKeys = 500
 const maxProductPromptCharacters = 20_000
 const maxFeedbackCharacters = 8_000
-const maxFollowUpCharacters = 2_000
 const allowedCommandTypes = new Set<MobileControlCommandType>([
   'sprintengine.create',
   'task.start',
@@ -856,19 +856,4 @@ export class MobileSwarmCommandService {
     this.auditSink?.(entry)
     return entry
   }
-}
-
-function normalizeFollowUpText(value: string): string {
-  if (/[\u0000-\u001F\u007F]/u.test(value)) {
-    throw new MobileSwarmCommandError('invalid_payload', 'Follow-up text must be a single message without terminal control characters.', false)
-  }
-
-  const text = value.trim()
-  if (!text) {
-    throw new MobileSwarmCommandError('invalid_payload', 'Follow-up text is required.', false)
-  }
-  if (text.length > maxFollowUpCharacters) {
-    throw new MobileSwarmCommandError('invalid_payload', `Follow-up text must be ${maxFollowUpCharacters} characters or less.`, false)
-  }
-  return text
 }
