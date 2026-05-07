@@ -27,8 +27,6 @@ import {
 } from './ipc/sprintengine-ipc'
 import { registerTerminalIpc, type TerminalSpawnPayload } from './ipc/terminal-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
-import { cancelActiveContentSearch, searchContent, searchFiles } from './filesystem-search'
-import { isMissingPathError, pathExists } from './filesystem-workspace'
 import {
   cleanupTerminalStartupScript,
   getPlainShellLaunchConfig,
@@ -44,6 +42,7 @@ import { createMainWindow } from './window-factory'
 import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
+import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -1740,13 +1739,7 @@ registerMultiloopIpc(ipcMain, {
   initializeMultiloopState,
 })
 
-registerFilesystemWatchSearchIpc(ipcMain, {
-  pathExists,
-  isMissingPathError,
-  searchFiles,
-  searchContent,
-  cancelActiveContentSearch,
-})
+registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
 
 registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())
 
