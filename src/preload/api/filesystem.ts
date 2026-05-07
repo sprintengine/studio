@@ -1,0 +1,99 @@
+import { ipcRenderer, type IpcRendererEvent } from 'electron'
+import type {
+  ContentSearchResult,
+  ContextMenuItem,
+  DiagnosticLogEntry,
+  DiagnosticLogInput,
+  ElectronApi,
+  FileSearchResult,
+  FileWatchEvent,
+  MemoryGraphIndexResult,
+  MemoryPreviewResult,
+  MemoryRootStatus,
+  OpenDialogOptions,
+  SaveDialogOptions,
+  WorkspaceFolderCheckResult,
+} from '../../shared/electron-api'
+
+export const filesystemApi = {
+  readdir: (path: string) => ipcRenderer.invoke('fs:readdir', path),
+  searchFiles: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }): Promise<FileSearchResult> =>
+    ipcRenderer.invoke('fs:search-files', { rootPath, query, limit: options?.limit, excludes: options?.excludes }),
+  searchContent: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }): Promise<ContentSearchResult> =>
+    ipcRenderer.invoke('fs:search-content', { rootPath, query, limit: options?.limit, excludes: options?.excludes }),
+  cancelContentSearch: (): Promise<void> =>
+    ipcRenderer.invoke('fs:cancel-content-search'),
+  readfile: (path: string) => ipcRenderer.invoke('fs:readfile', path),
+  readImageDataUrl: (path: string) => ipcRenderer.invoke('fs:read-image-data-url', path),
+  pathExists: (path: string) => ipcRenderer.invoke('fs:path-exists', path),
+  checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>
+    ipcRenderer.invoke('fs:check-workspace-folder', path),
+  memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }): Promise<MemoryRootStatus> =>
+    ipcRenderer.invoke('memory:resolve-root', input),
+  memoryIndex: (input: { workspaceRoot: string | null; relativeRoot: string | null }): Promise<MemoryGraphIndexResult> =>
+    ipcRenderer.invoke('memory:index', input),
+  memoryReadPreview: (
+    input: { workspaceRoot: string | null; relativeRoot: string | null; relativePath: string }
+  ): Promise<MemoryPreviewResult> =>
+    ipcRenderer.invoke('memory:read-preview', input),
+  logDiagnostic: (input: DiagnosticLogInput): Promise<DiagnosticLogEntry> =>
+    ipcRenderer.invoke('diagnostics:log', input),
+  openDiagnosticsLogsFolder: (): Promise<{ opened: true; path: string }> =>
+    ipcRenderer.invoke('diagnostics:open-logs-folder'),
+  writefile: (path: string, content: string) => ipcRenderer.invoke('fs:writefile', path, content),
+  createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),
+  createDir: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-dir', parentDir, name),
+  ensureDir: (parentDir: string, name: string) => ipcRenderer.invoke('fs:ensure-dir', parentDir, name),
+  renamePath: (sourcePath: string, nextName: string) => ipcRenderer.invoke('fs:rename', sourcePath, nextName),
+  copyPath: (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:copy', sourcePath, destinationDir),
+  deletePath: (targetPath: string) => ipcRenderer.invoke('fs:delete', targetPath),
+  showItemInFolder: (targetPath: string) => ipcRenderer.invoke('fs:show-item-in-folder', targetPath),
+  watchPath: async (path: string, cb: (event: FileWatchEvent) => void) => {
+    const watchId = await ipcRenderer.invoke('fs:watch-start', path)
+    if (!watchId) {
+      throw new Error(`Cannot watch missing path: ${path}`)
+    }
+    const ch = `fs:watch-event:${watchId}`
+    const handler = (_: IpcRendererEvent, event: FileWatchEvent) => cb(event)
+    ipcRenderer.on(ch, handler)
+    return async () => {
+      ipcRenderer.removeListener(ch, handler)
+      await ipcRenderer.invoke('fs:watch-stop', watchId)
+    }
+  },
+  openDir: () => ipcRenderer.invoke('fs:dialog:opendir'),
+  saveFile: (options?: SaveDialogOptions) => ipcRenderer.invoke('fs:dialog:savefile', options),
+  openFile: (options?: OpenDialogOptions) => ipcRenderer.invoke('fs:dialog:openfile', options),
+  showContextMenu: (items: ContextMenuItem[]) => ipcRenderer.invoke('app:show-context-menu', items),
+  showMenubarMenu: (label: string, position?: { x?: number; y?: number }) =>
+    ipcRenderer.invoke('app:show-menubar-menu', label, position),
+} satisfies Pick<
+  ElectronApi,
+  | 'readdir'
+  | 'searchFiles'
+  | 'searchContent'
+  | 'cancelContentSearch'
+  | 'readfile'
+  | 'readImageDataUrl'
+  | 'pathExists'
+  | 'checkWorkspaceFolder'
+  | 'memoryResolveRoot'
+  | 'memoryIndex'
+  | 'memoryReadPreview'
+  | 'logDiagnostic'
+  | 'openDiagnosticsLogsFolder'
+  | 'writefile'
+  | 'createFile'
+  | 'createDir'
+  | 'ensureDir'
+  | 'renamePath'
+  | 'copyPath'
+  | 'deletePath'
+  | 'showItemInFolder'
+  | 'watchPath'
+  | 'openDir'
+  | 'saveFile'
+  | 'openFile'
+  | 'showContextMenu'
+  | 'showMenubarMenu'
+>
