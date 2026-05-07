@@ -7,6 +7,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { autoUpdater } from 'electron-updater'
 import { rgPath } from '@vscode/ripgrep'
 import * as pty from 'node-pty'
+import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
@@ -3490,31 +3491,7 @@ function disposeFileWatchersForSender(senderId: number): void {
 
 registerWindowIpc(ipcMain)
 
-ipcMain.handle('auth:get-state', () => multicodeAuth.initialize())
-
-ipcMain.handle('auth:login', (_, organizationId?: string | null) => multicodeAuth.login(organizationId))
-
-ipcMain.handle('auth:logout', () => multicodeAuth.logout())
-
-ipcMain.handle('auth:refresh-entitlements', () => multicodeAuth.refreshEntitlements({ forceRefresh: true }))
-
-ipcMain.handle('auth:select-organization', (_, organizationId: string) => multicodeAuth.selectOrganization(organizationId))
-
-ipcMain.handle('auth:open-upgrade', (_, reason?: string) => multicodeAuth.openUpgrade(reason))
-
-ipcMain.handle('auth:check-premium-access', (_, input: PremiumAccessRequest) => multicodeAuth.checkPremiumAccess(input))
-
-ipcMain.handle('auth:get-session', () => multicodeAuth.getSession())
-
-ipcMain.handle('auth:get-entitlements', (_, options?: { forceRefresh?: boolean }) => multicodeAuth.getEntitlements(options))
-
-ipcMain.handle('auth:require-entitlement', (_, input: PremiumAccessRequest | string) => multicodeAuth.requireEntitlement(input))
-
-ipcMain.handle('auth:check-usage', (_, input: UsageRequest) => multicodeAuth.checkUsage(input))
-
-ipcMain.handle('auth:consume-usage', (_, input: UsageRequest) => multicodeAuth.consumeUsage(input))
-
-ipcMain.handle('auth:release-usage', (_, input: UsageRequest) => multicodeAuth.releaseUsage(input))
+registerAuthIpc(ipcMain, multicodeAuth)
 
 ipcMain.handle('mobile-bridge:get-state', () => mobileBridge.getState())
 
