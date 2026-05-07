@@ -31,6 +31,7 @@ import {
   validateSwarmStatePath,
   type ValidSwarmStatePath,
 } from './mobile-sprintengine-state-path'
+import { resolveSprintEngineArtifactFilePath } from './mobile-sprintengine-artifact-path'
 
 export { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
 
@@ -552,7 +553,7 @@ export class MobileSwarmCommandService {
     }
 
     if (artifact.path) {
-      this.resolveArtifactFilePath(state, artifact.path)
+      resolveSprintEngineArtifactFilePath(state, artifact.path)
     }
 
     return artifact
@@ -604,30 +605,6 @@ export class MobileSwarmCommandService {
 
   private async readRawState(state: ValidSwarmStatePath): Promise<RawSwarmState> {
     return JSON.parse(await readFile(state.statePath, 'utf8')) as RawSwarmState
-  }
-
-  private resolveArtifactFilePath(state: ValidSwarmStatePath, artifactPathInput: string): string {
-    const artifactPath = artifactPathInput.trim()
-    if (!artifactPath) {
-      throw new MobileSwarmCommandError('path_not_allowed', 'Artifact path is required.', false)
-    }
-    if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(artifactPath)) {
-      throw new MobileSwarmCommandError('path_not_allowed', 'Artifact path must be a workspace file path.', false)
-    }
-
-    const fullPath = isAbsolute(artifactPath)
-      ? resolve(artifactPath)
-      : [
-          resolve(state.workspaceRoot, artifactPath),
-          resolve(state.teamDirectory, artifactPath),
-        ].find((candidate) => isPathInsideOrEqual(state.teamDirectory, candidate))
-          ?? resolve(state.workspaceRoot, artifactPath)
-
-    if (!isPathInsideOrEqual(state.teamDirectory, fullPath)) {
-      throw new MobileSwarmCommandError('path_not_allowed', 'Artifact path must stay inside the Sprint Engine team directory.', false)
-    }
-
-    return fullPath
   }
 
   private async assertExpectedSnapshotVersion(command: MobileControlCommand, statePath: string): Promise<void> {
