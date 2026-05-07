@@ -9,7 +9,6 @@ import {
   runGitCommand,
   toFilesystemPath,
 } from './git-utils'
-import { getGitBranches } from './git-read-models'
 import { listGitWorktrees } from './git-worktree-list'
 import {
   resolveRepoRoot,
@@ -28,6 +27,11 @@ export {
   stageGitPaths,
   unstageGitPaths,
 } from './git-file-actions'
+export {
+  commitGitChanges,
+  pushGitBranch,
+  switchGitBranch,
+} from './git-branch-actions'
 
 export type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
 
@@ -433,48 +437,4 @@ export async function getGitFileBase(repoRoot: string, filePath: string): Promis
     const message = error instanceof Error ? error.message : String(error)
     return { ok: false, message }
   }
-}
-
-export async function commitGitChanges(repoRoot: string, message: string): Promise<GitCommandResult> {
-  const trimmedMessage = message.trim()
-  if (!trimmedMessage) {
-    return { ok: false, stdout: '', stderr: '', message: 'Enter a commit message.' }
-  }
-
-  return runGitCommand(repoRoot, ['commit', '-m', trimmedMessage])
-}
-
-export async function pushGitBranch(repoRoot: string): Promise<GitCommandResult> {
-  const branchSnapshot = await getGitBranches(repoRoot)
-  const currentBranch = branchSnapshot.current
-
-  if (!currentBranch) {
-    return {
-      ok: false,
-      stdout: '',
-      stderr: '',
-      message: 'Cannot push while HEAD is detached. Check out a branch first.',
-    }
-  }
-
-  const branch = branchSnapshot.branches.find((candidate) => candidate.current)
-  if (branch?.upstream) {
-    return runGitCommand(repoRoot, ['push'])
-  }
-
-  return {
-    ok: false,
-    stdout: '',
-    stderr: '',
-    message: `Branch "${currentBranch}" has no upstream. Set an upstream branch first, for example: git push --set-upstream origin ${currentBranch}`,
-  }
-}
-
-export async function switchGitBranch(repoRoot: string, branchName: string): Promise<GitCommandResult> {
-  const trimmedBranch = branchName.trim()
-  if (!trimmedBranch) {
-    return { ok: false, stdout: '', stderr: '', message: 'Choose a branch.' }
-  }
-
-  return runGitCommand(repoRoot, ['switch', trimmedBranch])
 }
