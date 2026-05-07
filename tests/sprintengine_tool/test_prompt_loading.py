@@ -143,6 +143,31 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
     )
 
 
+def test_code_reviewer_join_prompt_allows_review_and_fix_tasks(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "code-reviewer-fix-prompt",
+        [task("T1", "Review and fix implementation quality", "code_reviewer")],
+    )
+
+    payload = fixture.cli.run("join", "--role", "code_reviewer", "--id", "reviewer-fixture")
+
+    assert payload["ok"] is True
+    assert payload["action"] == "work"
+    assert_prompt_includes(
+        payload["prompt"],
+        [
+            "For review-and-fix tasks, make targeted code or test changes",
+            "You may edit application or test code only within the task's owned paths",
+            "When complete: follow the claimed task's review mode.",
+            "For review-and-fix tasks, make targeted source or test changes inside the owned paths",
+            "For review-only tasks, produce the requested review evidence or artifact.",
+            "move the task to `needs_input` only when the review output requires approval or the task is blocked from meeting acceptance",
+            "Do not mutate the task graph; the architect decides whether to add follow-up work.",
+        ],
+    )
+
+
 def test_join_stops_when_only_other_role_tasks_are_ready(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

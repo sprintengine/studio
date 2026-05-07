@@ -25,6 +25,7 @@ def test_souls_list_includes_canonical_roles() -> None:
     assert payload["ok"] is True
     assert {
         "architect",
+        "coordinator",
         "product",
         "developer",
         "devops",
@@ -45,6 +46,19 @@ def test_souls_get_returns_prompt_for_alias() -> None:
     assert payload["ok"] is True
     assert payload["role"] == "tester"
     assert "principal QA engineer" in payload["content"]
+
+
+def test_souls_get_returns_multiloop_coordinator() -> None:
+    completed = run_souls("get", "multiloop-coordinator", "--format", "json")
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+
+    assert payload["ok"] is True
+    assert payload["role"] == "coordinator"
+    assert "principal-level coordination agent" in payload["content"]
+    assert "Multiloop" not in payload["content"]
+    assert "{{final_goal}}" not in payload["content"]
 
 
 def test_souls_validate_passes() -> None:

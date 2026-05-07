@@ -8,7 +8,7 @@ import type {
   SwarmState,
   Workspace,
 } from '../../types/workspace'
-import { loadMultiloopAgentSoul } from '../../specialists/specialistActions'
+import { loadMultiloopPrompt } from '../../specialists/specialistActions'
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
@@ -296,10 +296,10 @@ async function spawnMultiloopAutoRunCandidate(
         return 'failed'
       }
 
-      const soulPrompt = await loadMultiloopAgentSoul(candidate.role)
+      const multiloopPrompt = await loadMultiloopPrompt(candidate.role)
       startupPrompt = prependAgentIdentifier(
         buildMultiloopAutoStartupPrompt({
-          soulPrompt,
+          multiloopPrompt,
           role: candidate.role,
           state: multiloopState,
           statePath: workspace.multiloopContext.statePath,

@@ -17,6 +17,7 @@ class Soul:
 
 
 SOULS: tuple[Soul, ...] = (
+    Soul("coordinator", "Coordinator", "coordinator.md", ("multiloop-coordinator",)),
     Soul("architect", "Architect", "architect.md"),
     Soul("product", "Product", "product.md", ("product-strategist",)),
     Soul("developer", "Developer", "developer.md"),

@@ -1,9 +1,9 @@
 import {
-  MULTILOOP_AGENT_SOULS,
-  getMultiloopAgentSoul,
+  MULTILOOP_ROLES,
+  getMultiloopRole,
 } from '../specialists/specialistActions'
 import type {
-  MultiloopAgentSoulRole,
+  MultiloopRole,
   MultiloopAutoPendingSpawn,
   MultiloopState,
   MultiloopTask,
@@ -28,7 +28,7 @@ export type MultiloopAutoRunCandidate =
     kind: 'task'
     agentId: string
     label: string
-    role: MultiloopAgentSoulRole
+    role: MultiloopRole
     taskId: string
   }
   | {
@@ -88,8 +88,8 @@ export function autoRunReasonToLabel(reason: MultiloopAutoRunSelection['reason']
   }
 }
 
-const spawnableRoles = new Set<MultiloopAgentSoulRole>(
-  MULTILOOP_AGENT_SOULS.map((soul) => soul.role)
+const spawnableRoles = new Set<MultiloopRole>(
+  MULTILOOP_ROLES.map((soul) => soul.role)
 )
 
 export function toProjectRelativeMultiloopPath(
@@ -109,12 +109,12 @@ export function toProjectRelativeMultiloopPath(
   return 'multiloop/<loop>/state.json'
 }
 
-export function buildMultiloopRoleAgentId(role: MultiloopAgentSoulRole): string {
+export function buildMultiloopRoleAgentId(role: MultiloopRole): string {
   return `multiloop-${role}`
 }
 
 export function buildMultiloopAutoStartupPrompt({
-  soulPrompt,
+  multiloopPrompt,
   role,
   state,
   statePath,
@@ -122,15 +122,15 @@ export function buildMultiloopAutoStartupPrompt({
   agentId,
   coordinatorReviewContext = false,
 }: {
-  soulPrompt: string
-  role: MultiloopAgentSoulRole
+  multiloopPrompt: string
+  role: MultiloopRole
   state: MultiloopState
   statePath: string | null
   workspaceRoot: string | null
   agentId: string
   coordinatorReviewContext?: boolean
 }): string {
-  const soul = getMultiloopAgentSoul(role)
+  const soul = getMultiloopRole(role)
   const currentMilestone = getActiveMultiloopMilestone(state)
   const stateRelativePath = toProjectRelativeMultiloopPath(statePath, workspaceRoot)
   const readyTaskIdsForRole = currentMilestone && !currentMilestone.sprintEngine
@@ -150,7 +150,7 @@ export function buildMultiloopAutoStartupPrompt({
   })
 
   return [
-    soulPrompt.trim(),
+    multiloopPrompt.trim(),
     ...context,
     coordinatorReviewContext
       ? 'All active milestone tasks appear done; inspect evidence and accept, block, or revise the milestone through the CLI.'
@@ -251,7 +251,7 @@ export function selectMultiloopAutoRunCandidates({
     candidates.push({
       kind: 'task',
       agentId,
-      label: getMultiloopAgentSoul(task.role).label,
+      label: getMultiloopRole(task.role).label,
       role: task.role,
       taskId: task.id,
     })
@@ -370,15 +370,15 @@ function isClaimableOrPromotableByCli(task: MultiloopTask, taskById: Map<string,
   return task.dependsOn.every((dependencyId) => taskById.get(dependencyId)?.status === 'done')
 }
 
-function isSpawnableMultiloopRole(role: string): role is MultiloopAgentSoulRole {
-  return spawnableRoles.has(role as MultiloopAgentSoulRole)
+function isSpawnableMultiloopRole(role: string): role is MultiloopRole {
+  return spawnableRoles.has(role as MultiloopRole)
 }
 
 function coordinatorCandidate(): MultiloopAutoRunCandidate {
   return {
     kind: 'coordinator',
     agentId: buildMultiloopRoleAgentId('coordinator'),
-    label: getMultiloopAgentSoul('coordinator').label,
+    label: getMultiloopRole('coordinator').label,
     role: 'coordinator',
     taskId: null,
   }

@@ -14,7 +14,7 @@ import type {
   MultiloopMilestoneSprintEngineLink,
   MultiloopMilestoneStatus,
   MultiloopMilestoneReviewVerdict,
-  MultiloopAgentSoulRole,
+  MultiloopRole,
   MultiloopReviewVerdictValue,
   MultiloopState,
   MultiloopStateDisplayError,
@@ -158,7 +158,7 @@ export type LinkedExecutionReadinessReadState =
   | { status: 'error'; path?: string; message: string }
 
 export type MultiloopPrimaryNextAction =
-  | { kind: 'open_role'; role: MultiloopAgentSoulRole }
+  | { kind: 'open_role'; role: MultiloopRole }
   | { kind: 'open_coordinator'; reason: 'blocked' | 'all_done' | 'needs_input' | 'plan_execution' | 'no_active_milestone' }
   | { kind: 'retry_execution_read' }
   | { kind: 'plan_execution' }
@@ -213,7 +213,7 @@ export function getPrimaryNextAction(
   if (readiness === 'all_done') return { kind: 'open_coordinator', reason: 'all_done' }
   if (readiness === 'needs_input') {
     const needsInputTask = tasks.find((task) => task.status === 'needs_input')
-    return isMultiloopAgentSoulRole(needsInputTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSwarmState))
+    return isMultiloopRole(needsInputTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSwarmState))
       ? { kind: 'open_role', role: needsInputTask.role }
       : { kind: 'open_coordinator', reason: 'needs_input' }
   }
@@ -221,7 +221,7 @@ export function getPrimaryNextAction(
   if (readiness === 'no_active_milestone') return { kind: 'open_coordinator', reason: 'no_active_milestone' }
 
   const readyTask = tasks.find((task) => task.status === 'ready' || task.status === 'todo' || task.status === 'in_progress')
-  if (isMultiloopAgentSoulRole(readyTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSwarmState))) {
+  if (isMultiloopRole(readyTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSwarmState))) {
     return { kind: 'open_role', role: readyTask.role }
   }
   return { kind: 'open_coordinator', reason: 'plan_execution' }
@@ -295,7 +295,7 @@ export function buildMultiloopLaunchContextLines({
   statePath,
 }: {
   roleLabel: string
-  role?: MultiloopAgentSoulRole
+  role?: MultiloopRole
   agentId?: string | null
   readyTaskIdsForRole?: string[]
   loopName: string
@@ -334,7 +334,7 @@ export function buildMultiloopLaunchContextLines({
 }
 
 function buildMultiloopRoleCommandLines(
-  role: MultiloopAgentSoulRole | undefined,
+  role: MultiloopRole | undefined,
   statePath: string,
   agentId: string,
   sprintEngineStatePath: string | null
@@ -345,7 +345,7 @@ function buildMultiloopRoleCommandLines(
       `Create linked Sprint Engine execution for the active milestone: scripts/multiloop --state ${statePath} milestone start <milestone-id>`,
       sprintEngineStatePath
         ? `Create or revise executable milestone tasks with Sprint Engine planning commands against ${sprintEngineStatePath}.`
-        : `Create active-milestone tasks: scripts/multiloop --state ${statePath} task create --task-id <id> --role <role> --title "<title>"`,
+        : 'Do not create executable tasks until the active milestone is linked to Sprint Engine.',
       `Accept only completed, unblocked milestones: scripts/multiloop --state ${statePath} milestone accept <milestone-id> --id ${agentId}`,
     ]
   }
@@ -359,10 +359,8 @@ function buildMultiloopRoleCommandLines(
       ]
     }
     return [
-      `Claim work first: scripts/multiloop --state ${statePath} task next --role ${role} --id ${agentId}`,
-      `Log evidence before handoff: scripts/multiloop --state ${statePath} task log --task-id <task-id> --id ${agentId} --summary "<summary>" --file <path> --command "<command>" --result "<result>"`,
-      `Mark completion after evidence: scripts/multiloop --state ${statePath} task status --task-id <task-id> --status done --id ${agentId}`,
-      `After completion, run task next again and continue ready ${role} tasks until none remain, a task blocks, or context is getting too full.`,
+      `Render read-only Multiloop context: scripts/multiloop --state ${statePath} milestone review --role ${role}`,
+      'No linked Sprint Engine state is available; report that blocker instead of using deprecated Multiloop task commands.',
     ]
   }
 
@@ -376,7 +374,7 @@ function buildMultiloopRoleCommandLines(
   return []
 }
 
-function isMultiloopAgentSoulRole(role: string | null | undefined): role is MultiloopAgentSoulRole {
+function isMultiloopRole(role: string | null | undefined): role is MultiloopRole {
   return typeof role === 'string' && [
     'architect',
     'product',

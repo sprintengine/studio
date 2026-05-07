@@ -8,20 +8,20 @@ import SettingsModal from '../settings/SettingsModal'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
-  MULTILOOP_AGENT_SOULS,
+  MULTILOOP_ROLES,
   SPECIALIST_ACTIONS,
-  getMultiloopAgentSoul,
+  getMultiloopRole,
   getSpecialistAction,
   buildSpecialistSoulStartupPrompt,
-  loadMultiloopAgentSoul,
-  type MultiloopAgentSoul,
+  loadMultiloopPrompt,
+  type MultiloopRoleDescriptor,
 } from '../../specialists/specialistActions'
 import type {
   AgentCli,
   AppNotification,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
-  MultiloopAgentSoulRole,
+  MultiloopRole,
   SpecialistActionId,
   SwarmCliPermissionPreset,
   Workspace,
@@ -236,12 +236,12 @@ function toProjectRelativeStatePath(path: string | null | undefined, workspaceRo
 
 function buildMultiloopSpawnPrompt({
   soul,
-  soulPrompt,
+  multiloopPrompt,
   workspace,
   agentId,
 }: {
-  soul: MultiloopAgentSoul
-  soulPrompt: string
+  soul: MultiloopRoleDescriptor
+  multiloopPrompt: string
   workspace: Workspace
   agentId: string
 }): string {
@@ -263,7 +263,7 @@ function buildMultiloopSpawnPrompt({
     statePath: toProjectRelativeStatePath(workspace.multiloopContext?.statePath, workspace.folderPath),
   })
 
-  return [soulPrompt.trim(), ...context].join('\n')
+  return [multiloopPrompt.trim(), ...context].join('\n')
 }
 
 export default function WorkspaceManager() {
@@ -284,7 +284,7 @@ export default function WorkspaceManager() {
   )
   const setLastSelectedSpecialist = useWorkspaceStore((s) => s.setLastSelectedSpecialist)
   const lastSelectedMultiloopRole = useWorkspaceStore(
-    (s) => s.appSettings.lastSelectedMultiloopRole ?? MULTILOOP_AGENT_SOULS[0].role
+    (s) => s.appSettings.lastSelectedMultiloopRole ?? MULTILOOP_ROLES[0].role
   )
   const setLastSelectedMultiloopRole = useWorkspaceStore((s) => s.setLastSelectedMultiloopRole)
   const lastAgentSpawnPermissionPreset = useWorkspaceStore(
@@ -305,7 +305,7 @@ export default function WorkspaceManager() {
     .join('\n')
   const selectedCliOption = AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === lastSelectedCli) ?? AGENT_SPAWN_CLI_OPTIONS[0]
   const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
-  const selectedMultiloopSoul = getMultiloopAgentSoul(lastSelectedMultiloopRole)
+  const selectedMultiloopRoleDescriptor = getMultiloopRole(lastSelectedMultiloopRole)
   const multiloopLaunchMenu = activeWorkspace?.mode === 'multiloop'
   const proAccount = hasActiveProPlan(authState)
 
@@ -808,7 +808,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewMultiloopAgent = async (
-    role: MultiloopAgentSoulRole = lastSelectedMultiloopRole,
+    role: MultiloopRole = lastSelectedMultiloopRole,
     requestedName = ''
   ) => {
     if (showTemplateSelector || !activeWorkspaceId) return
@@ -818,7 +818,7 @@ export default function WorkspaceManager() {
     const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     if (!activeWorkspace || activeWorkspace.mode !== 'multiloop') return
 
-    const soul = getMultiloopAgentSoul(role)
+    const soul = getMultiloopRole(role)
     const agentName = normalizeAgentIdentifier(requestedName)
     const tabName = agentName || uniqueAgentName(soul.label, activeWorkspace.agents)
     const newId = `multiloop-${role}-${nanoid(6)}`
@@ -844,10 +844,10 @@ export default function WorkspaceManager() {
       }
     }
 
-    const prompt = await loadMultiloopAgentSoul(soul.role)
+    const prompt = await loadMultiloopPrompt(soul.role)
     const startupPrompt = buildMultiloopSpawnPrompt({
       soul,
-      soulPrompt: prompt,
+      multiloopPrompt: prompt,
       workspace: activeWorkspace,
       agentId: newId,
     })
@@ -991,7 +991,7 @@ export default function WorkspaceManager() {
     void addNewSpecialist(specialistId)
   }
 
-  const handleSelectMultiloopRole = (role: MultiloopAgentSoulRole) => {
+  const handleSelectMultiloopRole = (role: MultiloopRole) => {
     setLastSelectedMultiloopRole(role)
     setSpecialistMenuOpen(false)
     void addNewMultiloopAgent(role)
@@ -1395,17 +1395,17 @@ export default function WorkspaceManager() {
                   className="inline-flex h-8 w-8 items-center justify-center text-[#d7d7dc] transition-colors hover:bg-[#22252c] hover:text-[#f3f3f5] disabled:opacity-40 disabled:hover:bg-[#181a20]"
                   title={
                     multiloopLaunchMenu
-                      ? `Spawn Multiloop ${selectedMultiloopSoul.label} with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}`
+                      ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label} with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}`
                       : `Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${selectedSpecialistAction.shortcut})` : ''}`
                   }
                   aria-label={
                     multiloopLaunchMenu
-                      ? `Spawn Multiloop ${selectedMultiloopSoul.label}`
+                      ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label}`
                       : `Spawn ${selectedSpecialistAction.label} specialist`
                   }
                 >
                   <SpecialistActionIcon
-                    icon={multiloopLaunchMenu ? selectedMultiloopSoul.icon : selectedSpecialistAction.icon}
+                    icon={multiloopLaunchMenu ? selectedMultiloopRoleDescriptor.icon : selectedSpecialistAction.icon}
                     className="h-[18px] w-[18px]"
                   />
                 </button>
@@ -1548,8 +1548,8 @@ export default function WorkspaceManager() {
                       <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                         Multiloop Roles
                       </div>
-                      {MULTILOOP_AGENT_SOULS.map((soul) => {
-                        const selected = soul.role === selectedMultiloopSoul.role
+                      {MULTILOOP_ROLES.map((soul) => {
+                        const selected = soul.role === selectedMultiloopRoleDescriptor.role
                         return (
                           <button
                             key={soul.role}
@@ -1577,7 +1577,7 @@ export default function WorkspaceManager() {
                                 {soul.label}
                               </span>
                               <span className="mt-0.5 block text-[11px] leading-4 text-[#8a8a92]">
-                                multiloop-agent-souls/{soul.promptFile}
+                                multiloop_core/prompts.py
                               </span>
                             </span>
                             {selected ? (

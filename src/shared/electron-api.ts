@@ -188,7 +188,7 @@ export type SoulPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
 
-export type MultiloopAgentSoulRole =
+export type MultiloopRole =
   | 'coordinator'
   | 'architect'
   | 'product'
@@ -605,7 +605,7 @@ export type ElectronApi = {
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
   readSpecialistSoul: (specialistId: SpecialistActionId) => Promise<SoulPromptResult>
-  readMultiloopAgentSoul: (role: MultiloopAgentSoulRole) => Promise<SoulPromptResult>
+  readMultiloopPrompt: (role: MultiloopRole) => Promise<SoulPromptResult>
   writefile: (path: string, content: string) => Promise<void>
   createFile: (parentDir: string, name: string) => Promise<string>
   createDir: (parentDir: string, name: string) => Promise<string>

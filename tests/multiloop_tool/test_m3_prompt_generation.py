@@ -139,9 +139,9 @@ def test_product_review_prompt_separates_milestone_verdict_from_final_goal_accep
 
     prompt = cli.run("milestone", "review", "--role", "product").stdout
 
-    assert "# Multiloop Product Review Prompt" in prompt
-    assert "Separate the milestone verdict from final-goal acceptance." in prompt
-    assert "Do not approve the final goal unless the whole roadmap outcome is complete." in prompt
+    assert "# Multiloop Review Context" in prompt
+    assert "This is read-only Multiloop milestone context for the `product` review role." in prompt
+    assert "Use the canonical Soul for role judgment and quality standards." in prompt
     assert "Final-goal implications:" in prompt
     assert CANONICAL_VERDICT_LINE in prompt
 
@@ -183,6 +183,21 @@ def test_review_prompt_verdict_values_are_recordable_by_milestone_verdict_add(tm
         assert f"product [{verdict}]" in recorded.stdout
 
 
+def test_code_reviewer_prompt_allows_bounded_review_and_fix_through_sprintengine(tmp_path: Path) -> None:
+    state_path = tmp_path / "multiloop" / "m3-code-reviewer" / "state.json"
+    write_state(state_path, m3_state())
+    cli = MultiloopCli(tmp_path, state_path)
+
+    prompt = cli.run("milestone", "review", "--role", "code_reviewer").stdout
+
+    assert "# Multiloop Review Context" in prompt
+    assert "Record executable review work through Sprint Engine when a linked review task exists." in prompt
+    assert "fix clear bounded issues inside the task-owned paths instead of only reporting them" in prompt
+    assert "Do not mutate the Sprint Engine task graph" in prompt
+    assert "Evidence: concrete source files, artifacts, commands, behavior, tests, or gaps reviewed." in prompt
+    assert "accept with reviewer-applied fixes" in prompt
+
+
 def test_task_prompt_renders_all_required_multiloop_roles(tmp_path: Path) -> None:
     state_path = tmp_path / "multiloop" / "m3" / "state.json"
     write_state(state_path, m3_state())
@@ -208,11 +223,11 @@ def test_coordinator_and_developer_prompts_require_cli_state_mutations(tmp_path:
     assert "Use `scripts/multiloop` for roadmap, milestone, blocker, and milestone verdict mutations." in coordinator_prompt
     assert "Do not edit `multiloop/<loop>/state.json` directly." in coordinator_prompt
     assert "Create or revise executable active-milestone tasks only through the linked Sprint Engine state" in coordinator_prompt
-    assert "Claim work before changing files with `scripts/sprintengine --state .multi-code/sprintengine/<team>/state.yaml task next --role developer --id <agent-id>`." in developer_prompt
-    assert "Do not use `scripts/multiloop task ...`" in developer_prompt
-    assert "After finishing a task, run `scripts/sprintengine --state .multi-code/sprintengine/<team>/state.yaml task next --role developer --id <agent-id>` again" in developer_prompt
-    assert "context is getting too full for reliable work" in developer_prompt
-    assert "If no developer task is ready, report that exact CLI result and stop" in developer_prompt
+    assert "# Multiloop Execution Context" in developer_prompt
+    assert "This is read-only Multiloop milestone context for the `developer` role." in developer_prompt
+    assert "Use the linked Sprint Engine state for task claiming, task status, evidence, artifacts, blockers, and completion." in developer_prompt
+    assert "Do not use Multiloop task commands for executable work." in developer_prompt
+    assert "If there is no linked Sprint Engine task ready for this role, report that exact blocker and stop." in developer_prompt
 
 
 def test_prompt_output_bounds_instruction_like_evidence_and_redacts_sensitive_state_text(tmp_path: Path) -> None:
@@ -268,5 +283,5 @@ def test_prompt_rendering_fails_clearly_without_current_milestone_or_template(tm
     missing_current = cli.run_failure("milestone", "plan-next")
     assert "No current milestone is set." in missing_current.stderr
 
-    with pytest.raises(PromptRenderError, match="Missing Multiloop role template"):
-        render_role_prompt(m3_state(), "coordinator", template_root=tmp_path / "empty-templates")
+    with pytest.raises(PromptRenderError, match="Unsupported Multiloop role"):
+        render_role_prompt(m3_state(), "unsupported")

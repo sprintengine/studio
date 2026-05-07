@@ -1,6 +1,6 @@
-import type { MultiloopAgentSoulRole, SpecialistActionId } from '../types/workspace'
+import type { MultiloopRole, SpecialistActionId } from '../types/workspace'
 
-export type { MultiloopAgentSoulRole }
+export type { MultiloopRole }
 
 export type SpecialistIcon =
   | 'architecture'
@@ -24,24 +24,23 @@ export type SpecialistAction = {
   shortcut?: string
 }
 
-export type MultiloopAgentSoul = {
-  role: MultiloopAgentSoulRole
+export type MultiloopRoleDescriptor = {
+  role: MultiloopRole
   label: string
   shortLabel: string
-  promptFile: string
   icon: SpecialistIcon
 }
 
-export const MULTILOOP_AGENT_SOULS: MultiloopAgentSoul[] = [
-  { role: 'coordinator', label: 'Coordinator', shortLabel: 'Coordinator', promptFile: 'coordinator.md', icon: 'architecture' },
-  { role: 'architect', label: 'Architect', shortLabel: 'Architect', promptFile: 'architect.md', icon: 'architecture' },
-  { role: 'product', label: 'Product', shortLabel: 'Product', promptFile: 'product.md', icon: 'product' },
-  { role: 'developer', label: 'Developer', shortLabel: 'Developer', promptFile: 'developer.md', icon: 'code' },
-  { role: 'frontend', label: 'Frontend', shortLabel: 'Frontend', promptFile: 'frontend.md', icon: 'design' },
-  { role: 'tester', label: 'Tester', shortLabel: 'Tester', promptFile: 'tester.md', icon: 'test' },
-  { role: 'security', label: 'Security', shortLabel: 'Security', promptFile: 'security.md', icon: 'shield' },
-  { role: 'code_reviewer', label: 'Code Reviewer', shortLabel: 'Code Reviewer', promptFile: 'code_reviewer.md', icon: 'review' },
-  { role: 'performance', label: 'Performance', shortLabel: 'Performance', promptFile: 'performance.md', icon: 'performance' },
+export const MULTILOOP_ROLES: MultiloopRoleDescriptor[] = [
+  { role: 'coordinator', label: 'Coordinator', shortLabel: 'Coordinator', icon: 'architecture' },
+  { role: 'architect', label: 'Architect', shortLabel: 'Architect', icon: 'architecture' },
+  { role: 'product', label: 'Product', shortLabel: 'Product', icon: 'product' },
+  { role: 'developer', label: 'Developer', shortLabel: 'Developer', icon: 'code' },
+  { role: 'frontend', label: 'Frontend', shortLabel: 'Frontend', icon: 'design' },
+  { role: 'tester', label: 'Tester', shortLabel: 'Tester', icon: 'test' },
+  { role: 'security', label: 'Security', shortLabel: 'Security', icon: 'shield' },
+  { role: 'code_reviewer', label: 'Code Reviewer', shortLabel: 'Code Reviewer', icon: 'review' },
+  { role: 'performance', label: 'Performance', shortLabel: 'Performance', icon: 'performance' },
 ]
 
 export const SPECIALIST_ACTIONS: SpecialistAction[] = [
@@ -135,8 +134,8 @@ export function getSpecialistAction(id: SpecialistActionId | string | null | und
   return SPECIALIST_ACTIONS.find((action) => action.id === id) ?? SPECIALIST_ACTIONS[0]
 }
 
-export function getMultiloopAgentSoul(role: MultiloopAgentSoulRole | string | null | undefined): MultiloopAgentSoul {
-  return MULTILOOP_AGENT_SOULS.find((soul) => soul.role === role) ?? MULTILOOP_AGENT_SOULS[0]
+export function getMultiloopRole(role: MultiloopRole | string | null | undefined): MultiloopRoleDescriptor {
+  return MULTILOOP_ROLES.find((descriptor) => descriptor.role === role) ?? MULTILOOP_ROLES[0]
 }
 
 export function buildMissingSpecialistSoul(action: SpecialistAction, message?: string): string {
@@ -192,23 +191,23 @@ export function buildSpecialistSoulStartupPrompt(action: SpecialistAction): stri
   ].join('\n')
 }
 
-export function buildMissingMultiloopAgentSoulPrompt(soul: MultiloopAgentSoul, message?: string): string {
+export function buildMissingMultiloopPrompt(descriptor: MultiloopRoleDescriptor, message?: string): string {
   return [
-    'Multiloop agent soul file missing.',
+    'Multiloop role prompt unavailable.',
     '',
-    message ?? `Could not load multiloop-agent-souls/${soul.promptFile}.`,
-    'Restore the prompt file or update the Multiloop role mapping, then restart this agent.',
+    message ?? `Could not load Multiloop prompt for ${descriptor.role}.`,
+    'Restore multiloop_core/prompts.py or update the Multiloop role mapping, then restart this agent.',
   ].join('\n')
 }
 
-export async function loadMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<string> {
-  const soul = getMultiloopAgentSoul(role)
+export async function loadMultiloopPrompt(role: MultiloopRole): Promise<string> {
+  const descriptor = getMultiloopRole(role)
 
   try {
-    const result = await window.api.readMultiloopAgentSoul(soul.role)
-    return result.ok ? result.prompt : buildMissingMultiloopAgentSoulPrompt(soul, result.message)
+    const result = await window.api.readMultiloopPrompt(descriptor.role)
+    return result.ok ? result.prompt : buildMissingMultiloopPrompt(descriptor, result.message)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return buildMissingMultiloopAgentSoulPrompt(soul, message)
+    return buildMissingMultiloopPrompt(descriptor, message)
   }
 }

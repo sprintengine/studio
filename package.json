@@ -32,17 +32,9 @@
       "scripts/souls.cmd",
       "scripts/sprintengine_tool.py",
       "sprintengine_core/**/*.py",
-      "multiloop-agent-souls/**/*",
       "!out/**/*.map"
     ],
     "extraResources": [
-      {
-        "from": "multiloop-agent-souls",
-        "to": "multiloop-agent-souls",
-        "filter": [
-          "**/*"
-        ]
-      },
       {
         "from": "scripts/multiloop_tool.py",
         "to": "scripts/multiloop_tool.py"

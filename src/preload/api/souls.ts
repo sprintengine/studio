@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import type {
   ElectronApi,
-  MultiloopAgentSoulRole,
+  MultiloopRole,
   SoulPromptResult,
   SpecialistActionId,
 } from '../../shared/electron-api'
@@ -20,36 +20,12 @@ const specialistSoulRoles: Record<SpecialistActionId, string> = {
   'code-review': 'code_reviewer',
 }
 
-const multiloopAgentSoulFiles: Record<MultiloopAgentSoulRole, string> = {
-  coordinator: 'coordinator.md',
-  architect: 'architect.md',
-  product: 'product.md',
-  developer: 'developer.md',
-  frontend: 'frontend.md',
-  tester: 'tester.md',
-  security: 'security.md',
-  code_reviewer: 'code_reviewer.md',
-  performance: 'performance.md',
-}
-
 function getSoulPromptCandidates(role: string): string[] {
   const fileName = `${role}.md`
   return [
     join(process.cwd(), 'souls', 'prompts', fileName),
     join(__dirname, '..', '..', 'souls', 'prompts', fileName),
     join(__dirname, '..', '..', '..', 'souls', 'prompts', fileName),
-  ]
-}
-
-function getMultiloopAgentSoulCandidates(fileName: string): string[] {
-  if (process.env.NODE_ENV !== 'development' && !process.env.ELECTRON_RENDERER_URL) {
-    return []
-  }
-
-  return [
-    join(process.cwd(), 'multiloop-agent-souls', fileName),
-    join(__dirname, '..', '..', 'multiloop-agent-souls', fileName),
-    join(__dirname, '..', '..', '..', 'multiloop-agent-souls', fileName),
   ]
 }
 
@@ -91,47 +67,49 @@ async function readSpecialistSoul(specialistId: SpecialistActionId): Promise<Sou
   }
 }
 
-async function readMultiloopAgentSoulFallback(role: MultiloopAgentSoulRole): Promise<SoulPromptResult> {
-  const fileName = multiloopAgentSoulFiles[role]
-  if (!fileName) {
-    return {
-      ok: false,
-      message: `Unknown Multiloop agent soul: ${role}`,
-      path: null,
-    }
-  }
-
-  const candidates = getMultiloopAgentSoulCandidates(fileName)
-  if (candidates.length === 0) {
-    return {
-      ok: false,
-      message: `Packaged Multiloop agent soul missing from trusted app assets: multiloop-agent-souls/${fileName}`,
-      path: null,
-    }
-  }
-
-  for (const candidate of candidates) {
-    try {
-      return { ok: true, prompt: await readFile(candidate, 'utf-8'), path: candidate }
-    } catch {
-      // Keep checking the next dev/build prompt path.
-    }
-  }
-
+async function readMultiloopPromptFallback(role: MultiloopRole): Promise<SoulPromptResult> {
   return {
-    ok: false,
-    message: `Prompt file missing: multiloop-agent-souls/${fileName}`,
-    path: candidates[0] ?? null,
+    ok: true,
+    prompt: buildMultiloopPromptFetchInstruction(role),
+    path: 'multiloop_core/prompts.py',
   }
 }
 
-async function readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<SoulPromptResult> {
+function buildMultiloopPromptFetchInstruction(role: MultiloopRole): string {
+  if (role === 'coordinator') {
+    return [
+      'Fetch your current Multiloop coordinator prompt from the Multiloop CLI before doing role-specific work.',
+      '',
+      'Run:',
+      '',
+      '```bash',
+      'scripts/multiloop --state <state-path> milestone plan-next',
+      '```',
+      '',
+      'Treat the returned text as the active Multiloop coordination prompt.',
+    ].join('\n')
+  }
+
+  return [
+    'Fetch your current Multiloop role prompt from the Multiloop CLI before doing role-specific work.',
+    '',
+    'Run:',
+    '',
+    '```bash',
+    `scripts/multiloop --state <state-path> milestone review --role ${role}`,
+    '```',
+    '',
+    'Treat the returned text as read-only Multiloop milestone context and follow the linked Sprint Engine task instructions for execution.',
+  ].join('\n')
+}
+
+async function readMultiloopPrompt(role: MultiloopRole): Promise<SoulPromptResult> {
   try {
-    return await ipcRenderer.invoke('multiloop:read-agent-soul', role)
+    return await ipcRenderer.invoke('multiloop:read-prompt', role)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (message.includes("No handler registered for 'multiloop:read-agent-soul'")) {
-      return readMultiloopAgentSoulFallback(role)
+    if (message.includes("No handler registered for 'multiloop:read-prompt'")) {
+      return readMultiloopPromptFallback(role)
     }
     throw error
   }
@@ -139,5 +117,5 @@ async function readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<Sou
 
 export const soulsApi = {
   readSpecialistSoul,
-  readMultiloopAgentSoul,
-} satisfies Pick<ElectronApi, 'readSpecialistSoul' | 'readMultiloopAgentSoul'>
+  readMultiloopPrompt,
+} satisfies Pick<ElectronApi, 'readSpecialistSoul' | 'readMultiloopPrompt'>

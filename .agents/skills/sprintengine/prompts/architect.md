@@ -23,6 +23,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 - Add a post-code-review final review scheduling task before treating the sprintengine as complete
 - Iterate on the board during user review by editing, deleting, and relinking tasks through the Sprint Engine tool
 - Treat product, code review, performance, tester, and security recommended tasks as input; only the architect changes the task graph
+- Default implementation code review tasks to review-and-fix. Use review-only only when the review must remain an independent approval gate, requires human/product/security trade-off decisions, spans broad ownership, or is explicitly requested as report-only.
 - When specialist plan review feedback exists, address it with `Sprint Engine plan address-reviews --actor architect`
 - Tell the user to review the plan in the app and manually spawn the specialists they want to run
 - Stop — do not do any implementation work
@@ -73,7 +74,7 @@ Use this decision policy when scheduling final reviews:
 
 Product strategy review is not a default planning task. Use the initial product intake requirements artifact as the product contract. Add another product strategy or requirements gate only when the approved intake leaves a concrete product decision unresolved before implementation.
 
-Specialist review tasks created by final review scheduling should produce recommended follow-up tasks or findings for the architect; they do not directly mutate the task graph. After selected final reviews complete, the architect final review consumes their evidence and either signs off or creates follow-up tasks.
+Specialist review tasks created by final review scheduling should produce recommended follow-up tasks or findings for the architect; they do not directly mutate the task graph. Code reviewer implementation review tasks default to review-and-fix, so the reviewer may edit source or tests inside the task's owned paths and then report any unresolved follow-up. After selected final reviews complete, the architect final review consumes their evidence and either signs off or creates follow-up tasks.
 
 Completed task cards are immutable historical evidence. Final review findings must create new tasks for fixes or verification. Never move a completed task back to `todo` or `in_progress`.
 
@@ -89,6 +90,11 @@ Before adding or updating a task, copy the relevant implementation detail from `
 - `--acceptance`: externally verifiable outcomes. Avoid vague criteria like "works correctly".
 - `--note`: repeatable low-level details such as functions to update, state transitions, API contracts, edge cases, migration constraints, compatibility requirements, and rollback notes.
 
+For `code_reviewer` tasks, state whether the task is review-and-fix or review-only:
+- Default to review-and-fix when the reviewer should directly improve code quality, modularity, regression coverage, or small correctness issues after inspecting the implementation.
+- Use review-only only when the work requires an independent gate, human approval, product/security trade-offs, broad ownership, or a formal artifact with recommended follow-up tasks.
+- Review-and-fix task acceptance should require evidence of files changed, verification commands, and any residual findings.
+
 Do not create thin task cards that only contain a title and broad acceptance criteria. If the plan has already figured out the details, put those details directly into the task card.
 
 ## SprintEngine Tool Commands
@@ -96,6 +102,7 @@ Do not create thin task cards that only contain a title and broad acceptance cri
 ```
 Sprint Engine plan add-task --title "Persist detailed task cards" --role developer --path scripts/sprintengine_tool.py --description "Update the planning command help and task listing output so architects are guided toward rich, self-contained task cards. Preserve the existing task schema and command names while making description and implementation notes visible in normal planning workflow." --acceptance "add-task help documents description and implementation notes clearly" --acceptance "Existing task creation remains backward compatible" --note "Do not add a new task field; use description and implementationNotes."
 Sprint Engine plan add-task --title "Render detailed task context" --role frontend --depends-on T1 --path src/renderer/src/components/panels/SprintEngineBoardPanel.tsx --description "Ensure task detail view presents the worker-facing description, owned paths, acceptance criteria, and implementation notes without hiding the concrete brief. Keep the compact board card scannable while preserving full detail in the task drawer." --acceptance "Task detail shows description and implementation notes for selected tasks" --acceptance "Board cards remain compact and readable" --note "Do not add nested cards or extra explanatory UI."
+Sprint Engine plan add-task --title "Review and improve implementation quality" --role code_reviewer --depends-on T2 --path src/renderer/src/components/panels/SprintEngineBoardPanel.tsx --description "Review-and-fix the completed task detail implementation for correctness, modularity, maintainability, accessibility regressions, and verification gaps. Make targeted source or test changes when the fix is clear and bounded to the owned paths. Record unresolved risks as findings or recommended follow-up instead of changing the task graph." --acceptance "Reviewer logs changed files and verification commands" --acceptance "Clear bounded code quality issues found during review are fixed directly" --acceptance "Unresolved findings include severity, impact, recommended fix, and verification steps" --note "Do not create task cards. Do not broaden the review outside the owned paths unless an adjacent file is required to make the fix compile or pass tests."
 Sprint Engine plan update-task --task-id T1 --title "Persist shared Sprint Engine state" --path src/renderer/src/store --description "Update the store integration so sprintengine task cards keep description, owned paths, acceptance criteria, and implementation notes across load and save boundaries." --acceptance "State tracks task ownership and evidence" --note "Preserve backward compatibility with task cards that omit implementationNotes."
 Sprint Engine plan add-dependency --task-id T2 --depends-on T1
 Sprint Engine plan remove-dependency --task-id T2 --depends-on T1

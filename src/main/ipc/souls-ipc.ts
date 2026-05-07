@@ -1,13 +1,13 @@
 import type { IpcMain } from 'electron'
 import type {
-  MultiloopAgentSoulRole,
+  MultiloopRole,
   SoulPromptResult,
   SpecialistActionId,
 } from '../../shared/electron-api'
 
 type SoulsIpcDependencies = {
   readSpecialistSoul(specialistId: SpecialistActionId): Promise<SoulPromptResult>
-  readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<SoulPromptResult>
+  readMultiloopPrompt(role: MultiloopRole): Promise<SoulPromptResult>
 }
 
 export function registerSoulsIpc(ipcMain: IpcMain, deps: SoulsIpcDependencies): void {
@@ -15,7 +15,7 @@ export function registerSoulsIpc(ipcMain: IpcMain, deps: SoulsIpcDependencies): 
     return deps.readSpecialistSoul(specialistId)
   })
 
-  ipcMain.handle('multiloop:read-agent-soul', async (_, role: MultiloopAgentSoulRole) => {
-    return deps.readMultiloopAgentSoul(role)
+  ipcMain.handle('multiloop:read-prompt', async (_, role: MultiloopRole) => {
+    return deps.readMultiloopPrompt(role)
   })
 }

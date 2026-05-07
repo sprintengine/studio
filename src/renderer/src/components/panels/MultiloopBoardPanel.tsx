@@ -7,9 +7,9 @@ import {
   type MultiloopStateSyncEventDetail,
 } from '../workspace/MultiloopStateSynchronizer'
 import {
-  getMultiloopAgentSoul,
-  loadMultiloopAgentSoul,
-  type MultiloopAgentSoulRole,
+  getMultiloopRole,
+  loadMultiloopPrompt,
+  type MultiloopRole,
 } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
@@ -58,8 +58,8 @@ type ReadState =
   | { status: 'error'; error: MultiloopStateDisplayError }
 type RoleLaunchState =
   | { status: 'idle' }
-  | { status: 'loading'; role: MultiloopAgentSoulRole }
-  | { status: 'error'; role: MultiloopAgentSoulRole; message: string }
+  | { status: 'loading'; role: MultiloopRole }
+  | { status: 'error'; role: MultiloopRole; message: string }
 type LinkedExecutionReadState =
   | { status: 'idle' }
   | { status: 'loading'; path: string }
@@ -203,7 +203,7 @@ function resolveProjectPath(path: string, workspaceRoot: string | null | undefin
   return `${workspaceRoot.replace(/[\\/]+$/u, '')}${sep}${path.replace(/^[\\/]+/u, '')}`
 }
 
-function isSwarmRole(role: MultiloopAgentSoulRole): role is SwarmRole {
+function isSwarmRole(role: MultiloopRole): role is SwarmRole {
   return role !== 'coordinator'
 }
 
@@ -212,19 +212,19 @@ function getLinkedSprintEngineAgentId(role: SwarmRole, linkedState: SwarmState |
 }
 
 function buildMultiloopStartupPrompt({
-  soulPrompt,
+  multiloopPrompt,
   role,
   state,
   statePath,
   workspaceRoot,
 }: {
-  soulPrompt: string
-  role: MultiloopAgentSoulRole
+  multiloopPrompt: string
+  role: MultiloopRole
   state: MultiloopState
   statePath: string | null
   workspaceRoot: string | null
 }): string {
-  const soul = getMultiloopAgentSoul(role)
+  const soul = getMultiloopRole(role)
   const currentMilestone = getActiveMultiloopMilestone(state)
   const stateRelativePath = toProjectRelativePath(statePath, workspaceRoot)
   const readyTaskIdsForRole = currentMilestone && !currentMilestone.sprintEngine
@@ -243,7 +243,7 @@ function buildMultiloopStartupPrompt({
     statePath: stateRelativePath,
   })
 
-  return [soulPrompt.trim(), ...context].join('\n')
+  return [multiloopPrompt.trim(), ...context].join('\n')
 }
 
 function isMultiloopStateSyncEventDetail(input: unknown): input is MultiloopStateSyncEventDetail {
@@ -296,10 +296,10 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     return () => window.removeEventListener(MULTILOOP_STATE_SYNC_EVENT, handleStateSync)
   }, [workspaceId])
 
-  const openRoleAgent = async (role: MultiloopAgentSoulRole) => {
+  const openRoleAgent = async (role: MultiloopRole) => {
     if (!workspace || !multiloopState) return
 
-    const soul = getMultiloopAgentSoul(role)
+    const soul = getMultiloopRole(role)
     setRoleLaunchState({ status: 'loading', role })
     try {
       const currentMilestone = getActiveMultiloopMilestone(multiloopState)
@@ -357,9 +357,9 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
           throw new Error(repaired.message || 'Could not prepare the Multiloop CLI wrapper for this workspace.')
         }
       }
-      const soulPrompt = await loadMultiloopAgentSoul(role)
+      const multiloopPrompt = await loadMultiloopPrompt(role)
       const startupPrompt = buildMultiloopStartupPrompt({
-        soulPrompt,
+        multiloopPrompt,
         role,
         state: multiloopState,
         statePath,
@@ -855,7 +855,7 @@ function ExecutionStatusStrip({
   onMilestoneFocus: () => void
   onToggleAutoRun: () => void
   onPermissionPresetChange: (preset: SwarmCliPermissionPreset) => void
-  onOpenRole: (role: MultiloopAgentSoulRole) => void
+  onOpenRole: (role: MultiloopRole) => void
   onPrimaryAction: () => void
 }) {
   const ownership = getOwnershipLabel(milestone, linkedExecutionReadState)
@@ -878,7 +878,7 @@ function ExecutionStatusStrip({
       </div>
       <div className="ml-auto flex min-w-0 items-center gap-2 border-t border-[#202127] px-3 py-2 sm:border-l sm:border-t-0">
         {launchState.status === 'error' ? (
-          <span className="max-w-[22rem] truncate text-[11px] text-[#ffb5b8]">{getMultiloopAgentSoul(launchState.role).label}: {launchState.message}</span>
+          <span className="max-w-[22rem] truncate text-[11px] text-[#ffb5b8]">{getMultiloopRole(launchState.role).label}: {launchState.message}</span>
         ) : null}
         <MoreTerminalsPopover
           agents={agents}
@@ -993,10 +993,10 @@ function MoreTerminalsPopover({
   hasSprintEngineLink: boolean
   linkedSprintEngineState: SwarmState | null
   linkedExecutionReadState: LinkedExecutionReadState
-  onOpenRole: (role: MultiloopAgentSoulRole) => void
+  onOpenRole: (role: MultiloopRole) => void
 }) {
   const popover = usePopoverFocus('multiloop-terminals-popover')
-  const groups: Array<{ label: string; roles: MultiloopAgentSoulRole[] }> = [
+  const groups: Array<{ label: string; roles: MultiloopRole[] }> = [
     { label: 'Coordinator', roles: ['coordinator'] },
     { label: 'Workers', roles: ['architect', 'developer', 'frontend'] },
     { label: 'Reviewers', roles: ['product', 'tester', 'security', 'code_reviewer', 'performance'] },
@@ -1027,7 +1027,7 @@ function MoreTerminalsPopover({
             <div key={group.label} className="py-1">
               <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#777882]">{group.label}</div>
               {group.roles.map((role) => {
-                const soul = getMultiloopAgentSoul(role)
+                const soul = getMultiloopRole(role)
                 const isLinkedWorker = hasSprintEngineLink && isSwarmRole(role)
                 const agentId = isLinkedWorker && linkedSprintEngineState ? getLinkedSprintEngineAgentId(role, linkedSprintEngineState) : `multiloop-${role}`
                 const exists = Boolean(agents[agentId])
@@ -1168,7 +1168,7 @@ function getPrimaryActionLabel(action: MultiloopPrimaryNextAction, readiness: Mu
     if (readiness === 'no_tasks' || readiness === 'multiloop_no_tasks') return 'Plan execution'
     return 'Open Coordinator'
   }
-  return `Open ${getMultiloopAgentSoul(action.role).label}`
+  return `Open ${getMultiloopRole(action.role).label}`
 }
 
 function StateMessage({ title, message, tone }: { title: string; message: string; tone: 'empty' | 'error' | 'loading' }) {

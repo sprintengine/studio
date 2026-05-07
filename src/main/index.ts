@@ -18,7 +18,7 @@ import { registerWindowIpc } from './ipc/window-ipc'
 import { initializeMultiloopState } from './multiloop-init'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
-import { readMultiloopAgentSoul, readSpecialistSoul } from './souls-service'
+import { readMultiloopPrompt, readSpecialistSoul } from './souls-service'
 import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
@@ -112,7 +112,7 @@ registerDiagnosticsIpc(ipcMain, {
 
 registerSoulsIpc(ipcMain, {
   readSpecialistSoul,
-  readMultiloopAgentSoul,
+  readMultiloopPrompt,
 })
 
 registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())

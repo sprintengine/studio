@@ -37,6 +37,7 @@ The CLI reads local packaged files. It does not download remote prompts.
 Canonical roles:
 
 - `architect`
+- `coordinator`
 - `product`
 - `developer`
 - `devops`
@@ -48,6 +49,7 @@ Canonical roles:
 
 Supported aliases:
 
+- `multiloop-coordinator` -> `coordinator`
 - `product-strategist` -> `product`
 - `devops-infra` -> `devops`
 - `frontend-design-review` -> `frontend`

@@ -1980,6 +1980,22 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     import sys
     print(f"[sprintengine] reading state from: {args.state}", file=sys.stderr)
 
+    def completion_instruction() -> str:
+        if args.role == "code_reviewer":
+            return (
+                "When complete: follow the claimed task's review mode. For review-and-fix tasks, make targeted "
+                "source or test changes inside the owned paths when the fix is clear and bounded, log changed files "
+                "and verification evidence, then mark the task done if acceptance is met. For review-only tasks, "
+                "produce the requested review evidence or artifact. If unresolved findings remain, record them with "
+                "repeatable `--finding-json` and, when an artifact is requested, `--recommended-task`; move the task "
+                "to `needs_input` only when the review output requires approval or the task is blocked from meeting "
+                "acceptance. "
+            )
+        return (
+            "When complete: if you produced findings, issues, or changes_requested, move the task back to "
+            "`needs_input` so the implementer/author can address them. Otherwise, mark it done. "
+        )
+
     def role_boundary_instruction() -> str:
         return (
             f"You are assigned role `{args.role}`. Only claim and work tasks whose Sprint Engine "
@@ -2015,8 +2031,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"{role_boundary_instruction()}\n\n"
                 f"{worker_plan_worktree_block()}\n\n"
                 f"{artifact_registration_instruction(args.id)}\n\n"
-                f"When complete: if you produced findings, issues, or changes_requested, move the task back to `needs_input` so the implementer/author can address them. "
-                f"Otherwise, mark it done. "
+                f"{completion_instruction()}"
                 f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
                 f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
                 f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready {args.role} tasks.\n\n"
@@ -2035,8 +2050,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"{role_boundary_instruction()}\n\n"
             f"{worker_plan_worktree_block()}\n\n"
             f"{artifact_registration_instruction(args.id)}\n\n"
-            f"When complete: if you produced findings, issues, or changes_requested, move the task back to `needs_input` so the implementer/author can address them. "
-            f"Otherwise, mark it done. "
+            f"{completion_instruction()}"
             f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
             f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
             f"After completion, stop unless your current launch instructions explicitly tell you to keep claiming ready {args.role} tasks.\n\n"
@@ -2627,7 +2641,7 @@ Task commands:
 
 Plan commands (architect only):
   sprintengine plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
-  sprintengine plan add-task --title "Review implementation" --role code_reviewer --depends-on T3 --path src/foo --acceptance "Review artifact documents findings or approval"
+  sprintengine plan add-task --title "Review and fix implementation quality" --role code_reviewer --depends-on T3 --path src/foo --description "Review-and-fix the completed implementation for correctness, modularity, maintainability, and verification gaps. Make targeted source or test changes when the fix is clear and bounded; record unresolved findings for the architect." --acceptance "Reviewer logs changed files and verification commands" --acceptance "Clear bounded issues are fixed directly or recorded with severity and recommended follow-up"
   sprintengine plan add-task --title "Review performance" --role performance --depends-on T4 --path src/foo --acceptance "Performance review artifact documents measured evidence, findings, or approval"
   sprintengine plan update-task --task-id T1 --title "..." --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
   sprintengine plan add-dependency --task-id T2 --depends-on T1

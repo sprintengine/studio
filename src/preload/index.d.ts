@@ -50,7 +50,7 @@ import type {
   MobileControlCommandType as SharedMobileControlCommandType,
   MobileControlDevice as SharedMobileControlDevice,
   MulticodeAuthState as SharedMulticodeAuthState,
-  MultiloopAgentSoulRole as SharedMultiloopAgentSoulRole,
+  MultiloopRole as SharedMultiloopRole,
   MultiloopInitInput as SharedMultiloopInitInput,
   MultiloopInitResult as SharedMultiloopInitResult,
   OpenDialogOptions as SharedOpenDialogOptions,
@@ -100,7 +100,7 @@ declare global {
   type TerminalSpawnResult = SharedTerminalSpawnResult
   type SpecialistActionId = SharedSpecialistActionId
   type SoulPromptResult = SharedSoulPromptResult
-  type MultiloopAgentSoulRole = SharedMultiloopAgentSoulRole
+  type MultiloopRole = SharedMultiloopRole
   type GitFileStatus = SharedGitFileStatus
   type GitStatusEntry = SharedGitStatusEntry
   type GitStatusSnapshot = SharedGitStatusSnapshot

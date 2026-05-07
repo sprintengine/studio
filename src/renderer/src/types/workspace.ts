@@ -214,7 +214,7 @@ export type SwarmAutoState = {
 }
 
 export type MultiloopAutoPendingSpawn = {
-  role: MultiloopAgentSoulRole
+  role: MultiloopRole
   taskId?: string | null
   agentId: string
   startedAt?: number
@@ -465,7 +465,7 @@ export type AgentMessage = {
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 export type AgentCli = 'codex' | 'claude'
 export type SwarmRoleCliDefaults = Partial<Record<SwarmRole, AgentCli>>
-export type MultiloopAgentSoulRole =
+export type MultiloopRole =
   | 'coordinator'
   | 'architect'
   | 'product'
@@ -577,7 +577,7 @@ export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   lastSelectedCli: AgentCli
   lastSelectedSpecialist: SpecialistActionId
-  lastSelectedMultiloopRole: MultiloopAgentSoulRole
+  lastSelectedMultiloopRole: MultiloopRole
   lastAgentSpawnPermissionPreset: SwarmCliPermissionPreset
   searchExcludes: string[]
   recentWorkspaceFolders: string[]
@@ -634,7 +634,7 @@ export type AgentState = {
   cliStartupPrompt?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId
-  multiloopRole?: MultiloopAgentSoulRole
+  multiloopRole?: MultiloopRole
 }
 
 export type AgentConfig = {

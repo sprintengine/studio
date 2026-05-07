@@ -27,7 +27,7 @@ import type {
   CliRuntimeSettings,
   AgentKind,
   SpecialistActionId,
-  MultiloopAgentSoulRole,
+  MultiloopRole,
   AgentExecution,
   WorkspaceWorktreeState,
   WorktreeEntry,
@@ -92,7 +92,7 @@ interface WorkspaceStore {
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
-  setLastSelectedMultiloopRole: (role: MultiloopAgentSoulRole) => void
+  setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SwarmCliPermissionPreset) => void
   setSearchExcludes: (patterns: string[]) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
@@ -497,7 +497,7 @@ function normalizeSwarmAutoPendingSpawn(
     : null
 }
 
-function isMultiloopAutoRole(input: unknown): input is MultiloopAgentSoulRole {
+function isMultiloopAutoRole(input: unknown): input is MultiloopRole {
   return input === 'coordinator'
     || input === 'architect'
     || input === 'product'
