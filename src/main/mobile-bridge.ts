@@ -14,14 +14,13 @@ import {
   isMobileBridgePresence,
 } from './mobile-bridge-validation'
 import {
-  acceptedBridgeCommand,
   failedCommandResult,
   relayCommandTypeToMobile,
   summarizeCommandResult,
 } from './mobile-bridge-command-results'
 import { dispatchArtifactRead } from './mobile-bridge-artifact-read'
+import { dispatchDeviceRevoke } from './mobile-bridge-device-revoke'
 import { dispatchSnapshotRequest } from './mobile-bridge-snapshot-request'
-import { stringPayload } from './mobile-bridge-command-payload'
 import { authorizeRelayCommand } from './mobile-bridge-relay-auth'
 import { upsertRelayDevice } from './mobile-bridge-relay-device'
 import {
@@ -873,7 +872,10 @@ export class MobileBridge {
           statePathsProvider: this.statePathsProvider,
         })
       case 'device.revoke':
-        return this.dispatchDeviceRevoke(command)
+        return dispatchDeviceRevoke({
+          command,
+          revokeDevice: (deviceId, reason) => this.revokeDevice(deviceId, reason),
+        })
       case 'sprintengine.create':
       case 'task.start':
       case 'artifact.approve':
@@ -881,19 +883,6 @@ export class MobileBridge {
       case 'agent.followUp':
         return this.commandService.dispatch(command)
     }
-  }
-
-  private async dispatchDeviceRevoke(command: MobileControlCommand): Promise<MobileSwarmCommandResult> {
-    const deviceId = stringPayload(command.payload, 'deviceId')
-    const payload = command.payload as Record<string, unknown>
-    const reason = typeof payload.reason === 'string' ? payload.reason : undefined
-    let device: MobileControlDevice
-    try {
-      device = await this.revokeDevice(deviceId, reason)
-    } catch (error) {
-      return failedCommandResult(command, 'relay_unavailable', getErrorMessage(error))
-    }
-    return acceptedBridgeCommand(command, { revoked: true, deviceId: device.deviceId })
   }
 
   private async revokeDeviceAtRelay(deviceId: string, reason: string): Promise<void> {
