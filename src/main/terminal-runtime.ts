@@ -183,6 +183,42 @@ function disposeOtherAgentSessions(
   duplicateSessionIds.forEach(disposeTerminal)
 }
 
+function attachTerminalSession(
+  sessionId: string,
+  terminalSession: TerminalSession,
+  initialInput: string | undefined
+): void {
+  terminals.set(sessionId, terminalSession)
+  broadcastTerminalSessionsChanged()
+
+  terminalSession.process.onData((data) => {
+    if (!terminalSession.isReady) {
+      terminalSession.isReady = true
+      flushPendingTerminalResize(sessionId, terminalSession)
+    }
+    appendTerminalOutput(terminalSession, data)
+    terminalOutput.send(terminalSession, data)
+  })
+
+  terminalSession.process.onExit((event) => {
+    cleanupTerminalStartupScript(terminalSession.startupScriptPath)
+    terminalOutput.flush(sessionId, 'exit')
+    terminalDiagnostics.clear(sessionId)
+    terminalSession.hasExited = true
+    if (terminals.get(sessionId) === terminalSession) {
+      terminals.delete(sessionId)
+      broadcastTerminalSessionsChanged()
+    }
+    if (!terminalSession.isDisposed) {
+      sendTerminalEvent(terminalSession.sender, `terminal:exit:${sessionId}`, event.exitCode)
+    }
+  })
+
+  if (initialInput) {
+    terminalSession.process.write(initialInput)
+  }
+}
+
 function createMobileCommandService(): MobileSwarmCommandService {
   return createTerminalMobileCommandService({
     listTerminals: async () => {
@@ -268,32 +304,7 @@ async function spawnMobileAgentTerminal(input: {
       startupScriptPath,
     }
 
-    terminals.set(input.sessionId, terminalSession)
-    broadcastTerminalSessionsChanged()
-    termProcess.onData((data) => {
-      if (!terminalSession.isReady) {
-        terminalSession.isReady = true
-        flushPendingTerminalResize(input.sessionId, terminalSession)
-      }
-      appendTerminalOutput(terminalSession, data)
-      terminalOutput.send(terminalSession, data)
-    })
-    termProcess.onExit((event) => {
-      cleanupTerminalStartupScript(terminalSession.startupScriptPath)
-      terminalOutput.flush(input.sessionId, 'exit')
-      terminalDiagnostics.clear(input.sessionId)
-      terminalSession.hasExited = true
-      if (terminals.get(input.sessionId) === terminalSession) {
-        terminals.delete(input.sessionId)
-        broadcastTerminalSessionsChanged()
-      }
-      if (!terminalSession.isDisposed) {
-        sendTerminalEvent(terminalSession.sender, `terminal:exit:${input.sessionId}`, event.exitCode)
-      }
-    })
-    if (initialInput) {
-      termProcess.write(initialInput)
-    }
+    attachTerminalSession(input.sessionId, terminalSession, initialInput)
 
     return { ok: true, sessionId: input.sessionId }
   } catch (error) {
@@ -418,36 +429,7 @@ async function spawnTerminalFromIpc(
         startupScriptPath,
       }
 
-      terminals.set(sessionId, terminalSession)
-      broadcastTerminalSessionsChanged()
-
-      termProcess.onData((data) => {
-        if (!terminalSession.isReady) {
-          terminalSession.isReady = true
-          flushPendingTerminalResize(sessionId, terminalSession)
-        }
-        appendTerminalOutput(terminalSession, data)
-        terminalOutput.send(terminalSession, data)
-      })
-
-      termProcess.onExit((e) => {
-        cleanupTerminalStartupScript(terminalSession.startupScriptPath)
-        terminalOutput.flush(sessionId, 'exit')
-        terminalDiagnostics.clear(sessionId)
-        terminalSession.hasExited = true
-        if (terminals.get(sessionId) === terminalSession) {
-          terminals.delete(sessionId)
-          broadcastTerminalSessionsChanged()
-        }
-        if (!terminalSession.isDisposed) {
-          sendTerminalEvent(terminalSession.sender, `terminal:exit:${sessionId}`, e.exitCode)
-        }
-      })
-
-      if (initialInput) {
-        // Start the selected agent CLI inside the interactive shell so the user can keep using the terminal afterward.
-        termProcess.write(initialInput)
-      }
+      attachTerminalSession(sessionId, terminalSession, initialInput)
 
       return { ok: true, sessionId } satisfies TerminalSpawnResult
     } catch (error) {
