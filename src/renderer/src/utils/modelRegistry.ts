@@ -377,6 +377,60 @@ export function focusOrAddFileTab(
   return true
 }
 
+function gitConflictTabId(repoRoot: string, filePath: string): string {
+  return `git-conflict:${encodeURIComponent(repoRoot)}:${encodeURIComponent(filePath)}`
+}
+
+export function focusOrAddGitConflictTab(
+  workspaceId: string,
+  repoRoot: string,
+  filePath: string,
+  name: string
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  let targetTabId: string | null = null
+  model.visitNodes((node) => {
+    if (targetTabId || !(node instanceof TabNode) || node.getComponent() !== 'git-conflict') return
+
+    const config = node.getConfig() as { repoRoot?: string; filePath?: string } | undefined
+    if (config?.repoRoot === repoRoot && config.filePath === filePath) {
+      targetTabId = node.getId()
+    }
+  })
+
+  if (targetTabId) {
+    model.doAction(Actions.selectTab(targetTabId))
+    return true
+  }
+
+  let targetTabset: TabSetNode | null = model.getActiveTabset() ?? null
+  if (!targetTabset) {
+    model.visitNodes((node) => {
+      if (!targetTabset && node instanceof TabSetNode) targetTabset = node
+    })
+  }
+  if (!targetTabset) return false
+
+  model.doAction(
+    Actions.addNode(
+      {
+        type: 'tab',
+        id: gitConflictTabId(repoRoot, filePath),
+        name,
+        component: 'git-conflict',
+        config: { repoRoot, filePath },
+      },
+      targetTabset.getId(),
+      DockLocation.CENTER,
+      -1,
+      true
+    )
+  )
+  return true
+}
+
 export function focusComponentTab(workspaceId: string, component: string): boolean {
   const model = models.get(workspaceId)
   if (!model) return false

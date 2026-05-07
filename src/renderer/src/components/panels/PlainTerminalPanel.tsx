@@ -11,9 +11,11 @@ import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 interface Props {
   workspaceId: string
   terminalId: string
+  cwdOverride?: string | null
+  killOnUnmount?: boolean
 }
 
-export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
+export default function PlainTerminalPanel({ workspaceId, terminalId, cwdOverride = null, killOnUnmount = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(`terminal-${terminalId}`)
   const {
@@ -33,7 +35,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    if (savedFolderPath && !folderReadyPath) return
+    if (!cwdOverride && savedFolderPath && !folderReadyPath) return
 
     const sessionId = sessionIdRef.current
     const term = new Terminal({
@@ -200,13 +202,14 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
     container.addEventListener('keydown', handleKeyDown)
     container.addEventListener('contextmenu', handleContextMenu)
 
-    if (!(savedFolderPath && !folderReadyPath)) {
-      const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
+    if (cwdOverride || !(savedFolderPath && !folderReadyPath)) {
+      const terminalCwd = cwdOverride ?? folderReadyPath ?? undefined
+      const swarmStatePath = cwdOverride ? undefined : folderReadyPath ? swarmContext?.statePath : undefined
       void window.api.terminalSpawn(
         sessionId,
         term.cols,
         term.rows,
-        folderReadyPath ?? undefined,
+        terminalCwd,
         false,
         swarmStatePath,
         undefined,
@@ -229,7 +232,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
             message: spawnResult.message,
             details: [
               `Session: ${sessionId}`,
-              `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
+              `Workspace path: ${terminalCwd ?? savedFolderPath ?? 'default app path'}`,
               swarmStatePath ? `Sprint Engine state: ${swarmStatePath}` : null,
             ].filter(Boolean).join('\n'),
             workspaceId,
@@ -276,10 +279,13 @@ export default function PlainTerminalPanel({ workspaceId, terminalId }: Props) {
       terminalDiagnostics.dispose()
       outputQueue.dispose()
       term.dispose()
+      if (killOnUnmount) {
+        void window.api.terminalKill(sessionId).catch(() => {})
+      }
     }
-  }, [folderReadyPath, savedFolderPath, swarmContext?.statePath, terminalId, workspaceId, workspaceName])
+  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, swarmContext?.statePath, terminalId, workspaceId, workspaceName])
 
-  const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
+  const folderBlocked = Boolean(!cwdOverride && savedFolderPath && !folderReadyPath)
 
   return (
     <div className="relative h-full bg-[#09090b]">

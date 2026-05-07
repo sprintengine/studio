@@ -1,6 +1,7 @@
 import type {
   GitBranchSnapshot,
   GitHistorySnapshot,
+  GitRef,
 } from './git'
 import { getGitHubRepoWebUrl } from './git-github'
 import { runGit } from './git-utils'
@@ -42,12 +43,45 @@ export async function getGitHistory(repoRoot: string, limit = 12): Promise<GitHi
   try {
     const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 50)
     const githubRepoWebUrl = await getGitHubRepoWebUrl(repoRoot)
+    const totalCountOutput = await runGit(repoRoot, ['rev-list', '--count', 'HEAD'])
+    const headHash = (await runGit(repoRoot, ['rev-parse', 'HEAD'])).trim()
+    const refsOutput = await runGit(repoRoot, [
+      'for-each-ref',
+      '--format=%(refname:short)%09%(objectname)%09%(refname)',
+      'refs/heads',
+      'refs/remotes',
+      'refs/tags',
+    ])
     const stdout = await runGit(repoRoot, [
       'log',
       `--max-count=${safeLimit}`,
-      '--date=short',
+      '--date=format:%Y-%m-%d %H:%M',
       '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1e',
     ])
+    const totalCount = Number.parseInt(totalCountOutput.trim(), 10) || 0
+    const refs: GitRef[] = [
+      { name: 'HEAD', hash: headHash, type: 'other' },
+      ...refsOutput
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line): GitRef => {
+          const [name = '', hash = '', fullRef = ''] = line.split('\t')
+          const type = fullRef.startsWith('refs/heads/')
+            ? 'head'
+            : fullRef.startsWith('refs/remotes/')
+              ? 'remote'
+              : fullRef.startsWith('refs/tags/')
+                ? 'tag'
+                : 'other'
+          return { name, hash, type }
+        }),
+    ]
+    const refsByHash = new Map<string, string[]>()
+    refs.forEach((ref) => {
+      const names = refsByHash.get(ref.hash) ?? []
+      names.push(ref.name)
+      refsByHash.set(ref.hash, names)
+    })
 
     const commits = stdout
       .split('\x1e')
@@ -55,19 +89,21 @@ export async function getGitHistory(repoRoot: string, limit = 12): Promise<GitHi
       .filter(Boolean)
       .map((record) => {
         const [hash = '', shortHash = '', author = '', date = '', refsText = '', subject = ''] = record.split('\x1f')
+        const decoratedRefs = refsText.split(',').map((ref) => ref.trim()).filter(Boolean)
+        const exactRefs = refsByHash.get(hash) ?? []
         return {
           hash,
           shortHash,
           author,
           date,
-          refs: refsText.split(',').map((ref) => ref.trim()).filter(Boolean),
+          refs: [...new Set([...decoratedRefs, ...exactRefs])],
           subject,
           commitWebUrl: githubRepoWebUrl ? `${githubRepoWebUrl}/commit/${hash}` : null,
         }
       })
 
-    return { commits, updatedAt: Date.now() }
+    return { commits, refs, totalCount, updatedAt: Date.now() }
   } catch {
-    return { commits: [], updatedAt: Date.now() }
+    return { commits: [], refs: [], totalCount: 0, updatedAt: Date.now() }
   }
 }

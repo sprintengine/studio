@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils/gitStatusAppearance'
-import { focusOrAddFileTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
+import { focusOrAddFileTab, focusOrAddGitConflictTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { isImageFile } from '../../utils/files'
 import WorktreeManager from '../worktree/WorktreeManager'
+import PlainTerminalPanel from './PlainTerminalPanel'
 
 type GitPanelMessage = {
   tone: 'neutral' | 'error' | 'success'
@@ -43,7 +44,7 @@ type GitHistoryState =
 
 type GitScopeKind = 'main' | 'worktree'
 
-type GitPanelView = 'changes' | 'worktrees' | 'log'
+type GitPanelView = 'changes' | 'worktrees' | 'log' | 'terminal'
 
 type GitScopeOption = {
   id: string
@@ -134,6 +135,10 @@ function branchOrHeadLabel(branch: string | null, head: string | null): string {
 
 function scopeId(kind: GitScopeKind, pathValue: string): string {
   return `${kind}:${trimPath(pathValue).toLowerCase()}`
+}
+
+function terminalIdPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'repo'
 }
 
 function formatScopeOptionLabel(scope: GitScopeOption): string {
@@ -339,18 +344,27 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   }, [refreshBranches, refreshHistory])
 
   const statusEntries = useMemo(() => Object.values(status?.files ?? {}), [status])
-  const stagedEntries = useMemo(
-    () => sortedEntries(statusEntries.filter((entry) => entry.staged)),
+  const conflictEntries = useMemo(
+    () => sortedEntries(statusEntries.filter((entry) => entry.status === 'conflicted')),
     [statusEntries]
   )
-  const unstagedEntries = useMemo(
-    () => sortedEntries(statusEntries.filter((entry) => entry.unstaged)),
+  const nonConflictEntries = useMemo(
+    () => statusEntries.filter((entry) => entry.status !== 'conflicted'),
     [statusEntries]
+  )
+  const stagedEntries = useMemo(
+    () => sortedEntries(nonConflictEntries.filter((entry) => entry.staged)),
+    [nonConflictEntries]
+  )
+  const unstagedEntries = useMemo(
+    () => sortedEntries(nonConflictEntries.filter((entry) => entry.unstaged)),
+    [nonConflictEntries]
   )
   const allEntries = useMemo(() => sortedEntries(statusEntries), [statusEntries])
   const branchOptions = branches?.branches ?? []
   const worktreeCount = scopeOptions.filter((scope) => scope.kind === 'worktree').length
   const commitCount = history.status === 'ready' ? history.snapshot.commits.length : 0
+  const totalCommitCount = history.status === 'ready' ? history.snapshot.totalCount : commitCount
   const readyToCommit = stagedEntries.length > 0 && Boolean(commitMessage.trim())
   const activeScopeLabel = activeScope?.label ?? 'Current checkout'
   const activeScopePath = repoRoot ?? activeRootPath ?? ''
@@ -474,6 +488,31 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction('Pushing', () => window.api.pushGitBranch(repoRoot), 'Pushed branch.')
   }
 
+  const handleFetch = async () => {
+    if (!repoRoot) return
+    if (typeof window.api.fetchGitRemotes !== 'function') {
+      setMessage({ tone: 'error', text: 'Restart the app to enable Git fetch.' })
+      return
+    }
+    await runAction('Fetching', () => window.api.fetchGitRemotes(repoRoot), 'Fetched remotes.')
+  }
+
+  const handlePull = async () => {
+    if (!repoRoot) return
+    if (typeof window.api.pullGitBranchWithStash !== 'function') {
+      setMessage({ tone: 'error', text: 'Restart the app to enable Git pull.' })
+      return
+    }
+    const result = await runAction(
+      'Pulling',
+      () => window.api.pullGitBranchWithStash(repoRoot),
+      'Pulled branch and reapplied local changes.'
+    )
+    if (result && !result.ok) {
+      await refreshAll()
+    }
+  }
+
   const handleSwitchBranch = async (branchName: string) => {
     if (!repoRoot || !branchName || branchName === branches?.current) return
     const checkedOutElsewhere = scopeOptions.find((scope) =>
@@ -540,6 +579,15 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await window.api.terminalWrite(`terminal-${terminalId}`, command)
     focusOrAddTerminalTab(workspaceId, terminalId, `Diff ${branchOrHeadLabel(activeScope.branch, activeScope.head)}`)
     setMessage({ tone: 'neutral', text: `Opened review diff: ${range} (${reviewDiffTarget.reason}).` })
+  }
+
+  const handleResolveConflict = (entry: GitStatusEntry) => {
+    if (!repoRoot) return
+    const label = `Resolve ${entry.relativePath.split('/').filter(Boolean).pop() ?? entry.relativePath}`
+    const opened = focusOrAddGitConflictTab(workspaceId, repoRoot, entry.path, label)
+    if (!opened) {
+      setMessage({ tone: 'error', text: 'Unable to open conflict resolver tab.' })
+    }
   }
 
   const handleOpenFile = async (entry: GitStatusEntry) => {
@@ -638,11 +686,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           </div>
           <button
             type="button"
-            onClick={() => void refreshAll()}
+            onClick={() => void handleFetch()}
             disabled={Boolean(busy)}
             className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#838896]"
-            title="Refresh Git status"
-            aria-label="Refresh Git status"
+            title="Fetch remotes and refresh Git status"
+            aria-label="Fetch remotes and refresh Git status"
           >
             <RefreshGitIcon />
           </button>
@@ -666,8 +714,13 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           <GitPanelTab
             active={activeView === 'log'}
             label="Log"
-            count={commitCount}
+            count={totalCommitCount}
             onClick={() => setActiveView('log')}
+          />
+          <GitPanelTab
+            active={activeView === 'terminal'}
+            label="Terminal"
+            onClick={() => setActiveView('terminal')}
           />
         </div>
 
@@ -677,14 +730,22 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               {allEntries.length === 0 ? (
                 <div className="py-2 text-[12px] text-[#6f7480]">Working tree clean</div>
               ) : (
-                groups.map((group) => (
-                  <ChangeGroup
-                    key={group.title}
-                    group={group}
+                <>
+                  <ConflictGroup
+                    entries={conflictEntries}
                     busy={busy}
                     onOpenFile={handleOpenFile}
+                    onResolve={handleResolveConflict}
                   />
-                ))
+                  {groups.map((group) => (
+                    <ChangeGroup
+                      key={group.title}
+                      group={group}
+                      busy={busy}
+                      onOpenFile={handleOpenFile}
+                    />
+                  ))}
+                </>
               )}
             </div>
 
@@ -696,6 +757,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               stagedCount={stagedEntries.length}
               onCommit={handleCommit}
               onCommitMessageChange={setCommitMessage}
+              onFetch={handleFetch}
+              onPull={handlePull}
               onPush={handlePush}
               scopeLabel={activeScopeLabel}
               scopePath={activeScopePath}
@@ -712,8 +775,15 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               onChanged={refreshAll}
             />
           </div>
-        ) : (
+        ) : activeView === 'log' ? (
           <GitLogView history={history} />
+        ) : (
+          <GitTerminalView
+            key={`${workspaceId}:${repoRoot}`}
+            workspaceId={workspaceId}
+            repoRoot={repoRoot}
+            terminalId={`git-${workspaceId}-${terminalIdPart(activeScope?.id ?? repoRoot)}`}
+          />
         )}
       </div>
     </div>
@@ -728,7 +798,7 @@ function GitPanelTab({
 }: {
   active: boolean
   label: string
-  count: number
+  count?: number
   onClick: () => void
 }) {
   return (
@@ -744,8 +814,99 @@ function GitPanelTab({
       }`}
     >
       <span>{label}</span>
-      <span className={active ? 'text-[#9a9aa2]' : 'text-[#5a5a63]'}>{count}</span>
+      {typeof count === 'number' ? (
+        <span className={active ? 'text-[#9a9aa2]' : 'text-[#5a5a63]'}>{count}</span>
+      ) : null}
     </button>
+  )
+}
+
+function GitTerminalView({
+  workspaceId,
+  repoRoot,
+  terminalId,
+}: {
+  workspaceId: string
+  repoRoot: string
+  terminalId: string
+}) {
+  return (
+    <div className="min-h-0 flex-1 border-t border-[#15161a] bg-[#09090b]">
+      <PlainTerminalPanel
+        workspaceId={workspaceId}
+        terminalId={terminalId}
+        cwdOverride={repoRoot}
+        killOnUnmount
+      />
+    </div>
+  )
+}
+
+function ConflictGroup({
+  entries,
+  busy,
+  onOpenFile,
+  onResolve,
+}: {
+  entries: GitStatusEntry[]
+  busy: string | null
+  onOpenFile: (entry: GitStatusEntry) => Promise<void>
+  onResolve: (entry: GitStatusEntry) => void
+}) {
+  if (entries.length === 0) return null
+
+  return (
+    <section className="mb-4">
+      <div className="mb-1 flex h-6 items-center justify-between gap-2">
+        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#b97074]">
+          Conflicts ({entries.length})
+        </div>
+      </div>
+      <div className="space-y-1">
+        {entries.map((entry) => {
+          const pathParts = splitGitPath(entry.relativePath)
+          return (
+            <div
+              key={`conflict:${entry.path}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => void onOpenFile(entry)}
+              onKeyDown={(event) => {
+                if (event.currentTarget !== event.target) return
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                void onOpenFile(entry)
+              }}
+              className="group flex min-h-[28px] items-center gap-2 rounded-md border border-[#3d2024] bg-[#180d10] px-2 py-1 text-[12px] text-[#ff9b9f] transition-colors hover:bg-[#201114]"
+              title={`Open ${entry.relativePath}`}
+            >
+              <span className="flex min-w-0 flex-1 items-baseline font-mono">
+                {pathParts.directory ? (
+                  <>
+                    <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
+                      {pathParts.directory}
+                    </span>
+                    <span className="shrink-0 opacity-60">/</span>
+                  </>
+                ) : null}
+                <span className="min-w-0 max-w-full shrink-0 truncate font-semibold">{pathParts.filename}</span>
+              </span>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onResolve(entry)
+                }}
+                disabled={Boolean(busy)}
+                className="h-6 shrink-0 rounded-md px-2 text-[11px] font-semibold text-[#ffb3b6] transition-colors hover:bg-[#311417] hover:text-white disabled:opacity-30"
+              >
+                Resolve
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -869,6 +1030,8 @@ function CommitComposer({
   stagedCount,
   onCommit,
   onCommitMessageChange,
+  onFetch,
+  onPull,
   onPush,
   scopeLabel,
   scopePath,
@@ -880,6 +1043,8 @@ function CommitComposer({
   stagedCount: number
   onCommit: () => Promise<void>
   onCommitMessageChange: (value: string) => void
+  onFetch: () => Promise<void>
+  onPull: () => Promise<void>
   onPush: () => Promise<void>
   scopeLabel: string
   scopePath: string
@@ -902,6 +1067,22 @@ function CommitComposer({
           {stagedCount > 0 ? `${stagedCount} staged` : 'Nothing staged'}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void onFetch()}
+            disabled={Boolean(busy)}
+            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
+          >
+            Fetch
+          </button>
+          <button
+            type="button"
+            onClick={() => void onPull()}
+            disabled={Boolean(busy)}
+            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
+          >
+            Pull
+          </button>
           <button
             type="button"
             onClick={() => void onPush()}
@@ -944,6 +1125,7 @@ function GitLogView({
   history: GitHistoryState
 }) {
   const commits = history.status === 'ready' ? history.snapshot.commits : []
+  const totalCount = history.status === 'ready' ? history.snapshot.totalCount : commits.length
 
   if (history.status === 'loading') {
     return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[#5a5a63]">Loading commits...</div>
@@ -961,9 +1143,11 @@ function GitLogView({
     <section className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <div className="mb-2 flex h-6 items-center justify-between gap-2">
         <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Log</div>
-        <div className="text-[10px] text-[#5a5a63]">{commits.length} recent</div>
+        <div className="text-[10px] text-[#5a5a63]">
+          {totalCount} total / showing {commits.length}
+        </div>
       </div>
-      <div className="space-y-1.5">
+      <div className="relative space-y-1.5 before:absolute before:left-[13px] before:top-3 before:bottom-3 before:w-px before:bg-[#2c3038]">
         {commits.map((commit) => (
           <GitLogCommitRow
             key={commit.hash}
@@ -976,22 +1160,35 @@ function GitLogView({
 }
 
 function GitLogCommitRow({ commit }: { commit: GitCommit }) {
+  const visibleRefs = commit.refs
+    .map((ref) => ref.replace(/^HEAD -> /, '').replace(/^tag: /, ''))
+    .filter(Boolean)
+    .slice(0, 4)
+  const hasHead = commit.refs.some((ref) => ref === 'HEAD' || ref.startsWith('HEAD -> '))
   const content = (
     <>
-      <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full border border-[#3a3d49]" />
+      <div
+        className={`relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border ${
+          hasHead ? 'border-[#6ee7d8] bg-[#6ee7d8]' : 'border-[#555b68] bg-[#0d0e11]'
+        }`}
+      />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="min-w-0 truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
+          {visibleRefs.length > 0 ? (
+            <span className="flex min-w-0 shrink-0 items-center gap-1">
+              {visibleRefs.map((ref) => (
+                <GitRefBadge key={ref} label={ref} />
+              ))}
+            </span>
+          ) : null}
+        </div>
         <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#5a5a63]">
           <span className="font-mono text-[#8a8a92]">{commit.shortHash}</span>
           <span>{commit.date}</span>
           <span className="min-w-0 truncate">{commit.author}</span>
         </div>
       </div>
-      {commit.refs.length > 0 ? (
-        <span className="mt-0.5 max-w-[76px] shrink-0 truncate rounded-full bg-[#15161a] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[#8a8a92]">
-          {commit.refs[0].replace(/^HEAD -> /, '')}
-        </span>
-      ) : null}
     </>
   )
 
@@ -1018,5 +1215,21 @@ function GitLogCommitRow({ commit }: { commit: GitCommit }) {
     <div className={className} title={commit.subject}>
       {content}
     </div>
+  )
+}
+
+function GitRefBadge({ label }: { label: string }) {
+  const isRemote = label.includes('/')
+  const isHead = label === 'HEAD'
+  const className = isHead
+    ? 'border-[#2f746c] bg-[#12302d] text-[#8ff5e8]'
+    : isRemote
+      ? 'border-[#314466] bg-[#101827] text-[#9ebcff]'
+      : 'border-[#3d3f48] bg-[#15161a] text-[#b8b8c0]'
+
+  return (
+    <span className={`max-w-[120px] truncate rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${className}`} title={label}>
+      {label}
+    </span>
   )
 }

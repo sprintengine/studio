@@ -4,15 +4,20 @@ import {
   copyGitWorktreeIncludedFiles,
   createGitWorktree,
   discardUnstagedGitChanges,
+  fetchGitRemotes,
   getGitBranches,
+  getGitConflictFile,
+  getGitConflicts,
   getGitFileBase,
   getGitHistory,
   getGitRepoRoot,
   getGitStatus,
   listGitWorktrees,
+  pullGitBranchWithStash,
   pruneGitWorktrees,
   removeGitWorktree,
   repairGitWorktrees,
+  resolveGitConflict,
   pushGitBranch,
   revertGitPaths,
   stageGitPaths,
@@ -63,6 +68,18 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-history', { repoRoot, limit }, () => getGitHistory(repoRoot, limit))
   })
 
+  ipcMain.handle('git:get-conflicts', async (_, repoRoot: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-conflicts', { repoRoot }, () => getGitConflicts(repoRoot))
+  })
+
+  ipcMain.handle('git:get-conflict-file', async (_, repoRoot: string, filePath: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-conflict-file', { repoRoot, filePath }, () => getGitConflictFile(repoRoot, filePath))
+  })
+
+  ipcMain.handle('git:resolve-conflict', async (_, repoRoot: string, filePath: string, content: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'resolve-conflict', { repoRoot, filePath }, () => resolveGitConflict(repoRoot, filePath, content))
+  })
+
   ipcMain.handle('git:stage', async (_, repoRoot: string, paths: string[]) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'stage', { repoRoot, pathCount: paths.length }, () => stageGitPaths(repoRoot, paths))
   })
@@ -85,6 +102,14 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
 
   ipcMain.handle('git:push', async (_, repoRoot: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'push', { repoRoot }, () => pushGitBranch(repoRoot))
+  })
+
+  ipcMain.handle('git:fetch', async (_, repoRoot: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'fetch', { repoRoot }, () => fetchGitRemotes(repoRoot))
+  })
+
+  ipcMain.handle('git:pull-with-stash', async (_, repoRoot: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'pull-with-stash', { repoRoot }, () => pullGitBranchWithStash(repoRoot))
   })
 
   ipcMain.handle('git:switch-branch', async (_, repoRoot: string, branchName: string) => {

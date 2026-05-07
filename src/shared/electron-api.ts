@@ -242,8 +242,16 @@ export type GitCommit = {
   commitWebUrl: string | null
 }
 
+export type GitRef = {
+  name: string
+  hash: string
+  type: 'head' | 'remote' | 'tag' | 'other'
+}
+
 export type GitHistorySnapshot = {
   commits: GitCommit[]
+  refs: GitRef[]
+  totalCount: number
   updatedAt: number
 }
 
@@ -305,6 +313,27 @@ export type GitWorktreeRepairInput = {
 export type GitWorktreeCopyIncludedInput = {
   repoRoot: string
   worktreePath: string
+}
+
+export type GitConflictFile = {
+  path: string
+  relativePath: string
+  status: string
+}
+
+export type GitConflictSnapshot = {
+  repoRoot: string
+  files: GitConflictFile[]
+  updatedAt: number
+}
+
+export type GitConflictFileContent = {
+  path: string
+  relativePath: string
+  base: string | null
+  ours: string | null
+  theirs: string | null
+  result: string
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
@@ -625,12 +654,17 @@ export type ElectronApi = {
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>
   getGitHistory: (repoRoot: string, limit?: number) => Promise<GitHistorySnapshot>
+  getGitConflicts: (repoRoot: string) => Promise<GitConflictSnapshot>
+  getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
+  resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>
   stageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   unstageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   revertGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   discardUnstagedGitChanges: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   commitGitChanges: (repoRoot: string, message: string) => Promise<GitCommandResult>
   pushGitBranch: (repoRoot: string) => Promise<GitCommandResult>
+  fetchGitRemotes: (repoRoot: string) => Promise<GitCommandResult>
+  pullGitBranchWithStash: (repoRoot: string) => Promise<GitCommandResult>
   switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>
   listGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>>
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>

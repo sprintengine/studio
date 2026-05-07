@@ -28,6 +28,7 @@ interface Props {
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const ContentSearchPanel = React.lazy(() => import('../panels/ContentSearchPanel'))
 const GitPanel = React.lazy(() => import('../panels/GitPanel'))
+const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
 const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
@@ -236,7 +237,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   const factory = useCallback(
     (node: TabNode) => {
       const component = node.getComponent()
-      const config = node.getConfig() as { agentId?: string; terminalId?: string; filePath?: string } | undefined
+      const config = node.getConfig() as { agentId?: string; terminalId?: string; filePath?: string; repoRoot?: string } | undefined
 
       switch (component) {
         case 'agent':
@@ -258,6 +259,16 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('ContentSearchPanel', <ContentSearchPanel workspaceId={workspaceId} />)
         case 'git':
           return timedPanel('GitPanel', <GitPanel workspaceId={workspaceId} />)
+        case 'git-conflict':
+          return config?.repoRoot && config.filePath
+            ? timedPanel('GitConflictResolverPanel', (
+              <GitConflictResolverPanel
+                workspaceId={workspaceId}
+                repoRoot={config.repoRoot}
+                filePath={config.filePath}
+              />
+            ))
+            : <div className="h-full bg-[#08090b]" />
         case 'terminal':
           return timedPanel('PlainTerminalPanel', (
             <PlainTerminalPanel

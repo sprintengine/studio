@@ -19,9 +19,13 @@ import type {
   GitBranchSnapshot as SharedGitBranchSnapshot,
   GitCommandResult as SharedGitCommandResult,
   GitCommit as SharedGitCommit,
+  GitConflictFile as SharedGitConflictFile,
+  GitConflictFileContent as SharedGitConflictFileContent,
+  GitConflictSnapshot as SharedGitConflictSnapshot,
   GitFileBaseResult as SharedGitFileBaseResult,
   GitFileStatus as SharedGitFileStatus,
   GitHistorySnapshot as SharedGitHistorySnapshot,
+  GitRef as SharedGitRef,
   GitStatusEntry as SharedGitStatusEntry,
   GitStatusSnapshot as SharedGitStatusSnapshot,
   GitWorktreeCopyIncludedInput as SharedGitWorktreeCopyIncludedInput,
@@ -108,8 +112,12 @@ declare global {
   type GitBranch = SharedGitBranch
   type GitBranchSnapshot = SharedGitBranchSnapshot
   type GitCommit = SharedGitCommit
+  type GitRef = SharedGitRef
   type GitHistorySnapshot = SharedGitHistorySnapshot
   type GitCommandResult = SharedGitCommandResult
+  type GitConflictFile = SharedGitConflictFile
+  type GitConflictFileContent = SharedGitConflictFileContent
+  type GitConflictSnapshot = SharedGitConflictSnapshot
   type GitWorktreeEntry = SharedGitWorktreeEntry
   type GitWorktreeListSnapshot = SharedGitWorktreeListSnapshot
   type GitWorktreeCopyIncludedResult = SharedGitWorktreeCopyIncludedResult

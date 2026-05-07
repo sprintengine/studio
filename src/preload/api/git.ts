@@ -3,6 +3,8 @@ import type {
   ElectronApi,
   GitBranchSnapshot,
   GitCommandResult,
+  GitConflictFileContent,
+  GitConflictSnapshot,
   GitFileBaseResult,
   GitHistorySnapshot,
   GitStatusSnapshot,
@@ -27,6 +29,12 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-branches', repoRoot),
   getGitHistory: (repoRoot: string, limit?: number): Promise<GitHistorySnapshot> =>
     ipcRenderer.invoke('git:get-history', repoRoot, limit),
+  getGitConflicts: (repoRoot: string): Promise<GitConflictSnapshot> =>
+    ipcRenderer.invoke('git:get-conflicts', repoRoot),
+  getGitConflictFile: (repoRoot: string, filePath: string): Promise<GitConflictFileContent | null> =>
+    ipcRenderer.invoke('git:get-conflict-file', repoRoot, filePath),
+  resolveGitConflict: (repoRoot: string, filePath: string, content: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:resolve-conflict', repoRoot, filePath, content),
   stageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:stage', repoRoot, paths),
   unstageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
@@ -39,6 +47,10 @@ export const gitApi = {
     ipcRenderer.invoke('git:commit', repoRoot, message),
   pushGitBranch: (repoRoot: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:push', repoRoot),
+  fetchGitRemotes: (repoRoot: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:fetch', repoRoot),
+  pullGitBranchWithStash: (repoRoot: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:pull-with-stash', repoRoot),
   switchGitBranch: (repoRoot: string, branchName: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:switch-branch', repoRoot, branchName),
   listGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> =>
@@ -62,12 +74,17 @@ export const gitApi = {
   | 'getGitFileBase'
   | 'getGitBranches'
   | 'getGitHistory'
+  | 'getGitConflicts'
+  | 'getGitConflictFile'
+  | 'resolveGitConflict'
   | 'stageGitPaths'
   | 'unstageGitPaths'
   | 'revertGitPaths'
   | 'discardUnstagedGitChanges'
   | 'commitGitChanges'
   | 'pushGitBranch'
+  | 'fetchGitRemotes'
+  | 'pullGitBranchWithStash'
   | 'switchGitBranch'
   | 'listGitWorktrees'
   | 'createGitWorktree'

@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile } from 'fs/promises'
+import { cp, mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'path'
 import {
   getRelativeGitPath,
@@ -7,7 +7,9 @@ import {
   pathExists,
   runGit,
   runGitCommand,
+  toAbsolutePath,
   toFilesystemPath,
+  toPosixPath,
 } from './git-utils'
 import { listGitWorktrees } from './git-worktree-list'
 import {
@@ -17,6 +19,7 @@ import {
   validateBaseRef,
   validateBranchName,
 } from './git-worktree-validation'
+import { getGitStatus } from './git-status'
 
 export { listGitWorktrees, parseGitWorktreePorcelain } from './git-worktree-list'
 export { getGitStatus } from './git-status'
@@ -29,6 +32,8 @@ export {
 } from './git-file-actions'
 export {
   commitGitChanges,
+  fetchGitRemotes,
+  pullGitBranchWithStash,
   pushGitBranch,
   switchGitBranch,
 } from './git-branch-actions'
@@ -78,7 +83,15 @@ export type GitCommit = {
 
 export type GitHistorySnapshot = {
   commits: GitCommit[]
+  refs: GitRef[]
+  totalCount: number
   updatedAt: number
+}
+
+export type GitRef = {
+  name: string
+  hash: string
+  type: 'head' | 'remote' | 'tag' | 'other'
 }
 
 export type GitCommandResult = {
@@ -139,6 +152,27 @@ export type GitWorktreeRepairInput = {
 export type GitWorktreeCopyIncludedInput = {
   repoRoot: string
   worktreePath: string
+}
+
+export type GitConflictFile = {
+  path: string
+  relativePath: string
+  status: string
+}
+
+export type GitConflictSnapshot = {
+  repoRoot: string
+  files: GitConflictFile[]
+  updatedAt: number
+}
+
+export type GitConflictFileContent = {
+  path: string
+  relativePath: string
+  base: string | null
+  ours: string | null
+  theirs: string | null
+  result: string
 }
 
 export async function getGitRepoRoot(folderPath: string): Promise<string | null> {
@@ -437,4 +471,78 @@ export async function getGitFileBase(repoRoot: string, filePath: string): Promis
     const message = error instanceof Error ? error.message : String(error)
     return { ok: false, message }
   }
+}
+
+function normalizeConflictFilePath(repoRoot: string, filePath: string): { absolutePath: string; relativePath: string } | null {
+  const absolutePath = isAbsolute(filePath) ? filePath : toAbsolutePath(repoRoot, toPosixPath(filePath))
+  if (!isInsideRepo(repoRoot, absolutePath) && dirname(absolutePath) !== repoRoot) return null
+
+  return {
+    absolutePath,
+    relativePath: getRelativeGitPath(repoRoot, absolutePath),
+  }
+}
+
+export async function getGitConflicts(repoRoot: string): Promise<GitConflictSnapshot> {
+  const snapshot = await getGitStatus(repoRoot)
+  const files = Object.values(snapshot.files)
+    .filter((entry) => entry.status === 'conflicted')
+    .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+    .map((entry) => ({
+      path: entry.path,
+      relativePath: entry.relativePath,
+      status: 'conflicted',
+    }))
+
+  return {
+    repoRoot: snapshot.repoRoot,
+    files,
+    updatedAt: Date.now(),
+  }
+}
+
+async function getGitConflictStage(repoRoot: string, stage: 1 | 2 | 3, relativePath: string): Promise<string | null> {
+  const result = await runGitCommand(repoRoot, ['show', `:${stage}:${relativePath}`])
+  return result.ok ? result.stdout : null
+}
+
+export async function getGitConflictFile(repoRoot: string, filePath: string): Promise<GitConflictFileContent | null> {
+  const normalized = normalizeConflictFilePath(repoRoot, filePath)
+  if (!normalized) return null
+
+  const [base, ours, theirs] = await Promise.all([
+    getGitConflictStage(repoRoot, 1, normalized.relativePath),
+    getGitConflictStage(repoRoot, 2, normalized.relativePath),
+    getGitConflictStage(repoRoot, 3, normalized.relativePath),
+  ])
+
+  let result = ''
+  try {
+    result = await readFile(toFilesystemPath(normalized.absolutePath), 'utf8')
+  } catch {
+    result = ''
+  }
+
+  return {
+    path: normalized.absolutePath,
+    relativePath: normalized.relativePath,
+    base,
+    ours,
+    theirs,
+    result,
+  }
+}
+
+export async function resolveGitConflict(
+  repoRoot: string,
+  filePath: string,
+  content: string
+): Promise<GitCommandResult> {
+  const normalized = normalizeConflictFilePath(repoRoot, filePath)
+  if (!normalized) {
+    return { ok: false, stdout: '', stderr: '', message: 'File is outside the Git repository.' }
+  }
+
+  await writeFile(toFilesystemPath(normalized.absolutePath), content, 'utf8')
+  return runGitCommand(repoRoot, ['add', '--', normalized.relativePath])
 }

@@ -150,6 +150,12 @@ function uniqueAgentName(baseName: string, agents: Workspace['agents']): string 
   return `${baseName} ${suffix}`
 }
 
+function terminalSessionLabel(terminalId: string): string {
+  if (terminalId.startsWith('git-')) return 'Git terminal'
+  if (terminalId.startsWith('worktree-')) return 'Worktree terminal'
+  return 'Terminal'
+}
+
 function getSessionItems(
   workspaces: Workspace[],
   terminalSessions: TerminalSessionSnapshot[]
@@ -189,7 +195,7 @@ function getSessionItems(
         kind: session.kind,
         agentId: null,
         terminalId,
-        label: 'Terminal',
+        label: terminalSessionLabel(terminalId),
         cli: 'codex' as AgentCli,
         status: 'running' as const,
         role: null,
@@ -1080,14 +1086,14 @@ export default function WorkspaceManager() {
       const opened = item.agentId
         ? focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)
         : item.terminalId
-          ? focusOrAddTerminalTab(item.workspace.id, item.terminalId)
+        ? focusOrAddTerminalTab(item.workspace.id, item.terminalId, item.label)
           : false
       if (opened) return
       window.setTimeout(() => {
         if (item.agentId) {
           focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)
         } else if (item.terminalId) {
-          focusOrAddTerminalTab(item.workspace.id, item.terminalId)
+        focusOrAddTerminalTab(item.workspace.id, item.terminalId, item.label)
         }
       }, 0)
     })
@@ -2007,7 +2013,7 @@ function SessionsPopover({
                           />
                         </span>
                         <span className="mt-0.5 block truncate text-[11px] text-[#7a7a83]">
-                          {item.kind === 'terminal' ? 'terminal' : item.taskId ?? item.cli}
+                        {item.kind === 'terminal' ? item.label.toLowerCase() : item.taskId ?? item.cli}
                         </span>
                       </span>
                     </div>
