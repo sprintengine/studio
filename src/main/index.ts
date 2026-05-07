@@ -11,6 +11,7 @@ import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
+import { registerWindowIpc, sendWindowState } from './ipc/window-ipc'
 import {
   MobileBridge,
   type MobileBridgePresence,
@@ -988,24 +989,6 @@ function createWindow(): void {
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
-}
-
-function getWindowState(win: BrowserWindow): { isMaximized: boolean; isFullScreen: boolean } {
-  return {
-    isMaximized: win.isMaximized(),
-    isFullScreen: win.isFullScreen(),
-  }
-}
-
-function sendWindowState(win: BrowserWindow): void {
-  if (win.isDestroyed()) return
-  win.webContents.send('window:state-changed', getWindowState(win))
-}
-
-function getRequestWindow(event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
-  const win = BrowserWindow.fromWebContents(event.sender)
-  if (!win || win.isDestroyed()) return null
-  return win
 }
 
 function sendMenuCommand(win: Electron.BaseWindow | null, command: string): void {
@@ -3505,33 +3488,7 @@ function disposeFileWatchersForSender(senderId: number): void {
   }
 }
 
-ipcMain.handle('window:minimize', (event) => {
-  getRequestWindow(event)?.minimize()
-})
-
-ipcMain.handle('window:toggle-maximize', (event) => {
-  const win = getRequestWindow(event)
-  if (!win) return null
-
-  if (win.isFullScreen()) {
-    win.setFullScreen(false)
-  } else if (win.isMaximized()) {
-    win.unmaximize()
-  } else {
-    win.maximize()
-  }
-
-  return getWindowState(win)
-})
-
-ipcMain.handle('window:close', (event) => {
-  getRequestWindow(event)?.close()
-})
-
-ipcMain.handle('window:get-state', (event) => {
-  const win = getRequestWindow(event)
-  return win ? getWindowState(win) : null
-})
+registerWindowIpc(ipcMain)
 
 ipcMain.handle('auth:get-state', () => multicodeAuth.initialize())
 
