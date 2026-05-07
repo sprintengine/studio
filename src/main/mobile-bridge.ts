@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app } from 'electron'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
@@ -11,6 +11,7 @@ import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile-sprin
 import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile-sprintengine-snapshot'
 import { getErrorMessage } from './error-message'
 import { hashSecret, randomBase64Url } from './mobile-bridge-crypto'
+import { getAllBrowserWindows, getDesktopDisplayName } from './mobile-bridge-desktop'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -1556,14 +1557,6 @@ function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
 
 async function defaultSwarmStatePaths(): Promise<string[]> {
   return []
-}
-
-function getAllBrowserWindows(): BrowserWindow[] {
-  return typeof BrowserWindow?.getAllWindows === 'function' ? BrowserWindow.getAllWindows() : []
-}
-
-function getDesktopDisplayName(): string {
-  return typeof app?.name === 'string' && app.name.trim() ? app.name : 'Multicode Desktop'
 }
 
 function manualPairingValueFromRelayChallenge(challenge: RelayPairingChallengeResult): string {
