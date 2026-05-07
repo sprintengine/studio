@@ -3,7 +3,6 @@ import * as pty from 'node-pty'
 import type {
   AgentCli,
   AgentExecutionMode,
-  TerminalKind,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
@@ -17,6 +16,13 @@ import {
 import { getErrorMessage } from './error-message'
 import { MobileSwarmCommandService } from './mobile-sprintengine-command'
 import { DesktopMobileSwarmSessionOrchestrator } from './mobile-sprintengine-session'
+import {
+  appendTerminalOutput,
+  getTerminalSize,
+  getTerminalSnapshot,
+  materializeTerminalReplay,
+  type TerminalSession,
+} from './terminal-session'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -71,47 +77,11 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
 
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
-type TerminalSize = {
-  cols: number
-  rows: number
-}
-
-type TerminalSession = {
-  sessionId: string
-  process: pty.IPty
-  sender: Electron.WebContents
-  isReady: boolean
-  hasExited: boolean
-  isDisposed: boolean
-  outputChunks: string[]
-  outputChunkBytes: number[]
-  outputChunkStart: number
-  outputBytes: number
-  outputLength: number
-  kind: TerminalKind
-  workspaceId?: string
-  agentId?: string
-  terminalId?: string
-  cli?: AgentCli
-  cwd?: string
-  swarmStatePath?: string
-  executionMode?: AgentExecutionMode
-  worktreeId?: string
-  worktreePath?: string
-  startedAt: number
-  lastOutputAt: number | null
-  lastInputAt: number | null
-  pendingResize?: TerminalSize
-  startupScriptPath?: string
-}
-
-const TERMINAL_REPLAY_BUFFER_LIMIT = 512 * 1024
 const TERMINAL_INTERACTIVE_DATA_BATCH_MS = 0
 const TERMINAL_DATA_BATCH_MS = 16
 const TERMINAL_RECENT_INPUT_WINDOW_MS = 250
 const TERMINAL_INTERACTIVE_DATA_LIMIT = 4096
 const TERMINAL_PENDING_DATA_LIMIT = 256 * 1024
-const TERMINAL_REPLAY_COMPACT_THRESHOLD = 1024
 const TERMINAL_BATCH_DIAGNOSTIC_INTERVAL_MS = 1_000
 const terminals = new Map<string, TerminalSession>()
 const pendingTerminalData = new Map<string, {
@@ -344,13 +314,6 @@ function getTerminalErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function getTerminalSize(cols: number, rows: number): TerminalSize {
-  return {
-    cols: Math.max(Number.isFinite(cols) ? Math.floor(cols) : 80, 20),
-    rows: Math.max(Number.isFinite(rows) ? Math.floor(rows) : 24, 8),
-  }
-}
-
 function safeResizeTerminal(sessionId: string, cols: number, rows: number): void {
   const session = terminals.get(sessionId)
   if (!session || session.hasExited || session.isDisposed) return
@@ -375,74 +338,6 @@ function flushPendingTerminalResize(sessionId: string, session: TerminalSession)
 
   session.pendingResize = undefined
   safeResizeTerminal(sessionId, pendingResize.cols, pendingResize.rows)
-}
-
-function trimTerminalChunkToReplayLimit(data: string): { data: string; bytes: number } {
-  const bytes = Buffer.byteLength(data)
-  if (bytes <= TERMINAL_REPLAY_BUFFER_LIMIT) return { data, bytes }
-
-  const trimmed = Buffer.from(data)
-    .subarray(bytes - TERMINAL_REPLAY_BUFFER_LIMIT)
-    .toString('utf8')
-
-  return {
-    data: trimmed,
-    bytes: Buffer.byteLength(trimmed),
-  }
-}
-
-function appendTerminalOutput(session: TerminalSession, data: string): void {
-  const chunk = trimTerminalChunkToReplayLimit(data)
-  session.outputChunks.push(chunk.data)
-  session.outputChunkBytes.push(chunk.bytes)
-  session.outputBytes += chunk.bytes
-  session.outputLength += chunk.data.length
-  session.lastOutputAt = Date.now()
-
-  while (
-    session.outputBytes > TERMINAL_REPLAY_BUFFER_LIMIT
-    && session.outputChunkStart < session.outputChunks.length
-  ) {
-    const removed = session.outputChunks[session.outputChunkStart]
-    const removedBytes = session.outputChunkBytes[session.outputChunkStart] ?? 0
-    session.outputChunkStart += 1
-    session.outputBytes -= removedBytes
-    session.outputLength -= removed?.length ?? 0
-  }
-
-  if (
-    session.outputChunkStart >= TERMINAL_REPLAY_COMPACT_THRESHOLD
-    && session.outputChunkStart > session.outputChunks.length / 2
-  ) {
-    session.outputChunks.splice(0, session.outputChunkStart)
-    session.outputChunkBytes.splice(0, session.outputChunkStart)
-    session.outputChunkStart = 0
-  }
-}
-
-function materializeTerminalReplay(session: TerminalSession): string {
-  return session.outputChunks.slice(session.outputChunkStart).join('')
-}
-
-function getTerminalSnapshot(session: TerminalSession): TerminalSessionSnapshot {
-  return {
-    sessionId: session.sessionId,
-    running: !session.hasExited && !session.isDisposed,
-    kind: session.kind,
-    workspaceId: session.workspaceId,
-    agentId: session.agentId,
-    terminalId: session.terminalId,
-    cli: session.cli,
-    cwd: session.cwd,
-    swarmStatePath: session.swarmStatePath,
-    executionMode: session.executionMode,
-    worktreeId: session.worktreeId,
-    worktreePath: session.worktreePath,
-    startedAt: session.startedAt,
-    lastOutputAt: session.lastOutputAt,
-    outputBufferLength: session.outputLength,
-    retainedOutputBytes: session.outputBytes,
-  }
 }
 
 function disposeTerminal(sessionId: string): void {
@@ -791,4 +686,3 @@ function writeTerminalInput(sessionId: string, data: string): void {
     recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, false)
   }
 }
-
