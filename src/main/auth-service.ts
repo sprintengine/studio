@@ -2,6 +2,16 @@ import { app, BrowserWindow, safeStorage, shell } from 'electron'
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { createHash, randomBytes } from 'crypto'
 import { dirname, join } from 'path'
+import type {
+  EntitlementSnapshot,
+  FeatureValue,
+  MulticodeAuthState,
+  PremiumAccessDecision,
+  PremiumAccessRequest,
+  SessionSnapshot,
+  UsageRequest,
+  UsageResult,
+} from '../shared/electron-api'
 import { getErrorMessage } from './error-message'
 
 const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || 'http://localhost:3000').replace(/\/+$/u, '')
@@ -11,83 +21,10 @@ const MULTICODE_PRODUCT = 'multicode' as const
 const ENTITLEMENT_GRACE_MS = 72 * 60 * 60 * 1000
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
 
-type FeatureValue = boolean | number | string
-
-type SessionUser = {
-  id: string
-  email: string | null
-  displayName: string | null
-}
-
-type SessionOrganization = {
-  id: string
-  name: string
-  slug: string
-  type: 'personal' | 'team' | 'enterprise'
-}
-
-type SessionSnapshot =
-  | {
-    authenticated: true
-    user: SessionUser
-    selectedOrganization: SessionOrganization
-    session: {
-      id: string
-      expiresAt: string
-    }
-  }
-  | {
-    authenticated: false
-    user: null
-    selectedOrganization: null
-  }
-
-type EntitlementSnapshot = {
-  userId: string
-  organizationId: string
-  product: 'multicode'
-  roles: string[]
-  features: Record<string, FeatureValue>
-  limits: Record<string, number>
-  sources: Record<string, string>
-  plan: {
-    code: string
-    status: string
-  }
-  issuedAt: string
-  expiresAt: string
-  schemaVersion: 1
-}
-
-type UsageRequest = {
-  featureKey: string
-  amount?: number
-  actorType?: 'user' | 'organization' | 'api_key'
-  actorId?: string
-  idempotencyKey: string
-  window?: 'day' | 'month'
-}
-
-type UsageResult = {
-  allowed: boolean
-  featureKey: string
-  amount: number
-  used: number
-  remaining: number | null
-  limit: number | null
-  idempotencyKey: string
-  windowStart: string
-  windowEnd: string
-  replayed: boolean
-  reason: 'allowed' | 'missing_entitlement' | 'limit_exceeded' | 'released'
-}
-
-type ElectronRendererAuthState = {
-  authenticated: boolean
-  user: SessionUser | null
-  selectedOrganization: SessionOrganization | null
-  entitlements: EntitlementSnapshot | null
-}
+type ElectronRendererAuthState = Pick<
+  MulticodeAuthState,
+  'authenticated' | 'user' | 'selectedOrganization' | 'entitlements'
+>
 
 type TokenSet = {
   accessToken: string
@@ -107,30 +44,6 @@ type SecureRefreshTokenStore = {
   readRefreshToken(): Promise<string | null>
   writeRefreshToken(refreshToken: string): Promise<void>
   clearRefreshToken(): Promise<void>
-}
-
-type PremiumAccessRequest = {
-  featureKey: string
-  amount?: number
-  hostedCost?: boolean
-}
-
-type PremiumAccessDecision = {
-  allowed: boolean
-  featureKey: string
-  value: FeatureValue | undefined
-  status: 'fresh' | 'offline_grace' | 'expired' | 'signed_out' | 'missing' | 'error'
-  message: string
-  limit?: number
-  graceExpiresAt?: string
-}
-
-type MulticodeAuthState = ElectronRendererAuthState & {
-  status: 'checking' | 'signed_out' | 'signed_in' | 'error'
-  entitlementStatus: 'fresh' | 'offline_grace' | 'expired' | 'missing'
-  message: string | null
-  lastRefreshAt: string | null
-  graceExpiresAt: string | null
 }
 
 type CachedEntitlements = {
@@ -856,4 +769,3 @@ export async function parseAuthCallbackFromArgv(auth: MulticodeAuthBridge, argv:
     }
   }
 }
-
