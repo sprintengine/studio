@@ -27,7 +27,7 @@ export function MemoryGraphLegend({ nodes }: LegendProps) {
   if (entries.length === 0) return null
   return (
     <div
-      className="pointer-events-none absolute left-3 top-3 rounded-lg px-3 py-2.5 text-[11px]"
+      className="pointer-events-none absolute bottom-3 left-3 rounded-lg px-3 py-2 text-[11px]"
       style={PANEL_STYLE}
     >
       <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">

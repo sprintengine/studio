@@ -154,6 +154,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
     // alone — a vault with many shallow leaves looks too uniform otherwise.
     // Sqrt curve so mid-rank nodes stay distinct from leaves.
     const maxDegree = Math.max(1, ...nodes.map((n) => n.degree || 0))
+    const hasPriorLayout = positionedRef.current.length > 0
     const positioned: PositionedNode[] = nodes.map((node, index) => {
       const prior = previous.get(node.id)
       const radius = 5 + Math.sqrt((node.degree || 0) / maxDegree) * 24
@@ -190,7 +191,44 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       }
     })
     positionedRef.current = positioned
-  }, [nodes])
+
+    // Pre-warm the simulation when the layout is fresh so the first paint shows
+    // a settled graph instead of nodes still spreading across the viewport.
+    // Skip on incremental updates where most positions carried over.
+    if (!hasPriorLayout && positioned.length > 0) {
+      for (let i = 0; i < 280; i += 1) {
+        stepSimulation(positioned, edges)
+      }
+      // Frame the settled graph immediately so the user never sees the
+      // zoomed-in tight-ring intermediate state.
+      const canvas = canvasRef.current
+      if (canvas) {
+        const w = canvas.clientWidth
+        const h = canvas.clientHeight
+        if (w > 0 && h > 0) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+          for (const node of positioned) {
+            if (node.x - node.radius < minX) minX = node.x - node.radius
+            if (node.y - node.radius < minY) minY = node.y - node.radius
+            if (node.x + node.radius > maxX) maxX = node.x + node.radius
+            if (node.y + node.radius > maxY) maxY = node.y + node.radius
+          }
+          const dx = Math.max(1, maxX - minX)
+          const dy = Math.max(1, maxY - minY)
+          const padding = 80
+          const zoom = clamp(
+            Math.min((w - padding * 2) / dx, (h - padding * 2) / dy),
+            MIN_ZOOM,
+            MAX_ZOOM
+          )
+          const cx = (minX + maxX) / 2
+          const cy = (minY + maxY) / 2
+          cameraRef.current = { zoom, x: -cx * zoom, y: -cy * zoom }
+          onCameraChange?.(cameraRef.current)
+        }
+      }
+    }
+  }, [nodes, edges, onCameraChange])
 
   // Main render + physics loop.
   useEffect(() => {
@@ -209,66 +247,9 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       const matchSet = matchIdsRef.current
       const hoveredId = hoveredIdRef.current
 
-      // Physics step: O(N²) repulsion, O(E) spring, O(N) gravity. Fine up to a
-      // few hundred nodes; the memory vault is two orders of magnitude smaller.
+      stepSimulation(positioned, edges)
       const pos = positioned
-      for (let i = 0; i < pos.length; i += 1) {
-        const a = pos[i]
-        if (a.fx !== null && a.fy !== null) continue
-        let ax = 0
-        let ay = 0
-        for (let j = 0; j < pos.length; j += 1) {
-          if (i === j) continue
-          const b = pos[j]
-          const dx = a.x - b.x
-          const dy = a.y - b.y
-          const distSq = Math.max(0.01, dx * dx + dy * dy)
-          const force = REPULSION / distSq
-          const dist = Math.sqrt(distSq)
-          ax += (dx / dist) * force
-          ay += (dy / dist) * force
-        }
-        ax += -a.x * CENTER_K
-        ay += -a.y * CENTER_K
-        a.vx = (a.vx + ax) * DAMPING
-        a.vy = (a.vy + ay) * DAMPING
-      }
-
-      // Spring forces along edges. We push velocities directly so the loop above
-      // does not need an edge index.
       const byId = new Map(pos.map((n) => [n.id, n] as const))
-      for (const edge of edges) {
-        const a = byId.get(edge.source)
-        const b = byId.get(edge.target)
-        if (!a || !b) continue
-        const dx = b.x - a.x
-        const dy = b.y - a.y
-        const dist = Math.max(0.01, Math.sqrt(dx * dx + dy * dy))
-        const force = (dist - SPRING_REST) * SPRING_K
-        const fx = (dx / dist) * force
-        const fy = (dy / dist) * force
-        if (a.fx === null) {
-          a.vx += fx
-          a.vy += fy
-        }
-        if (b.fx === null) {
-          b.vx -= fx
-          b.vy -= fy
-        }
-      }
-
-      // Integrate.
-      for (const node of pos) {
-        if (node.fx !== null && node.fy !== null) {
-          node.x = node.fx
-          node.y = node.fy
-          node.vx = 0
-          node.vy = 0
-          continue
-        }
-        node.x += node.vx
-        node.y += node.vy
-      }
 
       // Resize backing store to match CSS size.
       const ratio = window.devicePixelRatio || 1
@@ -614,6 +595,69 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
 })
 
 export default MemoryGraphCanvas
+
+/**
+ * One physics tick: O(N²) repulsion, O(N) gravity, O(E) spring, then integrate.
+ * Pinned nodes (fx/fy non-null) are clamped to their pin every step so a drag
+ * stays sticky. Same routine drives both the pre-warm pass at load and every
+ * subsequent rAF frame.
+ */
+function stepSimulation(pos: PositionedNode[], edges: MemoryGraphEdge[]) {
+  for (let i = 0; i < pos.length; i += 1) {
+    const a = pos[i]
+    if (a.fx !== null && a.fy !== null) continue
+    let ax = 0
+    let ay = 0
+    for (let j = 0; j < pos.length; j += 1) {
+      if (i === j) continue
+      const b = pos[j]
+      const dx = a.x - b.x
+      const dy = a.y - b.y
+      const distSq = Math.max(0.01, dx * dx + dy * dy)
+      const force = REPULSION / distSq
+      const dist = Math.sqrt(distSq)
+      ax += (dx / dist) * force
+      ay += (dy / dist) * force
+    }
+    ax += -a.x * CENTER_K
+    ay += -a.y * CENTER_K
+    a.vx = (a.vx + ax) * DAMPING
+    a.vy = (a.vy + ay) * DAMPING
+  }
+
+  const byId = new Map(pos.map((n) => [n.id, n] as const))
+  for (const edge of edges) {
+    const a = byId.get(edge.source)
+    const b = byId.get(edge.target)
+    if (!a || !b) continue
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const dist = Math.max(0.01, Math.sqrt(dx * dx + dy * dy))
+    const force = (dist - SPRING_REST) * SPRING_K
+    const fx = (dx / dist) * force
+    const fy = (dy / dist) * force
+    if (a.fx === null) {
+      a.vx += fx
+      a.vy += fy
+    }
+    if (b.fx === null) {
+      b.vx -= fx
+      b.vy -= fy
+    }
+  }
+
+  for (const node of pos) {
+    if (node.fx !== null && node.fy !== null) {
+      node.x = node.fx
+      node.y = node.fy
+      node.vx = 0
+      node.vy = 0
+      continue
+    }
+    node.x += node.vx
+    node.y += node.vy
+  }
+}
 
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value
