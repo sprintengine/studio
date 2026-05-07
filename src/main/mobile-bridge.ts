@@ -1,5 +1,4 @@
 import { readFile } from 'fs/promises'
-import { randomUUID } from 'crypto'
 import { basename, dirname } from 'path'
 import {
   MobileSwarmCommandService,
@@ -10,7 +9,7 @@ import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile-sprin
 import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile-sprintengine-snapshot'
 import { getErrorMessage } from './error-message'
 import { hashSecret, randomBase64Url } from './mobile-bridge-crypto'
-import { getAllBrowserWindows, getDesktopDisplayName } from './mobile-bridge-desktop'
+import { getDesktopDisplayName } from './mobile-bridge-desktop'
 import { manualPairingValueFromRelayChallenge } from './mobile-bridge-pairing'
 import { FetchMobileRelayTransport } from './mobile-relay-transport'
 import {
@@ -31,6 +30,10 @@ import {
   readMobileBridgeStore,
   writeMobileBridgeStore,
 } from './mobile-bridge-store'
+import {
+  emitMobileBridgeStateChanged,
+  recordMobileBridgeDiagnostic,
+} from './mobile-bridge-notifications'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -295,7 +298,6 @@ export type MobileBridgeOptions = {
 }
 
 const RELAY_URL = process.env['MULTICODE_MOBILE_RELAY_URL']?.replace(/\/+$/u, '') || null
-const MAX_DIAGNOSTICS = 50
 const INITIAL_RECONNECT_DELAY_MS = 1000
 const MAX_RECONNECT_DELAY_MS = 60 * 1000
 const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000
@@ -808,27 +810,17 @@ export class MobileBridge {
     message: string,
     retryable: boolean
   ): void {
-    const previous = this.diagnostics[0]
-    if (previous?.code === code && previous.message === message) return
-
-    this.diagnostics.unshift({
-      id: randomUUID(),
-      timestamp: new Date().toISOString(),
+    this.diagnostics = recordMobileBridgeDiagnostic(
+      this.diagnostics,
       level,
       code,
       message,
-      retryable,
-    })
-    this.diagnostics = this.diagnostics.slice(0, MAX_DIAGNOSTICS)
+      retryable
+    )
   }
 
   private emitStateChanged(): void {
-    const state = this.snapshot()
-    for (const win of getAllBrowserWindows()) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('mobile-bridge:state-changed', state)
-      }
-    }
+    emitMobileBridgeStateChanged(this.snapshot())
   }
 
   private get storePath(): string {
