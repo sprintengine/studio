@@ -16,7 +16,6 @@ import { manualPairingValueFromRelayChallenge } from './mobile-bridge-pairing'
 import { FetchMobileRelayTransport } from './mobile-relay-transport'
 import {
   isMobileBridgePresence,
-  isMobileControlCapability,
   isMobileControlDevice,
   isMobilePushProvider,
   isMobilePushRegistration,
@@ -29,6 +28,7 @@ import {
   relayCommandTypeToMobile,
   summarizeCommandResult,
 } from './mobile-bridge-command-results'
+import { normalizeDevicePlatform, relayDeviceCapabilities } from './mobile-bridge-relay-device'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -360,18 +360,6 @@ const CAPABILITY_BY_COMMAND: Record<MobileControlCommandType, MobileControlCapab
   'artifact.requestChanges': 'artifacts.review',
   'agent.followUp': 'agents.followUp',
   'device.revoke': 'devices.revoke',
-}
-
-const CAPABILITY_BY_RELAY_SCOPE: Record<MobileRelayScope, MobileControlCapability | null> = {
-  'relay:presence:read': null,
-  'relay:snapshot:read': 'snapshots.read',
-  'relay:artifact:read': 'artifacts.read',
-  'relay:artifact:review': 'artifacts.review',
-  'relay:sprintengine:create': 'swarms.create',
-  'relay:task:start': 'tasks.start',
-  'relay:agent:followup': 'agents.followUp',
-  'relay:push:register': null,
-  'relay:device:revoke': 'devices.revoke',
 }
 
 export class MobileBridge {
@@ -1168,26 +1156,6 @@ function normalizeRelayCommandDelivery(delivery: RelayCommandDelivery): {
   device: MobileRelayAuthenticatedDevice | null
 } {
   return { envelope: delivery.envelope, device: delivery.device }
-}
-
-function relayDeviceCapabilities(device: MobileRelayAuthenticatedDevice): MobileControlCapability[] {
-  const capabilities = new Set<MobileControlCapability>()
-
-  for (const capability of device.capabilities ?? []) {
-    if (isMobileControlCapability(capability)) capabilities.add(capability)
-  }
-
-  for (const scope of device.scopes ?? []) {
-    const capability = CAPABILITY_BY_RELAY_SCOPE[scope]
-    if (capability) capabilities.add(capability)
-  }
-
-  return [...capabilities]
-}
-
-function normalizeDevicePlatform(platform: MobileRelayAuthenticatedDevice['platform']): MobileControlDevice['platform'] {
-  if (platform === 'ios' || platform === 'android' || platform === 'web') return platform
-  return 'web'
 }
 
 function stringPayload(payload: unknown, field: string): string {
