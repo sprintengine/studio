@@ -12,6 +12,13 @@ import {
   toPosixPath,
 } from './git-utils'
 import { getGitHubRepoWebUrl } from './git-github'
+import {
+  resolveRepoRoot,
+  resolveWorktreeDestination,
+  toWorktreeResult,
+  validateBaseRef,
+  validateBranchName,
+} from './git-worktree-validation'
 
 export type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
 
@@ -197,116 +204,6 @@ export function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
 
   if (current) worktrees.push(current)
   return worktrees
-}
-
-async function resolveRepoRoot(repoRoot: string): Promise<GitWorktreeOperationResult<string>> {
-  const normalizedRoot = toPosixPath(repoRoot)
-  const resolvedRoot = /^\/mnt\/[A-Za-z](?:\/|$)/.test(normalizedRoot)
-    ? toFilesystemPath(normalizedRoot)
-    : toFilesystemPath(resolve(repoRoot))
-  const actualRoot = await getGitRepoRoot(resolvedRoot)
-
-  if (!actualRoot) {
-    return { ok: false, message: 'Choose a folder inside a Git repository before managing worktrees.' }
-  }
-
-  return { ok: true, data: actualRoot, message: null }
-}
-
-function resolveWorktreeDestination(containerPath: string, destinationPath: string): GitWorktreeOperationResult<{
-  containerPath: string
-  destinationPath: string
-}> {
-  const resolvedContainer = containerPath
-  const resolvedDestination = isAbsolute(destinationPath)
-    ? destinationPath
-    : resolve(resolvedContainer, destinationPath)
-
-  const comparableContainer = normalizeComparablePath(resolvedContainer)
-  const comparableDestination = normalizeComparablePath(resolvedDestination)
-  if (
-    comparableDestination !== comparableContainer
-    && !comparableDestination.startsWith(`${comparableContainer}/`)
-  ) {
-    return {
-      ok: false,
-      message: 'Worktree destination must be inside the configured worktree container.',
-    }
-  }
-
-  return {
-    ok: true,
-    data: {
-      containerPath: resolvedContainer,
-      destinationPath: resolvedDestination,
-    },
-    message: null,
-  }
-}
-
-async function validateBranchName(repoRoot: string, branchName: string): Promise<GitWorktreeOperationResult<string>> {
-  const trimmedBranch = branchName.trim()
-
-  if (!trimmedBranch) {
-    return { ok: false, message: 'Enter a branch name for the worktree.' }
-  }
-
-  if (trimmedBranch.startsWith('-')) {
-    return { ok: false, message: 'Branch names cannot start with a dash.' }
-  }
-
-  const result = await runGitCommand(repoRoot, ['check-ref-format', '--branch', trimmedBranch])
-  if (!result.ok) {
-    return {
-      ok: false,
-      message: `Branch name "${trimmedBranch}" is not valid for Git.`,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    }
-  }
-
-  return { ok: true, data: result.stdout.trim() || trimmedBranch, message: null }
-}
-
-async function validateBaseRef(repoRoot: string, baseRef: string): Promise<GitWorktreeOperationResult<string>> {
-  const trimmedBaseRef = baseRef.trim()
-
-  if (!trimmedBaseRef) {
-    return { ok: false, message: 'Choose a base ref for the worktree.' }
-  }
-
-  if (trimmedBaseRef.startsWith('-')) {
-    return { ok: false, message: 'Base refs cannot start with a dash.' }
-  }
-
-  const result = await runGitCommand(repoRoot, ['rev-parse', '--verify', '--quiet', `${trimmedBaseRef}^{commit}`])
-  if (!result.ok) {
-    return {
-      ok: false,
-      message: `Base ref "${trimmedBaseRef}" does not resolve to a commit.`,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    }
-  }
-
-  return { ok: true, data: trimmedBaseRef, message: null }
-}
-
-function toWorktreeResult<T>(
-  result: GitCommandResult,
-  data: T,
-  successMessage: string | null = null
-): GitWorktreeOperationResult<T> {
-  if (result.ok) {
-    return { ok: true, data, message: successMessage, stdout: result.stdout, stderr: result.stderr }
-  }
-
-  return {
-    ok: false,
-    message: result.message ?? 'Git worktree command failed.',
-    stdout: result.stdout,
-    stderr: result.stderr,
-  }
 }
 
 export async function listGitWorktrees(repoRoot: string): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> {
