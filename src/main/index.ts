@@ -8,9 +8,16 @@ import { autoUpdater } from 'electron-updater'
 import { rgPath } from '@vscode/ripgrep'
 import * as pty from 'node-pty'
 import type {
+  AgentCli,
+  AgentExecutionMode,
+  CliRuntimeSettings,
   MultiloopInitInput,
   MultiloopInitResult,
   SwarmArtifactCommandResult,
+  SwarmCliPermissionPreset,
+  TerminalKind,
+  TerminalSessionSnapshot,
+  TerminalSpawnResult,
   WorkspaceFolderCheckResult,
 } from '../shared/electron-api'
 import { registerAuthIpc } from './ipc/auth-ipc'
@@ -1225,8 +1232,6 @@ type TerminalSize = {
   rows: number
 }
 
-type TerminalKind = 'agent' | 'terminal'
-
 type TerminalSession = {
   sessionId: string
   process: pty.IPty
@@ -1393,37 +1398,6 @@ type ContentSearchEngineResult =
       message: string
       engine: ContentSearchEngine | null
     }
-
-type AgentCli = 'codex' | 'claude'
-type AgentExecutionMode = 'current_workspace' | 'worktree'
-type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
-type CliRuntimeSettings = {
-  command: string
-  useWsl: boolean
-}
-
-type TerminalSessionSnapshot = {
-  sessionId: string
-  running: boolean
-  kind: TerminalKind
-  workspaceId?: string
-  agentId?: string
-  terminalId?: string
-  cli?: AgentCli
-  cwd?: string
-  swarmStatePath?: string
-  executionMode?: AgentExecutionMode
-  worktreeId?: string
-  worktreePath?: string
-  startedAt: number
-  lastOutputAt: number | null
-  outputBufferLength: number
-  retainedOutputBytes: number
-}
-
-type TerminalSpawnResult =
-  | { ok: true; sessionId: string }
-  | { ok: false; sessionId: string; message: string; exitCode: number }
 
 type ShellLaunchConfig = {
   command: string
