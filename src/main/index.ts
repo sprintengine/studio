@@ -26,7 +26,7 @@ import {
   registerSprintEngineIpc,
 } from './ipc/sprintengine-ipc'
 import { registerTerminalIpc, type TerminalSpawnPayload } from './ipc/terminal-ipc'
-import { registerWindowIpc, sendWindowState } from './ipc/window-ipc'
+import { registerWindowIpc } from './ipc/window-ipc'
 import { cancelActiveContentSearch, searchContent, searchFiles } from './filesystem-search'
 import { checkWorkspaceFolder, isMissingPathError, pathExists } from './filesystem-workspace'
 import {
@@ -42,6 +42,7 @@ import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-ser
 import { readMultiloopAgentSoul, readSpecialistSoul } from './souls-service'
 import { createAppMenu } from './app-menu'
 import { getUniqueCopyPath } from './filesystem-copy'
+import { createMainWindow } from './window-factory'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -915,68 +916,6 @@ async function parseAuthCallbackFromArgv(argv: string[]): Promise<void> {
         win.webContents.send('auth:callback-error', getErrorMessage(error))
       }
     }
-  }
-}
-
-function createWindow(): void {
-  const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 800,
-    minHeight: 600,
-    show: false,
-    ...(process.platform !== 'darwin'
-      ? {
-          frame: false,
-        }
-      : {}),
-    autoHideMenuBar: process.platform !== 'darwin',
-    backgroundColor: '#09090b',
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
-    },
-  })
-
-  win.on('ready-to-show', () => win.show())
-  win.on('maximize', () => sendWindowState(win))
-  win.on('unmaximize', () => sendWindowState(win))
-  win.on('enter-full-screen', () => sendWindowState(win))
-  win.on('leave-full-screen', () => sendWindowState(win))
-
-  if (MULTICODE_DIAGNOSTICS) {
-    win.webContents.on('console-message', function (_event, detailsOrLevel) {
-      const args = Array.from(arguments)
-      const details = detailsOrLevel && typeof detailsOrLevel === 'object'
-        ? detailsOrLevel as { level?: string; message?: string; sourceId?: string; lineNumber?: number }
-        : null
-      const level = details?.level ?? String(detailsOrLevel)
-      const message = details?.message ?? String(args[2] ?? '')
-      console.info(`[Renderer:${level}] ${message}`, {
-        sourceId: details?.sourceId ?? args[4],
-        line: details?.lineNumber ?? args[3],
-      })
-    })
-    win.webContents.on('render-process-gone', (_event, details) => {
-      console.error('[Renderer] render-process-gone', details)
-    })
-    win.webContents.on('unresponsive', () => {
-      console.error('[Renderer] unresponsive')
-    })
-    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-      console.error('[Renderer] did-fail-load', { errorCode, errorDescription, validatedURL })
-    })
-  }
-
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
-
-  if (process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
@@ -1944,7 +1883,7 @@ app.whenReady().then(() => {
   registerMulticodeProtocol()
 
   Menu.setApplicationMenu(createAppMenu())
-  createWindow()
+  createMainWindow({ diagnosticsEnabled: MULTICODE_DIAGNOSTICS })
   void parseAuthCallbackFromArgv(process.argv)
 
   // Check for updates in production only (no update server configured = silent no-op)
@@ -1955,7 +1894,7 @@ app.whenReady().then(() => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ diagnosticsEnabled: MULTICODE_DIAGNOSTICS })
   })
 })
 
