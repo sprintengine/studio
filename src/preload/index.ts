@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import type { ElectronApi } from '../shared/electron-api'
 
 type SaveDialogOptions = Electron.SaveDialogOptions
 type OpenDialogOptions = Electron.OpenDialogOptions
@@ -612,7 +613,7 @@ async function readMultiloopAgentSoul(role: MultiloopAgentSoulRole): Promise<Sou
   }
 }
 
-contextBridge.exposeInMainWorld('api', {
+const api = {
   platform: process.platform,
   isDevelopment: process.env.NODE_ENV === 'development',
   isDiagnosticsEnabled: process.env.MULTICODE_DIAGNOSTICS === '1',
@@ -844,4 +845,6 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
-})
+} satisfies ElectronApi
+
+contextBridge.exposeInMainWorld('api', api)
