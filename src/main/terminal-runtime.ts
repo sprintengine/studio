@@ -14,6 +14,7 @@ import {
   getTerminalEnv,
 } from './terminal-launch'
 import { getErrorMessage } from './error-message'
+import { getTerminalErrorMessage } from './terminal-error'
 import { MobileSwarmCommandService } from './mobile-sprintengine-command'
 import { DesktopMobileSwarmSessionOrchestrator } from './mobile-sprintengine-session'
 import {
@@ -112,16 +113,6 @@ function broadcastTerminalSessionsChanged(): void {
       win.webContents.send('terminal:sessions-changed', snapshots)
     }
   }
-}
-
-function getTerminalErrorMessage(error: unknown): string {
-  if (error instanceof Error && /enoent/i.test(error.message)) {
-    return process.platform === 'win32'
-      ? 'WSL could not be started. Make sure your default WSL distro is installed and available.'
-      : 'Agent CLI shell could not be started. Make sure your login shell is available.'
-  }
-
-  return error instanceof Error ? error.message : String(error)
 }
 
 function safeResizeTerminal(sessionId: string, cols: number, rows: number): void {
