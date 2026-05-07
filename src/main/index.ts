@@ -17,7 +17,6 @@ import type {
   TerminalKind,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
-  WorkspaceFolderCheckResult,
 } from '../shared/electron-api'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
@@ -40,6 +39,7 @@ import {
 import { registerTerminalIpc, type TerminalSpawnPayload } from './ipc/terminal-ipc'
 import { registerWindowIpc, sendWindowState } from './ipc/window-ipc'
 import { cancelActiveContentSearch, searchContent, searchFiles } from './filesystem-search'
+import { checkWorkspaceFolder, isMissingPathError, pathExists } from './filesystem-workspace'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -3467,10 +3467,6 @@ registerMultiloopIpc(ipcMain, {
   initializeMultiloopState,
 })
 
-function isMissingPathError(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
-}
-
 function imageMimeType(filePath: string): string | null {
   switch (extname(filePath).toLowerCase()) {
     case '.apng':
@@ -3555,100 +3551,6 @@ registerGitIpc(ipcMain, {
 })
 
 registerMenuDialogIpc(ipcMain)
-
-async function pathExists(targetPath: string): Promise<boolean> {
-  const result = await checkWorkspaceFolder(targetPath)
-  return result.ok
-}
-
-function getFsErrorCode(error: unknown): string | undefined {
-  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-    ? error.code
-    : undefined
-}
-
-async function checkPathAccess(targetPath: string): Promise<{ ok: true } | { ok: false; code?: string }> {
-  try {
-    await access(targetPath)
-    return { ok: true }
-  } catch (error) {
-    return { ok: false, code: getFsErrorCode(error) }
-  }
-}
-
-async function accessWithTimeout(targetPath: string, timeoutMs = 5000): Promise<WorkspaceFolderCheckResult> {
-  let timeoutId: NodeJS.Timeout | null = null
-  try {
-    const result = await Promise.race([
-      checkPathAccess(targetPath),
-      new Promise<'timeout'>((resolve) => {
-        timeoutId = setTimeout(() => resolve('timeout'), timeoutMs)
-      }),
-    ])
-
-    if (result === 'timeout') {
-      return {
-        ok: false,
-        status: 'timeout',
-        path: targetPath,
-        checkedPath: targetPath,
-        message: `Timed out checking workspace folder: ${targetPath}`,
-      }
-    }
-
-    if (result.ok) {
-      return {
-        ok: true,
-        status: 'ready',
-        path: targetPath,
-        checkedPath: targetPath,
-        message: `Workspace folder is ready: ${targetPath}`,
-      }
-    }
-
-    return {
-      ok: false,
-      status: result.code === 'EACCES' || result.code === 'EPERM' ? 'inaccessible' : 'missing',
-      path: targetPath,
-      checkedPath: targetPath,
-      message: result.code === 'EACCES' || result.code === 'EPERM'
-        ? `Workspace folder is not accessible: ${targetPath}`
-        : `Workspace folder does not exist: ${targetPath}`,
-      code: result.code,
-    }
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId)
-  }
-}
-
-async function checkWorkspaceFolder(targetPath: string): Promise<WorkspaceFolderCheckResult> {
-  const trimmedPath = targetPath?.trim()
-  if (!trimmedPath) {
-    return {
-      ok: false,
-      status: 'missing',
-      path: '',
-      checkedPath: '',
-      message: 'Workspace folder path is empty.',
-    }
-  }
-
-  const direct = await accessWithTimeout(trimmedPath)
-  if (direct.ok || process.platform !== 'win32') return direct
-
-  const windowsPath = toWindowsPath(trimmedPath)
-  if (windowsPath === trimmedPath) return direct
-
-  const normalized = await accessWithTimeout(windowsPath)
-  return {
-    ...normalized,
-    path: trimmedPath,
-    checkedPath: windowsPath,
-    message: normalized.ok
-      ? `Workspace folder is ready: ${trimmedPath}`
-      : normalized.message,
-  }
-}
 
 function getDiagnosticsLogDirectory(): string {
   return app.getPath('logs')
