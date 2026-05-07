@@ -1,7 +1,6 @@
-import { app } from 'electron'
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
-import { basename, dirname, join } from 'path'
+import { basename, dirname } from 'path'
 import {
   MobileSwarmCommandService,
   type MobileControlCommand,
@@ -16,9 +15,7 @@ import { manualPairingValueFromRelayChallenge } from './mobile-bridge-pairing'
 import { FetchMobileRelayTransport } from './mobile-relay-transport'
 import {
   isMobileBridgePresence,
-  isMobileControlDevice,
   isMobilePushProvider,
-  isMobilePushRegistration,
   redactPushRegistration,
 } from './mobile-bridge-validation'
 import { resolveArtifactPathForRead } from './mobile-bridge-artifact-path'
@@ -29,6 +26,11 @@ import {
   summarizeCommandResult,
 } from './mobile-bridge-command-results'
 import { normalizeDevicePlatform, relayDeviceCapabilities } from './mobile-bridge-relay-device'
+import {
+  getDefaultMobileBridgeStorePath,
+  readMobileBridgeStore,
+  writeMobileBridgeStore,
+} from './mobile-bridge-store'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -275,13 +277,6 @@ export type MobileBridgeState = {
 
 export type MobileBridgeSettingsUpdate = {
   enabled?: boolean
-}
-
-type PersistedMobileBridgeState = {
-  enabled?: boolean
-  desktopInstanceId?: string
-  pairedDevices?: unknown[]
-  pushRegistrations?: unknown[]
 }
 
 type DesktopSessionProvider = () => Promise<{ authenticated: boolean; session?: { id: string; expiresAt: string } }>
@@ -627,25 +622,11 @@ export class MobileBridge {
     if (this.loaded) return
     this.loaded = true
 
-    try {
-      const payload = JSON.parse(await readFile(this.storePath, 'utf8')) as PersistedMobileBridgeState
-      this.enabled = payload.enabled === true
-      this.desktopInstanceId = typeof payload.desktopInstanceId === 'string' && payload.desktopInstanceId
-        ? payload.desktopInstanceId
-        : `mdi_${randomBase64Url(18)}`
-      this.pairedDevices = Array.isArray(payload.pairedDevices)
-        ? payload.pairedDevices.flatMap((device) => {
-            return isMobileControlDevice(device) ? [device] : []
-          })
-        : []
-      this.pushRegistrations = Array.isArray(payload.pushRegistrations)
-        ? payload.pushRegistrations.flatMap((registration) => {
-            return isMobilePushRegistration(registration) ? [registration] : []
-          })
-        : []
-    } catch {
-      this.desktopInstanceId = `mdi_${randomBase64Url(18)}`
-    }
+    const persisted = await readMobileBridgeStore(this.storePath)
+    this.enabled = persisted.enabled
+    this.desktopInstanceId = persisted.desktopInstanceId
+    this.pairedDevices = persisted.pairedDevices
+    this.pushRegistrations = persisted.pushRegistrations
 
     this.relayStatus = this.enabled ? 'unconfigured' : 'disabled'
     this.presence = this.enabled ? 'available' : 'offline'
@@ -656,14 +637,12 @@ export class MobileBridge {
   }
 
   private async persist(): Promise<void> {
-    await mkdir(dirname(this.storePath), { recursive: true })
-    const payload: PersistedMobileBridgeState = {
+    await writeMobileBridgeStore(this.storePath, {
       enabled: this.enabled,
       desktopInstanceId: this.desktopInstanceId,
       pairedDevices: this.pairedDevices,
       pushRegistrations: this.pushRegistrations,
-    }
-    await writeFile(this.storePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+    })
   }
 
   private async connectOnce(): Promise<void> {
@@ -854,7 +833,7 @@ export class MobileBridge {
 
   private get storePath(): string {
     if (this.storePathOverride) return this.storePathOverride
-    return join(app.getPath('userData'), 'mobile-bridge.json')
+    return getDefaultMobileBridgeStorePath()
   }
 
   private revokePushRegistrationsForDevice(deviceId: string, revokedAt: string): void {
