@@ -6,14 +6,10 @@ import type {
 import type {
   MobileControlErrorCode,
   RelayCommandEnvelope,
-  RelayCommandType,
 } from './mobile-bridge'
+import { relayCommandTypeToMobile } from './mobile-bridge-relay-command'
 
 const mobileControlProtocolVersion = 1 as const
-
-export function relayCommandTypeToMobile(type: RelayCommandType): MobileControlCommand['type'] {
-  return type === 'agent.followup' ? 'agent.followUp' : type
-}
 
 export function acceptedBridgeCommand(
   command: MobileControlCommand,

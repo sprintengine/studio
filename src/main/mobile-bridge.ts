@@ -1,6 +1,5 @@
 import {
   MobileSwarmCommandService,
-  type MobileControlCommand,
   type MobileSwarmCommandResult,
 } from './mobile-sprintengine-command'
 import type { MobilePushRegistrationTarget } from './mobile-sprintengine-activity'
@@ -15,9 +14,9 @@ import {
 } from './mobile-bridge-validation'
 import {
   failedCommandResult,
-  relayCommandTypeToMobile,
   summarizeCommandResult,
 } from './mobile-bridge-command-results'
+import { relayCommandTypeToMobile, relayEnvelopeToMobileCommand } from './mobile-bridge-relay-command'
 import { dispatchArtifactRead } from './mobile-bridge-artifact-read'
 import { dispatchDeviceRevoke } from './mobile-bridge-device-revoke'
 import { dispatchSnapshotRequest } from './mobile-bridge-snapshot-request'
@@ -845,16 +844,12 @@ export class MobileBridge {
       mobileControlProtocolVersion
     )
     if (inserted) void this.persist().then(() => this.emitStateChanged())
-    const command = {
-      protocolVersion: mobileControlProtocolVersion,
-      commandId: envelope.commandId,
-      type: commandType,
-      issuedAt: envelope.issuedAt,
+    const command = relayEnvelopeToMobileCommand({
+      envelope,
+      commandType,
       deviceId: activeDevice.deviceId,
-      idempotencyKey: `relay:${envelope.commandId}`,
-      ...(envelope.expectedSnapshotVersion ? { expectedSnapshotVersion: envelope.expectedSnapshotVersion } : {}),
-      payload: envelope.payload,
-    } as MobileControlCommand
+      protocolVersion: mobileControlProtocolVersion,
+    })
 
     switch (commandType) {
       case 'snapshot.request':
