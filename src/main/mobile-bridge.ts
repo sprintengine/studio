@@ -12,6 +12,14 @@ import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile
 import { getErrorMessage } from './error-message'
 import { hashSecret, randomBase64Url } from './mobile-bridge-crypto'
 import { getAllBrowserWindows, getDesktopDisplayName } from './mobile-bridge-desktop'
+import {
+  isMobileBridgePresence,
+  isMobileControlCapability,
+  isMobileControlDevice,
+  isMobilePushProvider,
+  isMobilePushRegistration,
+  redactPushRegistration,
+} from './mobile-bridge-validation'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -1599,53 +1607,6 @@ function isCurrentMobilePairingUri(pairingUri: string): boolean {
   } catch {
     return false
   }
-}
-
-function isMobileControlDevice(input: unknown): input is MobileControlDevice {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return false
-  const device = input as Partial<MobileControlDevice>
-  return device.protocolVersion === mobileControlProtocolVersion
-    && typeof device.deviceId === 'string'
-    && typeof device.displayName === 'string'
-    && (device.platform === 'ios' || device.platform === 'android' || device.platform === 'web')
-    && typeof device.appVersion === 'string'
-    && typeof device.pairedAt === 'string'
-    && Number.isFinite(Date.parse(device.pairedAt))
-    && (device.lastSeenAt === undefined || Number.isFinite(Date.parse(device.lastSeenAt)))
-    && (device.revokedAt === undefined || Number.isFinite(Date.parse(device.revokedAt)))
-    && Array.isArray(device.capabilities)
-    && device.capabilities.every(isMobileControlCapability)
-}
-
-function isMobileControlCapability(input: unknown): input is MobileControlCapability {
-  return REQUESTED_SCOPES.includes(input as MobileControlCapability)
-}
-
-function isMobilePushRegistration(input: unknown): input is MobilePushRegistration {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return false
-  const registration = input as Partial<MobilePushRegistration>
-  return registration.protocolVersion === mobileControlProtocolVersion
-    && typeof registration.registrationId === 'string'
-    && typeof registration.deviceId === 'string'
-    && isMobilePushProvider(registration.provider)
-    && typeof registration.tokenHash === 'string'
-    && /^[a-f0-9]{64}$/u.test(registration.tokenHash)
-    && typeof registration.registeredAt === 'string'
-    && Number.isFinite(Date.parse(registration.registeredAt))
-    && (registration.lastUsedAt === undefined || Number.isFinite(Date.parse(registration.lastUsedAt)))
-    && (registration.revokedAt === undefined || Number.isFinite(Date.parse(registration.revokedAt)))
-}
-
-function isMobilePushProvider(input: unknown): input is MobilePushProvider {
-  return input === 'apns' || input === 'fcm' || input === 'expo'
-}
-
-function redactPushRegistration(registration: MobilePushRegistration): MobilePushRegistration {
-  return { ...registration }
-}
-
-function isMobileBridgePresence(input: string): input is MobileBridgePresence {
-  return input === 'available' || input === 'busy' || input === 'idle' || input === 'offline'
 }
 
 function readRelayErrorMessage(payload: Record<string, unknown>, status: number): string {
