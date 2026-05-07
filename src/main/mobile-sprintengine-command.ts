@@ -27,6 +27,10 @@ import {
   getMobileSwarmCommandErrorMessage,
   MobileSwarmCommandError,
 } from './mobile-sprintengine-command-error'
+import {
+  validateSwarmStatePath,
+  type ValidSwarmStatePath,
+} from './mobile-sprintengine-state-path'
 
 export { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
 
@@ -268,12 +272,6 @@ export type MobileSwarmCommandResult =
       error: MobileControlError
       audit: MobileSwarmCommandAuditEntry
     }
-
-type ValidSwarmStatePath = {
-  statePath: string
-  teamDirectory: string
-  workspaceRoot: string
-}
 
 type SwarmArtifactRecord = {
   id: string
@@ -881,34 +879,6 @@ export class MobileSwarmCommandService {
     this.auditSink?.(entry)
     return entry
   }
-}
-
-function validateSwarmStatePath(input: string): ValidSwarmStatePath {
-  if (typeof input !== 'string' || !input.trim()) {
-    throw new MobileSwarmCommandError('path_not_allowed', 'A Sprint Engine state path is required.', false)
-  }
-
-  const rawStatePath = input.trim()
-  if (!isAbsolute(rawStatePath)) {
-    throw new MobileSwarmCommandError('path_not_allowed', 'Sprint Engine state path must be absolute.', false)
-  }
-
-  const statePath = resolve(rawStatePath)
-  const teamDirectory = dirname(statePath)
-  const swarmDirectory = dirname(teamDirectory)
-  const multiCodeDirectory = dirname(swarmDirectory)
-  const workspaceRoot = dirname(multiCodeDirectory)
-
-  if (
-    basename(statePath) !== 'state.yaml'
-    || basename(swarmDirectory) !== 'sprintengine'
-    || basename(multiCodeDirectory) !== '.multi-code'
-    || workspaceRoot === multiCodeDirectory
-  ) {
-    throw new MobileSwarmCommandError('path_not_allowed', 'Sprint Engine state path must point to .multi-code/sprintengine/<team>/state.yaml.', false)
-  }
-
-  return { statePath, teamDirectory, workspaceRoot }
 }
 
 function normalizeFollowUpText(value: string): string {
