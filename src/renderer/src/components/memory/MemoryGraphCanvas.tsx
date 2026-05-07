@@ -1,13 +1,6 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
-import type { MemoryGraphDisplayConfig, MemoryGraphForcesConfig } from '../../types/workspace'
-import {
-  Camera,
-  PositionedNode,
-  UNRESOLVED_COLOR,
-  colorForRelativePath,
-} from './memoryGraphTypes'
-import { useMemoryGraphSimulation } from './useMemoryGraphSimulation'
-import type { MemoryGraphColorRule } from '../../types/workspace'
+
+export type Camera = { x: number; y: number; zoom: number }
 
 export type MemoryGraphCanvasHandle = {
   zoomBy: (factor: number) => void
@@ -19,95 +12,153 @@ export type MemoryGraphCanvasHandle = {
 type Props = {
   nodes: MemoryGraphNode[]
   edges: MemoryGraphEdge[]
-  unresolvedNodes: MemoryGraphNode[]
-  display: MemoryGraphDisplayConfig
-  forces: MemoryGraphForcesConfig
-  colorRules: MemoryGraphColorRule[]
-  hoveredId: string | null
-  selectedId: string | null
-  onHoverNode: (node: MemoryGraphNode | null) => void
+  /** Set of node ids that match the active search; null when no search is active. */
+  matchIds: Set<string> | null
   onSelectNode: (node: MemoryGraphNode) => void
+  onHoverNode: (node: MemoryGraphNode | null, screenPoint: { x: number; y: number } | null) => void
   onCameraChange?: (camera: Camera) => void
 }
 
-const PADDING = 60
-
-function nodeRadius(node: MemoryGraphNode, scale: number): number {
-  return Math.max(7, Math.min(28, 7 + Math.sqrt(Math.max(0, node.degree)) * 3.6)) * scale
+type PositionedNode = MemoryGraphNode & {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  /** When non-null, the node is pinned (during a drag). */
+  fx: number | null
+  fy: number | null
+  radius: number
+  color: string
+  /** Cached lower-cased haystack for legend/colour grouping. */
+  bucket: string
 }
 
-function buildNeighbors(edges: MemoryGraphEdge[]): Map<string, Set<string>> {
-  const neighbors = new Map<string, Set<string>>()
-  edges.forEach((edge) => {
-    if (!neighbors.has(edge.source)) neighbors.set(edge.source, new Set())
-    if (!neighbors.has(edge.target)) neighbors.set(edge.target, new Set())
-    neighbors.get(edge.source)?.add(edge.target)
-    neighbors.get(edge.target)?.add(edge.source)
-  })
-  return neighbors
+type Star = {
+  x: number
+  y: number
+  radius: number
+  baseAlpha: number
+  amp: number
+  period: number
+  phase: number
 }
 
-function hashSeed(value: string): number {
-  let hash = 0
-  for (let i = 0; i < value.length; i += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0
-  }
-  return Math.abs(hash)
+// Palette comes from the spec; the legend reads the same map.
+export const TYPE_COLORS: Record<string, string> = {
+  concept: '#00e5ff',
+  service: '#b388ff',
+  flow: '#ffab40',
+  debugging: '#ff5252',
+  knowledge: '#69f0ae',
+  product: '#ff6b9d',
+  brand: '#feca57',
+  decision: '#a3e635',
+  reference: '#7dd3fc',
+  default: '#94a3b8',
 }
 
-function placeOnCircle(node: MemoryGraphNode, index: number, total: number, width: number, height: number): { x: number; y: number } {
-  const cx = width / 2
-  const cy = height / 2
-  const radius = Math.max(140, Math.min(width, height) * 0.34)
-  const angle = (index / Math.max(1, total)) * Math.PI * 2 + (hashSeed(node.id) % 100) / 100
-  const jitter = 0.55 + (hashSeed(node.relativePath) % 100) / 220
-  return { x: cx + Math.cos(angle) * radius * jitter, y: cy + Math.sin(angle) * radius * jitter }
+export function colorForNode(node: MemoryGraphNode): string {
+  return TYPE_COLORS[bucketForNode(node)] ?? TYPE_COLORS.default
 }
+
+export function bucketForNode(node: MemoryGraphNode): string {
+  const fromType = node.type?.trim().toLowerCase()
+  if (fromType && TYPE_COLORS[fromType]) return fromType
+  if (fromType) return fromType
+  // No frontmatter type: fall back to the first folder, then a few filename heuristics
+  // so a vault with everything at the root still gets multiple colours.
+  const group = node.group?.toLowerCase() ?? ''
+  if (group && group !== 'root' && TYPE_COLORS[group]) return group
+  if (group && group !== 'root') return group
+  const name = node.name.toLowerCase()
+  if (/^multiauth/.test(name)) return 'service'
+  if (/^multibench/.test(name)) return 'service'
+  if (/^multibrand/.test(name)) return 'service'
+  if (/^multivoice/.test(name)) return 'product'
+  if (/^multicode/.test(name)) return 'product'
+  if (/ecosystem|readme/.test(name)) return 'concept'
+  if (/benchmark/.test(name)) return 'knowledge'
+  return 'default'
+}
+
+const STARFIELD_COUNT = 600
+const STARFIELD_HALF = 2400 // stars distributed uniformly over [-2400, 2400] in world coords
+const PARALLAX = 0.45 // stars move at this fraction of the camera so they appear further
+
+const REPULSION = 8000
+const SPRING_REST = 140
+const SPRING_K = 0.004
+const CENTER_K = 0.0005
+const DAMPING = 0.88
+const MIN_ZOOM = 0.15
+const MAX_ZOOM = 4
 
 const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(function MemoryGraphCanvas(
-  {
-    nodes,
-    edges,
-    unresolvedNodes,
-    display,
-    forces,
-    colorRules,
-    hoveredId,
-    selectedId,
-    onHoverNode,
-    onSelectNode,
-    onCameraChange,
-  },
+  { nodes, edges, matchIds, onSelectNode, onHoverNode, onCameraChange },
   forwardedRef
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const cameraRef = useRef<Camera>({ x: 0, y: 0, scale: 1 })
   const positionedRef = useRef<PositionedNode[]>([])
-  const ghostsRef = useRef<PositionedNode[]>([])
+  const cameraRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 })
   const starsRef = useRef<Star[]>([])
-  const starfieldDimsRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 })
+  const hoveredIdRef = useRef<string | null>(null)
+  const matchIdsRef = useRef<Set<string> | null>(matchIds)
+  matchIdsRef.current = matchIds
+
   const dragStateRef = useRef<
     | { kind: 'pan'; startX: number; startY: number; camera: Camera; moved: boolean }
     | { kind: 'node'; nodeId: string; offsetX: number; offsetY: number; moved: boolean }
     | null
   >(null)
-  const hoverIdRef = useRef<string | null>(hoveredId)
-  const selectedIdRef = useRef<string | null>(selectedId)
-  hoverIdRef.current = hoveredId
-  selectedIdRef.current = selectedId
 
-  const neighbors = useMemo(() => buildNeighbors(edges), [edges])
+  const neighbors = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    edges.forEach((edge) => {
+      if (!map.has(edge.source)) map.set(edge.source, new Set())
+      if (!map.has(edge.target)) map.set(edge.target, new Set())
+      map.get(edge.source)!.add(edge.target)
+      map.get(edge.target)!.add(edge.source)
+    })
+    return map
+  }, [edges])
 
-  // Rebuild positioned nodes when the visible node set changes.
+  // Generate the starfield once. Stars live in a large world-space patch so
+  // panning and zooming reveals new constellations.
+  if (starsRef.current.length === 0) {
+    const stars: Star[] = []
+    let seed = 0xc0ffee
+    const rand = () => {
+      seed = (seed * 16807) % 2147483647
+      return seed / 2147483647
+    }
+    for (let i = 0; i < STARFIELD_COUNT; i += 1) {
+      stars.push({
+        x: (rand() * 2 - 1) * STARFIELD_HALF,
+        y: (rand() * 2 - 1) * STARFIELD_HALF,
+        radius: 0.4 + rand() * 1.2,
+        baseAlpha: 0.25 + rand() * 0.5,
+        amp: 0.15 + rand() * 0.35,
+        period: 1800 + rand() * 4200,
+        phase: rand() * Math.PI * 2,
+      })
+    }
+    starsRef.current = stars
+  }
+
+  // Rebuild the positioned-node list when the visible set changes. We preserve
+  // any prior position/velocity so a node that survives a re-render keeps its
+  // place in the layout instead of jumping back to a circle.
   useEffect(() => {
-    const canvas = canvasRef.current
-    const width = canvas?.clientWidth ?? 800
-    const height = canvas?.clientHeight ?? 600
-
-    const previous = new Map(positionedRef.current.map((node) => [node.id, node] as const))
+    const previous = new Map(positionedRef.current.map((n) => [n.id, n] as const))
+    // Total degree (in + out) reads as visual importance better than inbound
+    // alone — a vault with many shallow leaves looks too uniform otherwise.
+    // Sqrt curve so mid-rank nodes stay distinct from leaves.
+    const maxDegree = Math.max(1, ...nodes.map((n) => n.degree || 0))
     const positioned: PositionedNode[] = nodes.map((node, index) => {
       const prior = previous.get(node.id)
+      const radius = 5 + Math.sqrt((node.degree || 0) / maxDegree) * 24
+      const color = colorForNode(node)
+      const bucket = bucketForNode(node)
       if (prior) {
         return {
           ...node,
@@ -117,89 +168,112 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
           vy: prior.vy,
           fx: prior.fx,
           fy: prior.fy,
-          radius: nodeRadius(node, display.nodeSizeScale),
-          color: colorForRelativePath(node.relativePath, node.group, colorRules),
-          visible: true,
+          radius,
+          color,
+          bucket,
         }
       }
-      const placed = placeOnCircle(node, index, nodes.length, width, height)
+      // Fresh node: drop on a wide ring so the simulation has room to spread.
+      const angle = (index / Math.max(1, nodes.length)) * Math.PI * 2
+      const ring = 220 + (index % 3) * 60
       return {
         ...node,
-        x: placed.x,
-        y: placed.y,
+        x: Math.cos(angle) * ring,
+        y: Math.sin(angle) * ring,
         vx: 0,
         vy: 0,
         fx: null,
         fy: null,
-        radius: nodeRadius(node, display.nodeSizeScale),
-        color: colorForRelativePath(node.relativePath, node.group, colorRules),
-        visible: true,
+        radius,
+        color,
+        bucket,
       }
     })
     positionedRef.current = positioned
+  }, [nodes])
 
-    const ghosts: PositionedNode[] = unresolvedNodes.map((node, index) => {
-      const placed = placeOnCircle(node, index, Math.max(1, unresolvedNodes.length), width, height)
-      return {
-        ...node,
-        x: placed.x,
-        y: placed.y,
-        vx: 0,
-        vy: 0,
-        fx: placed.x,
-        fy: placed.y,
-        radius: nodeRadius(node, display.nodeSizeScale * 0.85),
-        color: UNRESOLVED_COLOR,
-        visible: true,
-      }
-    })
-    ghostsRef.current = ghosts
-  }, [nodes, unresolvedNodes, display.nodeSizeScale, colorRules])
-
-  // Refresh radius and color when display/colors change without resetting positions.
-  useEffect(() => {
-    positionedRef.current = positionedRef.current.map((node) => ({
-      ...node,
-      radius: nodeRadius(node, display.nodeSizeScale),
-      color: colorForRelativePath(node.relativePath, node.group, colorRules),
-    }))
-    ghostsRef.current = ghostsRef.current.map((node) => ({
-      ...node,
-      radius: nodeRadius(node, display.nodeSizeScale * 0.85),
-    }))
-  }, [display.nodeSizeScale, colorRules])
-
-  const reducedMotion =
-    typeof window !== 'undefined' && window.matchMedia
-      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      : false
-
-  const sim = useMemoryGraphSimulation(positionedRef, nodes, edges, {
-    forces,
-    width: canvasRef.current?.clientWidth ?? 800,
-    height: canvasRef.current?.clientHeight ?? 600,
-    reducedMotion,
-  })
-
-  // Bump alpha when forces or topology change.
-  useEffect(() => {
-    sim.bump(0.6)
-  }, [forces.centerForce, forces.repelForce, forces.linkForce, forces.linkDistance, edges.length, sim])
-
-  // Draw loop.
+  // Main render + physics loop.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    let frame = 0
-    let disposed = false
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const draw = () => {
+    let frame = 0
+    let disposed = false
+
+    const step = () => {
       if (disposed) return
+      const positioned = positionedRef.current
+      const camera = cameraRef.current
+      const matchSet = matchIdsRef.current
+      const hoveredId = hoveredIdRef.current
+
+      // Physics step: O(N²) repulsion, O(E) spring, O(N) gravity. Fine up to a
+      // few hundred nodes; the memory vault is two orders of magnitude smaller.
+      const pos = positioned
+      for (let i = 0; i < pos.length; i += 1) {
+        const a = pos[i]
+        if (a.fx !== null && a.fy !== null) continue
+        let ax = 0
+        let ay = 0
+        for (let j = 0; j < pos.length; j += 1) {
+          if (i === j) continue
+          const b = pos[j]
+          const dx = a.x - b.x
+          const dy = a.y - b.y
+          const distSq = Math.max(0.01, dx * dx + dy * dy)
+          const force = REPULSION / distSq
+          const dist = Math.sqrt(distSq)
+          ax += (dx / dist) * force
+          ay += (dy / dist) * force
+        }
+        ax += -a.x * CENTER_K
+        ay += -a.y * CENTER_K
+        a.vx = (a.vx + ax) * DAMPING
+        a.vy = (a.vy + ay) * DAMPING
+      }
+
+      // Spring forces along edges. We push velocities directly so the loop above
+      // does not need an edge index.
+      const byId = new Map(pos.map((n) => [n.id, n] as const))
+      for (const edge of edges) {
+        const a = byId.get(edge.source)
+        const b = byId.get(edge.target)
+        if (!a || !b) continue
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const dist = Math.max(0.01, Math.sqrt(dx * dx + dy * dy))
+        const force = (dist - SPRING_REST) * SPRING_K
+        const fx = (dx / dist) * force
+        const fy = (dy / dist) * force
+        if (a.fx === null) {
+          a.vx += fx
+          a.vy += fy
+        }
+        if (b.fx === null) {
+          b.vx -= fx
+          b.vy -= fy
+        }
+      }
+
+      // Integrate.
+      for (const node of pos) {
+        if (node.fx !== null && node.fy !== null) {
+          node.x = node.fx
+          node.y = node.fy
+          node.vx = 0
+          node.vy = 0
+          continue
+        }
+        node.x += node.vx
+        node.y += node.vy
+      }
+
+      // Resize backing store to match CSS size.
+      const ratio = window.devicePixelRatio || 1
       const width = canvas.clientWidth
       const height = canvas.clientHeight
-      const ratio = window.devicePixelRatio || 1
       const targetW = Math.floor(width * ratio)
       const targetH = Math.floor(height * ratio)
       if (canvas.width !== targetW || canvas.height !== targetH) {
@@ -208,255 +282,212 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       }
 
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-      ctx.clearRect(0, 0, width, height)
-      ctx.fillStyle = '#09090b'
+      ctx.fillStyle = '#0a0a1a'
       ctx.fillRect(0, 0, width, height)
 
-      if (display.starfield) {
-        if (
-          starsRef.current.length === 0
-          || starfieldDimsRef.current.width !== width
-          || starfieldDimsRef.current.height !== height
-        ) {
-          starsRef.current = generateStars(width, height)
-          starfieldDimsRef.current = { width, height }
-        }
-        drawStarfield(ctx, starsRef.current, performance.now())
-      }
-
-      const camera = cameraRef.current
+      // Starfield in a pseudo-camera scaled down so stars parallax behind the
+      // graph. Twinkle by per-star sine phase.
+      const now = performance.now()
       ctx.save()
-      ctx.translate(camera.x, camera.y)
-      ctx.scale(camera.scale, camera.scale)
-
-      const positioned = positionedRef.current
-      const ghosts = ghostsRef.current
-      const nodeById = new Map(positioned.map((n) => [n.id, n]))
-      const ghostById = new Map(ghosts.map((n) => [n.id, n]))
-      const hovered = hoverIdRef.current
-      const selected = selectedIdRef.current
-      const focusId = hovered ?? selected
-      const focusNeighbors = focusId ? neighbors.get(focusId) ?? new Set<string>() : null
-
-      // Edges
-      ctx.lineCap = 'round'
-      const baseLineWidth = (1 / camera.scale) * display.lineThicknessScale
-      edges.forEach((edge) => {
-        const source = nodeById.get(edge.source) ?? ghostById.get(edge.source)
-        const target = nodeById.get(edge.target) ?? ghostById.get(edge.target)
-        if (!source || !target) return
-        const isActive = focusId
-          ? edge.source === focusId || edge.target === focusId
-          : false
-        const dimmed = focusId && !isActive
-
-        ctx.strokeStyle = isActive
-          ? 'rgba(199, 210, 254, 0.95)'
-          : dimmed
-            ? 'rgba(113, 113, 122, 0.22)'
-            : 'rgba(161, 161, 170, 0.62)'
-        ctx.lineWidth = isActive ? baseLineWidth * 1.8 : baseLineWidth * 1.15
-
-        const ghostEdge = target.color === UNRESOLVED_COLOR || source.color === UNRESOLVED_COLOR
-        ctx.setLineDash(ghostEdge ? [3 / camera.scale, 3 / camera.scale] : [])
-
-        ctx.beginPath()
-        ctx.moveTo(source.x, source.y)
-        if (display.curvedEdges) {
-          const dx = target.x - source.x
-          const dy = target.y - source.y
-          const mx = (source.x + target.x) / 2
-          const my = (source.y + target.y) / 2
-          const ox = -dy * 0.18
-          const oy = dx * 0.18
-          ctx.quadraticCurveTo(mx + ox, my + oy, target.x, target.y)
-        } else {
-          ctx.lineTo(target.x, target.y)
-        }
-        ctx.stroke()
-
-        if (display.showArrows && !dimmed) {
-          drawArrowHead(ctx, source, target, baseLineWidth * 3, isActive)
-        }
-      })
-      ctx.setLineDash([])
-
-      // Ghost (unresolved) nodes
-      ghosts.forEach((node) => {
-        ctx.globalAlpha = focusId && !focusNeighbors?.has(node.id) ? 0.35 : 0.7
-        ctx.strokeStyle = '#52525b'
-        ctx.fillStyle = 'rgba(9, 9, 11, 0.0)'
-        ctx.lineWidth = (1 / camera.scale) * display.lineThicknessScale
-        ctx.setLineDash([2 / camera.scale, 2 / camera.scale])
-        ctx.beginPath()
-        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2)
-        ctx.stroke()
-        ctx.setLineDash([])
-      })
-      ctx.globalAlpha = 1
-
-      // Halos behind active nodes
-      if (display.glowHalos && focusId) {
-        const focus = nodeById.get(focusId) ?? ghostById.get(focusId)
-        if (focus) {
-          const grad = ctx.createRadialGradient(
-            focus.x,
-            focus.y,
-            focus.radius * 0.6,
-            focus.x,
-            focus.y,
-            focus.radius * 5
-          )
-          grad.addColorStop(0, 'rgba(129, 140, 248, 0.55)')
-          grad.addColorStop(1, 'rgba(129, 140, 248, 0)')
-          ctx.fillStyle = grad
-          ctx.beginPath()
-          ctx.arc(focus.x, focus.y, focus.radius * 5, 0, Math.PI * 2)
-          ctx.fill()
-        }
-      }
-
-      // Nodes
-      positioned.forEach((node) => {
-        const isHovered = node.id === hovered
-        const isSelected = node.id === selected
-        const isNeighbor = focusNeighbors?.has(node.id) ?? false
-        const isActive = isHovered || isSelected || isNeighbor || node.id === focusId
-        const dimmed = focusId && !isActive
-
-        ctx.globalAlpha = dimmed ? 0.32 : 1
-        const radius = node.radius * (isSelected ? 1.35 : isHovered ? 1.2 : 1)
-
-        ctx.fillStyle = node.color
-        ctx.beginPath()
-        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2)
-        ctx.fill()
-
-        if (isHovered || isSelected) {
-          ctx.lineWidth = 1.5 / camera.scale
-          ctx.strokeStyle = isSelected ? '#f4f4f5' : 'rgba(244, 244, 245, 0.85)'
-          ctx.stroke()
-        } else if (node.fx !== null && node.fy !== null) {
-          ctx.lineWidth = 1 / camera.scale
-          ctx.strokeStyle = 'rgba(244, 244, 245, 0.5)'
-          ctx.stroke()
-        }
-      })
-      ctx.globalAlpha = 1
-
-      // Labels — fade based on zoom + node prominence
-      const labelFontPx = display.labelFontSize / camera.scale
-      ctx.font = `${labelFontPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`
-      ctx.textBaseline = 'middle'
-
-      const fadeIn = display.labelFadeThreshold
-      const labelOpacityForZoom = clamp01((camera.scale - fadeIn * 0.6) / Math.max(0.001, fadeIn))
-
-      const focusedNode = focusId
-        ? nodeById.get(focusId) ?? ghostById.get(focusId) ?? null
-        : null
-      const visibleLabels = pickLabelNodes(positioned, focusedNode, focusNeighbors, labelOpacityForZoom)
-
-      visibleLabels.forEach(({ node, alpha }) => {
+      ctx.translate(width / 2 + camera.x * PARALLAX, height / 2 + camera.y * PARALLAX)
+      ctx.scale(camera.zoom * PARALLAX, camera.zoom * PARALLAX)
+      for (const star of starsRef.current) {
+        const t = (now / star.period) * Math.PI * 2 + star.phase
+        const alpha = clamp01(star.baseAlpha + Math.sin(t) * star.amp)
+        if (alpha <= 0.02) continue
         ctx.globalAlpha = alpha
-        ctx.fillStyle = node.id === focusId ? '#f4f4f5' : 'rgba(228, 228, 231, 0.9)'
-        ctx.fillText(node.name, node.x + node.radius + 6 / camera.scale, node.y)
-      })
+        ctx.fillStyle = '#e0e0e0'
+        ctx.beginPath()
+        ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2)
+        ctx.fill()
+      }
       ctx.globalAlpha = 1
-
       ctx.restore()
 
-      frame = requestAnimationFrame(draw)
+      // Main world transform.
+      ctx.save()
+      ctx.translate(width / 2 + camera.x, height / 2 + camera.y)
+      ctx.scale(camera.zoom, camera.zoom)
+
+      const focusNeighbors = hoveredId ? neighbors.get(hoveredId) ?? null : null
+      const isMatched = (id: string): boolean => (matchSet ? matchSet.has(id) : true)
+
+      // Edges first so nodes draw on top.
+      ctx.lineCap = 'round'
+      const baseLine = 1 / camera.zoom
+      for (const edge of edges) {
+        const a = byId.get(edge.source)
+        const b = byId.get(edge.target)
+        if (!a || !b) continue
+        const touchesHover = hoveredId
+          ? edge.source === hoveredId || edge.target === hoveredId
+          : false
+        const bothMatched = isMatched(a.id) && isMatched(b.id)
+        const dimmed = matchSet && !bothMatched
+
+        ctx.strokeStyle = touchesHover
+          ? 'rgba(96, 165, 250, 0.95)'
+          : dimmed
+            ? 'rgba(255, 255, 255, 0.05)'
+            : 'rgba(255, 255, 255, 0.16)'
+        ctx.lineWidth = touchesHover ? baseLine * 1.6 : baseLine
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+      }
+
+      // Halos behind nodes.
+      for (const node of pos) {
+        const matched = isMatched(node.id)
+        const dimmed = !matched
+        const isHover = node.id === hoveredId
+        const isNeighbor = focusNeighbors?.has(node.id) ?? false
+        const focused = isHover || isNeighbor || hoveredId === null
+        if (dimmed) continue
+        const haloRadius = node.radius * (isHover ? 4.5 : 3.2)
+        const grad = ctx.createRadialGradient(node.x, node.y, node.radius * 0.4, node.x, node.y, haloRadius)
+        const alpha = isHover ? 0.55 : focused ? 0.25 : 0.12
+        grad.addColorStop(0, hexWithAlpha(node.color, alpha))
+        grad.addColorStop(1, hexWithAlpha(node.color, 0))
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        ctx.arc(node.x, node.y, haloRadius, 0, Math.PI * 2)
+        ctx.fill()
+      }
+
+      // Solid node circles.
+      for (const node of pos) {
+        const matched = isMatched(node.id)
+        const isHover = node.id === hoveredId
+        const isNeighbor = focusNeighbors?.has(node.id) ?? false
+        const dimAlpha = !matched ? 0.18 : hoveredId && !isHover && !isNeighbor ? 0.55 : 1
+        ctx.globalAlpha = dimAlpha
+        ctx.fillStyle = node.color
+        const r = node.radius * (isHover ? 1.18 : 1)
+        ctx.beginPath()
+        ctx.arc(node.x, node.y, r, 0, Math.PI * 2)
+        ctx.fill()
+        if (isHover) {
+          ctx.lineWidth = 1.5 / camera.zoom
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+          ctx.stroke()
+        } else if (node.fx !== null) {
+          ctx.lineWidth = 1 / camera.zoom
+          ctx.strokeStyle = 'rgba(255,255,255,0.45)'
+          ctx.stroke()
+        }
+      }
+      ctx.globalAlpha = 1
+
+      // Labels — at low zoom, only the top hubs by degree get a label so the
+      // graph stays readable; hover, neighbors, and search matches are always
+      // shown regardless of rank.
+      const labelEligibleIds = (() => {
+        if (hoveredId) {
+          const set = new Set<string>([hoveredId])
+          focusNeighbors?.forEach((id) => set.add(id))
+          return set
+        }
+        if (matchSet) return new Set(matchSet)
+        // visibleCount scales linearly with zoom: ~3 at min zoom (0.15),
+        // ~25 at zoom 1, every node by ~zoom 1.6.
+        const visibleCount = Math.max(3, Math.min(pos.length, Math.round(camera.zoom * 25)))
+        const ranked = [...pos]
+          .sort((a, b) => (b.degree || 0) - (a.degree || 0))
+          .slice(0, visibleCount)
+        return new Set(ranked.map((n) => n.id))
+      })()
+
+      const labelPx = 12 / camera.zoom
+      ctx.font = `${labelPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      for (const node of pos) {
+        if (!labelEligibleIds.has(node.id)) continue
+        const isHover = node.id === hoveredId
+        const isNeighbor = focusNeighbors?.has(node.id) ?? false
+        const focused = isHover || isNeighbor
+        const alpha = isHover ? 1 : focused ? 0.95 : matchSet ? 1 : 0.78
+        ctx.globalAlpha = alpha
+        ctx.fillStyle = isHover ? '#ffffff' : '#e0e0e0'
+        const label = node.title?.trim() || node.name
+        ctx.fillText(label, node.x, node.y + node.radius + 4 / camera.zoom)
+      }
+      ctx.globalAlpha = 1
+      ctx.restore()
+
+      frame = requestAnimationFrame(step)
     }
 
-    frame = requestAnimationFrame(draw)
+    frame = requestAnimationFrame(step)
     return () => {
       disposed = true
       cancelAnimationFrame(frame)
     }
-  }, [edges, neighbors, display.curvedEdges, display.glowHalos, display.labelFadeThreshold, display.labelFontSize, display.lineThicknessScale, display.showArrows, display.starfield])
+  }, [edges, neighbors])
 
-  // Imperative camera handles for the zoom HUD.
+  // Imperative camera handles.
   useImperativeHandle(forwardedRef, () => ({
     zoomBy: (factor) => {
-      const next = clamp(cameraRef.current.scale * factor, 0.25, 3)
       const canvas = canvasRef.current
-      if (canvas) {
-        const cx = canvas.clientWidth / 2
-        const cy = canvas.clientHeight / 2
-        const old = cameraRef.current
-        const wx = (cx - old.x) / old.scale
-        const wy = (cy - old.y) / old.scale
-        cameraRef.current = {
-          scale: next,
-          x: cx - wx * next,
-          y: cy - wy * next,
-        }
-        onCameraChange?.(cameraRef.current)
-      }
+      if (!canvas) return
+      const next = clamp(cameraRef.current.zoom * factor, MIN_ZOOM, MAX_ZOOM)
+      cameraRef.current = { ...cameraRef.current, zoom: next }
+      onCameraChange?.(cameraRef.current)
     },
     resetView: () => {
-      cameraRef.current = { x: 0, y: 0, scale: 1 }
+      cameraRef.current = { x: 0, y: 0, zoom: 1 }
       onCameraChange?.(cameraRef.current)
     },
     fitToView: () => {
       const canvas = canvasRef.current
-      if (!canvas) return
       const positioned = positionedRef.current
-      if (positioned.length === 0) return
+      if (!canvas || positioned.length === 0) return
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-      positioned.forEach((node) => {
+      for (const node of positioned) {
         if (node.x - node.radius < minX) minX = node.x - node.radius
         if (node.y - node.radius < minY) minY = node.y - node.radius
         if (node.x + node.radius > maxX) maxX = node.x + node.radius
         if (node.y + node.radius > maxY) maxY = node.y + node.radius
-      })
+      }
       const w = canvas.clientWidth
       const h = canvas.clientHeight
-      const dx = maxX - minX
-      const dy = maxY - minY
-      if (dx <= 0 || dy <= 0) return
-      const scale = clamp(Math.min((w - PADDING * 2) / dx, (h - PADDING * 2) / dy), 0.25, 2.5)
+      const dx = Math.max(1, maxX - minX)
+      const dy = Math.max(1, maxY - minY)
+      const padding = 80
+      const zoom = clamp(Math.min((w - padding * 2) / dx, (h - padding * 2) / dy), MIN_ZOOM, MAX_ZOOM)
       const cx = (minX + maxX) / 2
       const cy = (minY + maxY) / 2
-      cameraRef.current = {
-        scale,
-        x: w / 2 - cx * scale,
-        y: h / 2 - cy * scale,
-      }
+      cameraRef.current = { zoom, x: -cx * zoom, y: -cy * zoom }
       onCameraChange?.(cameraRef.current)
     },
     getCamera: () => ({ ...cameraRef.current }),
   }))
 
-  // Wheel zoom — non-passive listener so we can preventDefault.
+  // Wheel zoom — zoom toward the cursor, clamped to spec range. Listener is
+  // non-passive so we can preventDefault on trackpads.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
-      // Ignore zero-delta scrolls (sideways trackpad nudges, some pinch
-      // gestures) — without this, the previous "deltaY > 0 ? 0.9 : 1.1"
-      // logic ratcheted the zoom in on every empty event.
       if (event.deltaY === 0) return
       const camera = cameraRef.current
       const rect = canvas.getBoundingClientRect()
       const mx = event.clientX - rect.left
       const my = event.clientY - rect.top
-      const wx = (mx - camera.x) / camera.scale
-      const wy = (my - camera.y) / camera.scale
-
-      // Normalise deltaMode so mouse-wheel ticks (lines) and trackpad
-      // gestures (pixels) produce comparable zoom speeds, then clamp to
-      // stop a single fast scroll from snapping across the whole range.
+      // Convert mouse position to world coords relative to the centred origin.
+      const wx = (mx - rect.width / 2 - camera.x) / camera.zoom
+      const wy = (my - rect.height / 2 - camera.y) / camera.zoom
       const normalised = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY
       const factor = Math.exp(-clamp(normalised, -120, 120) * 0.0035)
-      const nextScale = clamp(camera.scale * factor, 0.25, 3)
-      if (nextScale === camera.scale) return
+      const nextZoom = clamp(camera.zoom * factor, MIN_ZOOM, MAX_ZOOM)
+      if (nextZoom === camera.zoom) return
       cameraRef.current = {
-        scale: nextScale,
-        x: mx - wx * nextScale,
-        y: my - wy * nextScale,
+        zoom: nextZoom,
+        x: mx - rect.width / 2 - wx * nextZoom,
+        y: my - rect.height / 2 - wy * nextZoom,
       }
       onCameraChange?.(cameraRef.current)
     }
@@ -464,127 +495,121 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
     return () => canvas.removeEventListener('wheel', onWheel)
   }, [onCameraChange])
 
-  const hitTest = useCallback((clientX: number, clientY: number): PositionedNode | null => {
+  const screenToWorld = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current
-    if (!canvas) return null
+    if (!canvas) return { x: 0, y: 0 }
     const rect = canvas.getBoundingClientRect()
     const camera = cameraRef.current
-    const x = (clientX - rect.left - camera.x) / camera.scale
-    const y = (clientY - rect.top - camera.y) / camera.scale
+    const mx = clientX - rect.left
+    const my = clientY - rect.top
+    return {
+      x: (mx - rect.width / 2 - camera.x) / camera.zoom,
+      y: (my - rect.height / 2 - camera.y) / camera.zoom,
+    }
+  }, [])
+
+  const hitTest = useCallback((clientX: number, clientY: number): PositionedNode | null => {
+    const { x, y } = screenToWorld(clientX, clientY)
     let best: PositionedNode | null = null
     let bestDist = Infinity
-    const all = [...positionedRef.current, ...ghostsRef.current]
-    for (const node of all) {
+    for (const node of positionedRef.current) {
       const dx = x - node.x
       const dy = y - node.y
       const dist = Math.sqrt(dx * dx + dy * dy)
-      if (dist <= node.radius + 5 && dist < bestDist) {
+      if (dist <= node.radius + 6 && dist < bestDist) {
         best = node
         bestDist = dist
       }
     }
     return best
-  }, [])
+  }, [screenToWorld])
 
   return (
-    <div ref={containerRef} className="relative h-full w-full">
-      <canvas
-        ref={canvasRef}
-        className="block h-full w-full cursor-grab select-none active:cursor-grabbing"
-        onMouseDown={(event) => {
-          const canvas = canvasRef.current
-          if (!canvas) return
-          const target = hitTest(event.clientX, event.clientY)
-          if (target) {
-            const rect = canvas.getBoundingClientRect()
-            const camera = cameraRef.current
-            const wx = (event.clientX - rect.left - camera.x) / camera.scale
-            const wy = (event.clientY - rect.top - camera.y) / camera.scale
-            // Pin the live node by id so re-positioning across re-renders preserves drag.
-            const live = positionedRef.current.find((n) => n.id === target.id)
-            if (live) {
-              live.fx = live.x
-              live.fy = live.y
-            }
-            dragStateRef.current = {
-              kind: 'node',
-              nodeId: target.id,
-              offsetX: wx - target.x,
-              offsetY: wy - target.y,
-              moved: false,
-            }
-          } else {
-            dragStateRef.current = {
-              kind: 'pan',
-              startX: event.clientX,
-              startY: event.clientY,
-              camera: { ...cameraRef.current },
-              moved: false,
-            }
+    <canvas
+      ref={canvasRef}
+      className="block h-full w-full cursor-grab select-none active:cursor-grabbing"
+      onMouseDown={(event) => {
+        const target = hitTest(event.clientX, event.clientY)
+        if (target) {
+          const live = positionedRef.current.find((n) => n.id === target.id)
+          if (!live) return
+          live.fx = live.x
+          live.fy = live.y
+          const world = screenToWorld(event.clientX, event.clientY)
+          dragStateRef.current = {
+            kind: 'node',
+            nodeId: target.id,
+            offsetX: world.x - target.x,
+            offsetY: world.y - target.y,
+            moved: false,
           }
-        }}
-        onMouseMove={(event) => {
-          const drag = dragStateRef.current
-          if (drag?.kind === 'pan') {
-            const dx = event.clientX - drag.startX
-            const dy = event.clientY - drag.startY
-            if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true
-            cameraRef.current = {
-              ...drag.camera,
-              x: drag.camera.x + dx,
-              y: drag.camera.y + dy,
-            }
-            onCameraChange?.(cameraRef.current)
-            return
+        } else {
+          dragStateRef.current = {
+            kind: 'pan',
+            startX: event.clientX,
+            startY: event.clientY,
+            camera: { ...cameraRef.current },
+            moved: false,
           }
-          if (drag?.kind === 'node') {
-            const canvas = canvasRef.current
-            if (!canvas) return
-            const rect = canvas.getBoundingClientRect()
-            const camera = cameraRef.current
-            const wx = (event.clientX - rect.left - camera.x) / camera.scale
-            const wy = (event.clientY - rect.top - camera.y) / camera.scale
-            const live = positionedRef.current.find((n) => n.id === drag.nodeId)
-            if (live) {
-              live.fx = wx - drag.offsetX
-              live.fy = wy - drag.offsetY
-              live.x = live.fx
-              live.y = live.fy
-            }
-            drag.moved = true
-            sim.bump(0.4)
-            return
+        }
+      }}
+      onMouseMove={(event) => {
+        const drag = dragStateRef.current
+        if (drag?.kind === 'pan') {
+          const dx = event.clientX - drag.startX
+          const dy = event.clientY - drag.startY
+          if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true
+          cameraRef.current = {
+            zoom: drag.camera.zoom,
+            x: drag.camera.x + dx,
+            y: drag.camera.y + dy,
           }
-          const node = hitTest(event.clientX, event.clientY)
-          onHoverNode(node)
-        }}
-        onMouseLeave={() => {
-          onHoverNode(null)
-        }}
-        onMouseUp={(event) => {
-          const drag = dragStateRef.current
-          dragStateRef.current = null
-          if (!drag) return
-          if (drag.kind === 'pan' && !drag.moved) {
-            const node = hitTest(event.clientX, event.clientY)
-            if (node) onSelectNode(node)
-          } else if (drag.kind === 'node' && !drag.moved) {
-            const node = hitTest(event.clientX, event.clientY)
-            if (node) onSelectNode(node)
+          onCameraChange?.(cameraRef.current)
+          return
+        }
+        if (drag?.kind === 'node') {
+          const world = screenToWorld(event.clientX, event.clientY)
+          const live = positionedRef.current.find((n) => n.id === drag.nodeId)
+          if (live) {
+            live.fx = world.x - drag.offsetX
+            live.fy = world.y - drag.offsetY
+            live.x = live.fx
+            live.y = live.fy
           }
-        }}
-        onDoubleClick={(event) => {
-          const node = hitTest(event.clientX, event.clientY)
-          if (!node) return
-          const live = positionedRef.current.find((n) => n.id === node.id)
+          drag.moved = true
+          return
+        }
+        const node = hitTest(event.clientX, event.clientY)
+        const id = node?.id ?? null
+        if (id !== hoveredIdRef.current) {
+          hoveredIdRef.current = id
+        }
+        const rect = canvasRef.current?.getBoundingClientRect()
+        const point = rect ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : null
+        onHoverNode(node, node ? point : null)
+      }}
+      onMouseLeave={() => {
+        hoveredIdRef.current = null
+        onHoverNode(null, null)
+      }}
+      onMouseUp={(event) => {
+        const drag = dragStateRef.current
+        dragStateRef.current = null
+        if (!drag) return
+        // Release the pin so the simulation reclaims the node naturally; user
+        // can still re-grab it by starting a new drag.
+        if (drag.kind === 'node') {
+          const live = positionedRef.current.find((n) => n.id === drag.nodeId)
           if (live) {
             live.fx = null
             live.fy = null
-            sim.bump(0.6)
           }
-        }}
-      />
-    </div>
+        }
+        if (drag.moved) return
+        const node = hitTest(event.clientX, event.clientY)
+        if (node) onSelectNode(node)
+      }}
+    />
   )
 })
 
@@ -598,116 +623,18 @@ function clamp01(value: number): number {
   return clamp(value, 0, 1)
 }
 
-function drawArrowHead(
-  ctx: CanvasRenderingContext2D,
-  source: PositionedNode,
-  target: PositionedNode,
-  size: number,
-  active: boolean
-) {
-  const dx = target.x - source.x
-  const dy = target.y - source.y
-  const dist = Math.sqrt(dx * dx + dy * dy)
-  if (dist === 0) return
-  const ux = dx / dist
-  const uy = dy / dist
-  const tipX = target.x - ux * (target.radius + 1)
-  const tipY = target.y - uy * (target.radius + 1)
-  const baseX = tipX - ux * size
-  const baseY = tipY - uy * size
-  const perpX = -uy
-  const perpY = ux
-  ctx.beginPath()
-  ctx.moveTo(tipX, tipY)
-  ctx.lineTo(baseX + perpX * size * 0.4, baseY + perpY * size * 0.4)
-  ctx.lineTo(baseX - perpX * size * 0.4, baseY - perpY * size * 0.4)
-  ctx.closePath()
-  ctx.fillStyle = active ? 'rgba(165, 180, 252, 0.95)' : 'rgba(113, 113, 122, 0.6)'
-  ctx.fill()
-}
-
-function pickLabelNodes(
-  positioned: PositionedNode[],
-  focusedNode: PositionedNode | null,
-  focusNeighbors: Set<string> | null,
-  zoomAlpha: number
-): Array<{ node: PositionedNode; alpha: number }> {
-  if (focusedNode) {
-    const out: Array<{ node: PositionedNode; alpha: number }> = []
-    positioned.forEach((node) => {
-      if (node.id === focusedNode.id) {
-        out.push({ node, alpha: 1 })
-      } else if (focusNeighbors?.has(node.id)) {
-        out.push({ node, alpha: 0.95 })
-      }
-    })
-    return out
+/** Convert `#rrggbb` to `rgba(r, g, b, a)`; passes through any other format unchanged. */
+function hexWithAlpha(hex: string, alpha: number): string {
+  if (!hex.startsWith('#') || (hex.length !== 7 && hex.length !== 4)) return hex
+  let r: number, g: number, b: number
+  if (hex.length === 7) {
+    r = parseInt(hex.slice(1, 3), 16)
+    g = parseInt(hex.slice(3, 5), 16)
+    b = parseInt(hex.slice(5, 7), 16)
+  } else {
+    r = parseInt(hex[1] + hex[1], 16)
+    g = parseInt(hex[2] + hex[2], 16)
+    b = parseInt(hex[3] + hex[3], 16)
   }
-
-  if (zoomAlpha <= 0) return []
-
-  // Show every node when the graph is small enough to be readable; for denser
-  // graphs, cap to the highest-degree nodes so labels do not overlap into mush.
-  const cap = 80
-  const visibleAlpha = Math.min(0.95, 0.45 + zoomAlpha * 0.55)
-  const candidates = positioned.length <= cap
-    ? positioned
-    : [...positioned].sort((a, b) => b.degree - a.degree).slice(0, cap)
-  return candidates.map((node) => ({ node, alpha: visibleAlpha }))
-}
-
-type Star = {
-  x: number
-  y: number
-  radius: number
-  baseAlpha: number
-  amp: number
-  period: number
-  phase: number
-}
-
-function generateStars(width: number, height: number): Star[] {
-  // Sparse, calm starfield — roughly one star per 8000 px².
-  const count = Math.max(30, Math.min(120, Math.round((width * height) / 8000)))
-  const stars: Star[] = []
-  for (let i = 0; i < count; i += 1) {
-    const r = mulberry(i + 1)
-    stars.push({
-      x: r() * width,
-      y: r() * height,
-      radius: 0.5 + r() * 0.7,
-      baseAlpha: 0.18 + r() * 0.32,
-      amp: 0.1 + r() * 0.22,
-      period: 2200 + r() * 4800,
-      phase: r() * Math.PI * 2,
-    })
-  }
-  return stars
-}
-
-function drawStarfield(ctx: CanvasRenderingContext2D, stars: Star[], now: number) {
-  ctx.save()
-  ctx.fillStyle = '#f4f4f5'
-  for (const star of stars) {
-    const t = (now / star.period) * Math.PI * 2 + star.phase
-    const alpha = clamp01(star.baseAlpha + Math.sin(t) * star.amp)
-    if (alpha <= 0.02) continue
-    ctx.globalAlpha = alpha
-    ctx.beginPath()
-    ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2)
-    ctx.fill()
-  }
-  ctx.restore()
-}
-
-// Tiny seeded PRNG so the starfield is stable across redraws of the same canvas size.
-function mulberry(seed: number): () => number {
-  let a = seed >>> 0
-  return function rand() {
-    a += 0x6d2b79f5
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }

@@ -12,7 +12,16 @@ export type MemoryGraphNode = {
   extension: string
   sizeBytes: number
   degree: number
+  inboundDegree: number
   group: string
+  /** Frontmatter title, falling back to first H1 in body, otherwise undefined. */
+  title?: string
+  /** Frontmatter type — used for graph color and the modal badge. */
+  type?: string
+  /** Frontmatter tags (string[] or comma-separated). */
+  tags?: string[]
+  /** Frontmatter `related` + `depends-on`, normalised to relative paths when resolvable. */
+  related?: string[]
 }
 
 export type MemoryGraphEdge = {
@@ -76,6 +85,11 @@ const TEXT_EXTENSIONS = new Set([
   '.yml',
 ])
 const MARKDOWN_LINK_RE = /!?\[[^\]]*]\(([^)]+)\)/g
+// [[note]] | [[note|alias]] | [[note#section]] | [[brand/multicode-assets]]
+// Negative lookbehind on `!` so image embeds (`![[…]]`) are still skipped.
+const WIKILINK_RE = /(?<!!)\[\[([^\]\n]+?)\]\]/g
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
+const HEADING_RE = /^#\s+(.+)$/m
 const MAX_INDEX_FILES = 5000
 const MAX_MARKDOWN_BYTES = 1024 * 1024
 
@@ -209,6 +223,151 @@ function parseMarkdownLinks(content: string): string[] {
   return links
 }
 
+function parseWikilinks(content: string): string[] {
+  const links: string[] = []
+  for (const match of content.matchAll(WIKILINK_RE)) {
+    const raw = match[1]?.trim()
+    if (!raw) continue
+    // Strip alias (after `|`) and fragment (after `#`).
+    const target = raw.split('|')[0]?.split('#')[0]?.trim()
+    if (target) links.push(target)
+  }
+  return links
+}
+
+type ParsedFrontmatter = {
+  body: string
+  data: Record<string, string | string[]>
+}
+
+/**
+ * Minimal YAML frontmatter reader for the graph: scalar strings, inline arrays
+ * `[a, b]`, and block-style arrays prefixed with `-`. Anything richer falls
+ * through unparsed rather than crashing the index.
+ */
+function parseFrontmatter(content: string): ParsedFrontmatter {
+  const match = FRONTMATTER_RE.exec(content)
+  if (!match) return { body: content, data: {} }
+
+  const data: Record<string, string | string[]> = {}
+  const lines = match[1].split(/\r?\n/)
+  let currentKey: string | null = null
+  let currentList: string[] | null = null
+
+  const stripQuotes = (value: string): string => {
+    const trimmed = value.trim()
+    if (trimmed.length >= 2) {
+      const first = trimmed[0]
+      const last = trimmed[trimmed.length - 1]
+      if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+        return trimmed.slice(1, -1)
+      }
+    }
+    return trimmed
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\s+$/u, '')
+    if (!line.trim()) {
+      if (currentKey && currentList) {
+        data[currentKey] = currentList
+        currentKey = null
+        currentList = null
+      }
+      continue
+    }
+    const listItem = /^\s*-\s+(.+)$/.exec(line)
+    if (listItem && currentKey) {
+      if (!currentList) currentList = []
+      currentList.push(stripQuotes(listItem[1]))
+      continue
+    }
+    const kv = /^([A-Za-z0-9_\-]+)\s*:\s*(.*)$/.exec(line)
+    if (!kv) continue
+    if (currentKey && currentList) {
+      data[currentKey] = currentList
+      currentList = null
+    }
+    const key = kv[1]
+    const value = kv[2]
+    if (!value) {
+      currentKey = key
+      currentList = []
+      continue
+    }
+    const inlineArray = /^\[(.*)\]$/.exec(value.trim())
+    if (inlineArray) {
+      data[key] = inlineArray[1]
+        .split(',')
+        .map((entry) => stripQuotes(entry))
+        .filter((entry) => entry.length > 0)
+      currentKey = null
+      currentList = null
+      continue
+    }
+    data[key] = stripQuotes(value)
+    currentKey = null
+    currentList = null
+  }
+  if (currentKey && currentList) data[currentKey] = currentList
+
+  return { body: content.slice(match[0].length), data }
+}
+
+function frontmatterStringList(value: string | string[] | undefined): string[] {
+  if (!value) return []
+  if (Array.isArray(value)) return value.map((entry) => entry.trim()).filter(Boolean)
+  return value.split(',').map((entry) => entry.trim()).filter(Boolean)
+}
+
+function firstHeading(body: string): string | undefined {
+  const match = HEADING_RE.exec(body)
+  return match?.[1]?.trim() || undefined
+}
+
+/**
+ * Resolves a wikilink-style href (no extension) to a known file. Tries:
+ *   1. <sourceDir>/<href>.md  (and .mdx)
+ *   2. <root>/<href>.md       (and .mdx)
+ *   3. exact relative match if the href already has an extension
+ * Returns the canonical relative path, or null when nothing matches.
+ */
+function resolveWikilink(
+  href: string,
+  sourceRelativePath: string,
+  rootPath: string,
+  keyByRelativePath: Map<string, string>
+): string | null {
+  const cleaned = href.replace(/\\/g, '/').replace(/^\/+/u, '').trim()
+  if (!cleaned) return null
+
+  const candidates: string[] = []
+  const hasExtension = /\.[a-z0-9]+$/i.test(cleaned)
+  const sourceDir = sourceRelativePath.includes('/')
+    ? sourceRelativePath.split('/').slice(0, -1).join('/')
+    : ''
+
+  if (hasExtension) {
+    candidates.push(cleaned)
+    if (sourceDir) candidates.push(`${sourceDir}/${cleaned}`)
+  } else {
+    const exts = ['.md', '.mdx']
+    for (const ext of exts) {
+      if (sourceDir) candidates.push(`${sourceDir}/${cleaned}${ext}`)
+      candidates.push(`${cleaned}${ext}`)
+    }
+  }
+
+  for (const candidate of candidates) {
+    const resolved = resolve(rootPath, candidate)
+    if (!isPathInside(rootPath, resolved)) continue
+    const relativePath = toDisplayRelativePath(rootPath, resolved)
+    const matched = keyByRelativePath.get(normalizePathKey(relativePath))
+    if (matched) return matched
+  }
+  return null
+}
+
 function isExternalHref(href: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')
 }
@@ -245,6 +404,7 @@ export async function indexMemoryGraph(
         extension: file.extension,
         sizeBytes: file.sizeBytes,
         degree: 0,
+        inboundDegree: 0,
         group: groupForRelativePath(file.relativePath),
       }
       nodeByRelativePath.set(file.relativePath, node)
@@ -255,12 +415,37 @@ export async function indexMemoryGraph(
     const edgeKeys = new Set<string>()
     const unresolvedLinks: MemoryUnresolvedLink[] = []
 
+    const recordEdge = (sourceRelPath: string, targetKey: string) => {
+      if (sourceRelPath === targetKey) return
+      const edgeKey = `${sourceRelPath}${targetKey}`
+      if (edgeKeys.has(edgeKey)) return
+      edgeKeys.add(edgeKey)
+      edges.push({
+        id: `${sourceRelPath}->${targetKey}`,
+        source: sourceRelPath,
+        target: targetKey,
+        sourcePath: sourceRelPath,
+        targetPath: targetKey,
+      })
+    }
+
     for (const file of files) {
       if (file.extension !== '.md' && file.extension !== '.mdx') continue
       if (file.sizeBytes > MAX_MARKDOWN_BYTES) continue
 
-      const content = await readFile(file.path, 'utf-8')
-      for (const href of parseMarkdownLinks(content)) {
+      const raw = await readFile(file.path, 'utf-8')
+      const { body, data } = parseFrontmatter(raw)
+
+      const node = nodeByRelativePath.get(file.relativePath)
+      if (node) {
+        const explicitTitle = typeof data.title === 'string' ? data.title : undefined
+        node.title = explicitTitle || firstHeading(body) || undefined
+        node.type = typeof data.type === 'string' ? data.type : undefined
+        const tags = frontmatterStringList(data.tags as string | string[] | undefined)
+        if (tags.length > 0) node.tags = tags
+      }
+
+      for (const href of parseMarkdownLinks(body)) {
         if (isExternalHref(href)) continue
         const cleanHref = stripHrefDecoration(href)
         if (!cleanHref) continue
@@ -287,25 +472,46 @@ export async function indexMemoryGraph(
           })
           continue
         }
-
-        const edgeKey = `${file.relativePath}\u001f${targetKey}`
-        if (file.relativePath === targetKey || edgeKeys.has(edgeKey)) continue
-        edgeKeys.add(edgeKey)
-        edges.push({
-          id: `${file.relativePath}->${targetKey}`,
-          source: file.relativePath,
-          target: targetKey,
-          sourcePath: file.relativePath,
-          targetPath: targetKey,
-        })
+        recordEdge(file.relativePath, targetKey)
       }
+
+      for (const href of parseWikilinks(body)) {
+        const targetKey = resolveWikilink(href, file.relativePath, root.rootPath, keyByRelativePath)
+        if (!targetKey) {
+          unresolvedLinks.push({
+            sourcePath: file.relativePath,
+            href: `[[${href}]]`,
+            resolvedRelativePath: null,
+            reason: 'missing',
+          })
+          continue
+        }
+        recordEdge(file.relativePath, targetKey)
+      }
+
+      const relatedRefs = [
+        ...frontmatterStringList(data.related as string | string[] | undefined),
+        ...frontmatterStringList(data['depends-on'] as string | string[] | undefined),
+      ]
+      const relatedTargets: string[] = []
+      for (const ref of relatedRefs) {
+        const targetKey = resolveWikilink(ref, file.relativePath, root.rootPath, keyByRelativePath)
+        if (targetKey) {
+          recordEdge(file.relativePath, targetKey)
+          if (!relatedTargets.includes(targetKey)) relatedTargets.push(targetKey)
+        }
+      }
+      if (relatedTargets.length > 0 && node) node.related = relatedTargets
     }
 
     edges.forEach((edge) => {
       const source = nodeByRelativePath.get(edge.source)
       const target = nodeByRelativePath.get(edge.target)
       if (source) source.degree += 1
-      if (target) target.degree += 1
+      if (target) {
+        target.degree += 1
+        target.inboundDegree += 1
+      }
     })
 
     const nodes = [...nodeByRelativePath.values()]
@@ -384,6 +590,7 @@ export async function readMemoryPreview(
       extension,
       sizeBytes: stats.size,
       degree: 0,
+      inboundDegree: 0,
       group: groupForRelativePath(relativePath),
     }
 
@@ -399,7 +606,16 @@ export async function readMemoryPreview(
         return { ok: true, node, previewKind: 'unsupported', message: 'File is too large to preview.' }
       }
       const content = await readFile(filePath, 'utf-8')
-      return { ok: true, node, previewKind: node.kind === 'markdown' ? 'markdown' : 'text', content }
+      if (node.kind === 'markdown') {
+        const { body, data } = parseFrontmatter(content)
+        const title = typeof data.title === 'string' ? data.title : undefined
+        node.title = title || firstHeading(body) || undefined
+        node.type = typeof data.type === 'string' ? data.type : undefined
+        const tags = frontmatterStringList(data.tags as string | string[] | undefined)
+        if (tags.length > 0) node.tags = tags
+        return { ok: true, node, previewKind: 'markdown', content: body }
+      }
+      return { ok: true, node, previewKind: 'text', content }
     }
 
     return { ok: true, node, previewKind: 'unsupported', message: 'Preview is not available for this file type.' }

@@ -80,7 +80,12 @@ export type MemoryGraphNode = {
   extension: string
   sizeBytes: number
   degree: number
+  inboundDegree: number
   group: string
+  title?: string
+  type?: string
+  tags?: string[]
+  related?: string[]
 }
 
 export type MemoryGraphEdge = {

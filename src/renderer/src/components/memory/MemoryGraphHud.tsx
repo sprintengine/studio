@@ -1,104 +1,54 @@
 import React from 'react'
+import { TYPE_COLORS, bucketForNode } from './MemoryGraphCanvas'
 
-type ZoomHudProps = {
-  scale: number
-  onZoomIn: () => void
-  onZoomOut: () => void
-  onFit: () => void
-  onReset: () => void
+const PANEL_STYLE: React.CSSProperties = {
+  background: 'rgba(10, 10, 30, 0.85)',
+  backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  color: '#e0e0e0',
 }
 
-export function MemoryGraphZoomHud({ scale, onZoomIn, onZoomOut, onFit, onReset }: ZoomHudProps) {
-  const percent = Math.round(scale * 100)
-  return (
-    <div className="pointer-events-auto absolute bottom-3 right-3 flex items-center gap-0.5 rounded-md border border-zinc-800 bg-zinc-900/85 p-0.5 backdrop-blur-sm">
-      <HudButton onClick={onZoomOut} title="Zoom out" ariaLabel="Zoom out">
-        −
-      </HudButton>
-      <span className="inline-flex min-w-[44px] items-center justify-center px-1 font-mono text-[11px] text-zinc-500 tabular-nums">
-        {percent}%
-      </span>
-      <HudButton onClick={onZoomIn} title="Zoom in" ariaLabel="Zoom in">
-        +
-      </HudButton>
-      <span className="mx-0.5 h-4 w-px bg-zinc-800" aria-hidden />
-      <HudButton onClick={onFit} title="Fit to view (F)" ariaLabel="Fit to view">
-        ⊙
-      </HudButton>
-      <HudButton onClick={onReset} title="Reset view (R)" ariaLabel="Reset view">
-        ⟲
-      </HudButton>
-    </div>
-  )
+type LegendProps = {
+  nodes: MemoryGraphNode[]
 }
 
-function HudButton({
-  onClick,
-  children,
-  title,
-  ariaLabel,
-}: {
-  onClick: () => void
-  children: React.ReactNode
-  title: string
-  ariaLabel: string
-}) {
+/**
+ * Legend listing only the colour buckets present in the current graph, sorted
+ * by frequency so the dominant types appear first.
+ */
+export function MemoryGraphLegend({ nodes }: LegendProps) {
+  const counts = new Map<string, number>()
+  for (const node of nodes) {
+    const bucket = bucketForNode(node)
+    counts.set(bucket, (counts.get(bucket) ?? 0) + 1)
+  }
+  const entries = [...counts.entries()].sort((a, b) => b[1] - a[1])
+  if (entries.length === 0) return null
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-7 min-w-[26px] items-center justify-center rounded px-1 text-[13px] text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-      title={title}
-      aria-label={ariaLabel}
+    <div
+      className="pointer-events-none absolute left-3 top-3 rounded-lg px-3 py-2.5 text-[11px]"
+      style={PANEL_STYLE}
     >
-      {children}
-    </button>
-  )
-}
-
-type StatsProps = {
-  noteCount: number
-  linkCount: number
-  orphanCount: number
-  unresolvedCount: number
-  topConnected: string[]
-}
-
-export function MemoryGraphStats({
-  noteCount,
-  linkCount,
-  orphanCount,
-  unresolvedCount,
-  topConnected,
-}: StatsProps) {
-  return (
-    <div className="pointer-events-none absolute bottom-3 left-3 max-w-[360px] space-y-1 rounded-md border border-zinc-800 bg-zinc-900/85 px-3 py-2 text-[11px] text-zinc-400 backdrop-blur-sm">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <span>
-          <span className="font-semibold text-zinc-100 tabular-nums">{noteCount}</span>{' '}
-          {noteCount === 1 ? 'note' : 'notes'}
-        </span>
-        <span>
-          <span className="font-semibold text-zinc-100 tabular-nums">{linkCount}</span>{' '}
-          {linkCount === 1 ? 'link' : 'links'}
-        </span>
-        {orphanCount > 0 ? (
-          <span>
-            <span className="font-semibold text-zinc-100 tabular-nums">{orphanCount}</span>{' '}
-            {orphanCount === 1 ? 'orphan' : 'orphans'}
-          </span>
-        ) : null}
+      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">
+        Types
       </div>
-      {topConnected.length > 0 ? (
-        <div className="truncate text-zinc-500">
-          Most connected: <span className="text-zinc-300">{topConnected.join(', ')}</span>
-        </div>
-      ) : null}
-      {unresolvedCount > 0 ? (
-        <div className="text-amber-400">
-          {unresolvedCount} unresolved local link{unresolvedCount === 1 ? '' : 's'}
-        </div>
-      ) : null}
+      <ul className="space-y-1">
+        {entries.map(([bucket, count]) => {
+          const color = TYPE_COLORS[bucket] ?? TYPE_COLORS.default
+          return (
+            <li key={bucket} className="flex items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ background: color, boxShadow: `0 0 8px ${color}` }}
+                aria-hidden
+              />
+              <span className="capitalize">{bucket}</span>
+              <span className="text-white/40 tabular-nums">{count}</span>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }
@@ -110,15 +60,41 @@ type TooltipProps = {
 }
 
 export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
+  const bucket = bucketForNode(node)
+  const color = TYPE_COLORS[bucket] ?? TYPE_COLORS.default
+  const title = node.title?.trim() || node.name
   return (
     <div
-      className="pointer-events-none absolute z-10 max-w-[260px] rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[11px] text-zinc-200 shadow-lg"
-      style={{ left: x + 14, top: y + 14 }}
+      className="pointer-events-none absolute z-10 max-w-[280px] rounded-md px-3 py-2 text-[11px]"
+      style={{ ...PANEL_STYLE, left: x + 16, top: y + 16 }}
     >
-      <div className="truncate font-semibold text-zinc-100">{node.name}</div>
-      <div className="mt-0.5 truncate font-mono text-[10px] text-zinc-500">
-        {node.relativePath} · {node.degree} link{node.degree === 1 ? '' : 's'}
+      <div className="flex items-center gap-2">
+        <span
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ background: color, boxShadow: `0 0 6px ${color}` }}
+          aria-hidden
+        />
+        <span className="truncate text-[12px] font-semibold text-white">{title}</span>
       </div>
+      <div className="mt-0.5 truncate text-white/50">
+        <span className="capitalize">{bucket}</span>
+        {node.inboundDegree > 0 ? (
+          <span> · {node.inboundDegree} inbound</span>
+        ) : null}
+      </div>
+      {node.tags && node.tags.length > 0 ? (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {node.tags.slice(0, 6).map((tag) => (
+            <span
+              key={tag}
+              className="rounded-full px-1.5 py-0.5 text-[10px] text-white/70"
+              style={{ background: 'rgba(255,255,255,0.07)' }}
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
