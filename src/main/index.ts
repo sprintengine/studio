@@ -7,12 +7,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { autoUpdater } from 'electron-updater'
 import { rgPath } from '@vscode/ripgrep'
 import * as pty from 'node-pty'
+import type { MultiloopInitInput, MultiloopInitResult } from '../shared/electron-api'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMobileBridgeIpc } from './ipc/mobile-bridge-ipc'
+import { registerMultiloopIpc } from './ipc/multiloop-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
 import { registerWindowIpc, sendWindowState } from './ipc/window-ipc'
 import {
@@ -1901,7 +1903,7 @@ function runMultiloopInitTool(
   })
 }
 
-async function initializeMultiloopState(payload: MultiloopInitPayload): Promise<MultiloopInitResult> {
+async function initializeMultiloopState(payload: MultiloopInitInput): Promise<MultiloopInitResult> {
   try {
     const loopName = readRequiredMultiloopText(payload?.loopName, 'Loop name')
     const finalGoal = readRequiredMultiloopText(payload?.finalGoal, 'Final goal')
@@ -1963,26 +1965,6 @@ async function initializeMultiloopState(payload: MultiloopInitPayload): Promise<
 
 type SwarmArtifactCommandResult =
   | { ok: true; data: unknown }
-  | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
-
-type MultiloopInitPayload = {
-  workspaceRoot: string
-  loopName: string
-  finalGoal: string
-}
-
-type MultiloopInitResult =
-  | {
-      ok: true
-      data: {
-        workspaceRoot: string
-        loopName: string
-        loopSlug: string
-        loopDirectory: string
-        statePath: string
-        created: boolean
-      }
-    }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 
 type SwarmArtifactOpenPayload = {
@@ -3753,8 +3735,8 @@ ipcMain.handle('sprintengine:artifact:request-changes', async (_, payload: Swarm
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
 
-ipcMain.handle('multiloop:init', async (_, payload: MultiloopInitPayload): Promise<MultiloopInitResult> => {
-  return initializeMultiloopState(payload)
+registerMultiloopIpc(ipcMain, {
+  initializeMultiloopState,
 })
 
 function normalizeFileSearchLimit(limit: unknown): number {
