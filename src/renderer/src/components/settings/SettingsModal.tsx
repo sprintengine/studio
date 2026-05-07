@@ -7,13 +7,9 @@ interface Props {
   checkForUpdatesOnOpen?: boolean
 }
 
-type MobileBridgeRelayStatus =
-  | 'disabled'
-  | 'unconfigured'
-  | 'connecting'
-  | 'connected'
-  | 'retrying'
-  | 'error'
+type MetaTone = 'positive' | 'muted'
+
+type UpdateAction = 'check' | 'download' | 'restart'
 
 function parseSearchExcludeText(value: string): string[] {
   return value
@@ -79,6 +75,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   const [memoryStatus, setMemoryStatus] = useState<MemoryRootStatus | null>(null)
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [updateActionPending, setUpdateActionPending] = useState(false)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const autoCheckStartedRef = useRef(false)
 
   const commitMemoryDraft = useCallback((value: string) => {
@@ -94,10 +91,15 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   }, [commitMemoryDraft, memoryDraft, onClose, searchExcludesDraft, setSearchExcludes])
 
   useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    dialogRef.current?.focus()
+    return () => previous?.focus()
+  }, [])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') closeSettings()
     }
-
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [closeSettings])
@@ -212,23 +214,41 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
     setWorkspaceMemoryRelativeRoot(activeWorkspaceId, relativePath)
   }
 
+  const nextUpdateAction: UpdateAction = updateState?.downloaded
+    ? 'restart'
+    : updateState?.status === 'available'
+      ? 'download'
+      : 'check'
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={(event) => event.target === event.currentTarget && closeSettings()}
     >
-      <div className="max-h-[92vh] w-[760px] max-w-[95vw] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] p-6 shadow-2xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        tabIndex={-1}
+        className="max-h-[92vh] w-[760px] max-w-[95vw] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] p-6 shadow-2xl outline-none"
+      >
         <div className="mb-4 flex items-start justify-between">
           <div>
-            <h2 className="text-base font-semibold text-[#ececee]">Settings</h2>
+            <h2 id="settings-modal-title" className="text-base font-semibold text-[#ececee]">Settings</h2>
             <p className="mt-0.5 text-sm text-[#5a5a63]">Configure local CLIs, workspace paths, and usage telemetry.</p>
           </div>
-          <button onClick={closeSettings} className="text-xl leading-none text-[#5a5a63] hover:text-[#d7d7dc]">
-            x
+          <button
+            type="button"
+            onClick={closeSettings}
+            aria-label="Close settings"
+            className="rounded text-xl leading-none text-[#5a5a63] transition-colors hover:text-[#d7d7dc] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6ee7d8]/60"
+          >
+            ×
           </button>
         </div>
 
-        <div className="space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+        <div className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -243,61 +263,53 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            <div className={`border-l-2 pl-3 text-[12px] leading-5 ${updateStatusClass(updateState?.status)}`}>
-              {formatUpdateStatus(updateState)}
-              {updateState?.progress ? (
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#24252b]">
-                  <div
-                    className="h-full rounded-full bg-[#6ee7d8]"
-                    style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
-                  />
-                </div>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => void checkForUpdates()}
-                disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
-                className="rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
-              >
-                Check
-              </button>
-              <button
-                type="button"
-                onClick={() => void downloadUpdate()}
-                disabled={updateActionPending || updateState?.status !== 'available'}
-                className="rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
-              >
-                Download
-              </button>
-              <button
-                type="button"
-                onClick={() => void restartToInstall()}
-                disabled={!updateState?.downloaded}
-                className="rounded-md bg-[#6ee7d8]/14 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/18 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#6ee7d8]/14"
-              >
-                Restart
-              </button>
-            </div>
+          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${updateStatusClass(updateState?.status)}`}>
+            {formatUpdateStatus(updateState)}
+            {updateState?.progress ? (
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#24252b]">
+                <div
+                  className="h-full rounded-full bg-[#6ee7d8]"
+                  style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
+                />
+              </div>
+            ) : null}
           </div>
 
-          <div className="grid gap-x-6 gap-y-3 border-t border-[#24252b] pt-4 text-sm sm:grid-cols-3">
-            <MobileMeta label="Update version" value={updateState?.updateVersion ?? 'None'} />
-            <MobileMeta label="Last checked" value={formatNullableMobileDate(updateState?.lastCheckedAt)} />
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <button
               type="button"
               onClick={() => void window.api.updateOpenReleaseNotes()}
-              className="w-fit text-left text-sm font-semibold text-[#bff7f1] transition-colors hover:text-[#e0fffb]"
+              className="text-sm font-semibold text-[#bff7f1] transition-colors hover:text-[#e0fffb] focus:outline-none focus-visible:underline"
             >
               Release notes
             </button>
+            <UpdateActionButton
+              label="Check"
+              primary={nextUpdateAction === 'check'}
+              onClick={() => void checkForUpdates()}
+              disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
+            />
+            <UpdateActionButton
+              label="Download"
+              primary={nextUpdateAction === 'download'}
+              onClick={() => void downloadUpdate()}
+              disabled={updateActionPending || updateState?.status !== 'available'}
+            />
+            <UpdateActionButton
+              label="Restart"
+              primary={nextUpdateAction === 'restart'}
+              onClick={() => void restartToInstall()}
+              disabled={!updateState?.downloaded}
+            />
+          </div>
+
+          <div className="grid gap-x-6 gap-y-3 border-t border-[#24252b] pt-4 text-sm sm:grid-cols-2">
+            <MetaCell label="Update version" value={updateState?.updateVersion ?? 'None'} />
+            <MetaCell label="Last checked" value={formatNullableDate(updateState?.lastCheckedAt)} />
           </div>
         </div>
 
-        <div className="mt-4 space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
             Agent CLIs
           </div>
@@ -319,31 +331,22 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
               </label>
 
               {isWindows && (
-                <label className="flex items-center justify-between rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-2">
-                  <span className="text-sm text-[#d7d7dc]">
-                    Run {cli === 'codex' ? 'Codex' : 'Claude'} through WSL
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={cliRuntimes[cli].useWsl}
-                    onChange={(event) => setCliRuntime(cli, { useWsl: event.target.checked })}
-                    className="peer sr-only"
-                  />
-                  <span className="relative h-5 w-9 rounded-full bg-[#303139] transition-colors peer-checked:bg-[#6ee7d8] peer-checked:[&>span]:translate-x-4 peer-checked:[&>span]:bg-[#061210]">
-                    <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#d7d7dc] transition-transform" />
-                  </span>
-                </label>
+                <SettingToggle
+                  label={`Run ${cli === 'codex' ? 'Codex' : 'Claude'} through WSL`}
+                  enabled={cliRuntimes[cli].useWsl}
+                  onChange={(enabled) => setCliRuntime(cli, { useWsl: enabled })}
+                />
               )}
             </div>
           ))}
-          <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-2 text-[12px] leading-5 text-[#5a5a63]">
+          <p className="text-[12px] leading-5 text-[#5a5a63]">
             Defaults are <span className="font-mono text-[#d7d7dc]">codex</span> native and{' '}
             <span className="font-mono text-[#d7d7dc]">claude</span>{isWindows ? ' through WSL' : ''}.
             Use a full executable path if your CLI is not on PATH.
-          </div>
+          </p>
         </div>
 
-        <div className="mt-4 space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
               File Search
@@ -365,14 +368,14 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
               className="min-h-[96px] w-full resize-y rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#6ee7d8]/70"
             />
           </label>
-          <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-2 text-[12px] leading-5 text-[#5a5a63]">
+          <p className="text-[12px] leading-5 text-[#5a5a63]">
             Defaults still exclude heavy folders like <span className="font-mono text-[#d7d7dc]">.git</span>,{' '}
             <span className="font-mono text-[#d7d7dc]">node_modules</span>, and{' '}
             <span className="font-mono text-[#d7d7dc]">dist</span>. Add one pattern per line or separate entries with commas.
-          </div>
+          </p>
         </div>
 
-        <div className="mt-4 space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -435,7 +438,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
           </div>
         </div>
 
-        <div className="mt-4 space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -450,20 +453,20 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
             </div>
           </div>
 
-          <div className="space-y-3">
-            <UsageTelemetryToggle
+          <div className="divide-y divide-[#24252b]">
+            <SettingToggle
               label="Send usage data"
-              description="Upload sanitized sprintengine usage records only after explicit consent. This stays off by default for production builds."
+              description="Upload sanitized SprintEngine usage records only after explicit consent. This stays off by default for production builds."
               enabled={usageTelemetry.sendUsageData}
               onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
             />
-            <UsageTelemetryToggle
+            <SettingToggle
               label="Local dev export"
               description="Write sanitized JSONL records to the sibling admin portal during local development. This can default on only in development builds."
               enabled={usageTelemetry.localDevExportEnabled}
               onChange={(enabled) => setUsageTelemetrySettings({ localDevExportEnabled: enabled })}
             />
-            <UsageTelemetryToggle
+            <SettingToggle
               label="Export diagnostics"
               description="Include privacy-safe exporter and upload diagnostics so missing, rejected, or duplicated records can be investigated."
               enabled={usageTelemetry.exportDiagnostics}
@@ -471,17 +474,17 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
             />
           </div>
 
-          <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-2 text-[12px] leading-5 text-[#9a9aa2]">
+          <p className="text-[12px] leading-5 text-[#9a9aa2]">
             Raw source, prompts, transcripts, artifact bodies, descriptions, notes, and file contents are not collected by default.
             Production upload is separate from local export and remains disabled until you turn on Send usage data.
-          </div>
+          </p>
 
           <div className="grid gap-x-6 gap-y-3 border-t border-[#24252b] pt-4 text-sm sm:grid-cols-2">
-            <MobileMeta label="Last local export" value={formatNullableMobileDate(usageTelemetry.lastExportAt)} />
-            <MobileMeta
+            <MetaCell label="Last local export" value={formatNullableDate(usageTelemetry.lastExportAt)} />
+            <MetaCell
               label="Upload consent"
               value={usageTelemetry.sendUsageData ? 'Enabled' : 'Disabled'}
-              tone={usageTelemetry.sendUsageData ? 'connected' : 'disabled'}
+              tone={usageTelemetry.sendUsageData ? 'positive' : undefined}
             />
           </div>
         </div>
@@ -499,78 +502,94 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   )
 }
 
-function UsageTelemetryToggle({
+function UpdateActionButton({
+  label,
+  primary,
+  onClick,
+  disabled,
+}: {
+  label: string
+  primary: boolean
+  onClick: () => void
+  disabled?: boolean
+}) {
+  const base = 'rounded-md px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-default disabled:opacity-45 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6ee7d8]/60'
+  const tone = primary
+    ? 'bg-[#6ee7d8]/14 text-[#d8fffb] hover:bg-[#6ee7d8]/18 disabled:hover:bg-[#6ee7d8]/14'
+    : 'border border-[#303139] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#17181d] disabled:hover:bg-[#0d0e11]'
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${tone}`}>
+      {label}
+    </button>
+  )
+}
+
+function SettingToggle({
   label,
   description,
   enabled,
   onChange,
+  disabled,
 }: {
   label: string
-  description: string
+  description?: string
   enabled: boolean
-  onChange: (enabled: boolean) => void
+  onChange: (next: boolean) => void
+  disabled?: boolean
 }) {
   return (
-    <div className="grid gap-3 rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+    <div className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
       <div className="min-w-0">
         <div className="text-sm font-semibold text-[#ececee]">{label}</div>
-        <div className="mt-1 text-[12px] leading-5 text-[#5a5a63]">{description}</div>
+        {description ? (
+          <div className="mt-1 text-[12px] leading-5 text-[#5a5a63]">{description}</div>
+        ) : null}
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={enabled}
+        aria-label={label}
+        disabled={disabled}
         onClick={() => onChange(!enabled)}
-        className={`flex w-fit items-center gap-3 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
-          enabled
-            ? 'border-[#6ee7d8]/55 bg-[#6ee7d8]/14 text-[#d8fffb] hover:border-[#6ee7d8]/75 hover:bg-[#6ee7d8]/18'
-            : 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
+        className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6ee7d8]/60 disabled:opacity-45 ${
+          enabled ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
         }`}
       >
         <span
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            enabled ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
-          }`}
           aria-hidden="true"
-        >
-          <span
-            className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
-              enabled ? 'translate-x-4' : 'translate-x-0'
-            }`}
-          />
-        </span>
-        <span>{enabled ? 'Enabled' : 'Disabled'}</span>
+          className={`pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-transform ${
+            enabled ? 'translate-x-4 bg-[#061210]' : 'translate-x-0 bg-[#d7d7dc]'
+          }`}
+        />
       </button>
     </div>
   )
 }
 
-function MobileMeta({
+function MetaCell({
   label,
   value,
   tone,
 }: {
   label: string
   value: string
-  tone?: MobileBridgeRelayStatus
+  tone?: MetaTone
 }) {
   return (
     <div className="min-w-0">
       <div className="text-[10px] uppercase tracking-[0.14em] text-[#5a5a63]">{label}</div>
-      <div className={`mt-1 truncate font-medium ${mobileMetaToneClass(tone)}`}>{value}</div>
+      <div className={`mt-1 truncate font-medium ${metaToneClass(tone)}`}>{value}</div>
     </div>
   )
 }
 
-function mobileMetaToneClass(tone?: MobileBridgeRelayStatus): string {
+function metaToneClass(tone?: MetaTone): string {
   switch (tone) {
-    case 'connected':
+    case 'positive':
       return 'text-[#b9f7c8]'
-    case 'connecting':
-    case 'retrying':
-      return 'text-[#ffd58a]'
-    case 'error':
-      return 'text-[#ffb3bf]'
+    case 'muted':
+      return 'text-[#9a9aa2]'
     default:
       return 'text-[#ececee]'
   }
@@ -638,11 +657,11 @@ function formatUpdateStatus(state: AppUpdateState | null): string {
   }
 }
 
-function formatNullableMobileDate(value: string | null | undefined): string {
-  return value ? formatMobileDate(value) : 'None'
+function formatNullableDate(value: string | null | undefined): string {
+  return value ? formatDate(value) : 'None'
 }
 
-function formatMobileDate(value: string): string {
+function formatDate(value: string): string {
   const time = Date.parse(value)
   if (Number.isNaN(time)) return value
   return new Date(time).toLocaleString()
