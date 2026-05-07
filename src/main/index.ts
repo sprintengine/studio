@@ -7,7 +7,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { autoUpdater } from 'electron-updater'
 import { rgPath } from '@vscode/ripgrep'
 import * as pty from 'node-pty'
-import type { MultiloopInitInput, MultiloopInitResult } from '../shared/electron-api'
+import type { MultiloopInitInput, MultiloopInitResult, SwarmArtifactCommandResult } from '../shared/electron-api'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
@@ -16,6 +16,13 @@ import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMobileBridgeIpc } from './ipc/mobile-bridge-ipc'
 import { registerMultiloopIpc } from './ipc/multiloop-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
+import {
+  registerSprintEngineIpc,
+  type SwarmArtifactOpenPayload,
+  type SwarmArtifactReviewAction,
+  type SwarmArtifactReviewMode,
+  type SwarmArtifactReviewPayload,
+} from './ipc/sprintengine-ipc'
 import { registerWindowIpc, sendWindowState } from './ipc/window-ipc'
 import {
   MobileBridge,
@@ -1963,24 +1970,6 @@ async function initializeMultiloopState(payload: MultiloopInitInput): Promise<Mu
   }
 }
 
-type SwarmArtifactCommandResult =
-  | { ok: true; data: unknown }
-  | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
-
-type SwarmArtifactOpenPayload = {
-  statePath: string
-  artifactPath: string
-}
-
-type SwarmArtifactReviewPayload = {
-  statePath: string
-  artifactId: string
-  feedback?: string
-}
-
-type SwarmArtifactReviewAction = 'approve' | 'request-changes'
-type SwarmArtifactReviewMode = 'user' | 'auto-run'
-
 type SprintEngineMcpActorContext = {
   id: string
   role: 'user'
@@ -2465,6 +2454,28 @@ async function reviewSwarmArtifact(
         tool: toolResult.response.result,
       },
     }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+async function openSwarmArtifact(payload: SwarmArtifactOpenPayload): Promise<SwarmArtifactCommandResult> {
+  try {
+    const state = validateSwarmStatePath(payload?.statePath)
+    const targetPath = resolveArtifactFilePath(state, payload?.artifactPath)
+
+    if (/^https?:\/\//i.test(targetPath)) {
+      await shell.openExternal(targetPath)
+      return { ok: true, data: { path: targetPath } }
+    }
+
+    const targetStats = await stat(targetPath)
+    if (!targetStats.isFile()) {
+      return { ok: false, message: 'Artifact path must be a file.' }
+    }
+
+    const content = await readFile(targetPath, 'utf8')
+    return { ok: true, data: { path: targetPath, name: basename(targetPath), content } }
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
@@ -3699,38 +3710,9 @@ ipcMain.handle('terminal:kill', (_, sessionId: string) => {
 // authenticated MCP authority, review actor selection, auto-run policy checks,
 // and fresh state snapshots after mutations.
 
-ipcMain.handle('sprintengine:artifact:open', async (_, payload: SwarmArtifactOpenPayload): Promise<SwarmArtifactCommandResult> => {
-  try {
-    const state = validateSwarmStatePath(payload?.statePath)
-    const targetPath = resolveArtifactFilePath(state, payload?.artifactPath)
-
-    if (/^https?:\/\//i.test(targetPath)) {
-      await shell.openExternal(targetPath)
-      return { ok: true, data: { path: targetPath } }
-    }
-
-    const targetStats = await stat(targetPath)
-    if (!targetStats.isFile()) {
-      return { ok: false, message: 'Artifact path must be a file.' }
-    }
-
-    const content = await readFile(targetPath, 'utf8')
-    return { ok: true, data: { path: targetPath, name: basename(targetPath), content } }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-})
-
-ipcMain.handle('sprintengine:artifact:approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
-  return reviewSwarmArtifact(payload, 'approve', 'user')
-})
-
-ipcMain.handle('sprintengine:artifact:auto-approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
-  return reviewSwarmArtifact(payload, 'approve', 'auto-run')
-})
-
-ipcMain.handle('sprintengine:artifact:request-changes', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
-  return reviewSwarmArtifact(payload, 'request-changes', 'user')
+registerSprintEngineIpc(ipcMain, {
+  openArtifact: openSwarmArtifact,
+  reviewArtifact: reviewSwarmArtifact,
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
