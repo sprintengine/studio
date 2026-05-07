@@ -1,9 +1,10 @@
 import { spawn } from 'child_process'
-import { createHash, randomUUID } from 'crypto'
+import { randomUUID } from 'crypto'
 import { access, readFile, stat } from 'fs/promises'
 import { constants, existsSync } from 'fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { readSwarmSnapshot } from './mobile-sprintengine-snapshot'
+import { cloneCommandResult, requestHashFor } from './mobile-sprintengine-command-cache'
 
 export const mobileControlProtocolVersion = 1 as const
 
@@ -1122,32 +1123,6 @@ function normalizeFollowUpText(value: string): string {
     throw new MobileSwarmCommandError('invalid_payload', `Follow-up text must be ${maxFollowUpCharacters} characters or less.`, false)
   }
   return text
-}
-
-function requestHashFor(command: MobileControlCommand): string {
-  const hashInput = stableJsonStringify({
-    protocolVersion: command.protocolVersion,
-    type: command.type,
-    expectedSnapshotVersion: command.expectedSnapshotVersion ?? null,
-    payload: command.payload,
-  })
-  return createHash('sha256').update(hashInput).digest('hex')
-}
-
-function stableJsonStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map((entry) => stableJsonStringify(entry)).join(',')}]`
-
-  const record = value as Record<string, unknown>
-  return `{${Object.keys(record)
-    .sort()
-    .filter((key) => record[key] !== undefined)
-    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
-    .join(',')}}`
-}
-
-function cloneCommandResult(result: MobileSwarmCommandResult): MobileSwarmCommandResult {
-  return JSON.parse(JSON.stringify(result)) as MobileSwarmCommandResult
 }
 
 function requireString(record: Record<string, unknown>, field: string): string | null {
