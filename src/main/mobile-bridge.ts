@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron'
 import { mkdir, readFile, writeFile } from 'fs/promises'
-import { createHash, randomBytes, randomUUID } from 'crypto'
+import { randomUUID } from 'crypto'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import {
   MobileSwarmCommandService,
@@ -10,6 +10,7 @@ import {
 import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile-sprintengine-activity'
 import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile-sprintengine-snapshot'
 import { getErrorMessage } from './error-message'
+import { hashSecret, randomBase64Url } from './mobile-bridge-crypto'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -1605,14 +1606,6 @@ function isCurrentMobilePairingUri(pairingUri: string): boolean {
   } catch {
     return false
   }
-}
-
-function randomBase64Url(byteLength: number): string {
-  return randomBytes(byteLength).toString('base64url')
-}
-
-function hashSecret(secret: string): string {
-  return createHash('sha256').update(secret).digest('hex')
 }
 
 function isMobileControlDevice(input: unknown): input is MobileControlDevice {
