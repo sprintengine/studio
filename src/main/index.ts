@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Menu, safeStorage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, safeStorage, type WebContents } from 'electron'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { access, appendFile, chmod, lstat, mkdir, readdir, readFile, realpath, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
@@ -31,6 +31,7 @@ import {
   type SwarmArtifactReviewMode,
   type SwarmArtifactReviewPayload,
 } from './ipc/sprintengine-ipc'
+import { registerTerminalIpc, type TerminalSpawnPayload } from './ipc/terminal-ipc'
 import { registerWindowIpc, sendWindowState } from './ipc/window-ipc'
 import {
   MobileBridge,
@@ -1399,29 +1400,6 @@ type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 type CliRuntimeSettings = {
   command: string
   useWsl: boolean
-}
-
-type TerminalSpawnPayload = {
-  sessionId: string
-  cols: number
-  rows: number
-  cwd?: string
-  resume?: boolean
-  swarmStatePath?: string
-  cli?: AgentCli
-  initialPrompt?: string
-  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
-  shellOnly?: boolean
-  kind?: TerminalKind
-  workspaceId?: string
-  agentId?: string
-  terminalId?: string
-  executionMode?: AgentExecutionMode
-  worktreeId?: string
-  worktreePath?: string
-  cliPermissionPreset?: SwarmCliPermissionPreset
-  memoryRootPath?: string
-  memoryRelativeRoot?: string
 }
 
 type TerminalSessionSnapshot = {
@@ -3409,9 +3387,9 @@ registerMobileBridgeIpc(ipcMain, {
   },
 })
 
-ipcMain.handle(
-  'terminal:spawn',
-  async (event, {
+async function spawnTerminalFromIpc(
+  sender: WebContents,
+  {
     sessionId,
     cols,
     rows,
@@ -3432,10 +3410,11 @@ ipcMain.handle(
     cliPermissionPreset = 'default',
     memoryRootPath,
     memoryRelativeRoot,
-  }: TerminalSpawnPayload) => {
+  }: TerminalSpawnPayload
+): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
     if (existingSession && !existingSession.hasExited && !existingSession.isDisposed) {
-      existingSession.sender = event.sender
+      existingSession.sender = sender
       existingSession.workspaceId = workspaceId ?? existingSession.workspaceId
       existingSession.agentId = agentId ?? existingSession.agentId
       existingSession.terminalId = terminalId ?? existingSession.terminalId
@@ -3446,7 +3425,7 @@ ipcMain.handle(
       safeResizeTerminal(sessionId, cols, rows)
       const replay = materializeTerminalReplay(existingSession)
       if (replay) {
-        sendTerminalEvent(event.sender, `terminal:data:${sessionId}`, replay)
+        sendTerminalEvent(sender, `terminal:data:${sessionId}`, replay)
       }
       broadcastTerminalSessionsChanged()
       return { ok: true, sessionId } satisfies TerminalSpawnResult
@@ -3461,8 +3440,8 @@ ipcMain.handle(
           requireAuthenticatedMulticodeUser('Sign in to launch Sprint Engine specialist workflows from the app.')
         } catch (error) {
           const message = getErrorMessage(error)
-          sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, message)
-          sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, 1)
+          sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
+          sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
           return {
             ok: false,
             sessionId,
@@ -3500,7 +3479,7 @@ ipcMain.handle(
       const terminalSession: TerminalSession = {
         sessionId,
         process: termProcess,
-        sender: event.sender,
+        sender,
         isReady: process.platform !== 'win32',
         hasExited: false,
         isDisposed: false,
@@ -3560,8 +3539,8 @@ ipcMain.handle(
       return { ok: true, sessionId } satisfies TerminalSpawnResult
     } catch (error) {
       const message = getTerminalErrorMessage(error)
-      sendTerminalEvent(event.sender, `terminal:error:${sessionId}`, message)
-      sendTerminalEvent(event.sender, `terminal:exit:${sessionId}`, 1)
+      sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
+      sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
       return {
         ok: false,
         sessionId,
@@ -3569,10 +3548,9 @@ ipcMain.handle(
         exitCode: 1,
       } satisfies TerminalSpawnResult
     }
-  }
-)
+}
 
-ipcMain.handle('terminal:write', (_, { sessionId, data }: { sessionId: string; data: string }) => {
+function writeTerminalInput(sessionId: string, data: string): void {
   const startedAt = Date.now()
   const session = terminals.get(sessionId)
   if (!session || session.hasExited || session.isDisposed) return
@@ -3585,46 +3563,24 @@ ipcMain.handle('terminal:write', (_, { sessionId, data }: { sessionId: string; d
     session.hasExited = true
     recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, false)
   }
-})
+}
 
-ipcMain.on('terminal:write-fast', (_, payload: unknown) => {
-  if (!payload || typeof payload !== 'object') return
-  const { sessionId, data } = payload as { sessionId?: unknown; data?: unknown }
-  if (typeof sessionId !== 'string' || typeof data !== 'string') return
-
-  const startedAt = Date.now()
-  const session = terminals.get(sessionId)
-  if (!session || session.hasExited || session.isDisposed) return
-
-  try {
-    session.lastInputAt = Date.now()
-    session.process.write(data)
-    recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, true)
-  } catch {
-    session.hasExited = true
-    recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, false)
-  }
-})
-
-ipcMain.handle('terminal:resize', (_, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
-  safeResizeTerminal(sessionId, cols, rows)
-})
-
-ipcMain.handle('terminal:status', (_, sessionId: string) => {
-  const session = terminals.get(sessionId)
-  return {
-    running: Boolean(session && !session.hasExited && !session.isDisposed),
-  }
-})
-
-ipcMain.handle('terminal:list', () => {
-  return [...terminals.values()]
-    .filter((session) => !session.hasExited && !session.isDisposed)
-    .map(getTerminalSnapshot)
-})
-
-ipcMain.handle('terminal:kill', (_, sessionId: string) => {
-  disposeTerminal(sessionId)
+registerTerminalIpc(ipcMain, {
+  spawnTerminal: spawnTerminalFromIpc,
+  writeTerminal: writeTerminalInput,
+  resizeTerminal: safeResizeTerminal,
+  getTerminalStatus(sessionId) {
+    const session = terminals.get(sessionId)
+    return {
+      running: Boolean(session && !session.hasExited && !session.isDisposed),
+    }
+  },
+  listTerminals() {
+    return [...terminals.values()]
+      .filter((session) => !session.hasExited && !session.isDisposed)
+      .map(getTerminalSnapshot)
+  },
+  killTerminal: disposeTerminal,
 })
 
 // ── SprintEngine artifact IPC handlers ──────────────────────────────────────────────
