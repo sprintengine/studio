@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, Menu, safeStorage, type WebContents } from 'electron'
-import { access, mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
-import { dirname, extname, join, parse, resolve } from 'path'
+import { access, mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises'
+import { dirname, extname, join, resolve } from 'path'
 import { createHash, randomBytes } from 'crypto'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
@@ -41,6 +41,7 @@ import { assertNotDirectSwarmStateMutation } from './sprintengine-state-guard'
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
 import { readMultiloopAgentSoul, readSpecialistSoul } from './souls-service'
 import { createAppMenu } from './app-menu'
+import { getUniqueCopyPath } from './filesystem-copy'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -1895,7 +1896,8 @@ registerSoulsIpc(ipcMain, {
 
 registerFilesystemMutationIpc(ipcMain, {
   assertNotDirectSwarmStateMutation,
-  getUniqueCopyPath,
+  getUniqueCopyPath: (destinationDir, sourceName, sourcePath) =>
+    getUniqueCopyPath(destinationDir, sourceName, sourcePath, pathExists),
   pathExists,
   async trashItem(targetPath) {
     await shell.trashItem(targetPath)
@@ -1909,45 +1911,6 @@ registerGitIpc(ipcMain, {
 })
 
 registerMenuDialogIpc(ipcMain)
-
-async function getUniqueCopyPath(
-  destinationDir: string,
-  sourceName: string,
-  sourcePath: string
-): Promise<string> {
-  const base = await buildCopyBaseName(sourceName, sourcePath)
-  let attempt = 0
-
-  while (true) {
-    const candidateName = attempt === 0 ? base.first : base.next(attempt + 1)
-    const candidatePath = join(destinationDir, candidateName)
-    if (!(await pathExists(candidatePath))) {
-      return candidatePath
-    }
-    attempt += 1
-  }
-}
-
-async function buildCopyBaseName(
-  sourceName: string,
-  sourcePath: string
-): Promise<{ first: string; next: (count: number) => string }> {
-  const sourceStats = await stat(sourcePath)
-  const sourceIsDirectory = sourceStats.isDirectory()
-
-  if (sourceIsDirectory) {
-    return {
-      first: `${sourceName} copy`,
-      next: (count) => `${sourceName} copy ${count}`,
-    }
-  }
-
-  const parsed = parse(sourceName)
-  return {
-    first: `${parsed.name} copy${parsed.ext}`,
-    next: (count) => `${parsed.name} copy ${count}${parsed.ext}`,
-  }
-}
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
