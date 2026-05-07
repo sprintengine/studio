@@ -1,5 +1,3 @@
-import { readFile } from 'fs/promises'
-import { basename, dirname } from 'path'
 import {
   MobileSwarmCommandService,
   type MobileControlCommand,
@@ -15,13 +13,13 @@ import { FetchMobileRelayTransport } from './mobile-relay-transport'
 import {
   isMobileBridgePresence,
 } from './mobile-bridge-validation'
-import { resolveArtifactPathForRead } from './mobile-bridge-artifact-path'
 import {
   acceptedBridgeCommand,
   failedCommandResult,
   relayCommandTypeToMobile,
   summarizeCommandResult,
 } from './mobile-bridge-command-results'
+import { dispatchArtifactRead } from './mobile-bridge-artifact-read'
 import { stringPayload } from './mobile-bridge-command-payload'
 import { authorizeRelayCommand } from './mobile-bridge-relay-auth'
 import { upsertRelayDevice } from './mobile-bridge-relay-device'
@@ -862,7 +860,12 @@ export class MobileBridge {
       case 'snapshot.request':
         return this.dispatchSnapshotRequest(command)
       case 'artifact.read':
-        return this.dispatchArtifactRead(command)
+        return dispatchArtifactRead({
+          command,
+          snapshotService: this.snapshotService,
+          desktopSessionId: this.desktopRelaySessionId ?? this.desktopInstanceId,
+          statePathsProvider: this.statePathsProvider,
+        })
       case 'device.revoke':
         return this.dispatchDeviceRevoke(command)
       case 'sprintengine.create':
@@ -881,37 +884,6 @@ export class MobileBridge {
       statePaths,
     })
     return acceptedBridgeCommand(command, snapshot)
-  }
-
-  private async dispatchArtifactRead(command: MobileControlCommand): Promise<MobileSwarmCommandResult> {
-    const swarmId = stringPayload(command.payload, 'swarmId')
-    const artifactId = stringPayload(command.payload, 'artifactId')
-    const previewMode = stringPayload(command.payload, 'previewMode')
-    if (previewMode !== 'text' && previewMode !== 'markdown') {
-      return failedCommandResult(command, 'path_not_allowed', 'Only text and markdown artifact preview modes are supported.')
-    }
-
-    const statePaths = await this.statePathsProvider()
-    const snapshot = await this.snapshotService.readSnapshot({
-      desktopSessionId: this.desktopRelaySessionId ?? this.desktopInstanceId,
-      statePaths,
-    })
-    const sprintengine = snapshot.swarms.find((candidate) => candidate.swarmId === swarmId)
-    const artifact = sprintengine?.artifacts.find((candidate) => candidate.artifactId === artifactId)
-    if (!sprintengine || !artifact?.path) {
-      return failedCommandResult(command, 'artifact_not_found', 'Requested artifact was not found.')
-    }
-
-    const artifactPath = resolveArtifactPathForRead(dirname(sprintengine.statePath), sprintengine.workspacePath, artifact.path)
-    const content = await readFile(artifactPath, 'utf8')
-    return acceptedBridgeCommand(command, {
-      artifactId,
-      swarmId,
-      previewMode,
-      path: artifact.path,
-      name: basename(artifactPath),
-      content,
-    })
   }
 
   private async dispatchDeviceRevoke(command: MobileControlCommand): Promise<MobileSwarmCommandResult> {
