@@ -24,6 +24,7 @@ import {
   type TerminalSession,
 } from './terminal-session'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
+import { createTerminalOutputBuffer } from './terminal-output-buffer'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -82,19 +83,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
 
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
-const TERMINAL_INTERACTIVE_DATA_BATCH_MS = 0
-const TERMINAL_DATA_BATCH_MS = 16
-const TERMINAL_RECENT_INPUT_WINDOW_MS = 250
-const TERMINAL_INTERACTIVE_DATA_LIMIT = 4096
-const TERMINAL_PENDING_DATA_LIMIT = 256 * 1024
 const terminals = new Map<string, TerminalSession>()
-const pendingTerminalData = new Map<string, {
-  sender: Electron.WebContents
-  channel: string
-  chunks: string[]
-  bytes: number
-  timer: NodeJS.Timeout
-}>()
 function sendTerminalEvent(
   sender: Electron.WebContents,
   channel: string,
@@ -104,6 +93,14 @@ function sendTerminalEvent(
     sender.send(channel, payload)
   }
 }
+
+const terminalOutput = createTerminalOutputBuffer({
+  getSession: (sessionId) => terminals.get(sessionId),
+  sendTerminalEvent,
+  recordDataBatch: (session, cause, chunkCount, byteCount) => {
+    terminalDiagnostics.recordDataBatch(session, cause, chunkCount, byteCount)
+  },
+})
 
 function broadcastTerminalSessionsChanged(): void {
   const snapshots = [...terminals.values()]
@@ -115,93 +112,6 @@ function broadcastTerminalSessionsChanged(): void {
       win.webContents.send('terminal:sessions-changed', snapshots)
     }
   }
-}
-
-function trimPendingTerminalChunks(chunks: string[], maxBytes: number): { chunks: string[]; bytes: number; dropped: boolean } {
-  let bytes = 0
-  const retained: string[] = []
-
-  for (let index = chunks.length - 1; index >= 0; index -= 1) {
-    const chunk = chunks[index] ?? ''
-    const chunkBytes = Buffer.byteLength(chunk)
-    if (bytes + chunkBytes <= maxBytes) {
-      retained.unshift(chunk)
-      bytes += chunkBytes
-      continue
-    }
-
-    const remainingBytes = maxBytes - bytes
-    if (remainingBytes > 0) {
-      const tail = Buffer.from(chunk)
-        .subarray(Math.max(0, chunkBytes - remainingBytes))
-        .toString('utf8')
-      retained.unshift(tail)
-      bytes += Buffer.byteLength(tail)
-    }
-    retained.unshift('\r\n[Multicode: terminal output throttled to keep the UI responsive]\r\n')
-    return {
-      chunks: retained,
-      bytes: retained.reduce((total, value) => total + Buffer.byteLength(value), 0),
-      dropped: true,
-    }
-  }
-
-  return { chunks: retained, bytes, dropped: false }
-}
-
-function flushTerminalData(sessionId: string, cause: 'timer' | 'exit' | 'dispose' = 'timer'): void {
-  const pending = pendingTerminalData.get(sessionId)
-  if (!pending) return
-
-  pendingTerminalData.delete(sessionId)
-  clearTimeout(pending.timer)
-  const data = pending.chunks.join('')
-  sendTerminalEvent(pending.sender, pending.channel, data)
-  terminalDiagnostics.recordDataBatch(
-    terminals.get(sessionId),
-    cause,
-    pending.chunks.length,
-    Buffer.byteLength(data)
-  )
-}
-
-function sendTerminalData(session: TerminalSession, data: string): void {
-  const channel = `terminal:data:${session.sessionId}`
-  const pending = pendingTerminalData.get(session.sessionId)
-  if (pending) {
-    pending.sender = session.sender
-    pending.channel = channel
-    pending.chunks.push(data)
-    pending.bytes += Buffer.byteLength(data)
-    if (pending.bytes > TERMINAL_PENDING_DATA_LIMIT) {
-      const trimmed = trimPendingTerminalChunks(pending.chunks, TERMINAL_PENDING_DATA_LIMIT)
-      pending.chunks = trimmed.chunks
-      pending.bytes = trimmed.bytes
-    }
-    return
-  }
-
-  const delayMs = getTerminalDataBatchDelay(session, data)
-  const timer = setTimeout(() => {
-    flushTerminalData(session.sessionId, 'timer')
-  }, delayMs)
-  pendingTerminalData.set(session.sessionId, {
-    sender: session.sender,
-    channel,
-    chunks: [data],
-    bytes: Buffer.byteLength(data),
-    timer,
-  })
-}
-
-function getTerminalDataBatchDelay(session: TerminalSession, data: string): number {
-  const recentInput = session.lastInputAt !== null
-    && Date.now() - session.lastInputAt <= TERMINAL_RECENT_INPUT_WINDOW_MS
-  const smallOutput = Buffer.byteLength(data) <= TERMINAL_INTERACTIVE_DATA_LIMIT
-
-  return recentInput && smallOutput
-    ? TERMINAL_INTERACTIVE_DATA_BATCH_MS
-    : TERMINAL_DATA_BATCH_MS
 }
 
 function getTerminalErrorMessage(error: unknown): string {
@@ -245,7 +155,7 @@ function disposeTerminal(sessionId: string): void {
   if (!session) return
 
   cleanupTerminalStartupScript(session.startupScriptPath)
-  flushTerminalData(sessionId, 'dispose')
+  terminalOutput.flush(sessionId, 'dispose')
   terminalDiagnostics.clear(sessionId)
   session.isDisposed = true
   session.hasExited = true
@@ -382,11 +292,11 @@ async function spawnMobileAgentTerminal(input: {
         flushPendingTerminalResize(input.sessionId, terminalSession)
       }
       appendTerminalOutput(terminalSession, data)
-      sendTerminalData(terminalSession, data)
+      terminalOutput.send(terminalSession, data)
     })
     termProcess.onExit((event) => {
       cleanupTerminalStartupScript(terminalSession.startupScriptPath)
-      flushTerminalData(input.sessionId, 'exit')
+      terminalOutput.flush(input.sessionId, 'exit')
       terminalDiagnostics.clear(input.sessionId)
       terminalSession.hasExited = true
       if (terminals.get(input.sessionId) === terminalSession) {
@@ -533,12 +443,12 @@ async function spawnTerminalFromIpc(
           flushPendingTerminalResize(sessionId, terminalSession)
         }
         appendTerminalOutput(terminalSession, data)
-        sendTerminalData(terminalSession, data)
+        terminalOutput.send(terminalSession, data)
       })
 
       termProcess.onExit((e) => {
         cleanupTerminalStartupScript(terminalSession.startupScriptPath)
-        flushTerminalData(sessionId, 'exit')
+        terminalOutput.flush(sessionId, 'exit')
         terminalDiagnostics.clear(sessionId)
         terminalSession.hasExited = true
         if (terminals.get(sessionId) === terminalSession) {
