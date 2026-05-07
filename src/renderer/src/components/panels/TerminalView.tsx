@@ -11,6 +11,7 @@ import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdenti
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
+import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 
 interface Props {
   workspaceId: string
@@ -226,63 +227,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       term.focus()
     }
 
-    const copySelection = async () => {
-      const selection = term.getSelection()
-      if (!selection) return
-      await navigator.clipboard.writeText(selection)
-    }
-
-    const pasteText = async (text: string) => {
-      if (!text) return
-      await window.api.terminalWrite(sessionId, text.replace(/\r?\n/g, '\r'))
-      focusTerminal()
-    }
-
-    const handleCopy = (event: ClipboardEvent) => {
-      const selection = term.getSelection()
-      if (!selection) return
-      event.preventDefault()
-      event.clipboardData?.setData('text/plain', selection)
-      void navigator.clipboard.writeText(selection).catch(() => {})
-    }
-
-    const handlePaste = (event: ClipboardEvent) => {
-      const text = event.clipboardData?.getData('text/plain') ?? ''
-      if (!text) return
-      event.preventDefault()
-      void pasteText(text)
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      terminalDiagnostics.recordContainerKeydown(event)
-      const mod = event.ctrlKey || event.metaKey
-      if (!mod) return
-
-      const key = event.key.toLowerCase()
-      if (key === 'c' && event.shiftKey) {
-        event.preventDefault()
-        void copySelection().catch(() => {})
-      }
-
-      if (key === 'v' && event.shiftKey) {
-        event.preventDefault()
-        void navigator.clipboard.readText().then(pasteText).catch(() => {})
-      }
-    }
-
-    const handleContextMenu = (event: MouseEvent) => {
-      event.preventDefault()
-
-      if (term.hasSelection()) {
-        void copySelection().catch(() => {})
-        focusTerminal()
-        return
-      }
-
-      void navigator.clipboard.readText().then(pasteText).catch(() => {})
-      focusTerminal()
-    }
-
     term.loadAddon(fitAddon)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type === 'keydown') {
@@ -378,10 +322,13 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     container.addEventListener('mouseup', focusTerminal)
     container.addEventListener('click', focusTerminal)
     container.addEventListener('focus', focusTerminal)
-    container.addEventListener('copy', handleCopy)
-    container.addEventListener('paste', handlePaste)
-    container.addEventListener('keydown', handleKeyDown)
-    container.addEventListener('contextmenu', handleContextMenu)
+    const disposeClipboardHandlers = bindTerminalClipboardHandlers({
+      container,
+      term,
+      sessionId,
+      focusTerminal,
+      recordKeydown: terminalDiagnostics.recordContainerKeydown,
+    })
 
     const ensureSpecialistStartupPrompt = async (promptAlreadySentForActiveSession: boolean) => {
       if (startupPromptRef.current || promptAlreadySentForActiveSession) return
@@ -517,10 +464,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       container.removeEventListener('mouseup', focusTerminal)
       container.removeEventListener('click', focusTerminal)
       container.removeEventListener('focus', focusTerminal)
-      container.removeEventListener('copy', handleCopy)
-      container.removeEventListener('paste', handlePaste)
-      container.removeEventListener('keydown', handleKeyDown)
-      container.removeEventListener('contextmenu', handleContextMenu)
+      disposeClipboardHandlers()
       disposeData()
       disposeExit()
       disposeError()
