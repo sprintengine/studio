@@ -43,6 +43,7 @@ import { readMultiloopAgentSoul, readSpecialistSoul } from './souls-service'
 import { createAppMenu } from './app-menu'
 import { getUniqueCopyPath } from './filesystem-copy'
 import { createMainWindow } from './window-factory'
+import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -777,7 +778,7 @@ const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
   accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
   commandService: createMobileCommandService(),
   snapshotService: mobileSnapshotService,
-  statePathsProvider: discoverMobileSwarmStatePaths,
+  statePathsProvider: () => discoverMobileSwarmStatePaths(mobileWorkspaceRoots),
 })
 
 function signedOutAuthState(message: string | null): MulticodeAuthState {
@@ -1508,32 +1509,6 @@ async function spawnMobileAgentTerminal(input: {
   } catch (error) {
     return { ok: false, message: getTerminalErrorMessage(error) }
   }
-}
-
-async function discoverMobileSwarmStatePaths(): Promise<string[]> {
-  const roots = mobileWorkspaceRoots.length > 0 ? mobileWorkspaceRoots : [process.cwd()]
-  const statePathGroups = await Promise.all(roots.map((root) => discoverSprintEngineStatePaths(root)))
-  return [...new Set(statePathGroups.flat())]
-}
-
-async function discoverSprintEngineStatePaths(workspaceRoot: string): Promise<string[]> {
-  const swarmRoot = join(workspaceRoot, '.multi-code', 'sprintengine')
-  let entries
-  try {
-    entries = await readdir(swarmRoot, { withFileTypes: true })
-  } catch {
-    return []
-  }
-
-  const statePaths = await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map(async (entry) => {
-        const statePath = join(swarmRoot, entry.name, 'state.yaml')
-        return (await pathExists(statePath)) ? statePath : null
-      })
-  )
-  return statePaths.filter((statePath): statePath is string => Boolean(statePath))
 }
 
 registerWindowIpc(ipcMain)
