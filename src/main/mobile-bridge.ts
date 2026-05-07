@@ -5,17 +5,15 @@ import {
   type MobileControlCommand,
   type MobileSwarmCommandResult,
 } from './mobile-sprintengine-command'
-import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile-sprintengine-activity'
+import type { MobilePushRegistrationTarget } from './mobile-sprintengine-activity'
 import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile-sprintengine-snapshot'
 import { getErrorMessage } from './error-message'
-import { hashSecret, randomBase64Url } from './mobile-bridge-crypto'
+import { hashSecret } from './mobile-bridge-crypto'
 import { getDesktopDisplayName } from './mobile-bridge-desktop'
 import { manualPairingValueFromRelayChallenge } from './mobile-bridge-pairing'
 import { FetchMobileRelayTransport } from './mobile-relay-transport'
 import {
   isMobileBridgePresence,
-  isMobilePushProvider,
-  redactPushRegistration,
 } from './mobile-bridge-validation'
 import { resolveArtifactPathForRead } from './mobile-bridge-artifact-path'
 import {
@@ -34,6 +32,13 @@ import {
   emitMobileBridgeStateChanged,
   recordMobileBridgeDiagnostic,
 } from './mobile-bridge-notifications'
+import {
+  listActiveMobilePushTargets,
+  listMobilePushRegistrations,
+  registerMobilePushToken,
+  revokeMobilePushRegistration,
+  revokePushRegistrationsForDevice,
+} from './mobile-bridge-push'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -502,7 +507,7 @@ export class MobileBridge {
     if (!device.revokedAt) {
       const revokedAt = new Date().toISOString()
       device.revokedAt = revokedAt
-      this.revokePushRegistrationsForDevice(device.deviceId, revokedAt)
+      revokePushRegistrationsForDevice(this.pushRegistrations, device.deviceId, revokedAt)
       this.recordDiagnostic(
         'info',
         'device_revoked',
@@ -520,43 +525,7 @@ export class MobileBridge {
     await this.load()
     this.assertEnabled()
 
-    const device = this.pairedDevices.find((candidate) => candidate.deviceId === input.deviceId)
-    if (!device || device.revokedAt) {
-      throw new Error('Push registration requires an active paired mobile device.')
-    }
-    if (!isMobilePushProvider(input.provider)) {
-      throw new Error('Unsupported mobile push provider.')
-    }
-
-    const token = input.token.trim()
-    if (token.length < 16 || token.length > 4096) {
-      throw new Error('Push token length is invalid.')
-    }
-
-    const tokenHash = pushTokenHash(token)
-    const existing = this.pushRegistrations.find((registration) =>
-      registration.deviceId === device.deviceId
-      && registration.provider === input.provider
-      && registration.tokenHash === tokenHash
-    )
-    const registeredAt = new Date().toISOString()
-
-    if (existing) {
-      existing.revokedAt = undefined
-      existing.registeredAt = registeredAt
-      await this.persist()
-      return existing
-    }
-
-    const registration: MobilePushRegistration = {
-      protocolVersion: mobileControlProtocolVersion,
-      registrationId: `mpr_${randomBase64Url(18)}`,
-      deviceId: device.deviceId,
-      provider: input.provider,
-      tokenHash,
-      registeredAt,
-    }
-    this.pushRegistrations.push(registration)
+    const registration = registerMobilePushToken(this.pairedDevices, this.pushRegistrations, input)
     await this.persist()
     return registration
   }
@@ -565,34 +534,19 @@ export class MobileBridge {
     await this.load()
     this.assertEnabled()
 
-    const registration = this.pushRegistrations.find((candidate) => candidate.registrationId === registrationId)
-    if (!registration) {
-      throw new Error('Push registration was not found.')
-    }
-
-    registration.revokedAt = registration.revokedAt ?? new Date().toISOString()
+    const registration = revokeMobilePushRegistration(this.pushRegistrations, registrationId)
     await this.persist()
     return registration
   }
 
   async listPushRegistrations(): Promise<MobilePushRegistration[]> {
     await this.load()
-    return this.pushRegistrations.map(redactPushRegistration)
+    return listMobilePushRegistrations(this.pushRegistrations)
   }
 
   async listActivePushTargets(): Promise<MobilePushRegistrationTarget[]> {
     await this.load()
-    const activeDeviceIds = new Set(
-      this.pairedDevices
-        .filter((device) => !device.revokedAt)
-        .map((device) => device.deviceId)
-    )
-    return this.pushRegistrations
-      .filter((registration) => activeDeviceIds.has(registration.deviceId) && !registration.revokedAt)
-      .map((registration) => ({
-        deviceId: registration.deviceId,
-        registrationId: registration.registrationId,
-      }))
+    return listActiveMobilePushTargets(this.pairedDevices, this.pushRegistrations)
   }
 
   async publishPresence(presence: MobileBridgePresence): Promise<MobileBridgeState> {
@@ -826,14 +780,6 @@ export class MobileBridge {
   private get storePath(): string {
     if (this.storePathOverride) return this.storePathOverride
     return getDefaultMobileBridgeStorePath()
-  }
-
-  private revokePushRegistrationsForDevice(deviceId: string, revokedAt: string): void {
-    for (const registration of this.pushRegistrations) {
-      if (registration.deviceId === deviceId && !registration.revokedAt) {
-        registration.revokedAt = revokedAt
-      }
-    }
   }
 
   private startCommandPolling(): void {
