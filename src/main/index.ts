@@ -814,6 +814,7 @@ class MulticodeAuthBridge {
 
 const multicodeAuth = new MulticodeAuthBridge()
 const mobileSnapshotService = new MobileSwarmSnapshotService()
+let mobileWorkspaceRoots: string[] = []
 const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
   accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
   commandService: createMobileCommandService(),
@@ -3500,7 +3501,13 @@ async function spawnMobileAgentTerminal(input: {
 }
 
 async function discoverMobileSwarmStatePaths(): Promise<string[]> {
-  const swarmRoot = join(process.cwd(), '.multi-code', 'sprintengine')
+  const roots = mobileWorkspaceRoots.length > 0 ? mobileWorkspaceRoots : [process.cwd()]
+  const statePathGroups = await Promise.all(roots.map((root) => discoverSprintEngineStatePaths(root)))
+  return [...new Set(statePathGroups.flat())]
+}
+
+async function discoverSprintEngineStatePaths(workspaceRoot: string): Promise<string[]> {
+  const swarmRoot = join(workspaceRoot, '.multi-code', 'sprintengine')
   let entries
   try {
     entries = await readdir(swarmRoot, { withFileTypes: true })
@@ -3604,6 +3611,20 @@ ipcMain.handle('mobile-bridge:publish-presence', (_, presence: MobileBridgePrese
 })
 
 ipcMain.handle('mobile-bridge:get-diagnostics', () => mobileBridge.getDiagnostics())
+
+ipcMain.handle('mobile-bridge:update-workspace-roots', (_, roots: unknown) => {
+  if (!Array.isArray(roots)) {
+    mobileWorkspaceRoots = []
+    return { roots: mobileWorkspaceRoots }
+  }
+
+  mobileWorkspaceRoots = [...new Set(
+    roots
+      .filter((root): root is string => typeof root === 'string' && root.trim().length > 0)
+      .map((root) => resolve(root))
+  )]
+  return { roots: mobileWorkspaceRoots }
+})
 
 ipcMain.handle(
   'terminal:spawn',

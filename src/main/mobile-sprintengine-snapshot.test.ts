@@ -14,6 +14,7 @@ void main()
 async function main(): Promise<void> {
   await assertFixtureSnapshotMatchesDesktopBoardCounts()
   await assertSnapshotOmitsNonMobileStatePayloads()
+  await assertSnapshotSkipsMalformedStateFiles()
   await assertPublishingIsThrottled()
 }
 
@@ -130,12 +131,42 @@ async function assertPublishingIsThrottled(): Promise<void> {
   service.shutdown()
 }
 
+async function assertSnapshotSkipsMalformedStateFiles(): Promise<void> {
+  const validStatePath = await writeStateFixture({
+    sprintengine: { name: 'Valid Snapshot', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const malformedStatePath = await writeStateText(
+    `${String.raw`{"sprintengine":{"name":"Bad"},"tasks":[{"evidence":{"commandsRan":[".multi-code\sprintengine\state.yaml"]}}]}`}\n`
+  )
+  const service = new MobileSwarmSnapshotService()
+
+  const snapshot = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    statePaths: [malformedStatePath, validStatePath],
+    generatedAt,
+  })
+
+  assert.deepEqual(snapshot.swarms.map((swarm) => swarm.name), ['Valid Snapshot'])
+  service.shutdown()
+}
+
 async function writeStateFixture(state: Record<string, unknown>): Promise<string> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-snapshot-'))
   const teamDirectory = join(workspacePath, '.multi-code', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'state.yaml')
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+  return statePath
+}
+
+async function writeStateText(content: string): Promise<string> {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-snapshot-'))
+  const teamDirectory = join(workspacePath, '.multi-code', 'sprintengine', 'team')
+  await mkdir(teamDirectory, { recursive: true })
+  const statePath = join(teamDirectory, 'state.yaml')
+  await writeFile(statePath, content, 'utf8')
   return statePath
 }
 

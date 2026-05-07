@@ -503,6 +503,7 @@ declare global {
       mobileBridgeRevokeDevice: (deviceId: string, reason?: string) => Promise<MobileControlDevice>
       mobileBridgePublishPresence: (presence: MobileBridgePresence) => Promise<MobileBridgeState>
       mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
+      mobileBridgeUpdateWorkspaceRoots: (roots: string[]) => Promise<{ roots: string[] }>
       onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void) => () => void
       readdir:   (path: string) => Promise<{ name: string; isDir: boolean }[]>
       searchFiles: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }) => Promise<FileSearchResult>

@@ -101,9 +101,10 @@ export class MobileSwarmSnapshotService {
 
   async readSnapshot(request: MobileSwarmSnapshotRequest): Promise<MobileControlSnapshot> {
     const generatedAt = request.generatedAt ?? new Date().toISOString()
-    const swarms = await Promise.all(
+    const settledSwarms = await Promise.allSettled(
       request.statePaths.map((statePath) => readSwarmSnapshot(statePath))
     )
+    const swarms = settledSwarms.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
 
     return {
       protocolVersion: mobileControlProtocolVersion,

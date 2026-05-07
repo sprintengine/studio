@@ -299,6 +299,10 @@ export default function WorkspaceManager() {
   const clearNotifications = useNotificationStore((s) => s.clearAll)
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
+  const mobileWorkspaceRootKey = workspaces
+    .map((workspace) => workspace.folderPath)
+    .filter((folderPath): folderPath is string => Boolean(folderPath?.trim()))
+    .join('\n')
   const selectedCliOption = AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === lastSelectedCli) ?? AGENT_SPAWN_CLI_OPTIONS[0]
   const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
   const selectedMultiloopSoul = getMultiloopAgentSoul(lastSelectedMultiloopRole)
@@ -432,6 +436,11 @@ export default function WorkspaceManager() {
     Object.values(workspaceLayoutUnloadTimersRef.current).forEach((timer) => window.clearTimeout(timer))
     workspaceLayoutUnloadTimersRef.current = {}
   }, [])
+
+  useEffect(() => {
+    const roots = mobileWorkspaceRootKey.split('\n').filter(Boolean)
+    void window.api.mobileBridgeUpdateWorkspaceRoots(roots).catch(() => {})
+  }, [mobileWorkspaceRootKey])
 
   useEffect(() => {
     if (workspaces.length === 0) setShowTemplateSelector(true)
