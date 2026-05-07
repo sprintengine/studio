@@ -2,10 +2,17 @@ import { spawn } from 'child_process'
 import { randomUUID } from 'crypto'
 import { access, readFile, stat } from 'fs/promises'
 import { constants, existsSync } from 'fs'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import { readSwarmSnapshot } from './mobile-sprintengine-snapshot'
 import { cloneCommandResult, requestHashFor } from './mobile-sprintengine-command-cache'
 import { buildError, validateMobileControlCommand } from './mobile-sprintengine-command-validation'
+import {
+  isPathInsideOrEqual,
+  isSafePathSegment,
+  mobileActorId,
+  safeSlug,
+  uniqueResolved,
+} from './mobile-sprintengine-path-utils'
 
 export const mobileControlProtocolVersion = 1 as const
 
@@ -965,31 +972,6 @@ function validateSwarmStatePath(input: string): ValidSwarmStatePath {
   }
 
   return { statePath, teamDirectory, workspaceRoot }
-}
-
-function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
-  const relativePath = relative(resolve(parentPath), resolve(targetPath))
-  return (
-    relativePath === ''
-    || (!relativePath.startsWith('..') && !isAbsolute(relativePath) && !relativePath.split(sep).includes('..'))
-  )
-}
-
-function uniqueResolved(paths: string[]): string[] {
-  return [...new Set(paths.map((path) => resolve(path)))]
-}
-
-function isSafePathSegment(value: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(value) && value !== '.' && value !== '..'
-}
-
-function safeSlug(value: string): string {
-  const slug = value.toLowerCase().replace(/[^a-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '')
-  return slug.slice(0, 80) || 'command'
-}
-
-function mobileActorId(deviceId: string): string {
-  return `mobile:${deviceId.replace(/[^A-Za-z0-9._:-]/gu, '_').slice(0, 120)}`
 }
 
 function parseToolJson(stdout: string): { ok: boolean; data?: unknown; message?: string; error?: string } {
