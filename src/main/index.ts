@@ -37,14 +37,13 @@ import {
 } from './terminal-launch'
 import { initializeMultiloopState } from './multiloop-init'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
-import { assertNotDirectSwarmStateMutation } from './sprintengine-state-guard'
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
 import { readMultiloopAgentSoul, readSpecialistSoul } from './souls-service'
 import { createAppMenu } from './app-menu'
-import { getUniqueCopyPath } from './filesystem-copy'
 import { createMainWindow } from './window-factory'
 import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
 import { createFilesystemReadHandlers } from './filesystem-read'
+import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -1763,15 +1762,7 @@ registerSoulsIpc(ipcMain, {
   readMultiloopAgentSoul,
 })
 
-registerFilesystemMutationIpc(ipcMain, {
-  assertNotDirectSwarmStateMutation,
-  getUniqueCopyPath: (destinationDir, sourceName, sourcePath) =>
-    getUniqueCopyPath(destinationDir, sourceName, sourcePath, pathExists),
-  pathExists,
-  async trashItem(targetPath) {
-    await shell.trashItem(targetPath)
-  },
-})
+registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
 
 registerGitIpc(ipcMain, {
   enabled: MULTICODE_DIAGNOSTICS,
