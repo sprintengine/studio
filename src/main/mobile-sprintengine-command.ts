@@ -1,7 +1,4 @@
-import { access, stat } from 'fs/promises'
-import { constants } from 'fs'
-import { basename, dirname, isAbsolute, join, resolve } from 'path'
-import { readSwarmSnapshot } from './mobile-sprintengine-snapshot'
+import { resolve } from 'path'
 import {
   idempotencyKeyForCommand,
   rememberedCommandResult,
@@ -10,8 +7,6 @@ import {
 } from './mobile-sprintengine-command-cache'
 import { validateMobileControlCommand } from './mobile-sprintengine-command-validation'
 import {
-  isPathInsideOrEqual,
-  isSafePathSegment,
   mobileActorId,
   safeSlug,
   uniqueResolved,
@@ -37,6 +32,11 @@ import {
   findSwarmArtifact,
 } from './mobile-sprintengine-state-reader'
 import { MobileSwarmCommandResultRecorder } from './mobile-sprintengine-command-results'
+import {
+  assertExpectedSnapshotVersion,
+  resolveStateForSwarm,
+  validateMobileWorkspacePath,
+} from './mobile-sprintengine-workspace'
 
 export { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
 
@@ -368,7 +368,10 @@ export class MobileSwarmCommandService {
     }
 
     const state = await this.resolveStateForSwarm(command.payload.swarmId)
-    await this.assertExpectedSnapshotVersion(command, state.statePath)
+    await assertExpectedSnapshotVersion({
+      expectedSnapshotVersion: command.expectedSnapshotVersion,
+      statePath: state.statePath,
+    })
     const task = await findReadySwarmTask(state, command.payload.taskId, command.payload.role)
 
     const data = await this.sessionOrchestrator.startTask({
@@ -398,7 +401,10 @@ export class MobileSwarmCommandService {
     }
 
     const state = await this.resolveStateForSwarm(command.payload.swarmId)
-    await this.assertExpectedSnapshotVersion(command, state.statePath)
+    await assertExpectedSnapshotVersion({
+      expectedSnapshotVersion: command.expectedSnapshotVersion,
+      statePath: state.statePath,
+    })
     const text = normalizeFollowUpText(command.payload.text)
     await assertKnownActiveSwarmAgent(state, command.payload.agentId)
 
@@ -426,7 +432,10 @@ export class MobileSwarmCommandService {
     action: 'approve' | 'request-changes'
   ): Promise<MobileSwarmCommandResult> {
     const state = await this.resolveStateForSwarm(command.payload.swarmId)
-    await this.assertExpectedSnapshotVersion(command, state.statePath)
+    await assertExpectedSnapshotVersion({
+      expectedSnapshotVersion: command.expectedSnapshotVersion,
+      statePath: state.statePath,
+    })
     const artifact = await findSwarmArtifact(state, command.payload.artifactId)
 
     const actorId = mobileActorId(command.deviceId)
@@ -456,7 +465,10 @@ export class MobileSwarmCommandService {
   private async executeSwarmCreateCommand(
     command: Extract<MobileControlCommand, { type: 'sprintengine.create' }>
   ): Promise<MobileSwarmCommandResult> {
-    const workspacePath = await this.validateWorkspacePath(command.payload.workspacePath)
+    const workspacePath = await validateMobileWorkspacePath({
+      workspacePath: command.payload.workspacePath,
+      allowedWorkspaceRoots: this.allowedWorkspaceRoots,
+    })
     const productPrompt = command.payload.productPrompt.trim()
     if (!productPrompt) {
       return this.resultRecorder.reject(command, 'invalid_payload', 'SprintEngine creation requires a product prompt.', false, undefined, undefined, workspacePath)
@@ -482,66 +494,12 @@ export class MobileSwarmCommandService {
   }
 
   private async resolveStateForSwarm(swarmId: string): Promise<ValidSwarmStatePath> {
-    if (!isSafePathSegment(swarmId)) {
-      throw new MobileSwarmCommandError('path_not_allowed', 'SprintEngine id must be a single safe path segment.', false)
-    }
-
-    const statePath = this.statePaths.length > 0
-      ? this.statePaths.find((candidate) => basename(dirname(candidate)) === swarmId)
-      : join(this.workspaceRoot, '.multi-code', 'sprintengine', swarmId, 'state.yaml')
-
-    if (!statePath) {
-      throw new MobileSwarmCommandError('swarm_not_found', 'Requested sprintengine is not available to mobile control.', false)
-    }
-
-    const state = validateSwarmStatePath(statePath)
-    if (!this.isAllowedWorkspace(state.workspaceRoot)) {
-      throw new MobileSwarmCommandError('path_not_allowed', 'Sprint Engine state path is outside the allowed workspace roots.', false)
-    }
-
-    try {
-      const stateStats = await stat(state.statePath)
-      if (!stateStats.isFile()) {
-        throw new MobileSwarmCommandError('swarm_not_found', 'Sprint Engine state path is not a file.', false)
-      }
-    } catch (error) {
-      if (error instanceof MobileSwarmCommandError) throw error
-      throw new MobileSwarmCommandError('swarm_not_found', 'Requested Sprint Engine state was not found.', false)
-    }
-
-    return state
-  }
-
-  private async assertExpectedSnapshotVersion(command: MobileControlCommand, statePath: string): Promise<void> {
-    if (!command.expectedSnapshotVersion) return
-    const snapshot = await readSwarmSnapshot(statePath)
-    if (snapshot.snapshotVersion !== command.expectedSnapshotVersion) {
-      throw new MobileSwarmCommandError('stale_snapshot', 'Command was based on a stale sprintengine snapshot.', false)
-    }
-  }
-
-  private async validateWorkspacePath(input: string): Promise<string> {
-    if (!isAbsolute(input)) {
-      throw new MobileSwarmCommandError('path_not_allowed', 'Workspace path must be absolute.', false)
-    }
-
-    const workspacePath = resolve(input)
-    if (!this.isAllowedWorkspace(workspacePath)) {
-      throw new MobileSwarmCommandError('path_not_allowed', 'Workspace path is outside the allowed workspace roots.', false)
-    }
-
-    try {
-      await access(workspacePath, constants.R_OK | constants.W_OK)
-      const workspaceStats = await stat(workspacePath)
-      if (!workspaceStats.isDirectory()) {
-        throw new MobileSwarmCommandError('path_not_allowed', 'Workspace path must be a directory.', false)
-      }
-    } catch (error) {
-      if (error instanceof MobileSwarmCommandError) throw error
-      throw new MobileSwarmCommandError('path_not_allowed', 'Workspace path is not accessible.', false)
-    }
-
-    return workspacePath
+    return resolveStateForSwarm({
+      swarmId,
+      statePaths: this.statePaths,
+      workspaceRoot: this.workspaceRoot,
+      allowedWorkspaceRoots: this.allowedWorkspaceRoots,
+    })
   }
 
   private async invokeTool(
@@ -594,10 +552,6 @@ export class MobileSwarmCommandService {
       return 'Command has expired.'
     }
     return null
-  }
-
-  private isAllowedWorkspace(targetPath: string): boolean {
-    return this.allowedWorkspaceRoots.some((workspaceRoot) => isPathInsideOrEqual(workspaceRoot, targetPath))
   }
 
   private replayCachedResult(
