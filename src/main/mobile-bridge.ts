@@ -9,6 +9,7 @@ import {
 } from './mobile-sprintengine-command'
 import { pushTokenHash, type MobilePushRegistrationTarget } from './mobile-sprintengine-activity'
 import { MobileSwarmSnapshotService, type MobileControlSnapshot } from './mobile-sprintengine-snapshot'
+import { getErrorMessage } from './error-message'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -1667,8 +1668,4 @@ function readRelayErrorMessage(payload: Record<string, unknown>, status: number)
     return error.message
   }
   return `Mobile relay request failed with HTTP ${status}.`
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
