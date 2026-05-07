@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, Menu, safeStorage, type WebContents } from 'electron'
-import { access, mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises'
+import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { dirname, join, resolve } from 'path'
 import { createHash, randomBytes } from 'crypto'
 import { autoUpdater } from 'electron-updater'
@@ -28,7 +28,7 @@ import {
 import { registerTerminalIpc, type TerminalSpawnPayload } from './ipc/terminal-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { cancelActiveContentSearch, searchContent, searchFiles } from './filesystem-search'
-import { checkWorkspaceFolder, isMissingPathError, pathExists } from './filesystem-workspace'
+import { isMissingPathError, pathExists } from './filesystem-workspace'
 import {
   cleanupTerminalStartupScript,
   getPlainShellLaunchConfig,
@@ -44,7 +44,7 @@ import { createAppMenu } from './app-menu'
 import { getUniqueCopyPath } from './filesystem-copy'
 import { createMainWindow } from './window-factory'
 import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
-import { imageMimeType } from './filesystem-image'
+import { createFilesystemReadHandlers } from './filesystem-read'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -1749,27 +1749,7 @@ registerFilesystemWatchSearchIpc(ipcMain, {
   cancelActiveContentSearch,
 })
 
-registerFilesystemReadIpc(ipcMain, {
-  async readDirectory(dirPath) {
-    const entries = await readdir(dirPath, { withFileTypes: true })
-    return entries.map((entry) => ({ name: entry.name, isDir: entry.isDirectory() }))
-  },
-  async readTextFile(filePath) {
-    return readFile(filePath, 'utf-8')
-  },
-  async readImageDataUrl(filePath) {
-    const mimeType = imageMimeType(filePath)
-    if (!mimeType) throw new Error('Unsupported image file type.')
-    const content = await readFile(filePath)
-    return `data:${mimeType};base64,${content.toString('base64')}`
-  },
-  pathExists,
-  checkWorkspaceFolder,
-  async showItemInFolder(targetPath) {
-    await access(targetPath)
-    shell.showItemInFolder(targetPath)
-  },
-})
+registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())
 
 registerMemoryIpc(ipcMain)
 
