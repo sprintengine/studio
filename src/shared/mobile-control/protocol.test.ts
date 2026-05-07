@@ -1,4 +1,4 @@
-import assert = require("node:assert/strict");
+import assert from "node:assert/strict";
 import {
   mobileControlProtocolVersion,
   validateMobileControlCapabilities,

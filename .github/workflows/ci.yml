@@ -34,7 +34,7 @@ jobs:
         run: npm ci
 
       - name: Typecheck
-        run: npm run typecheck
+        run: npm run typecheck:all
 
       - name: Test mobile sprintengine command
         run: npm run test:main:mobile-sprintengine-command
