@@ -1,6 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Menu, type WebContents } from 'electron'
-import { resolve } from 'path'
-import { autoUpdater } from 'electron-updater'
+import { app, shell, BrowserWindow, ipcMain, type WebContents } from 'electron'
 import * as pty from 'node-pty'
 import type {
   AgentCli,
@@ -35,14 +33,13 @@ import { initializeMultiloopState } from './multiloop-init'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
 import { readMultiloopAgentSoul, readSpecialistSoul } from './souls-service'
-import { createAppMenu } from './app-menu'
-import { createMainWindow } from './window-factory'
 import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
 import { getErrorMessage } from './error-message'
 import { MulticodeAuthBridge, parseAuthCallbackFromArgv } from './auth-service'
+import { registerAppLifecycle } from './app-lifecycle'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -909,67 +906,10 @@ registerGitIpc(ipcMain, {
 
 registerMenuDialogIpc(ipcMain)
 
-// ── App lifecycle ─────────────────────────────────────────────────────────────
-
-const singleInstanceLock = app.requestSingleInstanceLock()
-if (!singleInstanceLock) {
-  app.quit()
-} else {
-  app.on('second-instance', (_, argv) => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
+registerAppLifecycle({
+  diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
+  mobileBridge,
+  handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(multicodeAuth, argv)
-  })
-}
-
-app.on('open-url', (event, callbackUrl) => {
-  event.preventDefault()
-  void parseAuthCallbackFromArgv(multicodeAuth, [callbackUrl])
+  },
 })
-
-app.whenReady().then(() => {
-  app.setAppLogsPath()
-
-  if (process.platform === 'win32') {
-    app.setAppUserModelId(
-      process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.multicode'
-    )
-  }
-  registerMulticodeProtocol()
-
-  Menu.setApplicationMenu(createAppMenu())
-  createMainWindow({ diagnosticsEnabled: MULTICODE_DIAGNOSTICS })
-  void parseAuthCallbackFromArgv(multicodeAuth, process.argv)
-
-  // Check for updates in production only (no update server configured = silent no-op)
-  if (!process.env['ELECTRON_RENDERER_URL']) {
-    autoUpdater.checkForUpdatesAndNotify().catch(() => {
-      // No update server configured yet — ignore silently
-    })
-  }
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ diagnosticsEnabled: MULTICODE_DIAGNOSTICS })
-  })
-})
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
-
-app.on('before-quit', () => {
-  mobileBridge.shutdown()
-})
-
-function registerMulticodeProtocol(): void {
-  if (process.defaultApp) {
-    const appEntry = process.argv[1] ? resolve(process.argv[1]) : app.getAppPath()
-    app.setAsDefaultProtocolClient('multicode', process.execPath, [appEntry])
-    return
-  }
-
-  app.setAsDefaultProtocolClient('multicode')
-}
