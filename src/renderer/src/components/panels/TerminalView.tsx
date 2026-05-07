@@ -269,24 +269,16 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       }
     }
 
-    const handleContextMenu = async (event: MouseEvent) => {
+    const handleContextMenu = (event: MouseEvent) => {
       event.preventDefault()
-      const hasSelection = term.hasSelection()
-      const command = await window.api.showContextMenu([
-        { id: 'copy', label: 'Copy', enabled: hasSelection },
-        { id: 'paste', label: 'Paste' },
-        { type: 'separator' },
-        { id: 'select-all', label: 'Select All' },
-      ])
 
-      if (command === 'copy') {
+      if (term.hasSelection()) {
         void copySelection().catch(() => {})
-      } else if (command === 'paste') {
-        void navigator.clipboard.readText().then(pasteText).catch(() => {})
-      } else if (command === 'select-all') {
-        term.selectAll()
+        focusTerminal()
+        return
       }
 
+      void navigator.clipboard.readText().then(pasteText).catch(() => {})
       focusTerminal()
     }
 
