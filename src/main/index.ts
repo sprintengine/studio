@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, Menu, safeStorage, type WebContents } from 'electron'
-import { access, appendFile, mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
+import { access, mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { dirname, extname, join, parse, resolve } from 'path'
 import { createHash, randomBytes } from 'crypto'
 import { autoUpdater } from 'electron-updater'
@@ -38,6 +38,7 @@ import {
 import { initializeMultiloopState } from './multiloop-init'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { assertNotDirectSwarmStateMutation } from './sprintengine-state-guard'
+import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -123,28 +124,6 @@ type UsageResult = {
   windowEnd: string
   replayed: boolean
   reason: 'allowed' | 'missing_entitlement' | 'limit_exceeded' | 'released'
-}
-
-type DiagnosticLevel = 'info' | 'warning' | 'error'
-type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'workspace'
-
-type DiagnosticLogInput = {
-  level: DiagnosticLevel
-  source: DiagnosticSource
-  title: string
-  message: string
-  details?: string
-  workspaceId?: string
-  workspaceName?: string
-  agentId?: string
-  taskId?: string
-  sessionId?: string
-}
-
-type DiagnosticLogEntry = DiagnosticLogInput & {
-  id: string
-  timestamp: string
-  logPath?: string
 }
 
 type ElectronRendererAuthState = {
@@ -2153,38 +2132,6 @@ registerGitIpc(ipcMain, {
 })
 
 registerMenuDialogIpc(ipcMain)
-
-function getDiagnosticsLogDirectory(): string {
-  return app.getPath('logs')
-}
-
-function getDiagnosticsLogPath(timestamp = new Date()): string {
-  const day = timestamp.toISOString().slice(0, 10)
-  return join(getDiagnosticsLogDirectory(), `diagnostics-${day}.jsonl`)
-}
-
-async function writeDiagnosticLog(input: DiagnosticLogInput): Promise<DiagnosticLogEntry> {
-  const timestamp = new Date()
-  const logPath = getDiagnosticsLogPath(timestamp)
-  const entry: DiagnosticLogEntry = {
-    ...input,
-    id: `diag-${timestamp.getTime()}-${randomBytes(4).toString('hex')}`,
-    timestamp: timestamp.toISOString(),
-    logPath,
-  }
-
-  await mkdir(dirname(logPath), { recursive: true })
-  await appendFile(logPath, `${JSON.stringify(entry)}\n`, 'utf-8')
-  return entry
-}
-
-async function openDiagnosticsLogsFolder(): Promise<{ opened: true; path: string }> {
-  const logDirectory = getDiagnosticsLogDirectory()
-  await mkdir(logDirectory, { recursive: true })
-  const errorMessage = await shell.openPath(logDirectory)
-  if (errorMessage) throw new Error(errorMessage)
-  return { opened: true, path: logDirectory }
-}
 
 async function getUniqueCopyPath(
   destinationDir: string,
