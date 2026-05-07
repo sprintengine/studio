@@ -7,9 +7,15 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { autoUpdater } from 'electron-updater'
 import { rgPath } from '@vscode/ripgrep'
 import * as pty from 'node-pty'
-import type { MultiloopInitInput, MultiloopInitResult, SwarmArtifactCommandResult } from '../shared/electron-api'
+import type {
+  MultiloopInitInput,
+  MultiloopInitResult,
+  SwarmArtifactCommandResult,
+  WorkspaceFolderCheckResult,
+} from '../shared/electron-api'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
+import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
@@ -132,23 +138,6 @@ type DiagnosticLogEntry = DiagnosticLogInput & {
   timestamp: string
   logPath?: string
 }
-
-type WorkspaceFolderCheckResult =
-  | {
-      ok: true
-      status: 'ready'
-      path: string
-      checkedPath: string
-      message: string
-    }
-  | {
-      ok: false
-      status: 'missing' | 'inaccessible' | 'timeout'
-      path: string
-      checkedPath: string
-      message: string
-      code?: string
-    }
 
 type ElectronRendererAuthState = {
   authenticated: boolean
@@ -4258,28 +4247,26 @@ ipcMain.handle('fs:cancel-content-search', (event) => {
   cancelActiveContentSearch(event.sender.id)
 })
 
-ipcMain.handle('fs:readdir', async (_, dirPath: string) => {
-  const entries = await readdir(dirPath, { withFileTypes: true })
-  return entries.map((e) => ({ name: e.name, isDir: e.isDirectory() }))
-})
-
-ipcMain.handle('fs:readfile', async (_, filePath: string) => {
-  return readFile(filePath, 'utf-8')
-})
-
-ipcMain.handle('fs:read-image-data-url', async (_, filePath: string) => {
-  const mimeType = imageMimeType(filePath)
-  if (!mimeType) throw new Error('Unsupported image file type.')
-  const content = await readFile(filePath)
-  return `data:${mimeType};base64,${content.toString('base64')}`
-})
-
-ipcMain.handle('fs:path-exists', async (_, targetPath: string) => {
-  return pathExists(targetPath)
-})
-
-ipcMain.handle('fs:check-workspace-folder', async (_, targetPath: string) => {
-  return checkWorkspaceFolder(targetPath)
+registerFilesystemReadIpc(ipcMain, {
+  async readDirectory(dirPath) {
+    const entries = await readdir(dirPath, { withFileTypes: true })
+    return entries.map((entry) => ({ name: entry.name, isDir: entry.isDirectory() }))
+  },
+  async readTextFile(filePath) {
+    return readFile(filePath, 'utf-8')
+  },
+  async readImageDataUrl(filePath) {
+    const mimeType = imageMimeType(filePath)
+    if (!mimeType) throw new Error('Unsupported image file type.')
+    const content = await readFile(filePath)
+    return `data:${mimeType};base64,${content.toString('base64')}`
+  },
+  pathExists,
+  checkWorkspaceFolder,
+  async showItemInFolder(targetPath) {
+    await access(targetPath)
+    shell.showItemInFolder(targetPath)
+  },
 })
 
 registerMemoryIpc(ipcMain)
@@ -4355,11 +4342,6 @@ ipcMain.handle('fs:copy', async (_, sourcePath: string, destinationDir: string) 
 ipcMain.handle('fs:delete', async (_, targetPath: string) => {
   await assertNotDirectSwarmStateMutation(targetPath)
   await shell.trashItem(targetPath)
-})
-
-ipcMain.handle('fs:show-item-in-folder', async (_, targetPath: string) => {
-  await access(targetPath)
-  shell.showItemInFolder(targetPath)
 })
 
 registerGitIpc(ipcMain, {
