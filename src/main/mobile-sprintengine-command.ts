@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { access, readFile, stat } from 'fs/promises'
+import { access, stat } from 'fs/promises'
 import { constants } from 'fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import { readSwarmSnapshot } from './mobile-sprintengine-snapshot'
@@ -20,10 +20,6 @@ import {
   type SwarmToolExecutor,
 } from './mobile-sprintengine-tool-runner'
 import {
-  normalizeSwarmTasks,
-  type SwarmTaskRecord,
-} from './mobile-sprintengine-task-normalizer'
-import {
   getMobileSwarmCommandErrorMessage,
   MobileSwarmCommandError,
 } from './mobile-sprintengine-command-error'
@@ -31,8 +27,12 @@ import {
   validateSwarmStatePath,
   type ValidSwarmStatePath,
 } from './mobile-sprintengine-state-path'
-import { resolveSprintEngineArtifactFilePath } from './mobile-sprintengine-artifact-path'
 import { normalizeFollowUpText } from './mobile-sprintengine-follow-up-text'
+import {
+  assertKnownActiveSwarmAgent,
+  findReadySwarmTask,
+  findSwarmArtifact,
+} from './mobile-sprintengine-state-reader'
 
 export { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
 
@@ -274,22 +274,6 @@ export type MobileSwarmCommandResult =
       audit: MobileSwarmCommandAuditEntry
     }
 
-type SwarmArtifactRecord = {
-  id: string
-  path?: string
-}
-
-type SwarmRuntimeAgentRecord = {
-  role?: string
-  status?: string
-}
-
-type RawSwarmState = {
-  tasks?: unknown[]
-  artifacts?: unknown[]
-  swarmAgents?: Record<string, SwarmRuntimeAgentRecord>
-}
-
 const idempotencyResults = new Map<string, CachedMobileSwarmCommandResult>()
 
 export class MobileSwarmCommandService {
@@ -392,7 +376,7 @@ export class MobileSwarmCommandService {
 
     const state = await this.resolveStateForSwarm(command.payload.swarmId)
     await this.assertExpectedSnapshotVersion(command, state.statePath)
-    const task = await this.findReadyTask(state, command.payload.taskId, command.payload.role)
+    const task = await findReadySwarmTask(state, command.payload.taskId, command.payload.role)
 
     const data = await this.sessionOrchestrator.startTask({
       swarmId: command.payload.swarmId,
@@ -423,7 +407,7 @@ export class MobileSwarmCommandService {
     const state = await this.resolveStateForSwarm(command.payload.swarmId)
     await this.assertExpectedSnapshotVersion(command, state.statePath)
     const text = normalizeFollowUpText(command.payload.text)
-    await this.assertKnownActiveAgent(state, command.payload.agentId)
+    await assertKnownActiveSwarmAgent(state, command.payload.agentId)
 
     const data = await this.sessionOrchestrator.sendFollowUp({
       swarmId: command.payload.swarmId,
@@ -450,7 +434,7 @@ export class MobileSwarmCommandService {
   ): Promise<MobileSwarmCommandResult> {
     const state = await this.resolveStateForSwarm(command.payload.swarmId)
     await this.assertExpectedSnapshotVersion(command, state.statePath)
-    const artifact = await this.findArtifact(state, command.payload.artifactId)
+    const artifact = await findSwarmArtifact(state, command.payload.artifactId)
 
     const actorId = mobileActorId(command.deviceId)
     let feedback: string | undefined
@@ -533,78 +517,6 @@ export class MobileSwarmCommandService {
     }
 
     return state
-  }
-
-  private async findArtifact(state: ValidSwarmStatePath, artifactId: string): Promise<SwarmArtifactRecord> {
-    const parsed = await this.readRawState(state)
-    const artifacts = Array.isArray(parsed.artifacts) ? parsed.artifacts : []
-    const artifact = artifacts.flatMap((candidate): SwarmArtifactRecord[] => {
-      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return []
-      const record = candidate as Record<string, unknown>
-      if (record.id !== artifactId) return []
-      return [{
-        id: artifactId,
-        ...(typeof record.path === 'string' && record.path.trim() ? { path: record.path } : {}),
-      }]
-    })[0]
-
-    if (!artifact) {
-      throw new MobileSwarmCommandError('artifact_not_found', 'Requested artifact was not found in the Sprint Engine state.', false)
-    }
-
-    if (artifact.path) {
-      resolveSprintEngineArtifactFilePath(state, artifact.path)
-    }
-
-    return artifact
-  }
-
-  private async findReadyTask(state: ValidSwarmStatePath, taskId: string, role: string): Promise<SwarmTaskRecord> {
-    const parsed = await this.readRawState(state)
-    const tasks = normalizeSwarmTasks(parsed.tasks)
-    const task = tasks.find((candidate) => candidate.id === taskId)
-    if (!task) {
-      throw new MobileSwarmCommandError('task_not_ready', 'Requested task was not found in the Sprint Engine state.', false)
-    }
-
-    if (task.role !== role) {
-      throw new MobileSwarmCommandError('task_not_ready', 'Requested task role does not match the mobile command role.', false)
-    }
-
-    if (task.ownerAgentId) {
-      throw new MobileSwarmCommandError('task_not_ready', 'Requested task is already owned by an agent.', false)
-    }
-
-    if (task.status !== 'todo') {
-      throw new MobileSwarmCommandError('task_not_ready', 'Requested task is not ready to start.', false)
-    }
-
-    const tasksById = new Map(tasks.map((candidate) => [candidate.id, candidate]))
-    const incompleteDependency = task.dependsOn.find((dependencyId) => tasksById.get(dependencyId)?.status !== 'done')
-    if (incompleteDependency) {
-      throw new MobileSwarmCommandError('task_not_ready', `Requested task is blocked by dependency ${incompleteDependency}.`, false)
-    }
-
-    return task
-  }
-
-  private async assertKnownActiveAgent(state: ValidSwarmStatePath, agentId: string): Promise<void> {
-    const parsed = await this.readRawState(state)
-    const swarmAgents = parsed.swarmAgents && typeof parsed.swarmAgents === 'object' ? parsed.swarmAgents : {}
-    const agent = swarmAgents[agentId]
-    if (agent?.status === 'done') {
-      throw new MobileSwarmCommandError('task_not_ready', 'Follow-up target agent is already done.', false)
-    }
-    if (agent) return
-
-    const ownedTask = normalizeSwarmTasks(parsed.tasks).find((task) => task.ownerAgentId === agentId)
-    if (!ownedTask || ownedTask.status === 'done') {
-      throw new MobileSwarmCommandError('task_not_ready', 'Follow-up target agent is not active in this sprintengine.', false)
-    }
-  }
-
-  private async readRawState(state: ValidSwarmStatePath): Promise<RawSwarmState> {
-    return JSON.parse(await readFile(state.statePath, 'utf8')) as RawSwarmState
   }
 
   private async assertExpectedSnapshotVersion(command: MobileControlCommand, statePath: string): Promise<void> {
