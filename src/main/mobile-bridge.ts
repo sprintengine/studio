@@ -23,6 +23,12 @@ import {
   redactPushRegistration,
 } from './mobile-bridge-validation'
 import { resolveArtifactPathForRead } from './mobile-bridge-artifact-path'
+import {
+  acceptedBridgeCommand,
+  failedCommandResult,
+  relayCommandTypeToMobile,
+  summarizeCommandResult,
+} from './mobile-bridge-command-results'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -1164,10 +1170,6 @@ function normalizeRelayCommandDelivery(delivery: RelayCommandDelivery): {
   return { envelope: delivery.envelope, device: delivery.device }
 }
 
-function relayCommandTypeToMobile(type: RelayCommandType): MobileControlCommandType {
-  return type === 'agent.followup' ? 'agent.followUp' : type
-}
-
 function relayDeviceCapabilities(device: MobileRelayAuthenticatedDevice): MobileControlCapability[] {
   const capabilities = new Set<MobileControlCapability>()
 
@@ -1186,92 +1188,6 @@ function relayDeviceCapabilities(device: MobileRelayAuthenticatedDevice): Mobile
 function normalizeDevicePlatform(platform: MobileRelayAuthenticatedDevice['platform']): MobileControlDevice['platform'] {
   if (platform === 'ios' || platform === 'android' || platform === 'web') return platform
   return 'web'
-}
-
-function acceptedBridgeCommand(
-  command: MobileControlCommand,
-  data: unknown
-): Extract<MobileSwarmCommandResult, { ok: true }> {
-  return {
-    ok: true,
-    commandId: command.commandId,
-    commandType: command.type,
-    idempotencyKey: command.idempotencyKey,
-    executedAt: new Date().toISOString(),
-    data,
-    stdout: '',
-    stderr: '',
-    audit: {
-      auditId: `msa_${randomUUID()}`,
-      commandId: command.commandId,
-      commandType: command.type,
-      deviceId: command.deviceId,
-      ...(command.idempotencyKey ? { idempotencyKey: command.idempotencyKey } : {}),
-      status: 'accepted',
-      message: 'Mobile relay command was handled by the desktop bridge.',
-      recordedAt: new Date().toISOString(),
-    },
-  }
-}
-
-function failedCommandResult(
-  command: Pick<MobileControlCommand, 'commandId' | 'type' | 'idempotencyKey'> | RelayCommandEnvelope,
-  code: MobileControlErrorCode,
-  message: string
-): Extract<MobileSwarmCommandResult, { ok: false }> {
-  const commandType = 'type' in command ? command.type : relayCommandTypeToMobile(command.commandType)
-  return {
-    ok: false,
-    commandId: command.commandId,
-    commandType,
-    ...('idempotencyKey' in command && command.idempotencyKey ? { idempotencyKey: command.idempotencyKey } : {}),
-    error: {
-      protocolVersion: mobileControlProtocolVersion,
-      code,
-      message,
-      retryable: code === 'relay_unavailable' || code === 'desktop_unavailable',
-    },
-    audit: {
-      auditId: `msa_${randomUUID()}`,
-      commandId: command.commandId,
-      commandType,
-      deviceId: null,
-      status: 'rejected',
-      code,
-      message,
-      recordedAt: new Date().toISOString(),
-    },
-  }
-}
-
-function summarizeCommandResult(result: MobileSwarmCommandResult): Record<string, unknown> {
-  if (!result.ok) {
-    return {
-      ok: false,
-      commandId: result.commandId,
-      commandType: result.commandType,
-      code: result.error.code,
-      message: result.error.message,
-      retryable: result.error.retryable,
-    }
-  }
-
-  return {
-    ok: true,
-    commandId: result.commandId,
-    commandType: result.commandType,
-    executedAt: result.executedAt,
-    data: sanitizeResultData(result.data),
-  }
-}
-
-function sanitizeResultData(data: unknown): unknown {
-  if (!data || typeof data !== 'object') return data
-  const json = JSON.stringify(data)
-  if (json.length > 256 * 1024) {
-    return { truncated: true }
-  }
-  return data
 }
 
 function stringPayload(payload: unknown, field: string): string {
