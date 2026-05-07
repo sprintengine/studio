@@ -7,8 +7,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { autoUpdater } from 'electron-updater'
 import { rgPath } from '@vscode/ripgrep'
 import * as pty from 'node-pty'
+import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
+import { registerSoulsIpc } from './ipc/souls-ipc'
 import {
   MobileBridge,
   type MobileBridgePresence,
@@ -4417,20 +4419,14 @@ ipcMain.handle('fs:check-workspace-folder', async (_, targetPath: string) => {
 
 registerMemoryIpc(ipcMain)
 
-ipcMain.handle('diagnostics:log', async (_, input: DiagnosticLogInput) => {
-  return writeDiagnosticLog(input)
+registerDiagnosticsIpc(ipcMain, {
+  writeDiagnosticLog,
+  openDiagnosticsLogsFolder,
 })
 
-ipcMain.handle('diagnostics:open-logs-folder', async () => {
-  return openDiagnosticsLogsFolder()
-})
-
-ipcMain.handle('souls:read-specialist', async (_, specialistId: SpecialistActionId) => {
-  return readSpecialistSoul(specialistId)
-})
-
-ipcMain.handle('multiloop:read-agent-soul', async (_, role: MultiloopAgentSoulRole) => {
-  return readMultiloopAgentSoul(role)
+registerSoulsIpc(ipcMain, {
+  readSpecialistSoul,
+  readMultiloopAgentSoul,
 })
 
 ipcMain.handle('fs:writefile', async (_, filePath: string, content: string) => {
