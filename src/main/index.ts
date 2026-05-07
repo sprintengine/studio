@@ -11,12 +11,11 @@ import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
+import { registerMobileBridgeIpc } from './ipc/mobile-bridge-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
 import { registerWindowIpc, sendWindowState } from './ipc/window-ipc'
 import {
   MobileBridge,
-  type MobileBridgePresence,
-  type MobileBridgeSettingsUpdate,
 } from './mobile-bridge'
 import { MobileSwarmCommandService } from './mobile-sprintengine-command'
 import { DesktopMobileSwarmSessionOrchestrator } from './mobile-sprintengine-session'
@@ -3493,38 +3492,12 @@ registerWindowIpc(ipcMain)
 
 registerAuthIpc(ipcMain, multicodeAuth)
 
-ipcMain.handle('mobile-bridge:get-state', () => mobileBridge.getState())
-
-ipcMain.handle('mobile-bridge:update-settings', (_, input: MobileBridgeSettingsUpdate) => {
-  return mobileBridge.updateSettings(input)
-})
-
-ipcMain.handle('mobile-bridge:request-pairing-code', () => mobileBridge.requestPairingCode())
-
-ipcMain.handle('mobile-bridge:list-devices', () => mobileBridge.listDevices())
-
-ipcMain.handle('mobile-bridge:revoke-device', (_, deviceId: string, reason?: string) => {
-  return mobileBridge.revokeDevice(deviceId, reason)
-})
-
-ipcMain.handle('mobile-bridge:publish-presence', (_, presence: MobileBridgePresence) => {
-  return mobileBridge.publishPresence(presence)
-})
-
-ipcMain.handle('mobile-bridge:get-diagnostics', () => mobileBridge.getDiagnostics())
-
-ipcMain.handle('mobile-bridge:update-workspace-roots', (_, roots: unknown) => {
-  if (!Array.isArray(roots)) {
-    mobileWorkspaceRoots = []
-    return { roots: mobileWorkspaceRoots }
-  }
-
-  mobileWorkspaceRoots = [...new Set(
-    roots
-      .filter((root): root is string => typeof root === 'string' && root.trim().length > 0)
-      .map((root) => resolve(root))
-  )]
-  return { roots: mobileWorkspaceRoots }
+registerMobileBridgeIpc(ipcMain, {
+  bridge: mobileBridge,
+  getWorkspaceRoots: () => mobileWorkspaceRoots,
+  setWorkspaceRoots: (roots) => {
+    mobileWorkspaceRoots = roots
+  },
 })
 
 ipcMain.handle(
