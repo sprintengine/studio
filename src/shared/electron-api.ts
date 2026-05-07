@@ -320,6 +320,52 @@ export type GitWorktreeCopyIncludedInput = {
   worktreePath: string
 }
 
+export type GitHubRepoRef = {
+  owner: string
+  repo: string
+  webUrl: string
+}
+
+export type SymphonyGitHubSyncInput = {
+  repoRoot: string
+  statePath: string
+  token?: string | null
+}
+
+export type SymphonyGitHubSyncedTask = {
+  id: string
+  title: string
+  status: string
+  role: string
+  source?: {
+    type: 'github'
+    externalId: string
+    externalUrl: string
+    repo: string
+    title: string
+    externalUpdatedAt: string
+    syncedAt: string
+    syncStatus: 'clean' | 'local_changed' | 'remote_changed' | 'conflict'
+  }
+  dispatch?: {
+    mode: 'manual'
+    status: 'todo' | 'ready'
+    triagedBy: 'none' | 'user' | 'architect'
+    readyAt?: string
+  }
+}
+
+export type SymphonyGitHubSyncResult =
+  | {
+      ok: true
+      repo: GitHubRepoRef
+      fetched: number
+      created: number
+      updated: number
+      tasks: SymphonyGitHubSyncedTask[]
+    }
+  | { ok: false; message: string }
+
 export type GitConflictFile = {
   path: string
   relativePath: string
@@ -722,6 +768,7 @@ export type ElectronApi = {
   copyGitWorktreeIncludedFiles: (
     input: GitWorktreeCopyIncludedInput
   ) => Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>>
+  syncSymphonyGitHubIssues: (input: SymphonyGitHubSyncInput) => Promise<SymphonyGitHubSyncResult>
   openSwarmArtifact: (statePath: string, artifactPath: string) => Promise<SwarmArtifactCommandResult>
   approveSwarmArtifact: (statePath: string, artifactId: string) => Promise<SwarmArtifactCommandResult>
   autoApproveSwarmArtifact: (statePath: string, artifactId: string) => Promise<SwarmArtifactCommandResult>
@@ -730,6 +777,7 @@ export type ElectronApi = {
     artifactId: string,
     feedback: string
   ) => Promise<SwarmArtifactCommandResult>
+  readySwarmTask: (statePath: string, taskId: string) => Promise<SwarmArtifactCommandResult>
   initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
   terminalSpawn: (
     sessionId: string,

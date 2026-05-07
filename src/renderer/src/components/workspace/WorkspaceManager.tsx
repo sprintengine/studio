@@ -727,7 +727,7 @@ export default function WorkspaceManager() {
         toggleWorkspacePanel(activeWorkspaceId, 'git')
       } else if (command === 'open-sprintengine-kanban') {
         const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
-        if (workspace?.mode === 'sprintengine' || workspace?.swarmContext) {
+        if (workspace?.mode === 'sprintengine' || workspace?.mode === 'symphony' || workspace?.swarmContext) {
           focusOrAddComponentTab(activeWorkspaceId, 'sprintengine-kanban', 'Kanban')
         }
       }
@@ -742,6 +742,7 @@ export default function WorkspaceManager() {
     swarmContext,
     swarmRoleCliDefaults,
     swarmAutoState,
+    mode,
   }: {
     template: LayoutTemplate
     name: string
@@ -750,8 +751,9 @@ export default function WorkspaceManager() {
     swarmContext?: Workspace['swarmContext']
     swarmRoleCliDefaults?: Workspace['swarmRoleCliDefaults'] | null
     swarmAutoState?: Partial<Workspace['swarmAutoState']> | null
+    mode?: Workspace['mode']
   }) => {
-    addWorkspace(template, { name, folderPath, swarmState, swarmContext, swarmRoleCliDefaults, swarmAutoState })
+    addWorkspace(template, { name, folderPath, swarmState, swarmContext, swarmRoleCliDefaults, swarmAutoState, mode })
     setShowTemplateSelector(false)
     setTemplateSelectorInitialState(null)
   }
@@ -1110,7 +1112,7 @@ export default function WorkspaceManager() {
   const stopSession = (item: SessionItem) => {
     void window.api.terminalKill(item.sessionId).catch(() => {})
     setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
-    if (item.workspace.mode === 'sprintengine') setSwarmAutoEnabled(item.workspace.id, false)
+    if (item.workspace.mode === 'sprintengine' || item.workspace.mode === 'symphony') setSwarmAutoEnabled(item.workspace.id, false)
     if (item.agentId) {
       updateAgent(item.workspace.id, item.agentId, {
         cliStartRequested: false,
@@ -1141,7 +1143,7 @@ export default function WorkspaceManager() {
           : null
       ))}
       {!MULTICODE_DISABLE_SPRINTENGINE_SYNC && workspaces.map((workspace) => (
-        workspace.id === activeWorkspaceId && (workspace.mode === 'sprintengine' || workspace.swarmContext)
+        workspace.id === activeWorkspaceId && (workspace.mode === 'sprintengine' || workspace.mode === 'symphony' || workspace.swarmContext)
           ? <SprintEngineStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}
@@ -1170,7 +1172,7 @@ export default function WorkspaceManager() {
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {workspaces.map((workspace) => {
             const active = !showTemplateSelector && workspace.id === activeWorkspaceId
-            const sprintEngineWorkspace = workspace.mode === 'sprintengine'
+            const sprintEngineWorkspace = workspace.mode === 'sprintengine' || workspace.mode === 'symphony'
             const activity = getWorkspaceActivity(workspace, terminalSessions)
             const activityLabel = workspaceActivityLabel(activity)
             const activityTone = workspaceActivityTone(activity)

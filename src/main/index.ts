@@ -13,6 +13,7 @@ import { registerSoulsIpc } from './ipc/souls-ipc'
 import {
   registerSprintEngineIpc,
 } from './ipc/sprintengine-ipc'
+import { registerSymphonyGitHubIpc } from './ipc/symphony-github-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
@@ -94,6 +95,7 @@ const sprintEngineArtifacts = createSprintEngineArtifactHandlers({
 registerSprintEngineIpc(ipcMain, {
   openArtifact: sprintEngineArtifacts.openArtifact,
   reviewArtifact: sprintEngineArtifacts.reviewArtifact,
+  readyTask: sprintEngineArtifacts.readyTask,
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
@@ -125,6 +127,10 @@ registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
 registerGitIpc(ipcMain, {
   enabled: MULTICODE_DIAGNOSTICS,
   logMainPerfEvent,
+  withIpcDiagnostics,
+})
+
+registerSymphonyGitHubIpc(ipcMain, {
   withIpcDiagnostics,
 })
 

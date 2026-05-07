@@ -35,6 +35,11 @@ const swarmKanbanTab = () => ({
   name: 'Kanban',
   component: 'sprintengine-kanban',
 })
+const symphonyIntakeTab = () => ({
+  type: 'tab',
+  name: 'Symphony Intake',
+  component: 'sprintengine-project',
+})
 const multiloopBoardTab = () => ({
   type: 'tab',
   name: 'Multiloop',
@@ -65,6 +70,36 @@ export function createSwarmTemplate(_config: SwarmMockConfig): LayoutTemplate {
               swarmProjectTab(),
               swarmMapTab(),
               swarmTaskGraphTab(),
+              swarmKanbanTab(),
+            ],
+          },
+        ],
+      },
+    },
+  }
+}
+
+export function createSymphonyTemplate(_config: SwarmMockConfig): LayoutTemplate {
+  return {
+    id: 'symphony-mode',
+    name: 'Symphony Mode',
+    description: 'GitHub-backed intake, triage, Ready gate, and worker execution.',
+    previewSlots: [
+      editor('Intake', 4, 4, 168, 32),
+      editor('Board', 4, 42, 168, 64),
+      files('Repo', 176, 4, 120, 102),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          {
+            type: 'tabset',
+            weight: 100,
+            children: [
+              symphonyIntakeTab(),
               swarmKanbanTab(),
             ],
           },

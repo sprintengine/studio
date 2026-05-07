@@ -51,6 +51,83 @@ def test_ready_column_is_derived_from_todo_tasks_with_satisfied_dependencies(tmp
     assert_board_column(state, "T3", "todo")
 
 
+def test_manual_dispatch_task_is_not_ready_until_marked_ready(tmp_path) -> None:
+    manual_task = task("T1", "Imported issue awaiting triage", "developer")
+    manual_task["dispatch"] = {"mode": "manual", "status": "todo", "triagedBy": "none"}
+    fixture = create_team(tmp_path, "manual-dispatch-todo", [manual_task])
+
+    next_payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+
+    assert next_payload["claimed"] is False
+    assert next_payload["reason"] == "no_ready_task"
+    state = read_state(fixture.state_path)
+    assert_task_status(state, "T1", "todo")
+    assert_board_column(state, "T1", "todo")
+    assert_ready_tasks(fixture.cli, "developer", [])
+
+
+def test_task_ready_moves_manual_dispatch_task_to_ready(tmp_path) -> None:
+    manual_task = task("T1", "Imported issue approved by user", "developer")
+    manual_task["dispatch"] = {"mode": "manual", "status": "todo", "triagedBy": "none"}
+    manual_task["source"] = {
+        "type": "github",
+        "externalId": "123",
+        "externalUrl": "https://github.com/example/repo/issues/123",
+        "repo": "example/repo",
+        "title": "Remote issue title",
+        "externalUpdatedAt": "2026-05-07T12:00:00Z",
+        "syncedAt": "2026-05-07T12:01:00Z",
+        "syncStatus": "clean",
+    }
+    fixture = create_team(tmp_path, "manual-dispatch-ready-command", [manual_task])
+
+    payload = fixture.cli.run("task", "ready", "--task-id", "T1", "--id", "user")
+
+    assert payload["ok"] is True
+    assert payload["task"]["dispatch"]["status"] == "ready"
+    assert payload["task"]["dispatch"]["triagedBy"] == "user"
+    assert isinstance(payload["task"]["dispatch"]["readyAt"], str)
+    assert payload["task"]["source"]["externalId"] == "123"
+    assert payload["event"]["type"] == "task_dispatch_ready"
+    state = read_state(fixture.state_path)
+    assert_board_column(state, "T1", "ready")
+    assert_ready_tasks(fixture.cli, "developer", ["T1"])
+
+
+def test_task_ready_rejects_dependency_dispatched_task(tmp_path) -> None:
+    fixture = create_team(tmp_path, "dependency-dispatch-ready-rejected", [
+        task("T1", "Dependency-ready task", "developer"),
+    ])
+
+    rejected = fixture.cli.run("task", "ready", "--task-id", "T1", "--id", "user")
+
+    assert rejected["ok"] is False
+    assert rejected["error"] == "Task does not use manual dispatch."
+    state = read_state(fixture.state_path)
+    assert "dispatch" not in get_task(state, "T1")
+
+
+def test_manual_dispatch_ready_task_is_claimable_after_dependencies_complete(tmp_path) -> None:
+    gate = task("T1", "Approval gate", "architect", "done")
+    manual_task = task("T2", "Imported issue ready for work", "developer", depends_on=["T1"])
+    manual_task["dispatch"] = {
+        "mode": "manual",
+        "status": "ready",
+        "triagedBy": "user",
+        "readyAt": "2026-05-07T12:05:00Z",
+    }
+    fixture = create_team(tmp_path, "manual-dispatch-ready", [gate, manual_task])
+
+    assert_ready_tasks(fixture.cli, "developer", ["T2"])
+    state = read_state(fixture.state_path)
+    assert_board_column(state, "T2", "ready")
+
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == "T2"
+    assert claimed["task"]["dispatch"]["status"] == "ready"
+
+
 def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_path) -> None:
     state_path = tmp_path / ".multi-code" / "sprintengine" / "approval-gates" / "state.yaml"
     cli = SwarmCli(state_path)

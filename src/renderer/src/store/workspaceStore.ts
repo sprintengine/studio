@@ -108,6 +108,7 @@ interface WorkspaceStore {
       swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
       swarmAutoState?: Partial<SwarmAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
+      mode?: Workspace['mode']
     }
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -837,7 +838,7 @@ function addProjectTabToSwarmLayout(model: IJsonModel): IJsonModel {
 }
 
 function migrateSwarmLayout(ws: Workspace): Workspace {
-  if (ws.mode !== 'sprintengine' && !ws.swarmState) return ws
+  if (ws.mode !== 'sprintengine' && ws.mode !== 'symphony' && !ws.swarmState) return ws
   if (!isLegacySwarmLayout(ws.layoutModel)) {
     return {
       ...ws,
@@ -853,7 +854,7 @@ function migrateSwarmLayout(ws: Workspace): Workspace {
 
 function migrateSwarmAgentNames(ws: Workspace): Workspace {
   const swarmState = normalizeSwarmState(ws.swarmState)
-  if (ws.mode !== 'sprintengine' && !swarmState) return ws
+  if (ws.mode !== 'sprintengine' && ws.mode !== 'symphony' && !swarmState) return ws
 
   const agents = reconcileSwarmAgents(ws.agents ?? {}, swarmState)
   return {
@@ -974,7 +975,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set((state) => {
           const folderPath = options?.folderPath ?? null
           const fallbackName = `${template.name} ${state.workspaces.length + 1}`
-          const isSwarm = template.id === 'sprintengine-mode' || Boolean(options?.swarmState)
+          const explicitMode = options?.mode
+          const isSymphony = explicitMode === 'symphony' || template.id === 'symphony-mode'
+          const isSwarm = isSymphony || template.id === 'sprintengine-mode' || Boolean(options?.swarmState)
           const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
           const swarmState = isSwarm
             ? normalizeSwarmState(options?.swarmState)
@@ -1008,7 +1011,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.workspaces.push({
             id,
             name: workspaceName,
-            mode: multiloopState || isMultiloop ? 'multiloop' : swarmState ? 'sprintengine' : 'standard',
+            mode: multiloopState || isMultiloop
+              ? 'multiloop'
+              : isSymphony
+                ? 'symphony'
+                : swarmState
+                  ? 'sprintengine'
+                  : 'standard',
             folderPath,
             folderMissing: false,
             swarmContext: normalizeSwarmWorkspaceContext(
@@ -1024,6 +1033,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             templateId: template.id,
             layoutModel: isMultiloop
               ? multiloopTabsLayoutModel()
+              : swarmState && isSymphony
+              ? template.layout
               : swarmState
               ? swarmTabsLayoutModel(swarmState, agents, { includeAgentTabs: false })
               : template.layout,
@@ -1609,7 +1620,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
         if (version < 7) {
           state.workspaces = state.workspaces.map((ws) =>
-            ws.mode === 'sprintengine' || ws.swarmState
+            ws.mode === 'sprintengine' || ws.mode === 'symphony' || ws.swarmState
               ? { ...ws, layoutModel: swarmTabsLayoutModel(ws.swarmState, ws.agents) }
               : ws
           )
@@ -1617,7 +1628,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         if (version < 8) {
           state.workspaces = state.workspaces.map((ws) => {
             const swarmState = normalizeSwarmState(ws.swarmState)
-            if (ws.mode !== 'sprintengine' && !swarmState) return ws
+            if (ws.mode !== 'sprintengine' && ws.mode !== 'symphony' && !swarmState) return ws
 
             return {
               ...ws,
@@ -1762,7 +1773,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         if (version < 23) {
           state.workspaces = state.workspaces.map((ws) => ({
             ...ws,
-            swarmRoleCliDefaults: ws.mode === 'sprintengine' || ws.swarmState
+            swarmRoleCliDefaults: ws.mode === 'sprintengine' || ws.mode === 'symphony' || ws.swarmState
               ? normalizeSwarmRoleCliDefaults(ws.swarmRoleCliDefaults)
               : undefined,
           }))

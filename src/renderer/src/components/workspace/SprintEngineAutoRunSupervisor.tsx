@@ -229,7 +229,7 @@ function slugifyAgentToken(value: string, fallback: string): string {
 }
 
 function shouldCloseDoneAgentTerminals(workspace: Workspace): boolean {
-  return workspace.mode === 'sprintengine'
+  return (workspace.mode === 'sprintengine' || workspace.mode === 'symphony')
     && Boolean(workspace.swarmState)
     && !workspace.swarmAutoState.keepDoneAgentTerminals
 }

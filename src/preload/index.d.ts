@@ -41,6 +41,8 @@ import type {
   GitWorktreeOperationResult as SharedGitWorktreeOperationResult,
   GitWorktreeRemoveInput as SharedGitWorktreeRemoveInput,
   GitWorktreeRepairInput as SharedGitWorktreeRepairInput,
+  SymphonyGitHubSyncInput as SharedSymphonyGitHubSyncInput,
+  SymphonyGitHubSyncResult as SharedSymphonyGitHubSyncResult,
   MemoryGraphEdge as SharedMemoryGraphEdge,
   MemoryGraphIndexResult as SharedMemoryGraphIndexResult,
   MemoryGraphNode as SharedMemoryGraphNode,
@@ -136,6 +138,8 @@ declare global {
   type GitWorktreeRemoveInput = SharedGitWorktreeRemoveInput
   type GitWorktreeRepairInput = SharedGitWorktreeRepairInput
   type GitWorktreeCopyIncludedInput = SharedGitWorktreeCopyIncludedInput
+  type SymphonyGitHubSyncInput = SharedSymphonyGitHubSyncInput
+  type SymphonyGitHubSyncResult = SharedSymphonyGitHubSyncResult
   type DiagnosticLevel = SharedDiagnosticLevel
   type DiagnosticSource = SharedDiagnosticSource
   type DiagnosticLogInput = SharedDiagnosticLogInput

@@ -294,6 +294,11 @@ type ArtifactActionState = {
   message: string
 }
 
+type TaskReadyActionState = {
+  status: 'pending' | 'success' | 'error'
+  message: string
+}
+
 function buildWorkerRespawnStartupPrompt(
   role: SwarmRole,
   agentId: string
@@ -345,7 +350,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
+  const [githubSyncBusy, setGithubSyncBusy] = useState(false)
   const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
+  const [taskReadyActions, setTaskReadyActions] = useState<Record<string, TaskReadyActionState>>({})
   const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
     status: 'idle',
@@ -367,6 +374,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const autoApproveArtifacts = workspace?.swarmAutoState?.autoApproveArtifacts ?? false
   const keepDoneAgentTerminals = workspace?.swarmAutoState?.keepDoneAgentTerminals ?? false
   const cliPermissionPreset = workspace?.swarmAutoState?.cliPermissionPreset ?? 'default'
+  const isSymphonyWorkspace = workspace?.mode === 'symphony'
 
   const resolveReadableSwarmStatePath = async (): Promise<string | null> => {
     if (!folderPath) return null
@@ -650,6 +658,77 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     }
   }
 
+  const syncGitHubIssues = async () => {
+    if (!folderPath || !swarmContext?.statePath || githubSyncBusy) return
+
+    setGithubSyncBusy(true)
+    setSyncState({ status: 'syncing', message: 'Syncing open GitHub issues...' })
+    try {
+      const result = await window.api.syncSymphonyGitHubIssues({
+        repoRoot: folderPath,
+        statePath: swarmContext.statePath,
+      })
+      if (!result.ok) throw new Error(result.message)
+      await refreshSwarmState()
+      setSyncState({
+        status: 'live',
+        message: `Synced ${result.fetched} open GitHub issues from ${result.repo.owner}/${result.repo.repo}. Created ${result.created}, updated ${result.updated}.`,
+      })
+    } catch (error) {
+      setSyncState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to sync GitHub issues.',
+      })
+    } finally {
+      setGithubSyncBusy(false)
+    }
+  }
+
+  const markTaskReady = async (task: SwarmTask) => {
+    if (!swarmContext?.statePath) {
+      setSyncState({
+        status: 'error',
+        message: 'This Sprint Engine workspace is missing its selected team context.',
+      })
+      return
+    }
+
+    setTaskReadyActions((current) => ({
+      ...current,
+      [task.id]: { status: 'pending', message: 'Moving task to Ready...' },
+    }))
+    try {
+      const result = await window.api.readySwarmTask(swarmContext.statePath, task.id)
+      if (!result.ok) throw new Error(result.message)
+
+      const data = result.data && typeof result.data === 'object'
+        ? result.data as { stateContent?: unknown }
+        : {}
+      if (typeof data.stateContent === 'string') {
+        const parsed = parseSwarmStateFile(data.stateContent, swarmContext.teamName)
+        setSwarmState(workspaceId, parsed)
+      } else {
+        await refreshSwarmState()
+      }
+
+      setTaskReadyActions((current) => ({
+        ...current,
+        [task.id]: { status: 'success', message: 'Task moved to Ready.' },
+      }))
+      setSyncState({
+        status: 'live',
+        message: `Moved ${task.id} to Ready.`,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to move task to Ready.'
+      setTaskReadyActions((current) => ({
+        ...current,
+        [task.id]: { status: 'error', message },
+      }))
+      setSyncState({ status: 'error', message })
+    }
+  }
+
   const setArtifactAction = (
     artifactId: string,
     state: ArtifactActionState | null
@@ -872,6 +951,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
     ? selectedTask.notes[0] || 'Worker is waiting for input.'
     : null
+  const selectedTaskCanMarkReady = selectedTask?.status === 'todo'
+    && !selectedTask.ownerAgentId
+    && selectedTask.dispatch?.mode === 'manual'
+    && selectedTask.dispatch.status !== 'ready'
   const selectedTaskCanSpawnWorker = selectedTaskBoardColumn === 'ready' && !selectedTask?.ownerAgentId
   const selectedTaskCanManageWorker = selectedTask?.status === 'in_progress' || selectedTask?.status === 'needs_input'
   const selectedTaskOwnerCliRunning = selectedTask?.ownerAgentId
@@ -1268,6 +1351,16 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             ) : null}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {isSymphonyWorkspace ? (
+              <button
+                type="button"
+                onClick={() => void syncGitHubIssues()}
+                disabled={!folderPath || !swarmContext?.statePath || githubSyncBusy}
+                className="rounded-md bg-[#6ee7d8]/10 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/16 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#6ee7d8]/10"
+              >
+                {githubSyncBusy ? 'Syncing GitHub...' : 'Sync GitHub'}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => void refreshSwarmState()}
@@ -1548,6 +1641,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 const actionLabel = task.ownerAgentId
                   ? ownerCliRunning ? 'Open Terminal' : 'Respawn'
                   : `Spawn ${swarmRoleLabels[task.role]}`
+                const sourceLabel = formatTaskSourceLabel(task)
+                const canMarkReady = task.status === 'todo'
+                  && !task.ownerAgentId
+                  && task.dispatch?.mode === 'manual'
+                  && task.dispatch.status !== 'ready'
+                const readyAction = taskReadyActions[task.id]
                 return (
                   <article
                     key={task.id}
@@ -1579,6 +1678,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
                           <span>{task.id}</span>
+                          <span className="rounded border border-[#303139] px-1.5 py-0.5 text-[9px] tracking-[0.1em] text-[#9a9aa2]">
+                            {sourceLabel}
+                          </span>
                           <span
                             className="h-1.5 w-1.5 shrink-0 rounded-full"
                             style={{
@@ -1675,6 +1777,27 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                           className="rounded px-2 py-1 text-[11px] font-semibold text-[#8a8a92] opacity-0 transition-colors hover:bg-[#17181d] hover:text-[#ececee] group-hover:opacity-100 group-focus:opacity-100"
                         >
                           {actionLabel}
+                        </button>
+                      </div>
+                    ) : null}
+                    {canMarkReady ? (
+                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#1f2025] pt-2">
+                        <span className="min-w-0 truncate text-[11px] text-[#7c7d86]">
+                          {readyAction?.message ?? 'Awaiting user Ready gate'}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={readyAction?.status === 'pending'}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void markTaskReady(task)
+                          }}
+                          onKeyDown={(event) => {
+                            event.stopPropagation()
+                          }}
+                          className="shrink-0 rounded-md bg-[#6ee7d8]/10 px-2.5 py-1 text-[11px] font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/16 disabled:cursor-wait disabled:opacity-60"
+                        >
+                          Ready
                         </button>
                       </div>
                     ) : null}
@@ -2027,6 +2150,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
             <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
               <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 md:grid-cols-4">
+                <MetaItem label="Source" value={formatTaskSourceLabel(selectedTask)} />
                 <MetaItem label="Status" value={selectedTaskStatusLabel} />
                 <MetaItem label="Owner" value={selectedTaskOwnerLabel} />
                 <MetaItem label="Dependencies" value={selectedTask.dependsOn.join(', ') || 'None'} />
@@ -2035,6 +2159,31 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   value={formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt)}
                 />
               </div>
+
+              {selectedTask.source?.type === 'github' ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] pb-5">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                      GitHub Issue
+                    </div>
+                    <div className="mt-1 truncate text-sm text-[#d7d7dc]">
+                      {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
+                      {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
+                    </div>
+                  </div>
+                  {selectedTask.source.externalUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
+                      }}
+                      className="rounded-md px-3 py-2 text-sm font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/10"
+                    >
+                      Open Issue
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
 
               {selectedTaskNeedsInputNote ? (
                 <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
@@ -2052,6 +2201,34 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
               {selectedTaskArtifactBlockers.length > 0 ? (
                 <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
+              ) : null}
+
+              {selectedTaskCanMarkReady ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ee7d8]">
+                      Ready Gate
+                    </div>
+                    <div className="mt-1 text-sm text-[#d8fffb]">
+                      Approve this task for workers after triage.
+                    </div>
+                    {taskReadyActions[selectedTask.id]?.message ? (
+                      <div className={`mt-1 text-[12px] ${
+                        taskReadyActions[selectedTask.id]?.status === 'error' ? 'text-[#ff8a8a]' : 'text-[#9a9aa2]'
+                      }`}>
+                        {taskReadyActions[selectedTask.id]?.message}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={taskReadyActions[selectedTask.id]?.status === 'pending'}
+                    onClick={() => void markTaskReady(selectedTask)}
+                    className="rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    Move To Ready
+                  </button>
+                </div>
               ) : null}
 
               {selectedTask.ownerAgentId && selectedTaskCanManageWorker ? (
@@ -4063,6 +4240,14 @@ function ArtifactBlockerList({
 function formatTimestamp(value: string | null): string {
   if (!value) return 'Not started'
   return new Date(value).toLocaleString()
+}
+
+function formatTaskSourceLabel(task: SwarmTask): string {
+  if (!task.source) return 'Local'
+  if (task.source.type === 'github') {
+    return task.source.externalId ? `GitHub #${task.source.externalId}` : 'GitHub'
+  }
+  return task.source.type.charAt(0).toUpperCase() + task.source.type.slice(1)
 }
 
 function emptyKanbanColumnLabel(column: SwarmTaskBoardColumn): string {

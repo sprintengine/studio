@@ -32,6 +32,7 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.task.next",
         "sprintengine.task.claim",
         "sprintengine.task.status",
+        "sprintengine.task.ready",
         "sprintengine.task.log",
         "sprintengine.task.note",
         "sprintengine.task.list",
@@ -94,6 +95,26 @@ def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> No
     assert rows[0]["actor"] == "workspace-user"
     assert rows[0]["backend_mode"] == "mcp-local"
     assert len(rows[0]["state_digest"]) == 64
+
+
+def test_mcp_task_ready_uses_core_and_emits_audit(tmp_path) -> None:
+    task_record = task("T1", "Ready through MCP", "developer")
+    task_record["dispatch"] = {"mode": "manual", "status": "todo", "triagedBy": "none"}
+    fixture = create_team(tmp_path, "mcp-task-ready", [task_record])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.task.ready",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "workspace-user", "triagedBy": "user"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    assert response["result"]["ok"] is True
+    assert response["result"]["task"]["dispatch"]["status"] == "ready"
+    state = read_state(fixture.state_path)
+    assert get_task(state, "T1")["dispatch"]["triagedBy"] == "user"
+    assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == ["sprintengine.task.ready"]
 
 
 def test_mcp_health_reports_allowed_root_and_capabilities(tmp_path) -> None:

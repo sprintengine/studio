@@ -75,6 +75,64 @@ def test_sprintengine_cli_imports_sprint_engine_tool() -> None:
     assert sprint_cli.direct_tool is sprint_tool
 
 
+def test_task_normalization_accepts_optional_source_and_dispatch() -> None:
+    normalized = sprint_tool.normalize_task(
+        {
+            "id": "T1",
+            "title": "Imported GitHub issue",
+            "description": "Implement the issue",
+            "role": "developer",
+            "status": "todo",
+            "source": {
+                "type": "github",
+                "externalId": "123",
+                "externalUrl": "https://github.com/example/repo/issues/123",
+                "repo": "example/repo",
+                "title": "Remote issue title",
+                "externalUpdatedAt": "2026-05-07T12:00:00Z",
+                "syncedAt": "2026-05-07T12:01:00Z",
+                "syncStatus": "clean",
+            },
+            "dispatch": {
+                "mode": "manual",
+                "status": "todo",
+                "triagedBy": "none",
+            },
+        }
+    )
+
+    assert normalized["source"] == {
+        "type": "github",
+        "externalId": "123",
+        "externalUrl": "https://github.com/example/repo/issues/123",
+        "repo": "example/repo",
+        "title": "Remote issue title",
+        "externalUpdatedAt": "2026-05-07T12:00:00Z",
+        "syncedAt": "2026-05-07T12:01:00Z",
+        "syncStatus": "clean",
+    }
+    assert normalized["dispatch"] == {
+        "mode": "manual",
+        "status": "todo",
+        "triagedBy": "none",
+    }
+
+
+def test_task_normalization_omits_missing_source_and_dispatch() -> None:
+    normalized = sprint_tool.normalize_task(
+        {
+            "id": "T1",
+            "title": "Local task",
+            "description": "Existing local task",
+            "role": "developer",
+            "status": "todo",
+        }
+    )
+
+    assert "source" not in normalized
+    assert "dispatch" not in normalized
+
+
 def test_swarm_commands_preserve_lifecycle_shape_through_sprint_engine_facade(
     tmp_path: Path,
 ) -> None:
@@ -131,3 +189,46 @@ def test_swarm_commands_preserve_lifecycle_shape_through_sprint_engine_facade(
     assert done["task"]["status"] == "done"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["agents"]["developer-a"]["status"] == "idle"
+
+
+def test_optional_source_and_dispatch_survive_compatibility_lifecycle(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "compat-metadata" / "state.yaml"
+    write_state(state_path)
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["tasks"][0]["source"] = {
+        "type": "github",
+        "externalId": "123",
+        "externalUrl": "https://github.com/example/repo/issues/123",
+        "repo": "example/repo",
+        "title": "Remote issue title",
+        "externalUpdatedAt": "2026-05-07T12:00:00Z",
+        "syncedAt": "2026-05-07T12:01:00Z",
+        "syncStatus": "clean",
+    }
+    state["tasks"][0]["dispatch"] = {
+        "mode": "dependency",
+        "status": "ready",
+        "triagedBy": "user",
+        "readyAt": "2026-05-07T12:05:00Z",
+    }
+    state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+    claimed = run_swarm(
+        state_path,
+        "task",
+        "next",
+        "--role",
+        "developer",
+        "--id",
+        "developer-a",
+    )
+    assert claimed["ok"] is True
+    assert claimed["claimed"] is True
+    assert claimed["task"]["source"]["type"] == "github"
+    assert claimed["task"]["dispatch"]["mode"] == "dependency"
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["tasks"][0]["source"]["externalId"] == "123"
+    assert state["tasks"][0]["dispatch"]["readyAt"] == "2026-05-07T12:05:00Z"

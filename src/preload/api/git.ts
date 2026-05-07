@@ -16,6 +16,8 @@ import type {
   GitWorktreeOperationResult,
   GitWorktreeRemoveInput,
   GitWorktreeRepairInput,
+  SymphonyGitHubSyncInput,
+  SymphonyGitHubSyncResult,
 } from '../../shared/electron-api'
 
 export const gitApi = {
@@ -67,6 +69,8 @@ export const gitApi = {
     input: GitWorktreeCopyIncludedInput
   ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> =>
     ipcRenderer.invoke('git:worktree:copy-included', input),
+  syncSymphonyGitHubIssues: (input: SymphonyGitHubSyncInput): Promise<SymphonyGitHubSyncResult> =>
+    ipcRenderer.invoke('symphony:github:sync-issues', input),
 } satisfies Pick<
   ElectronApi,
   | 'getGitRepoRoot'
@@ -92,4 +96,5 @@ export const gitApi = {
   | 'pruneGitWorktrees'
   | 'repairGitWorktrees'
   | 'copyGitWorktreeIncludedFiles'
+  | 'syncSymphonyGitHubIssues'
 >

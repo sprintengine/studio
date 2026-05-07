@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createMultiloopTemplate, createSwarmTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { createMultiloopTemplate, createSwarmTemplate, createSymphonyTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -50,7 +50,7 @@ type ExistingTeam = {
   state: SwarmState
 }
 
-type CreationMode = 'standard' | 'sprintengine' | 'multiloop'
+type CreationMode = 'standard' | 'sprintengine' | 'symphony' | 'multiloop'
 
 type MarkdownPlanOption = {
   path: string
@@ -79,6 +79,7 @@ interface Props {
     swarmContext?: SwarmWorkspaceContext | null
     swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
     swarmAutoState?: Partial<SwarmAutoState> | null
+    mode?: 'standard' | 'sprintengine' | 'symphony' | 'multiloop'
   }) => void
   onClose: () => void
   allowClose?: boolean
@@ -232,6 +233,36 @@ function buildSwarmContext(folderPath: string, teamName: string, teamSlug: strin
   }
 }
 
+function buildSprintEngineStateFileContent(swarmState: SwarmState): string {
+  return `${JSON.stringify({
+    sprintengine: {
+      name: swarmState.name,
+      goal: swarmState.goal,
+      status: 'planning',
+      rosterConfigured: true,
+    },
+    tasks: swarmState.tasks,
+    agents: swarmState.swarmAgents,
+    events: swarmState.events,
+    artifacts: swarmState.artifacts,
+    roles: {},
+  }, null, 2)}\n`
+}
+
+async function ensureSprintEngineStateFile(
+  folderPath: string,
+  context: SwarmWorkspaceContext,
+  swarmState: SwarmState
+): Promise<void> {
+  const multiCodeDirectory = await window.api.ensureDir(folderPath, '.multi-code')
+  const sprintEngineDirectory = await window.api.ensureDir(multiCodeDirectory, 'sprintengine')
+  await window.api.ensureDir(sprintEngineDirectory, context.teamSlug)
+  const exists = await window.api.pathExists(context.statePath)
+  if (!exists) {
+    await window.api.writefile(context.statePath, buildSprintEngineStateFileContent(swarmState))
+  }
+}
+
 function getSwarmAccessState(authState: MulticodeAuthState): SwarmAccessState {
   if (!authState.authenticated) {
     return {
@@ -312,9 +343,11 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const selected = LAYOUT_TEMPLATES.find((template) => template.id === selectedId) ?? LAYOUT_TEMPLATES[0]
   const totalAgents = countSwarmAgents(swarmRoleCounts)
   const swarmAccess = getSwarmAccessState(authState)
-  const detailsComplete = mode === 'sprintengine' || name.trim().length > 0
+  const isSprintEngineLikeMode = mode === 'sprintengine' || mode === 'symphony'
+  const detailsComplete = isSprintEngineLikeMode || name.trim().length > 0
   const swarmObjectiveComplete =
     selectedExistingTeam != null || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0)
+  const symphonyObjectiveComplete = Boolean(folderPath?.trim()) && swarmTeamName.trim().length > 0
   const multiloopObjectiveComplete =
     Boolean(folderPath?.trim()) && multiloopName.trim().length > 0 && multiloopGoal.trim().length > 0
   const futurePlanReady = selectedExistingTeam != null || !selectedFuturePlanPath || (futurePlanContent != null && !futurePlanError)
@@ -324,6 +357,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     && (
       mode === 'standard'
       || (mode === 'multiloop' && multiloopObjectiveComplete)
+      || (mode === 'symphony' && swarmAccess.allowed && symphonyObjectiveComplete)
       || (mode === 'sprintengine'
         && (
       swarmAccess.allowed
@@ -336,10 +370,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const swarmConfig = useMemo<SwarmMockConfig>(
     () => ({
       name: swarmTeamName.trim() || 'Sprint Engine Team',
-      goal: swarmGoal.trim(),
-      roleCounts: swarmRoleCounts,
+      goal: swarmGoal.trim() || (mode === 'symphony' ? 'Sync and triage GitHub issues through Symphony.' : ''),
+      roleCounts: mode === 'symphony' ? initialSymphonyRoleCounts : swarmRoleCounts,
     }),
-    [swarmGoal, swarmRoleCounts, swarmTeamName]
+    [mode, swarmGoal, swarmRoleCounts, swarmTeamName]
   )
 
   const scanFolder = async (dir: string) => {
@@ -443,6 +477,12 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     if (nextMode === 'standard' && !nameTouched) {
       setName(basename(folderPath ?? '') || 'workspace')
     }
+    if (nextMode === 'symphony') {
+      const folderName = toTitleName(basename(folderPath ?? '')) || 'Symphony Workspace'
+      if (!swarmTeamNameTouched) setSwarmTeamName(folderName)
+      if (!swarmGoal.trim()) setSwarmGoal('Sync and triage GitHub issues through Symphony.')
+      setSwarmRoleCounts(initialSymphonyRoleCounts)
+    }
     if (nextMode === 'multiloop' && !multiloopNameTouched) {
       setMultiloopName(toTitleName(name || basename(folderPath ?? '')) || 'Product Loop')
     }
@@ -507,6 +547,33 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
             ? error.message
             : 'Could not create the Multiloop workspace.'
         )
+      } finally {
+        setIsCreating(false)
+      }
+      return
+    }
+
+    if (mode === 'symphony') {
+      if (!folderPath) return
+
+      setIsCreating(true)
+      try {
+        const symphonyState = createInitialSwarmState(swarmConfig)
+        const teamSlug = slugifySwarmName(symphonyState.name)
+        const context = buildSwarmContext(folderPath, symphonyState.name, teamSlug)
+        await ensureSprintEngineStateFile(folderPath, context, symphonyState)
+        onCreate({
+          template: createSymphonyTemplate(swarmConfig),
+          name: symphonyState.name,
+          folderPath,
+          swarmState: symphonyState,
+          swarmContext: context,
+          swarmRoleCliDefaults,
+          swarmAutoState: { enabled: false },
+          mode: 'symphony',
+        })
+      } catch (error) {
+        setFuturePlanError(error instanceof Error ? error.message : 'Could not create the Symphony workspace.')
       } finally {
         setIsCreating(false)
       }
@@ -608,7 +675,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               disabled={!canCreate}
               className="h-9 rounded-md border border-[#ececee] bg-[#ececee] px-4 text-sm font-semibold text-[#08090b] transition-colors hover:bg-white disabled:border-[#303139] disabled:bg-[#17181d] disabled:text-[#5a5a63]"
             >
-              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'sprintengine' ? 'Create SprintEngine' : mode === 'multiloop' ? 'Create Multiloop' : 'Create Workspace'}
+              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'sprintengine' ? 'Create SprintEngine' : mode === 'symphony' ? 'Create Symphony' : mode === 'multiloop' ? 'Create Multiloop' : 'Create Workspace'}
             </button>
           </div>
         </header>
@@ -619,10 +686,12 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               {[
                 { id: 'standard' as const, label: 'Standard' },
                 { id: 'sprintengine' as const, label: 'SprintEngine' },
+                { id: 'symphony' as const, label: 'Symphony' },
                 { id: 'multiloop' as const, label: 'Multiloop' },
               ].map((option) => {
                 const active = mode === option.id
                 const swarmOption = option.id === 'sprintengine'
+                const symphonyOption = option.id === 'symphony'
                 const multiloopOption = option.id === 'multiloop'
                 return (
                   <button
@@ -633,20 +702,24 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                     className={`inline-flex h-8 items-center gap-2 rounded border px-3 text-sm font-semibold transition-colors ${
                       active && swarmOption
                         ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
+                        : active && symphonyOption
+                          ? 'border-[#26373a] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(110,231,216,0.42)]'
                         : active && multiloopOption
                           ? 'border-[#26373a] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(110,231,216,0.42)]'
                         : active
                           ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
                           : swarmOption
                             ? 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
+                            : symphonyOption
+                              ? 'border-transparent text-[#9a9aa2] hover:bg-[#6ee7d8]/8 hover:text-[#d8fffb]'
                             : multiloopOption
                               ? 'border-transparent text-[#9a9aa2] hover:bg-[#6ee7d8]/8 hover:text-[#d8fffb]'
                             : 'border-transparent text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                     }`}
                   >
-                    {swarmOption || multiloopOption ? (
+                    {swarmOption || symphonyOption || multiloopOption ? (
                       <WorkspaceTypeIcon
-                        mode={swarmOption ? 'sprintengine' : 'multiloop'}
+                        mode={swarmOption ? 'sprintengine' : symphonyOption ? 'symphony' : 'multiloop'}
                         className={`h-3.5 w-3.5 shrink-0 ${swarmOption ? 'text-[#ffbf2f]' : 'text-[#6ee7d8]'}`}
                       />
                     ) : null}
@@ -656,10 +729,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               })}
             </div>
 
-            {mode === 'sprintengine' ? <SprintEngineSplash /> : null}
+            {mode === 'sprintengine' || mode === 'symphony' ? <SprintEngineSplash /> : null}
             {mode === 'multiloop' ? <MultiloopSplash /> : null}
 
-            {mode === 'sprintengine' && !swarmAccess.allowed ? (
+            {isSprintEngineLikeMode && !swarmAccess.allowed ? (
               <section
                 className="rounded-md border border-[#3a3426] bg-[#111216] p-4"
                 aria-live="polite"
@@ -692,7 +765,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
             ) : null}
 
             <section className="border-b border-[#1f2025] pb-5">
-              <div className={mode === 'sprintengine' ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-2'}>
+                <div className={isSprintEngineLikeMode ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-2'}>
                 <div className="flex min-w-0 flex-col gap-2">
                   <div className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">Folder</div>
                   <button
@@ -751,7 +824,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                   ) : null}
                 </div>
 
-                {mode !== 'sprintengine' ? (
+                {!isSprintEngineLikeMode ? (
                   <label className="flex min-w-0 flex-col gap-2">
                     <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
                       Workspace name
@@ -777,7 +850,64 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               </div>
             </section>
 
-            {mode === 'multiloop' ? (
+            {mode === 'symphony' ? (
+              <section>
+                <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+                  <div className="space-y-4">
+                    <label className="flex min-w-0 flex-col gap-2">
+                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                        Workspace name
+                      </span>
+                      <input
+                        value={swarmTeamName}
+                        onChange={(event) => {
+                          setSwarmTeamName(event.target.value)
+                          setSwarmTeamNameTouched(true)
+                          setFuturePlanError(null)
+                        }}
+                        placeholder="Repo Triage"
+                        className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-xs font-medium text-[#9a9aa2]">
+                        Intake goal
+                      </span>
+                      <textarea
+                        value={swarmGoal}
+                        onChange={(event) => {
+                          setSwarmGoal(event.target.value)
+                          setFuturePlanError(null)
+                        }}
+                        placeholder="Sync GitHub issues, triage Todo, and manually approve Ready work."
+                        className="mt-2 min-h-[120px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-3 text-[14px] leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
+                      />
+                    </label>
+
+                    {futurePlanError ? (
+                      <div className="border-l border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+                        {futurePlanError}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-lg border border-[#24252b] bg-[#0d0e11] p-3">
+                    <div className="mb-3 flex items-baseline justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-[#ececee]">Symphony workspace</div>
+                        <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
+                          GitHub issues, local tasks, Ready gate, and Sprint Engine workers
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-[#303139] bg-[#08090b] p-3">
+                      <SprintEngineWorkspacePreview />
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : mode === 'multiloop' ? (
               <section>
                 <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
                   <div className="space-y-4">
@@ -1099,6 +1229,17 @@ function LayoutPreview({ slots }: { slots: PreviewSlot[] }) {
       alt={`Standard workspace layout preview, ${agentCount}`}
     />
   )
+}
+
+const initialSymphonyRoleCounts: SwarmRoleCounts = {
+  architect: 1,
+  product: 0,
+  frontend: 0,
+  developer: 1,
+  code_reviewer: 0,
+  performance: 0,
+  tester: 0,
+  security: 0,
 }
 
 function SprintEngineSplash() {

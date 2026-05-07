@@ -42,6 +42,17 @@ export function WorkspaceTypeIcon({
 }: IconProps & {
   mode: Workspace['mode']
 }) {
+  if (mode === 'symphony') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M5.25 7.25H18.75M5.25 12H18.75M5.25 16.75H18.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+        <circle cx="8" cy="7.25" r="2.15" fill="#08090b" stroke="currentColor" strokeWidth={iconStroke} />
+        <circle cx="15.75" cy="12" r="2.15" fill="#08090b" stroke="currentColor" strokeWidth={iconStroke} />
+        <circle cx="10.75" cy="16.75" r="2.15" fill="#08090b" stroke="currentColor" strokeWidth={iconStroke} />
+      </svg>
+    )
+  }
+
   if (mode === 'sprintengine') {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

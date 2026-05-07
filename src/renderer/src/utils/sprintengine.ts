@@ -9,6 +9,10 @@ import type {
   SwarmRoleCounts,
   SwarmRuntimeAgent,
   SwarmSkillMap,
+  SwarmTaskDispatch,
+  SwarmTaskDispatchMode,
+  SwarmTaskDispatchStatus,
+  SwarmTaskDispatchTriagedBy,
   SwarmTaskBoardColumn,
   SwarmTaskEvidence,
   SwarmTaskFeedback,
@@ -21,6 +25,9 @@ import type {
   SwarmTaskFeedbackIssueCategory,
   SwarmTaskFeedbackIssueSeverity,
   SwarmTaskFeedbackIssueStatus,
+  SwarmTaskSource,
+  SwarmTaskSourceSyncStatus,
+  SwarmTaskSourceType,
   SwarmState,
   SwarmTask,
   SwarmTaskStatus,
@@ -153,6 +160,11 @@ const feedbackFindingAreas: readonly SwarmTaskFeedbackFindingArea[] = [
   'other',
 ]
 const feedbackFindingStatuses: readonly SwarmTaskFeedbackFindingStatus[] = ['open', 'accepted', 'fixed', 'rejected', 'deferred']
+const swarmTaskSourceTypes: readonly SwarmTaskSourceType[] = ['local', 'github', 'jira', 'linear']
+const swarmTaskSourceSyncStatuses: readonly SwarmTaskSourceSyncStatus[] = ['clean', 'local_changed', 'remote_changed', 'conflict']
+const swarmTaskDispatchModes: readonly SwarmTaskDispatchMode[] = ['dependency', 'manual']
+const swarmTaskDispatchStatuses: readonly SwarmTaskDispatchStatus[] = ['todo', 'ready']
+const swarmTaskDispatchTriagedByValues: readonly SwarmTaskDispatchTriagedBy[] = ['none', 'user', 'architect']
 
 const reviewGateArtifactKinds = new Set<SwarmArtifactKind>([
   'architect_plan',
@@ -246,8 +258,72 @@ function isFeedbackFindingStatus(value: unknown): value is SwarmTaskFeedbackFind
   return feedbackFindingStatuses.includes(value as SwarmTaskFeedbackFindingStatus)
 }
 
+function isSwarmTaskSourceType(value: unknown): value is SwarmTaskSourceType {
+  return swarmTaskSourceTypes.includes(value as SwarmTaskSourceType)
+}
+
+function isSwarmTaskSourceSyncStatus(value: unknown): value is SwarmTaskSourceSyncStatus {
+  return swarmTaskSourceSyncStatuses.includes(value as SwarmTaskSourceSyncStatus)
+}
+
+function isSwarmTaskDispatchMode(value: unknown): value is SwarmTaskDispatchMode {
+  return swarmTaskDispatchModes.includes(value as SwarmTaskDispatchMode)
+}
+
+function isSwarmTaskDispatchStatus(value: unknown): value is SwarmTaskDispatchStatus {
+  return swarmTaskDispatchStatuses.includes(value as SwarmTaskDispatchStatus)
+}
+
+function isSwarmTaskDispatchTriagedBy(value: unknown): value is SwarmTaskDispatchTriagedBy {
+  return swarmTaskDispatchTriagedByValues.includes(value as SwarmTaskDispatchTriagedBy)
+}
+
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function normalizeSwarmTaskSource(value: unknown): SwarmTaskSource | undefined {
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  if (!isSwarmTaskSourceType(record.type)) return undefined
+
+  const externalId = optionalTrimmedString(record.externalId)
+  const externalUrl = optionalTrimmedString(record.externalUrl)
+  const repo = optionalTrimmedString(record.repo)
+  const title = optionalTrimmedString(record.title)
+  const externalUpdatedAt = optionalTrimmedString(record.externalUpdatedAt)
+  const syncedAt = optionalTrimmedString(record.syncedAt)
+  const syncStatus = isSwarmTaskSourceSyncStatus(record.syncStatus) ? record.syncStatus : undefined
+
+  return {
+    type: record.type,
+    ...(externalId ? { externalId } : {}),
+    ...(externalUrl ? { externalUrl } : {}),
+    ...(repo ? { repo } : {}),
+    ...(title ? { title } : {}),
+    ...(externalUpdatedAt ? { externalUpdatedAt } : {}),
+    ...(syncedAt ? { syncedAt } : {}),
+    ...(syncStatus ? { syncStatus } : {}),
+  }
+}
+
+function normalizeSwarmTaskDispatch(value: unknown): SwarmTaskDispatch | undefined {
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  if (!isSwarmTaskDispatchMode(record.mode)) return undefined
+
+  const status = isSwarmTaskDispatchStatus(record.status) ? record.status : undefined
+  const triagedBy = isSwarmTaskDispatchTriagedBy(record.triagedBy) ? record.triagedBy : undefined
+  const readyAt = optionalTrimmedString(record.readyAt)
+
+  return {
+    mode: record.mode,
+    ...(status ? { status } : {}),
+    ...(triagedBy ? { triagedBy } : {}),
+    ...(readyAt ? { readyAt } : {}),
+  }
 }
 
 function normalizeSwarmTaskFeedbackIssues(value: unknown): SwarmTaskFeedbackIssue[] {
@@ -599,7 +675,13 @@ export function getSwarmTaskBoardColumn(
   const dependenciesDone = task.dependsOn.every((depId) =>
     tasks.some((t) => t.id === depId && t.status === 'done')
   )
-  return dependenciesDone ? 'ready' : 'todo'
+  if (!dependenciesDone) return 'todo'
+  if (task.dispatch?.mode === 'manual' && task.dispatch.status !== 'ready') return 'todo'
+  return 'ready'
+}
+
+export function getSwarmTaskSourceType(task: Pick<SwarmTask, 'source'>): SwarmTaskSourceType {
+  return task.source?.type ?? 'local'
 }
 
 export function getReviewableSwarmArtifacts(artifacts: SwarmArtifact[]): SwarmArtifact[] {
@@ -710,6 +792,8 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
 
   const tasks = (Array.isArray(input.tasks) ? input.tasks : []).map((task, index) => {
     const feedback = normalizeSwarmTaskFeedback(task.feedback)
+    const source = normalizeSwarmTaskSource(task.source)
+    const dispatch = normalizeSwarmTaskDispatch(task.dispatch)
     return {
       id: task.id ?? `task-${index + 1}`,
       title: task.title ?? `Task ${index + 1}`,
@@ -718,6 +802,8 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
       status: (['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SwarmTaskStatus)
         ? task.status as SwarmTaskStatus
         : 'todo' as const,
+      ...(source ? { source } : {}),
+      ...(dispatch ? { dispatch } : {}),
       ownerAgentId: task.ownerAgentId ?? null,
       dependsOn: task.dependsOn ?? [],
       ownedPaths: task.ownedPaths ?? [],

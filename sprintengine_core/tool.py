@@ -29,6 +29,11 @@ except ImportError as exc:
 VALID_TASK_STATUSES = {"todo", "in_progress", "needs_input", "done"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
 VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer", "performance"}
+VALID_TASK_SOURCE_TYPES = {"local", "github", "jira", "linear"}
+VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "conflict"}
+VALID_TASK_DISPATCH_MODES = {"dependency", "manual"}
+VALID_TASK_DISPATCH_STATUSES = {"todo", "ready"}
+VALID_TASK_DISPATCH_TRIAGED_BY = {"none", "user", "architect"}
 VALID_ARTIFACT_KINDS = {
     "architect_plan",
     "product_strategy",
@@ -732,11 +737,87 @@ def ensure_evidence(task: Dict[str, Any]) -> Dict[str, Any]:
 def task_is_ready(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
     if task.get("status") != "todo" or task.get("ownerAgentId"):
         return False
+    dispatch = task.get("dispatch")
+    if isinstance(dispatch, dict) and dispatch.get("mode") == "manual" and dispatch.get("status") != "ready":
+        return False
     for dep_id in task.get("dependsOn", []):
         dep = next((t for t in state.get("tasks", []) if t.get("id") == dep_id), None)
         if dep is None or dep.get("status") != "done":
             return False
     return True
+
+
+def optional_non_empty_string(record: Dict[str, Any], key: str) -> Optional[str]:
+    value = record.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def normalize_task_source(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise SystemExit(f"Task {task_id} source must be an object.")
+
+    source_type = optional_non_empty_string(raw, "type")
+    if source_type not in VALID_TASK_SOURCE_TYPES:
+        raise SystemExit(
+            f"Task {task_id} source.type must be one of: {', '.join(sorted(VALID_TASK_SOURCE_TYPES))}."
+        )
+
+    source: Dict[str, Any] = {"type": source_type}
+    for key in ("externalId", "externalUrl", "repo", "title", "externalUpdatedAt", "syncedAt"):
+        value = optional_non_empty_string(raw, key)
+        if value is not None:
+            source[key] = value
+
+    sync_status = optional_non_empty_string(raw, "syncStatus")
+    if sync_status is not None:
+        if sync_status not in VALID_TASK_SOURCE_SYNC_STATUSES:
+            raise SystemExit(
+                f"Task {task_id} source.syncStatus must be one of: {', '.join(sorted(VALID_TASK_SOURCE_SYNC_STATUSES))}."
+            )
+        source["syncStatus"] = sync_status
+
+    return source
+
+
+def normalize_task_dispatch(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise SystemExit(f"Task {task_id} dispatch must be an object.")
+
+    mode = optional_non_empty_string(raw, "mode")
+    if mode not in VALID_TASK_DISPATCH_MODES:
+        raise SystemExit(
+            f"Task {task_id} dispatch.mode must be one of: {', '.join(sorted(VALID_TASK_DISPATCH_MODES))}."
+        )
+
+    dispatch: Dict[str, Any] = {"mode": mode}
+    status = optional_non_empty_string(raw, "status")
+    if status is not None:
+        if status not in VALID_TASK_DISPATCH_STATUSES:
+            raise SystemExit(
+                f"Task {task_id} dispatch.status must be one of: {', '.join(sorted(VALID_TASK_DISPATCH_STATUSES))}."
+            )
+        dispatch["status"] = status
+
+    triaged_by = optional_non_empty_string(raw, "triagedBy")
+    if triaged_by is not None:
+        if triaged_by not in VALID_TASK_DISPATCH_TRIAGED_BY:
+            raise SystemExit(
+                f"Task {task_id} dispatch.triagedBy must be one of: {', '.join(sorted(VALID_TASK_DISPATCH_TRIAGED_BY))}."
+            )
+        dispatch["triagedBy"] = triaged_by
+
+    ready_at = optional_non_empty_string(raw, "readyAt")
+    if ready_at is not None:
+        dispatch["readyAt"] = ready_at
+
+    return dispatch
 
 
 def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -755,7 +836,7 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     if status not in VALID_TASK_STATUSES:
         raise SystemExit(f"Task {task_id} has invalid status {status!r}.")
     ev = raw.get("evidence") if isinstance(raw.get("evidence"), dict) else {}
-    return {
+    task = {
         "id": task_id,
         "title": title,
         "description": str(raw.get("description", "")).strip(),
@@ -776,6 +857,13 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         "startedAt": raw.get("startedAt") or None,
         "completedAt": raw.get("completedAt") or None,
     }
+    source = normalize_task_source(raw.get("source"), task_id)
+    if source is not None:
+        task["source"] = source
+    dispatch = normalize_task_dispatch(raw.get("dispatch"), task_id)
+    if dispatch is not None:
+        task["dispatch"] = dispatch
+    return task
 
 
 def reject_absolute_path_values(values: Optional[List[str]], field: str) -> None:
@@ -2378,6 +2466,41 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
     return result
 
 
+def cmd_task_ready(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        dispatch = task.get("dispatch")
+        actor = args.id or "user"
+        if not isinstance(dispatch, dict) or dispatch.get("mode") != "manual":
+            return {
+                "ok": False,
+                "error": "Task does not use manual dispatch.",
+                "task": {"id": task.get("id"), "dispatch": dispatch},
+                "write": False,
+            }
+        if task.get("status") != "todo" or task.get("ownerAgentId"):
+            return {
+                "ok": False,
+                "error": "Only unclaimed todo tasks can be moved to Ready.",
+                "task": {"id": task.get("id"), "status": task.get("status"), "ownerAgentId": task.get("ownerAgentId")},
+                "write": False,
+            }
+
+        if dispatch.get("status") != "ready":
+            dispatch["status"] = "ready"
+            dispatch["triagedBy"] = args.triaged_by
+            dispatch["readyAt"] = now_iso()
+        else:
+            dispatch.setdefault("triagedBy", args.triaged_by)
+            dispatch.setdefault("readyAt", now_iso())
+
+        recompute_phase(state)
+        event = append_event(state, "task_dispatch_ready", actor, f"{actor} moved {args.task_id} to Ready.")
+        return {"ok": True, "task": task, "event": event}
+
+    return with_locked_state(args.state, run)
+
+
 def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
@@ -2953,6 +3076,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--summary", help="Completion summary (used when status=done).")
     add_feedback_arguments(p)
     p.set_defaults(handler=cmd_task_status)
+
+    p = task_sub.add_parser("ready", help="Move a manual-dispatch todo task to Ready.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--id", default="user", help="Actor id.")
+    p.add_argument("--triaged-by", default="user", choices=sorted(VALID_TASK_DISPATCH_TRIAGED_BY))
+    p.set_defaults(handler=cmd_task_ready)
 
     p = task_sub.add_parser("log", help="Log work evidence (files, commands, results).")
     p.add_argument("--task-id", required=True)

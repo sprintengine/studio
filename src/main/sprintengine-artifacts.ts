@@ -8,6 +8,7 @@ import type {
   SwarmArtifactReviewAction,
   SwarmArtifactReviewMode,
   SwarmArtifactReviewPayload,
+  SwarmTaskReadyPayload,
 } from './ipc/sprintengine-ipc'
 
 type SprintEngineArtifactDependencies = {
@@ -133,6 +134,17 @@ function resolveSwarmArtifactId(input: unknown): string {
     throw new Error('Artifact id must be a safe sprintengine identifier.')
   }
   return artifactId
+}
+
+function resolveSwarmTaskId(input: unknown): string {
+  if (typeof input !== 'string' || !input.trim()) {
+    throw new Error('Task id is required.')
+  }
+  const taskId = input.trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(taskId)) {
+    throw new Error('Task id must be a safe sprintengine identifier.')
+  }
+  return taskId
 }
 
 function getSprintEngineMcpPythonExecutable(workspaceRoot: string): string {
@@ -305,6 +317,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     action: SwarmArtifactReviewAction,
     mode: SwarmArtifactReviewMode
   ): Promise<SwarmArtifactCommandResult>
+  readyTask(payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult>
 } {
   return {
     async openArtifact(payload) {
@@ -387,6 +400,46 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             actor: reviewPayload.id,
             authorizedUserId: actor.id,
             artifactId,
+            stateContent,
+            tool: toolResult.response.result,
+          },
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async readyTask(payload) {
+      try {
+        const state = validateSwarmStatePath(payload?.statePath)
+        const taskId = resolveSwarmTaskId(payload?.taskId)
+        const actor = await requireSprintEngineMcpAuthority(deps)
+        const toolResult = await runSprintEngineMcpTool(
+          state,
+          'sprintengine.task.ready',
+          { statePath: state.statePath, taskId, id: actor.id, triagedBy: 'user' },
+          actor
+        )
+        if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
+          const message = toolResult.response && !toolResult.response.ok
+            ? toolResult.response.error?.message
+            : undefined
+          return {
+            ok: false,
+            message: message ?? (toolResult.stderr.trim() || 'The sprintengine MCP command failed.'),
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+
+        const stateContent = await readFile(state.statePath, 'utf8')
+        return {
+          ok: true,
+          data: {
+            action: 'ready',
+            actor: actor.id,
+            taskId,
             stateContent,
             tool: toolResult.response.result,
           },

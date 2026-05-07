@@ -2,6 +2,7 @@ import type { IJsonModel } from 'flexlayout-react'
 
 export type WorkspaceId = string
 export type AgentId = string
+export type WorkspaceMode = 'standard' | 'sprintengine' | 'symphony' | 'multiloop'
 
 export type PreviewSlot = {
   x: number
@@ -187,6 +188,31 @@ export type SwarmTaskFeedback = {
   suggestedImprovement?: string
   issues?: SwarmTaskFeedbackIssue[]
   findings?: SwarmTaskFeedbackFinding[]
+}
+
+export type SwarmTaskSourceType = 'local' | 'github' | 'jira' | 'linear'
+export type SwarmTaskSourceSyncStatus = 'clean' | 'local_changed' | 'remote_changed' | 'conflict'
+
+export type SwarmTaskSource = {
+  type: SwarmTaskSourceType
+  externalId?: string
+  externalUrl?: string
+  repo?: string
+  title?: string
+  externalUpdatedAt?: string
+  syncedAt?: string
+  syncStatus?: SwarmTaskSourceSyncStatus
+}
+
+export type SwarmTaskDispatchMode = 'dependency' | 'manual'
+export type SwarmTaskDispatchStatus = 'todo' | 'ready'
+export type SwarmTaskDispatchTriagedBy = 'none' | 'user' | 'architect'
+
+export type SwarmTaskDispatch = {
+  mode: SwarmTaskDispatchMode
+  status?: SwarmTaskDispatchStatus
+  triagedBy?: SwarmTaskDispatchTriagedBy
+  readyAt?: string
 }
 
 export type SwarmRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'
@@ -430,6 +456,8 @@ export type SwarmTask = {
   description: string
   role: SwarmRole
   status: SwarmTaskStatus
+  source?: SwarmTaskSource
+  dispatch?: SwarmTaskDispatch
   ownerAgentId: string | null
   dependsOn: string[]
   ownedPaths: string[]
@@ -669,7 +697,7 @@ export type EditorState = {
 export type Workspace = {
   id: WorkspaceId
   name: string
-  mode: 'standard' | 'sprintengine' | 'multiloop'
+  mode: WorkspaceMode
   folderPath: string | null
   folderMissing?: boolean
   swarmContext?: SwarmWorkspaceContext | null

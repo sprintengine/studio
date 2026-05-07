@@ -12,6 +12,11 @@ export type SwarmArtifactReviewPayload = {
   feedback?: string
 }
 
+export type SwarmTaskReadyPayload = {
+  statePath: string
+  taskId: string
+}
+
 export type SwarmArtifactReviewAction = 'approve' | 'request-changes'
 export type SwarmArtifactReviewMode = 'user' | 'auto-run'
 
@@ -22,6 +27,7 @@ type SprintEngineIpcDependencies = {
     action: SwarmArtifactReviewAction,
     mode: SwarmArtifactReviewMode
   ): Promise<SwarmArtifactCommandResult>
+  readyTask(payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult>
 }
 
 export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
@@ -39,5 +45,9 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:artifact:request-changes', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
     return deps.reviewArtifact(payload, 'request-changes', 'user')
+  })
+
+  ipcMain.handle('sprintengine:task:ready', async (_, payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult> => {
+    return deps.readyTask(payload)
   })
 }

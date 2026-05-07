@@ -23,7 +23,16 @@ export const sprintEngineApi = {
     feedback: string
   ): Promise<SwarmArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:artifact:request-changes', { statePath, artifactId, feedback }),
+  readySwarmTask: (
+    statePath: string,
+    taskId: string
+  ): Promise<SwarmArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:task:ready', { statePath, taskId }),
 } satisfies Pick<
   ElectronApi,
-  'openSwarmArtifact' | 'approveSwarmArtifact' | 'autoApproveSwarmArtifact' | 'requestSwarmArtifactChanges'
+  | 'openSwarmArtifact'
+  | 'approveSwarmArtifact'
+  | 'autoApproveSwarmArtifact'
+  | 'requestSwarmArtifactChanges'
+  | 'readySwarmTask'
 >
