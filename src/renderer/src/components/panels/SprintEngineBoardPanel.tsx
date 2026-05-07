@@ -923,7 +923,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             </button>
             <button
               onClick={() => void relinkFolder()}
-              className="rounded-md bg-[#6ee7d8]/10 px-2.5 py-1 text-[11px] font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/16"
+              className="rounded-md bg-[#5c7cff]/10 px-2.5 py-1 text-[11px] font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/16"
             >
               Relink
             </button>
@@ -1235,7 +1235,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               title={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
               className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors ${
                 autoEnabled
-                  ? 'border-[#6ee7d8]/55 bg-[#6ee7d8]/14 text-[#d8fffb] hover:border-[#6ee7d8]/75 hover:bg-[#6ee7d8]/18'
+                  ? 'border-[#5c7cff]/55 bg-[#5c7cff]/14 text-[#d4ddff] hover:border-[#5c7cff]/75 hover:bg-[#5c7cff]/18'
                   : 'border-[#303139] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
               }`}
             >
@@ -1251,14 +1251,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               disabled={!autoEnabled}
               className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
                 autoEnabled && autoApproveArtifacts
-                  ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/65 hover:bg-[#6ee7d8]/16'
+                  ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
                   : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
               } disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]`}
               title={autoEnabled ? 'Approve all artifacts' : 'Start sprintengine auto-run before approving all artifacts'}
             >
               <span
                 className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                  autoEnabled && autoApproveArtifacts ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+                  autoEnabled && autoApproveArtifacts ? 'bg-[#5c7cff]' : 'bg-[#303139]'
                 }`}
                 aria-hidden="true"
               >
@@ -1281,14 +1281,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               onClick={toggleKeepDoneAgentTerminals}
               className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
                 keepDoneAgentTerminals
-                  ? 'border-[#6ee7d8]/45 bg-[#6ee7d8]/12 text-[#d8fffb] hover:border-[#6ee7d8]/65 hover:bg-[#6ee7d8]/16'
+                  ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
                   : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
               }`}
               title="Keep completed Sprint Engine agent terminals open"
             >
               <span
                 className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                  keepDoneAgentTerminals ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+                  keepDoneAgentTerminals ? 'bg-[#5c7cff]' : 'bg-[#303139]'
                 }`}
                 aria-hidden="true"
               >
@@ -1317,7 +1317,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 cliPermissionPreset === 'bypass_all'
                   ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
                   : cliPermissionPreset === 'auto_workspace'
-                    ? 'border-[#6ee7d8]/40 text-[#d8fffb] focus:ring-[#6ee7d8]/40'
+                    ? 'border-[#5c7cff]/40 text-[#d4ddff] focus:ring-[#5c7cff]/40'
                     : 'border-[#303139] text-[#8a8a92] focus:ring-[#303139]'
               }`}
             >
@@ -1356,7 +1356,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 type="button"
                 onClick={() => void syncGitHubIssues()}
                 disabled={!folderPath || !swarmContext?.statePath || githubSyncBusy}
-                className="rounded-md bg-[#6ee7d8]/10 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/16 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#6ee7d8]/10"
+                className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]/10"
               >
                 {githubSyncBusy ? 'Syncing GitHub...' : 'Sync GitHub'}
               </button>
@@ -1383,7 +1383,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
                   needsInputAgent
                     ? 'bg-[#ffbf2f]/12 text-[#ffe0a3] hover:bg-[#ffbf2f]/18'
-                    : 'bg-[#6ee7d8]/10 text-[#d8fffb] hover:bg-[#6ee7d8]/16'
+                    : 'bg-[#5c7cff]/10 text-[#d4ddff] hover:bg-[#5c7cff]/16'
                 }`}
               >
                 {focusAgentIsLaunched
@@ -1411,7 +1411,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                       openReadyTaskWorker(task)
                     }
                   }}
-                  className="rounded-md bg-[#6ee7d8]/10 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/16"
+                  className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16"
                 >
                   {actionLabel}
                 </button>
@@ -1725,7 +1725,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                           ? 'border-[#ffbf2f] text-[#ffe0a3]'
                           : task.status === 'done'
                             ? 'border-[#30d158] text-[#9a9aa2]'
-                            : 'border-[#6ee7d8] text-[#bff7f1]'
+                            : 'border-[#5c7cff] text-[#b8ccff]'
                       }`}>
                         {attentionText}
                       </div>
@@ -1736,7 +1736,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                           {formatArtifactSummary(taskArtifacts)}
                         </span>
                         {mobileDecisionSummary ? (
-                          <span className="rounded bg-[#6ee7d8]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#bff7f1]">
+                          <span className="rounded bg-[#5c7cff]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#b8ccff]">
                             {mobileDecisionSummary}
                           </span>
                         ) : null}
@@ -1795,7 +1795,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                           onKeyDown={(event) => {
                             event.stopPropagation()
                           }}
-                          className="shrink-0 rounded-md bg-[#6ee7d8]/10 px-2.5 py-1 text-[11px] font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/16 disabled:cursor-wait disabled:opacity-60"
+                          className="shrink-0 rounded-md bg-[#5c7cff]/10 px-2.5 py-1 text-[11px] font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-wait disabled:opacity-60"
                         >
                           Ready
                         </button>
@@ -1817,11 +1817,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ) : null}
 
       {recoveryDialog ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Verify Progress
                 </div>
                 <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
@@ -1951,7 +1951,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               <button
                 onClick={confirmRecoveryAudit}
                 disabled={!folderPath || !architectAgentId}
-                className="rounded-md bg-[#30d158] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#69e783] disabled:opacity-45 disabled:hover:bg-[#30d158]"
+                className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
               >
                 Start Audit
               </button>
@@ -1961,11 +1961,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ) : null}
 
       {spawnDialog && spawnDialogAgent ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ee7d8]">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Spawn Agent
                 </div>
                 <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
@@ -2005,7 +2005,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     )
                   }}
                   placeholder={spawnDialogDefaultName}
-                  className="h-10 w-full rounded-md bg-[#111216] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#6ee7d8]/50"
+                  className="h-10 w-full rounded-md bg-[#111216] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#5c7cff]/50"
                 />
               </label>
 
@@ -2114,7 +2114,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               </button>
               <button
                 onClick={confirmSpawnDialog}
-                className="rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+                className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff]"
               >
                 {spawnDialogIsRunning ? 'Open Terminal' : 'Spawn'}
               </button>
@@ -2124,8 +2124,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ) : null}
 
       {selectedTask && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[920px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
+          <div className="max-h-[90vh] w-full max-w-[920px] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -2177,7 +2177,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                       onClick={() => {
                         window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
                       }}
-                      className="rounded-md px-3 py-2 text-sm font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/10"
+                      className="rounded-md px-3 py-2 text-sm font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/10"
                     >
                       Open Issue
                     </button>
@@ -2206,10 +2206,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               {selectedTaskCanMarkReady ? (
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ee7d8]">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
                       Ready Gate
                     </div>
-                    <div className="mt-1 text-sm text-[#d8fffb]">
+                    <div className="mt-1 text-sm text-[#ececee]">
                       Approve this task for workers after triage.
                     </div>
                     {taskReadyActions[selectedTask.id]?.message ? (
@@ -2224,7 +2224,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     type="button"
                     disabled={taskReadyActions[selectedTask.id]?.status === 'pending'}
                     onClick={() => void markTaskReady(selectedTask)}
-                    className="rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea] disabled:cursor-wait disabled:opacity-60"
+                    className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-wait disabled:opacity-60"
                   >
                     Move To Ready
                   </button>
@@ -2258,10 +2258,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               {selectedTaskCanSpawnWorker ? (
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ee7d8]">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
                       Ready To Claim
                     </div>
-                    <div className="mt-1 text-sm text-[#d8fffb]">
+                    <div className="mt-1 text-sm text-[#ececee]">
                       Start a {swarmRoleLabels[selectedTask.role]} for this ready task.
                     </div>
                   </div>
@@ -2270,7 +2270,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                       openReadyTaskWorker(selectedTask)
                       setSelectedTaskId(null)
                     }}
-                    className="rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+                    className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff]"
                   >
                     Spawn {swarmRoleLabels[selectedTask.role]}
                   </button>
@@ -2350,11 +2350,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       )}
 
       {showRunSummary ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[980px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
+          <div className="max-h-[90vh] w-full max-w-[980px] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div>
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Run Summary
                 </div>
                 <h3 className="text-[14px] font-semibold tracking-tight text-[#ececee]">
@@ -2430,8 +2430,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ) : null}
 
       {addMemberOpen ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
+          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div>
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -2464,7 +2464,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     aria-pressed={selected}
                     className={`w-full rounded-md border-l-2 px-3 py-3 text-left transition-colors ${
                       selected
-                        ? 'border-l-[#6ee7d8] bg-[#6ee7d8]/8 text-[#ececee]'
+                        ? 'border-l-[#5c7cff] bg-[#5c7cff]/8 text-[#ececee]'
                         : 'border-l-transparent text-[#d7d7dc] hover:bg-[#17181d]'
                     }`}
                   >
@@ -2482,12 +2482,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                         <div className="truncate text-sm font-semibold">
                           {swarmRoleLabels[role]}
                         </div>
-                        <p className={`mt-1 text-[12px] leading-5 ${selected ? 'text-[#bff7f1]' : 'text-[#9a9aa2]'}`}>
+                        <p className={`mt-1 text-[12px] leading-5 ${selected ? 'text-[#b8ccff]' : 'text-[#9a9aa2]'}`}>
                           {roleSummaries[role]}
                         </p>
                       </div>
                       <span className={`shrink-0 pt-0.5 text-right text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                        selected ? 'text-[#bff7f1]' : 'text-[#5a5a63]'
+                        selected ? 'text-[#b8ccff]' : 'text-[#5a5a63]'
                       }`}>
                         {activeForRole} active / {openTasksForRole} open
                       </span>
@@ -2506,7 +2506,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               </button>
               <button
                 onClick={() => void confirmAddMember()}
-                className="rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
+                className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff]"
               >
                 {swarmState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {swarmRoleLabels[addMemberRole]}
               </button>
@@ -2516,8 +2516,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ) : null}
 
       {planReader.open ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-xl border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.42)]">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
+          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0 flex-1">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -2750,7 +2750,7 @@ function SwarmProjectView({
               }}
               aria-expanded={goalExpanded}
               className={`block w-full border-l-2 border-[#303139] pl-3 text-left transition-colors ${
-                canExpandGoal ? 'hover:border-[#6ee7d8]' : ''
+                canExpandGoal ? 'hover:border-[#5c7cff]' : ''
               }`}
             >
               <div className="flex items-center justify-between gap-3">
@@ -2869,7 +2869,7 @@ function SwarmProjectView({
                     className={`col-span-2 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors sm:col-span-1 ${
                       isLaunched
                         ? 'text-[#d4ffdc] hover:bg-[#30d158]/12'
-                        : 'text-[#d8fffb] hover:bg-[#6ee7d8]/12'
+                        : 'text-[#d4ddff] hover:bg-[#5c7cff]/12'
                     }`}
                   >
                     {isLaunched ? 'Open Terminal' : `Spawn ${swarmRoleLabels[agent.role]}`}
@@ -4140,13 +4140,13 @@ function SwarmArtifactList({
                     {artifact.path || 'No file path recorded.'}
                   </div>
                   {mobileDecision ? (
-                    <div className="mt-2 border-l border-[#6ee7d8]/45 pl-2 text-[11px] leading-5 text-[#bff7f1]">
+                    <div className="mt-2 border-l border-[#5c7cff]/45 pl-2 text-[11px] leading-5 text-[#b8ccff]">
                       {formatMobileArtifactDecision(mobileDecision)}
                     </div>
                   ) : null}
                   {readyForReview && autoApprovalEligibility.label ? (
                     <div className={`mt-2 text-[11px] font-semibold ${
-                      autoApprovalEligibility.eligible ? 'text-[#6ee7d8]' : 'text-[#ffd58a]'
+                      autoApprovalEligibility.eligible ? 'text-[#5c7cff]' : 'text-[#ffd58a]'
                     }`}>
                       {autoApprovalEligibility.label}
                     </div>
@@ -4177,7 +4177,7 @@ function SwarmArtifactList({
                         type="button"
                         onClick={() => onApproveArtifact(artifact)}
                         disabled={pending}
-                        className="rounded-md bg-[#6ee7d8]/14 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/20 disabled:opacity-45 disabled:hover:bg-[#6ee7d8]/14"
+                        className="rounded-md bg-[#5c7cff]/14 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/20 disabled:opacity-45 disabled:hover:bg-[#5c7cff]/14"
                       >
                         {pending && action?.kind === 'approve' ? 'Approving...' : 'Approve'}
                       </button>
@@ -4388,7 +4388,7 @@ function artifactStatusTone(status: SwarmArtifact['status']): string {
     case 'approved':
       return 'bg-[#30d158]/12 text-[#d4ffdc]'
     case 'ready_for_review':
-      return 'bg-[#6ee7d8]/12 text-[#bff7f1]'
+      return 'bg-[#5c7cff]/12 text-[#b8ccff]'
     case 'changes_requested':
       return 'bg-[#ffbf2f]/14 text-[#ffe0a3]'
     case 'superseded':
@@ -4445,7 +4445,7 @@ function hexToRgba(hex: string, alpha: number): string {
 function runtimeTone(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-[#6ee7d8]/12 text-[#bff7f1]'
+      return 'bg-[#5c7cff]/12 text-[#b8ccff]'
     case 'needs_input':
       return 'bg-[#ffbf2f]/14 text-[#ffe0a3]'
     case 'planning':

@@ -1477,7 +1477,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
               </button>
               <button
                 onClick={handleOpen}
-                className="rounded-md border border-[#6ee7d8]/45 bg-[#6ee7d8]/10 px-3 py-1.5 text-[11px] font-semibold text-[#bff7f1] transition-colors hover:bg-[#6ee7d8]/16"
+                className="rounded-md border border-[#5c7cff]/45 bg-[#5c7cff]/10 px-3 py-1.5 text-[11px] font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/16"
               >
                 Relink
               </button>

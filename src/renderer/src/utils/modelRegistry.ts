@@ -448,6 +448,44 @@ export function focusComponentTab(workspaceId: string, component: string): boole
   return true
 }
 
+export function hasComponentTab(workspaceId: string, component: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  let found = false
+  model.visitNodes((node) => {
+    if (found) return
+    if (node instanceof TabNode && node.getComponent() === component) {
+      found = true
+    }
+  })
+  return found
+}
+
+export function removeComponentTab(workspaceId: string, component: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  const tabIds: string[] = []
+  model.visitNodes((node) => {
+    if (node instanceof TabNode && node.getComponent() === component) {
+      tabIds.push(node.getId())
+    }
+  })
+  if (tabIds.length === 0) return false
+  tabIds.forEach((tabId) => model.doAction(Actions.deleteTab(tabId)))
+  return true
+}
+
+export function toggleComponentTab(
+  workspaceId: string,
+  component: string,
+  name: string
+): boolean {
+  if (hasComponentTab(workspaceId, component)) {
+    return removeComponentTab(workspaceId, component)
+  }
+  return focusOrAddComponentTab(workspaceId, component, name)
+}
+
 export function focusOrAddComponentTab(
   workspaceId: string,
   component: string,

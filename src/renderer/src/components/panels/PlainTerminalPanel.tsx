@@ -43,7 +43,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId, cwdOverrid
       theme: {
         background: '#09090b',
         foreground: '#e4e4e7',
-        cursor: '#6ee7d8',
+        cursor: '#5c7cff',
       },
       fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
       fontSize: 13,

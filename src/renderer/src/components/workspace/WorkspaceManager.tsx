@@ -29,7 +29,7 @@ import type {
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
+import { focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel, hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
@@ -43,6 +43,31 @@ import WorkspaceGitStatusButton from './WorkspaceGitStatusButton'
 import WorkspaceLayout from './WorkspaceLayout'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
+
+type ViewItem = { component: string; name: string }
+const VIEWS_FOR_MODE: Record<string, { label: string; views: ViewItem[] }> = {
+  sprintengine: {
+    label: 'Sprint Engine',
+    views: [
+      { component: 'sprintengine-project', name: 'Project' },
+      { component: 'sprintengine-map', name: 'SprintEngine Map' },
+      { component: 'sprintengine-task-graph', name: 'Task Graph' },
+      { component: 'sprintengine-kanban', name: 'Kanban' },
+    ],
+  },
+  multiloop: {
+    label: 'Multiloop',
+    views: [
+      { component: 'multiloop-board', name: 'Multiloop' },
+    ],
+  },
+  symphony: {
+    label: 'Symphony',
+    views: [
+      { component: 'symphony-dashboard', name: 'Dashboard' },
+    ],
+  },
+}
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 5 * 60_000
 const AGENT_SPAWN_CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
@@ -329,6 +354,8 @@ export default function WorkspaceManager() {
     (option) => option.value === agentSpawnPermissionPreset
   ) ?? AGENT_SPAWN_PERMISSION_OPTIONS[0]
   const [sessionsOpen, setSessionsOpen] = useState(false)
+  const [viewMenuOpen, setViewMenuOpen] = useState(false)
+  const [viewMenuTick, setViewMenuTick] = useState(0)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
@@ -346,6 +373,7 @@ export default function WorkspaceManager() {
   const renameInputRef = useRef<HTMLInputElement>(null)
   const specialistMenuRef = useRef<HTMLDivElement>(null)
   const sessionsRef = useRef<HTMLDivElement>(null)
+  const viewMenuRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
   const accountRef = useRef<HTMLDivElement>(null)
   const handoffDialogRef = useRef<HTMLDivElement>(null)
@@ -589,6 +617,27 @@ export default function WorkspaceManager() {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [sessionsOpen])
+
+  useEffect(() => {
+    if (!viewMenuOpen) return
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!viewMenuRef.current?.contains(event.target as Node)) {
+        setViewMenuOpen(false)
+      }
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setViewMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [viewMenuOpen])
 
   useEffect(() => {
     if (!notificationsOpen) return
@@ -1274,7 +1323,7 @@ export default function WorkspaceManager() {
               >
                 <SessionsIcon className="h-[18px] w-[18px]" />
                 {sessions.length > 0 ? (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#0b0c0f] bg-[#30d158] px-1 text-[10px] font-bold leading-none text-[#061210]">
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#0b0c0f] bg-[#30d158] px-1 text-[10px] font-bold leading-none text-[#08090b]">
                     {sessions.length > 99 ? '99+' : sessions.length}
                   </span>
                 ) : null}
@@ -1286,6 +1335,82 @@ export default function WorkspaceManager() {
                   onOpen={openSession}
                   onStop={stopSession}
                 />
+              ) : null}
+            </div>
+          ) : null}
+
+          {workspaceActionsEnabled && activeWorkspace && (activeWorkspace.mode === 'sprintengine' || activeWorkspace.mode === 'multiloop' || activeWorkspace.mode === 'symphony') ? (
+            <div ref={viewMenuRef} className="relative inline-flex">
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMenuOpen((open) => !open)
+                  setViewMenuTick((tick) => tick + 1)
+                  setSessionsOpen(false)
+                  setSpecialistMenuOpen(false)
+                  setNotificationsOpen(false)
+                  setAccountOpen(false)
+                }}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 transition-colors ${
+                  viewMenuOpen
+                    ? 'border-[#303139] bg-[#17181d] text-[#ececee]'
+                    : 'border-[#24252b] bg-[#111216] text-[#9a9aa2] hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc]'
+                }`}
+                title={`${VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'} panels`}
+                aria-label="Toggle workspace panels"
+                aria-haspopup="menu"
+                aria-expanded={viewMenuOpen}
+              >
+                <svg className="h-[14px] w-[14px]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                  <rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                  <rect x="9" y="10" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                </svg>
+                <span className="text-[12px] font-semibold">{VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'}</span>
+                <svg className={`h-3 w-3 transition-transform ${viewMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {viewMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-9 z-40 w-60 overflow-hidden rounded-md border border-[rgba(255,255,255,0.06)] bg-[#0d0e11] p-1"
+                >
+                  <div className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
+                    {VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'} Panels
+                  </div>
+                  {(VIEWS_FOR_MODE[activeWorkspace.mode]?.views ?? []).map((view) => {
+                    void viewMenuTick
+                    const checked = hasComponentTab(activeWorkspace.id, view.component)
+                    return (
+                      <button
+                        key={view.component}
+                        type="button"
+                        role="menuitemcheckbox"
+                        aria-checked={checked}
+                        onClick={() => {
+                          toggleComponentTab(activeWorkspace.id, view.component, view.name)
+                          setViewMenuTick((tick) => tick + 1)
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-[13px] text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            checked
+                              ? 'border-[#5c7cff] bg-[#5c7cff] text-[#08090b]'
+                              : 'border-[#3a3d49] bg-transparent text-transparent'
+                          }`}
+                          aria-hidden="true"
+                        >
+                          <svg className="h-3 w-3" viewBox="0 0 20 20" fill="none">
+                            <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{view.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -1524,7 +1649,7 @@ export default function WorkspaceManager() {
                         agentSpawnPermissionPreset === 'bypass_all'
                           ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
                           : agentSpawnPermissionPreset === 'auto_workspace'
-                            ? 'border-[#6ee7d8]/40 text-[#d8fffb] focus:ring-[#6ee7d8]/40'
+                            ? 'border-[#5c7cff]/40 text-[#d4ddff] focus:ring-[#5c7cff]/40'
                             : 'border-[#303139] text-[#8a8a92] focus:ring-[#303139]'
                       }`}
                     >
@@ -1910,7 +2035,7 @@ function NotificationsPopover({
                       ? 'bg-[#ff787c]'
                       : notification.level === 'warning'
                         ? 'bg-[#ffbf2f]'
-                        : 'bg-[#6ee7d8]'
+                        : 'bg-[#5c7cff]'
                   }`}
                   aria-hidden="true"
                 />

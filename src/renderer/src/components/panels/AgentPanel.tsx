@@ -62,7 +62,7 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
             <button
               onClick={() => startAgent(false)}
               disabled={swarmTerminalBlocked}
-              className="rounded-md border border-[#6ee7d8]/50 bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea] disabled:cursor-default disabled:border-[#2a4548] disabled:bg-[#172326] disabled:text-[#5f797d]"
+              className="rounded-md border border-[#5c7cff]/50 bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-default disabled:border-[#3a3d49] disabled:bg-[#17181d] disabled:text-[#5a5a63]"
             >
               {startLabel}
             </button>

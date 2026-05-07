@@ -101,7 +101,7 @@ const roleAccentClasses: Record<SwarmRole, string> = {
   architect: 'bg-[#ffbf2f]',
   product: 'bg-[#8b5cf6]',
   developer: 'bg-[#30d158]',
-  frontend: 'bg-[#6ee7d8]',
+  frontend: 'bg-[#5c7cff]',
   code_reviewer: 'bg-[#f59e0b]',
   performance: 'bg-[#a78bfa]',
   tester: 'bg-[#64a8ff]',
@@ -711,16 +711,16 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                           : swarmOption
                             ? 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
                             : symphonyOption
-                              ? 'border-transparent text-[#9a9aa2] hover:bg-[#6ee7d8]/8 hover:text-[#d8fffb]'
+                              ? 'border-transparent text-[#9a9aa2] hover:bg-[#5c7cff]/8 hover:text-[#d4ddff]'
                             : multiloopOption
-                              ? 'border-transparent text-[#9a9aa2] hover:bg-[#6ee7d8]/8 hover:text-[#d8fffb]'
+                              ? 'border-transparent text-[#9a9aa2] hover:bg-[#5c7cff]/8 hover:text-[#d4ddff]'
                             : 'border-transparent text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                     }`}
                   >
                     {swarmOption || symphonyOption || multiloopOption ? (
                       <WorkspaceTypeIcon
                         mode={swarmOption ? 'sprintengine' : symphonyOption ? 'symphony' : 'multiloop'}
-                        className={`h-3.5 w-3.5 shrink-0 ${swarmOption ? 'text-[#ffbf2f]' : 'text-[#6ee7d8]'}`}
+                        className={`h-3.5 w-3.5 shrink-0 ${swarmOption ? 'text-[#ffbf2f]' : 'text-[#5c7cff]'}`}
                       />
                     ) : null}
                     {option.label}
@@ -1081,7 +1081,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                                 disabled={role === 'architect' || selectedExistingTeam != null}
                                 onClick={() => setRoleIncluded(role, !included)}
                                 className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ececee]/25 disabled:opacity-55 ${
-                                  included ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+                                  included ? 'bg-[#5c7cff]' : 'bg-[#303139]'
                                 }`}
                               >
                                 <span

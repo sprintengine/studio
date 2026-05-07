@@ -281,7 +281,7 @@ export default function MobileCompanionPanel() {
                   type="button"
                   onClick={requestPairingCode}
                   disabled={!enabled || busy}
-                  className="inline-flex h-9 items-center rounded-md bg-[#6ee7d8]/16 px-3 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/24 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#6ee7d8]/16"
+                  className="inline-flex h-9 items-center rounded-md bg-[#5c7cff]/16 px-3 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/24 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]/16"
                 >
                   New Pairing Code
                 </button>
@@ -454,7 +454,7 @@ function diagnosticDotClass(level: MobileBridgeDiagnosticEntry['level']): string
     case 'warning':
       return 'bg-[#ffbf2f]'
     default:
-      return 'bg-[#6ee7d8]'
+      return 'bg-[#5c7cff]'
   }
 }
 

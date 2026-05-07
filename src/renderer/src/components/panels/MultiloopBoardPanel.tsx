@@ -1055,7 +1055,7 @@ function MoreTerminalsPopover({
                   >
                     <SpecialistActionIcon icon={soul.icon} className="h-4 w-4 shrink-0 text-[#9a9aa2]" />
                     <span className="min-w-0 flex-1 truncate">{loading ? 'Opening...' : `${soul.label} (${terminalKind})`}</span>
-                    {exists ? <span className="h-1.5 w-1.5 rounded-full bg-[#6ee7d8]" aria-label="Created" /> : null}
+                    {exists ? <span className="h-1.5 w-1.5 rounded-full bg-[#5c7cff]" aria-label="Created" /> : null}
                   </button>
                 )
               })}

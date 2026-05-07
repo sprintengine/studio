@@ -1177,7 +1177,7 @@ function GitLogCommitRow({ commit }: { commit: GitCommit }) {
     <>
       <div
         className={`relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border ${
-          hasHead ? 'border-[#6ee7d8] bg-[#6ee7d8]' : 'border-[#555b68] bg-[#0d0e11]'
+          hasHead ? 'border-[#5c7cff] bg-[#5c7cff]' : 'border-[#555b68] bg-[#0d0e11]'
         }`}
       />
       <div className="min-w-0 flex-1">

@@ -222,7 +222,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]"
       onClick={(event) => event.target === event.currentTarget && closeSettings()}
     >
       <div
@@ -231,20 +231,22 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
         aria-modal="true"
         aria-labelledby="settings-modal-title"
         tabIndex={-1}
-        className="max-h-[92vh] w-[760px] max-w-[95vw] overflow-y-auto rounded-xl border border-[#303139] bg-[#0d0e11] p-6 shadow-2xl outline-none"
+        className="max-h-[92vh] w-[720px] max-w-[95vw] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11] p-6 outline-none"
       >
-        <div className="mb-4 flex items-start justify-between">
+        <div className="mb-5 flex items-start justify-between">
           <div>
-            <h2 id="settings-modal-title" className="text-base font-semibold text-[#ececee]">Settings</h2>
-            <p className="mt-0.5 text-sm text-[#5a5a63]">Configure local CLIs, workspace paths, and usage telemetry.</p>
+            <h2 id="settings-modal-title" className="text-[15px] font-semibold tracking-tight text-[#ececee]">Settings</h2>
+            <p className="mt-1 text-[12px] leading-5 text-[#9a9aa2]">Configure local CLIs, workspace paths, and usage telemetry.</p>
           </div>
           <button
             type="button"
             onClick={closeSettings}
             aria-label="Close settings"
-            className="rounded text-xl leading-none text-[#5a5a63] transition-colors hover:text-[#d7d7dc] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6ee7d8]/60"
+            className="rounded-md px-2 py-1 text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
           >
-            ×
+            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
           </button>
         </div>
 
@@ -268,7 +270,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
             {updateState?.progress ? (
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#24252b]">
                 <div
-                  className="h-full rounded-full bg-[#6ee7d8]"
+                  className="h-full rounded-full bg-[#5c7cff]"
                   style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
                 />
               </div>
@@ -279,7 +281,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
             <button
               type="button"
               onClick={() => void window.api.updateOpenReleaseNotes()}
-              className="text-sm font-semibold text-[#bff7f1] transition-colors hover:text-[#e0fffb] focus:outline-none focus-visible:underline"
+              className="text-sm font-semibold text-[#b8ccff] transition-colors hover:text-[#d4ddff] focus:outline-none focus-visible:underline"
             >
               Release notes
             </button>
@@ -326,7 +328,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
                   value={cliRuntimes[cli].command}
                   onChange={(event) => setCliRuntime(cli, { command: event.target.value })}
                   placeholder={cli}
-                  className="w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#6ee7d8]/70"
+                  className="w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
                 />
               </label>
 
@@ -365,7 +367,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
               onBlur={(event) => setSearchExcludes(parseSearchExcludeText(event.target.value))}
               rows={4}
               placeholder={'generated\n*.snap\nfixtures/large/**'}
-              className="min-h-[96px] w-full resize-y rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#6ee7d8]/70"
+              className="min-h-[96px] w-full resize-y rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
             />
           </label>
           <p className="text-[12px] leading-5 text-[#5a5a63]">
@@ -386,7 +388,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
               </div>
             </div>
             {activeWorkspace ? (
-              <div className="max-w-[260px] truncate rounded-md border border-[#24252b] bg-[#0d0e11] px-2.5 py-1 text-[11px] text-[#9a9aa2]">
+              <div className="max-w-[260px] truncate text-[11px] text-[#9a9aa2]">
                 {activeWorkspace.name}
               </div>
             ) : null}
@@ -408,7 +410,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
                 }}
                 placeholder="../ecosystem-memory"
                 disabled={!activeWorkspace}
-                className="h-9 min-w-0 flex-1 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#6ee7d8]/70 disabled:opacity-45"
+                className="h-9 min-w-0 flex-1 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70 disabled:opacity-45"
               />
               <button
                 type="button"
@@ -423,10 +425,10 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
 
           <div className={`border-l-2 pl-3 text-[12px] leading-5 ${
             memoryStatus?.ok
-              ? 'border-[#6ee7d8]/70 text-[#bff7f1]'
+              ? 'border-[#5c7cff]/70 text-[#b8ccff]'
               : memoryStatus
                 ? 'border-[#ffbf2f]/75 text-[#ffd58a]'
-                : 'border-[#303139] text-[#9a9aa2]'
+                : 'border-[rgba(255,255,255,0.10)] text-[#9a9aa2]'
           }`}>
             {memoryStatus?.ok
               ? `Ready: ${memoryStatus.relativeRoot}`
@@ -448,7 +450,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
                 SprintEngine usage data and diagnostics
               </div>
             </div>
-            <div className="rounded-md border border-[#24252b] bg-[#0d0e11] px-2.5 py-1 text-[11px] font-semibold text-[#9a9aa2]">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
               {import.meta.env.DEV ? 'Development build' : 'Production build'}
             </div>
           </div>
@@ -492,7 +494,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
         <div className="mt-6 flex justify-end">
           <button
             onClick={closeSettings}
-            className="rounded border border-[#303139] bg-[#111216] px-4 py-1.5 text-sm font-medium text-[#ececee] transition-colors hover:bg-[#17181d]"
+            className="rounded-md px-3.5 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
           >
             Close
           </button>
@@ -513,9 +515,9 @@ function UpdateActionButton({
   onClick: () => void
   disabled?: boolean
 }) {
-  const base = 'rounded-md px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-default disabled:opacity-45 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6ee7d8]/60'
+  const base = 'rounded-md px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-default disabled:opacity-45 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60'
   const tone = primary
-    ? 'bg-[#6ee7d8]/14 text-[#d8fffb] hover:bg-[#6ee7d8]/18 disabled:hover:bg-[#6ee7d8]/14'
+    ? 'bg-[#5c7cff] text-[#08090b] hover:bg-[#6e8eff] disabled:hover:bg-[#5c7cff]'
     : 'border border-[#303139] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#17181d] disabled:hover:bg-[#0d0e11]'
   return (
     <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${tone}`}>
@@ -552,14 +554,14 @@ function SettingToggle({
         aria-label={label}
         disabled={disabled}
         onClick={() => onChange(!enabled)}
-        className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6ee7d8]/60 disabled:opacity-45 ${
-          enabled ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+        className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 disabled:opacity-45 ${
+          enabled ? 'bg-[#5c7cff]' : 'bg-[#303139]'
         }`}
       >
         <span
           aria-hidden="true"
           className={`pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-transform ${
-            enabled ? 'translate-x-4 bg-[#061210]' : 'translate-x-0 bg-[#d7d7dc]'
+            enabled ? 'translate-x-4 bg-[#08090b]' : 'translate-x-0 bg-[#d7d7dc]'
           }`}
         />
       </button>
@@ -611,7 +613,7 @@ function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): st
 function updateChannelClass(channel: AppUpdateState['channel'] | undefined): string {
   switch (channel) {
     case 'stable':
-      return 'border-[#6ee7d8]/35 bg-[#6ee7d8]/10 text-[#bff7f1]'
+      return 'border-[#5c7cff]/35 bg-[#5c7cff]/10 text-[#b8ccff]'
     case 'preview':
       return 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#ffe0a3]'
     case 'dev':
@@ -625,7 +627,7 @@ function updateStatusClass(status: AppUpdateState['status'] | undefined): string
   switch (status) {
     case 'available':
     case 'downloaded':
-      return 'border-[#6ee7d8]/70 text-[#bff7f1]'
+      return 'border-[#5c7cff]/70 text-[#b8ccff]'
     case 'checking':
     case 'downloading':
       return 'border-[#ffbf2f]/75 text-[#ffd58a]'

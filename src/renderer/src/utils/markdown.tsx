@@ -40,7 +40,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
           href={match[4]}
           target="_blank"
           rel="noreferrer"
-          className="text-[#6ee7d8] hover:text-[#bff7f1] underline underline-offset-2"
+          className="text-[#5c7cff] hover:text-[#b8ccff] underline underline-offset-2"
         >
           {renderInline(match[3], `${keyPrefix}-link-text-${matchIndex}`)}
         </a>
