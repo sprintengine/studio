@@ -43,6 +43,7 @@ import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
+import { getErrorMessage } from './error-message'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -890,10 +891,6 @@ function denied(
     ...(limit !== undefined ? { limit } : {}),
     ...(graceExpiresAt ? { graceExpiresAt } : {}),
   }
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function readMultiauthErrorMessage(payload: unknown): string {
