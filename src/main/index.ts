@@ -8,19 +8,12 @@ import { autoUpdater } from 'electron-updater'
 import { rgPath } from '@vscode/ripgrep'
 import * as pty from 'node-pty'
 import { registerGitIpc } from './ipc/git-ipc'
+import { registerMemoryIpc } from './ipc/memory-ipc'
 import {
   MobileBridge,
   type MobileBridgePresence,
   type MobileBridgeSettingsUpdate,
 } from './mobile-bridge'
-import {
-  indexMemoryGraph,
-  readMemoryPreview,
-  resolveMemoryRoot,
-  type MemoryGraphIndexResult,
-  type MemoryPreviewResult,
-  type MemoryRootStatus,
-} from './memory-graph'
 import { MobileSwarmCommandService } from './mobile-sprintengine-command'
 import { DesktopMobileSwarmSessionOrchestrator } from './mobile-sprintengine-session'
 import { MobileSwarmSnapshotService } from './mobile-sprintengine-snapshot'
@@ -143,15 +136,6 @@ type WorkspaceFolderCheckResult =
       message: string
       code?: string
     }
-
-type MemoryRootRequest = {
-  workspaceRoot: string | null
-  relativeRoot: string | null
-}
-
-type MemoryPreviewRequest = MemoryRootRequest & {
-  relativePath: string
-}
 
 type ElectronRendererAuthState = {
   authenticated: boolean
@@ -4431,17 +4415,7 @@ ipcMain.handle('fs:check-workspace-folder', async (_, targetPath: string) => {
   return checkWorkspaceFolder(targetPath)
 })
 
-ipcMain.handle('memory:resolve-root', async (_, input: MemoryRootRequest): Promise<MemoryRootStatus> => {
-  return resolveMemoryRoot(input.workspaceRoot, input.relativeRoot)
-})
-
-ipcMain.handle('memory:index', async (_, input: MemoryRootRequest): Promise<MemoryGraphIndexResult> => {
-  return indexMemoryGraph(input.workspaceRoot, input.relativeRoot)
-})
-
-ipcMain.handle('memory:read-preview', async (_, input: MemoryPreviewRequest): Promise<MemoryPreviewResult> => {
-  return readMemoryPreview(input.workspaceRoot, input.relativeRoot, input.relativePath)
-})
+registerMemoryIpc(ipcMain)
 
 ipcMain.handle('diagnostics:log', async (_, input: DiagnosticLogInput) => {
   return writeDiagnosticLog(input)
