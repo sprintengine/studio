@@ -22,6 +22,7 @@ import {
   relayCommandTypeToMobile,
   summarizeCommandResult,
 } from './mobile-bridge-command-results'
+import { stringPayload } from './mobile-bridge-command-payload'
 import { authorizeRelayCommand } from './mobile-bridge-relay-auth'
 import { upsertRelayDevice } from './mobile-bridge-relay-device'
 import {
@@ -990,17 +991,6 @@ function normalizeRelayCommandDelivery(delivery: RelayCommandDelivery): {
   device: MobileRelayAuthenticatedDevice | null
 } {
   return { envelope: delivery.envelope, device: delivery.device }
-}
-
-function stringPayload(payload: unknown, field: string): string {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('Command payload must be an object.')
-  }
-  const value = (payload as Record<string, unknown>)[field]
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`${field} must be a non-empty string.`)
-  }
-  return value
 }
 
 async function defaultSwarmStatePaths(): Promise<string[]> {
