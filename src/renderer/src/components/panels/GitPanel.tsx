@@ -193,6 +193,13 @@ function resultMessage(result: GitCommandResult, fallback: string): GitPanelMess
   return { tone: 'error', text: result.message || result.stderr.trim() || 'Git command failed.' }
 }
 
+function pushedCommitMessage(result: GitCommandResult): string {
+  if (typeof result.pushedCommitCount !== 'number') return 'Pushed branch.'
+  if (result.pushedCommitCount === 0) return 'Pushed 0 commits.'
+  if (result.pushedCommitCount === 1) return 'Pushed 1 commit.'
+  return `Pushed ${result.pushedCommitCount} commits.`
+}
+
 function syncStatusLabel(branches: GitBranchSnapshot | null): string {
   if (!branches) return 'Checking branch'
   if (branches.ahead && branches.behind) return `Ahead ${branches.ahead}, behind ${branches.behind}`
@@ -485,7 +492,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const handlePush = async () => {
     if (!repoRoot) return
-    await runAction('Pushing', () => window.api.pushGitBranch(repoRoot), 'Pushed branch.')
+    const result = await runAction('Pushing', () => window.api.pushGitBranch(repoRoot), 'Pushing branch...')
+    if (result?.ok) setMessage({ tone: 'success', text: pushedCommitMessage(result) })
   }
 
   const handleFetch = async () => {

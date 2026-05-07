@@ -265,6 +265,7 @@ export type GitCommandResult = {
   stdout: string
   stderr: string
   message: string | null
+  pushedCommitCount?: number
 }
 
 export type GitWorktreeEntry = {

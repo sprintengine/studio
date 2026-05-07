@@ -26,7 +26,9 @@ export async function pushGitBranch(repoRoot: string): Promise<GitCommandResult>
 
   const branch = branchSnapshot.branches.find((candidate) => candidate.current)
   if (branch?.upstream) {
-    return runGitCommand(repoRoot, ['push'])
+    const pushedCommitCount = await countCommitsToPush(repoRoot, branch.upstream)
+    const result = await runGitCommand(repoRoot, ['push'])
+    return result.ok ? { ...result, pushedCommitCount } : result
   }
 
   return {
@@ -35,6 +37,12 @@ export async function pushGitBranch(repoRoot: string): Promise<GitCommandResult>
     stderr: '',
     message: `Branch "${currentBranch}" has no upstream. Set an upstream branch first, for example: git push --set-upstream origin ${currentBranch}`,
   }
+}
+
+async function countCommitsToPush(repoRoot: string, upstream: string): Promise<number> {
+  const result = await runGitCommand(repoRoot, ['rev-list', '--count', `${upstream}..HEAD`])
+  if (!result.ok) return 0
+  return Number.parseInt(result.stdout.trim(), 10) || 0
 }
 
 export async function fetchGitRemotes(repoRoot: string): Promise<GitCommandResult> {
