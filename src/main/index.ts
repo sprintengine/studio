@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, type WebContents } from 'electron'
+import { shell, BrowserWindow, ipcMain, type WebContents } from 'electron'
 import * as pty from 'node-pty'
 import type {
   AgentCli,
@@ -40,6 +40,7 @@ import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-h
 import { getErrorMessage } from './error-message'
 import { MulticodeAuthBridge, parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
+import { createMainDiagnostics } from './main-diagnostics'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -48,7 +49,9 @@ import { DesktopMobileSwarmSessionOrchestrator } from './mobile-sprintengine-ses
 import { MobileSwarmSnapshotService } from './mobile-sprintengine-snapshot'
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
-const DIAGNOSTIC_SLOW_IPC_MS = 250
+const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
+  enabled: MULTICODE_DIAGNOSTICS,
+})
 
 const multicodeAuth = new MulticodeAuthBridge()
 const mobileSnapshotService = new MobileSwarmSnapshotService()
@@ -159,40 +162,6 @@ function broadcastTerminalSessionsChanged(): void {
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
       win.webContents.send('terminal:sessions-changed', snapshots)
     }
-  }
-}
-
-function logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void {
-  if (app.isPackaged && !MULTICODE_DIAGNOSTICS) return
-  console.info(`[${scope}] ${event}`, payload)
-}
-
-async function withIpcDiagnostics<T>(
-  scope: string,
-  event: string,
-  payload: Record<string, unknown>,
-  action: () => Promise<T>
-): Promise<T> {
-  const startedAt = Date.now()
-  try {
-    const result = await action()
-    const elapsedMs = Date.now() - startedAt
-    if (MULTICODE_DIAGNOSTICS || elapsedMs >= DIAGNOSTIC_SLOW_IPC_MS) {
-      logMainPerfEvent(scope, event, {
-        ...payload,
-        elapsedMs,
-        ok: true,
-      })
-    }
-    return result
-  } catch (error) {
-    logMainPerfEvent(scope, `${event}-error`, {
-      ...payload,
-      elapsedMs: Date.now() - startedAt,
-      ok: false,
-      message: error instanceof Error ? error.message : String(error),
-    })
-    throw error
   }
 }
 
