@@ -4,6 +4,20 @@ import type {
   MobileSwarmCommandResult,
 } from './mobile-sprintengine-command'
 
+const maxRememberedIdempotencyKeys = 500
+
+type CachedMobileSwarmCommandResult = {
+  requestHash: string
+  result: MobileSwarmCommandResult
+}
+
+export type RememberedMobileSwarmCommandResult =
+  | { status: 'miss' }
+  | { status: 'conflict' }
+  | { status: 'hit'; result: MobileSwarmCommandResult }
+
+const idempotencyResults = new Map<string, CachedMobileSwarmCommandResult>()
+
 export function requestHashFor(command: MobileControlCommand): string {
   const hashInput = stableJsonStringify({
     protocolVersion: command.protocolVersion,
@@ -16,6 +30,40 @@ export function requestHashFor(command: MobileControlCommand): string {
 
 export function cloneCommandResult(result: MobileSwarmCommandResult): MobileSwarmCommandResult {
   return JSON.parse(JSON.stringify(result)) as MobileSwarmCommandResult
+}
+
+export function idempotencyKeyForCommand(workspaceRoot: string, command: MobileControlCommand): string {
+  return `${workspaceRoot}:${command.deviceId}:${command.idempotencyKey}`
+}
+
+export function rememberedCommandResult(key: string, requestHash: string): RememberedMobileSwarmCommandResult {
+  const cached = idempotencyResults.get(key)
+  if (!cached) return { status: 'miss' }
+
+  if (cached.requestHash !== requestHash) {
+    return { status: 'conflict' }
+  }
+
+  return {
+    status: 'hit',
+    result: cloneCommandResult(cached.result),
+  }
+}
+
+export function rememberCommandResult(
+  key: string,
+  requestHash: string,
+  result: MobileSwarmCommandResult
+): void {
+  idempotencyResults.set(key, {
+    requestHash,
+    result: cloneCommandResult(result),
+  })
+  while (idempotencyResults.size > maxRememberedIdempotencyKeys) {
+    const oldest = idempotencyResults.keys().next().value as string | undefined
+    if (!oldest) break
+    idempotencyResults.delete(oldest)
+  }
 }
 
 function stableJsonStringify(value: unknown): string {

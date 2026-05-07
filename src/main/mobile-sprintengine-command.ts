@@ -3,7 +3,12 @@ import { access, stat } from 'fs/promises'
 import { constants } from 'fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import { readSwarmSnapshot } from './mobile-sprintengine-snapshot'
-import { cloneCommandResult, requestHashFor } from './mobile-sprintengine-command-cache'
+import {
+  idempotencyKeyForCommand,
+  rememberedCommandResult,
+  rememberCommandResult,
+  requestHashFor,
+} from './mobile-sprintengine-command-cache'
 import { buildError, validateMobileControlCommand } from './mobile-sprintengine-command-validation'
 import {
   isPathInsideOrEqual,
@@ -185,7 +190,6 @@ export type MobileSwarmSessionOrchestrator = {
 }
 
 const defaultCommandTtlMs = 30_000
-const maxRememberedIdempotencyKeys = 500
 const maxProductPromptCharacters = 20_000
 const maxFeedbackCharacters = 8_000
 const allowedCommandTypes = new Set<MobileControlCommandType>([
@@ -231,11 +235,6 @@ type MobileSwarmCommandServiceOptions = {
 
 type MobileSwarmCommandAuditStatus = 'accepted' | 'rejected' | 'failed'
 
-type CachedMobileSwarmCommandResult = {
-  requestHash: string
-  result: MobileSwarmCommandResult
-}
-
 export type MobileSwarmCommandAuditEntry = {
   auditId: string
   commandId: string
@@ -273,8 +272,6 @@ export type MobileSwarmCommandResult =
       error: MobileControlError
       audit: MobileSwarmCommandAuditEntry
     }
-
-const idempotencyResults = new Map<string, CachedMobileSwarmCommandResult>()
 
 export class MobileSwarmCommandService {
   private readonly workspaceRoot: string
@@ -320,7 +317,7 @@ export class MobileSwarmCommandService {
       return this.reject(command, 'invalid_payload', 'idempotencyKey is required for sprintengine mutation commands.', false)
     }
 
-    const idempotencyKey = this.idempotencyKeyFor(command)
+    const idempotencyKey = idempotencyKeyForCommand(this.workspaceRoot, command)
     const requestHash = requestHashFor(command)
     const cachedResult = this.replayCachedResult(command, idempotencyKey, requestHash)
     if (cachedResult) {
@@ -334,16 +331,16 @@ export class MobileSwarmCommandService {
 
     try {
       const result = await this.executeCommand(command)
-      this.rememberIdempotencyResult(idempotencyKey, requestHash, result)
+      rememberCommandResult(idempotencyKey, requestHash, result)
       return result
     } catch (error) {
       if (error instanceof MobileSwarmCommandError) {
         const result = this.reject(command, error.code, error.message, error.retryable)
-        this.rememberIdempotencyResult(idempotencyKey, requestHash, result)
+        rememberCommandResult(idempotencyKey, requestHash, result)
         return result
       }
       const result = this.reject(command, 'internal_error', getMobileSwarmCommandErrorMessage(error), false)
-      this.rememberIdempotencyResult(idempotencyKey, requestHash, result)
+      rememberCommandResult(idempotencyKey, requestHash, result)
       return result
     }
   }
@@ -638,14 +635,14 @@ export class MobileSwarmCommandService {
     key: string,
     requestHash: string
   ): MobileSwarmCommandResult | null {
-    const cached = idempotencyResults.get(key)
-    if (!cached) return null
+    const remembered = rememberedCommandResult(key, requestHash)
+    if (remembered.status === 'miss') return null
 
-    if (cached.requestHash !== requestHash) {
+    if (remembered.status === 'conflict') {
       return this.reject(command, 'duplicate_idempotency_key', 'This idempotency key was already used for a different command body.', false)
     }
 
-    const replayed = cloneCommandResult(cached.result)
+    const replayed = remembered.result
     const replayStatus = replayed.ok ? 'accepted' : replayed.audit.status
     const audit = this.recordAudit({
       command,
@@ -669,22 +666,6 @@ export class MobileSwarmCommandService {
           idempotencyKey: command.idempotencyKey,
           audit,
         }
-  }
-
-  private rememberIdempotencyResult(key: string, requestHash: string, result: MobileSwarmCommandResult): void {
-    idempotencyResults.set(key, {
-      requestHash,
-      result: cloneCommandResult(result),
-    })
-    while (idempotencyResults.size > maxRememberedIdempotencyKeys) {
-      const oldest = idempotencyResults.keys().next().value as string | undefined
-      if (!oldest) break
-      idempotencyResults.delete(oldest)
-    }
-  }
-
-  private idempotencyKeyFor(command: MobileControlCommand): string {
-    return `${this.workspaceRoot}:${command.deviceId}:${command.idempotencyKey}`
   }
 
   private reject(
