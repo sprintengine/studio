@@ -7,26 +7,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { autoUpdater } from 'electron-updater'
 import { rgPath } from '@vscode/ripgrep'
 import * as pty from 'node-pty'
-import {
-  commitGitChanges,
-  copyGitWorktreeIncludedFiles,
-  createGitWorktree,
-  discardUnstagedGitChanges,
-  getGitBranches,
-  getGitFileBase,
-  getGitHistory,
-  getGitRepoRoot,
-  getGitStatus,
-  listGitWorktrees,
-  pruneGitWorktrees,
-  removeGitWorktree,
-  repairGitWorktrees,
-  pushGitBranch,
-  revertGitPaths,
-  stageGitPaths,
-  switchGitBranch,
-  unstageGitPaths,
-} from './git'
+import { registerGitIpc } from './ipc/git-ipc'
 import {
   MobileBridge,
   type MobileBridgePresence,
@@ -4546,87 +4527,10 @@ ipcMain.handle('fs:show-item-in-folder', async (_, targetPath: string) => {
   shell.showItemInFolder(targetPath)
 })
 
-ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
-  return withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))
-})
-
-ipcMain.handle('git:get-status', async (_, repoRoot: string) => {
-  return withIpcDiagnostics('GitIPC', 'get-status', { repoRoot }, async () => {
-    const snapshot = await getGitStatus(repoRoot)
-    return snapshot
-  }).then((snapshot) => {
-    if (MULTICODE_DIAGNOSTICS) {
-      logMainPerfEvent('GitIPC', 'get-status-result', {
-        repoRoot,
-        changedFileCount: Object.keys(snapshot.files).length,
-      })
-    }
-    return snapshot
-  })
-})
-
-ipcMain.handle('git:get-file-base', async (_, repoRoot: string, filePath: string) => {
-  return withIpcDiagnostics('GitIPC', 'get-file-base', { repoRoot, filePath }, () => getGitFileBase(repoRoot, filePath))
-})
-
-ipcMain.handle('git:get-branches', async (_, repoRoot: string) => {
-  return withIpcDiagnostics('GitIPC', 'get-branches', { repoRoot }, () => getGitBranches(repoRoot))
-})
-
-ipcMain.handle('git:get-history', async (_, repoRoot: string, limit?: number) => {
-  return withIpcDiagnostics('GitIPC', 'get-history', { repoRoot, limit }, () => getGitHistory(repoRoot, limit))
-})
-
-ipcMain.handle('git:stage', async (_, repoRoot: string, paths: string[]) => {
-  return withIpcDiagnostics('GitIPC', 'stage', { repoRoot, pathCount: paths.length }, () => stageGitPaths(repoRoot, paths))
-})
-
-ipcMain.handle('git:unstage', async (_, repoRoot: string, paths: string[]) => {
-  return withIpcDiagnostics('GitIPC', 'unstage', { repoRoot, pathCount: paths.length }, () => unstageGitPaths(repoRoot, paths))
-})
-
-ipcMain.handle('git:revert', async (_, repoRoot: string, paths: string[]) => {
-  return withIpcDiagnostics('GitIPC', 'revert', { repoRoot, pathCount: paths.length }, () => revertGitPaths(repoRoot, paths))
-})
-
-ipcMain.handle('git:discard-unstaged', async (_, repoRoot: string, paths: string[]) => {
-  return withIpcDiagnostics('GitIPC', 'discard-unstaged', { repoRoot, pathCount: paths.length }, () => discardUnstagedGitChanges(repoRoot, paths))
-})
-
-ipcMain.handle('git:commit', async (_, repoRoot: string, message: string) => {
-  return withIpcDiagnostics('GitIPC', 'commit', { repoRoot, messageLength: message.length }, () => commitGitChanges(repoRoot, message))
-})
-
-ipcMain.handle('git:push', async (_, repoRoot: string) => {
-  return withIpcDiagnostics('GitIPC', 'push', { repoRoot }, () => pushGitBranch(repoRoot))
-})
-
-ipcMain.handle('git:switch-branch', async (_, repoRoot: string, branchName: string) => {
-  return withIpcDiagnostics('GitIPC', 'switch-branch', { repoRoot, branchName }, () => switchGitBranch(repoRoot, branchName))
-})
-
-ipcMain.handle('git:worktree:list', async (_, repoRoot: string) => {
-  return withIpcDiagnostics('GitIPC', 'worktree-list', { repoRoot }, () => listGitWorktrees(repoRoot))
-})
-
-ipcMain.handle('git:worktree:create', async (_, input) => {
-  return createGitWorktree(input)
-})
-
-ipcMain.handle('git:worktree:remove', async (_, input) => {
-  return removeGitWorktree(input)
-})
-
-ipcMain.handle('git:worktree:prune', async (_, repoRoot: string) => {
-  return pruneGitWorktrees(repoRoot)
-})
-
-ipcMain.handle('git:worktree:repair', async (_, input) => {
-  return repairGitWorktrees(input)
-})
-
-ipcMain.handle('git:worktree:copy-included', async (_, input) => {
-  return copyGitWorktreeIncludedFiles(input)
+registerGitIpc(ipcMain, {
+  enabled: MULTICODE_DIAGNOSTICS,
+  logMainPerfEvent,
+  withIpcDiagnostics,
 })
 
 ipcMain.handle('fs:dialog:opendir', async (event) => {
