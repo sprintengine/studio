@@ -16,7 +16,6 @@ import {
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import { MobileSwarmCommandService } from './mobile-sprintengine-command'
-import { DesktopMobileSwarmSessionOrchestrator } from './mobile-sprintengine-session'
 import {
   appendTerminalOutput,
   getTerminalSize,
@@ -26,6 +25,7 @@ import {
 } from './terminal-session'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
+import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -184,25 +184,18 @@ function disposeOtherAgentSessions(
 }
 
 function createMobileCommandService(): MobileSwarmCommandService {
-  const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
-    adapters: {
-      listTerminals: async () => {
-        return [...terminals.values()].map(getTerminalSnapshot)
-      },
-      spawnAgentTerminal: spawnMobileAgentTerminal,
-      writeTerminal: (sessionId, data) => {
-        const session = terminals.get(sessionId)
-        if (!session || session.hasExited || session.isDisposed) {
-          throw new Error('Desktop terminal session is no longer running.')
-        }
-        session.process.write(data)
-      },
+  return createTerminalMobileCommandService({
+    listTerminals: async () => {
+      return [...terminals.values()].map(getTerminalSnapshot)
     },
-  })
-
-  return new MobileSwarmCommandService({
-    workspaceRoot: process.cwd(),
-    sessionOrchestrator: orchestrator,
+    spawnAgentTerminal: spawnMobileAgentTerminal,
+    writeTerminal: (sessionId, data) => {
+      const session = terminals.get(sessionId)
+      if (!session || session.hasExited || session.isDisposed) {
+        throw new Error('Desktop terminal session is no longer running.')
+      }
+      session.process.write(data)
+    },
   })
 }
 
