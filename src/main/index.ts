@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, Menu, safeStorage } from 'electron'
 import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
-import { access, appendFile, chmod, cp, lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
+import { access, appendFile, chmod, lstat, mkdir, readdir, readFile, realpath, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
 import { createHash, randomBytes } from 'crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
@@ -15,6 +15,7 @@ import type {
 } from '../shared/electron-api'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
+import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
@@ -4281,67 +4282,13 @@ registerSoulsIpc(ipcMain, {
   readMultiloopAgentSoul,
 })
 
-ipcMain.handle('fs:writefile', async (_, filePath: string, content: string) => {
-  await assertNotDirectSwarmStateMutation(filePath)
-  await writeFile(filePath, content, 'utf-8')
-})
-
-ipcMain.handle('fs:create-file', async (_, parentDir: string, name: string) => {
-  const filePath = join(parentDir, name)
-  await assertNotDirectSwarmStateMutation(filePath)
-  await writeFile(filePath, '', { encoding: 'utf-8', flag: 'wx' })
-  return filePath
-})
-
-ipcMain.handle('fs:create-dir', async (_, parentDir: string, name: string) => {
-  const dirPath = join(parentDir, name)
-  await mkdir(dirPath)
-  return dirPath
-})
-
-ipcMain.handle('fs:ensure-dir', async (_, parentDir: string, name: string) => {
-  const dirPath = join(parentDir, name)
-  await mkdir(dirPath, { recursive: true })
-  return dirPath
-})
-
-ipcMain.handle('fs:rename', async (_, sourcePath: string, nextName: string) => {
-  const normalizedName = nextName.trim()
-  if (!normalizedName || normalizedName === '.' || normalizedName === '..' || /[/\\]/.test(normalizedName)) {
-    throw new Error('Enter a valid file or folder name.')
-  }
-
-  const targetPath = join(dirname(sourcePath), normalizedName)
-  if (targetPath === sourcePath) return targetPath
-  await assertNotDirectSwarmStateMutation(sourcePath)
-  await assertNotDirectSwarmStateMutation(targetPath)
-
-  if (await pathExists(targetPath)) {
-    throw new Error(`A file or folder named "${normalizedName}" already exists.`)
-  }
-
-  await rename(sourcePath, targetPath)
-  return targetPath
-})
-
-ipcMain.handle('fs:copy', async (_, sourcePath: string, destinationDir: string) => {
-  const sourceName = basename(sourcePath)
-  const destinationPath = await getUniqueCopyPath(destinationDir, sourceName, sourcePath)
-  await assertNotDirectSwarmStateMutation(sourcePath)
-  await assertNotDirectSwarmStateMutation(destinationPath)
-
-  await cp(sourcePath, destinationPath, {
-    errorOnExist: true,
-    force: false,
-    recursive: true,
-  })
-
-  return destinationPath
-})
-
-ipcMain.handle('fs:delete', async (_, targetPath: string) => {
-  await assertNotDirectSwarmStateMutation(targetPath)
-  await shell.trashItem(targetPath)
+registerFilesystemMutationIpc(ipcMain, {
+  assertNotDirectSwarmStateMutation,
+  getUniqueCopyPath,
+  pathExists,
+  async trashItem(targetPath) {
+    await shell.trashItem(targetPath)
+  },
 })
 
 registerGitIpc(ipcMain, {
