@@ -337,7 +337,7 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'workspace'
+export type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'workspace'
 
 export type DiagnosticLogInput = {
   level: DiagnosticLevel
@@ -373,6 +373,43 @@ export type WindowState = {
   isMaximized: boolean
   isFullScreen: boolean
 }
+
+export type AppUpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'not_available'
+  | 'error'
+
+export type AppUpdateChannel = 'dev' | 'preview' | 'stable'
+
+export type AppUpdateProgress = {
+  percent: number
+  transferred: number
+  total: number
+  bytesPerSecond: number
+}
+
+export type AppUpdateState = {
+  status: AppUpdateStatus
+  version: string
+  channel: AppUpdateChannel
+  packaged: boolean
+  updateVersion: string | null
+  releaseName: string | null
+  releaseNotes: string | null
+  releaseNotesUrl: string | null
+  downloaded: boolean
+  progress: AppUpdateProgress | null
+  errorMessage: string | null
+  lastCheckedAt: string | null
+}
+
+export type AppUpdateCheckResult =
+  | { ok: true; state: AppUpdateState; message: string }
+  | { ok: false; state: AppUpdateState; message: string }
 
 export type SwarmArtifactCommandResult =
   | { ok: true; data: unknown }
@@ -633,6 +670,12 @@ export type ElectronApi = {
   ) => Promise<MemoryPreviewResult>
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
+  updateGetState: () => Promise<AppUpdateState>
+  updateCheck: () => Promise<AppUpdateCheckResult>
+  updateDownload: () => Promise<AppUpdateCheckResult>
+  updateQuitAndInstall: () => Promise<AppUpdateCheckResult>
+  updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
+  onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
   readSpecialistSoul: (specialistId: SpecialistActionId) => Promise<SoulPromptResult>
   readMultiloopPrompt: (role: MultiloopRole) => Promise<SoulPromptResult>
   writefile: (path: string, content: string) => Promise<void>

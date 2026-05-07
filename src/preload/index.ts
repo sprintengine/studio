@@ -9,6 +9,7 @@ import { multiloopApi } from './api/multiloop'
 import { soulsApi } from './api/souls'
 import { sprintEngineApi } from './api/sprintengine'
 import { terminalApi } from './api/terminal'
+import { updateApi } from './api/update'
 import { windowApi } from './api/window'
 
 const api = {
@@ -24,6 +25,7 @@ const api = {
   ...sprintEngineApi,
   ...multiloopApi,
   ...terminalApi,
+  ...updateApi,
   ...appMenuApi,
 } satisfies ElectronApi
 

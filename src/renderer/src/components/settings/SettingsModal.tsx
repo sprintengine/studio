@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli } from '../../types/workspace'
 
 interface Props {
   onClose: () => void
+  checkForUpdatesOnOpen?: boolean
 }
 
 type MobileBridgeRelayStatus =
@@ -60,7 +61,7 @@ function relativePathBetween(fromPath: string, toPath: string): string | null {
   ].join('/') || '.'
 }
 
-export default function SettingsModal({ onClose }: Props) {
+export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }: Props) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
@@ -76,6 +77,9 @@ export default function SettingsModal({ onClose }: Props) {
   const [searchExcludesDraft, setSearchExcludesDraft] = useState(() => searchExcludes.join('\n'))
   const [memoryDraft, setMemoryDraft] = useState(() => activeWorkspace?.memory.relativeRoot ?? '')
   const [memoryStatus, setMemoryStatus] = useState<MemoryRootStatus | null>(null)
+  const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
+  const [updateActionPending, setUpdateActionPending] = useState(false)
+  const autoCheckStartedRef = useRef(false)
 
   const commitMemoryDraft = useCallback((value: string) => {
     if (!activeWorkspaceId) return
@@ -105,6 +109,49 @@ export default function SettingsModal({ onClose }: Props) {
   useEffect(() => {
     setMemoryDraft(activeWorkspace?.memory.relativeRoot ?? '')
   }, [activeWorkspace?.id, activeWorkspace?.memory.relativeRoot])
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.updateGetState().then((state) => {
+      if (!cancelled) setUpdateState(state)
+    })
+    const unsubscribe = window.api.onUpdateStateChanged((state) => setUpdateState(state))
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
+
+  const checkForUpdates = useCallback(async () => {
+    setUpdateActionPending(true)
+    try {
+      const result = await window.api.updateCheck()
+      setUpdateState(result.state)
+    } finally {
+      setUpdateActionPending(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!checkForUpdatesOnOpen || autoCheckStartedRef.current) return
+    autoCheckStartedRef.current = true
+    void checkForUpdates()
+  }, [checkForUpdates, checkForUpdatesOnOpen])
+
+  const downloadUpdate = useCallback(async () => {
+    setUpdateActionPending(true)
+    try {
+      const result = await window.api.updateDownload()
+      setUpdateState(result.state)
+    } finally {
+      setUpdateActionPending(false)
+    }
+  }, [])
+
+  const restartToInstall = useCallback(async () => {
+    const result = await window.api.updateQuitAndInstall()
+    setUpdateState(result.state)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -182,6 +229,75 @@ export default function SettingsModal({ onClose }: Props) {
         </div>
 
         <div className="space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Application Updates
+              </div>
+              <div className="mt-1 text-sm font-semibold text-[#ececee]">
+                Multicode {updateState?.version ?? '...'}
+              </div>
+            </div>
+            <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${updateChannelClass(updateState?.channel)}`}>
+              {formatUpdateChannel(updateState?.channel)}
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div className={`border-l-2 pl-3 text-[12px] leading-5 ${updateStatusClass(updateState?.status)}`}>
+              {formatUpdateStatus(updateState)}
+              {updateState?.progress ? (
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#24252b]">
+                  <div
+                    className="h-full rounded-full bg-[#6ee7d8]"
+                    style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => void checkForUpdates()}
+                disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
+                className="rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
+              >
+                Check
+              </button>
+              <button
+                type="button"
+                onClick={() => void downloadUpdate()}
+                disabled={updateActionPending || updateState?.status !== 'available'}
+                className="rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
+              >
+                Download
+              </button>
+              <button
+                type="button"
+                onClick={() => void restartToInstall()}
+                disabled={!updateState?.downloaded}
+                className="rounded-md bg-[#6ee7d8]/14 px-3 py-1.5 text-sm font-semibold text-[#d8fffb] transition-colors hover:bg-[#6ee7d8]/18 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#6ee7d8]/14"
+              >
+                Restart
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-x-6 gap-y-3 border-t border-[#24252b] pt-4 text-sm sm:grid-cols-3">
+            <MobileMeta label="Update version" value={updateState?.updateVersion ?? 'None'} />
+            <MobileMeta label="Last checked" value={formatNullableMobileDate(updateState?.lastCheckedAt)} />
+            <button
+              type="button"
+              onClick={() => void window.api.updateOpenReleaseNotes()}
+              className="w-fit text-left text-sm font-semibold text-[#bff7f1] transition-colors hover:text-[#e0fffb]"
+            >
+              Release notes
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-4 rounded-lg border border-[#24252b] bg-[#111216] p-4">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
             Agent CLIs
           </div>
@@ -457,6 +573,68 @@ function mobileMetaToneClass(tone?: MobileBridgeRelayStatus): string {
       return 'text-[#ffb3bf]'
     default:
       return 'text-[#ececee]'
+  }
+}
+
+function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): string {
+  switch (channel) {
+    case 'stable':
+      return 'Stable'
+    case 'preview':
+      return 'Preview'
+    case 'dev':
+      return 'Development'
+    default:
+      return 'Unknown'
+  }
+}
+
+function updateChannelClass(channel: AppUpdateState['channel'] | undefined): string {
+  switch (channel) {
+    case 'stable':
+      return 'border-[#6ee7d8]/35 bg-[#6ee7d8]/10 text-[#bff7f1]'
+    case 'preview':
+      return 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#ffe0a3]'
+    case 'dev':
+      return 'border-[#7785ff]/35 bg-[#7785ff]/10 text-[#d7dcff]'
+    default:
+      return 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2]'
+  }
+}
+
+function updateStatusClass(status: AppUpdateState['status'] | undefined): string {
+  switch (status) {
+    case 'available':
+    case 'downloaded':
+      return 'border-[#6ee7d8]/70 text-[#bff7f1]'
+    case 'checking':
+    case 'downloading':
+      return 'border-[#ffbf2f]/75 text-[#ffd58a]'
+    case 'error':
+      return 'border-[#ff787c] text-[#ffb3b5]'
+    default:
+      return 'border-[#303139] text-[#9a9aa2]'
+  }
+}
+
+function formatUpdateStatus(state: AppUpdateState | null): string {
+  if (!state) return 'Loading update status.'
+  if (!state.packaged) return 'Update checks are available after installing a packaged build.'
+  switch (state.status) {
+    case 'checking':
+      return 'Checking for updates.'
+    case 'available':
+      return state.updateVersion ? `Multicode ${state.updateVersion} is available.` : 'An update is available.'
+    case 'downloading':
+      return state.progress ? `Downloading update (${Math.round(state.progress.percent)}%).` : 'Downloading update.'
+    case 'downloaded':
+      return 'Update downloaded. Restart Multicode to install it.'
+    case 'not_available':
+      return 'Multicode is up to date.'
+    case 'error':
+      return state.errorMessage ?? 'Update check failed.'
+    default:
+      return 'No update check is running.'
   }
 }
 

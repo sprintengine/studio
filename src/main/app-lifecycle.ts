@@ -1,20 +1,22 @@
 import { app, BrowserWindow, Menu } from 'electron'
 import { resolve } from 'path'
-import { autoUpdater } from 'electron-updater'
 import { createAppMenu } from './app-menu'
 import { createMainWindow } from './window-factory'
+import type { MulticodeUpdateService } from './update-service'
 
 type RegisterAppLifecycleOptions = {
   diagnosticsEnabled: boolean
   mobileBridge: {
     shutdown(): void
   }
+  updateService: MulticodeUpdateService
   handleAuthCallback(argv: string[]): void
 }
 
 export function registerAppLifecycle({
   diagnosticsEnabled,
   mobileBridge,
+  updateService,
   handleAuthCallback,
 }: RegisterAppLifecycleOptions): void {
   const singleInstanceLock = app.requestSingleInstanceLock()
@@ -50,11 +52,8 @@ export function registerAppLifecycle({
     createMainWindow({ diagnosticsEnabled })
     handleAuthCallback(process.argv)
 
-    // Check for updates in production only (no update server configured = silent no-op)
-    if (!process.env['ELECTRON_RENDERER_URL']) {
-      autoUpdater.checkForUpdatesAndNotify().catch(() => {
-        // No update server configured yet - ignore silently
-      })
+    if (app.isPackaged) {
+      void updateService.checkForUpdates(false)
     }
 
     app.on('activate', () => {

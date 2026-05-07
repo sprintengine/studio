@@ -1,6 +1,11 @@
 import type {
   AgentCli as SharedAgentCli,
   AgentExecutionMode as SharedAgentExecutionMode,
+  AppUpdateChannel as SharedAppUpdateChannel,
+  AppUpdateCheckResult as SharedAppUpdateCheckResult,
+  AppUpdateProgress as SharedAppUpdateProgress,
+  AppUpdateState as SharedAppUpdateState,
+  AppUpdateStatus as SharedAppUpdateStatus,
   CliRuntimeSettings as SharedCliRuntimeSettings,
   ContentSearchEntry as SharedContentSearchEntry,
   ContentSearchResult as SharedContentSearchResult,
@@ -96,6 +101,11 @@ declare global {
   type MemoryPreviewResult = SharedMemoryPreviewResult
   type AgentCli = SharedAgentCli
   type AgentExecutionMode = SharedAgentExecutionMode
+  type AppUpdateStatus = SharedAppUpdateStatus
+  type AppUpdateChannel = SharedAppUpdateChannel
+  type AppUpdateProgress = SharedAppUpdateProgress
+  type AppUpdateState = SharedAppUpdateState
+  type AppUpdateCheckResult = SharedAppUpdateCheckResult
   type SwarmCliPermissionPreset = SharedSwarmCliPermissionPreset
   type CliRuntimeSettings = SharedCliRuntimeSettings
   type TerminalKind = SharedTerminalKind

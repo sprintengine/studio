@@ -591,6 +591,7 @@ export type DiagnosticSource =
   | 'git'
   | 'sprintengine'
   | 'terminal'
+  | 'update'
   | 'workspace'
 
 export type DiagnosticLogInput = {

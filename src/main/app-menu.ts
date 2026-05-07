@@ -89,6 +89,10 @@ export function createAppMenu(): Menu {
       label: 'Help',
       submenu: [
         {
+          label: 'Check For Updates',
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'check-for-updates'),
+        },
+        {
           label: 'About Multicode',
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'show-about'),
         },

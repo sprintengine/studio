@@ -318,6 +318,7 @@ export default function WorkspaceManager() {
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
   const [templateSelectorInitialState, setTemplateSelectorInitialState] = useState<TemplateSelectorInitialState | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [checkForUpdatesOnSettingsOpen, setCheckForUpdatesOnSettingsOpen] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   const [agentCliDropdownOpen, setAgentCliDropdownOpen] = useState(false)
@@ -703,10 +704,17 @@ export default function WorkspaceManager() {
   useEffect(() => {
     return window.api.onAppMenuCommand((command) => {
       if (command === 'show-settings') {
+        setCheckForUpdatesOnSettingsOpen(false)
         setShowSettings(true)
         return
       }
       if (command === 'show-about') {
+        setCheckForUpdatesOnSettingsOpen(false)
+        setShowSettings(true)
+        return
+      }
+      if (command === 'check-for-updates') {
+        setCheckForUpdatesOnSettingsOpen(true)
         setShowSettings(true)
         return
       }
@@ -1791,7 +1799,15 @@ export default function WorkspaceManager() {
         </div>
       ) : null}
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal
+          checkForUpdatesOnOpen={checkForUpdatesOnSettingsOpen}
+          onClose={() => {
+            setShowSettings(false)
+            setCheckForUpdatesOnSettingsOpen(false)
+          }}
+        />
+      )}
 
       {showPalette && (
         <CommandPalette

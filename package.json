@@ -24,6 +24,7 @@
     "directories": {
       "output": "dist"
     },
+    "artifactName": "Multicode-${version}-${os}-${arch}.${ext}",
     "files": [
       "out/**/*",
       "souls/**/*.py",
@@ -108,7 +109,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "REPLACE_WITH_GITHUB_USERNAME",
+      "owner": "conal-smith",
       "repo": "multicode"
     }
   },

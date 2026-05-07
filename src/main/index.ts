@@ -14,6 +14,7 @@ import {
   registerSprintEngineIpc,
 } from './ipc/sprintengine-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
+import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { initializeMultiloopState } from './multiloop-init'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
@@ -27,6 +28,7 @@ import { MulticodeAuthBridge, parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createTerminalRuntime } from './terminal-runtime'
+import { MulticodeUpdateService } from './update-service'
 import {
   MobileBridge,
 } from './mobile/bridge'
@@ -44,6 +46,7 @@ const terminalRuntime = createTerminalRuntime({
   logMainPerfEvent,
 })
 const mobileSnapshotService = new MobileSwarmSnapshotService()
+const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
 let mobileWorkspaceRoots: string[] = []
 const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
   accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
@@ -110,6 +113,8 @@ registerDiagnosticsIpc(ipcMain, {
   openDiagnosticsLogsFolder,
 })
 
+registerUpdateIpc(ipcMain, { updateService })
+
 registerSoulsIpc(ipcMain, {
   readSpecialistSoul,
   readMultiloopPrompt,
@@ -128,6 +133,7 @@ registerMenuDialogIpc(ipcMain)
 registerAppLifecycle({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   mobileBridge,
+  updateService,
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(multicodeAuth, argv)
   },
