@@ -4,6 +4,7 @@ type PlanFileSwarmHandoffPromptArgs = {
   sourcePath: string
   sourceContent: string
   statePath: string
+  rosterArgs?: string[]
 }
 
 function quoteShellArg(value: string): string {
@@ -37,8 +38,12 @@ export function buildPlanFileSwarmHandoffPrompt({
   sourcePath,
   sourceContent,
   statePath,
+  rosterArgs = [],
 }: PlanFileSwarmHandoffPromptArgs): string {
   const contentLines = sourceContent.trim().split(/\r?\n/).length
+  const rosterFlags = rosterArgs.length > 0
+    ? ` ${rosterArgs.map((arg) => `--agent ${quoteShellArg(arg)}`).join(' ')}`
+    : ''
 
   return [
     'Create a Sprint Engine workspace from this saved future plan.',
@@ -53,15 +58,18 @@ export function buildPlanFileSwarmHandoffPrompt({
     'First run the sprintengine handover command below. It tells the Sprint Engine tool to copy the selected markdown file into the team handover, so the run is tied to that file instead of only to the short objective. If the team already exists, or if handover reports a collision or failure, stop and report that to the user instead of overwriting anything.',
     '',
     '```shell',
-    `sprintengine handover --name ${quoteShellArg(teamSlug)} --goal ${quoteShellArg(goal)} --handover ${quoteShellArg(sourcePath)}`,
+    `sprintengine handover --name ${quoteShellArg(teamSlug)} --goal ${quoteShellArg(goal)} --handover ${quoteShellArg(sourcePath)}${rosterFlags}`,
     '```',
     '',
     'Only after `sprintengine handover` succeeds, initialize the Sprint Engine state at the target path:',
     '',
     '```shell',
-    `sprintengine --state ${quoteShellArg(statePath)} init --goal ${quoteShellArg(goal)}`,
+    `sprintengine --state ${quoteShellArg(statePath)} init --goal ${quoteShellArg(goal)}${rosterFlags}`,
     '```',
     '',
+    rosterArgs.length > 0
+      ? `Roster constraint: the architect must create tasks only for these selected Sprint Engine agents: ${rosterArgs.join(', ')}. If a specialist role is absent from this roster, do not create tasks for that role.`
+      : null,
     `After initialization, do not treat \`sprintengine init\` as task assignment. Agents should use the normal ready-task flow with \`sprintengine task next --role <role> --id <agent-id>\`. Product and architect agents must read \`${sourcePath}\` and the copied \`handover.md\` when their own task is claimed, and should treat that markdown file as incoming context.`,
   ].join('\n')
 }

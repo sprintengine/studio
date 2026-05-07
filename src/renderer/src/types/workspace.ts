@@ -445,6 +445,7 @@ export type SwarmTask = {
 export type SwarmState = {
   name: string
   goal: string
+  rosterConfigured?: boolean
   source?: SwarmSource
   updatedAt?: string | null
   roleCounts: SwarmRoleCounts

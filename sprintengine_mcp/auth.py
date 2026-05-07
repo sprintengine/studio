@@ -9,6 +9,8 @@ from typing import Any
 AUDITED_TOOLS = {
     "sprintengine.init",
     "sprintengine.recover",
+    "sprintengine.roster.add",
+    "sprintengine.roster.list",
     "sprintengine.join",
     "sprintengine.task.next",
     "sprintengine.task.claim",

@@ -13,6 +13,7 @@ import type {
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
   buildSwarmAgentRosterForState,
+  buildSwarmRosterCommandArgs,
   getSwarmArtifactAutoApprovalEligibility,
   getSwarmTaskBoardColumn,
   swarmRoleLabels,
@@ -1083,6 +1084,7 @@ async function spawnAutoRunCandidate(
         executionCwd,
         workspaceRoot: workspaceFolderPath,
         swarmStatePath,
+        rosterArgs: buildSwarmRosterCommandArgs(swarmState),
         commandMode: getSwarmStartupCommandMode(nextRun.role, nextRun.agentId, swarmState),
       }),
       nextRun.label,

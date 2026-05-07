@@ -16,7 +16,7 @@ import { ensureAgentTabInLayoutModel, focusOrAddAgentTab } from '../../utils/mod
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
 import { getActiveMultiloopMilestone } from '../../utils/multiloop'
 import { parseSwarmStateFile } from '../../utils/sprintengineStateFile'
-import { swarmRoleLabels } from '../../utils/sprintengine'
+import { buildSwarmRosterCommandArgs, swarmRoleLabels } from '../../utils/sprintengine'
 import {
   buildMultiloopAutoStartupPrompt,
   selectMultiloopAutoRunCandidates,
@@ -270,6 +270,7 @@ async function spawnMultiloopAutoRunCandidate(
           executionCwd: workspace.folderPath,
           workspaceRoot: workspace.folderPath,
           swarmStatePath: activeMilestone.sprintEngine.statePath,
+          rosterArgs: buildSwarmRosterCommandArgs(linkedSwarmState),
           commandMode: getSwarmStartupCommandMode(candidate.role, candidate.agentId, linkedSwarmState),
         }),
         candidate.label,

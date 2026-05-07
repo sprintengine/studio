@@ -469,6 +469,96 @@ def load_state(path: Path) -> Dict[str, Any]:
     return data
 
 
+def parse_agent_specs(values: Optional[List[str]]) -> Dict[str, Dict[str, Any]]:
+    agents: Dict[str, Dict[str, Any]] = {}
+    for raw in values or []:
+        spec = raw.strip()
+        if not spec:
+            continue
+        if ":" not in spec:
+            raise SystemExit("--agent must use role:id, for example --agent developer:developer-1")
+        role, agent_id = [part.strip() for part in spec.split(":", 1)]
+        if role not in VALID_ROLES:
+            raise SystemExit(f"--agent has invalid role {role!r}.")
+        if not agent_id:
+            raise SystemExit("--agent id cannot be empty.")
+        if agent_id in agents and agents[agent_id].get("role") != role:
+            raise SystemExit(f"--agent {agent_id!r} is declared with multiple roles.")
+        agents[agent_id] = {"role": role, "status": "idle", "currentTaskId": None}
+    return agents
+
+
+def apply_agent_specs(state: Dict[str, Any], values: Optional[List[str]]) -> None:
+    parsed = parse_agent_specs(values)
+    if not parsed:
+        return
+    state.setdefault("sprintengine", {})["rosterConfigured"] = True
+    agents = state.setdefault("agents", {})
+    for agent_id, agent in parsed.items():
+        existing = agents.get(agent_id)
+        if isinstance(existing, dict):
+            if existing.get("role") and existing.get("role") != agent["role"]:
+                raise SystemExit(f"Agent {agent_id!r} already exists with role {existing.get('role')!r}.")
+            existing["role"] = agent["role"]
+            existing.setdefault("status", "idle")
+            existing.setdefault("currentTaskId", None)
+        else:
+            agents[agent_id] = agent
+
+
+def roster_roles(state: Dict[str, Any]) -> set[str]:
+    return {
+        str(agent.get("role"))
+        for agent in state.get("agents", {}).values()
+        if isinstance(agent, dict) and str(agent.get("role")) in VALID_ROLES
+    }
+
+
+def roster_is_configured(state: Dict[str, Any]) -> bool:
+    return bool(state.get("sprintengine", {}).get("rosterConfigured"))
+
+
+def ensure_role_in_roster(state: Dict[str, Any], role: str) -> None:
+    roles = roster_roles(state)
+    if roster_is_configured(state) and role not in roles:
+        raise SystemExit(
+            f"Role {role!r} is not in this Sprint Engine roster. "
+            "Add a roster member for that role before creating tasks for it."
+        )
+
+
+def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str) -> None:
+    if not roster_is_configured(state):
+        return
+    existing_agent = state.get("agents", {}).get(agent_id)
+    if not isinstance(existing_agent, dict):
+        raise SystemExit(f"Agent {agent_id!r} is not in this Sprint Engine roster.")
+    if existing_agent.get("role") != role:
+        raise SystemExit(f"Agent {agent_id!r} is rostered as {existing_agent.get('role')!r}, not {role!r}.")
+
+
+def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str) -> Dict[str, Any]:
+    if role not in VALID_ROLES:
+        raise SystemExit(f"Invalid roster role {role!r}.")
+    clean_id = agent_id.strip()
+    if not clean_id:
+        raise SystemExit("--id cannot be empty.")
+
+    agents = state.setdefault("agents", {})
+    existing = agents.get(clean_id)
+    if isinstance(existing, dict):
+        if existing.get("role") != role:
+            raise SystemExit(f"Agent {clean_id!r} already exists with role {existing.get('role')!r}.")
+        state.setdefault("sprintengine", {})["rosterConfigured"] = True
+        return existing
+
+    agent = {"role": role, "status": "idle", "currentTaskId": None}
+    agents[clean_id] = agent
+    state.setdefault("sprintengine", {})["rosterConfigured"] = True
+    append_event(state, "roster_member_added", actor, f"{actor} added {clean_id} to the Sprint Engine roster as {role}.")
+    return agent
+
+
 def set_if_changed(record: Dict[str, Any], key: str, value: Any) -> bool:
     if record.get(key) == value:
         return False
@@ -1871,9 +1961,14 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
 
     team_dir.mkdir(parents=True, exist_ok=True)
     initial: Dict[str, Any] = {
-        "sprintengine": {"name": team_slug, "goal": args.goal or "", "status": "planning"},
+        "sprintengine": {
+            "name": team_slug,
+            "goal": args.goal or "",
+            "status": "planning",
+            "rosterConfigured": bool(getattr(args, "agent", None)),
+        },
         "tasks": [],
-        "agents": {},
+        "agents": parse_agent_specs(getattr(args, "agent", None)),
         "events": [
             {
                 "id": "EVT-001",
@@ -1921,9 +2016,14 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     if not state_path.exists():
         state_path.parent.mkdir(parents=True, exist_ok=True)
         initial: Dict[str, Any] = {
-            "sprintengine": {"name": default_name, "goal": getattr(args, "goal", "") or "", "status": "planning"},
+            "sprintengine": {
+                "name": default_name,
+                "goal": getattr(args, "goal", "") or "",
+                "status": "planning",
+                "rosterConfigured": bool(getattr(args, "agent", None)),
+            },
             "tasks": [],
-            "agents": {},
+            "agents": parse_agent_specs(getattr(args, "agent", None)),
             "events": [],
             "artifacts": [],
             "roles": {},
@@ -1931,6 +2031,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         save_state(state_path, initial)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        apply_agent_specs(state, getattr(args, "agent", None))
         sprintengine = state.setdefault("sprintengine", {})
         if not sprintengine.get("name"):
             sprintengine["name"] = default_name
@@ -1945,13 +2046,19 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             recompute_phase(state)
             return {"ok": True, "planGate": plan_gate}
 
-        product_gate = ensure_product_intake_gate(state, state_path, "sprintengine")
-        product_task = product_gate["task"]
+        roles = roster_roles(state)
+        should_create_product_gate = not roster_is_configured(state) or "product" in roles
+        product_gate = (
+            ensure_product_intake_gate(state, state_path, "sprintengine")
+            if should_create_product_gate
+            else None
+        )
+        product_task = product_gate["task"] if product_gate else None
         plan_gate = ensure_plan_approval_gate(
             state,
             state_path,
             "sprintengine",
-            depends_on=str(product_task.get("id")),
+            depends_on=str(product_task.get("id")) if product_task else None,
             start_active=False,
         )
         recompute_phase(state)
@@ -2008,6 +2115,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         )
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        ensure_agent_in_roster(state, args.id, args.role)
         runtime = reconcile_agent(state, args.id, args.role)
         agent = runtime["agent"]
         active = runtime["activeTask"]
@@ -2140,6 +2248,40 @@ def cmd_recover(args: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
+def cmd_roster_add(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        clean_id = args.id.strip()
+        before = dict(state.get("agents", {}))
+        agent = add_roster_agent(state, args.role, clean_id, args.actor or "architect")
+        created = clean_id not in before
+        return {
+            "ok": True,
+            "action": "added" if created else "exists",
+            "agentId": clean_id,
+            "role": args.role,
+            "agent": agent,
+        }
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_roster_list(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        agents = [
+            {"id": str(agent_id), "role": agent.get("role"), "status": agent.get("status"), "currentTaskId": agent.get("currentTaskId")}
+            for agent_id, agent in state.get("agents", {}).items()
+            if isinstance(agent, dict)
+        ]
+        return {
+            "ok": True,
+            "rosterConfigured": roster_is_configured(state),
+            "agents": sorted(agents, key=lambda item: (str(item.get("role")), item["id"])),
+            "write": False,
+        }
+
+    return with_locked_state(args.state, run)
+
+
 def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ready = []
@@ -2154,6 +2296,7 @@ def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        ensure_agent_in_roster(state, args.id, args.role)
         runtime = reconcile_agent(state, args.id, args.role)
         agent = runtime["agent"]
         active = runtime["activeTask"]
@@ -2177,6 +2320,7 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
 def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
+        ensure_agent_in_roster(state, args.id, str(task.get("role") or ""))
         agent = ensure_agent(state, args.id, task.get("role"))
         if not task_is_ready(state, task):
             return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
@@ -2259,6 +2403,7 @@ def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        ensure_role_in_roster(state, args.role)
         task = build_task_from_args(args, state)
         state.setdefault("tasks", []).append(task)
         recompute_phase(state)
@@ -2283,6 +2428,7 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
         if args.clear_description:
             task["description"] = ""
         if args.role is not None:
+            ensure_role_in_roster(state, args.role)
             task["role"] = args.role
 
         if args.clear_paths:
@@ -2390,6 +2536,7 @@ def cmd_plan_list(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_plan_start_review(args: argparse.Namespace) -> Dict[str, Any]:
     state = load_state(args.state)
+    ensure_role_in_roster(state, args.role)
     plan_path = plan_path_for_state(args.state)
     reviews_dir = plan_reviews_dir_for_state(args.state)
     fingerprint = plan_fingerprint(plan_path)
@@ -2630,6 +2777,10 @@ Entry points (return full system prompt for the agent):
   sprintengine join --role developer --id developer-1
   sprintengine merge start --id architect --target main
 
+Roster commands:
+  sprintengine roster add --role security --id security
+  sprintengine roster list
+
 Task commands:
   sprintengine task next   --role developer --id developer-1
   sprintengine task claim  --task-id T3 --id developer-1
@@ -2679,6 +2830,7 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
     handover.add_argument("--handover-text", help="Inline handover context to write to handover.md.")
     handover.add_argument("--handover-stdin", action="store_true", help="Read markdown handover context from stdin.")
     p.add_argument("--actor", default="handoff", help="Actor name for the team creation event.")
+    p.add_argument("--agent", action="append", default=[], help="Selected roster member as role:id. Repeat for each specialist.")
     p.add_argument(
         "--use-worktrees",
         type=parse_bool,
@@ -2748,6 +2900,7 @@ def build_parser() -> argparse.ArgumentParser:
     # init
     p = sub.add_parser("init", help="Bootstrap Sprint Engine state and initial gates.")
     p.add_argument("--goal", help="Goal for the run (stored in state).")
+    p.add_argument("--agent", action="append", default=[], help="Selected roster member as role:id. Repeat for each specialist.")
     p.add_argument(
         "--use-worktrees",
         type=parse_bool,
@@ -2759,6 +2912,19 @@ def build_parser() -> argparse.ArgumentParser:
     # recover
     p = sub.add_parser("recover", help="Start audit-only recovery mode, backs up state and returns full prompt.")
     p.set_defaults(handler=cmd_recover)
+
+    # roster
+    roster_p = sub.add_parser("roster", help="Roster operations.")
+    roster_sub = roster_p.add_subparsers(dest="action", required=True)
+
+    p = roster_sub.add_parser("add", help="Add a specialist to the canonical Sprint Engine roster.")
+    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--id", required=True, help="Stable agent id, e.g. security or developer-2.")
+    p.add_argument("--actor", default="architect")
+    p.set_defaults(handler=cmd_roster_add)
+
+    p = roster_sub.add_parser("list", help="List the canonical Sprint Engine roster.")
+    p.set_defaults(handler=cmd_roster_list)
 
     # join
     p = sub.add_parser("join", help="Join Sprint Engine as worker, returns full role prompt.")

@@ -468,6 +468,15 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     }))
   }
 
+  const setRoleIncluded = (role: SwarmRole, included: boolean) => {
+    if (role === 'architect') return
+    setSelectedExistingTeam(null)
+    setSwarmRoleCounts((current) => ({
+      ...current,
+      [role]: included ? Math.max(1, current[role]) : 0,
+    }))
+  }
+
   const handleCreate = async () => {
     if (!canCreate) return
 
@@ -924,17 +933,37 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                 <section>
                   <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
                     <div>
-                      <div className="mb-3 text-xs font-medium text-[#9a9aa2]">Sprint Engine roles</div>
+                      <div className="mb-3 text-xs font-medium text-[#9a9aa2]">Specialist roster</div>
                       <div className="border-t border-[#303139]">
-                        {swarmRoleOrder.map((role) => (
+                        {swarmRoleOrder.map((role) => {
+                          const included = role === 'architect' || swarmRoleCounts[role] > 0
+                          return (
                           <div
                             key={role}
                             className="flex min-h-[68px] items-center justify-between gap-3 border-b border-[#303139] px-3 py-2"
                           >
                             <span className="flex min-w-0 items-center gap-3">
-                              <span className={`h-2 w-2 shrink-0 rounded-full ${roleAccentClasses[role]}`} />
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={included}
+                                aria-label={`Include ${swarmRoleLabels[role]} in roster`}
+                                disabled={role === 'architect' || selectedExistingTeam != null}
+                                onClick={() => setRoleIncluded(role, !included)}
+                                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ececee]/25 disabled:opacity-55 ${
+                                  included ? 'bg-[#6ee7d8]' : 'bg-[#303139]'
+                                }`}
+                              >
+                                <span
+                                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+                                    included ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                  aria-hidden="true"
+                                />
+                              </button>
+                              <span className={`h-2 w-2 shrink-0 rounded-full ${included ? roleAccentClasses[role] : 'bg-[#3a3b42]'}`} />
                               <span className="min-w-0">
-                                <span className="block truncate text-sm font-semibold text-[#ececee]">
+                                <span className={`block truncate text-sm font-semibold ${included ? 'text-[#ececee]' : 'text-[#777780]'}`}>
                                   {swarmRoleLabels[role]}
                                 </span>
                                 <span className="mt-1 block text-[12px] leading-4 text-[#9a9aa2]">
@@ -948,7 +977,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                                 <select
                                   value={swarmRoleCliDefaults[role]}
                                   onChange={(event) => setRoleCliDefault(role, event.target.value as AgentCli)}
-                                  className="h-8 appearance-none rounded-md border border-[#303139] bg-[#111216] py-1 pl-8 pr-7 text-[12px] font-semibold text-[#d7d7dc] outline-none transition-colors hover:bg-[#17181d] focus:border-[#ececee]/70"
+                                  disabled={!included}
+                                  className="h-8 appearance-none rounded-md border border-[#303139] bg-[#111216] py-1 pl-8 pr-7 text-[12px] font-semibold text-[#d7d7dc] outline-none transition-colors hover:bg-[#17181d] focus:border-[#ececee]/70 disabled:text-[#5a5a63]"
                                 >
                                   {cliOptions.map((option) => (
                                     <option key={option.value} value={option.value}>
@@ -970,7 +1000,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                               </span>
                             </label>
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
 

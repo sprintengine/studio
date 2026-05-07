@@ -25,6 +25,8 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
     expected = {
         "sprintengine.init",
         "sprintengine.recover",
+        "sprintengine.roster.add",
+        "sprintengine.roster.list",
         "sprintengine.join",
         "sprintengine.summary",
         "sprintengine.task.next",

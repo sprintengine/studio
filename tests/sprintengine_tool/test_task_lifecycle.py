@@ -108,6 +108,116 @@ def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_p
     assert_event_type(plan_approved, "artifact_approved")
 
 
+def test_init_respects_selected_roster_without_product_gate(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-team" / "state.yaml"
+    cli = SwarmCli(state_path)
+
+    payload = cli.run(
+        "init",
+        "--goal",
+        "Plan with a selected roster",
+        "--agent",
+        "architect:architect",
+        "--agent",
+        "developer:developer-1",
+    )
+
+    assert payload["ok"] is True
+    assert payload["productTask"] is None
+    assert payload["planTask"]["role"] == "architect"
+    assert payload["planTask"]["dependsOn"] == []
+
+    state = read_state(state_path)
+    assert set(state["agents"]) == {"architect", "developer-1"}
+    assert_ready_tasks(cli, "architect", [payload["planTask"]["id"]])
+
+
+def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-plan" / "state.yaml"
+    cli = SwarmCli(state_path)
+    cli.run(
+        "init",
+        "--goal",
+        "Constrain role planning",
+        "--agent",
+        "architect:architect",
+        "--agent",
+        "developer:developer-1",
+    )
+
+    rejected = cli.run_failure(
+        "plan",
+        "add-task",
+        "--title",
+        "Review performance",
+        "--role",
+        "performance",
+        "--description",
+        "Review the implementation.",
+    )
+
+    assert "Role 'performance' is not in this Sprint Engine roster" in rejected.stderr
+
+    accepted = cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Implement scoped work",
+        "--role",
+        "developer",
+        "--description",
+        "Build the selected change.",
+    )
+    assert accepted["task"]["role"] == "developer"
+
+
+def test_roster_add_allows_later_specialist_tasks(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "roster-expand" / "state.yaml"
+    cli = SwarmCli(state_path)
+    cli.run(
+        "init",
+        "--goal",
+        "Expand a selected roster",
+        "--agent",
+        "architect:architect",
+        "--agent",
+        "developer:developer-1",
+    )
+
+    before = cli.run_failure(
+        "plan",
+        "add-task",
+        "--title",
+        "Review security",
+        "--role",
+        "security",
+        "--description",
+        "Review the implementation for security risk.",
+    )
+    assert "Role 'security' is not in this Sprint Engine roster" in before.stderr
+
+    added = cli.run("roster", "add", "--role", "security", "--id", "security", "--actor", "architect")
+    assert added["ok"] is True
+    assert added["role"] == "security"
+
+    after = cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Review security",
+        "--role",
+        "security",
+        "--description",
+        "Review the implementation for security risk.",
+    )
+    assert after["task"]["role"] == "security"
+
+    state = read_state(state_path)
+    assert state["sprintengine"]["rosterConfigured"] is True
+    assert state["agents"]["security"]["role"] == "security"
+    assert_event_type(state, "roster_member_added")
+
+
 def test_task_next_returns_active_task_before_claiming_new_work(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

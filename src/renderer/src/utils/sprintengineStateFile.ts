@@ -71,6 +71,7 @@ export function parseSwarmStateFile(content: string, fallbackName?: string): Swa
   const candidate: SwarmState = {
     name: (sprintengine.name as string) ?? fallbackName ?? 'Sprint Engine Team',
     goal: (sprintengine.goal as string) ?? '',
+    rosterConfigured: Boolean(sprintengine.rosterConfigured),
     source: typeof parsed.source === 'object' && parsed.source !== null
       ? parsed.source as SwarmState['source']
       : undefined,

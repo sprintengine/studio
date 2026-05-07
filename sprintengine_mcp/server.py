@@ -34,6 +34,8 @@ from sprintengine_core.tool import (
     cmd_plan_start_review,
     cmd_plan_update_task,
     cmd_recover,
+    cmd_roster_add,
+    cmd_roster_list,
     cmd_summary,
     cmd_task_claim,
     cmd_task_list,
@@ -133,6 +135,8 @@ class SprintEngineMcpServer:
         handlers: dict[str, Callable[[Any], dict[str, Any]]] = {
             "sprintengine.init": cmd_init,
             "sprintengine.recover": cmd_recover,
+            "sprintengine.roster.add": cmd_roster_add,
+            "sprintengine.roster.list": cmd_roster_list,
             "sprintengine.join": cmd_join,
             "sprintengine.summary": cmd_summary,
             "sprintengine.task.next": cmd_task_next,
@@ -176,8 +180,13 @@ class SprintEngineMcpServer:
         if tool_name == "sprintengine.init":
             base["goal"] = payload.get("goal")
             base["use_worktrees"] = bool(payload.get("useWorktrees", False))
+            base["agent"] = list(payload.get("agent") or [])
         elif tool_name == "sprintengine.join":
             base.update(role=payload["role"], id=payload["id"])
+        elif tool_name == "sprintengine.roster.add":
+            base.update(role=payload["role"], id=payload["id"], actor=payload.get("actor") or (actor.id if actor else "architect"))
+        elif tool_name == "sprintengine.roster.list":
+            pass
         elif tool_name == "sprintengine.task.next":
             base.update(role=payload["role"], id=payload["id"])
         elif tool_name == "sprintengine.task.claim":

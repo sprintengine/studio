@@ -8,6 +8,7 @@ import type {
 } from '../types/workspace'
 import {
   buildSwarmAgentRosterForState,
+  buildSwarmRosterCommandArgs,
   createInitialSwarmState,
 } from './sprintengine'
 import { buildPlanFileSwarmHandoffPrompt } from './sprintengineHandoff'
@@ -128,6 +129,7 @@ export async function createPlanSourcedSwarmWorkspace({
     sourcePath: trimmedSourcePath,
     sourceContent,
     statePath: swarmContext.statePath,
+    rosterArgs: buildSwarmRosterCommandArgs(swarmState),
   })
 
   useWorkspaceStore.getState().updateAgent(workspaceId, architect.id, {

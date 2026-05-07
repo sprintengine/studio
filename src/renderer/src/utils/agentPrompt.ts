@@ -51,12 +51,16 @@ export function buildSwarmStartupPrompt(
     executionCwd?: string
     workspaceRoot?: string
     swarmStatePath?: string
+    rosterArgs?: string[]
     commandMode?: 'init' | 'join'
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
+  const rosterFlags = commandMode === 'init' && options.rosterArgs?.length
+    ? ` ${options.rosterArgs.map((arg) => `--agent ${quoteShellArg(arg)}`).join(' ')}`
+    : ''
   const swarmCommand = commandMode === 'init'
-    ? `init --goal ${quoteShellArg(goal)}`
+    ? `init --goal ${quoteShellArg(goal)}${rosterFlags}`
     : `join --role ${role} --id ${agentId}`
   const command = commandMode === 'init'
     ? `Run \`sprintengine ${swarmCommand}\` to receive your full prompt and instructions.`
@@ -65,6 +69,9 @@ export function buildSwarmStartupPrompt(
   const context = [
     options.executionCwd ? `Worker cwd: ${options.executionCwd}` : null,
     options.swarmStatePath ? `Shared Sprint Engine state: ${options.swarmStatePath}` : null,
+    commandMode === 'init' && options.rosterArgs?.length
+      ? `Selected Sprint Engine roster: ${options.rosterArgs.join(', ')}. The architect must create tasks only for roles present in this roster.`
+      : null,
   ].filter(Boolean)
 
   return [

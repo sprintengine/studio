@@ -46,7 +46,7 @@ import {
 import { autoRunReasonToLabel, selectMultiloopAutoRunCandidates, type MultiloopAutoRunSelection } from '../../utils/multiloopAutoRun'
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
 import { parseSwarmStateFile } from '../../utils/sprintengineStateFile'
-import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/sprintengine'
+import { buildSwarmAgentRosterForState, buildSwarmRosterCommandArgs, swarmRoleLabels } from '../../utils/sprintengine'
 
 type Props = {
   workspaceId: WorkspaceId
@@ -317,6 +317,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
             executionCwd: workspaceRoot,
             workspaceRoot,
             swarmStatePath: sprintEngineLink.statePath,
+            rosterArgs: buildSwarmRosterCommandArgs(linkedState),
             commandMode: getSwarmStartupCommandMode(role, agentId, linkedState),
           }),
           tabName,

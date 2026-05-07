@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
 import { buildSpecialistSoulStartupPrompt, getSpecialistAction } from '../../specialists/specialistActions'
-import { buildSwarmAgentRosterForState, swarmRoleLabels } from '../../utils/sprintengine'
+import { buildSwarmAgentRosterForState, buildSwarmRosterCommandArgs, swarmRoleLabels } from '../../utils/sprintengine'
 import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
@@ -162,6 +162,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       {
         executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath).cwd,
         workspaceRoot: folderReadyPath ?? undefined,
+        rosterArgs: buildSwarmRosterCommandArgs(workspace.swarmState),
         commandMode: getSwarmStartupCommandMode(rosterAgent.role, agentId, workspace.swarmState),
       }
     )

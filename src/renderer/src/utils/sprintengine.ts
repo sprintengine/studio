@@ -559,12 +559,23 @@ export function buildSwarmAgentRosterForState(
   return buildSwarmAgentRoster(swarmState?.roleCounts ?? createDefaultSwarmRoleCounts())
 }
 
+export function buildSwarmRosterCommandArgs(
+  swarmState: Pick<SwarmState, 'roleCounts' | 'swarmAgents' | 'rosterConfigured'> | SwarmRoleCounts | null | undefined
+): string[] {
+  if (swarmState && 'roleCounts' in swarmState && !swarmState.rosterConfigured) return []
+  const roster = swarmState && 'roleCounts' in swarmState
+    ? buildSwarmAgentRosterForState(swarmState)
+    : buildSwarmAgentRoster(normalizeSwarmRoleCounts(swarmState as Partial<SwarmRoleCounts> | null | undefined))
+  return roster.map((agent) => `${agent.role}:${agent.id}`)
+}
+
 export function createInitialSwarmState(config: SwarmMockConfig): SwarmState {
   const roleCounts = normalizeSwarmRoleCounts(config.roleCounts)
   const roster = buildSwarmAgentRoster(roleCounts)
   return {
     name: config.name?.trim() || 'Sprint Engine Team',
     goal: config.goal,
+    rosterConfigured: true,
     roleCounts,
     swarmAgents: Object.fromEntries(
       roster.map((agent) => [
@@ -725,6 +736,7 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
   return {
     name: input.name?.trim() || 'Sprint Engine Team',
     goal: input.goal ?? '',
+    rosterConfigured: Boolean(input.rosterConfigured),
     ...(input.source ? { source: input.source } : {}),
     updatedAt: input.updatedAt ?? null,
     roleCounts,

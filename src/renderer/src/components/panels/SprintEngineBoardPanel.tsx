@@ -21,6 +21,7 @@ import CliIcon from '../CliIcon'
 import {
   buildSwarmAgentRosterForState,
   getSwarmArtifactAutoApprovalEligibility,
+  getNextSwarmAgentId,
   getReviewableSwarmArtifacts,
   getSwarmArtifactDependencyBlockers,
   getSwarmArtifactsByTaskId,
@@ -924,7 +925,24 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     setAddMemberOpen(true)
   }
 
-  const confirmAddMember = () => {
+  const confirmAddMember = async () => {
+    if (swarmState.rosterConfigured) {
+      if (!architectAgentId || !swarmContext) return
+      const agentId = getNextSwarmAgentId(addMemberRole, swarmState.swarmAgents)
+      const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
+      const label = getAgentName(architectAgentId, fallbackLabel)
+      const prompt = buildRosterRevisionPrompt(addMemberRole, agentId, swarmContext.teamSlug)
+      const started = await startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
+        freshSession: true,
+        agentName: getCustomAgentName(architectAgentId, fallbackLabel),
+        startupPrompt: prompt,
+      })
+      if (!started) return
+      setSelectedAgentId(architectAgentId)
+      setAddMemberOpen(false)
+      return
+    }
+
     const addedAgent = addSwarmMember(workspaceId, addMemberRole)
     if (!addedAgent) return
 
@@ -2243,7 +2261,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   SprintEngine Roster
                 </div>
                 <h3 className="text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  Spawn Team Member
+                  {swarmState.rosterConfigured ? 'Add Roster Member' : 'Spawn Team Member'}
                 </h3>
               </div>
               <button
@@ -2310,10 +2328,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 Cancel
               </button>
               <button
-                onClick={confirmAddMember}
+                onClick={() => void confirmAddMember()}
                 className="rounded-md bg-[#6ee7d8] px-4 py-2 text-sm font-semibold text-[#061210] transition-colors hover:bg-[#9af4ea]"
               >
-                Spawn {swarmRoleLabels[addMemberRole]}
+                {swarmState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {swarmRoleLabels[addMemberRole]}
               </button>
             </div>
           </div>
@@ -4339,6 +4357,24 @@ function buildAddressPlanReviewsPrompt(): string {
   return [
     'Fetch the canonical plan review feedback instructions from the Python tool.',
     'Run `Sprint Engine plan address-reviews --actor architect` now.',
+  ].join('\n')
+}
+
+function buildRosterRevisionPrompt(role: SwarmRole, agentId: string, teamSlug: string): string {
+  return [
+    'Revise this Sprint Engine plan for a newly added roster member.',
+    `Team: \`${teamSlug}\``,
+    `New roster member: ${swarmRoleLabels[role]} (\`${role}\`) with agent id \`${agentId}\`.`,
+    '',
+    'First add the member to the canonical Sprint Engine roster:',
+    '',
+    '```shell',
+    `sprintengine roster add --role ${role} --id ${agentId} --actor architect`,
+    '```',
+    '',
+    'Then inspect the current plan, task graph, completed evidence, and open risks. If this new specialist should do work, add only the needed task cards with normal `Sprint Engine plan add-task` commands and correct dependencies. If no task is needed, record a concise rationale in the architect terminal and stop.',
+    '',
+    'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit state.yaml directly.',
   ].join('\n')
 }
 

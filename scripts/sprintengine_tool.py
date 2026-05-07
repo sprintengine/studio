@@ -136,9 +136,20 @@ def _mcp_payload(args) -> tuple[str, dict]:
     group = args.group
     action = getattr(args, "action", None)
     if group == "init":
-        return "sprintengine.init", {**base, "goal": args.goal, "useWorktrees": bool(args.use_worktrees)}
+        return "sprintengine.init", {
+            **base,
+            "goal": args.goal,
+            "useWorktrees": bool(args.use_worktrees),
+            "agent": args.agent or [],
+        }
     if group == "recover":
         return "sprintengine.recover", base
+    if group == "roster":
+        if action == "add":
+            return "sprintengine.roster.add", {**base, "role": args.role, "id": args.id, "actor": args.actor}
+        if action == "list":
+            return "sprintengine.roster.list", base
+        raise SystemExit(f"MCP backend does not support roster action: {action}")
     if group == "join":
         return "sprintengine.join", {**base, "role": args.role, "id": args.id}
     if group == "summary":
