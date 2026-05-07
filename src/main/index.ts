@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, Menu, safeStorage } from 'electron'
-import { existsSync, mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { access, appendFile, chmod, lstat, mkdir, readdir, readFile, realpath, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from 'path'
 import { createHash, randomBytes } from 'crypto'
@@ -17,6 +17,7 @@ import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
+import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
@@ -1286,23 +1287,6 @@ const terminalInputDiagnostics = new Map<string, {
   errors: number
   lastLogAt: number
 }>()
-type FileWatchEvent = {
-  eventType: string
-  path: string | null
-}
-
-type FileWatcherRecord = {
-  watcher: FSWatcher
-  senderId: number
-  pendingEvent: FileWatchEvent | null
-  flushTimer: NodeJS.Timeout | null
-}
-
-const FILE_WATCH_EVENT_COALESCE_MS = 100
-const fileWatchers = new Map<string, FileWatcherRecord>()
-const trackedWatcherSenders = new Set<number>()
-let nextFileWatcherId = 0
-
 const FILE_SEARCH_DEFAULT_LIMIT = 200
 const FILE_SEARCH_MAX_LIMIT = 500
 const CONTENT_SEARCH_DEFAULT_LIMIT = 200
@@ -3261,46 +3245,6 @@ function disposeOtherAgentSessions(
   duplicateSessionIds.forEach(disposeTerminal)
 }
 
-function disposeFileWatcher(watchId: string): void {
-  const fileWatcher = fileWatchers.get(watchId)
-  if (!fileWatcher) return
-
-  if (fileWatcher.flushTimer) {
-    clearTimeout(fileWatcher.flushTimer)
-  }
-  fileWatcher.watcher.close()
-  fileWatchers.delete(watchId)
-}
-
-function flushFileWatchEvent(watchId: string): void {
-  const fileWatcher = fileWatchers.get(watchId)
-  if (!fileWatcher) return
-
-  fileWatcher.flushTimer = null
-  const watchEvent = fileWatcher.pendingEvent
-  fileWatcher.pendingEvent = null
-  if (!watchEvent) return
-
-  const sender = BrowserWindow.getAllWindows()
-    .map((window) => window.webContents)
-    .find((webContents) => webContents.id === fileWatcher.senderId)
-  if (!sender || sender.isDestroyed()) return
-
-  sender.send(`fs:watch-event:${watchId}`, watchEvent)
-}
-
-function scheduleFileWatchEvent(watchId: string, watchEvent: FileWatchEvent): void {
-  const fileWatcher = fileWatchers.get(watchId)
-  if (!fileWatcher) return
-
-  fileWatcher.pendingEvent = fileWatcher.pendingEvent
-    ? { eventType: 'change', path: null }
-    : watchEvent
-
-  if (fileWatcher.flushTimer) clearTimeout(fileWatcher.flushTimer)
-  fileWatcher.flushTimer = setTimeout(() => flushFileWatchEvent(watchId), FILE_WATCH_EVENT_COALESCE_MS)
-}
-
 function createMobileCommandService(): MobileSwarmCommandService {
   const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
     adapters: {
@@ -3451,18 +3395,6 @@ async function discoverSprintEngineStatePaths(workspaceRoot: string): Promise<st
       })
   )
   return statePaths.filter((statePath): statePath is string => Boolean(statePath))
-}
-
-function disposeFileWatchersForSender(senderId: number): void {
-  for (const [watchId, fileWatcher] of fileWatchers.entries()) {
-    if (fileWatcher.senderId === senderId) {
-      if (fileWatcher.flushTimer) {
-        clearTimeout(fileWatcher.flushTimer)
-      }
-      fileWatcher.watcher.close()
-      fileWatchers.delete(watchId)
-    }
-  }
 }
 
 registerWindowIpc(ipcMain)
@@ -4188,64 +4120,12 @@ function imageMimeType(filePath: string): string | null {
   }
 }
 
-ipcMain.handle('fs:watch-start', async (event, dirPath: string) => {
-  if (!trackedWatcherSenders.has(event.sender.id)) {
-    trackedWatcherSenders.add(event.sender.id)
-    event.sender.once('destroyed', () => {
-      trackedWatcherSenders.delete(event.sender.id)
-      disposeFileWatchersForSender(event.sender.id)
-    })
-  }
-
-  if (!(await pathExists(dirPath))) return null
-
-  const watchId = `watch-${++nextFileWatcherId}`
-  const recursive = process.platform === 'win32' || process.platform === 'darwin'
-
-  const createWatcher = (useRecursive: boolean): FSWatcher =>
-    watch(dirPath, { recursive: useRecursive }, (eventType, filename) => {
-      if (event.sender.isDestroyed()) return
-      scheduleFileWatchEvent(watchId, {
-        eventType,
-        path: typeof filename === 'string' ? filename : null,
-      })
-    })
-
-  try {
-    const watcher = createWatcher(recursive)
-    fileWatchers.set(watchId, { watcher, senderId: event.sender.id, pendingEvent: null, flushTimer: null })
-    return watchId
-  } catch (error) {
-    if (isMissingPathError(error)) return null
-    if (!recursive) {
-      throw error
-    }
-
-    try {
-      const watcher = createWatcher(false)
-      fileWatchers.set(watchId, { watcher, senderId: event.sender.id, pendingEvent: null, flushTimer: null })
-      return watchId
-    } catch (fallbackError) {
-      if (isMissingPathError(fallbackError)) return null
-      throw fallbackError
-    }
-  }
-})
-
-ipcMain.handle('fs:watch-stop', (_, watchId: string) => {
-  disposeFileWatcher(watchId)
-})
-
-ipcMain.handle('fs:search-files', async (event, input: FileSearchRequest) => {
-  return searchFiles(event.sender.id, input)
-})
-
-ipcMain.handle('fs:search-content', async (event, input: ContentSearchRequest) => {
-  return searchContent(event.sender.id, input)
-})
-
-ipcMain.handle('fs:cancel-content-search', (event) => {
-  cancelActiveContentSearch(event.sender.id)
+registerFilesystemWatchSearchIpc(ipcMain, {
+  pathExists,
+  isMissingPathError,
+  searchFiles,
+  searchContent,
+  cancelActiveContentSearch,
 })
 
 registerFilesystemReadIpc(ipcMain, {
