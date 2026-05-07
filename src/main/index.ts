@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, Menu, safeStorage, type WebContents } from 'electron'
 import { access, mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises'
-import { dirname, extname, join, resolve } from 'path'
+import { dirname, join, resolve } from 'path'
 import { createHash, randomBytes } from 'crypto'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
@@ -44,6 +44,7 @@ import { createAppMenu } from './app-menu'
 import { getUniqueCopyPath } from './filesystem-copy'
 import { createMainWindow } from './window-factory'
 import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
+import { imageMimeType } from './filesystem-image'
 import {
   MobileBridge,
 } from './mobile-bridge'
@@ -1739,32 +1740,6 @@ registerSprintEngineIpc(ipcMain, {
 registerMultiloopIpc(ipcMain, {
   initializeMultiloopState,
 })
-
-function imageMimeType(filePath: string): string | null {
-  switch (extname(filePath).toLowerCase()) {
-    case '.apng':
-      return 'image/apng'
-    case '.avif':
-      return 'image/avif'
-    case '.bmp':
-      return 'image/bmp'
-    case '.gif':
-      return 'image/gif'
-    case '.ico':
-      return 'image/x-icon'
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg'
-    case '.png':
-      return 'image/png'
-    case '.svg':
-      return 'image/svg+xml'
-    case '.webp':
-      return 'image/webp'
-    default:
-      return null
-  }
-}
 
 registerFilesystemWatchSearchIpc(ipcMain, {
   pathExists,
