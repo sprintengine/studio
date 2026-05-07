@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import { access, stat } from 'fs/promises'
 import { constants } from 'fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'path'
@@ -9,7 +8,7 @@ import {
   rememberCommandResult,
   requestHashFor,
 } from './mobile-sprintengine-command-cache'
-import { buildError, validateMobileControlCommand } from './mobile-sprintengine-command-validation'
+import { validateMobileControlCommand } from './mobile-sprintengine-command-validation'
 import {
   isPathInsideOrEqual,
   isSafePathSegment,
@@ -21,7 +20,6 @@ import {
   createSwarmToolExecutor,
   defaultSwarmToolPath,
   parseToolJson,
-  redactToolArgs,
   type SwarmToolExecutor,
 } from './mobile-sprintengine-tool-runner'
 import {
@@ -38,6 +36,7 @@ import {
   findReadySwarmTask,
   findSwarmArtifact,
 } from './mobile-sprintengine-state-reader'
+import { MobileSwarmCommandResultRecorder } from './mobile-sprintengine-command-results'
 
 export { MobileSwarmCommandError } from './mobile-sprintengine-command-error'
 
@@ -233,15 +232,13 @@ type MobileSwarmCommandServiceOptions = {
   auditSink?: (entry: MobileSwarmCommandAuditEntry) => void
 }
 
-type MobileSwarmCommandAuditStatus = 'accepted' | 'rejected' | 'failed'
-
 export type MobileSwarmCommandAuditEntry = {
   auditId: string
   commandId: string
   commandType: MobileControlCommandType | 'unknown'
   deviceId: string | null
   idempotencyKey?: string
-  status: MobileSwarmCommandAuditStatus
+  status: 'accepted' | 'rejected' | 'failed'
   code?: MobileControlError['code']
   message: string
   recordedAt: string
@@ -281,8 +278,7 @@ export class MobileSwarmCommandService {
   private readonly now: () => Date
   private readonly execute: SwarmToolExecutor
   private readonly sessionOrchestrator?: MobileSwarmSessionOrchestrator
-  private readonly auditSink?: (entry: MobileSwarmCommandAuditEntry) => void
-  private readonly auditLog: MobileSwarmCommandAuditEntry[] = []
+  private readonly resultRecorder: MobileSwarmCommandResultRecorder
 
   constructor(options: MobileSwarmCommandServiceOptions = {}) {
     this.workspaceRoot = resolve(options.workspaceRoot ?? process.cwd())
@@ -295,26 +291,26 @@ export class MobileSwarmCommandService {
     this.now = options.now ?? (() => new Date())
     this.execute = options.execute ?? createSwarmToolExecutor(options.swarmToolPath ?? defaultSwarmToolPath())
     this.sessionOrchestrator = options.sessionOrchestrator
-    this.auditSink = options.auditSink
+    this.resultRecorder = new MobileSwarmCommandResultRecorder(this.now, options.auditSink)
   }
 
   getAuditLog(): MobileSwarmCommandAuditEntry[] {
-    return [...this.auditLog]
+    return this.resultRecorder.getAuditLog()
   }
 
   async dispatch(input: unknown): Promise<MobileSwarmCommandResult> {
     const validated = validateMobileControlCommand(input)
     if (!validated.ok) {
-      return this.rejectUnknown(validated.error)
+      return this.resultRecorder.rejectUnknown(validated.error)
     }
 
     const command = validated.value
     if (!allowedCommandTypes.has(command.type)) {
-      return this.reject(command, 'command_not_supported', `Mobile command ${command.type} is not supported by the sprintengine command service.`, false)
+      return this.resultRecorder.reject(command, 'command_not_supported', `Mobile command ${command.type} is not supported by the sprintengine command service.`, false)
     }
 
     if (!command.idempotencyKey) {
-      return this.reject(command, 'invalid_payload', 'idempotencyKey is required for sprintengine mutation commands.', false)
+      return this.resultRecorder.reject(command, 'invalid_payload', 'idempotencyKey is required for sprintengine mutation commands.', false)
     }
 
     const idempotencyKey = idempotencyKeyForCommand(this.workspaceRoot, command)
@@ -326,7 +322,7 @@ export class MobileSwarmCommandService {
 
     const ttlError = this.validateCommandTtl(command)
     if (ttlError) {
-      return this.reject(command, 'command_expired', ttlError, false)
+      return this.resultRecorder.reject(command, 'command_expired', ttlError, false)
     }
 
     try {
@@ -335,11 +331,11 @@ export class MobileSwarmCommandService {
       return result
     } catch (error) {
       if (error instanceof MobileSwarmCommandError) {
-        const result = this.reject(command, error.code, error.message, error.retryable)
+        const result = this.resultRecorder.reject(command, error.code, error.message, error.retryable)
         rememberCommandResult(idempotencyKey, requestHash, result)
         return result
       }
-      const result = this.reject(command, 'internal_error', getMobileSwarmCommandErrorMessage(error), false)
+      const result = this.resultRecorder.reject(command, 'internal_error', getMobileSwarmCommandErrorMessage(error), false)
       rememberCommandResult(idempotencyKey, requestHash, result)
       return result
     }
@@ -360,7 +356,7 @@ export class MobileSwarmCommandService {
       case 'snapshot.request':
       case 'artifact.read':
       case 'device.revoke':
-        return this.reject(command, 'command_not_supported', `Mobile command ${command.type} is not supported by the sprintengine command service.`, false)
+        return this.resultRecorder.reject(command, 'command_not_supported', `Mobile command ${command.type} is not supported by the sprintengine command service.`, false)
     }
   }
 
@@ -368,7 +364,7 @@ export class MobileSwarmCommandService {
     command: Extract<MobileControlCommand, { type: 'task.start' }>
   ): Promise<MobileSwarmCommandResult> {
     if (!this.sessionOrchestrator) {
-      return this.reject(command, 'command_not_supported', 'Desktop session orchestration is not configured for mobile task starts.', false)
+      return this.resultRecorder.reject(command, 'command_not_supported', 'Desktop session orchestration is not configured for mobile task starts.', false)
     }
 
     const state = await this.resolveStateForSwarm(command.payload.swarmId)
@@ -386,7 +382,7 @@ export class MobileSwarmCommandService {
       commandId: command.commandId,
     })
 
-    return this.acceptSessionCommand(
+    return this.resultRecorder.acceptSessionCommand(
       command,
       data,
       state,
@@ -398,7 +394,7 @@ export class MobileSwarmCommandService {
     command: Extract<MobileControlCommand, { type: 'agent.followUp' }>
   ): Promise<MobileSwarmCommandResult> {
     if (!this.sessionOrchestrator) {
-      return this.reject(command, 'command_not_supported', 'Desktop session orchestration is not configured for mobile follow-up messages.', false)
+      return this.resultRecorder.reject(command, 'command_not_supported', 'Desktop session orchestration is not configured for mobile follow-up messages.', false)
     }
 
     const state = await this.resolveStateForSwarm(command.payload.swarmId)
@@ -417,7 +413,7 @@ export class MobileSwarmCommandService {
       commandId: command.commandId,
     })
 
-    return this.acceptSessionCommand(
+    return this.resultRecorder.acceptSessionCommand(
       command,
       data,
       state,
@@ -439,10 +435,10 @@ export class MobileSwarmCommandService {
     if (action === 'request-changes') {
       feedback = typeof command.payload.feedback === 'string' ? command.payload.feedback.trim() : ''
       if (!feedback) {
-        return this.reject(command, 'invalid_payload', 'Artifact change requests require feedback.', false, state, artifact.id)
+        return this.resultRecorder.reject(command, 'invalid_payload', 'Artifact change requests require feedback.', false, state, artifact.id)
       }
       if (feedback.length > maxFeedbackCharacters) {
-        return this.reject(command, 'invalid_payload', `Artifact feedback must be ${maxFeedbackCharacters} characters or less.`, false, state, artifact.id)
+        return this.resultRecorder.reject(command, 'invalid_payload', `Artifact feedback must be ${maxFeedbackCharacters} characters or less.`, false, state, artifact.id)
       }
     }
 
@@ -463,10 +459,10 @@ export class MobileSwarmCommandService {
     const workspacePath = await this.validateWorkspacePath(command.payload.workspacePath)
     const productPrompt = command.payload.productPrompt.trim()
     if (!productPrompt) {
-      return this.reject(command, 'invalid_payload', 'SprintEngine creation requires a product prompt.', false, undefined, undefined, workspacePath)
+      return this.resultRecorder.reject(command, 'invalid_payload', 'SprintEngine creation requires a product prompt.', false, undefined, undefined, workspacePath)
     }
     if (productPrompt.length > maxProductPromptCharacters) {
-      return this.reject(command, 'invalid_payload', `Product prompt must be ${maxProductPromptCharacters} characters or less.`, false, undefined, undefined, workspacePath)
+      return this.resultRecorder.reject(command, 'invalid_payload', `Product prompt must be ${maxProductPromptCharacters} characters or less.`, false, undefined, undefined, workspacePath)
     }
 
     const teamName = `mobile-${safeSlug(command.commandId)}`
@@ -561,17 +557,17 @@ export class MobileSwarmCommandService {
 
     if (toolResult.exitCode !== 0 || !parsed.ok) {
       const message = parsed.message ?? parsed.error ?? (toolResult.stderr.trim() || 'The Sprint Engine tool command failed.')
-      return this.reject(command, 'python_tool_failed', message, true, state, artifactId, workspacePath, args, toolResult.exitCode)
+      return this.resultRecorder.reject(command, 'python_tool_failed', message, true, state, artifactId, workspacePath, args, toolResult.exitCode)
     }
 
-    const audit = this.recordAudit({
+    const audit = this.resultRecorder.recordAudit({
       command,
       status: 'accepted',
       message: 'Mobile sprintengine command executed through the canonical Sprint Engine tool.',
       state,
       artifactId,
       workspacePath,
-      toolArgs: redactToolArgs(args),
+      toolArgs: args,
       exitCode: toolResult.exitCode,
     })
 
@@ -584,32 +580,6 @@ export class MobileSwarmCommandService {
       data: parsed.data,
       stdout: toolResult.stdout,
       stderr: toolResult.stderr,
-      audit,
-    }
-  }
-
-  private acceptSessionCommand(
-    command: MobileControlCommand,
-    data: unknown,
-    state: ValidSwarmStatePath,
-    message: string
-  ): MobileSwarmCommandResult {
-    const audit = this.recordAudit({
-      command,
-      status: 'accepted',
-      message,
-      state,
-    })
-
-    return {
-      ok: true,
-      commandId: command.commandId,
-      commandType: command.type,
-      idempotencyKey: command.idempotencyKey,
-      executedAt: audit.recordedAt,
-      data,
-      stdout: '',
-      stderr: '',
       audit,
     }
   }
@@ -639,12 +609,12 @@ export class MobileSwarmCommandService {
     if (remembered.status === 'miss') return null
 
     if (remembered.status === 'conflict') {
-      return this.reject(command, 'duplicate_idempotency_key', 'This idempotency key was already used for a different command body.', false)
+      return this.resultRecorder.reject(command, 'duplicate_idempotency_key', 'This idempotency key was already used for a different command body.', false)
     }
 
     const replayed = remembered.result
     const replayStatus = replayed.ok ? 'accepted' : replayed.audit.status
-    const audit = this.recordAudit({
+    const audit = this.resultRecorder.recordAudit({
       command,
       status: replayStatus,
       code: replayed.ok ? undefined : replayed.error.code,
@@ -668,85 +638,4 @@ export class MobileSwarmCommandService {
         }
   }
 
-  private reject(
-    command: MobileControlCommand,
-    code: MobileControlError['code'],
-    message: string,
-    retryable: boolean,
-    state?: ValidSwarmStatePath,
-    artifactId?: string,
-    workspacePath?: string,
-    toolArgs?: string[],
-    exitCode?: number | null
-  ): MobileSwarmCommandResult {
-    const audit = this.recordAudit({
-      command,
-      status: code === 'python_tool_failed' ? 'failed' : 'rejected',
-      code,
-      message,
-      state,
-      artifactId,
-      workspacePath,
-      toolArgs: toolArgs ? redactToolArgs(toolArgs) : undefined,
-      exitCode,
-    })
-
-    return {
-      ok: false,
-      commandId: command.commandId,
-      commandType: command.type,
-      idempotencyKey: command.idempotencyKey,
-      error: buildError(code, message, retryable),
-      audit,
-    }
-  }
-
-  private rejectUnknown(error: MobileControlError): MobileSwarmCommandResult {
-    const audit = this.recordAudit({
-      status: 'rejected',
-      code: error.code,
-      message: error.message,
-    })
-
-    return {
-      ok: false,
-      commandId: null,
-      commandType: 'unknown',
-      error,
-      audit,
-    }
-  }
-
-  private recordAudit(input: {
-    command?: MobileControlCommand
-    status: MobileSwarmCommandAuditStatus
-    code?: MobileControlError['code']
-    message: string
-    state?: ValidSwarmStatePath
-    artifactId?: string
-    workspacePath?: string
-    toolArgs?: string[]
-    exitCode?: number | null
-  }): MobileSwarmCommandAuditEntry {
-    const entry: MobileSwarmCommandAuditEntry = {
-      auditId: `msa_${randomUUID()}`,
-      commandId: input.command?.commandId ?? 'unknown',
-      commandType: input.command?.type ?? 'unknown',
-      deviceId: input.command?.deviceId ?? null,
-      ...(input.command?.idempotencyKey ? { idempotencyKey: input.command.idempotencyKey } : {}),
-      status: input.status,
-      ...(input.code ? { code: input.code } : {}),
-      message: input.message,
-      recordedAt: this.now().toISOString(),
-      ...(input.state ? { statePath: input.state.statePath } : {}),
-      ...(input.artifactId ? { artifactId: input.artifactId } : {}),
-      ...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
-      ...(input.toolArgs ? { toolArgs: input.toolArgs } : {}),
-      ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
-    }
-
-    this.auditLog.unshift(entry)
-    this.auditSink?.(entry)
-    return entry
-  }
 }
