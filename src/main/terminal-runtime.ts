@@ -23,6 +23,7 @@ import {
   materializeTerminalReplay,
   type TerminalSession,
 } from './terminal-session'
+import { createTerminalDiagnostics } from './terminal-diagnostics'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -44,14 +45,18 @@ type TerminalRuntime = {
   ipcHandlers: TerminalIpcHandlers
 }
 
-let terminalDiagnosticsEnabled = false
 let requireAuthenticatedUser = (_message: string): void => {}
-let logTerminalPerfEvent = (_scope: string, _event: string, _payload: Record<string, unknown>): void => {}
+let terminalDiagnostics = createTerminalDiagnostics({
+  enabled: false,
+  logMainPerfEvent: () => {},
+})
 
 export function createTerminalRuntime(options: TerminalRuntimeOptions): TerminalRuntime {
-  terminalDiagnosticsEnabled = options.diagnosticsEnabled
   requireAuthenticatedUser = options.requireAuthenticatedUser
-  logTerminalPerfEvent = options.logMainPerfEvent
+  terminalDiagnostics = createTerminalDiagnostics({
+    enabled: options.diagnosticsEnabled,
+    logMainPerfEvent: options.logMainPerfEvent,
+  })
 
   return {
     commandService: createMobileCommandService(),
@@ -82,7 +87,6 @@ const TERMINAL_DATA_BATCH_MS = 16
 const TERMINAL_RECENT_INPUT_WINDOW_MS = 250
 const TERMINAL_INTERACTIVE_DATA_LIMIT = 4096
 const TERMINAL_PENDING_DATA_LIMIT = 256 * 1024
-const TERMINAL_BATCH_DIAGNOSTIC_INTERVAL_MS = 1_000
 const terminals = new Map<string, TerminalSession>()
 const pendingTerminalData = new Map<string, {
   sender: Electron.WebContents
@@ -90,22 +94,6 @@ const pendingTerminalData = new Map<string, {
   chunks: string[]
   bytes: number
   timer: NodeJS.Timeout
-}>()
-const terminalBatchDiagnostics = new Map<string, {
-  batches: number
-  chunks: number
-  bytes: number
-  lastLogAt: number
-}>()
-const TERMINAL_INPUT_DIAGNOSTIC_INTERVAL_MS = 1_000
-const TERMINAL_SLOW_INPUT_WRITE_MS = 50
-const terminalInputDiagnostics = new Map<string, {
-  writes: number
-  bytes: number
-  totalMs: number
-  maxMs: number
-  errors: number
-  lastLogAt: number
 }>()
 function sendTerminalEvent(
   sender: Electron.WebContents,
@@ -127,94 +115,6 @@ function broadcastTerminalSessionsChanged(): void {
       win.webContents.send('terminal:sessions-changed', snapshots)
     }
   }
-}
-
-function recordTerminalDataBatch(
-  session: TerminalSession | undefined,
-  cause: 'timer' | 'exit' | 'dispose',
-  chunkCount: number,
-  byteCount: number
-): void {
-  if (!session || chunkCount === 0) return
-
-  const now = Date.now()
-  const stats = terminalBatchDiagnostics.get(session.sessionId) ?? {
-    batches: 0,
-    chunks: 0,
-    bytes: 0,
-    lastLogAt: now,
-  }
-
-  stats.batches += 1
-  stats.chunks += chunkCount
-  stats.bytes += byteCount
-
-  if (cause !== 'timer' || now - stats.lastLogAt >= TERMINAL_BATCH_DIAGNOSTIC_INTERVAL_MS) {
-    logTerminalPerfEvent('Terminal', 'output-batches', {
-      sessionId: session.sessionId,
-      kind: session.kind,
-      workspaceId: session.workspaceId,
-      cause,
-      batches: stats.batches,
-      chunks: stats.chunks,
-      bytes: stats.bytes,
-      retainedOutputBytes: session.outputBytes,
-    })
-    stats.batches = 0
-    stats.chunks = 0
-    stats.bytes = 0
-    stats.lastLogAt = now
-  }
-
-  terminalBatchDiagnostics.set(session.sessionId, stats)
-}
-
-function recordTerminalInputWrite(
-  session: TerminalSession | undefined,
-  byteCount: number,
-  elapsedMs: number,
-  ok: boolean
-): void {
-  if (!session || !terminalDiagnosticsEnabled) return
-
-  const now = Date.now()
-  const stats = terminalInputDiagnostics.get(session.sessionId) ?? {
-    writes: 0,
-    bytes: 0,
-    totalMs: 0,
-    maxMs: 0,
-    errors: 0,
-    lastLogAt: now,
-  }
-
-  stats.writes += 1
-  stats.bytes += byteCount
-  stats.totalMs += elapsedMs
-  stats.maxMs = Math.max(stats.maxMs, elapsedMs)
-  if (!ok) stats.errors += 1
-
-  if (now - stats.lastLogAt >= TERMINAL_INPUT_DIAGNOSTIC_INTERVAL_MS || elapsedMs >= TERMINAL_SLOW_INPUT_WRITE_MS || !ok) {
-    logTerminalPerfEvent('Terminal', 'input-writes', {
-      sessionId: session.sessionId,
-      kind: session.kind,
-      workspaceId: session.workspaceId,
-      agentId: session.agentId,
-      terminalId: session.terminalId,
-      writes: stats.writes,
-      bytes: stats.bytes,
-      avgMs: stats.writes > 0 ? Math.round((stats.totalMs / stats.writes) * 10) / 10 : 0,
-      maxMs: Math.round(stats.maxMs * 10) / 10,
-      errors: stats.errors,
-    })
-    stats.writes = 0
-    stats.bytes = 0
-    stats.totalMs = 0
-    stats.maxMs = 0
-    stats.errors = 0
-    stats.lastLogAt = now
-  }
-
-  terminalInputDiagnostics.set(session.sessionId, stats)
 }
 
 function trimPendingTerminalChunks(chunks: string[], maxBytes: number): { chunks: string[]; bytes: number; dropped: boolean } {
@@ -257,7 +157,7 @@ function flushTerminalData(sessionId: string, cause: 'timer' | 'exit' | 'dispose
   clearTimeout(pending.timer)
   const data = pending.chunks.join('')
   sendTerminalEvent(pending.sender, pending.channel, data)
-  recordTerminalDataBatch(
+  terminalDiagnostics.recordDataBatch(
     terminals.get(sessionId),
     cause,
     pending.chunks.length,
@@ -346,8 +246,7 @@ function disposeTerminal(sessionId: string): void {
 
   cleanupTerminalStartupScript(session.startupScriptPath)
   flushTerminalData(sessionId, 'dispose')
-  terminalBatchDiagnostics.delete(sessionId)
-  terminalInputDiagnostics.delete(sessionId)
+  terminalDiagnostics.clear(sessionId)
   session.isDisposed = true
   session.hasExited = true
   terminals.delete(sessionId)
@@ -488,8 +387,7 @@ async function spawnMobileAgentTerminal(input: {
     termProcess.onExit((event) => {
       cleanupTerminalStartupScript(terminalSession.startupScriptPath)
       flushTerminalData(input.sessionId, 'exit')
-      terminalBatchDiagnostics.delete(input.sessionId)
-      terminalInputDiagnostics.delete(input.sessionId)
+      terminalDiagnostics.clear(input.sessionId)
       terminalSession.hasExited = true
       if (terminals.get(input.sessionId) === terminalSession) {
         terminals.delete(input.sessionId)
@@ -641,8 +539,7 @@ async function spawnTerminalFromIpc(
       termProcess.onExit((e) => {
         cleanupTerminalStartupScript(terminalSession.startupScriptPath)
         flushTerminalData(sessionId, 'exit')
-        terminalBatchDiagnostics.delete(sessionId)
-        terminalInputDiagnostics.delete(sessionId)
+        terminalDiagnostics.clear(sessionId)
         terminalSession.hasExited = true
         if (terminals.get(sessionId) === terminalSession) {
           terminals.delete(sessionId)
@@ -680,9 +577,9 @@ function writeTerminalInput(sessionId: string, data: string): void {
   try {
     session.lastInputAt = Date.now()
     session.process.write(data)
-    recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, true)
+    terminalDiagnostics.recordInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, true)
   } catch {
     session.hasExited = true
-    recordTerminalInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, false)
+    terminalDiagnostics.recordInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, false)
   }
 }
