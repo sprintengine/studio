@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { basename, dirname, join } from 'path'
 import {
   MobileSwarmCommandService,
   type MobileControlCommand,
@@ -22,6 +22,7 @@ import {
   isMobilePushRegistration,
   redactPushRegistration,
 } from './mobile-bridge-validation'
+import { resolveArtifactPathForRead } from './mobile-bridge-artifact-path'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -1282,35 +1283,6 @@ function stringPayload(payload: unknown, field: string): string {
     throw new Error(`${field} must be a non-empty string.`)
   }
   return value
-}
-
-function resolveArtifactPathForRead(teamDirectory: string, workspacePath: string, artifactPathInput: string): string {
-  const artifactPath = artifactPathInput.trim()
-  if (!artifactPath || /^[A-Za-z][A-Za-z0-9+.-]*:/u.test(artifactPath)) {
-    throw new Error('Artifact path must be a workspace file path.')
-  }
-
-  const fullPath = isAbsolute(artifactPath)
-    ? resolve(artifactPath)
-    : [
-        resolve(workspacePath, artifactPath),
-        resolve(teamDirectory, artifactPath),
-      ].find((candidate) => isPathInsideOrEqual(teamDirectory, candidate))
-        ?? resolve(workspacePath, artifactPath)
-
-  if (!isPathInsideOrEqual(teamDirectory, fullPath)) {
-    throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
-  }
-
-  return fullPath
-}
-
-function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
-  const relativePath = relative(resolve(parentPath), resolve(targetPath))
-  return (
-    relativePath === ''
-    || (!relativePath.startsWith('..') && !isAbsolute(relativePath) && !relativePath.split(sep).includes('..'))
-  )
 }
 
 async function defaultSwarmStatePaths(): Promise<string[]> {
