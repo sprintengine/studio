@@ -24,6 +24,10 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
   const [hoverPoint, setHoverPoint] = useState<CursorPoint | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [preview, setPreview] = useState<MemoryPreviewResult | null>(null)
+  const [activitySynapses, setActivitySynapses] = useState<MemoryActivitySynapse[]>([])
+  const [activityStatus, setActivityStatus] = useState<MemoryActivityStatus | null>(null)
+  const [latestActivityEvent, setLatestActivityEvent] = useState<MemoryActivityEvent | null>(null)
+  const [activityNonce, setActivityNonce] = useState(0)
 
   const canvasRef = useRef<MemoryGraphCanvasHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -48,6 +52,85 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
   useEffect(() => {
     void loadGraph()
   }, [loadGraph])
+
+  // Subscribe to live activity events and synapse snapshots. The watcher is
+  // started here lazily — opening the panel implies you want to see activity.
+  useEffect(() => {
+    const workspaceRoot = workspace?.folderPath
+    const memoryRoot = workspace?.memory.relativeRoot
+    if (!workspaceRoot || !memoryRoot) {
+      setActivitySynapses([])
+      setActivityStatus(null)
+      setLatestActivityEvent(null)
+      return
+    }
+
+    let cancelled = false
+
+    const refreshStatus = () => {
+      void window.api
+        .memoryActivityGetStatus({ workspaceRoot })
+        .then((status) => {
+          if (!cancelled) setActivityStatus(status)
+        })
+    }
+
+    const refreshSynapses = () => {
+      void window.api
+        .memoryActivityGetSynapses({ workspaceRoot })
+        .then((synapses) => {
+          if (!cancelled) setActivitySynapses(synapses)
+        })
+    }
+
+    void window.api.memoryActivityStartWatching({ workspaceRoot, memoryRelativeRoot: memoryRoot })
+    refreshStatus()
+    refreshSynapses()
+
+    const offEvent = window.api.onMemoryActivityEvent((event) => {
+      if (cancelled) return
+      if (event.workspaceRoot !== workspaceRoot) return
+      setLatestActivityEvent(event)
+      setActivityNonce((n) => n + 1)
+      // The synapse list is keyed by src||dst — update in place rather than
+      // refetching every event.
+      setActivitySynapses((prev) => {
+        if (!event.prevNodeId || event.prevNodeId === event.nodeId) return prev
+        const next = prev.slice()
+        const idx = next.findIndex(
+          (s) => s.src === event.prevNodeId && s.dst === event.nodeId
+        )
+        const synapse: MemoryActivitySynapse = {
+          src: event.prevNodeId,
+          dst: event.nodeId,
+          count: event.synapseCount,
+          lastTs: event.ts,
+        }
+        if (idx >= 0) next[idx] = synapse
+        else next.push(synapse)
+        return next
+      })
+    })
+
+    const offStatus = window.api.onMemoryActivityStatus((status) => {
+      if (cancelled) return
+      if (status.workspaceRoot !== workspaceRoot) return
+      setActivityStatus(status)
+    })
+
+    const offSynapses = window.api.onMemoryActivitySynapses((payload) => {
+      if (cancelled) return
+      if (payload.workspaceRoot !== workspaceRoot) return
+      setActivitySynapses(payload.synapses)
+    })
+
+    return () => {
+      cancelled = true
+      offEvent()
+      offStatus()
+      offSynapses()
+    }
+  }, [workspace?.folderPath, workspace?.memory.relativeRoot])
 
   const allNodes = indexResult?.ok ? indexResult.nodes : []
   const allEdges = indexResult?.ok ? indexResult.edges : []
@@ -209,8 +292,14 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
                 setHovered(node)
                 setHoverPoint(point)
               }}
+              synapses={activitySynapses}
+              latestEvent={latestActivityEvent}
+              eventNonce={activityNonce}
             />
             {showCanvas ? <MemoryGraphLegend nodes={allNodes} /> : null}
+            {showCanvas && activityStatus ? (
+              <MemoryActivityStatusBadge status={activityStatus} />
+            ) : null}
             {hovered && hoverPoint ? (
               <MemoryGraphTooltip node={hovered} x={hoverPoint.x} y={hoverPoint.y} />
             ) : null}
@@ -280,6 +369,59 @@ function LoadingOverlay() {
           aria-hidden
         />
         <span>Indexing memory…</span>
+      </div>
+    </div>
+  )
+}
+
+function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus }) {
+  // Three states the user needs to distinguish at a glance:
+  //   - Tracking off: hook isn't installed; nothing is being recorded.
+  //   - Tracking idle: installed and watching but nothing's happened recently.
+  //   - Tracking live: a recent event landed; pulse the indicator.
+  const isLive = status.lastEventAt !== null && Date.now() - status.lastEventAt < 5000
+  const dotColor = !status.isInstalled
+    ? 'rgba(255,255,255,0.35)'
+    : isLive
+      ? '#22d3ee'
+      : '#69f0ae'
+  const labelTone = status.isInstalled ? 'text-white/75' : 'text-white/45'
+
+  return (
+    <div
+      className="pointer-events-none absolute bottom-3 left-3 z-10 select-none"
+      role="status"
+      aria-live="polite"
+    >
+      <div
+        className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px]"
+        style={{
+          background: 'rgba(10, 10, 30, 0.78)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+        }}
+      >
+        <span
+          className={`h-2 w-2 rounded-full ${isLive ? 'animate-pulse' : ''}`}
+          style={{
+            background: dotColor,
+            boxShadow: status.isInstalled ? `0 0 8px ${dotColor}` : 'none',
+          }}
+          aria-hidden
+        />
+        {!status.isInstalled ? (
+          <span className={labelTone}>Activity tracking off</span>
+        ) : (
+          <span className={labelTone}>
+            <span className="font-semibold text-white/85">{status.sessionsRecorded}</span>{' '}
+            session{status.sessionsRecorded === 1 ? '' : 's'}
+            <span className="mx-1.5 text-white/25">·</span>
+            <span className="font-semibold text-white/85">{status.eventsToday}</span> today
+            <span className="mx-1.5 text-white/25">·</span>
+            <span className="font-semibold text-white/85">{status.totalEvents}</span> total
+          </span>
+        )}
       </div>
     </div>
   )

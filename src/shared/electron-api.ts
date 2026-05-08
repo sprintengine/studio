@@ -131,6 +131,46 @@ export type MemoryPreviewResult =
   | { ok: true; node: MemoryGraphNode; previewKind: 'unsupported'; message: string }
   | { ok: false; message: string }
 
+export type MemoryActivityEvent = {
+  workspaceRoot: string
+  sessionId: string
+  nodeId: string
+  prevNodeId: string | null
+  tool: string
+  ts: number
+  synapseCount: number
+}
+
+export type MemoryActivitySynapse = {
+  src: string
+  dst: string
+  count: number
+  lastTs: number
+}
+
+export type MemoryActivityStatus = {
+  workspaceRoot: string | null
+  isInstalled: boolean
+  isWatching: boolean
+  sessionsRecorded: number
+  totalEvents: number
+  eventsToday: number
+  lastEventAt: number | null
+}
+
+export type MemoryActivityInstallResult =
+  | { ok: true; settingsPath: string; hookScriptPath: string }
+  | { ok: false; message: string }
+
+export type MemoryActivityUninstallResult =
+  | { ok: true }
+  | { ok: false; message: string }
+
+export type MemoryActivitySynapsesPayload = {
+  workspaceRoot: string
+  synapses: MemoryActivitySynapse[]
+}
+
 export type AgentCli = 'codex' | 'claude'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
@@ -141,6 +181,7 @@ export type CliRuntimeSettings = {
 }
 
 export type TerminalKind = 'agent' | 'terminal'
+export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
 
 export type TerminalSpawnMetadata = {
   kind?: TerminalKind
@@ -159,6 +200,7 @@ export type TerminalSessionSnapshot = {
   sessionId: string
   running: boolean
   kind: TerminalKind
+  pathStyle?: TerminalPathStyle
   workspaceId?: string
   agentId?: string
   terminalId?: string
@@ -771,12 +813,40 @@ export type ElectronApi = {
   readfile: (path: string) => Promise<string>
   readImageDataUrl: (path: string) => Promise<string>
   pathExists: (path: string) => Promise<boolean>
+  getPathForFile: (file: unknown) => string
   checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryRootStatus>
   memoryIndex: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryGraphIndexResult>
   memoryReadPreview: (
     input: { workspaceRoot: string | null; relativeRoot: string | null; relativePath: string }
   ) => Promise<MemoryPreviewResult>
+  memoryActivityInstall: (
+    input: { workspaceRoot: string | null; memoryRelativeRoot: string | null }
+  ) => Promise<MemoryActivityInstallResult>
+  memoryActivityUninstall: (
+    input: { workspaceRoot: string | null }
+  ) => Promise<MemoryActivityUninstallResult>
+  memoryActivityStartWatching: (
+    input: { workspaceRoot: string | null; memoryRelativeRoot: string | null }
+  ) => Promise<{ ok: true }>
+  memoryActivityStopWatching: (
+    input: { workspaceRoot: string | null }
+  ) => Promise<{ ok: true }>
+  memoryActivityGetStatus: (
+    input: { workspaceRoot: string | null }
+  ) => Promise<MemoryActivityStatus>
+  memoryActivityGetSynapses: (
+    input: { workspaceRoot: string | null }
+  ) => Promise<MemoryActivitySynapse[]>
+  memoryActivityIsInstalled: (
+    input: { workspaceRoot: string | null }
+  ) => Promise<boolean>
+  memoryActivityClearHistory: (
+    input: { workspaceRoot: string | null }
+  ) => Promise<{ ok: true }>
+  onMemoryActivityEvent: (cb: (event: MemoryActivityEvent) => void) => () => void
+  onMemoryActivityStatus: (cb: (status: MemoryActivityStatus) => void) => () => void
+  onMemoryActivitySynapses: (cb: (payload: MemoryActivitySynapsesPayload) => void) => () => void
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
   updateGetState: () => Promise<AppUpdateState>

@@ -9,6 +9,17 @@ export type MemoryGraphCanvasHandle = {
   getCamera: () => Camera
 }
 
+export type ActivityPulse = {
+  nodeId: string
+  startedAt: number
+}
+
+export type ActivitySpark = {
+  src: string
+  dst: string
+  startedAt: number
+}
+
 type Props = {
   nodes: MemoryGraphNode[]
   edges: MemoryGraphEdge[]
@@ -17,6 +28,15 @@ type Props = {
   onSelectNode: (node: MemoryGraphNode) => void
   onHoverNode: (node: MemoryGraphNode | null, screenPoint: { x: number; y: number } | null) => void
   onCameraChange?: (camera: Camera) => void
+  /** Persistent traversal counts. Brightness scales with count. */
+  synapses?: MemoryActivitySynapse[]
+  /**
+   * Latest activity event. The canvas creates a pulse on the active node and,
+   * when prevNodeId is set, a spark travelling from prev to current. Bumping
+   * `eventNonce` even with the same nodeId triggers a fresh pulse.
+   */
+  latestEvent?: MemoryActivityEvent | null
+  eventNonce?: number
 }
 
 type PositionedNode = MemoryGraphNode & {
@@ -93,8 +113,23 @@ const DAMPING = 0.88
 const MIN_ZOOM = 0.15
 const MAX_ZOOM = 4
 
+const PULSE_DURATION_MS = 600
+const SPARK_DURATION_MS = 800
+const SYNAPSE_COLOR = '#22d3ee'
+const PULSE_COLOR = '#22d3ee'
+
 const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(function MemoryGraphCanvas(
-  { nodes, edges, matchIds, onSelectNode, onHoverNode, onCameraChange },
+  {
+    nodes,
+    edges,
+    matchIds,
+    onSelectNode,
+    onHoverNode,
+    onCameraChange,
+    synapses,
+    latestEvent,
+    eventNonce,
+  },
   forwardedRef
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -104,6 +139,14 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
   const hoveredIdRef = useRef<string | null>(null)
   const matchIdsRef = useRef<Set<string> | null>(matchIds)
   matchIdsRef.current = matchIds
+
+  const synapsesRef = useRef<MemoryActivitySynapse[]>(synapses ?? [])
+  synapsesRef.current = synapses ?? []
+  const pulsesRef = useRef<Map<string, ActivityPulse>>(new Map())
+  const sparksRef = useRef<ActivitySpark[]>([])
+  // The maximum count drives normalization for brightness; cache to avoid
+  // recomputing it every frame.
+  const synapseMaxRef = useRef<number>(1)
 
   const dragStateRef = useRef<
     | { kind: 'pan'; startX: number; startY: number; camera: Camera; moved: boolean }
@@ -121,6 +164,35 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
     })
     return map
   }, [edges])
+
+  // Recompute the synapse-count normalizer when the snapshot changes. A single
+  // hot path with count = 50 should not wash out everything else, so we use
+  // log normalization at draw time and cache the max here.
+  useEffect(() => {
+    let max = 1
+    for (const s of synapsesRef.current) if (s.count > max) max = s.count
+    synapseMaxRef.current = max
+  }, [synapses])
+
+  // A new event creates a pulse on the active node, and when the agent moved
+  // from one file to another, an additional travelling spark. Same node twice
+  // in a row only pulses (no spark), which matches the model.
+  useEffect(() => {
+    if (!latestEvent) return
+    const now = performance.now()
+    pulsesRef.current.set(latestEvent.nodeId, {
+      nodeId: latestEvent.nodeId,
+      startedAt: now,
+    })
+    if (latestEvent.prevNodeId && latestEvent.prevNodeId !== latestEvent.nodeId) {
+      sparksRef.current.push({
+        src: latestEvent.prevNodeId,
+        dst: latestEvent.nodeId,
+        startedAt: now,
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestEvent, eventNonce])
 
   // Generate the starfield once. Stars live in a large world-space patch so
   // panning and zooming reveals new constellations.
@@ -318,6 +390,27 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         ctx.stroke()
       }
 
+      // Synapse layer — persistent traversal counts. Brightness scales with
+      // log(count) so a single hot path doesn't wash everything else out.
+      const synapseList = synapsesRef.current
+      if (synapseList.length > 0) {
+        const maxCount = Math.max(1, synapseMaxRef.current)
+        const logMax = Math.log(maxCount + 1)
+        for (const s of synapseList) {
+          const a = byId.get(s.src)
+          const b = byId.get(s.dst)
+          if (!a || !b) continue
+          const norm = logMax > 0 ? Math.log(s.count + 1) / logMax : 0
+          const alpha = 0.18 + 0.65 * norm
+          ctx.strokeStyle = hexWithAlpha(SYNAPSE_COLOR, alpha)
+          ctx.lineWidth = baseLine * (1.2 + 1.6 * norm)
+          ctx.beginPath()
+          ctx.moveTo(a.x, a.y)
+          ctx.lineTo(b.x, b.y)
+          ctx.stroke()
+        }
+      }
+
       // Halos behind nodes.
       for (const node of pos) {
         const matched = isMatched(node.id)
@@ -360,6 +453,66 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         }
       }
       ctx.globalAlpha = 1
+
+      // Pulse layer — expanding ring on the just-fired node, decays over
+      // PULSE_DURATION_MS. The map is keyed by nodeId so a re-fire on the
+      // same node simply restarts the animation.
+      if (pulsesRef.current.size > 0) {
+        for (const [id, pulse] of pulsesRef.current) {
+          const elapsed = now - pulse.startedAt
+          const t = elapsed / PULSE_DURATION_MS
+          if (t >= 1) {
+            pulsesRef.current.delete(id)
+            continue
+          }
+          const node = byId.get(id)
+          if (!node) continue
+          const eased = 1 - Math.pow(1 - t, 2)
+          const ringRadius = node.radius * (1 + eased * 5)
+          const alpha = (1 - t) * 0.85
+          ctx.lineWidth = (2 + (1 - t) * 3) / camera.zoom
+          ctx.strokeStyle = hexWithAlpha(PULSE_COLOR, alpha)
+          ctx.beginPath()
+          ctx.arc(node.x, node.y, ringRadius, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+      }
+
+      // Spark layer — bright dot travelling from prev to current node,
+      // representing the agent's attention crossing a synapse.
+      if (sparksRef.current.length > 0) {
+        const remaining: ActivitySpark[] = []
+        for (const spark of sparksRef.current) {
+          const elapsed = now - spark.startedAt
+          const t = elapsed / SPARK_DURATION_MS
+          if (t >= 1) continue
+          const a = byId.get(spark.src)
+          const b = byId.get(spark.dst)
+          if (!a || !b) {
+            remaining.push(spark)
+            continue
+          }
+          const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+          const x = a.x + (b.x - a.x) * eased
+          const y = a.y + (b.y - a.y) * eased
+          const dotR = 4 / camera.zoom
+          // Trailing comet tail toward the source.
+          const tailX = a.x + (b.x - a.x) * Math.max(0, eased - 0.12)
+          const tailY = a.y + (b.y - a.y) * Math.max(0, eased - 0.12)
+          ctx.lineWidth = (3 / camera.zoom)
+          ctx.strokeStyle = hexWithAlpha(PULSE_COLOR, 0.55 * (1 - t))
+          ctx.beginPath()
+          ctx.moveTo(tailX, tailY)
+          ctx.lineTo(x, y)
+          ctx.stroke()
+          ctx.fillStyle = hexWithAlpha(PULSE_COLOR, 0.95)
+          ctx.beginPath()
+          ctx.arc(x, y, dotR, 0, Math.PI * 2)
+          ctx.fill()
+          remaining.push(spark)
+        }
+        sparksRef.current = remaining
+      }
 
       // Labels — at low zoom, only the top hubs by degree get a label so the
       // graph stays readable; hover, neighbors, and search matches are always

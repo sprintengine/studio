@@ -4,6 +4,7 @@ import { appMenuApi } from './api/app-menu'
 import { authApi } from './api/auth'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
+import { memoryActivityApi } from './api/memoryActivity'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { multiloopApi } from './api/multiloop'
 import { soulsApi } from './api/souls'
@@ -22,6 +23,7 @@ const api = {
   ...filesystemApi,
   ...soulsApi,
   ...gitApi,
+  ...memoryActivityApi,
   ...sprintEngineApi,
   ...multiloopApi,
   ...terminalApi,

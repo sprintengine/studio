@@ -5,6 +5,7 @@ import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
+import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMobileBridgeIpc } from './ipc/mobile-bridge-ipc'
@@ -113,6 +114,8 @@ registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
 registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())
 
 registerMemoryIpc(ipcMain)
+
+registerMemoryActivityIpc(ipcMain)
 
 registerDiagnosticsIpc(ipcMain, {
   writeDiagnosticLog,

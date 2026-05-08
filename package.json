@@ -68,6 +68,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/hooks",
+        "to": "hooks",
+        "filter": [
+          "**/*.mjs"
+        ]
       }
     ],
     "win": {

@@ -43,6 +43,12 @@ import type {
   GitWorktreeOperationResult as SharedGitWorktreeOperationResult,
   GitWorktreeRemoveInput as SharedGitWorktreeRemoveInput,
   GitWorktreeRepairInput as SharedGitWorktreeRepairInput,
+  MemoryActivityEvent as SharedMemoryActivityEvent,
+  MemoryActivityInstallResult as SharedMemoryActivityInstallResult,
+  MemoryActivityStatus as SharedMemoryActivityStatus,
+  MemoryActivitySynapse as SharedMemoryActivitySynapse,
+  MemoryActivitySynapsesPayload as SharedMemoryActivitySynapsesPayload,
+  MemoryActivityUninstallResult as SharedMemoryActivityUninstallResult,
   MemoryGraphEdge as SharedMemoryGraphEdge,
   MemoryGraphIndexResult as SharedMemoryGraphIndexResult,
   MemoryGraphNode as SharedMemoryGraphNode,
@@ -76,6 +82,7 @@ import type {
   SwarmArtifactCommandResult as SharedSwarmArtifactCommandResult,
   SwarmCliPermissionPreset as SharedSwarmCliPermissionPreset,
   TerminalKind as SharedTerminalKind,
+  TerminalPathStyle as SharedTerminalPathStyle,
   TerminalSessionSnapshot as SharedTerminalSessionSnapshot,
   TerminalSpawnMetadata as SharedTerminalSpawnMetadata,
   TerminalSpawnResult as SharedTerminalSpawnResult,
@@ -101,6 +108,12 @@ declare global {
   type MemoryRootStatus = SharedMemoryRootStatus
   type MemoryGraphIndexResult = SharedMemoryGraphIndexResult
   type MemoryPreviewResult = SharedMemoryPreviewResult
+  type MemoryActivityEvent = SharedMemoryActivityEvent
+  type MemoryActivitySynapse = SharedMemoryActivitySynapse
+  type MemoryActivitySynapsesPayload = SharedMemoryActivitySynapsesPayload
+  type MemoryActivityStatus = SharedMemoryActivityStatus
+  type MemoryActivityInstallResult = SharedMemoryActivityInstallResult
+  type MemoryActivityUninstallResult = SharedMemoryActivityUninstallResult
   type AgentCli = SharedAgentCli
   type AgentExecutionMode = SharedAgentExecutionMode
   type AppUpdateStatus = SharedAppUpdateStatus
@@ -111,6 +124,7 @@ declare global {
   type SwarmCliPermissionPreset = SharedSwarmCliPermissionPreset
   type CliRuntimeSettings = SharedCliRuntimeSettings
   type TerminalKind = SharedTerminalKind
+  type TerminalPathStyle = SharedTerminalPathStyle
   type TerminalSpawnMetadata = SharedTerminalSpawnMetadata
   type TerminalSessionSnapshot = SharedTerminalSessionSnapshot
   type TerminalSpawnResult = SharedTerminalSpawnResult
