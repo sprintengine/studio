@@ -1,5 +1,6 @@
 import { shell, ipcMain } from 'electron'
 import { registerAuthIpc } from './ipc/auth-ipc'
+import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
@@ -32,6 +33,7 @@ import { registerAppLifecycle } from './app-lifecycle'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createTerminalRuntime } from './terminal-runtime'
 import { MulticodeUpdateService } from './update-service'
+import { createBuiltinSkillManager } from './builtin-skills'
 import {
   MobileBridge,
 } from './mobile/bridge'
@@ -50,6 +52,7 @@ const terminalRuntime = createTerminalRuntime({
 })
 const mobileSnapshotService = new MobileSwarmSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
+const builtinSkillManager = createBuiltinSkillManager()
 const githubTokenStore = new GitHubTokenStore()
 let mobileWorkspaceRoots: string[] = []
 const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
@@ -74,6 +77,8 @@ function requireAuthenticatedMulticodeUser(message: string): void {
 registerWindowIpc(ipcMain)
 
 registerAuthIpc(ipcMain, multicodeAuth)
+
+registerBuiltinSkillsIpc(ipcMain, builtinSkillManager)
 
 registerMobileBridgeIpc(ipcMain, {
   bridge: mobileBridge,

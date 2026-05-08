@@ -8,6 +8,9 @@ import type {
   AppUpdateProgress as SharedAppUpdateProgress,
   AppUpdateState as SharedAppUpdateState,
   AppUpdateStatus as SharedAppUpdateStatus,
+  BuiltinSkill as SharedBuiltinSkill,
+  BuiltinSkillInstallResult as SharedBuiltinSkillInstallResult,
+  BuiltinSkillStatus as SharedBuiltinSkillStatus,
   CliRuntimeSettings as SharedCliRuntimeSettings,
   ContentSearchEntry as SharedContentSearchEntry,
   ContentSearchResult as SharedContentSearchResult,
@@ -114,6 +117,9 @@ declare global {
   type MemoryActivityStatus = SharedMemoryActivityStatus
   type MemoryActivityInstallResult = SharedMemoryActivityInstallResult
   type MemoryActivityUninstallResult = SharedMemoryActivityUninstallResult
+  type BuiltinSkill = SharedBuiltinSkill
+  type BuiltinSkillStatus = SharedBuiltinSkillStatus
+  type BuiltinSkillInstallResult = SharedBuiltinSkillInstallResult
   type AgentCli = SharedAgentCli
   type AgentExecutionMode = SharedAgentExecutionMode
   type AppUpdateStatus = SharedAppUpdateStatus

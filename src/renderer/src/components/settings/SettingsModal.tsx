@@ -84,6 +84,9 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   const [activityInstalled, setActivityInstalled] = useState(false)
   const [activityPending, setActivityPending] = useState(false)
   const [activityMessage, setActivityMessage] = useState<string | null>(null)
+  const [memorySkillStatus, setMemorySkillStatus] = useState<BuiltinSkillStatus | null>(null)
+  const [memorySkillPending, setMemorySkillPending] = useState(false)
+  const [memorySkillMessage, setMemorySkillMessage] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const autoCheckStartedRef = useRef(false)
 
@@ -124,8 +127,10 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   useEffect(() => {
     let cancelled = false
     setActivityMessage(null)
+    setMemorySkillMessage(null)
     if (!activeWorkspace?.folderPath) {
       setActivityInstalled(false)
+      setMemorySkillStatus(null)
       return
     }
     void window.api
@@ -133,8 +138,43 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
       .then((installed) => {
         if (!cancelled) setActivityInstalled(installed)
       })
+    void window.api
+      .builtinSkillStatus({
+        workspaceRoot: activeWorkspace.folderPath,
+        skillId: 'workspace-memory',
+      })
+      .then((status) => {
+        if (!cancelled) setMemorySkillStatus(status)
+      })
     return () => {
       cancelled = true
+    }
+  }, [activeWorkspace?.folderPath])
+
+  const installWorkspaceMemorySkill = useCallback(async () => {
+    if (!activeWorkspace?.folderPath) return
+    setMemorySkillPending(true)
+    setMemorySkillMessage(null)
+    try {
+      const result = await window.api.builtinSkillInstall({
+        workspaceRoot: activeWorkspace.folderPath,
+        skillId: 'workspace-memory',
+      })
+      if (result.ok) {
+        setMemorySkillMessage(result.status === 'updated'
+          ? 'Workspace Memory skill updated.'
+          : 'Workspace Memory skill installed.')
+        setMemorySkillStatus(await window.api.builtinSkillStatus({
+          workspaceRoot: activeWorkspace.folderPath,
+          skillId: 'workspace-memory',
+        }))
+      } else {
+        setMemorySkillMessage(result.message)
+      }
+    } catch (error) {
+      setMemorySkillMessage(error instanceof Error ? error.message : 'Failed to install Workspace Memory skill.')
+    } finally {
+      setMemorySkillPending(false)
     }
   }, [activeWorkspace?.folderPath])
 
@@ -626,6 +666,39 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
           </div>
 
           <div className="border-t border-[#24252b] pt-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#24252b] bg-[#111217] p-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-[#ececee]">
+                  Workspace Memory skill
+                </div>
+                <div className="mt-1 text-[12px] leading-5 text-[#9a9aa2]">
+                  {formatBuiltinSkillStatus(memorySkillStatus)}
+                  {activeWorkspace?.memory.relativeRoot
+                    ? ` Agents will use the configured memory folder: ${activeWorkspace.memory.relativeRoot}.`
+                    : ' Configure a memory folder so agents know which graph to read and update.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void installWorkspaceMemorySkill()}
+                disabled={
+                  memorySkillPending
+                  || !activeWorkspace?.folderPath
+                  || memorySkillStatus?.status === 'installed'
+                  || memorySkillStatus?.status === 'modified'
+                  || memorySkillStatus?.status === 'local'
+                }
+                className="h-8 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
+              >
+                {memorySkillStatus?.status === 'update-available' ? 'Update' : 'Install'}
+              </button>
+              {memorySkillMessage ? (
+                <div className="basis-full border-l-2 border-[#ffbf2f]/75 pl-3 text-[12px] leading-5 text-[#ffd58a]">
+                  {memorySkillMessage}
+                </div>
+              ) : null}
+            </div>
+
             <SettingToggle
               label="Activity tracking (Claude Code)"
               description="Record which memory files Claude touches in this workspace and animate the graph as files are read. Adds a workspace-local hook to .claude/settings.local.json. Only files under the memory folder are recorded."
@@ -795,6 +868,26 @@ function metaToneClass(tone?: MetaTone): string {
       return 'text-[#9a9aa2]'
     default:
       return 'text-[#ececee]'
+  }
+}
+
+function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null): string {
+  if (!status) return 'Skill status has not been checked.'
+  if (!status.ok) return status.message
+
+  switch (status.status) {
+    case 'missing':
+      return 'Not installed in this workspace.'
+    case 'installed':
+      return 'Installed in .agents/skills/workspace-memory.'
+    case 'update-available':
+      return `Update available. Installed version: ${status.installedVersion}.`
+    case 'modified':
+      return 'Installed with local changes. Multicode will not overwrite it.'
+    case 'local':
+      return status.message
+    default:
+      return 'Skill status is unknown.'
   }
 }
 

@@ -171,6 +171,25 @@ export type MemoryActivitySynapsesPayload = {
   synapses: MemoryActivitySynapse[]
 }
 
+export type BuiltinSkill = {
+  id: string
+  name: string
+  version: string
+  description: string
+}
+
+export type BuiltinSkillStatus =
+  | { ok: true; status: 'missing'; skill: BuiltinSkill; destinationPath: string }
+  | { ok: true; status: 'installed'; skill: BuiltinSkill; destinationPath: string; installedVersion: string }
+  | { ok: true; status: 'update-available'; skill: BuiltinSkill; destinationPath: string; installedVersion: string }
+  | { ok: true; status: 'modified'; skill: BuiltinSkill; destinationPath: string; installedVersion: string }
+  | { ok: true; status: 'local'; skill: BuiltinSkill; destinationPath: string; message: string }
+  | { ok: false; status: 'unknown-skill' | 'missing-workspace' | 'missing-source'; skillId: string; message: string }
+
+export type BuiltinSkillInstallResult =
+  | { ok: true; status: 'installed' | 'updated'; skill: BuiltinSkill; destinationPath: string }
+  | { ok: false; status: 'unknown-skill' | 'missing-workspace' | 'missing-source' | 'modified' | 'local'; skillId: string; message: string }
+
 export type AgentCli = 'codex' | 'claude'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
@@ -857,6 +876,13 @@ export type ElectronApi = {
   onMemoryActivityEvent: (cb: (event: MemoryActivityEvent) => void) => () => void
   onMemoryActivityStatus: (cb: (status: MemoryActivityStatus) => void) => () => void
   onMemoryActivitySynapses: (cb: (payload: MemoryActivitySynapsesPayload) => void) => () => void
+  builtinSkillsList: () => Promise<BuiltinSkill[]>
+  builtinSkillStatus: (
+    input: { workspaceRoot: string | null; skillId: string }
+  ) => Promise<BuiltinSkillStatus>
+  builtinSkillInstall: (
+    input: { workspaceRoot: string | null; skillId: string }
+  ) => Promise<BuiltinSkillInstallResult>
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
   updateGetState: () => Promise<AppUpdateState>

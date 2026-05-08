@@ -81,6 +81,7 @@ async function resolveMemoryLaunchContext(
         `Workspace memory is configured at ${status.relativeRoot}.`,
         'This is a local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
         'Inspect it when relevant instead of assuming project context.',
+        'Use the workspace-memory skill if it is installed in .agents/skills.',
       ].join(' '),
     }
   }

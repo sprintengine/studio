@@ -17,6 +17,7 @@
     "typecheck:tests": "tsc -b tsconfig.tests.json --noEmit --verbose",
     "typecheck:all": "npm run typecheck:app && npm run typecheck:tests",
     "test:renderer:markdown": "esbuild src/renderer/src/utils/markdown.test.tsx --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/markdown.test.cjs && node node_modules/.cache/multicode/markdown.test.cjs",
+    "test:main:builtin-skills": "esbuild src/main/builtin-skills.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/builtin-skills.test.cjs && node node_modules/.cache/multicode/builtin-skills.test.cjs",
     "test:main:mobile-sprintengine-command": "esbuild src/main/mobile/sprintengine/command.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/mobile-sprintengine-command.test.cjs && node node_modules/.cache/multicode/mobile-sprintengine-command.test.cjs",
     "lint": "eslint . --ext .ts,.tsx",
     "icons": "node scripts/generate-icons.js",
@@ -74,6 +75,13 @@
         "to": "hooks",
         "filter": [
           "**/*.mjs"
+        ]
+      },
+      {
+        "from": "resources/skills",
+        "to": "skills",
+        "filter": [
+          "**/*"
         ]
       }
     ],

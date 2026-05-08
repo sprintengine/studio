@@ -361,6 +361,7 @@ async function spawnMultiloopAutoRunCandidate(
           `Workspace memory is configured at ${memoryStatus.relativeRoot}.`,
           'This is a local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
           'Inspect it when relevant instead of assuming project context.',
+          'Use the workspace-memory skill if it is installed in .agents/skills.',
         ].join(' ')
         : `Workspace memory is configured at ${memoryRelativeRoot}, but the folder is currently missing or inaccessible. Do not guess another memory folder.`
       : null
