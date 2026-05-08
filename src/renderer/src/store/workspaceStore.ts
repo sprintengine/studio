@@ -33,6 +33,8 @@ import type {
   WorktreeEntry,
   WorkspaceMemoryConfig,
   MemoryGraphSettings,
+  SwarmReviewWorkspaceState,
+  SwarmReviewAgentStatus,
 } from '../types/workspace'
 import {
   DEFAULT_GRAPH_SETTINGS,
@@ -64,6 +66,7 @@ import {
   removeEditorBuffersForPath,
   setEditorBuffer,
 } from '../utils/editorBuffers'
+import { normalizeSwarmReviewState } from '../utils/swarmReview'
 
 const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
@@ -108,6 +111,7 @@ interface WorkspaceStore {
       swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
       swarmAutoState?: Partial<SwarmAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
+      swarmReviewState?: SwarmReviewWorkspaceState | null
       mode?: Workspace['mode']
     }
   ) => WorkspaceId
@@ -144,6 +148,12 @@ interface WorkspaceStore {
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
   setSwarmState: (workspaceId: WorkspaceId, swarmState: SwarmState | null) => void
   setMultiloopState: (workspaceId: WorkspaceId, multiloopState: MultiloopState | null) => void
+  setSwarmReviewState: (workspaceId: WorkspaceId, swarmReviewState: SwarmReviewWorkspaceState | null) => void
+  updateSwarmReviewAgentStatus: (
+    workspaceId: WorkspaceId,
+    agentId: AgentId,
+    status: SwarmReviewAgentStatus
+  ) => void
   setSwarmAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setSwarmAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
   setSwarmKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void
@@ -705,7 +715,7 @@ function normalizeAgentState(agent: AgentState): AgentState {
 const swarmTabsLayoutModel = (
   swarmState: SwarmState | null,
   agents: Workspace['agents'] = {},
-  options?: { includeAgentTabs?: boolean }
+  options?: { includeAgentTabs?: boolean; mode?: 'sprintengine' | 'symphony' }
 ): IJsonModel => ({
   global: { tabSetEnableDrop: true, tabEnableClose: true },
   borders: [],
@@ -715,12 +725,18 @@ const swarmTabsLayoutModel = (
       {
         type: 'tabset',
         weight: options?.includeAgentTabs === false ? 100 : 58,
-        children: [
-          { type: 'tab', name: 'Project', component: 'sprintengine-project' },
-          { type: 'tab', name: 'SprintEngine Map', component: 'sprintengine-map' },
-          { type: 'tab', name: 'Task Graph', component: 'sprintengine-task-graph' },
-          { type: 'tab', name: 'Kanban', component: 'sprintengine-kanban' },
-        ],
+        children: options?.mode === 'symphony'
+          ? [
+              { type: 'tab', name: 'Symphony Intake', component: 'sprintengine-project' },
+              { type: 'tab', name: 'Board', component: 'sprintengine-kanban' },
+              { type: 'tab', name: 'Task Graph', component: 'sprintengine-task-graph' },
+            ]
+          : [
+              { type: 'tab', name: 'Project', component: 'sprintengine-project' },
+              { type: 'tab', name: 'SprintEngine Map', component: 'sprintengine-map' },
+              { type: 'tab', name: 'Task Graph', component: 'sprintengine-task-graph' },
+              { type: 'tab', name: 'Kanban', component: 'sprintengine-kanban' },
+            ],
       },
       ...(options?.includeAgentTabs === false
         ? []
@@ -751,6 +767,56 @@ const multiloopTabsLayoutModel = (): IJsonModel => ({
     ],
   },
 })
+
+const swarmReviewTabsLayoutModel = (
+  reviewState: SwarmReviewWorkspaceState | null,
+  agents: Workspace['agents'] = {}
+): IJsonModel => ({
+  global: { tabSetEnableDrop: true, tabEnableClose: true },
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        weight: 58,
+        children: [
+          { type: 'tab', name: 'Review Brief', component: 'swarm-review-brief' },
+          { type: 'tab', name: 'Reports', component: 'swarm-review-reports' },
+          { type: 'tab', name: 'Findings Matrix', component: 'swarm-review-findings' },
+        ],
+      },
+      {
+        type: 'tabset',
+        weight: 42,
+        children: (reviewState?.agents ?? []).map((agent) =>
+          swarmAgentTab(agent.agentId, agents[agent.agentId]?.name ?? agent.agentId)
+        ),
+      },
+    ],
+  },
+})
+
+function reconcileSwarmReviewAgents(
+  currentAgents: Workspace['agents'],
+  reviewState: SwarmReviewWorkspaceState | null
+): Workspace['agents'] {
+  if (!reviewState) return currentAgents
+
+  const nextAgents = { ...currentAgents }
+  reviewState.agents.forEach((reviewAgent) => {
+    const specialist = getSpecialistAction(reviewAgent.specialistId)
+    const name = currentAgents[reviewAgent.agentId]?.name ?? specialist.shortLabel
+    nextAgents[reviewAgent.agentId] = normalizeAgentState({
+      ...(currentAgents[reviewAgent.agentId] ?? defaultAgent(reviewAgent.agentId, name, 'swarm_review')),
+      name,
+      kind: 'swarm_review',
+      specialistId: reviewAgent.specialistId,
+      cli: reviewAgent.cli ?? currentAgents[reviewAgent.agentId]?.cli ?? 'codex',
+    })
+  })
+  return nextAgents
+}
 
 function modelContainsComponent(value: unknown, component: string): boolean {
   if (!value) return false
@@ -859,8 +925,37 @@ function addProjectTabToSwarmLayout(model: IJsonModel): IJsonModel {
   return inserted ? nextModel : model
 }
 
+function renameSymphonyLayoutTabs(model: IJsonModel): IJsonModel {
+  const nextModel = JSON.parse(JSON.stringify(model)) as IJsonModel & { layout?: LayoutTreeNode }
+
+  const visit = (node: LayoutTreeNode | undefined) => {
+    if (!node) return
+    if (node.component === 'sprintengine-project') node.name = 'Symphony Intake'
+    if (node.component === 'sprintengine-kanban') node.name = 'Board'
+    if (node.component === 'sprintengine-map') node.name = 'Agent Map'
+    node.children?.forEach(visit)
+  }
+
+  visit(nextModel.layout)
+  return nextModel
+}
+
 function migrateSwarmLayout(ws: Workspace): Workspace {
   if (ws.mode !== 'sprintengine' && ws.mode !== 'symphony' && !ws.swarmState) return ws
+  if (ws.mode === 'symphony') {
+    if (isLegacySwarmLayout(ws.layoutModel)) {
+      return {
+        ...ws,
+        layoutModel: swarmTabsLayoutModel(ws.swarmState, ws.agents, { includeAgentTabs: false, mode: 'symphony' }),
+      }
+    }
+
+    return {
+      ...ws,
+      layoutModel: renameSymphonyLayoutTabs(addProjectTabToSwarmLayout(addTaskGraphTabToSwarmLayout(ws.layoutModel))),
+    }
+  }
+
   if (!isLegacySwarmLayout(ws.layoutModel)) {
     return {
       ...ws,
@@ -1001,6 +1096,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const isSymphony = explicitMode === 'symphony' || template.id === 'symphony-mode'
           const isSwarm = isSymphony || template.id === 'sprintengine-mode' || Boolean(options?.swarmState)
           const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
+          const swarmReviewState = normalizeSwarmReviewState(options?.swarmReviewState)
+          const isSwarmReview = explicitMode === 'swarm' || template.id === 'swarm-review-mode' || Boolean(swarmReviewState)
           const swarmState = isSwarm
             ? normalizeSwarmState(options?.swarmState)
               ?? createInitialSwarmState({
@@ -1029,14 +1126,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               }
             })
           }
+          const reviewAgents = swarmReviewState ? reconcileSwarmReviewAgents(agents, swarmReviewState) : agents
 
           state.workspaces.push({
             id,
-            name: workspaceName,
+            name: swarmReviewState ? swarmReviewState.name : workspaceName,
             mode: multiloopState || isMultiloop
               ? 'multiloop'
               : isSymphony
                 ? 'symphony'
+                : isSwarmReview
+                ? 'swarm'
                 : swarmState
                   ? 'sprintengine'
                   : 'standard',
@@ -1055,17 +1155,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             templateId: template.id,
             layoutModel: isMultiloop
               ? multiloopTabsLayoutModel()
+              : isSwarmReview
+              ? swarmReviewTabsLayoutModel(swarmReviewState, reviewAgents)
               : swarmState && isSymphony
               ? template.layout
               : swarmState
               ? swarmTabsLayoutModel(swarmState, agents, { includeAgentTabs: false })
               : template.layout,
-            agents,
+            agents: reviewAgents,
             worktreeState: defaultWorkspaceWorktreeState(),
             memory: defaultWorkspaceMemoryConfig(),
             editorState: defaultEditorState(),
             swarmState,
             multiloopState,
+            swarmReviewState,
             swarmRoleCliDefaults,
             swarmAutoState: normalizeSwarmAutoState(options?.swarmAutoState),
             multiloopAutoState: normalizeMultiloopAutoState(options?.multiloopAutoState),
@@ -1275,6 +1378,35 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             : defaultMultiloopAutoState()
         }),
 
+      setSwarmReviewState: (workspaceId, swarmReviewState) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const normalized = normalizeSwarmReviewState(swarmReviewState)
+          ws.swarmReviewState = normalized
+          if (normalized) {
+            ws.mode = 'swarm'
+            ws.agents = reconcileSwarmReviewAgents(ws.agents, normalized)
+            ws.layoutModel = swarmReviewTabsLayoutModel(normalized, ws.agents)
+          } else if (!ws.swarmState && !ws.multiloopState) {
+            ws.mode = 'standard'
+          }
+        }),
+
+      updateSwarmReviewAgentStatus: (workspaceId, agentId, status) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          const reviewAgent = ws?.swarmReviewState?.agents.find((agent) => agent.agentId === agentId)
+          if (!ws?.swarmReviewState || !reviewAgent) return
+          reviewAgent.status = status
+          if (status === 'running' && ws.swarmReviewState.status !== 'complete') {
+            ws.swarmReviewState.status = 'running'
+          }
+          if (ws.swarmReviewState.agents.length > 0 && ws.swarmReviewState.agents.every((agent) => agent.status === 'done')) {
+            ws.swarmReviewState.status = 'complete'
+          }
+        }),
+
       setSwarmAutoEnabled: (workspaceId, enabled) =>
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === workspaceId)
@@ -1463,15 +1595,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const id = nanoid()
           const swarmState = normalizeSwarmState(ws.swarmState)
           const multiloopState = ws.multiloopState ?? null
-          const mode = multiloopState ? 'multiloop' : swarmState ? 'sprintengine' : ws.mode ?? 'standard'
-          state.workspaces.push({
-            ...ws,
-            id,
-            name: `${ws.name} (imported)`,
-            mode,
-            folderPath: ws.folderPath ?? null,
-            folderMissing: false,
-            agents: Object.fromEntries(
+          const swarmReviewState = normalizeSwarmReviewState(ws.swarmReviewState)
+          const mode = multiloopState ? 'multiloop' : swarmReviewState ? 'swarm' : swarmState ? 'sprintengine' : ws.mode ?? 'standard'
+          const agents = reconcileSwarmReviewAgents(
+            Object.fromEntries(
               Object.entries(ws.agents).map(([k, v]) => [
                 k,
                 normalizeAgentState({
@@ -1482,9 +1609,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 }),
               ])
             ),
+            swarmReviewState
+          )
+          state.workspaces.push({
+            ...ws,
+            id,
+            name: `${ws.name} (imported)`,
+            mode,
+            folderPath: ws.folderPath ?? null,
+            folderMissing: false,
+            agents,
             worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
             editorState: ws.editorState ?? defaultEditorState(),
             swarmState,
+            swarmReviewState,
             swarmContext: normalizeSwarmWorkspaceContext(ws.swarmContext, ws.folderPath, swarmState),
             multiloopState,
             multiloopContext: normalizeMultiloopWorkspaceContext(
@@ -1502,6 +1640,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               imported,
               imported.mode === 'multiloop'
                 ? { ...imported, layoutModel: ensureMultiloopLayoutModel(imported.layoutModel) }
+                : imported.mode === 'swarm'
+                  ? { ...imported, layoutModel: swarmReviewTabsLayoutModel(imported.swarmReviewState ?? null, imported.agents) }
                 : migrateSwarmLayout(imported)
             )
           }
@@ -1616,7 +1756,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 36,
+      version: 37,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Partial<WorkspaceMigrationState> | undefined
@@ -1978,6 +2118,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             memory: normalizeWorkspaceMemoryConfig(ws.memory),
           }))
         }
+        if (version < 37) {
+          mapMigrationWorkspaces(migrationState, (ws) => {
+            const swarmReviewState = normalizeSwarmReviewState(ws.swarmReviewState)
+            const mode = swarmReviewState ? 'swarm' : ws.mode
+            const agents = reconcileSwarmReviewAgents(ws.agents ?? {}, swarmReviewState)
+            return {
+              ...ws,
+              mode,
+              agents,
+              swarmReviewState,
+              layoutModel: swarmReviewState
+                ? swarmReviewTabsLayoutModel(swarmReviewState, agents)
+                : ws.layoutModel,
+            }
+          })
+        }
         return state as never
       },
       partialize: (s) => ({
@@ -1985,6 +2141,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         workspaces: s.workspaces.map((ws) => ({
           ...ws,
           memory: normalizeWorkspaceMemoryConfig(ws.memory),
+          swarmReviewState: normalizeSwarmReviewState(ws.swarmReviewState),
           agents: Object.fromEntries(
             Object.entries(ws.agents).map(([id, a]) => {
               const shouldKeepStartupPrompt =
@@ -1992,6 +2149,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 && (
                   (a.kind === 'specialist' && Boolean(a.specialistId))
                   || (a.kind === 'multiloop' && Boolean(a.multiloopRole))
+                  || (a.kind === 'swarm_review' && Boolean(a.specialistId))
                 )
               const cliStartupPrompt = shouldKeepStartupPrompt ? a.cliStartupPrompt : undefined
 

@@ -64,7 +64,17 @@ const VIEWS_FOR_MODE: Record<string, { label: string; views: ViewItem[] }> = {
   symphony: {
     label: 'Symphony',
     views: [
-      { component: 'symphony-dashboard', name: 'Dashboard' },
+      { component: 'sprintengine-project', name: 'Symphony Intake' },
+      { component: 'sprintengine-kanban', name: 'Board' },
+      { component: 'sprintengine-task-graph', name: 'Task Graph' },
+    ],
+  },
+  swarm: {
+    label: 'Swarm',
+    views: [
+      { component: 'swarm-review-brief', name: 'Review Brief' },
+      { component: 'swarm-review-reports', name: 'Reports' },
+      { component: 'swarm-review-findings', name: 'Findings Matrix' },
     ],
   },
 }
@@ -160,6 +170,30 @@ function workspaceActivityLabel(activity: WorkspaceActivity): string {
     default:
       return 'Workspace idle'
   }
+}
+
+function workspaceTabClass(mode: Workspace['mode'], active: boolean): string {
+  if (mode === 'symphony') {
+    return active
+      ? 'border-[#4c2d73] bg-[#171321] text-[#f1e8ff] shadow-[inset_0_-2px_0_rgba(168,85,247,0.62)]'
+      : 'border-transparent text-[#b9a3dc] hover:bg-[#8b5cf6]/10 hover:text-[#efe5ff]'
+  }
+
+  if (mode === 'sprintengine') {
+    return active
+      ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
+      : 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
+  }
+
+  return active
+    ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
+    : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
+}
+
+function workspaceTabIconClass(mode: Workspace['mode']): string {
+  if (mode === 'symphony') return 'text-[#a855f7]'
+  if (mode === 'sprintengine') return 'text-[#ffbf2f]'
+  return 'text-[#9a9aa2]'
 }
 
 function hasActiveProPlan(authState: MulticodeAuthState): boolean {
@@ -791,6 +825,7 @@ export default function WorkspaceManager() {
     swarmContext,
     swarmRoleCliDefaults,
     swarmAutoState,
+    swarmReviewState,
     mode,
   }: {
     template: LayoutTemplate
@@ -800,9 +835,10 @@ export default function WorkspaceManager() {
     swarmContext?: Workspace['swarmContext']
     swarmRoleCliDefaults?: Workspace['swarmRoleCliDefaults'] | null
     swarmAutoState?: Partial<Workspace['swarmAutoState']> | null
+    swarmReviewState?: Workspace['swarmReviewState'] | null
     mode?: Workspace['mode']
   }) => {
-    addWorkspace(template, { name, folderPath, swarmState, swarmContext, swarmRoleCliDefaults, swarmAutoState, mode })
+    addWorkspace(template, { name, folderPath, swarmState, swarmContext, swarmRoleCliDefaults, swarmAutoState, swarmReviewState, mode })
     setShowTemplateSelector(false)
     setTemplateSelectorInitialState(null)
   }
@@ -1221,7 +1257,6 @@ export default function WorkspaceManager() {
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {workspaces.map((workspace) => {
             const active = !showTemplateSelector && workspace.id === activeWorkspaceId
-            const sprintEngineWorkspace = workspace.mode === 'sprintengine' || workspace.mode === 'symphony'
             const activity = getWorkspaceActivity(workspace, terminalSessions)
             const activityLabel = workspaceActivityLabel(activity)
             const activityTone = workspaceActivityTone(activity)
@@ -1239,20 +1274,12 @@ export default function WorkspaceManager() {
                   }
                 }}
                 className={`group inline-flex h-[30px] max-w-[260px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
-                  active && sprintEngineWorkspace
-                    ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
-                    : active
-                      ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
-                      : sprintEngineWorkspace
-                        ? 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
-                        : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
+                  workspaceTabClass(workspace.mode, active)
                 }`}
               >
                 <WorkspaceTypeIcon
                   mode={workspace.mode}
-                  className={`h-3.5 w-3.5 shrink-0 ${
-                    sprintEngineWorkspace ? 'text-[#ffbf2f]' : 'text-[#9a9aa2]'
-                  }`}
+                  className={`h-3.5 w-3.5 shrink-0 ${workspaceTabIconClass(workspace.mode)}`}
                 />
                 {renamingId === workspace.id ? (
                   <input

@@ -2,7 +2,7 @@ import type { IJsonModel } from 'flexlayout-react'
 
 export type WorkspaceId = string
 export type AgentId = string
-export type WorkspaceMode = 'standard' | 'sprintengine' | 'symphony' | 'multiloop'
+export type WorkspaceMode = 'standard' | 'sprintengine' | 'symphony' | 'multiloop' | 'swarm'
 
 export type PreviewSlot = {
   x: number
@@ -268,6 +268,44 @@ export type MultiloopAutoState = {
   pendingSpawns: MultiloopAutoPendingSpawn[]
 }
 
+export type SwarmReviewSectorId =
+  | 'code_review'
+  | 'ai_slop'
+  | 'architecture_quality'
+  | 'frontend_design'
+  | 'cross_platform'
+  | 'brand_alignment'
+  | 'security'
+  | 'performance'
+  | 'qa_testing'
+  | 'infrastructure'
+  | 'product_strategy'
+  | 'accessibility'
+  | 'documentation'
+
+export type SwarmReviewRunStatus = 'draft' | 'ready' | 'running' | 'complete'
+export type SwarmReviewAgentStatus = 'ready' | 'running' | 'done' | 'needs_input' | 'error'
+
+export type SwarmReviewAgent = {
+  agentId: AgentId
+  specialistId: SpecialistActionId
+  sectors: SwarmReviewSectorId[]
+  status: SwarmReviewAgentStatus
+  reportPath: string
+  cli?: AgentCli
+}
+
+export type SwarmReviewWorkspaceState = {
+  schemaVersion: 1
+  runId: string
+  name: string
+  objective: string
+  createdAt: string
+  status: SwarmReviewRunStatus
+  outputDirectory: string
+  agents: SwarmReviewAgent[]
+}
+
 export type SwarmWorkspaceContext = {
   teamName: string
   teamSlug: string
@@ -520,7 +558,7 @@ export type MultiloopRole =
   | 'code_reviewer'
   | 'performance'
 
-export type AgentKind = 'general' | 'specialist' | 'sprintengine' | 'multiloop'
+export type AgentKind = 'general' | 'specialist' | 'sprintengine' | 'multiloop' | 'swarm_review'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
 export type SpecialistActionId =
@@ -725,6 +763,7 @@ export type Workspace = {
   editorState: EditorState
   swarmState: SwarmState | null
   multiloopState?: MultiloopState | null
+  swarmReviewState?: SwarmReviewWorkspaceState | null
   swarmRoleCliDefaults?: SwarmRoleCliDefaults
   swarmAutoState: SwarmAutoState
   multiloopAutoState: MultiloopAutoState

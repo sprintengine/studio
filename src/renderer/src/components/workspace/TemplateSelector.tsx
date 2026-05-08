@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createMultiloopTemplate, createSwarmTemplate, createSymphonyTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { createMultiloopTemplate, createSwarmReviewTemplate, createSwarmTemplate, createSymphonyTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -15,7 +15,11 @@ import type {
   SwarmRoleCliDefaults,
   SwarmState,
   SwarmWorkspaceContext,
+  SpecialistActionId,
+  SwarmReviewSectorId,
+  SwarmReviewWorkspaceState,
 } from '../../types/workspace'
+import { SPECIALIST_ACTIONS } from '../../specialists/specialistActions'
 import {
   createPlanSourcedSwarmWorkspace,
   PlanSourcedSwarmWorkspaceError,
@@ -39,10 +43,19 @@ import {
 } from '../../utils/sprintengineStateFile'
 import multiloopSplash from '../../assets/brand/multiloop-splash.png'
 import sprintEngineSplash from '../../assets/brand/sprintengine-splash.png'
+import swarmSplash from '../../assets/brand/swarm-splash.png'
 import symphonySplash from '../../assets/brand/symphony-splash.png'
 import multiloopWorkspacePreview from '../../assets/brand/multiloop-workspace-preview.png'
 import sprintEngineWorkspacePreview from '../../assets/brand/sprintengine-workspace-preview.png'
 import standardWorkspacePreview from '../../assets/brand/standard-workspace-preview.png'
+import {
+  SWARM_REVIEW_PRESETS,
+  createSwarmReviewState,
+  defaultSectorsForSpecialist,
+  focusReviewSectorsForSpecialist,
+  sectorLabel,
+  type SwarmReviewPresetId,
+} from '../../utils/swarmReview'
 
 type ExistingTeam = {
   slug: string
@@ -51,7 +64,7 @@ type ExistingTeam = {
   state: SwarmState
 }
 
-type CreationMode = 'standard' | 'sprintengine' | 'symphony' | 'multiloop'
+type CreationMode = 'standard' | 'sprintengine' | 'symphony' | 'multiloop' | 'swarm'
 
 type MarkdownPlanOption = {
   path: string
@@ -80,7 +93,8 @@ interface Props {
     swarmContext?: SwarmWorkspaceContext | null
     swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
     swarmAutoState?: Partial<SwarmAutoState> | null
-    mode?: 'standard' | 'sprintengine' | 'symphony' | 'multiloop'
+    swarmReviewState?: SwarmReviewWorkspaceState | null
+    mode?: 'standard' | 'sprintengine' | 'symphony' | 'multiloop' | 'swarm'
   }) => void
   onClose: () => void
   allowClose?: boolean
@@ -131,10 +145,29 @@ const initialSwarmRoleCliDefaults: Required<SwarmRoleCliDefaults> = {
   security: 'codex',
 }
 
+type SwarmReviewSelection = Record<SpecialistActionId, {
+  included: boolean
+  sectors: SwarmReviewSectorId[]
+  cli: AgentCli
+}>
+
 const cliOptions: Array<{ value: AgentCli; label: string }> = [
   { value: 'codex', label: 'Codex' },
   { value: 'claude', label: 'Claude' },
 ]
+
+function initialSwarmReviewSelection(): SwarmReviewSelection {
+  return Object.fromEntries(
+    SPECIALIST_ACTIONS.map((action) => [
+      action.id,
+      {
+        included: ['code-review', 'qa-test', 'performance'].includes(action.id),
+        sectors: defaultSectorsForSpecialist(action.id),
+        cli: 'codex' as AgentCli,
+      },
+    ])
+  ) as SwarmReviewSelection
+}
 
 const maxVisibleRecentFolders = 5
 
@@ -234,22 +267,6 @@ function buildSwarmContext(folderPath: string, teamName: string, teamSlug: strin
   }
 }
 
-function buildSprintEngineStateFileContent(swarmState: SwarmState): string {
-  return `${JSON.stringify({
-    sprintengine: {
-      name: swarmState.name,
-      goal: swarmState.goal,
-      status: 'planning',
-      rosterConfigured: true,
-    },
-    tasks: swarmState.tasks,
-    agents: swarmState.swarmAgents,
-    events: swarmState.events,
-    artifacts: swarmState.artifacts,
-    roles: {},
-  }, null, 2)}\n`
-}
-
 async function ensureSprintEngineStateFile(
   folderPath: string,
   context: SwarmWorkspaceContext,
@@ -260,7 +277,16 @@ async function ensureSprintEngineStateFile(
   await window.api.ensureDir(sprintEngineDirectory, context.teamSlug)
   const exists = await window.api.pathExists(context.statePath)
   if (!exists) {
-    await window.api.writefile(context.statePath, buildSprintEngineStateFileContent(swarmState))
+    const result = await window.api.initializeSprintEngineState({
+      statePath: context.statePath,
+      name: swarmState.name,
+      goal: swarmState.goal,
+      agents: swarmState.swarmAgents,
+      tasks: swarmState.tasks,
+      events: swarmState.events,
+      artifacts: swarmState.artifacts,
+    })
+    if (!result.ok) throw new Error(result.message)
   }
 }
 
@@ -300,6 +326,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const [multiloopNameTouched, setMultiloopNameTouched] = useState(false)
   const [multiloopGoal, setMultiloopGoal] = useState('')
   const [multiloopError, setMultiloopError] = useState<string | null>(null)
+  const [swarmReviewName, setSwarmReviewName] = useState('')
+  const [swarmReviewNameTouched, setSwarmReviewNameTouched] = useState(false)
+  const [swarmReviewPreset, setSwarmReviewPreset] = useState<SwarmReviewPresetId>('lean_code_review')
+  const [swarmReviewSelection, setSwarmReviewSelection] = useState<SwarmReviewSelection>(() => initialSwarmReviewSelection())
   const [swarmRoleCounts, setSwarmRoleCounts] = useState<SwarmRoleCounts>(initialSwarmRoleCounts)
   const [swarmRoleCliDefaults, setSwarmRoleCliDefaults] = useState<Required<SwarmRoleCliDefaults>>(
     initialSwarmRoleCliDefaults
@@ -345,18 +375,35 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const totalAgents = countSwarmAgents(swarmRoleCounts)
   const swarmAccess = getSwarmAccessState(authState)
   const isSprintEngineLikeMode = mode === 'sprintengine' || mode === 'symphony'
-  const detailsComplete = isSprintEngineLikeMode || name.trim().length > 0
+  const detailsComplete = isSprintEngineLikeMode || mode === 'swarm' || name.trim().length > 0
   const swarmObjectiveComplete =
     selectedExistingTeam != null || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0)
   const symphonyObjectiveComplete = Boolean(folderPath?.trim()) && swarmTeamName.trim().length > 0
   const multiloopObjectiveComplete =
     Boolean(folderPath?.trim()) && multiloopName.trim().length > 0 && multiloopGoal.trim().length > 0
+  const selectedSwarmReviewAgents = Object.entries(swarmReviewSelection)
+    .filter(([specialistId, selection]) => {
+      const focus = new Set(focusReviewSectorsForSpecialist(specialistId as SpecialistActionId).map((sector) => sector.id))
+      return selection.included && selection.sectors.some((sector) => focus.has(sector))
+    })
+    .map(([specialistId, selection]) => ({
+      specialistId: specialistId as SpecialistActionId,
+      sectors: selection.sectors.filter((sector) =>
+        focusReviewSectorsForSpecialist(specialistId as SpecialistActionId).some((focus) => focus.id === sector)
+      ),
+      cli: selection.cli,
+    }))
+  const swarmReviewComplete =
+    Boolean(folderPath?.trim())
+    && swarmReviewName.trim().length > 0
+    && selectedSwarmReviewAgents.length > 0
   const futurePlanReady = selectedExistingTeam != null || !selectedFuturePlanPath || (futurePlanContent != null && !futurePlanError)
   const canCreate =
     !isCreating
     && detailsComplete
     && (
       mode === 'standard'
+      || (mode === 'swarm' && swarmReviewComplete)
       || (mode === 'multiloop' && multiloopObjectiveComplete)
       || (mode === 'symphony' && swarmAccess.allowed && symphonyObjectiveComplete)
       || (mode === 'sprintengine'
@@ -418,6 +465,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     if (!nameTouched) setName(folderName || 'workspace')
     if (!swarmTeamNameTouched) setSwarmTeamName(toTitleName(folderName) || 'Sprint Engine Team')
     if (!multiloopNameTouched) setMultiloopName(toTitleName(folderName) || 'Product Loop')
+    if (!swarmReviewNameTouched) setSwarmReviewName(toTitleName(folderName) || 'Swarm Review')
     setMultiloopError(null)
 
     setIsScanning(true)
@@ -487,6 +535,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     if (nextMode === 'multiloop' && !multiloopNameTouched) {
       setMultiloopName(toTitleName(name || basename(folderPath ?? '')) || 'Product Loop')
     }
+    if (nextMode === 'swarm' && !swarmReviewNameTouched) {
+      setSwarmReviewName(toTitleName(name || basename(folderPath ?? '')) || 'Swarm Review')
+    }
   }
 
   const selectExistingTeam = (team: ExistingTeam) => {
@@ -518,8 +569,91 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     }))
   }
 
+  const applySwarmReviewPreset = (presetId: SwarmReviewPresetId) => {
+    setSwarmReviewPreset(presetId)
+    if (presetId === 'custom') return
+    const preset = SWARM_REVIEW_PRESETS.find((candidate) => candidate.id === presetId)
+    if (!preset) return
+    setSwarmReviewSelection((current) => {
+      const next = { ...current }
+      SPECIALIST_ACTIONS.forEach((action) => {
+        const sectors = preset.agents[action.id]
+        const focus = new Set(focusReviewSectorsForSpecialist(action.id).map((sector) => sector.id))
+        next[action.id] = {
+          ...current[action.id],
+          included: Boolean(sectors?.length),
+          sectors: sectors?.length
+            ? sectors.filter((sector) => focus.has(sector))
+            : current[action.id].sectors.filter((sector) => focus.has(sector)),
+        }
+      })
+      return next
+    })
+  }
+
+  const setSwarmReviewSpecialistIncluded = (specialistId: SpecialistActionId, included: boolean) => {
+    setSwarmReviewPreset('custom')
+    setSwarmReviewSelection((current) => ({
+      ...current,
+      [specialistId]: {
+        ...current[specialistId],
+        included,
+      },
+    }))
+  }
+
+  const toggleSwarmReviewSector = (specialistId: SpecialistActionId, sector: SwarmReviewSectorId) => {
+    setSwarmReviewPreset('custom')
+    setSwarmReviewSelection((current) => {
+      const selection = current[specialistId]
+      const hasSector = selection.sectors.includes(sector)
+      const focus = new Set(focusReviewSectorsForSpecialist(specialistId).map((candidate) => candidate.id))
+      if (!focus.has(sector)) return current
+      const sectors = hasSector
+        ? selection.sectors.filter((candidate) => candidate !== sector)
+        : [...selection.sectors, sector]
+      return {
+        ...current,
+        [specialistId]: {
+          ...selection,
+          sectors,
+          included: sectors.length > 0 ? true : selection.included,
+        },
+      }
+    })
+  }
+
+  const setSwarmReviewCli = (specialistId: SpecialistActionId, cli: AgentCli) => {
+    setSwarmReviewSelection((current) => ({
+      ...current,
+      [specialistId]: {
+        ...current[specialistId],
+        cli,
+      },
+    }))
+  }
+
   const handleCreate = async () => {
     if (!canCreate) return
+
+    if (mode === 'swarm') {
+      if (!folderPath) return
+      const reviewState = createSwarmReviewState({
+        name: swarmReviewName,
+        objective: `Run a focused Swarm review for ${swarmReviewName.trim() || 'this workspace'}.`,
+        folderPath,
+        selectedAgents: selectedSwarmReviewAgents,
+      })
+      onCreate({
+        template: createSwarmReviewTemplate(),
+        name: reviewState.name,
+        folderPath,
+        swarmReviewState: reviewState,
+        mode: 'swarm',
+      })
+      onClose()
+      return
+    }
 
     if (mode === 'multiloop') {
       if (!folderPath) return
@@ -676,7 +810,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               disabled={!canCreate}
               className="h-9 rounded-md border border-[#ececee] bg-[#ececee] px-4 text-sm font-semibold text-[#08090b] transition-colors hover:bg-white disabled:border-[#303139] disabled:bg-[#17181d] disabled:text-[#5a5a63]"
             >
-              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'sprintengine' ? 'Create SprintEngine' : mode === 'symphony' ? 'Create Symphony' : mode === 'multiloop' ? 'Create Multiloop' : 'Create Workspace'}
+              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'sprintengine' ? 'Create SprintEngine' : mode === 'symphony' ? 'Create Symphony' : mode === 'multiloop' ? 'Create Multiloop' : mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
             </button>
           </div>
         </header>
@@ -687,11 +821,13 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               {[
                 { id: 'standard' as const, label: 'Standard' },
                 { id: 'sprintengine' as const, label: 'SprintEngine' },
+                { id: 'swarm' as const, label: 'Swarm' },
                 { id: 'symphony' as const, label: 'Symphony' },
                 { id: 'multiloop' as const, label: 'Multiloop' },
               ].map((option) => {
                 const active = mode === option.id
                 const swarmOption = option.id === 'sprintengine'
+                const swarmReviewOption = option.id === 'swarm'
                 const symphonyOption = option.id === 'symphony'
                 const multiloopOption = option.id === 'multiloop'
                 return (
@@ -703,6 +839,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                     className={`inline-flex h-8 items-center gap-2 rounded border px-3 text-sm font-semibold transition-colors ${
                       active && swarmOption
                         ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
+                        : active && swarmReviewOption
+                          ? 'border-[#26373a] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(92,124,255,0.42)]'
                         : active && symphonyOption
                           ? 'border-[#26373a] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(110,231,216,0.42)]'
                         : active && multiloopOption
@@ -711,6 +849,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                           ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
                           : swarmOption
                             ? 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
+                            : swarmReviewOption
+                              ? 'border-transparent text-[#9a9aa2] hover:bg-[#5c7cff]/8 hover:text-[#d4ddff]'
                             : symphonyOption
                               ? 'border-transparent text-[#9a9aa2] hover:bg-[#5c7cff]/8 hover:text-[#d4ddff]'
                             : multiloopOption
@@ -718,9 +858,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                             : 'border-transparent text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                     }`}
                   >
-                    {swarmOption || symphonyOption || multiloopOption ? (
+                    {swarmOption || swarmReviewOption || symphonyOption || multiloopOption ? (
                       <WorkspaceTypeIcon
-                        mode={swarmOption ? 'sprintengine' : symphonyOption ? 'symphony' : 'multiloop'}
+                        mode={swarmOption ? 'sprintengine' : swarmReviewOption ? 'swarm' : symphonyOption ? 'symphony' : 'multiloop'}
                         className={`h-3.5 w-3.5 shrink-0 ${swarmOption ? 'text-[#ffbf2f]' : 'text-[#5c7cff]'}`}
                       />
                     ) : null}
@@ -731,6 +871,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
             </div>
 
             {mode === 'sprintengine' ? <SprintEngineSplash /> : null}
+            {mode === 'swarm' ? <SwarmSplash /> : null}
             {mode === 'symphony' ? <SymphonySplash /> : null}
             {mode === 'multiloop' ? <MultiloopSplash /> : null}
 
@@ -766,7 +907,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               </section>
             ) : null}
 
-            <section className="border-b border-[#1f2025] pb-5">
+            {mode !== 'swarm' ? (
+              <section className="border-b border-[#1f2025] pb-5">
                 <div className={isSprintEngineLikeMode ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-2'}>
                 <div className="flex min-w-0 flex-col gap-2">
                   <div className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">Folder</div>
@@ -850,63 +992,33 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                   </label>
                 ) : null}
               </div>
-            </section>
+              </section>
+            ) : null}
 
             {mode === 'symphony' ? (
               <section>
-                <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-                  <div className="space-y-4">
-                    <label className="flex min-w-0 flex-col gap-2">
-                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
-                        Workspace name
-                      </span>
-                      <input
-                        value={swarmTeamName}
-                        onChange={(event) => {
-                          setSwarmTeamName(event.target.value)
-                          setSwarmTeamNameTouched(true)
-                          setFuturePlanError(null)
-                        }}
-                        placeholder="Repo Triage"
-                        className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
-                      />
-                    </label>
+                <div className="max-w-[420px]">
+                  <label className="flex min-w-0 flex-col gap-2">
+                    <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                      Workspace name
+                    </span>
+                    <input
+                      value={swarmTeamName}
+                      onChange={(event) => {
+                        setSwarmTeamName(event.target.value)
+                        setSwarmTeamNameTouched(true)
+                        setFuturePlanError(null)
+                      }}
+                      placeholder="Repo Triage"
+                      className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
+                    />
+                  </label>
 
-                    <label className="block">
-                      <span className="text-xs font-medium text-[#9a9aa2]">
-                        Intake goal
-                      </span>
-                      <textarea
-                        value={swarmGoal}
-                        onChange={(event) => {
-                          setSwarmGoal(event.target.value)
-                          setFuturePlanError(null)
-                        }}
-                        placeholder="Sync GitHub issues, triage Todo, and manually approve Ready work."
-                        className="mt-2 min-h-[120px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-3 text-[14px] leading-6 text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
-                      />
-                    </label>
-
-                    {futurePlanError ? (
-                      <div className="border-l border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
-                        {futurePlanError}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-lg border border-[#24252b] bg-[#0d0e11] p-3">
-                    <div className="mb-3 flex items-baseline justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-[#ececee]">Symphony workspace</div>
-                        <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
-                          GitHub issues, local tasks, Ready gate, and Sprint Engine workers
-                        </div>
-                      </div>
+                  {futurePlanError ? (
+                    <div className="mt-4 border-l border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+                      {futurePlanError}
                     </div>
-                    <div className="rounded-md border border-[#303139] bg-[#08090b] p-3">
-                      <SwarmWorkspacePreview />
-                    </div>
-                  </div>
+                  ) : null}
                 </div>
               </section>
             ) : mode === 'multiloop' ? (
@@ -962,6 +1074,178 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                     </div>
                     <div className="rounded-md border border-[#303139] bg-[#08090b] p-3">
                       <MultiloopWorkspacePreview />
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : mode === 'swarm' ? (
+              <section>
+                <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+                  <div className="space-y-4">
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <div className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">Folder</div>
+                      <button
+                        type="button"
+                        onClick={handlePick}
+                        className="flex h-[42px] w-full items-center gap-3 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-left transition-colors hover:bg-[#111216] focus:outline-none focus:ring-2 focus:ring-[#ececee]/25"
+                      >
+                        <span className={`min-w-0 flex-1 truncate text-sm ${folderPath ? 'text-[#d7d7dc]' : 'text-[#5a5a63]'}`}>
+                          {folderPath ?? 'Choose folder'}
+                        </span>
+                        <span className="shrink-0 text-sm font-semibold text-[#d7d7dc]">Browse</span>
+                      </button>
+                      {recentFolders.length > 0 ? (
+                        <div className="mt-2 min-w-0">
+                          <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[#777780]">
+                            Recent
+                          </div>
+                          <div className="max-h-28 space-y-1 overflow-auto pr-1">
+                            {recentFolders.map((recentFolder) => {
+                              const active = folderPath ? folderKey(folderPath) === folderKey(recentFolder) : false
+                              const label = basename(recentFolder) || recentFolder
+                              return (
+                                <button
+                                  key={recentFolder}
+                                  type="button"
+                                  aria-pressed={active}
+                                  title={recentFolder}
+                                  onClick={() => void selectFolder(recentFolder)}
+                                  className={`flex min-h-9 w-full min-w-0 items-center gap-3 rounded px-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#ececee]/25 ${
+                                    active
+                                      ? 'bg-[#17181d] text-[#ececee]'
+                                      : 'text-[#a8a8b0] hover:bg-[#111216] hover:text-[#d7d7dc]'
+                                  }`}
+                                >
+                                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-[#ececee]' : 'bg-[#3a3b42]'}`} aria-hidden="true" />
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-[12px] font-medium">{label}</span>
+                                    <span className="block truncate font-mono text-[11px] text-[#777780]">
+                                      {recentFolder}
+                                    </span>
+                                  </span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <label className="flex min-w-0 flex-col gap-2">
+                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                        Swarm name
+                      </span>
+                      <input
+                        value={swarmReviewName}
+                        onChange={(event) => {
+                          setSwarmReviewName(event.target.value)
+                          setSwarmReviewNameTouched(true)
+                        }}
+                        placeholder="Release Review"
+                        className="block h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ececee]/70"
+                      />
+                    </label>
+
+                    <label className="flex min-w-0 flex-col gap-2">
+                      <span className="h-4 text-xs font-medium leading-4 text-[#9a9aa2]">
+                        Preset
+                      </span>
+                      <select
+                        value={swarmReviewPreset}
+                        onChange={(event) => applySwarmReviewPreset(event.target.value as SwarmReviewPresetId)}
+                        className="h-[42px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] outline-none transition-colors focus:border-[#ececee]/70"
+                      >
+                        {SWARM_REVIEW_PRESETS.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="rounded-lg border border-[#24252b] bg-[#0d0e11] p-3">
+                    <div className="mb-3 flex items-baseline justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-[#ececee]">Roster</div>
+                        <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
+                          {selectedSwarmReviewAgents.length} selected agents with role-matched review focus
+                        </div>
+                      </div>
+                    </div>
+                    <div className="border-t border-[#303139]">
+                      {SPECIALIST_ACTIONS.map((action) => {
+                        const selection = swarmReviewSelection[action.id]
+                        const focusSectors = focusReviewSectorsForSpecialist(action.id)
+                        return (
+                          <div key={action.id} className="border-b border-[#303139] px-3 py-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <span className="flex min-w-0 items-center gap-3">
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={selection.included}
+                                  aria-label={`Include ${action.shortLabel}`}
+                                  onClick={() => setSwarmReviewSpecialistIncluded(action.id, !selection.included)}
+                                  className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ececee]/25 ${
+                                    selection.included ? 'bg-[#5c7cff]' : 'bg-[#303139]'
+                                  }`}
+                                >
+                                  <span
+                                    className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+                                      selection.included ? 'translate-x-4' : 'translate-x-0'
+                                    }`}
+                                    aria-hidden="true"
+                                  />
+                                </button>
+                                <span className="min-w-0">
+                                  <span className={`block truncate text-sm font-semibold ${selection.included ? 'text-[#ececee]' : 'text-[#777780]'}`}>
+                                    {action.shortLabel}
+                                  </span>
+                                  <span className="mt-1 block text-[12px] leading-4 text-[#9a9aa2]">
+                                    Focus: {focusSectors.map((sector) => sector.label).join(', ')}
+                                  </span>
+                                </span>
+                              </span>
+                              <select
+                                value={selection.cli}
+                                onChange={(event) => setSwarmReviewCli(action.id, event.target.value as AgentCli)}
+                                disabled={!selection.included}
+                                className="h-8 shrink-0 rounded-md border border-[#303139] bg-[#111216] px-2 text-[12px] font-semibold text-[#d7d7dc] outline-none focus:border-[#ececee]/70 disabled:text-[#5a5a63]"
+                              >
+                                {cliOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {selection.included ? (
+                              <div className="mt-3 flex flex-wrap gap-1.5">
+                                {focusSectors.map((sector) => {
+                                  const selectedSector = selection.sectors.includes(sector.id)
+                                  return (
+                                    <button
+                                      key={sector.id}
+                                      type="button"
+                                      aria-pressed={selectedSector}
+                                      onClick={() => toggleSwarmReviewSector(action.id, sector.id)}
+                                      className={`rounded border px-2 py-1 text-[11px] font-medium ${
+                                        selectedSector
+                                          ? 'border-[#5c7cff] bg-[#182044] text-[#d4ddff]'
+                                          : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:text-[#d7d7dc]'
+                                      }`}
+                                      title={sector.description}
+                                    >
+                                      {sectorLabel(sector.id)}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 </div>
@@ -1276,6 +1560,19 @@ function SymphonySplash() {
       <img
         src={symphonySplash}
         alt="Symphony"
+        className="block w-full max-w-[620px] select-none object-contain"
+        draggable={false}
+      />
+    </div>
+  )
+}
+
+function SwarmSplash() {
+  return (
+    <div className="flex min-h-[112px] items-center justify-center px-2 py-3">
+      <img
+        src={swarmSplash}
+        alt="Swarm"
         className="block w-full max-w-[620px] select-none object-contain"
         draggable={false}
       />

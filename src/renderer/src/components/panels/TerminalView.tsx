@@ -145,6 +145,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cli = agent?.cli ?? 'codex'
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  const updateSwarmReviewAgentStatus = useWorkspaceStore((s) => s.updateSwarmReviewAgentStatus)
   const startupPrompt = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     const currentAgent = workspace?.agents[agentId]
@@ -283,6 +284,9 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         })
       }
       if (currentSessionId !== sessionId) return
+      if (agent?.kind === 'swarm_review') {
+        updateSwarmReviewAgentStatus(workspaceId, agentId, code === 0 ? 'done' : 'error')
+      }
       updateAgent(workspaceId, agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
@@ -351,7 +355,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (savedFolderPath && !folderReadyPath) return
 
       const resumeExistingPty = shouldResume && terminalStatus.running
-      const shouldResumeCli = resumeExistingPty || shouldResumeCodexConversation
+      const shouldResumeClaudeConversation = cli === 'claude' && shouldResume
+      const shouldResumeCli = resumeExistingPty || shouldResumeClaudeConversation || shouldResumeCodexConversation
       const promptAlreadySentForActiveSession = Boolean(shouldResumeCli && agent.cliOnboardingPromptSent)
       await ensureSpecialistStartupPrompt(promptAlreadySentForActiveSession)
       if (disposed) return
@@ -497,6 +502,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     memoryRelativeRoot,
     storedExecutionWorktreePath,
     updateAgent,
+    updateSwarmReviewAgentStatus,
   ])
 
   const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)

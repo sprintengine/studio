@@ -40,10 +40,30 @@ const symphonyIntakeTab = () => ({
   name: 'Symphony Intake',
   component: 'sprintengine-project',
 })
+const symphonyBoardTab = () => ({
+  type: 'tab',
+  name: 'Board',
+  component: 'sprintengine-kanban',
+})
 const multiloopBoardTab = () => ({
   type: 'tab',
   name: 'Multiloop',
   component: 'multiloop-board',
+})
+const swarmReviewBriefTab = () => ({
+  type: 'tab',
+  name: 'Review Brief',
+  component: 'swarm-review-brief',
+})
+const swarmReviewReportsTab = () => ({
+  type: 'tab',
+  name: 'Reports',
+  component: 'swarm-review-reports',
+})
+const swarmReviewFindingsTab = () => ({
+  type: 'tab',
+  name: 'Findings Matrix',
+  component: 'swarm-review-findings',
 })
 
 export function createSwarmTemplate(_config: SwarmMockConfig): LayoutTemplate {
@@ -100,7 +120,7 @@ export function createSymphonyTemplate(_config: SwarmMockConfig): LayoutTemplate
             weight: 100,
             children: [
               symphonyIntakeTab(),
-              swarmKanbanTab(),
+              symphonyBoardTab(),
             ],
           },
         ],
@@ -129,6 +149,42 @@ export function createMultiloopTemplate(): LayoutTemplate {
             type: 'tabset',
             weight: 100,
             children: [multiloopBoardTab()],
+          },
+        ],
+      },
+    },
+  }
+}
+
+export function createSwarmReviewTemplate(): LayoutTemplate {
+  return {
+    id: 'swarm-review-mode',
+    name: 'Swarm Mode',
+    description: 'Specialist review swarm with reports and visible agent terminals.',
+    previewSlots: [
+      editor('Brief', 4, 4, 168, 30),
+      editor('Reports', 4, 40, 168, 66),
+      agent('Reviewers', 176, 4, 120, 102),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          {
+            type: 'tabset',
+            weight: 58,
+            children: [
+              swarmReviewBriefTab(),
+              swarmReviewReportsTab(),
+              swarmReviewFindingsTab(),
+            ],
+          },
+          {
+            type: 'tabset',
+            weight: 42,
+            children: [],
           },
         ],
       },

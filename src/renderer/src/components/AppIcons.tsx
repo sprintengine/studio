@@ -76,6 +76,19 @@ export function WorkspaceTypeIcon({
     )
   }
 
+  if (mode === 'swarm') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
+        <circle cx="6" cy="7" r="2" stroke="currentColor" strokeWidth={iconStroke} />
+        <circle cx="18" cy="7" r="2" stroke="currentColor" strokeWidth={iconStroke} />
+        <circle cx="6" cy="17" r="2" stroke="currentColor" strokeWidth={iconStroke} />
+        <circle cx="18" cy="17" r="2" stroke="currentColor" strokeWidth={iconStroke} />
+        <path d="M8 8.65L10 10.35M16 8.65L14 10.35M8 15.35L10 13.65M16 15.35L14 13.65" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      </svg>
+    )
+  }
+
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth={iconStroke} />

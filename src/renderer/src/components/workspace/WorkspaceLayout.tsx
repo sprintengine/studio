@@ -32,6 +32,9 @@ const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictR
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
 const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
+const SwarmReviewBriefPanel = React.lazy(() => import('../panels/SwarmReviewBriefPanel'))
+const SwarmReviewReportsPanel = React.lazy(() => import('../panels/SwarmReviewReportsPanel'))
+const SwarmReviewFindingsPanel = React.lazy(() => import('../panels/SwarmReviewFindingsPanel'))
 const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
 const MobileCompanionPanel = React.lazy(() => import('../panels/MobileCompanionPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
@@ -204,6 +207,24 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     const model = modelRef.current
     if (!model) return
 
+    if (workspace.mode === 'symphony') {
+      model.visitNodes((node) => {
+        if (!(node instanceof TabNode)) return
+        const component = node.getComponent()
+        const desiredName =
+          component === 'sprintengine-project'
+            ? 'Symphony Intake'
+            : component === 'sprintengine-kanban'
+              ? 'Board'
+              : component === 'sprintengine-map'
+                ? 'Agent Map'
+                : null
+        if (desiredName && node.getName() !== desiredName) {
+          model.doAction(Actions.renameTab(node.getId(), desiredName))
+        }
+      })
+    }
+
     model.visitNodes((node) => {
       if (!(node instanceof TabNode) || node.getComponent() !== 'agent') return
 
@@ -232,7 +253,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         }))
       }
     })
-  }, [workspace.agents, workspace.swarmState?.swarmAgents])
+  }, [workspace.agents, workspace.mode, workspace.swarmState?.swarmAgents])
 
   const factory = useCallback(
     (node: TabNode) => {
@@ -291,6 +312,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             'MultiloopBoardPanel',
             <MultiloopBoardPanel workspaceId={workspaceId} />
           )
+        case 'swarm-review-brief':
+          return timedPanel('SwarmReviewBriefPanel', <SwarmReviewBriefPanel workspaceId={workspaceId} />)
+        case 'swarm-review-reports':
+          return timedPanel('SwarmReviewReportsPanel', <SwarmReviewReportsPanel workspaceId={workspaceId} />)
+        case 'swarm-review-findings':
+          return timedPanel('SwarmReviewFindingsPanel', <SwarmReviewFindingsPanel workspaceId={workspaceId} />)
         case 'memory-graph':
           return timedPanel('MemoryGraphPanel', <MemoryGraphPanel workspaceId={workspaceId} />)
         case 'mobile-companion':
@@ -448,6 +475,20 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       }
 
       if (node.getComponent() !== 'agent') {
+        if (node.getComponent()?.startsWith('sprintengine')) {
+          const mode = workspace.mode === 'symphony' ? 'symphony' : 'sprintengine'
+          renderValues.leading = (
+            <span
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
+                mode === 'symphony' ? 'text-[#a855f7]' : 'text-[#ffbf2f]'
+              }`}
+              title={mode === 'symphony' ? 'Symphony panel' : 'Sprint Engine panel'}
+              aria-label={mode === 'symphony' ? 'Symphony panel' : 'Sprint Engine panel'}
+            >
+              <WorkspaceTypeIcon mode={mode} className="h-3.5 w-3.5" />
+            </span>
+          )
+        }
         renderValues.content = tabContent
         return
       }
@@ -459,7 +500,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const activity = agentTabActivity(agent, runtimeAgent?.status)
       const currentTaskId = runtimeAgent?.currentTaskId
       const activityDot = agentTabActivityDot(activity, currentTaskId)
-      const specialist = agent?.kind === 'specialist' && agent.specialistId
+      const specialist = (agent?.kind === 'specialist' || agent?.kind === 'swarm_review') && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
       const swarmRole = agent?.kind === 'sprintengine'
