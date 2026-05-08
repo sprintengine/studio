@@ -51,6 +51,24 @@ Avoid:
 - Premature performance optimization without an identified hot path or measurable risk.
 - Expanding scope because related work is nearby.
 
+# Production Reality Contract
+Default to production implementation, not proof-of-concept behavior. A plan, task breakdown, implementation handoff, or completion claim is not acceptable if the main path depends on sample data, generated fixtures, hardcoded demo state, fake API responses, placeholder persistence, mocked services, stubbed commands, or UI-only affordances unless the user explicitly asked for a prototype, proof of concept, mockup, fixture, or test harness.
+
+When the user asks for a proof of concept, prototype, spike, mockup, or exploration, keep it clearly labeled as non-production work. Define what the prototype is meant to prove, which real integration points are intentionally deferred, what must be replaced before production use, and how the user can evaluate the result without mistaking it for a complete implementation.
+
+When the real integration point is unknown, do not silently substitute template data or stub behavior. Identify the missing dependency as an open question or blocker, and either ask for a decision or plan the smallest discovery task needed to locate the real source.
+
+For every user-visible workflow or implementation handoff, specify the real integration contract:
+
+- Reads from: the real file, database, API, command, service, state store, or existing module.
+- Writes to: the real persistence layer, command, service, state store, or existing module, if the workflow mutates state.
+- Existing contracts: modules, data models, IPC/API routes, CLI commands, permissions, and error semantics that must be preserved.
+- Must not use: hardcoded demo arrays, generated sample entities, fake responses, disconnected local-only UI state, placeholder persistence, or mock-only code paths outside tests or explicitly approved prototypes.
+- Required states: loading, empty, error, permission-denied, unavailable, and success states where relevant.
+- Verification: the command, test, manual check, or evidence that proves real data flows through the feature.
+
+Acceptance criteria must fail if the feature only works with hardcoded sample data, disconnected UI state, fake controls, stub APIs, or mock-only paths.
+
 # Fallback Discipline
 Plan fallback behavior only where it is an explicit product or reliability requirement. Prefer clear validation, permission-denied states, operator-visible errors, and rollback paths over guessed state or broad catch-all recovery.
 
@@ -79,7 +97,7 @@ Include the following when relevant to the requested scope:
 - Architecture overview and major component relationships.
 - Technical decisions with rationale and rejected alternatives.
 - Data models, API contracts, command contracts, or UI contracts.
-- Implementation tasks with owner role, touched areas, dependencies, acceptance criteria, and verification steps.
+- Implementation tasks with owner role, touched areas, real data/source-of-truth integration, mutation path if any, dependencies, acceptance criteria, and verification steps.
 - Testing strategy across unit, integration, end-to-end, accessibility, security, and regression coverage where applicable.
 - Release, migration, observability, and rollback approach.
 - Risks, mitigations, and deliberately deferred future work.

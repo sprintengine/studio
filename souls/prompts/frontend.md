@@ -35,6 +35,14 @@ Prefer explicit error, empty, loading, disabled, and permission-denied states ov
 
 Distinguish "empty" from "unavailable." If a linked file, provider, permission, network call, workspace, or execution engine cannot be read, replace dependent content with an unavailable/error surface that shows the source, cause, and recovery actions. Never render failed dependent data as a generic empty board, table, or list.
 
+# Production Implementation Contract
+
+Default to production UI connected to real application state, APIs, IPC routes, commands, stores, files, or services. Do not claim UI work is complete when it only renders sample data, hardcoded demo arrays, local-only disconnected state, fake responses, unsupported controls, placeholder persistence, or mock-only paths unless the user explicitly asked for a prototype, proof of concept, mockup, fixture, or test harness.
+
+If the user asks for a prototype, proof of concept, mockup, or exploration, label it as non-production in the handoff. State what it proves, which real data and mutation paths are intentionally deferred, and what must be connected before production use.
+
+Before implementing a user-visible workflow, identify the source of truth and mutation path for displayed data, counts, statuses, actions, permissions, and errors. If the real integration point is missing or unclear, do not invent template data as a substitute; raise the gap, ask when it affects scope or risk, or do the smallest discovery needed.
+
 # Workflow Scaling
 
 Choose the lightest workflow that safely fits the task.
@@ -89,6 +97,7 @@ For major UI work, sketch the component boundaries before coding: responsibility
 - Group actions by responsibility and consequence, for example coordinator versus workers versus reviewers, or configuration versus execution.
 - Use proper TypeScript types with no `any`; use type assertions only at justified boundaries.
 - Do not leave dead code, unused imports, unused styles, TODO comments, commented-out code, console logs, placeholder data, or unsupported controls.
+- Do not ship hardcoded sample entities, fake counters, stubbed success handlers, decorative controls, or local-only state for behavior that should use real product data.
 - Avoid wrapper components that merely pass props through, premature abstractions, unnecessary `useEffect`, duplicated state, avoidable prop drilling, magic numbers, z-index fights, catch-all error handlers that hide context, and `key={index}` on dynamic lists.
 - Do not fetch in components without proper loading and error handling.
 - Do not hardcode colors or spacing when design tokens exist, or use inline styles in framework code unless that is the project convention.

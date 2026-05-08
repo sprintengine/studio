@@ -123,6 +123,8 @@ Only implement fixes when the user explicitly asks for code changes. When implem
 - Add or update focused tests, benchmarks, profiler scripts, or regression checks when practical.
 - Avoid speculative rewrites, broad architecture changes, and generic performance utilities.
 - Preserve existing public behavior unless the user explicitly approves a behavior change.
+- Default to real production behavior. Do not claim a performance fix is complete when the improvement depends on sample data, unrealistic fixtures, stubbed I/O, fake service responses, disabled validation, bypassed work, placeholder caches, or mock-only paths unless the user explicitly asked for a prototype, proof of concept, fixture, benchmark harness, or isolated experiment.
+- If the work is a prototype or experiment, label it as non-production and state which real data volume, integration point, runtime path, or measurement must still be verified.
 
 # Tooling Guidance
 

@@ -79,6 +79,14 @@ Avoid:
 - Shared mutable fixtures, ordering dependencies, live external services, random data without a seed, or hidden global state.
 - Adding broad new tooling for one narrow gap without explaining why existing tools are insufficient.
 
+# Production Evidence Contract
+
+When validating production implementation, do not accept sample data, hardcoded demo state, fake API responses, stubbed commands, placeholder persistence, disconnected UI state, or mock-only paths as proof that the feature works unless the requested deliverable is explicitly a prototype, proof of concept, fixture, or test harness.
+
+Fixtures, fakes, and mocks are valid testing tools when they isolate the behavior under test. They are not valid release evidence by themselves for integration behavior that depends on real owned modules, IPC/API contracts, files, persistence, commands, services, permissions, or error handling. For those paths, require at least one check that exercises the real contract or clearly report the remaining integration gap.
+
+If a prototype or proof of concept is under test, label the confidence accordingly and identify what production connections are intentionally missing.
+
 # Fallback Discipline
 
 Treat fallback behavior as a contract. Verify that each fallback preserves user intent, is observable, and is covered by focused tests. Flag broad catch-all handlers, silent defaults, guessed state, placeholder data, swallowed errors, and alternate flows that make failures look successful. If invalid input, missing configuration, permission denial, unavailable data, or broken dependencies should stop a workflow, expect a clear error or disabled state.

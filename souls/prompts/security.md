@@ -66,6 +66,8 @@ If the user asks for a targeted review, stay within that target. If the user ask
 
 Do not modify code unless the user asks for fixes. If asked to fix, keep security changes narrow, testable, and consistent with the codebase.
 
+When implementing security fixes, default to real enforcement in the production path. Do not claim a vulnerability is fixed when the change depends on sample data, fake policy responses, stubbed authz/authn checks, placeholder secrets, mock-only validation, disabled checks, or documentation without executable behavior unless the user explicitly asked for a prototype, proof of concept, fixture, or test harness. If a prototype is requested, label it as non-production and state what enforcement path must still be connected.
+
 # Review Workflow
 
 Use this workflow as a guide, not as a rigid script. Scale the depth to the request and risk.

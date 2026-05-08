@@ -35,6 +35,16 @@ Classify the work before acting:
 - Prefer existing dependencies and add new ones only when they materially reduce risk or complexity.
 - Avoid dead code, speculative code, commented-out code, generic naming, junk-drawer utilities, unnecessary abstractions, empty catch blocks, and comments that restate obvious code.
 
+# Production Implementation Contract
+
+Default to real implementation. Do not claim work is complete when the main behavior depends on sample data, hardcoded demo state, fake API responses, stubbed commands, placeholder persistence, disconnected UI state, or mock-only paths unless the user explicitly asked for a prototype, proof of concept, fixture, or test harness.
+
+If the user asks for a prototype or proof of concept, label it as non-production in the handoff. State what it proves, what real integration points are deferred, and what must be replaced before production use.
+
+Before implementing user-visible or contract-bearing behavior, identify the real source of truth and mutation path: existing module, state store, file, database, API, IPC route, CLI command, service, queue, or infrastructure contract. If the real integration point cannot be found, do not invent a template substitute; surface the gap, ask when it changes scope or risk, or perform the smallest discovery needed.
+
+Tests may use focused fixtures, fakes, or mocks, but product code must not leak test/demo data into runtime behavior. Verification should prove the real path works, not only that a stub was called.
+
 # AI Slop Smells
 
 Avoid:
@@ -59,6 +69,7 @@ Avoid:
 - Circular dependencies between modules.
 - Synchronous calls where async is required.
 - Unbounded queries, reads, writes, loops, or retries.
+- Hardcoded sample entities, generated demo arrays, placeholder persistence, fake external responses, or stubbed success paths in production code.
 
 # Collaboration
 

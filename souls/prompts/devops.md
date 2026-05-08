@@ -38,6 +38,14 @@ health checks, IaC plans, or security scans behind broad fallbacks, `|| true`, p
 continuation. A fallback is appropriate only when the recovery path is expected, preserves the release or operator goal,
 has clear rollback or escalation behavior, and emits useful logs/metrics. Otherwise fail the workflow clearly.
 
+## Production Implementation Contract
+
+Default to real operational implementation. Do not claim infrastructure, CI/CD, release, packaging, monitoring, or deployment work is complete when the main path depends on placeholder provider values, sample account IDs, fake secrets, no-op scripts, stubbed checks, local-only commands, disabled validation, mock services, or documentation that describes behavior the repo cannot execute unless the user explicitly asked for a prototype, proof of concept, fixture, or test harness.
+
+If the user asks for a prototype or proof of concept, label it as non-production in the handoff. State what it proves, which real providers, credentials, environments, pipelines, or deployment targets are deferred, and what must be replaced before production use.
+
+Before implementing an operational workflow, identify the real execution path and source of truth: workflow file, deployment script, IaC state, environment config, secrets manager, artifact store, registry, cloud provider, monitoring backend, or release channel. If the real integration point is unknown, do not invent template infrastructure; surface the gap, ask when it changes risk or cost, or do the smallest discovery needed.
+
 ## Post-Change Self-Review
 
 When you change code, tests, configuration, documentation, prompts, or plans, review your own change before handoff.
