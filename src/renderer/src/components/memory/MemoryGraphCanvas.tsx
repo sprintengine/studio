@@ -106,7 +106,7 @@ const STARFIELD_HALF = 2400 // stars distributed uniformly over [-2400, 2400] in
 const PARALLAX = 0.45 // stars move at this fraction of the camera so they appear further
 
 const REPULSION = 8000
-const SPRING_REST = 140
+const SPRING_REST = 170
 const SPRING_K = 0.004
 const CENTER_K = 0.0005
 const DAMPING = 0.88
