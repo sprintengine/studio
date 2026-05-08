@@ -1,6 +1,7 @@
 import type { IpcMain } from 'electron'
 import type {
   SwarmArtifactCommandResult,
+  SprintEngineStateInitializeInput,
   SwarmTaskCreateInput,
   SwarmTaskUpdateInput,
 } from '../../shared/electron-api'
@@ -32,6 +33,7 @@ type SprintEngineIpcDependencies = {
     mode: SwarmArtifactReviewMode
   ): Promise<SwarmArtifactCommandResult>
   readyTask(payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult>
+  initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SwarmArtifactCommandResult>
   updateTask(payload: SwarmTaskUpdateInput): Promise<SwarmArtifactCommandResult>
   createTask(payload: SwarmTaskCreateInput): Promise<SwarmArtifactCommandResult>
 }
@@ -55,6 +57,10 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:task:ready', async (_, payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult> => {
     return deps.readyTask(payload)
+  })
+
+  ipcMain.handle('sprintengine:state:initialize', async (_, payload: SprintEngineStateInitializeInput): Promise<SwarmArtifactCommandResult> => {
+    return deps.initializeSprintEngineState(payload)
   })
 
   ipcMain.handle('sprintengine:task:update', async (_, payload: SwarmTaskUpdateInput): Promise<SwarmArtifactCommandResult> => {

@@ -1065,7 +1065,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       </div>
     </div>
   ) : null
-  const showPlanningActions = !hasPlannedTasks
+  const showPlanningActions = !isSymphonyWorkspace && !hasPlannedTasks
   const needsInputAgent = runtimeAgents.find((agent) => agent.status === 'needs_input')
   const runningAgent = runtimeAgents.find((agent) => agent.status === 'running')
   const focusAgent = needsInputAgent ?? runningAgent
@@ -1431,33 +1431,35 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 </span>
               </>
             ) : null}
-            <button
-              type="button"
-              role="switch"
-              aria-checked={keepDoneAgentTerminals}
-              aria-label="Keep done agent terminals open"
-              onClick={toggleKeepDoneAgentTerminals}
-              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
-                keepDoneAgentTerminals
-                  ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
-                  : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
-              }`}
-              title="Keep completed Sprint Engine agent terminals open"
-            >
-              <span
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                  keepDoneAgentTerminals ? 'bg-[#5c7cff]' : 'bg-[#303139]'
+            {!isSymphonyWorkspace ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={keepDoneAgentTerminals}
+                aria-label="Keep done agent terminals open"
+                onClick={toggleKeepDoneAgentTerminals}
+                className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                  keepDoneAgentTerminals
+                    ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
+                    : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
                 }`}
-                aria-hidden="true"
+                title="Keep completed Sprint Engine agent terminals open"
               >
                 <span
-                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
-                    keepDoneAgentTerminals ? 'translate-x-4' : 'translate-x-0'
+                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                    keepDoneAgentTerminals ? 'bg-[#5c7cff]' : 'bg-[#303139]'
                   }`}
-                />
-              </span>
-              <span>Keep terminals</span>
-            </button>
+                  aria-hidden="true"
+                >
+                  <span
+                    className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+                      keepDoneAgentTerminals ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </span>
+                <span>Keep terminals</span>
+              </button>
+            ) : null}
             {!isSymphonyWorkspace ? (
               <>
                 <label className="sr-only" htmlFor={`sprintengine-cli-permissions-${workspaceId}`}>
@@ -1492,10 +1494,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             {!fixedView ? (
               <div className="ml-1 flex flex-wrap items-center gap-1">
                 {([
-                  { id: 'project' as const, label: 'Project' },
-                  { id: 'map' as const, label: 'Map' },
+                  { id: 'project' as const, label: isSymphonyWorkspace ? 'Intake' : 'Project' },
+                  { id: 'map' as const, label: isSymphonyWorkspace ? 'Agents' : 'Map' },
                   { id: 'task-graph' as const, label: 'Task Graph' },
-                  { id: 'kanban' as const, label: 'Kanban' },
+                  { id: 'kanban' as const, label: isSymphonyWorkspace ? 'Board' : 'Kanban' },
                 ]).map((view) => (
                   <button
                     key={view.id}
@@ -1541,8 +1543,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               onClick={() => void refreshSwarmState()}
               disabled={!folderPath || manualRefreshBusy}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#838896]"
-              title="Refresh Sprint Engine state"
-              aria-label="Refresh Sprint Engine state"
+              title={isSymphonyWorkspace ? 'Refresh Symphony board' : 'Refresh Sprint Engine state'}
+              aria-label={isSymphonyWorkspace ? 'Refresh Symphony board' : 'Refresh Sprint Engine state'}
             >
               <RefreshSwarmIcon />
             </button>
@@ -1600,7 +1602,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 {agents[architectAgentId]?.cliStartRequested ? 'Open Architect' : 'Spawn Architect'}
               </button>
             ) : null}
-            {architectAgentId ? (
+            {architectAgentId && !isSymphonyWorkspace ? (
               <button
                 onClick={openRecoveryDialog}
                 className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
@@ -1716,6 +1718,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
           readyTasks={readyTasks}
           reviewArtifacts={reviewArtifacts}
           artifactActions={artifactActions}
+          isSymphony={isSymphonyWorkspace}
+          githubSyncBusy={githubSyncBusy}
+          canSyncGitHub={Boolean(folderPath && swarmContext?.statePath && !githubSyncBusy)}
+          onCreateLocalTask={() => {
+            setCreateTaskOpen(true)
+            setCreateTaskAction({ status: 'idle', message: '' })
+          }}
+          onSyncGitHub={() => void syncGitHubIssues()}
           onSelectAgent={(agentId) => {
             if (agents[agentId]?.cliStartRequested) {
               openAgentTerminal(agentId)
@@ -1759,10 +1769,37 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
           {swarmState.tasks.length === 0 ? (
             <div className="col-span-full flex h-full min-h-[320px] items-center justify-center p-6 text-center">
               <div className="max-w-xl">
-                <div className="text-sm font-semibold text-[#ececee]">Waiting for the architect plan</div>
+                <div className="text-sm font-semibold text-[#ececee]">
+                  {isSymphonyWorkspace ? 'No Symphony tasks yet' : 'Waiting for the architect plan'}
+                </div>
                 <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                  The board will populate as the architect adds tasks through the Sprint Engine tool.
+                  {isSymphonyWorkspace
+                    ? 'Sync GitHub issues or create a local task, then mark refined tasks Ready before starting a worker.'
+                    : 'The board will populate as the architect adds tasks through the Sprint Engine tool.'}
                 </p>
+                {isSymphonyWorkspace ? (
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreateTaskOpen(true)
+                        setCreateTaskAction({ status: 'idle', message: '' })
+                      }}
+                      disabled={!swarmContext?.statePath}
+                      className="rounded-md bg-[#a855f7]/12 px-3 py-1.5 text-sm font-semibold text-[#e9d5ff] transition-colors hover:bg-[#a855f7]/18 disabled:cursor-default disabled:opacity-45"
+                    >
+                      New Local Task
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void syncGitHubIssues()}
+                      disabled={!folderPath || !swarmContext?.statePath || githubSyncBusy}
+                      className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-default disabled:opacity-45"
+                    >
+                      {githubSyncBusy ? 'Syncing GitHub...' : 'Sync GitHub'}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -2904,6 +2941,11 @@ function SwarmProjectView({
   readyTasks,
   reviewArtifacts,
   artifactActions,
+  isSymphony,
+  githubSyncBusy,
+  canSyncGitHub,
+  onCreateLocalTask,
+  onSyncGitHub,
   onSelectAgent,
   onSelectTask,
   onAddMember,
@@ -2923,6 +2965,11 @@ function SwarmProjectView({
   readyTasks: SwarmTask[]
   reviewArtifacts: SwarmArtifact[]
   artifactActions: Record<string, ArtifactActionState>
+  isSymphony: boolean
+  githubSyncBusy: boolean
+  canSyncGitHub: boolean
+  onCreateLocalTask: () => void
+  onSyncGitHub: () => void
   onSelectAgent: (agentId: string) => void
   onSelectTask: (taskId: string) => void
   onAddMember: () => void
@@ -2984,65 +3031,87 @@ function SwarmProjectView({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Project Brief
+                {isSymphony ? 'Symphony Intake' : 'Project Brief'}
               </div>
               <h2 className="mt-1 truncate text-lg font-semibold text-[#ececee]">
                 {swarmState.name}
               </h2>
             </div>
-            <button
-              onClick={onReadPlan}
-              className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-            >
-              Read Plan
-            </button>
+            {isSymphony ? (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={onCreateLocalTask}
+                  className="rounded-md bg-[#a855f7]/12 px-3 py-1.5 text-sm font-semibold text-[#e9d5ff] transition-colors hover:bg-[#a855f7]/18"
+                >
+                  New Local Task
+                </button>
+                <button
+                  type="button"
+                  onClick={onSyncGitHub}
+                  disabled={!canSyncGitHub}
+                  className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-default disabled:opacity-45"
+                >
+                  {githubSyncBusy ? 'Syncing GitHub...' : 'Sync GitHub'}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onReadPlan}
+                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              >
+                Read Plan
+              </button>
+            )}
           </div>
 
           <div className="mt-4 space-y-5">
             <div className="grid gap-x-6 gap-y-3 border-y border-[#1f2025] py-4 sm:grid-cols-4">
-              <MetaItem label="Phase" value={runPhase} />
+              <MetaItem label={isSymphony ? 'Queue' : 'Phase'} value={isSymphony ? getSymphonyQueueLabel(swarmState.tasks) : runPhase} />
               <MetaItem label="Tasks" value={String(swarmState.tasks.length)} />
               <MetaItem label="Done" value={`${doneCount}/${swarmState.tasks.length}`} />
               <MetaItem label="Active" value={`${activeCount} running, ${needsInputCount} waiting`} />
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (canExpandGoal) setGoalExpanded((current) => !current)
-              }}
-              aria-expanded={goalExpanded}
-              className={`block w-full border-l-2 border-[#303139] pl-3 text-left transition-colors ${
-                canExpandGoal ? 'hover:border-[#5c7cff]' : ''
-              }`}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Goal
+            {!isSymphony ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (canExpandGoal) setGoalExpanded((current) => !current)
+                }}
+                aria-expanded={goalExpanded}
+                className={`block w-full border-l-2 border-[#303139] pl-3 text-left transition-colors ${
+                  canExpandGoal ? 'hover:border-[#5c7cff]' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                    Goal
+                  </div>
+                  {canExpandGoal ? (
+                    <svg
+                      className={`h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${goalExpanded ? 'rotate-180' : ''}`}
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  ) : null}
                 </div>
-                {canExpandGoal ? (
-                  <svg
-                    className={`h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${goalExpanded ? 'rotate-180' : ''}`}
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : null}
-              </div>
-              <div className={`mt-2 whitespace-pre-wrap text-sm leading-6 text-[#d7d7dc] ${
-                goalExpanded ? 'max-h-72 overflow-y-auto pr-2' : 'line-clamp-4'
-              }`}>
-                {goalExpanded ? fullGoal : goalPreview}
-              </div>
-            </button>
+                <div className={`mt-2 whitespace-pre-wrap text-sm leading-6 text-[#d7d7dc] ${
+                  goalExpanded ? 'max-h-72 overflow-y-auto pr-2' : 'line-clamp-4'
+                }`}>
+                  {goalExpanded ? fullGoal : goalPreview}
+                </div>
+              </button>
+            ) : null}
 
             <SwarmArtifactList
               artifacts={reviewArtifacts}
               tasksById={tasksById}
               actions={artifactActions}
-              emptyLabel="No review artifacts are registered for this sprintengine run."
+              emptyLabel={isSymphony ? 'No review artifacts are registered for this Symphony workspace.' : 'No review artifacts are registered for this sprintengine run.'}
               onSelectTask={onSelectTask}
               onOpenArtifact={onOpenArtifact}
               onApproveArtifact={onApproveArtifact}
@@ -4941,6 +5010,13 @@ function getRunPhase(swarmState: SwarmState, runtimeAgents: RuntimeAgentView[]):
     return 'Tasked'
   }
   return 'Planning'
+}
+
+function getSymphonyQueueLabel(tasks: SwarmTask[]): string {
+  if (tasks.length === 0) return 'Empty'
+  if (tasks.some((task) => task.status === 'in_progress' || task.status === 'needs_input')) return 'Running'
+  if (tasks.some((task) => getSwarmTaskBoardColumn(task, tasks) === 'ready')) return 'Ready'
+  return 'Triage'
 }
 
 function formatSwarmGoal(goal: string): string {

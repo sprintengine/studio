@@ -1,9 +1,10 @@
 import { existsSync } from 'fs'
-import { readFile, stat } from 'fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'fs/promises'
 import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type {
   SwarmArtifactCommandResult,
+  SprintEngineStateInitializeInput,
   SwarmTaskCreateInput,
   SwarmTaskMutationRole,
   SwarmTaskUpdateInput,
@@ -63,6 +64,15 @@ type ValidSwarmStatePath = {
   statePath: string
   teamDirectory: string
   workspaceRoot: string
+}
+
+type SerializableSwarmStatePayload = {
+  name: string
+  goal: string
+  agents: Record<string, unknown>
+  tasks: unknown[]
+  events: unknown[]
+  artifacts: unknown[]
 }
 
 const autoApprovableArtifactKinds = new Set([
@@ -194,6 +204,46 @@ function resolveStringList(input: unknown, field: string): string[] | undefined 
     const value = item.trim()
     return value ? [value] : []
   })
+}
+
+function resolveRecord(input: unknown, field: string): Record<string, unknown> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error(`${field} must be an object.`)
+  }
+  return input as Record<string, unknown>
+}
+
+function resolveArray(input: unknown, field: string): unknown[] {
+  if (input === undefined || input === null) return []
+  if (!Array.isArray(input)) throw new Error(`${field} must be a list.`)
+  return input
+}
+
+function resolveInitialSwarmStatePayload(payload: SprintEngineStateInitializeInput): SerializableSwarmStatePayload {
+  return {
+    name: resolveRequiredString(payload?.name, 'Sprint Engine name'),
+    goal: resolveOptionalString(payload?.goal, 'Sprint Engine goal') ?? '',
+    agents: resolveRecord(payload?.agents, 'Sprint Engine agents'),
+    tasks: resolveArray(payload?.tasks, 'Sprint Engine tasks'),
+    events: resolveArray(payload?.events, 'Sprint Engine events'),
+    artifacts: resolveArray(payload?.artifacts, 'Sprint Engine artifacts'),
+  }
+}
+
+function buildInitialSwarmStateContent(payload: SerializableSwarmStatePayload): string {
+  return `${JSON.stringify({
+    sprintengine: {
+      name: payload.name,
+      goal: payload.goal,
+      status: 'planning',
+      rosterConfigured: true,
+    },
+    tasks: payload.tasks,
+    agents: payload.agents,
+    events: payload.events,
+    artifacts: payload.artifacts,
+    roles: {},
+  }, null, 2)}\n`
 }
 
 function getSprintEngineMcpPythonExecutable(workspaceRoot: string): string {
@@ -367,6 +417,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     mode: SwarmArtifactReviewMode
   ): Promise<SwarmArtifactCommandResult>
   readyTask(payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult>
+  initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SwarmArtifactCommandResult>
   updateTask(payload: SwarmTaskUpdateInput): Promise<SwarmArtifactCommandResult>
   createTask(payload: SwarmTaskCreateInput): Promise<SwarmArtifactCommandResult>
 } {
@@ -496,6 +547,30 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           },
         }
       } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async initializeSprintEngineState(payload) {
+      try {
+        const state = validateSwarmStatePath(payload?.statePath)
+        const actor = await requireSprintEngineMcpAuthority(deps)
+        const initialState = resolveInitialSwarmStatePayload(payload)
+        await mkdir(state.teamDirectory, { recursive: true })
+        await writeFile(state.statePath, buildInitialSwarmStateContent(initialState), { encoding: 'utf8', flag: 'wx' })
+        const stateContent = await readFile(state.statePath, 'utf8')
+        return {
+          ok: true,
+          data: {
+            action: 'initialize-state',
+            actor: actor.id,
+            stateContent,
+          },
+        }
+      } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
+          return { ok: true, data: { action: 'initialize-state', created: false } }
+        }
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
     },

@@ -2,6 +2,7 @@ import { ipcRenderer } from 'electron'
 import type {
   ElectronApi,
   SwarmArtifactCommandResult,
+  SprintEngineStateInitializeInput,
   SwarmTaskCreateInput,
   SwarmTaskUpdateInput,
 } from '../../shared/electron-api'
@@ -33,6 +34,10 @@ export const sprintEngineApi = {
     taskId: string
   ): Promise<SwarmArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:ready', { statePath, taskId }),
+  initializeSprintEngineState: (
+    input: SprintEngineStateInitializeInput
+  ): Promise<SwarmArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:state:initialize', input),
   updateSwarmTask: (
     input: SwarmTaskUpdateInput
   ): Promise<SwarmArtifactCommandResult> =>
@@ -48,6 +53,7 @@ export const sprintEngineApi = {
   | 'autoApproveSwarmArtifact'
   | 'requestSwarmArtifactChanges'
   | 'readySwarmTask'
+  | 'initializeSprintEngineState'
   | 'updateSwarmTask'
   | 'createSwarmTask'
 >

@@ -99,6 +99,7 @@ registerSprintEngineIpc(ipcMain, {
   openArtifact: sprintEngineArtifacts.openArtifact,
   reviewArtifact: sprintEngineArtifacts.reviewArtifact,
   readyTask: sprintEngineArtifacts.readyTask,
+  initializeSprintEngineState: sprintEngineArtifacts.initializeSprintEngineState,
   updateTask: sprintEngineArtifacts.updateTask,
   createTask: sprintEngineArtifacts.createTask,
 })

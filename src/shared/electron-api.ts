@@ -566,6 +566,16 @@ export type SwarmTaskCreateInput = {
   manualDispatch?: boolean
 }
 
+export type SprintEngineStateInitializeInput = {
+  statePath: string
+  name: string
+  goal: string
+  agents: Record<string, unknown>
+  tasks?: unknown[]
+  events?: unknown[]
+  artifacts?: unknown[]
+}
+
 export type MultiloopInitInput = {
   workspaceRoot: string
   loopName: string
@@ -910,6 +920,7 @@ export type ElectronApi = {
     feedback: string
   ) => Promise<SwarmArtifactCommandResult>
   readySwarmTask: (statePath: string, taskId: string) => Promise<SwarmArtifactCommandResult>
+  initializeSprintEngineState: (input: SprintEngineStateInitializeInput) => Promise<SwarmArtifactCommandResult>
   updateSwarmTask: (input: SwarmTaskUpdateInput) => Promise<SwarmArtifactCommandResult>
   createSwarmTask: (input: SwarmTaskCreateInput) => Promise<SwarmArtifactCommandResult>
   initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
