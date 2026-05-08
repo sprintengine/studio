@@ -1,251 +1,292 @@
 import React from 'react'
+import type { Element } from 'hast'
+import ReactMarkdown, { type Components, type ExtraProps, type UrlTransform } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { GitLineChange } from './gitDiff'
 
-type Block =
-  | { type: 'heading'; level: number; text: string }
-  | { type: 'paragraph'; text: string }
-  | { type: 'blockquote'; lines: string[] }
-  | { type: 'ul'; items: string[] }
-  | { type: 'ol'; items: string[] }
-  | { type: 'code'; code: string; language: string }
-  | { type: 'hr' }
+type MarkdownRenderOptions = {
+  lineChanges?: GitLineChange[]
+}
 
-const INLINE_RE =
-  /(`[^`]+`)|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(\*\*([^*]+)\*\*)|(__(.+?)__)|(\*([^*]+)\*)|(_([^_]+)_)/g
+type MarkdownNode = Element | undefined
+type MarkdownComponentProps<TagName extends keyof JSX.IntrinsicElements> =
+  React.ComponentPropsWithoutRef<TagName> & ExtraProps
 
-function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = []
-  let lastIndex = 0
-  let matchIndex = 0
+const baseTextClass = 'text-[15px] leading-7 text-[#d7d7dc]'
+const SAFE_MARKDOWN_URL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
-  for (const match of text.matchAll(INLINE_RE)) {
-    const full = match[0]
-    const index = match.index ?? 0
-    if (index > lastIndex) {
-      nodes.push(text.slice(lastIndex, index))
-    }
+function joinClasses(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(' ')
+}
 
-    if (match[1]) {
-      nodes.push(
-        <code
-          key={`${keyPrefix}-code-${matchIndex}`}
-          className="px-1.5 py-0.5 rounded bg-[#111216] border border-[#24252b] text-[#ffd58a]"
-        >
-          {full.slice(1, -1)}
-        </code>
-      )
-    } else if (match[2]) {
-      nodes.push(
+const safeMarkdownUrlTransform: UrlTransform = (url) => {
+  return isSafeMarkdownUrl(url) ? url : ''
+}
+
+function isSafeMarkdownUrl(url: string | undefined): url is string {
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    return SAFE_MARKDOWN_URL_PROTOCOLS.has(parsed.protocol)
+  } catch {
+    return false
+  }
+}
+
+function lineRange(node: MarkdownNode): { startLine: number; endLine: number } | null {
+  const startLine = node?.position?.start?.line
+  const endLine = node?.position?.end?.line
+  if (typeof startLine !== 'number' || typeof endLine !== 'number') return null
+  return { startLine, endLine }
+}
+
+function changeKindForRange(
+  node: MarkdownNode,
+  lineChanges: GitLineChange[] | undefined
+): GitLineChange['kind'] | null {
+  if (!lineChanges?.length) return null
+  const range = lineRange(node)
+  if (!range) return null
+
+  let matched: GitLineChange['kind'] | null = null
+
+  for (const change of lineChanges) {
+    const overlaps = change.startLine <= range.endLine && change.endLine >= range.startLine
+    if (!overlaps) continue
+    if (change.kind === 'deleted') return 'deleted'
+    if (change.kind === 'modified') matched = 'modified'
+    if (!matched) matched = change.kind
+  }
+
+  return matched
+}
+
+function changedBlockClass(
+  node: MarkdownNode,
+  lineChanges: GitLineChange[] | undefined
+): string | null {
+  const kind = changeKindForRange(node, lineChanges)
+  return kind ? `markdown-change-block markdown-change-${kind}` : null
+}
+
+export function renderMarkdown(markdown: string, options: MarkdownRenderOptions = {}): React.ReactNode {
+  const { lineChanges } = options
+
+  const components: Components = {
+    h1: ({ node, children, className }: MarkdownComponentProps<'h1'>) => (
+      <h1
+        className={joinClasses(
+          className,
+          'mt-7 first:mt-0 mb-4 text-3xl font-semibold leading-tight tracking-tight text-[#ececee]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </h1>
+    ),
+    h2: ({ node, children, className }: MarkdownComponentProps<'h2'>) => (
+      <h2
+        className={joinClasses(
+          className,
+          'mt-7 first:mt-0 mb-3 text-2xl font-semibold leading-tight tracking-tight text-[#ececee]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </h2>
+    ),
+    h3: ({ node, children, className }: MarkdownComponentProps<'h3'>) => (
+      <h3
+        className={joinClasses(
+          className,
+          'mt-6 first:mt-0 mb-3 text-xl font-semibold leading-snug tracking-tight text-[#ececee]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </h3>
+    ),
+    h4: ({ node, children, className }: MarkdownComponentProps<'h4'>) => (
+      <h4
+        className={joinClasses(
+          className,
+          'mt-5 first:mt-0 mb-2 text-lg font-semibold leading-snug text-[#ececee]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </h4>
+    ),
+    h5: ({ node, children, className }: MarkdownComponentProps<'h5'>) => (
+      <h5
+        className={joinClasses(
+          className,
+          'mt-5 first:mt-0 mb-2 text-base font-semibold leading-snug text-[#ececee]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </h5>
+    ),
+    h6: ({ node, children, className }: MarkdownComponentProps<'h6'>) => (
+      <h6
+        className={joinClasses(
+          className,
+          'mt-5 first:mt-0 mb-2 text-sm font-semibold uppercase leading-snug tracking-[0.08em] text-[#b9b9c2]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </h6>
+    ),
+    p: ({ node, children, className }: MarkdownComponentProps<'p'>) => (
+      <p
+        className={joinClasses(className, baseTextClass, 'mb-4', changedBlockClass(node, lineChanges))}
+      >
+        {children}
+      </p>
+    ),
+    a: ({ children, href, className }: MarkdownComponentProps<'a'>) => {
+      if (!isSafeMarkdownUrl(href)) {
+        return <span className={joinClasses(className, 'text-[#d7d7dc]')}>{children}</span>
+      }
+
+      return (
         <a
-          key={`${keyPrefix}-link-${matchIndex}`}
-          href={match[4]}
+          href={href}
           target="_blank"
           rel="noreferrer"
-          className="text-[#5c7cff] hover:text-[#b8ccff] underline underline-offset-2"
+          className={joinClasses(className, 'text-[#7f99ff] underline underline-offset-2 hover:text-[#c5d2ff]')}
         >
-          {renderInline(match[3], `${keyPrefix}-link-text-${matchIndex}`)}
+          {children}
         </a>
       )
-    } else if (match[5] || match[7]) {
-      const strongText = match[6] ?? match[8] ?? ''
-      nodes.push(
-        <strong key={`${keyPrefix}-strong-${matchIndex}`} className="font-semibold text-[#ececee]">
-          {renderInline(strongText, `${keyPrefix}-strong-text-${matchIndex}`)}
-        </strong>
-      )
-    } else if (match[9] || match[11]) {
-      const emText = match[10] ?? match[12] ?? ''
-      nodes.push(
-        <em key={`${keyPrefix}-em-${matchIndex}`} className="italic text-[#d7d7dc]">
-          {renderInline(emText, `${keyPrefix}-em-text-${matchIndex}`)}
-        </em>
-      )
-    }
-
-    lastIndex = index + full.length
-    matchIndex += 1
-  }
-
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex))
-  }
-
-  return nodes
-}
-
-function parseMarkdown(markdown: string): Block[] {
-  const blocks: Block[] = []
-  const lines = markdown.replace(/\r\n/g, '\n').split('\n')
-
-  let i = 0
-  while (i < lines.length) {
-    const line = lines[i]
-    const trimmed = line.trim()
-
-    if (!trimmed) {
-      i += 1
-      continue
-    }
-
-    if (trimmed.startsWith('```')) {
-      const language = trimmed.slice(3).trim()
-      const codeLines: string[] = []
-      i += 1
-      while (i < lines.length && !lines[i].trim().startsWith('```')) {
-        codeLines.push(lines[i])
-        i += 1
-      }
-      if (i < lines.length) i += 1
-      blocks.push({ type: 'code', code: codeLines.join('\n'), language })
-      continue
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/)
-    if (headingMatch) {
-      blocks.push({
-        type: 'heading',
-        level: headingMatch[1].length,
-        text: headingMatch[2],
-      })
-      i += 1
-      continue
-    }
-
-    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
-      blocks.push({ type: 'hr' })
-      i += 1
-      continue
-    }
-
-    if (trimmed.startsWith('>')) {
-      const quoteLines: string[] = []
-      while (i < lines.length && lines[i].trim().startsWith('>')) {
-        quoteLines.push(lines[i].trim().replace(/^>\s?/, ''))
-        i += 1
-      }
-      blocks.push({ type: 'blockquote', lines: quoteLines })
-      continue
-    }
-
-    if (/^[-*+]\s+/.test(trimmed)) {
-      const items: string[] = []
-      while (i < lines.length && /^[-*+]\s+/.test(lines[i].trim())) {
-        items.push(lines[i].trim().replace(/^[-*+]\s+/, ''))
-        i += 1
-      }
-      blocks.push({ type: 'ul', items })
-      continue
-    }
-
-    if (/^\d+\.\s+/.test(trimmed)) {
-      const items: string[] = []
-      while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
-        items.push(lines[i].trim().replace(/^\d+\.\s+/, ''))
-        i += 1
-      }
-      blocks.push({ type: 'ol', items })
-      continue
-    }
-
-    const paragraphLines: string[] = []
-    while (i < lines.length) {
-      const current = lines[i].trim()
-      if (
-        !current ||
-        current.startsWith('```') ||
-        current.startsWith('>') ||
-        /^[-*+]\s+/.test(current) ||
-        /^\d+\.\s+/.test(current) ||
-        /^(#{1,6})\s+/.test(current) ||
-        /^(-{3,}|\*{3,}|_{3,})$/.test(current)
-      ) {
-        break
-      }
-      paragraphLines.push(current)
-      i += 1
-    }
-    blocks.push({ type: 'paragraph', text: paragraphLines.join(' ') })
-  }
-
-  return blocks
-}
-
-export function renderMarkdown(markdown: string): React.ReactNode {
-  const blocks = parseMarkdown(markdown)
-
-  return blocks.map((block, index) => {
-    if (block.type === 'heading') {
-      const tagName = `h${block.level}`
-      const sizeClass =
-        block.level === 1 ? 'text-3xl' :
-        block.level === 2 ? 'text-2xl' :
-        block.level === 3 ? 'text-xl' :
-        'text-lg'
-
-      return React.createElement(
-        tagName,
-        {
-          key: `heading-${index}`,
-          className: `${sizeClass} font-semibold tracking-tight text-[#ececee] mt-6 first:mt-0 mb-3`,
-        },
-        renderInline(block.text, `heading-${index}`)
-      )
-    }
-
-    if (block.type === 'paragraph') {
-      return (
-        <p key={`paragraph-${index}`} className="text-[15px] leading-7 text-[#d7d7dc] mb-4">
-          {renderInline(block.text, `paragraph-${index}`)}
-        </p>
-      )
-    }
-
-    if (block.type === 'blockquote') {
-      return (
-        <blockquote
-          key={`quote-${index}`}
-          className="border-l-2 border-[#303139] pl-4 py-0.5 my-4 text-[#9a9aa2]"
+    },
+    strong: ({ children, className }: MarkdownComponentProps<'strong'>) => (
+      <strong className={joinClasses(className, 'font-semibold text-[#ececee]')}>
+        {children}
+      </strong>
+    ),
+    em: ({ children, className }: MarkdownComponentProps<'em'>) => (
+      <em className={joinClasses(className, 'italic text-[#d7d7dc]')}>
+        {children}
+      </em>
+    ),
+    code: ({ children, className }: MarkdownComponentProps<'code'>) => (
+      <code
+        className={joinClasses(
+          className,
+          'rounded border border-[#24252b] bg-[#111216] px-1.5 py-0.5 text-[#ffd58a]'
+        )}
+      >
+        {children}
+      </code>
+    ),
+    pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => (
+      <pre
+        className={joinClasses(
+          className,
+          'my-4 overflow-x-auto rounded-lg border border-[#24252b] bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </pre>
+    ),
+    blockquote: ({ node, children, className }: MarkdownComponentProps<'blockquote'>) => (
+      <blockquote
+        className={joinClasses(
+          className,
+          'my-4 border-l-2 border-[#303139] py-0.5 pl-4 text-[#9a9aa2]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </blockquote>
+    ),
+    ul: ({ node, children, className }: MarkdownComponentProps<'ul'>) => (
+      <ul
+        className={joinClasses(
+          className,
+          'mb-4 ml-6 list-disc space-y-2 text-[15px] leading-7 text-[#d7d7dc]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </ul>
+    ),
+    ol: ({ node, children, className, start, reversed, type }: MarkdownComponentProps<'ol'>) => (
+      <ol
+        start={start}
+        reversed={reversed}
+        type={type}
+        className={joinClasses(
+          className,
+          'mb-4 ml-6 list-decimal space-y-2 text-[15px] leading-7 text-[#d7d7dc]',
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </ol>
+    ),
+    li: ({ node, children, className, value }: MarkdownComponentProps<'li'>) => (
+      <li
+        value={value}
+        className={joinClasses(
+          className,
+          changedBlockClass(node, lineChanges)
+        )}
+      >
+        {children}
+      </li>
+    ),
+    input: ({ className, checked, type }: MarkdownComponentProps<'input'>) => (
+      <input
+        checked={checked}
+        type={type}
+        className={joinClasses(className, 'mr-2 translate-y-[1px] accent-[#35d07f]')}
+        disabled
+      />
+    ),
+    img: ({ alt, className }: MarkdownComponentProps<'img'>) => (
+      <span className={joinClasses(className, 'text-[#9a9aa2]')}>
+        {alt ? `[Image: ${alt}]` : '[Image]'}
+      </span>
+    ),
+    table: ({ node, children, className }: MarkdownComponentProps<'table'>) => (
+      <div className={joinClasses('my-4 overflow-x-auto', changedBlockClass(node, lineChanges))}>
+        <table
+          className={joinClasses(className, 'w-full border-collapse text-left text-[13px] text-[#d7d7dc]')}
         >
-          {block.lines.map((line, lineIndex) => (
-            <p key={`quote-line-${index}-${lineIndex}`} className="leading-7">
-              {renderInline(line, `quote-${index}-${lineIndex}`)}
-            </p>
-          ))}
-        </blockquote>
-      )
-    }
+          {children}
+        </table>
+      </div>
+    ),
+    th: ({ children, className, align }: MarkdownComponentProps<'th'>) => (
+      <th
+        align={align}
+        className={joinClasses(className, 'border border-[#303139] bg-[#111216] px-3 py-2 font-semibold text-[#ececee]')}
+      >
+        {children}
+      </th>
+    ),
+    td: ({ children, className, align }: MarkdownComponentProps<'td'>) => (
+      <td align={align} className={joinClasses(className, 'border border-[#24252b] px-3 py-2 align-top')}>
+        {children}
+      </td>
+    ),
+    hr: ({ node, className }: MarkdownComponentProps<'hr'>) => (
+      <hr
+        className={joinClasses(className, 'my-6 border-0 border-t border-[#24252b]', changedBlockClass(node, lineChanges))}
+      />
+    ),
+  }
 
-    if (block.type === 'ul' || block.type === 'ol') {
-      const ListTag = block.type === 'ul' ? 'ul' : 'ol'
-      const markerClass = block.type === 'ul' ? 'list-disc' : 'list-decimal'
-      return (
-        <ListTag
-          key={`list-${index}`}
-          className={`${markerClass} ml-6 mb-4 space-y-2 text-[15px] leading-7 text-[#d7d7dc]`}
-        >
-          {block.items.map((item, itemIndex) => (
-            <li key={`list-item-${index}-${itemIndex}`}>
-              {renderInline(item, `list-${index}-${itemIndex}`)}
-            </li>
-          ))}
-        </ListTag>
-      )
-    }
-
-    if (block.type === 'code') {
-      return (
-        <div key={`code-${index}`} className="my-4 rounded-xl border border-[#24252b] overflow-hidden">
-          {block.language && (
-            <div className="px-3 py-2 text-[11px] uppercase tracking-[0.08em] text-[#5a5a63] bg-[#111216] border-b border-[#24252b]">
-              {block.language}
-            </div>
-          )}
-          <pre className="m-0 p-4 overflow-x-auto bg-[#08090b] text-[13px] leading-6 text-[#d7d7dc]">
-            <code>{block.code}</code>
-          </pre>
-        </div>
-      )
-    }
-
-    return <hr key={`hr-${index}`} className="my-6 border-0 border-t border-[#24252b]" />
-  })
+  return (
+    <div className="markdown-rendered">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={safeMarkdownUrlTransform}>
+        {markdown}
+      </ReactMarkdown>
+    </div>
+  )
 }

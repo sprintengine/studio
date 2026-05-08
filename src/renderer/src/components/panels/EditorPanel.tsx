@@ -73,6 +73,21 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       activeGitEntry.unstaged ? '1' : '0',
     ].join('\u001f')
     : ''
+  const previewGitLineChanges = useMemo(() => {
+    if (!showPreview || !activeFile || gitBaseContent?.path !== activeFile.path) return []
+
+    const lineCount = Math.max(activeContent.split(/\r\n|\r|\n/).length, 1)
+    const baseLineCount = gitBaseContent.content.split(/\r\n|\r|\n/).length
+    const tooLargeForDetailedDiff =
+      activeContent.length > GIT_DECORATION_MAX_CHARS
+      || gitBaseContent.content.length > GIT_DECORATION_MAX_CHARS
+      || lineCount > GIT_DECORATION_MAX_LINES
+      || baseLineCount > GIT_DECORATION_MAX_LINES
+
+    return tooLargeForDetailedDiff
+      ? []
+      : getGitLineChanges(gitBaseContent.content, activeContent)
+  }, [activeContent, activeFile?.path, gitBaseContent, showPreview])
 
   useEffect(() => {
     if (filePath) setActiveFile(workspaceId, filePath)
@@ -383,7 +398,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
         {showPreview ? (
           <div className="h-full overflow-y-auto bg-[#08090b] px-8 pb-8 pt-14">
             <div className="max-w-4xl mx-auto">
-              {renderMarkdown(activeContent)}
+              {renderMarkdown(activeContent, { lineChanges: previewGitLineChanges })}
             </div>
           </div>
         ) : (
