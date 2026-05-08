@@ -175,8 +175,8 @@ function workspaceActivityLabel(activity: WorkspaceActivity): string {
 function workspaceTabClass(mode: Workspace['mode'], active: boolean): string {
   if (mode === 'symphony') {
     return active
-      ? 'border-[#4c2d73] bg-[#171321] text-[#f1e8ff] shadow-[inset_0_-2px_0_rgba(168,85,247,0.62)]'
-      : 'border-transparent text-[#b9a3dc] hover:bg-[#8b5cf6]/10 hover:text-[#efe5ff]'
+      ? 'border-[#4c2d73] bg-[#1a1530] text-[#f1e8ff] shadow-[inset_0_-2px_0_rgba(124,92,242,0.72)]'
+      : 'border-transparent text-[#d4c8ff] hover:bg-[#7c5cf2]/10 hover:text-[#efe5ff]'
   }
 
   if (mode === 'sprintengine') {
@@ -185,14 +185,21 @@ function workspaceTabClass(mode: Workspace['mode'], active: boolean): string {
       : 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
   }
 
+  if (mode === 'swarm') {
+    return active
+      ? 'border-[#d97757] bg-[#241513] text-[#ffe2d4] shadow-[inset_0_-2px_0_rgba(217,119,87,0.68)]'
+      : 'border-transparent text-[#ffb088] hover:bg-[#d97757]/10 hover:text-[#ffe2d4]'
+  }
+
   return active
     ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
     : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
 }
 
 function workspaceTabIconClass(mode: Workspace['mode']): string {
-  if (mode === 'symphony') return 'text-[#a855f7]'
+  if (mode === 'symphony') return 'text-[#a78bfa]'
   if (mode === 'sprintengine') return 'text-[#ffbf2f]'
+  if (mode === 'swarm') return 'text-[#d97757]'
   return 'text-[#9a9aa2]'
 }
 

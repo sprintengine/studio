@@ -13,6 +13,7 @@ import {
 
 export type MobileBridgeStoredState = {
   enabled: boolean
+  relayUrl: string | null
   desktopInstanceId: string
   pairedDevices: MobileControlDevice[]
   pushRegistrations: MobilePushRegistration[]
@@ -20,6 +21,7 @@ export type MobileBridgeStoredState = {
 
 type PersistedMobileBridgeState = {
   enabled?: boolean
+  relayUrl?: unknown
   desktopInstanceId?: string
   pairedDevices?: unknown[]
   pushRegistrations?: unknown[]
@@ -34,6 +36,7 @@ export async function readMobileBridgeStore(storePath: string): Promise<MobileBr
     const payload = JSON.parse(await readFile(storePath, 'utf8')) as PersistedMobileBridgeState
     return {
       enabled: payload.enabled === true,
+      relayUrl: normalizeStoredRelayUrl(payload.relayUrl),
       desktopInstanceId: typeof payload.desktopInstanceId === 'string' && payload.desktopInstanceId
         ? payload.desktopInstanceId
         : `mdi_${randomBase64Url(18)}`,
@@ -51,6 +54,7 @@ export async function readMobileBridgeStore(storePath: string): Promise<MobileBr
   } catch {
     return {
       enabled: false,
+      relayUrl: null,
       desktopInstanceId: `mdi_${randomBase64Url(18)}`,
       pairedDevices: [],
       pushRegistrations: [],
@@ -62,9 +66,16 @@ export async function writeMobileBridgeStore(storePath: string, state: MobileBri
   await mkdir(dirname(storePath), { recursive: true })
   const payload: PersistedMobileBridgeState = {
     enabled: state.enabled,
+    relayUrl: state.relayUrl,
     desktopInstanceId: state.desktopInstanceId,
     pairedDevices: state.pairedDevices,
     pushRegistrations: state.pushRegistrations,
   }
   await writeFile(storePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+}
+
+function normalizeStoredRelayUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().replace(/\/+$/u, '')
+  return trimmed ? trimmed : null
 }

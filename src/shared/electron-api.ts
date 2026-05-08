@@ -774,6 +774,18 @@ export type MobileBridgeDiagnosticEntry = {
   retryable: boolean
 }
 
+export type MobileBridgeCommandEvent = {
+  id: string
+  commandId: string
+  commandType: MobileControlCommandType
+  deviceId: string | null
+  deviceName: string | null
+  receivedAt: string
+  completedAt?: string
+  status: 'received' | 'completed' | 'failed'
+  resultCode?: string
+}
+
 export type MobileBridgePairingChallenge = {
   pairingChallengeId: string
   pairingCode: string
@@ -796,10 +808,12 @@ export type MobileBridgeState = {
   pairedDevices: MobileControlDevice[]
   capabilities: MobileControlCapabilities
   diagnostics: MobileBridgeDiagnosticEntry[]
+  recentCommands: MobileBridgeCommandEvent[]
 }
 
 export type MobileBridgeSettingsUpdate = {
   enabled?: boolean
+  relayUrl?: string | null
 }
 
 export type ElectronApi = {

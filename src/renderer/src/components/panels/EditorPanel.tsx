@@ -37,7 +37,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const { repoRoot, status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderPath)
 
   const openFiles = editorState?.openFiles ?? []
-  const activeFilePath = filePath ?? null
+  const activeFilePath = filePath ?? editorState?.activeFilePath ?? null
   const activeFile = openFiles.find((f) => f.path === activeFilePath)
   const isImage = Boolean(activeFilePath && activeFile && isImageFile(activeFile.path || activeFile.name))
   const activeFileHasRuntimeBuffer = activeFilePath

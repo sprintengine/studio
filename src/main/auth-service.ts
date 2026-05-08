@@ -61,6 +61,7 @@ type PendingDesktopLogin = {
 
 class MulticodeMultiauthClient {
   private accessToken: string | null = null
+  private accessTokenExpiresAt = 0
   private selectedOrganizationId: string | null = null
   private entitlementCache: EntitlementSnapshot | null = null
 
@@ -99,11 +100,13 @@ class MulticodeMultiauthClient {
     }).catch(async (error) => {
       await this.refreshTokenStore.clearRefreshToken()
       this.accessToken = null
+      this.accessTokenExpiresAt = 0
       this.entitlementCache = null
       throw error
     })
     await this.refreshTokenStore.clearRefreshToken()
     this.accessToken = null
+    this.accessTokenExpiresAt = 0
     this.entitlementCache = null
     return result
   }
@@ -149,7 +152,7 @@ class MulticodeMultiauthClient {
   }
 
   async getAccessToken(clientId: typeof MULTICODE_CLIENT_ID = MULTICODE_CLIENT_ID): Promise<string> {
-    if (!this.accessToken) {
+    if (!this.accessToken || this.accessTokenExpiresAt <= Date.now() + 60_000) {
       await this.refresh(clientId)
     }
     if (!this.accessToken) {
@@ -193,6 +196,7 @@ class MulticodeMultiauthClient {
 
   private async installTokens(tokenSet: TokenSet): Promise<void> {
     this.accessToken = tokenSet.accessToken
+    this.accessTokenExpiresAt = Date.now() + Math.max(0, tokenSet.expiresIn - 30) * 1000
     await this.refreshTokenStore.writeRefreshToken(tokenSet.refreshToken)
   }
 }

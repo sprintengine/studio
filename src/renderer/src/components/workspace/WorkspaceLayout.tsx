@@ -475,17 +475,22 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       }
 
       if (node.getComponent() !== 'agent') {
-        if (node.getComponent()?.startsWith('sprintengine')) {
+        if (node.getComponent()?.startsWith('sprintengine') || node.getComponent()?.startsWith('swarm-review')) {
           const mode = workspace.mode === 'symphony' ? 'symphony' : 'sprintengine'
+          const iconMode = node.getComponent()?.startsWith('swarm-review') ? 'swarm' : mode
           renderValues.leading = (
             <span
               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
-                mode === 'symphony' ? 'text-[#a855f7]' : 'text-[#ffbf2f]'
+                iconMode === 'swarm'
+                  ? 'text-[#d97757]'
+                  : mode === 'symphony'
+                    ? 'text-[#a78bfa]'
+                    : 'text-[#ffbf2f]'
               }`}
-              title={mode === 'symphony' ? 'Symphony panel' : 'Sprint Engine panel'}
-              aria-label={mode === 'symphony' ? 'Symphony panel' : 'Sprint Engine panel'}
+              title={iconMode === 'swarm' ? 'Swarm panel' : mode === 'symphony' ? 'Symphony panel' : 'Sprint Engine panel'}
+              aria-label={iconMode === 'swarm' ? 'Swarm panel' : mode === 'symphony' ? 'Symphony panel' : 'Sprint Engine panel'}
             >
-              <WorkspaceTypeIcon mode={mode} className="h-3.5 w-3.5" />
+              <WorkspaceTypeIcon mode={iconMode} className="h-3.5 w-3.5" />
             </span>
           )
         }

@@ -1766,44 +1766,19 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
       {effectiveView === 'kanban' ? (
         <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(260px,1fr))] overflow-auto bg-[#08090b]">
-          {swarmState.tasks.length === 0 ? (
+          {swarmState.tasks.length === 0 && !isSymphonyWorkspace ? (
             <div className="col-span-full flex h-full min-h-[320px] items-center justify-center p-6 text-center">
               <div className="max-w-xl">
                 <div className="text-sm font-semibold text-[#ececee]">
-                  {isSymphonyWorkspace ? 'No Symphony tasks yet' : 'Waiting for the architect plan'}
+                  Waiting for the architect plan
                 </div>
                 <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                  {isSymphonyWorkspace
-                    ? 'Sync GitHub issues or create a local task, then mark refined tasks Ready before starting a worker.'
-                    : 'The board will populate as the architect adds tasks through the Sprint Engine tool.'}
+                  The board will populate as the architect adds tasks through the Sprint Engine tool.
                 </p>
-                {isSymphonyWorkspace ? (
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCreateTaskOpen(true)
-                        setCreateTaskAction({ status: 'idle', message: '' })
-                      }}
-                      disabled={!swarmContext?.statePath}
-                      className="rounded-md bg-[#a855f7]/12 px-3 py-1.5 text-sm font-semibold text-[#e9d5ff] transition-colors hover:bg-[#a855f7]/18 disabled:cursor-default disabled:opacity-45"
-                    >
-                      New Local Task
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void syncGitHubIssues()}
-                      disabled={!folderPath || !swarmContext?.statePath || githubSyncBusy}
-                      className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-default disabled:opacity-45"
-                    >
-                      {githubSyncBusy ? 'Syncing GitHub...' : 'Sync GitHub'}
-                    </button>
-                  </div>
-                ) : null}
               </div>
             </div>
           ) : null}
-          {swarmState.tasks.length > 0 ? boardColumns.map((column) => (
+          {swarmState.tasks.length > 0 || isSymphonyWorkspace ? boardColumns.map((column) => (
           <section
             key={column.key}
             className="flex min-h-0 min-w-0 flex-col border-r border-[#1f2025] bg-[#08090b] last:border-r-0"

@@ -840,9 +840,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                       active && swarmOption
                         ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
                         : active && swarmReviewOption
-                          ? 'border-[#26373a] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(92,124,255,0.42)]'
+                          ? 'border-[#d97757] bg-[#241513] text-[#ffe2d4] shadow-[inset_0_-2px_0_rgba(217,119,87,0.68)]'
                         : active && symphonyOption
-                          ? 'border-[#26373a] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(110,231,216,0.42)]'
+                          ? 'border-[#4c2d73] bg-[#1a1530] text-[#f1e8ff] shadow-[inset_0_-2px_0_rgba(124,92,242,0.72)]'
                         : active && multiloopOption
                           ? 'border-[#26373a] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(110,231,216,0.42)]'
                         : active
@@ -850,9 +850,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                           : swarmOption
                             ? 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
                             : swarmReviewOption
-                              ? 'border-transparent text-[#9a9aa2] hover:bg-[#5c7cff]/8 hover:text-[#d4ddff]'
+                              ? 'border-transparent text-[#ffb088] hover:bg-[#d97757]/10 hover:text-[#ffe2d4]'
                             : symphonyOption
-                              ? 'border-transparent text-[#9a9aa2] hover:bg-[#5c7cff]/8 hover:text-[#d4ddff]'
+                              ? 'border-transparent text-[#d4c8ff] hover:bg-[#7c5cf2]/10 hover:text-[#efe5ff]'
                             : multiloopOption
                               ? 'border-transparent text-[#9a9aa2] hover:bg-[#5c7cff]/8 hover:text-[#d4ddff]'
                             : 'border-transparent text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
@@ -861,7 +861,15 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                     {swarmOption || swarmReviewOption || symphonyOption || multiloopOption ? (
                       <WorkspaceTypeIcon
                         mode={swarmOption ? 'sprintengine' : swarmReviewOption ? 'swarm' : symphonyOption ? 'symphony' : 'multiloop'}
-                        className={`h-3.5 w-3.5 shrink-0 ${swarmOption ? 'text-[#ffbf2f]' : 'text-[#5c7cff]'}`}
+                        className={`h-3.5 w-3.5 shrink-0 ${
+                          swarmOption
+                            ? 'text-[#ffbf2f]'
+                            : swarmReviewOption
+                              ? 'text-[#d97757]'
+                            : symphonyOption
+                              ? 'text-[#a78bfa]'
+                              : 'text-[#5c7cff]'
+                        }`}
                       />
                     ) : null}
                     {option.label}

@@ -50,6 +50,18 @@ type MobileBridgeDiagnosticEntry = {
   retryable: boolean
 }
 
+type MobileBridgeCommandEvent = {
+  id: string
+  commandId: string
+  commandType: MobileControlCommandType
+  deviceId: string | null
+  deviceName: string | null
+  receivedAt: string
+  completedAt?: string
+  status: 'received' | 'completed' | 'failed'
+  resultCode?: string
+}
+
 type MobileBridgePairingChallenge = {
   pairingChallengeId: string
   pairingCode: string
@@ -80,11 +92,12 @@ type MobileBridgeState = {
     snapshotTtlMs: number
   }
   diagnostics: MobileBridgeDiagnosticEntry[]
+  recentCommands: MobileBridgeCommandEvent[]
 }
 
 type MobileBridgeApi = {
   mobileBridgeGetState: () => Promise<MobileBridgeState>
-  mobileBridgeUpdateSettings: (input: { enabled?: boolean }) => Promise<MobileBridgeState>
+  mobileBridgeUpdateSettings: (input: { enabled?: boolean; relayUrl?: string | null }) => Promise<MobileBridgeState>
   mobileBridgeRequestPairingCode: () => Promise<MobileBridgePairingChallenge>
   mobileBridgeRevokeDevice: (deviceId: string, reason?: string) => Promise<MobileControlDevice>
   mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
@@ -107,6 +120,7 @@ export default function MobileCompanionPanel() {
   })
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
+  const [relayUrlDraft, setRelayUrlDraft] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -116,6 +130,7 @@ export default function MobileCompanionPanel() {
         const next = await mobileBridgeApi.mobileBridgeGetState()
         if (cancelled) return
         setState(next)
+        setRelayUrlDraft(next.relayUrl ?? '')
         setAction({ status: 'idle', message: statusMessage(next) })
       } catch (error) {
         if (cancelled) return
@@ -130,6 +145,7 @@ export default function MobileCompanionPanel() {
     const dispose = mobileBridgeApi.onMobileBridgeStateChanged((next) => {
       if (cancelled) return
       setState(next)
+      setRelayUrlDraft((current) => current || next.relayUrl || '')
       setAction((current) => ({
         status: current.status === 'busy' ? 'busy' : 'idle',
         message: statusMessage(next),
@@ -166,6 +182,22 @@ export default function MobileCompanionPanel() {
       setAction({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to update mobile companion.',
+      })
+    }
+  }
+
+  const saveRelayUrl = async () => {
+    if (busy) return
+    setAction({ status: 'busy', message: 'Saving relay URL...' })
+    try {
+      const next = await mobileBridgeApi.mobileBridgeUpdateSettings({ relayUrl: relayUrlDraft.trim() || null })
+      setState(next)
+      setRelayUrlDraft(next.relayUrl ?? '')
+      setAction({ status: 'idle', message: statusMessage(next) })
+    } catch (error) {
+      setAction({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to save relay URL.',
       })
     }
   }
@@ -256,12 +288,12 @@ export default function MobileCompanionPanel() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-        <div className={`mb-5 rounded-md border px-4 py-3 ${
+        <div className={`mb-5 border-b px-1 pb-4 ${
           action.status === 'error'
-            ? 'border-[#ff787c]/35 bg-[#ff787c]/8 text-[#ffb3bf]'
+            ? 'border-[#ff787c]/35 text-[#ffb3bf]'
             : enabled && state?.relayStatus === 'connected'
-              ? 'border-[#30d158]/28 bg-[#30d158]/8 text-[#c9f8d5]'
-              : 'border-[#303139] bg-[#111216] text-[#d7d7dc]'
+              ? 'border-[#30d158]/28 text-[#c9f8d5]'
+              : 'border-[#303139] text-[#d7d7dc]'
         }`}>
           <div className="text-sm font-semibold">{headline(state, action)}</div>
           <div className="mt-1 text-[12px] leading-5 text-current opacity-80">{action.message}</div>
@@ -270,13 +302,36 @@ export default function MobileCompanionPanel() {
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
           <section className="min-w-0 space-y-4">
             <div className="rounded-md border border-[#24252b] bg-[#0d0e11] p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-[#ececee]">Pair a phone</div>
-                  <div className="mt-1 text-[12px] leading-5 text-[#8b8c94]">
-                    Generate a short-lived code, then enter it in the mobile app.
-                  </div>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+                  Relay URL
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    value={relayUrlDraft}
+                    onChange={(event) => setRelayUrlDraft(event.target.value)}
+                    onBlur={() => void saveRelayUrl()}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') event.currentTarget.blur()
+                    }}
+                    placeholder="http://192.168.0.35:3000"
+                    className="h-9 min-w-0 flex-1 rounded-md border border-[#303139] bg-[#111216] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#6ee7d8]/70"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveRelayUrl()}
+                    disabled={busy}
+                    className="h-9 rounded-md border border-[#303139] bg-[#111216] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216]"
+                  >
+                    Save
+                  </button>
                 </div>
+              </label>
+            </div>
+
+            <div className="border-b border-[#24252b] pb-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-[#ececee]">Pairing code</div>
                 <button
                   type="button"
                   onClick={requestPairingCode}
@@ -288,22 +343,44 @@ export default function MobileCompanionPanel() {
               </div>
 
               {pairingChallenge ? (
-                <div className="mt-4 rounded-md border border-[#3a3c44] bg-[#111216] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="font-mono text-3xl font-semibold tracking-[0.18em] text-[#f3f3f5]">
-                      {pairingChallenge.pairingCode}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void copyPairingCode()}
-                      className="rounded-md border border-[#303139] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:border-[#4b4d55] hover:bg-[#181a20]"
-                    >
-                      Copy
-                    </button>
-                  </div>
+                <div className="mt-5 text-center">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8b8c94]">Pairing code</div>
+                  <button
+                    type="button"
+                    onClick={() => void copyPairingCode()}
+                    className="mt-2 font-mono text-5xl font-semibold tracking-[0.2em] text-[#f3f3f5] transition-colors hover:text-[#d8fffb]"
+                  >
+                    {pairingChallenge.pairingCode}
+                  </button>
                   <div className="mt-2 text-[12px] text-[#8b8c94]">Expires {formatDate(pairingChallenge.expiresAt)}</div>
                 </div>
               ) : null}
+            </div>
+
+            <div className="border-b border-[#24252b] pb-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-[#ececee]">Mobile messages</div>
+                <div className="text-[12px] text-[#8b8c94]">{state?.recentCommands.length ?? 0} recent</div>
+              </div>
+              {state?.recentCommands.length ? (
+                <div className="divide-y divide-[#24252b]">
+                  {state.recentCommands.map((event) => (
+                    <div key={event.id} className="grid gap-1 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 truncate text-sm font-semibold text-[#ececee]">{commandLabel(event.commandType)}</div>
+                        <span className={`text-[11px] font-semibold ${commandStatusClass(event.status)}`}>{event.status}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#8b8c94]">
+                        <span>{event.deviceName ?? event.deviceId ?? 'Mobile device'}</span>
+                        <span>{formatDate(event.receivedAt)}</span>
+                        {event.resultCode ? <span>{event.resultCode}</span> : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[12px] text-[#8b8c94]">No mobile messages received yet.</div>
+              )}
             </div>
 
             <div className="rounded-md border border-[#24252b] bg-[#0d0e11] p-4">
@@ -411,6 +488,7 @@ function headline(state: MobileBridgeState | null, action: ActionState): string 
   if (action.status === 'error') return 'Mobile companion needs attention'
   if (!state?.enabled) return 'Mobile companion is off'
   if (state.relayStatus === 'connected') return 'Ready for mobile control'
+  if (latestDiagnosticMessage(state)?.toLowerCase().includes('access token has expired')) return 'Access token expired'
   if (state.relayStatus === 'connecting' || state.relayStatus === 'retrying') return 'Connecting to relay'
   return 'Relay is not ready'
 }
@@ -419,7 +497,15 @@ function statusMessage(state: MobileBridgeState): string {
   if (!state.enabled) return 'Turn it on, then generate a pairing code for your phone.'
   if (state.relayStatus === 'connected') return 'Your desktop is connected to the relay and ready for paired phones.'
   if (state.relayStatus === 'unconfigured') return 'No relay URL is configured.'
+  const diagnosticMessage = latestDiagnosticMessage(state)
+  if (diagnosticMessage?.toLowerCase().includes('access token has expired')) {
+    return 'Desktop access token has expired. Multicode will refresh it automatically; sign in again if this persists.'
+  }
   return `Relay status: ${relayStatusLabel(state.relayStatus)}.`
+}
+
+function latestDiagnosticMessage(state: MobileBridgeState): string | null {
+  return state.diagnostics[0]?.message ?? null
 }
 
 function relayStatusLabel(status: MobileBridgeRelayStatus): string {
@@ -455,6 +541,38 @@ function diagnosticDotClass(level: MobileBridgeDiagnosticEntry['level']): string
       return 'bg-[#ffbf2f]'
     default:
       return 'bg-[#5c7cff]'
+  }
+}
+
+function commandLabel(commandType: MobileControlCommandType): string {
+  switch (commandType) {
+    case 'snapshot.request':
+      return 'Snapshot requested'
+    case 'artifact.read':
+      return 'Artifact opened'
+    case 'artifact.approve':
+      return 'Artifact approved'
+    case 'artifact.requestChanges':
+      return 'Changes requested'
+    case 'agent.followUp':
+      return 'Follow-up sent'
+    case 'task.start':
+      return 'Task start requested'
+    case 'sprintengine.create':
+      return 'Sprint Engine create requested'
+    case 'device.revoke':
+      return 'Device revoke requested'
+  }
+}
+
+function commandStatusClass(status: MobileBridgeCommandEvent['status']): string {
+  switch (status) {
+    case 'completed':
+      return 'text-[#b9f7c8]'
+    case 'failed':
+      return 'text-[#ffb3bf]'
+    case 'received':
+      return 'text-[#ffd58a]'
   }
 }
 

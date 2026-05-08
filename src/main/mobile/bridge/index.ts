@@ -258,6 +258,18 @@ export type MobileBridgeDiagnosticEntry = {
   retryable: boolean
 }
 
+export type MobileBridgeCommandEvent = {
+  id: string
+  commandId: string
+  commandType: MobileControlCommandType
+  deviceId: string | null
+  deviceName: string | null
+  receivedAt: string
+  completedAt?: string
+  status: 'received' | 'completed' | 'failed'
+  resultCode?: string
+}
+
 export type MobileBridgePairingChallenge = {
   pairingChallengeId: string
   pairingCode: string
@@ -280,10 +292,12 @@ export type MobileBridgeState = {
   pairedDevices: MobileControlDevice[]
   capabilities: MobileControlCapabilities
   diagnostics: MobileBridgeDiagnosticEntry[]
+  recentCommands: MobileBridgeCommandEvent[]
 }
 
 export type MobileBridgeSettingsUpdate = {
   enabled?: boolean
+  relayUrl?: string | null
 }
 
 type DesktopSessionProvider = () => Promise<{ authenticated: boolean; session?: { id: string; expiresAt: string } }>
@@ -301,7 +315,8 @@ export type MobileBridgeOptions = {
   commandPollIntervalMs?: number
 }
 
-const RELAY_URL = process.env['MULTICODE_MOBILE_RELAY_URL']?.replace(/\/+$/u, '') || null
+const DEFAULT_RELAY_URL = 'http://192.168.0.35:3000'
+const RELAY_URL = process.env['MULTICODE_MOBILE_RELAY_URL']?.replace(/\/+$/u, '') || DEFAULT_RELAY_URL
 const INITIAL_RECONNECT_DELAY_MS = 1000
 const MAX_RECONNECT_DELAY_MS = 60 * 1000
 const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000
@@ -343,6 +358,13 @@ const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
   'agent.followup',
   'device.revoke',
 ]
+
+function normalizeRelayUrlUpdate(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null
+  const trimmed = value.trim().replace(/\/+$/u, '')
+  return trimmed || null
+}
+
 export class MobileBridge {
   private enabled = false
   private relayStatus: MobileBridgeRelayStatus = 'disabled'
@@ -356,12 +378,13 @@ export class MobileBridge {
   private pairedDevices: MobileControlDevice[] = []
   private pushRegistrations: MobilePushRegistration[] = []
   private diagnostics: MobileBridgeDiagnosticEntry[] = []
+  private recentCommands: MobileBridgeCommandEvent[] = []
   private reconnectTimer: NodeJS.Timeout | null = null
   private commandPollTimer: NodeJS.Timeout | null = null
   private reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS
   private loaded = false
   private relayToken: string | null = null
-  private readonly relayUrl: string | null
+  private relayUrl: string | null
   private readonly storePathOverride?: string
   private readonly accessTokenProvider: DesktopAccessTokenProvider
   private readonly relayTransport: MobileRelayTransport
@@ -395,13 +418,27 @@ export class MobileBridge {
     await this.load()
 
     const enabled = update && typeof update === 'object' ? update.enabled : undefined
+    const relayUrl = update && typeof update === 'object' && Object.hasOwn(update, 'relayUrl')
+      ? normalizeRelayUrlUpdate(update.relayUrl)
+      : undefined
+    if (relayUrl !== undefined && relayUrl !== this.relayUrl) {
+      this.relayUrl = relayUrl
+      this.disconnect(this.enabled ? 'unconfigured' : 'disabled')
+      this.recordDiagnostic(
+        'info',
+        relayUrl ? 'relay_connected' : 'relay_not_configured',
+        relayUrl ? 'Mobile relay URL updated.' : 'Mobile relay URL cleared.',
+        false
+      )
+    }
+
     if (typeof enabled === 'boolean' && enabled !== this.enabled) {
       this.enabled = enabled
       this.recordDiagnostic(
         'info',
         enabled ? 'relay_not_configured' : 'mobile_bridge_disabled',
         enabled ? 'Mobile companion control enabled.' : 'Mobile companion control disabled.',
-        enabled && !RELAY_URL
+        enabled && !this.relayUrl
       )
 
       if (this.enabled) {
@@ -414,6 +451,9 @@ export class MobileBridge {
     }
 
     await this.persist()
+    if (this.enabled && relayUrl !== undefined && this.relayUrl) {
+      this.connectWithBackoff(0)
+    }
     this.emitStateChanged()
     return this.snapshot()
   }
@@ -559,6 +599,7 @@ export class MobileBridge {
 
     const persisted = await readMobileBridgeStore(this.storePath)
     this.enabled = persisted.enabled
+    this.relayUrl = persisted.relayUrl ?? this.relayUrl
     this.desktopInstanceId = persisted.desktopInstanceId
     this.pairedDevices = persisted.pairedDevices
     this.pushRegistrations = persisted.pushRegistrations
@@ -574,6 +615,7 @@ export class MobileBridge {
   private async persist(): Promise<void> {
     await writeMobileBridgeStore(this.storePath, {
       enabled: this.enabled,
+      relayUrl: this.relayUrl,
       desktopInstanceId: this.desktopInstanceId,
       pairedDevices: this.pairedDevices,
       pushRegistrations: this.pushRegistrations,
@@ -734,7 +776,39 @@ export class MobileBridge {
       pairedDevices: this.pairedDevices,
       capabilities: this.capabilities,
       diagnostics: this.diagnostics,
+      recentCommands: this.recentCommands,
     }
+  }
+
+  private recordCommandEvent(input: {
+    commandId: string
+    commandType: MobileControlCommandType
+    device: MobileRelayAuthenticatedDevice | null
+    status: MobileBridgeCommandEvent['status']
+  }): void {
+    const event: MobileBridgeCommandEvent = {
+      id: `${input.commandId}:${Date.now()}`,
+      commandId: input.commandId,
+      commandType: input.commandType,
+      deviceId: input.device?.deviceId ?? null,
+      deviceName: input.device?.displayName ?? null,
+      receivedAt: new Date().toISOString(),
+      status: input.status,
+    }
+    this.recentCommands = [event, ...this.recentCommands].slice(0, 12)
+    this.emitStateChanged()
+  }
+
+  private completeCommandEvent(
+    commandId: string,
+    status: Extract<MobileBridgeCommandEvent['status'], 'completed' | 'failed'>,
+    resultCode: string
+  ): void {
+    const completedAt = new Date().toISOString()
+    this.recentCommands = this.recentCommands.map((event) =>
+      event.commandId === commandId ? { ...event, status, resultCode, completedAt } : event
+    )
+    this.emitStateChanged()
   }
 
   private recordDiagnostic(
@@ -811,11 +885,20 @@ export class MobileBridge {
     const { envelope, device } = normalizeRelayCommandDelivery(delivery)
     if (this.activeRelayCommandIds.has(envelope.commandId)) return
     this.activeRelayCommandIds.add(envelope.commandId)
+    const commandType = relayCommandTypeToMobile(envelope.commandType)
+    this.recordCommandEvent({
+      commandId: envelope.commandId,
+      commandType,
+      device,
+      status: 'received',
+    })
 
     try {
       const result = await this.dispatchRelayCommand(envelope, device)
+      this.completeCommandEvent(envelope.commandId, result.ok ? 'completed' : 'failed', result.ok ? 'ok' : result.error.code)
       await this.postCommandResult(envelope.commandId, result)
     } catch (error) {
+      this.completeCommandEvent(envelope.commandId, 'failed', 'internal_error')
       await this.postCommandResult(envelope.commandId, failedCommandResult(envelope, 'internal_error', getErrorMessage(error)))
     } finally {
       this.activeRelayCommandIds.delete(envelope.commandId)
