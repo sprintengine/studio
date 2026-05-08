@@ -151,6 +151,7 @@ interface WorkspaceStore {
     workspaceId: WorkspaceId,
     cliPermissionPreset: SwarmCliPermissionPreset
   ) => void
+  setSwarmMaxConcurrentAgents: (workspaceId: WorkspaceId, maxConcurrentAgents: number) => void
   setSwarmAutoPendingSpawns: (
     workspaceId: WorkspaceId,
     pendingSpawns: SwarmAutoPendingSpawn[]
@@ -463,6 +464,7 @@ const defaultSwarmAutoState = (): SwarmAutoState => ({
   autoApproveArtifacts: false,
   keepDoneAgentTerminals: false,
   cliPermissionPreset: 'default',
+  maxConcurrentAgents: 3,
   pendingSpawns: [],
 })
 
@@ -556,12 +558,17 @@ function normalizeSwarmAutoState(
       ? [legacyPending]
       : []
   const cliPermissionPreset = normalizeCliPermissionPreset(input?.cliPermissionPreset)
+  const maxConcurrentAgents =
+    typeof input?.maxConcurrentAgents === 'number' && Number.isFinite(input.maxConcurrentAgents)
+      ? Math.max(1, Math.min(10, Math.floor(input.maxConcurrentAgents)))
+      : 3
 
   return {
     enabled: Boolean(input?.enabled),
     autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
     keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
     cliPermissionPreset,
+    maxConcurrentAgents,
     pendingSpawns,
   }
 }
@@ -1310,6 +1317,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.swarmAutoState = {
             ...current,
             cliPermissionPreset,
+          }
+        }),
+
+      setSwarmMaxConcurrentAgents: (workspaceId, maxConcurrentAgents) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSwarmAutoState(ws.swarmAutoState)
+          ws.swarmAutoState = {
+            ...current,
+            maxConcurrentAgents: Math.max(1, Math.min(10, Math.floor(maxConcurrentAgents))),
           }
         }),
 

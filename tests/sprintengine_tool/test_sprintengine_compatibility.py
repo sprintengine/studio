@@ -89,6 +89,7 @@ def test_task_normalization_accepts_optional_source_and_dispatch() -> None:
                 "externalUrl": "https://github.com/example/repo/issues/123",
                 "repo": "example/repo",
                 "title": "Remote issue title",
+                "body": "Remote issue body",
                 "externalUpdatedAt": "2026-05-07T12:00:00Z",
                 "syncedAt": "2026-05-07T12:01:00Z",
                 "syncStatus": "clean",
@@ -107,6 +108,7 @@ def test_task_normalization_accepts_optional_source_and_dispatch() -> None:
         "externalUrl": "https://github.com/example/repo/issues/123",
         "repo": "example/repo",
         "title": "Remote issue title",
+        "body": "Remote issue body",
         "externalUpdatedAt": "2026-05-07T12:00:00Z",
         "syncedAt": "2026-05-07T12:01:00Z",
         "syncStatus": "clean",
@@ -203,6 +205,7 @@ def test_optional_source_and_dispatch_survive_compatibility_lifecycle(
         "externalUrl": "https://github.com/example/repo/issues/123",
         "repo": "example/repo",
         "title": "Remote issue title",
+        "body": "Remote issue body",
         "externalUpdatedAt": "2026-05-07T12:00:00Z",
         "syncedAt": "2026-05-07T12:01:00Z",
         "syncStatus": "clean",
@@ -231,4 +234,5 @@ def test_optional_source_and_dispatch_survive_compatibility_lifecycle(
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["tasks"][0]["source"]["externalId"] == "123"
+    assert state["tasks"][0]["source"]["body"] == "Remote issue body"
     assert state["tasks"][0]["dispatch"]["readyAt"] == "2026-05-07T12:05:00Z"

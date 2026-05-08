@@ -33,7 +33,6 @@ import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 const AUTO_RUN_POLL_MS = 2000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
-const AUTO_RUN_MAX_CONCURRENT_AGENTS = 10
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 const AUTO_RUN_ROLE_CONTINUATION_GRACE_MS = 30000
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
@@ -610,17 +609,9 @@ function pickNextAutoRuns(
     addCandidate(task, agentId, agentId)
   }
 
-  const doneTaskIds = new Set(
-    swarmState.tasks
-      .filter((task) => task.status === 'done')
-      .map((task) => task.id)
-  )
   const readyTasks = swarmState.tasks.filter((task) =>
-    task.status !== 'in_progress'
-    && task.status !== 'needs_input'
-    && task.status !== 'done'
+    getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready'
     && !task.ownerAgentId
-    && task.dependsOn.every((dependencyId) => doneTaskIds.has(dependencyId))
   )
   logPerfEvent('SwarmAutoRun', 'candidate-pick-ready-tasks', {
     workspaceId: workspace.id,
@@ -1204,6 +1195,7 @@ async function superviseWorkspace(
 ): Promise<void> {
   const superviseStartedAt = performance.now()
   let swarmState = workspace.swarmState
+  if (workspace.mode === 'symphony') return
   if (!workspace.swarmAutoState.enabled || !workspace.folderPath || !swarmState || !workspace.swarmContext) return
 
   logPerfEvent('SwarmAutoRun', 'supervise-start', {
@@ -1326,20 +1318,9 @@ async function superviseWorkspace(
     ...runningAgentIds,
     ...pendingSpawns.map((pending) => pending.agentId),
   ])
-  const doneTaskIdsForSlotAccounting = new Set(
-    swarmState.tasks
-      .filter((task) => task.status === 'done')
-      .map((task) => task.id)
-  )
   const readyRolesForSlotAccounting = new Set(
     swarmState.tasks
-      .filter((task) =>
-        task.status !== 'in_progress'
-        && task.status !== 'needs_input'
-        && task.status !== 'done'
-        && !task.ownerAgentId
-        && task.dependsOn.every((dependencyId) => doneTaskIdsForSlotAccounting.has(dependencyId))
-      )
+      .filter((task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready')
       .map((task) => task.role)
   )
   continuationCapacity.agentIds.forEach((agentId) => {
@@ -1350,10 +1331,12 @@ async function superviseWorkspace(
     if (!spawnKey.startsWith(`${workspace.id}:`)) continue
     occupiedAgentIds.add(spawnKey.slice(workspace.id.length + 1))
   }
-  const availableSlots = AUTO_RUN_MAX_CONCURRENT_AGENTS - occupiedAgentIds.size
+  const maxConcurrentAgents = Math.max(1, Math.min(10, workspace.swarmAutoState.maxConcurrentAgents ?? 3))
+  const availableSlots = maxConcurrentAgents - occupiedAgentIds.size
   logPerfEvent('SwarmAutoRun', 'slots', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
+    maxConcurrentAgents,
     availableSlots,
     occupiedAgentCount: occupiedAgentIds.size,
   })

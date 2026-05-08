@@ -25,6 +25,7 @@ import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
+import { GitHubTokenStore } from './github-token-store'
 import { MulticodeAuthBridge, parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createMainDiagnostics } from './main-diagnostics'
@@ -48,6 +49,7 @@ const terminalRuntime = createTerminalRuntime({
 })
 const mobileSnapshotService = new MobileSwarmSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
+const githubTokenStore = new GitHubTokenStore()
 let mobileWorkspaceRoots: string[] = []
 const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
   accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
@@ -96,6 +98,8 @@ registerSprintEngineIpc(ipcMain, {
   openArtifact: sprintEngineArtifacts.openArtifact,
   reviewArtifact: sprintEngineArtifacts.reviewArtifact,
   readyTask: sprintEngineArtifacts.readyTask,
+  updateTask: sprintEngineArtifacts.updateTask,
+  createTask: sprintEngineArtifacts.createTask,
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
@@ -132,6 +136,7 @@ registerGitIpc(ipcMain, {
 
 registerSymphonyGitHubIpc(ipcMain, {
   withIpcDiagnostics,
+  githubTokenStore,
 })
 
 registerMenuDialogIpc(ipcMain)

@@ -1,5 +1,10 @@
 import { ipcRenderer } from 'electron'
-import type { ElectronApi, SwarmArtifactCommandResult } from '../../shared/electron-api'
+import type {
+  ElectronApi,
+  SwarmArtifactCommandResult,
+  SwarmTaskCreateInput,
+  SwarmTaskUpdateInput,
+} from '../../shared/electron-api'
 
 export const sprintEngineApi = {
   openSwarmArtifact: (
@@ -28,6 +33,14 @@ export const sprintEngineApi = {
     taskId: string
   ): Promise<SwarmArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:ready', { statePath, taskId }),
+  updateSwarmTask: (
+    input: SwarmTaskUpdateInput
+  ): Promise<SwarmArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:task:update', input),
+  createSwarmTask: (
+    input: SwarmTaskCreateInput
+  ): Promise<SwarmArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:task:create', input),
 } satisfies Pick<
   ElectronApi,
   | 'openSwarmArtifact'
@@ -35,4 +48,6 @@ export const sprintEngineApi = {
   | 'autoApproveSwarmArtifact'
   | 'requestSwarmArtifactChanges'
   | 'readySwarmTask'
+  | 'updateSwarmTask'
+  | 'createSwarmTask'
 >

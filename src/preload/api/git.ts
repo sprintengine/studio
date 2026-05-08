@@ -1,6 +1,7 @@
 import { ipcRenderer } from 'electron'
 import type {
   ElectronApi,
+  GitHubTokenStatus,
   GitBranchSnapshot,
   GitCommandResult,
   GitConflictFileContent,
@@ -18,6 +19,8 @@ import type {
   GitWorktreeRepairInput,
   SymphonyGitHubSyncInput,
   SymphonyGitHubSyncResult,
+  SymphonyGitHubWriteBackInput,
+  SymphonyGitHubWriteBackResult,
 } from '../../shared/electron-api'
 
 export const gitApi = {
@@ -69,8 +72,16 @@ export const gitApi = {
     input: GitWorktreeCopyIncludedInput
   ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> =>
     ipcRenderer.invoke('git:worktree:copy-included', input),
+  getSymphonyGitHubTokenStatus: (): Promise<GitHubTokenStatus> =>
+    ipcRenderer.invoke('symphony:github:token-status'),
+  setSymphonyGitHubToken: (token: string): Promise<GitHubTokenStatus> =>
+    ipcRenderer.invoke('symphony:github:set-token', token),
+  clearSymphonyGitHubToken: (): Promise<GitHubTokenStatus> =>
+    ipcRenderer.invoke('symphony:github:clear-token'),
   syncSymphonyGitHubIssues: (input: SymphonyGitHubSyncInput): Promise<SymphonyGitHubSyncResult> =>
     ipcRenderer.invoke('symphony:github:sync-issues', input),
+  writeBackSymphonyGitHubIssue: (input: SymphonyGitHubWriteBackInput): Promise<SymphonyGitHubWriteBackResult> =>
+    ipcRenderer.invoke('symphony:github:write-back', input),
 } satisfies Pick<
   ElectronApi,
   | 'getGitRepoRoot'
@@ -96,5 +107,9 @@ export const gitApi = {
   | 'pruneGitWorktrees'
   | 'repairGitWorktrees'
   | 'copyGitWorktreeIncludedFiles'
+  | 'getSymphonyGitHubTokenStatus'
+  | 'setSymphonyGitHubToken'
+  | 'clearSymphonyGitHubToken'
   | 'syncSymphonyGitHubIssues'
+  | 'writeBackSymphonyGitHubIssue'
 >

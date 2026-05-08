@@ -202,6 +202,10 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "path": args.path or [],
             "acceptance": args.acceptance or [],
             "note": args.note or [],
+            "taskNote": args.task_note or [],
+            "manualDispatch": args.manual_dispatch,
+            "dispatchStatus": args.dispatch_status,
+            "triagedBy": args.triaged_by,
         }
     if action == "update-task":
         return "sprintengine.plan.update_task", {
@@ -218,6 +222,8 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "clearAcceptance": args.clear_acceptance,
             "note": args.note,
             "clearNotes": args.clear_notes,
+            "taskNote": args.task_note,
+            "clearTaskNotes": args.clear_task_notes,
             "force": args.force,
         }
     if action == "delete-task":

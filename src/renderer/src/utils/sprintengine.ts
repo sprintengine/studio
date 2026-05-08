@@ -28,6 +28,7 @@ import type {
   SwarmTaskSource,
   SwarmTaskSourceSyncStatus,
   SwarmTaskSourceType,
+  SwarmTaskTriage,
   SwarmState,
   SwarmTask,
   SwarmTaskStatus,
@@ -292,6 +293,7 @@ function normalizeSwarmTaskSource(value: unknown): SwarmTaskSource | undefined {
   const externalUrl = optionalTrimmedString(record.externalUrl)
   const repo = optionalTrimmedString(record.repo)
   const title = optionalTrimmedString(record.title)
+  const body = typeof record.body === 'string' ? record.body : undefined
   const externalUpdatedAt = optionalTrimmedString(record.externalUpdatedAt)
   const syncedAt = optionalTrimmedString(record.syncedAt)
   const syncStatus = isSwarmTaskSourceSyncStatus(record.syncStatus) ? record.syncStatus : undefined
@@ -302,6 +304,7 @@ function normalizeSwarmTaskSource(value: unknown): SwarmTaskSource | undefined {
     ...(externalUrl ? { externalUrl } : {}),
     ...(repo ? { repo } : {}),
     ...(title ? { title } : {}),
+    ...(body !== undefined ? { body } : {}),
     ...(externalUpdatedAt ? { externalUpdatedAt } : {}),
     ...(syncedAt ? { syncedAt } : {}),
     ...(syncStatus ? { syncStatus } : {}),
@@ -457,6 +460,36 @@ function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefin
     ...(suggestedImprovement ? { suggestedImprovement } : {}),
     ...(issues.length > 0 ? { issues } : {}),
     ...(findings.length > 0 ? { findings } : {}),
+  }
+}
+
+function normalizeSwarmTaskTriage(value: unknown): SwarmTaskTriage | undefined {
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  const summary = optionalTrimmedString(record.summary)
+  const riskRating = record.riskRating
+  if (
+    !summary
+    || (riskRating !== 'low' && riskRating !== 'medium' && riskRating !== 'high')
+    || typeof record.readyRecommendation !== 'boolean'
+    || record.triagedBy !== 'architect'
+    || typeof record.triagedAt !== 'string'
+  ) {
+    return undefined
+  }
+
+  const suggestedRole = isSwarmRole(record.suggestedRole) ? record.suggestedRole : undefined
+  return {
+    summary,
+    ...(suggestedRole ? { suggestedRole } : {}),
+    acceptanceCriteria: stringArray(record.acceptanceCriteria),
+    likelyAffectedAreas: stringArray(record.likelyAffectedAreas),
+    missingInformation: stringArray(record.missingInformation),
+    riskRating,
+    readyRecommendation: record.readyRecommendation,
+    triagedBy: 'architect',
+    triagedAt: record.triagedAt,
   }
 }
 
@@ -792,6 +825,7 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
 
   const tasks = (Array.isArray(input.tasks) ? input.tasks : []).map((task, index) => {
     const feedback = normalizeSwarmTaskFeedback(task.feedback)
+    const triage = normalizeSwarmTaskTriage(task.triage)
     const source = normalizeSwarmTaskSource(task.source)
     const dispatch = normalizeSwarmTaskDispatch(task.dispatch)
     return {
@@ -811,6 +845,7 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
       implementationNotes: task.implementationNotes ?? [],
       evidence: task.evidence ?? emptyEvidence(),
       ...(feedback ? { feedback } : {}),
+      ...(triage ? { triage } : {}),
       notes: Array.isArray(task.notes) ? task.notes : [],
       startedAt: task.startedAt ?? null,
       completedAt: task.completedAt ?? null,

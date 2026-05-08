@@ -772,6 +772,8 @@ def normalize_task_source(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
         value = optional_non_empty_string(raw, key)
         if value is not None:
             source[key] = value
+    if isinstance(raw.get("body"), str):
+        source["body"] = raw["body"]
 
     sync_status = optional_non_empty_string(raw, "syncStatus")
     if sync_status is not None:
@@ -863,6 +865,8 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     dispatch = normalize_task_dispatch(raw.get("dispatch"), task_id)
     if dispatch is not None:
         task["dispatch"] = dispatch
+    if isinstance(raw.get("triage"), dict):
+        task["triage"] = raw["triage"]
     return task
 
 
@@ -900,10 +904,16 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         "acceptanceCriteria": getattr(args, "acceptance", None) or [],
         "implementationNotes": getattr(args, "note", None) or [],
         "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": []},
-        "notes": [],
+        "notes": getattr(args, "task_note", None) or [],
         "startedAt": None,
         "completedAt": None,
     }
+    if getattr(args, "manual_dispatch", False):
+        raw["dispatch"] = {
+            "mode": "manual",
+            "status": getattr(args, "dispatch_status", None) or "todo",
+            "triagedBy": getattr(args, "triaged_by", None) or "none",
+        }
     task = normalize_task(raw)
     existing_ids = {str(t.get("id")) for t in state.get("tasks", []) if isinstance(t, dict)}
     if task["id"] in existing_ids:
@@ -2566,6 +2576,10 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             task["implementationNotes"] = []
         set_unique_list(task, "implementationNotes", args.note)
 
+        if args.clear_task_notes:
+            task["notes"] = []
+        set_unique_list(task, "notes", args.task_note)
+
         recompute_phase(state)
         event = append_event(state, "task_updated", args.actor, f"{args.actor} updated {args.task_id}.")
         return {"ok": True, "task": task, "event": event}
@@ -3116,6 +3130,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--path", action="append", default=[], help="Owned path or directory.")
     p.add_argument("--acceptance", action="append", default=[], help="Acceptance criterion.")
     p.add_argument("--note", action="append", default=[], help="Repeatable implementation detail from the plan.")
+    p.add_argument("--task-note", action="append", default=[], help="Repeatable task note.")
+    p.add_argument("--manual-dispatch", action="store_true", help="Create the task behind the manual Ready gate.")
+    p.add_argument("--dispatch-status", choices=sorted(VALID_TASK_DISPATCH_STATUSES), default="todo")
+    p.add_argument("--triaged-by", choices=sorted(VALID_TASK_DISPATCH_TRIAGED_BY), default="none")
     p.set_defaults(handler=cmd_plan_add_task)
 
     p = plan_sub.add_parser("update-task", help="Edit an existing planned task.")
@@ -3131,6 +3149,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clear-acceptance", action="store_true")
     p.add_argument("--note", action="append", help="Replace implementation notes with this repeatable list of details from the plan.")
     p.add_argument("--clear-notes", action="store_true")
+    p.add_argument("--task-note", action="append", help="Replace task notes with this repeatable list.")
+    p.add_argument("--clear-task-notes", action="store_true")
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=cmd_plan_update_task)
 

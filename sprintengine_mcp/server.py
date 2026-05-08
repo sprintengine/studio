@@ -222,6 +222,10 @@ class SprintEngineMcpServer:
                 path=list(payload.get("path") or []),
                 acceptance=list(payload.get("acceptance") or []),
                 note=list(payload.get("note") or []),
+                task_note=list(payload.get("taskNote") or []),
+                manual_dispatch=bool(payload.get("manualDispatch", False)),
+                dispatch_status=payload.get("dispatchStatus") or "todo",
+                triaged_by=payload.get("triagedBy") or "none",
             )
         elif tool_name == "sprintengine.plan.update_task":
             base.update(
@@ -237,6 +241,8 @@ class SprintEngineMcpServer:
                 clear_acceptance=bool(payload.get("clearAcceptance", False)),
                 note=payload.get("note"),
                 clear_notes=bool(payload.get("clearNotes", False)),
+                task_note=payload.get("taskNote"),
+                clear_task_notes=bool(payload.get("clearTaskNotes", False)),
                 force=bool(payload.get("force", False)),
             )
         elif tool_name == "sprintengine.plan.delete_task":

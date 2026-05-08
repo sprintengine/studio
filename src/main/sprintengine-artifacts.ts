@@ -2,7 +2,12 @@ import { existsSync } from 'fs'
 import { readFile, stat } from 'fs/promises'
 import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
-import type { SwarmArtifactCommandResult } from '../shared/electron-api'
+import type {
+  SwarmArtifactCommandResult,
+  SwarmTaskCreateInput,
+  SwarmTaskMutationRole,
+  SwarmTaskUpdateInput,
+} from '../shared/electron-api'
 import type {
   SwarmArtifactOpenPayload,
   SwarmArtifactReviewAction,
@@ -42,6 +47,17 @@ type SwarmTaskRecord = {
   status: string
   ownerAgentId: string
 }
+
+const validTaskRoles = new Set<SwarmTaskMutationRole>([
+  'architect',
+  'product',
+  'developer',
+  'frontend',
+  'tester',
+  'security',
+  'code_reviewer',
+  'performance',
+])
 
 type ValidSwarmStatePath = {
   statePath: string
@@ -145,6 +161,39 @@ function resolveSwarmTaskId(input: unknown): string {
     throw new Error('Task id must be a safe sprintengine identifier.')
   }
   return taskId
+}
+
+function resolveTaskRole(input: unknown): SwarmTaskMutationRole {
+  if (typeof input !== 'string' || !validTaskRoles.has(input as SwarmTaskMutationRole)) {
+    throw new Error('Task role is invalid.')
+  }
+  return input as SwarmTaskMutationRole
+}
+
+function resolveOptionalTaskRole(input: unknown): SwarmTaskMutationRole | undefined {
+  return input === undefined || input === null ? undefined : resolveTaskRole(input)
+}
+
+function resolveOptionalString(input: unknown, field: string): string | undefined {
+  if (input === undefined || input === null) return undefined
+  if (typeof input !== 'string') throw new Error(`${field} must be a string.`)
+  return input.trim()
+}
+
+function resolveRequiredString(input: unknown, field: string): string {
+  const value = resolveOptionalString(input, field)
+  if (!value) throw new Error(`${field} is required.`)
+  return value
+}
+
+function resolveStringList(input: unknown, field: string): string[] | undefined {
+  if (input === undefined || input === null) return undefined
+  if (!Array.isArray(input)) throw new Error(`${field} must be a list.`)
+  return input.flatMap((item): string[] => {
+    if (typeof item !== 'string') return []
+    const value = item.trim()
+    return value ? [value] : []
+  })
 }
 
 function getSprintEngineMcpPythonExecutable(workspaceRoot: string): string {
@@ -318,6 +367,8 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     mode: SwarmArtifactReviewMode
   ): Promise<SwarmArtifactCommandResult>
   readyTask(payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult>
+  updateTask(payload: SwarmTaskUpdateInput): Promise<SwarmArtifactCommandResult>
+  createTask(payload: SwarmTaskCreateInput): Promise<SwarmArtifactCommandResult>
 } {
   return {
     async openArtifact(payload) {
@@ -438,6 +489,104 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           ok: true,
           data: {
             action: 'ready',
+            actor: actor.id,
+            taskId,
+            stateContent,
+            tool: toolResult.response.result,
+          },
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async updateTask(payload) {
+      try {
+        const state = validateSwarmStatePath(payload?.statePath)
+        const taskId = resolveSwarmTaskId(payload?.taskId)
+        const actor = await requireSprintEngineMcpAuthority(deps)
+        const toolPayload = {
+          statePath: state.statePath,
+          taskId,
+          actor: actor.id,
+          title: resolveOptionalString(payload?.title, 'Task title'),
+          description: resolveOptionalString(payload?.description, 'Task description'),
+          role: resolveOptionalTaskRole(payload?.role),
+          acceptance: resolveStringList(payload?.acceptanceCriteria, 'Acceptance criteria'),
+          note: resolveStringList(payload?.implementationNotes, 'Implementation notes'),
+          taskNote: resolveStringList(payload?.notes, 'Task notes'),
+          clearAcceptance: Array.isArray(payload?.acceptanceCriteria),
+          clearNotes: Array.isArray(payload?.implementationNotes),
+          clearTaskNotes: Array.isArray(payload?.notes),
+        }
+        const toolResult = await runSprintEngineMcpTool(state, 'sprintengine.plan.update_task', toolPayload, actor)
+        if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
+          const message = toolResult.response && !toolResult.response.ok
+            ? toolResult.response.error?.message
+            : undefined
+          return {
+            ok: false,
+            message: message ?? (toolResult.stderr.trim() || 'The sprintengine MCP command failed.'),
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+
+        const stateContent = await readFile(state.statePath, 'utf8')
+        return {
+          ok: true,
+          data: {
+            action: 'update-task',
+            actor: actor.id,
+            taskId,
+            stateContent,
+            tool: toolResult.response.result,
+          },
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async createTask(payload) {
+      try {
+        const state = validateSwarmStatePath(payload?.statePath)
+        const actor = await requireSprintEngineMcpAuthority(deps)
+        const toolPayload = {
+          statePath: state.statePath,
+          actor: actor.id,
+          title: resolveRequiredString(payload?.title, 'Task title'),
+          description: resolveOptionalString(payload?.description, 'Task description') ?? '',
+          role: resolveTaskRole(payload?.role),
+          acceptance: resolveStringList(payload?.acceptanceCriteria, 'Acceptance criteria') ?? [],
+          note: resolveStringList(payload?.implementationNotes, 'Implementation notes') ?? [],
+          taskNote: resolveStringList(payload?.notes, 'Task notes') ?? [],
+          manualDispatch: payload?.manualDispatch !== false,
+          dispatchStatus: 'todo',
+          triagedBy: 'none',
+        }
+        const toolResult = await runSprintEngineMcpTool(state, 'sprintengine.plan.add_task', toolPayload, actor)
+        if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
+          const message = toolResult.response && !toolResult.response.ok
+            ? toolResult.response.error?.message
+            : undefined
+          return {
+            ok: false,
+            message: message ?? (toolResult.stderr.trim() || 'The sprintengine MCP command failed.'),
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+
+        const result = toolResult.response.result as { task?: { id?: unknown } }
+        const taskId = typeof result.task?.id === 'string' ? result.task.id : null
+        const stateContent = await readFile(state.statePath, 'utf8')
+        return {
+          ok: true,
+          data: {
+            action: 'create-task',
             actor: actor.id,
             taskId,
             stateContent,

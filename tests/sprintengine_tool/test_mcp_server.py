@@ -117,6 +117,75 @@ def test_mcp_task_ready_uses_core_and_emits_audit(tmp_path) -> None:
     assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == ["sprintengine.task.ready"]
 
 
+def test_mcp_plan_add_task_can_create_manual_dispatch_local_task(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-plan-add-manual-task", [])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.plan.add_task",
+        {
+            "statePath": str(fixture.state_path),
+            "title": "Local Symphony task",
+            "description": "Refined execution brief",
+            "role": "developer",
+            "acceptance": ["Manual gate remains closed."],
+            "note": ["Use the existing board."],
+            "taskNote": ["Created locally."],
+            "manualDispatch": True,
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    task_record = response["result"]["task"]
+    assert task_record["dispatch"] == {"mode": "manual", "status": "todo", "triagedBy": "none"}
+    assert task_record["notes"] == ["Created locally."]
+    state = read_state(fixture.state_path)
+    assert get_task(state, task_record["id"])["dispatch"]["status"] == "todo"
+
+
+def test_mcp_plan_update_task_edits_execution_details_and_preserves_source(tmp_path) -> None:
+    task_record = task("T1", "Imported GitHub issue", "developer")
+    task_record["source"] = {
+        "type": "github",
+        "externalId": "123",
+        "externalUrl": "https://github.com/example/repo/issues/123",
+        "repo": "example/repo",
+        "title": "Remote title",
+        "body": "Remote body",
+        "syncStatus": "clean",
+    }
+    task_record["dispatch"] = {"mode": "manual", "status": "todo", "triagedBy": "none"}
+    fixture = create_team(tmp_path, "mcp-plan-update-details", [task_record])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.plan.update_task",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "title": "Refined task",
+            "description": "Local execution brief",
+            "role": "tester",
+            "acceptance": ["Behavior is verified."],
+            "note": ["Implementation note."],
+            "taskNote": ["Task note."],
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    updated = response["result"]["task"]
+    assert updated["title"] == "Refined task"
+    assert updated["description"] == "Local execution brief"
+    assert updated["role"] == "tester"
+    assert updated["acceptanceCriteria"] == ["Behavior is verified."]
+    assert updated["implementationNotes"] == ["Implementation note."]
+    assert updated["notes"] == ["Task note."]
+    assert updated["source"]["externalId"] == "123"
+    assert updated["dispatch"]["status"] == "todo"
+
+
 def test_mcp_health_reports_allowed_root_and_capabilities(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-health", [task("T1", "Health", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])

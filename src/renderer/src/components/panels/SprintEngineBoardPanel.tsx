@@ -30,6 +30,7 @@ import {
   swarmArtifactKindLabels,
   swarmArtifactStatusLabels,
   swarmRoleLabels,
+  swarmRoleOrder,
 } from '../../utils/sprintengine'
 import { renderMarkdown } from '../../utils/markdown'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -299,6 +300,20 @@ type TaskReadyActionState = {
   message: string
 }
 
+type TaskMutationActionState = {
+  status: 'idle' | 'pending' | 'success' | 'error'
+  message: string
+}
+
+type TaskEditFormState = {
+  title: string
+  description: string
+  role: SwarmRole
+  acceptanceCriteria: string
+  implementationNotes: string
+  notes: string
+}
+
 function buildWorkerRespawnStartupPrompt(
   role: SwarmRole,
   agentId: string
@@ -353,6 +368,25 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const [githubSyncBusy, setGithubSyncBusy] = useState(false)
   const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
   const [taskReadyActions, setTaskReadyActions] = useState<Record<string, TaskReadyActionState>>({})
+  const [taskEditOpen, setTaskEditOpen] = useState(false)
+  const [taskEditForm, setTaskEditForm] = useState<TaskEditFormState | null>(null)
+  const [taskEditAction, setTaskEditAction] = useState<TaskMutationActionState>({
+    status: 'idle',
+    message: '',
+  })
+  const [createTaskOpen, setCreateTaskOpen] = useState(false)
+  const [createTaskForm, setCreateTaskForm] = useState<TaskEditFormState>({
+    title: '',
+    description: '',
+    role: 'developer',
+    acceptanceCriteria: '',
+    implementationNotes: '',
+    notes: '',
+  })
+  const [createTaskAction, setCreateTaskAction] = useState<TaskMutationActionState>({
+    status: 'idle',
+    message: '',
+  })
   const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
     status: 'idle',
@@ -579,6 +613,17 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
   const selectedTask = swarmState?.tasks.find((task) => task.id === selectedTaskId) ?? null
 
+  useEffect(() => {
+    if (!selectedTask) {
+      setTaskEditOpen(false)
+      setTaskEditForm(null)
+      setTaskEditAction({ status: 'idle', message: '' })
+      return
+    }
+    if (!taskEditOpen) return
+    setTaskEditForm(buildTaskEditForm(selectedTask))
+  }, [selectedTask, taskEditOpen])
+
   if (!swarmState) {
     return (
       <div className="flex h-full items-center justify-center bg-[#08090b] text-sm text-[#5a5a63]">
@@ -726,6 +771,94 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         [task.id]: { status: 'error', message },
       }))
       setSyncState({ status: 'error', message })
+    }
+  }
+
+  const applyTaskMutationResult = async (
+    result: Awaited<ReturnType<typeof window.api.updateSwarmTask>>,
+    fallbackMessage: string
+  ) => {
+    if (!result.ok) throw new Error(result.message)
+
+    const data = result.data && typeof result.data === 'object'
+      ? result.data as { stateContent?: unknown }
+      : {}
+    if (typeof data.stateContent === 'string') {
+      const parsed = parseSwarmStateFile(data.stateContent, swarmContext?.teamName)
+      setSwarmState(workspaceId, parsed)
+    } else {
+      await refreshSwarmState()
+    }
+    setSyncState({ status: 'live', message: fallbackMessage })
+  }
+
+  const openTaskEditor = (task: SwarmTask) => {
+    setTaskEditForm(buildTaskEditForm(task))
+    setTaskEditAction({ status: 'idle', message: '' })
+    setTaskEditOpen(true)
+  }
+
+  const saveTaskEdits = async () => {
+    if (!selectedTask || !taskEditForm || !swarmContext?.statePath || taskEditAction.status === 'pending') return
+
+    setTaskEditAction({ status: 'pending', message: 'Saving task details...' })
+    try {
+      await applyTaskMutationResult(
+        await window.api.updateSwarmTask({
+          statePath: swarmContext.statePath,
+          taskId: selectedTask.id,
+          title: taskEditForm.title,
+          description: taskEditForm.description,
+          role: taskEditForm.role,
+          acceptanceCriteria: linesFromTextarea(taskEditForm.acceptanceCriteria),
+          implementationNotes: linesFromTextarea(taskEditForm.implementationNotes),
+          notes: linesFromTextarea(taskEditForm.notes),
+        }),
+        `Updated ${selectedTask.id}.`
+      )
+      setTaskEditAction({ status: 'success', message: 'Task details saved.' })
+      setTaskEditOpen(false)
+    } catch (error) {
+      setTaskEditAction({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to save task details.',
+      })
+    }
+  }
+
+  const createLocalTask = async () => {
+    if (!swarmContext?.statePath || createTaskAction.status === 'pending') return
+
+    setCreateTaskAction({ status: 'pending', message: 'Creating local task...' })
+    try {
+      await applyTaskMutationResult(
+        await window.api.createSwarmTask({
+          statePath: swarmContext.statePath,
+          title: createTaskForm.title,
+          description: createTaskForm.description,
+          role: createTaskForm.role,
+          acceptanceCriteria: linesFromTextarea(createTaskForm.acceptanceCriteria),
+          implementationNotes: linesFromTextarea(createTaskForm.implementationNotes),
+          notes: linesFromTextarea(createTaskForm.notes),
+          manualDispatch: true,
+        }),
+        'Created local Symphony task.'
+      )
+      setCreateTaskAction({ status: 'success', message: 'Local task created.' })
+      setCreateTaskOpen(false)
+      setCreateTaskForm({
+        title: '',
+        description: '',
+        role: 'developer',
+        acceptanceCriteria: '',
+        implementationNotes: '',
+        notes: '',
+      })
+    } catch (error) {
+      setCreateTaskAction({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to create local task.',
+      })
     }
   }
 
@@ -1105,6 +1238,27 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     openReadySpawnDialogForRole(task.role)
   }
 
+  const writeBackGitHubProgress = async (
+    task: SwarmTask,
+    kind: 'work_started' | 'review_ready'
+  ) => {
+    if (!folderPath || !swarmContext?.statePath || task.source?.type !== 'github') return
+    const result = await window.api.writeBackSymphonyGitHubIssue({
+      repoRoot: folderPath,
+      statePath: swarmContext.statePath,
+      taskId: task.id,
+      kind,
+    })
+    if (!result.ok) {
+      setSyncState({ status: 'error', message: result.message })
+      return
+    }
+    setSyncState({
+      status: 'live',
+      message: `Posted GitHub progress comment for ${task.id}.`,
+    })
+  }
+
   const loadPlanReader = async () => {
     if (!swarmState || !folderPath || !swarmContext) {
       setPlanReader((current) => ({
@@ -1226,53 +1380,57 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       <div className="border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoEnabled}
-              aria-label={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
-              onClick={toggleAuto}
-              title={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
-              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors ${
-                autoEnabled
-                  ? 'border-[#5c7cff]/55 bg-[#5c7cff]/14 text-[#d4ddff] hover:border-[#5c7cff]/75 hover:bg-[#5c7cff]/18'
-                  : 'border-[#303139] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
-              }`}
-            >
-              {autoEnabled ? <PauseSwarmIcon /> : <PlaySwarmIcon />}
-            </button>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoApproveArtifacts}
-              aria-label="Approve all artifacts"
-              aria-describedby={!autoEnabled ? 'artifact-auto-approval-disabled' : undefined}
-              onClick={toggleArtifactAutoApproval}
-              disabled={!autoEnabled}
-              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
-                autoEnabled && autoApproveArtifacts
-                  ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
-                  : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
-              } disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]`}
-              title={autoEnabled ? 'Approve all artifacts' : 'Start sprintengine auto-run before approving all artifacts'}
-            >
-              <span
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                  autoEnabled && autoApproveArtifacts ? 'bg-[#5c7cff]' : 'bg-[#303139]'
-                }`}
-                aria-hidden="true"
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
-                    autoApproveArtifacts ? 'translate-x-4' : 'translate-x-0'
+            {!isSymphonyWorkspace ? (
+              <>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoEnabled}
+                  aria-label={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
+                  onClick={toggleAuto}
+                  title={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
+                  className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors ${
+                    autoEnabled
+                      ? 'border-[#5c7cff]/55 bg-[#5c7cff]/14 text-[#d4ddff] hover:border-[#5c7cff]/75 hover:bg-[#5c7cff]/18'
+                      : 'border-[#303139] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                   }`}
-                />
-              </span>
-              <span>Approve all artifacts</span>
-            </button>
-            <span id="artifact-auto-approval-disabled" className="sr-only">
-              SprintEngine auto-run must be enabled before artifacts can be approved automatically.
-            </span>
+                >
+                  {autoEnabled ? <PauseSwarmIcon /> : <PlaySwarmIcon />}
+                </button>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoApproveArtifacts}
+                  aria-label="Approve all artifacts"
+                  aria-describedby={!autoEnabled ? 'artifact-auto-approval-disabled' : undefined}
+                  onClick={toggleArtifactAutoApproval}
+                  disabled={!autoEnabled}
+                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                    autoEnabled && autoApproveArtifacts
+                      ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
+                      : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
+                  } disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]`}
+                  title={autoEnabled ? 'Approve all artifacts' : 'Start sprintengine auto-run before approving all artifacts'}
+                >
+                  <span
+                    className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                      autoEnabled && autoApproveArtifacts ? 'bg-[#5c7cff]' : 'bg-[#303139]'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    <span
+                      className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+                        autoApproveArtifacts ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </span>
+                  <span>Approve all artifacts</span>
+                </button>
+                <span id="artifact-auto-approval-disabled" className="sr-only">
+                  SprintEngine auto-run must be enabled before artifacts can be approved automatically.
+                </span>
+              </>
+            ) : null}
             <button
               type="button"
               role="switch"
@@ -1300,33 +1458,37 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               </span>
               <span>Keep terminals</span>
             </button>
-            <label className="sr-only" htmlFor={`sprintengine-cli-permissions-${workspaceId}`}>
-              CLI permissions for sprintengine auto-run
-            </label>
-            <select
-              id={`sprintengine-cli-permissions-${workspaceId}`}
-              value={cliPermissionPreset}
-              onChange={(event) =>
-                updateCliPermissionPreset(event.currentTarget.value as SwarmCliPermissionPreset)
-              }
-              title={
-                swarmCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title
-                ?? 'CLI permissions for sprintengine auto-run'
-              }
-              className={`h-8 rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none transition-colors focus:ring-1 ${
-                cliPermissionPreset === 'bypass_all'
-                  ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
-                  : cliPermissionPreset === 'auto_workspace'
-                    ? 'border-[#5c7cff]/40 text-[#d4ddff] focus:ring-[#5c7cff]/40'
-                    : 'border-[#303139] text-[#8a8a92] focus:ring-[#303139]'
-              }`}
-            >
-              {swarmCliPermissionOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            {!isSymphonyWorkspace ? (
+              <>
+                <label className="sr-only" htmlFor={`sprintengine-cli-permissions-${workspaceId}`}>
+                  CLI permissions for sprintengine auto-run
+                </label>
+                <select
+                  id={`sprintengine-cli-permissions-${workspaceId}`}
+                  value={cliPermissionPreset}
+                  onChange={(event) =>
+                    updateCliPermissionPreset(event.currentTarget.value as SwarmCliPermissionPreset)
+                  }
+                  title={
+                    swarmCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title
+                    ?? 'CLI permissions for sprintengine auto-run'
+                  }
+                  className={`h-8 rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none transition-colors focus:ring-1 ${
+                    cliPermissionPreset === 'bypass_all'
+                      ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
+                      : cliPermissionPreset === 'auto_workspace'
+                        ? 'border-[#5c7cff]/40 text-[#d4ddff] focus:ring-[#5c7cff]/40'
+                        : 'border-[#303139] text-[#8a8a92] focus:ring-[#303139]'
+                  }`}
+                >
+                  {swarmCliPermissionOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : null}
             {!fixedView ? (
               <div className="ml-1 flex flex-wrap items-center gap-1">
                 {([
@@ -1352,14 +1514,27 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             {isSymphonyWorkspace ? (
-              <button
-                type="button"
-                onClick={() => void syncGitHubIssues()}
-                disabled={!folderPath || !swarmContext?.statePath || githubSyncBusy}
-                className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]/10"
-              >
-                {githubSyncBusy ? 'Syncing GitHub...' : 'Sync GitHub'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateTaskOpen(true)
+                    setCreateTaskAction({ status: 'idle', message: '' })
+                  }}
+                  disabled={!swarmContext?.statePath}
+                  className="rounded-md bg-[#30d158]/10 px-3 py-1.5 text-sm font-semibold text-[#b9f7c8] transition-colors hover:bg-[#30d158]/16 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#30d158]/10"
+                >
+                  New Local Task
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void syncGitHubIssues()}
+                  disabled={!folderPath || !swarmContext?.statePath || githubSyncBusy}
+                  className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]/10"
+                >
+                  {githubSyncBusy ? 'Syncing GitHub...' : 'Sync GitHub'}
+                </button>
+              </>
             ) : null}
             <button
               type="button"
@@ -1647,6 +1822,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   && task.dispatch?.mode === 'manual'
                   && task.dispatch.status !== 'ready'
                 const readyAction = taskReadyActions[task.id]
+                const syncStatusLabel = formatTaskSyncStatusLabel(task)
                 return (
                   <article
                     key={task.id}
@@ -1681,6 +1857,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                           <span className="rounded border border-[#303139] px-1.5 py-0.5 text-[9px] tracking-[0.1em] text-[#9a9aa2]">
                             {sourceLabel}
                           </span>
+                          {syncStatusLabel ? (
+                            <span className="rounded border border-[#ffbf2f]/35 bg-[#ffbf2f]/10 px-1.5 py-0.5 text-[9px] tracking-[0.1em] text-[#ffe0a3]">
+                              {syncStatusLabel}
+                            </span>
+                          ) : null}
                           <span
                             className="h-1.5 w-1.5 shrink-0 rounded-full"
                             style={{
@@ -2123,6 +2304,30 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         </div>
       ) : null}
 
+      {isSymphonyWorkspace && createTaskOpen ? (
+        <TaskMutationDialog
+          title="New Local Task"
+          form={createTaskForm}
+          action={createTaskAction}
+          submitLabel="Create Task"
+          onChange={setCreateTaskForm}
+          onCancel={() => setCreateTaskOpen(false)}
+          onSubmit={() => void createLocalTask()}
+        />
+      ) : null}
+
+      {isSymphonyWorkspace && selectedTask && taskEditOpen && taskEditForm ? (
+        <TaskMutationDialog
+          title={`Edit ${selectedTask.id}`}
+          form={taskEditForm}
+          action={taskEditAction}
+          submitLabel="Save Changes"
+          onChange={setTaskEditForm}
+          onCancel={() => setTaskEditOpen(false)}
+          onSubmit={() => void saveTaskEdits()}
+        />
+      ) : null}
+
       {selectedTask && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
           <div className="max-h-[90vh] w-full max-w-[920px] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
@@ -2140,12 +2345,23 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   <span className="font-semibold text-[#d7d7dc]">{selectedTaskStatusLabel}</span>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedTaskId(null)}
-                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-2">
+                {isSymphonyWorkspace && selectedTask.status === 'todo' && !selectedTask.ownerAgentId ? (
+                  <button
+                    type="button"
+                    onClick={() => openTaskEditor(selectedTask)}
+                    className="rounded-md bg-[#5c7cff]/10 px-3 py-2 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16"
+                  >
+                    Edit
+                  </button>
+                ) : null}
+                <button
+                  onClick={() => setSelectedTaskId(null)}
+                  className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                >
+                  Close
+                </button>
+              </div>
             </div>
 
             <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
@@ -2170,18 +2386,43 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                       {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
                       {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
                     </div>
+                    {formatTaskSyncStatusLabel(selectedTask) ? (
+                      <div className="mt-2 max-w-xl text-[12px] leading-5 text-[#ffe0a3]">
+                        {formatTaskSyncStatusDescription(selectedTask)}
+                      </div>
+                    ) : null}
                   </div>
-                  {selectedTask.source.externalUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
-                      }}
-                      className="rounded-md px-3 py-2 text-sm font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/10"
-                    >
-                      Open Issue
-                    </button>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedTask.status === 'in_progress' ? (
+                      <button
+                        type="button"
+                        onClick={() => void writeBackGitHubProgress(selectedTask, 'work_started')}
+                        className="rounded-md px-3 py-2 text-sm font-semibold text-[#b9f7c8] transition-colors hover:bg-[#30d158]/10"
+                      >
+                        Comment Started
+                      </button>
+                    ) : null}
+                    {selectedTask.status === 'needs_input' || selectedTask.status === 'done' ? (
+                      <button
+                        type="button"
+                        onClick={() => void writeBackGitHubProgress(selectedTask, 'review_ready')}
+                        className="rounded-md px-3 py-2 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/10"
+                      >
+                        Comment Review
+                      </button>
+                    ) : null}
+                    {selectedTask.source.externalUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
+                        }}
+                        className="rounded-md px-3 py-2 text-sm font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/10"
+                      >
+                        Open Issue
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 
@@ -2201,6 +2442,28 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
               {selectedTaskArtifactBlockers.length > 0 ? (
                 <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
+              ) : null}
+
+              {selectedTask.triage ? (
+                <div className="border-l border-[#5c7cff]/70 pl-3 text-sm text-[#d4ddff]">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8fa2ff]">
+                    Architect Triage
+                  </div>
+                  <div className="mt-2 leading-6">{selectedTask.triage.summary}</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                    <span className="rounded bg-[#17181d] px-1.5 py-0.5">
+                      Risk {selectedTask.triage.riskRating}
+                    </span>
+                    {selectedTask.triage.suggestedRole ? (
+                      <span className="rounded bg-[#17181d] px-1.5 py-0.5">
+                        {swarmRoleLabels[selectedTask.triage.suggestedRole]}
+                      </span>
+                    ) : null}
+                    <span className="rounded bg-[#17181d] px-1.5 py-0.5">
+                      {selectedTask.triage.readyRecommendation ? 'Ready recommended' : 'Needs refinement'}
+                    </span>
+                  </div>
+                </div>
               ) : null}
 
               {selectedTaskCanMarkReady ? (
@@ -3819,6 +4082,138 @@ function MetaItem({ label, value }: { label: string; value: string }) {
   )
 }
 
+function TaskMutationDialog({
+  title,
+  form,
+  action,
+  submitLabel,
+  onChange,
+  onCancel,
+  onSubmit,
+}: {
+  title: string
+  form: TaskEditFormState
+  action: TaskMutationActionState
+  submitLabel: string
+  onChange: (form: TaskEditFormState) => void
+  onCancel: () => void
+  onSubmit: () => void
+}) {
+  const pending = action.status === 'pending'
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#08090b]/82 px-4 py-6 backdrop-blur-sm">
+      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-[#303139] bg-[#0d0e11] shadow-2xl">
+        <div className="flex items-center justify-between gap-3 border-b border-[#1f2025] px-5 py-4">
+          <h2 className="text-base font-semibold text-[#ececee]">{title}</h2>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={pending}
+            className="rounded-md px-3 py-1.5 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45"
+          >
+            Close
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
+          <label className="block">
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Title</span>
+            <input
+              value={form.title}
+              onChange={(event) => onChange({ ...form, title: event.currentTarget.value })}
+              className="mt-2 w-full rounded-md border border-[#303139] bg-[#08090b] px-3 py-2 text-sm text-[#ececee] outline-none focus:border-[#5c7cff]/60"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Role</span>
+            <select
+              value={form.role}
+              onChange={(event) => onChange({ ...form, role: event.currentTarget.value as SwarmRole })}
+              className="mt-2 w-full rounded-md border border-[#303139] bg-[#08090b] px-3 py-2 text-sm text-[#ececee] outline-none focus:border-[#5c7cff]/60"
+            >
+              {swarmRoleOrder.map((role) => (
+                <option key={role} value={role}>{swarmRoleLabels[role]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Execution Brief</span>
+            <textarea
+              value={form.description}
+              onChange={(event) => onChange({ ...form, description: event.currentTarget.value })}
+              rows={6}
+              className="mt-2 w-full resize-y rounded-md border border-[#303139] bg-[#08090b] px-3 py-2 text-sm leading-6 text-[#ececee] outline-none focus:border-[#5c7cff]/60"
+            />
+          </label>
+          <div className="grid gap-4 md:grid-cols-3">
+            <TaskLinesField
+              label="Acceptance Criteria"
+              value={form.acceptanceCriteria}
+              onChange={(value) => onChange({ ...form, acceptanceCriteria: value })}
+            />
+            <TaskLinesField
+              label="Implementation Notes"
+              value={form.implementationNotes}
+              onChange={(value) => onChange({ ...form, implementationNotes: value })}
+            />
+            <TaskLinesField
+              label="Task Notes"
+              value={form.notes}
+              onChange={(value) => onChange({ ...form, notes: value })}
+            />
+          </div>
+          {action.message ? (
+            <div className={`text-sm ${
+              action.status === 'error' ? 'text-[#ffb3bf]' : 'text-[#9a9aa2]'
+            }`}>
+              {action.message}
+            </div>
+          ) : null}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-[#1f2025] px-5 py-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={pending}
+            className="rounded-md px-3 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={pending || !form.title.trim()}
+            className="rounded-md bg-[#5c7cff]/14 px-3 py-2 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/20 disabled:cursor-default disabled:opacity-45"
+          >
+            {pending ? 'Working...' : submitLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TaskLinesField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="block">
+      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">{label}</span>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        rows={7}
+        className="mt-2 w-full resize-y rounded-md border border-[#303139] bg-[#08090b] px-3 py-2 text-sm leading-6 text-[#ececee] outline-none focus:border-[#5c7cff]/60"
+      />
+    </label>
+  )
+}
+
 function SectionList({
   title,
   items,
@@ -4248,6 +4643,54 @@ function formatTaskSourceLabel(task: SwarmTask): string {
     return task.source.externalId ? `GitHub #${task.source.externalId}` : 'GitHub'
   }
   return task.source.type.charAt(0).toUpperCase() + task.source.type.slice(1)
+}
+
+function linesFromTextarea(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+function linesToTextarea(values: string[]): string {
+  return values.join('\n')
+}
+
+function buildTaskEditForm(task: SwarmTask): TaskEditFormState {
+  return {
+    title: task.title,
+    description: task.description,
+    role: task.role,
+    acceptanceCriteria: linesToTextarea(task.acceptanceCriteria),
+    implementationNotes: linesToTextarea(task.implementationNotes),
+    notes: linesToTextarea(task.notes),
+  }
+}
+
+function formatTaskSyncStatusLabel(task: SwarmTask): string | null {
+  switch (task.source?.syncStatus) {
+    case 'local_changed':
+      return 'Local edits'
+    case 'remote_changed':
+      return 'Remote changed'
+    case 'conflict':
+      return 'Sync conflict'
+    default:
+      return null
+  }
+}
+
+function formatTaskSyncStatusDescription(task: SwarmTask): string {
+  switch (task.source?.syncStatus) {
+    case 'local_changed':
+      return 'Local execution details differ from the last synced GitHub issue.'
+    case 'remote_changed':
+      return 'GitHub changed since the previous sync; this task was refreshed because local details were unchanged.'
+    case 'conflict':
+      return 'GitHub and local execution details both changed. Review the issue before starting work.'
+    default:
+      return ''
+  }
 }
 
 function emptyKanbanColumnLabel(column: SwarmTaskBoardColumn): string {

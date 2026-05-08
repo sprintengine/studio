@@ -333,6 +333,14 @@ export type SymphonyGitHubSyncInput = {
   token?: string | null
 }
 
+export type SymphonyGitHubWriteBackInput = {
+  repoRoot: string
+  statePath: string
+  taskId: string
+  kind: 'work_started' | 'review_ready'
+  token?: string | null
+}
+
 export type SymphonyGitHubSyncedTask = {
   id: string
   title: string
@@ -344,6 +352,7 @@ export type SymphonyGitHubSyncedTask = {
     externalUrl: string
     repo: string
     title: string
+    body?: string
     externalUpdatedAt: string
     syncedAt: string
     syncStatus: 'clean' | 'local_changed' | 'remote_changed' | 'conflict'
@@ -366,6 +375,22 @@ export type SymphonyGitHubSyncResult =
       tasks: SymphonyGitHubSyncedTask[]
     }
   | { ok: false; message: string }
+
+export type SymphonyGitHubWriteBackResult =
+  | {
+      ok: true
+      repo: GitHubRepoRef
+      taskId: string
+      issueNumber: string
+      commentUrl: string | null
+    }
+  | { ok: false; message: string }
+
+export type GitHubTokenStatus = {
+  configured: boolean
+  source: 'settings' | 'environment' | 'none'
+  encryptionAvailable: boolean
+}
 
 export type GitConflictFile = {
   path: string
@@ -466,6 +491,38 @@ export type AppUpdateCheckResult =
 export type SwarmArtifactCommandResult =
   | { ok: true; data: unknown }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
+
+export type SwarmTaskMutationRole =
+  | 'architect'
+  | 'product'
+  | 'developer'
+  | 'frontend'
+  | 'tester'
+  | 'security'
+  | 'code_reviewer'
+  | 'performance'
+
+export type SwarmTaskUpdateInput = {
+  statePath: string
+  taskId: string
+  title?: string
+  description?: string
+  role?: SwarmTaskMutationRole
+  acceptanceCriteria?: string[]
+  implementationNotes?: string[]
+  notes?: string[]
+}
+
+export type SwarmTaskCreateInput = {
+  statePath: string
+  title: string
+  description?: string
+  role: SwarmTaskMutationRole
+  acceptanceCriteria?: string[]
+  implementationNotes?: string[]
+  notes?: string[]
+  manualDispatch?: boolean
+}
 
 export type MultiloopInitInput = {
   workspaceRoot: string
@@ -769,7 +826,11 @@ export type ElectronApi = {
   copyGitWorktreeIncludedFiles: (
     input: GitWorktreeCopyIncludedInput
   ) => Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>>
+  getSymphonyGitHubTokenStatus: () => Promise<GitHubTokenStatus>
+  setSymphonyGitHubToken: (token: string) => Promise<GitHubTokenStatus>
+  clearSymphonyGitHubToken: () => Promise<GitHubTokenStatus>
   syncSymphonyGitHubIssues: (input: SymphonyGitHubSyncInput) => Promise<SymphonyGitHubSyncResult>
+  writeBackSymphonyGitHubIssue: (input: SymphonyGitHubWriteBackInput) => Promise<SymphonyGitHubWriteBackResult>
   openSwarmArtifact: (statePath: string, artifactPath: string) => Promise<SwarmArtifactCommandResult>
   approveSwarmArtifact: (statePath: string, artifactId: string) => Promise<SwarmArtifactCommandResult>
   autoApproveSwarmArtifact: (statePath: string, artifactId: string) => Promise<SwarmArtifactCommandResult>
@@ -779,6 +840,8 @@ export type ElectronApi = {
     feedback: string
   ) => Promise<SwarmArtifactCommandResult>
   readySwarmTask: (statePath: string, taskId: string) => Promise<SwarmArtifactCommandResult>
+  updateSwarmTask: (input: SwarmTaskUpdateInput) => Promise<SwarmArtifactCommandResult>
+  createSwarmTask: (input: SwarmTaskCreateInput) => Promise<SwarmArtifactCommandResult>
   initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
   terminalSpawn: (
     sessionId: string,

@@ -11,6 +11,8 @@ type MetaTone = 'positive' | 'muted'
 
 type UpdateAction = 'check' | 'download' | 'restart'
 
+type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getSymphonyGitHubTokenStatus>>
+
 function parseSearchExcludeText(value: string): string[] {
   return value
     .split(/\r?\n|,/u)
@@ -75,6 +77,13 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   const [memoryStatus, setMemoryStatus] = useState<MemoryRootStatus | null>(null)
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [updateActionPending, setUpdateActionPending] = useState(false)
+  const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenUiStatus | null>(null)
+  const [githubTokenDraft, setGithubTokenDraft] = useState('')
+  const [githubTokenMessage, setGithubTokenMessage] = useState('')
+  const [githubTokenPending, setGithubTokenPending] = useState(false)
+  const [activityInstalled, setActivityInstalled] = useState(false)
+  const [activityPending, setActivityPending] = useState(false)
+  const [activityMessage, setActivityMessage] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const autoCheckStartedRef = useRef(false)
 
@@ -111,6 +120,86 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   useEffect(() => {
     setMemoryDraft(activeWorkspace?.memory.relativeRoot ?? '')
   }, [activeWorkspace?.id, activeWorkspace?.memory.relativeRoot])
+
+  useEffect(() => {
+    let cancelled = false
+    setActivityMessage(null)
+    if (!activeWorkspace?.folderPath) {
+      setActivityInstalled(false)
+      return
+    }
+    void window.api
+      .memoryActivityIsInstalled({ workspaceRoot: activeWorkspace.folderPath })
+      .then((installed) => {
+        if (!cancelled) setActivityInstalled(installed)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeWorkspace?.folderPath])
+
+  const toggleActivityTracking = useCallback(
+    async (next: boolean) => {
+      if (!activeWorkspace?.folderPath) return
+      const memoryRoot = activeWorkspace.memory.relativeRoot
+      if (next && !memoryRoot) {
+        setActivityMessage('Configure a memory folder before enabling activity tracking.')
+        return
+      }
+      if (next) {
+        const confirmed = window.confirm(
+          'Enable memory activity tracking?\n\n'
+          + 'Multicode will:\n'
+          + ' • Add a hook to .claude/settings.local.json (workspace-only)\n'
+          + ' • Copy a hook script to .multicode/hooks/\n'
+          + ' • Record memory file touches to .multicode/memory-trace/\n\n'
+          + 'Only files under your memory folder are recorded. Add .multicode/ to .gitignore.'
+        )
+        if (!confirmed) return
+      }
+      setActivityPending(true)
+      setActivityMessage(null)
+      try {
+        if (next) {
+          const result = await window.api.memoryActivityInstall({
+            workspaceRoot: activeWorkspace.folderPath,
+            memoryRelativeRoot: memoryRoot,
+          })
+          if (result.ok) {
+            setActivityInstalled(true)
+          } else {
+            setActivityMessage(result.message)
+          }
+        } else {
+          const result = await window.api.memoryActivityUninstall({
+            workspaceRoot: activeWorkspace.folderPath,
+          })
+          if (result.ok) {
+            setActivityInstalled(false)
+          } else {
+            setActivityMessage(result.message)
+          }
+        }
+      } catch (error) {
+        setActivityMessage(
+          error instanceof Error ? error.message : 'Failed to update activity tracking.'
+        )
+      } finally {
+        setActivityPending(false)
+      }
+    },
+    [activeWorkspace?.folderPath, activeWorkspace?.memory.relativeRoot]
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.getSymphonyGitHubTokenStatus().then((status) => {
+      if (!cancelled) setGithubTokenStatus(status)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -153,6 +242,44 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   const restartToInstall = useCallback(async () => {
     const result = await window.api.updateQuitAndInstall()
     setUpdateState(result.state)
+  }, [])
+
+  const saveGitHubToken = useCallback(async () => {
+    const token = githubTokenDraft.trim()
+    if (!token) {
+      setGithubTokenMessage('Paste a token before saving.')
+      return
+    }
+
+    setGithubTokenPending(true)
+    setGithubTokenMessage('')
+    try {
+      const status = await window.api.setSymphonyGitHubToken(token)
+      setGithubTokenStatus(status)
+      setGithubTokenDraft('')
+      setGithubTokenMessage('Saved. Symphony can now sync private issues and post issue comments.')
+    } catch (error) {
+      setGithubTokenMessage(error instanceof Error ? error.message : 'Could not save the GitHub token.')
+    } finally {
+      setGithubTokenPending(false)
+    }
+  }, [githubTokenDraft])
+
+  const clearGitHubToken = useCallback(async () => {
+    setGithubTokenPending(true)
+    setGithubTokenMessage('')
+    try {
+      const status = await window.api.clearSymphonyGitHubToken()
+      setGithubTokenStatus(status)
+      setGithubTokenDraft('')
+      setGithubTokenMessage(status.configured && status.source === 'environment'
+        ? 'Saved token cleared. Symphony is still using a GitHub token from the environment.'
+        : 'GitHub token cleared.')
+    } catch (error) {
+      setGithubTokenMessage(error instanceof Error ? error.message : 'Could not clear the GitHub token.')
+    } finally {
+      setGithubTokenPending(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -312,6 +439,65 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
         </div>
 
         <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                GitHub Issues
+              </div>
+              <div className="mt-1 text-sm font-semibold text-[#ececee]">
+                Symphony access token
+              </div>
+            </div>
+            <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${githubTokenStatusClass(githubTokenStatus)}`}>
+              {formatGitHubTokenStatus(githubTokenStatus)}
+            </div>
+          </div>
+
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+              Token
+            </span>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="password"
+                value={githubTokenDraft}
+                onChange={(event) => setGithubTokenDraft(event.target.value)}
+                placeholder={githubTokenStatus?.configured ? 'Token saved' : 'Fine-grained GitHub token'}
+                autoComplete="off"
+                className="h-9 min-w-0 flex-1 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void saveGitHubToken()}
+                  disabled={githubTokenPending || !githubTokenDraft.trim()}
+                  className="h-9 rounded-md bg-[#5c7cff] px-3 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void clearGitHubToken()}
+                  disabled={githubTokenPending || githubTokenStatus?.source !== 'settings'}
+                  className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </label>
+
+          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${
+            githubTokenMessage
+              ? 'border-[#5c7cff]/70 text-[#b8ccff]'
+              : 'border-[rgba(255,255,255,0.10)] text-[#9a9aa2]'
+          }`}>
+            {githubTokenMessage || 'Symphony uses this token to sync private GitHub issues and post issue comments. The token is stored on this device and is not saved in workspace files.'}
+            {githubTokenStatus && !githubTokenStatus.encryptionAvailable ? ' Secure storage is unavailable, so the token is kept for this app session only.' : ''}
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
             Agent CLIs
           </div>
@@ -437,6 +623,21 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
                 : activeWorkspace?.folderPath
                   ? 'Set a relative path from the workspace folder. Leave empty to disable memory for this workspace.'
                   : 'Open a workspace folder before configuring memory.'}
+          </div>
+
+          <div className="border-t border-[#24252b] pt-4">
+            <SettingToggle
+              label="Activity tracking (Claude Code)"
+              description="Record which memory files Claude touches in this workspace and animate the graph as files are read. Adds a workspace-local hook to .claude/settings.local.json. Only files under the memory folder are recorded."
+              enabled={activityInstalled}
+              disabled={activityPending || !activeWorkspace?.folderPath || !activeWorkspace?.memory.relativeRoot}
+              onChange={(next) => void toggleActivityTracking(next)}
+            />
+            {activityMessage ? (
+              <div className="mt-2 border-l-2 border-[#ffbf2f]/75 pl-3 text-[12px] leading-5 text-[#ffd58a]">
+                {activityMessage}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -621,6 +822,18 @@ function updateChannelClass(channel: AppUpdateState['channel'] | undefined): str
     default:
       return 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2]'
   }
+}
+
+function formatGitHubTokenStatus(status: GitHubTokenUiStatus | null): string {
+  if (!status) return 'Checking'
+  if (status.source === 'settings') return 'Saved'
+  if (status.source === 'environment') return 'Environment'
+  return 'Not set'
+}
+
+function githubTokenStatusClass(status: GitHubTokenUiStatus | null): string {
+  if (status?.configured) return 'border-[#5c7cff]/35 bg-[#5c7cff]/10 text-[#b8ccff]'
+  return 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2]'
 }
 
 function updateStatusClass(status: AppUpdateState['status'] | undefined): string {

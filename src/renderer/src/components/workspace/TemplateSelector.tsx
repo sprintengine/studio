@@ -39,6 +39,7 @@ import {
 } from '../../utils/sprintengineStateFile'
 import multiloopSplash from '../../assets/brand/multiloop-splash.png'
 import sprintEngineSplash from '../../assets/brand/sprintengine-splash.png'
+import symphonySplash from '../../assets/brand/symphony-splash.png'
 import multiloopWorkspacePreview from '../../assets/brand/multiloop-workspace-preview.png'
 import sprintEngineWorkspacePreview from '../../assets/brand/sprintengine-workspace-preview.png'
 import standardWorkspacePreview from '../../assets/brand/standard-workspace-preview.png'
@@ -729,7 +730,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               })}
             </div>
 
-            {mode === 'sprintengine' || mode === 'symphony' ? <SprintEngineSplash /> : null}
+            {mode === 'sprintengine' ? <SprintEngineSplash /> : null}
+            {mode === 'symphony' ? <SymphonySplash /> : null}
             {mode === 'multiloop' ? <MultiloopSplash /> : null}
 
             {isSprintEngineLikeMode && !swarmAccess.allowed ? (
@@ -1261,6 +1263,19 @@ function MultiloopSplash() {
       <img
         src={multiloopSplash}
         alt="Multiloop"
+        className="block w-full max-w-[620px] select-none object-contain"
+        draggable={false}
+      />
+    </div>
+  )
+}
+
+function SymphonySplash() {
+  return (
+    <div className="flex min-h-[112px] items-center justify-center px-2 py-3">
+      <img
+        src={symphonySplash}
+        alt="Symphony"
         className="block w-full max-w-[620px] select-none object-contain"
         draggable={false}
       />

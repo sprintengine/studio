@@ -190,6 +190,18 @@ export type SwarmTaskFeedback = {
   findings?: SwarmTaskFeedbackFinding[]
 }
 
+export type SwarmTaskTriage = {
+  summary: string
+  suggestedRole?: SwarmRole
+  acceptanceCriteria: string[]
+  likelyAffectedAreas: string[]
+  missingInformation: string[]
+  riskRating: 'low' | 'medium' | 'high'
+  readyRecommendation: boolean
+  triagedBy: 'architect'
+  triagedAt: string
+}
+
 export type SwarmTaskSourceType = 'local' | 'github' | 'jira' | 'linear'
 export type SwarmTaskSourceSyncStatus = 'clean' | 'local_changed' | 'remote_changed' | 'conflict'
 
@@ -199,6 +211,7 @@ export type SwarmTaskSource = {
   externalUrl?: string
   repo?: string
   title?: string
+  body?: string
   externalUpdatedAt?: string
   syncedAt?: string
   syncStatus?: SwarmTaskSourceSyncStatus
@@ -236,6 +249,7 @@ export type SwarmAutoState = {
   autoApproveArtifacts: boolean
   keepDoneAgentTerminals: boolean
   cliPermissionPreset: SwarmCliPermissionPreset
+  maxConcurrentAgents: number
   pendingSpawns: SwarmAutoPendingSpawn[]
 }
 
@@ -465,6 +479,7 @@ export type SwarmTask = {
   implementationNotes: string[]
   evidence: SwarmTaskEvidence
   feedback?: SwarmTaskFeedback
+  triage?: SwarmTaskTriage
   notes: string[]
   startedAt: string | null
   completedAt: string | null
