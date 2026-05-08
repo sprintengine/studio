@@ -1,4 +1,4 @@
-import { ipcRenderer, type IpcRendererEvent } from 'electron'
+import { ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type {
   ContentSearchResult,
   ContextMenuItem,
@@ -26,6 +26,13 @@ export const filesystemApi = {
   readfile: (path: string) => ipcRenderer.invoke('fs:readfile', path),
   readImageDataUrl: (path: string) => ipcRenderer.invoke('fs:read-image-data-url', path),
   pathExists: (path: string) => ipcRenderer.invoke('fs:path-exists', path),
+  getPathForFile: (file: unknown): string => {
+    try {
+      return webUtils.getPathForFile(file as File)
+    } catch {
+      return ''
+    }
+  },
   checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>
     ipcRenderer.invoke('fs:check-workspace-folder', path),
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }): Promise<MemoryRootStatus> =>
@@ -76,6 +83,7 @@ export const filesystemApi = {
   | 'readfile'
   | 'readImageDataUrl'
   | 'pathExists'
+  | 'getPathForFile'
   | 'checkWorkspaceFolder'
   | 'memoryResolveRoot'
   | 'memoryIndex'

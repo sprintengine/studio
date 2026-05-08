@@ -260,7 +260,7 @@ async function spawnMobileAgentTerminal(input: {
   disposeTerminal(input.sessionId)
 
   try {
-    const { command, args, cwd: launchCwd, initialInput, env, startupScriptPath } = getShellLaunchConfig(
+    const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = getShellLaunchConfig(
       input.cwd,
       input.sessionId,
       false,
@@ -291,6 +291,7 @@ async function spawnMobileAgentTerminal(input: {
       outputBytes: 0,
       outputLength: 0,
       kind: 'agent',
+      pathStyle,
       agentId: input.agentId,
       cli: input.cli,
       cwd: launchCwd ?? input.cwd,
@@ -379,7 +380,7 @@ async function spawnTerminalFromIpc(
         disposeOtherAgentSessions(sessionId, workspaceId, agentId, swarmStatePath)
       }
 
-      const { command, args, cwd: launchCwd, initialInput, env, startupScriptPath } = shellOnly
+      const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = shellOnly
         ? getPlainShellLaunchConfig(workingDirectory, swarmStatePath, sessionId)
         : getShellLaunchConfig(
           workingDirectory,
@@ -414,6 +415,7 @@ async function spawnTerminalFromIpc(
         outputBytes: 0,
         outputLength: 0,
         kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+        pathStyle,
         workspaceId,
         agentId,
         terminalId,

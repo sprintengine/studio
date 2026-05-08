@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -12,6 +12,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
+import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
 
 interface Props {
   workspaceId: string
@@ -99,6 +100,7 @@ function appendMemoryPrompt(prompt: string | undefined, memoryContext: MemoryLau
 
 export default function TerminalView({ workspaceId, agentId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [isFileDragOver, setIsFileDragOver] = useState(false)
   const agent = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
@@ -498,13 +500,54 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   ])
 
   const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasFileDropData(event.dataTransfer)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setIsFileDragOver(true)
+  }
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
+    setIsFileDragOver(false)
+  }
+
+  const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasFileDropData(event.dataTransfer)) return
+    event.preventDefault()
+    setIsFileDragOver(false)
+
+    const sessionId = agent?.cliSessionId
+    if (!sessionId) {
+      alert('Start this agent terminal before dropping files into it.')
+      return
+    }
+
+    const result = await pasteDroppedFilesIntoTerminal({
+      dataTransfer: event.dataTransfer,
+      sessionId,
+      workspaceId,
+    }).catch((error): { ok: false; message: string } => ({
+      ok: false,
+      message: error instanceof Error ? error.message : 'Could not drop the file into the terminal.',
+    }))
+
+    if (!result.ok) alert(result.message)
+  }
 
   return (
     <div
       ref={containerRef}
       tabIndex={0}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={(event) => void handleDrop(event)}
       className="absolute inset-0 overflow-hidden px-2 pb-2 cursor-text"
     >
+      {isFileDragOver ? (
+        <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[#4f6ad7] bg-[#101524]/70" />
+      ) : null}
       {folderBlocked ? (
         <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[#5a5a63]">
           {checkingFolder

@@ -4,6 +4,7 @@ import type {
   AgentCli,
   AgentExecutionMode,
   TerminalKind,
+  TerminalPathStyle,
   TerminalSessionSnapshot,
 } from '../shared/electron-api'
 
@@ -25,6 +26,7 @@ export type TerminalSession = {
   outputBytes: number
   outputLength: number
   kind: TerminalKind
+  pathStyle?: TerminalPathStyle
   workspaceId?: string
   agentId?: string
   terminalId?: string
@@ -89,6 +91,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     sessionId: session.sessionId,
     running: !session.hasExited && !session.isDisposed,
     kind: session.kind,
+    pathStyle: session.pathStyle,
     workspaceId: session.workspaceId,
     agentId: session.agentId,
     terminalId: session.terminalId,

@@ -2,12 +2,13 @@ import { app } from 'electron'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
-import type { AgentCli, CliRuntimeSettings, SwarmCliPermissionPreset } from '../shared/electron-api'
+import type { AgentCli, CliRuntimeSettings, SwarmCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 
 export type ShellLaunchConfig = {
   command: string
   args: string[]
   cwd?: string
+  pathStyle: TerminalPathStyle
   initialInput?: string
   env?: Record<string, string>
   startupScriptPath?: string
@@ -421,6 +422,7 @@ export function getShellLaunchConfig(
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
       env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, memoryRelativeRoot),
       cwd: windowsCwd,
+      pathStyle: 'windows',
       startupScriptPath,
     }
   }
@@ -450,6 +452,7 @@ export function getShellLaunchConfig(
         '-li',
         toWslPath(startupScriptPath),
       ],
+      pathStyle: 'wsl',
       startupScriptPath,
     }
   }
@@ -468,6 +471,7 @@ export function getShellLaunchConfig(
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
     cwd,
     env: withSwarmEnv(getTerminalEnv(), cwd, swarmStatePath, memoryRootPath, memoryRelativeRoot),
+    pathStyle: 'posix',
     startupScriptPath,
   }
 }
@@ -487,6 +491,7 @@ export function getPlainShellLaunchConfig(
         args: ['-NoLogo'],
         env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
         cwd: windowsCwd,
+        pathStyle: 'windows',
       }
     }
 
@@ -509,6 +514,7 @@ export function getPlainShellLaunchConfig(
         '-li',
         toWslPath(startupScriptPath),
       ],
+      pathStyle: 'wsl',
       startupScriptPath,
     }
   }
@@ -525,6 +531,7 @@ export function getPlainShellLaunchConfig(
     command: shellPath,
     cwd,
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
+    pathStyle: 'posix',
     startupScriptPath,
   }
 }

@@ -7,6 +7,7 @@ import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { slugifySwarmName } from '../../utils/sprintengineStateFile'
+import { setFileDropData } from '../../utils/terminalDrop'
 import type { FuturePlanWorkspaceSource } from '../../types/workspace'
 
 type Entry = {
@@ -886,6 +887,21 @@ function ExplorerTree({
     }
   }
 
+  const handleDragStart = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
+    if (entry.gitDeleted) {
+      event.preventDefault()
+      return
+    }
+
+    setSelectedPath(entry.path)
+    setFileDropData(event.dataTransfer, {
+      version: 1,
+      workspaceId,
+      rootPath,
+      files: [{ path: entry.path, name: entry.name, isDir: entry.isDir }],
+    })
+  }
+
   const showContextMenu = async (event: React.MouseEvent, entry?: Entry) => {
     event.preventDefault()
     event.stopPropagation()
@@ -1252,6 +1268,8 @@ function ExplorerTree({
               role="treeitem"
               aria-selected={isSelected}
               aria-expanded={entry.isDir ? isExpanded : undefined}
+              draggable={!entry.gitDeleted && !isRenaming}
+              onDragStart={(event) => handleDragStart(event, entry)}
               onClick={() => {
                 if (isRenaming) return
                 if (entry.gitDeleted) {
