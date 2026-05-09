@@ -46,7 +46,7 @@ function toEntries(raw: { name: string; isDir: boolean }[], parent: string): Ent
       path: `${parent}${parent.endsWith(joiner) ? '' : joiner}${entry.name}`,
       parentPath: parent,
     }))
-    .filter((entry) => !entry.name.startsWith('.') && entry.name !== 'node_modules')
+    .filter((entry) => entry.name !== 'node_modules')
     .sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)))
 }
 
@@ -56,7 +56,7 @@ function isIgnoredExplorerWatchPath(path: string | null): boolean {
   return path
     .split(/[/\\]+/)
     .filter(Boolean)
-    .some((segment) => segment === 'node_modules' || segment.startsWith('.'))
+    .some((segment) => segment === 'node_modules')
 }
 
 function flattenTree(
