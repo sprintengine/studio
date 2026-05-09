@@ -1,3 +1,18 @@
+import type {
+  SwitchboardAddCommentInput,
+  SwitchboardCancelTaskInput,
+  SwitchboardClaimTaskInput,
+  SwitchboardClaimTaskResult,
+  SwitchboardCreateTaskInput,
+  SwitchboardInitApiResult,
+  SwitchboardMoveTaskInput,
+  SwitchboardMutationResult,
+  SwitchboardPromoteInboxTaskInput,
+  SwitchboardPublishTaskInput,
+  SwitchboardReadResult,
+  SwitchboardUpdateTaskInput,
+} from './switchboard'
+
 export type SaveDialogOptions = {
   title?: string
   defaultPath?: string
@@ -963,6 +978,16 @@ export type ElectronApi = {
   initializeSprintEngineState: (input: SprintEngineStateInitializeInput) => Promise<SwarmArtifactCommandResult>
   updateSwarmTask: (input: SwarmTaskUpdateInput) => Promise<SwarmArtifactCommandResult>
   createSwarmTask: (input: SwarmTaskCreateInput) => Promise<SwarmArtifactCommandResult>
+  initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
+  readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>
+  createSwitchboardTask: (input: SwitchboardCreateTaskInput) => Promise<SwitchboardMutationResult>
+  updateSwitchboardTask: (input: SwitchboardUpdateTaskInput) => Promise<SwitchboardMutationResult>
+  moveSwitchboardTask: (input: SwitchboardMoveTaskInput) => Promise<SwitchboardMutationResult>
+  promoteSwitchboardInboxTask: (input: SwitchboardPromoteInboxTaskInput) => Promise<SwitchboardMutationResult>
+  cancelSwitchboardTask: (input: SwitchboardCancelTaskInput) => Promise<SwitchboardMutationResult>
+  addSwitchboardComment: (input: SwitchboardAddCommentInput) => Promise<SwitchboardMutationResult>
+  claimSwitchboardTask: (input: SwitchboardClaimTaskInput) => Promise<SwitchboardClaimTaskResult>
+  publishSwitchboardTask: (input: SwitchboardPublishTaskInput) => Promise<SwitchboardMutationResult>
   initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
   terminalSpawn: (
     sessionId: string,

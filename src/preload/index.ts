@@ -10,6 +10,7 @@ import { mobileBridgeApi } from './api/mobile-bridge'
 import { multiloopApi } from './api/multiloop'
 import { soulsApi } from './api/souls'
 import { sprintEngineApi } from './api/sprintengine'
+import { switchboardApi } from './api/switchboard'
 import { terminalApi } from './api/terminal'
 import { updateApi } from './api/update'
 import { windowApi } from './api/window'
@@ -27,6 +28,7 @@ const api = {
   ...gitApi,
   ...memoryActivityApi,
   ...sprintEngineApi,
+  ...switchboardApi,
   ...multiloopApi,
   ...terminalApi,
   ...updateApi,

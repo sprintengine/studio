@@ -16,6 +16,7 @@ import {
   registerSprintEngineIpc,
 } from './ipc/sprintengine-ipc'
 import { registerSymphonyGitHubIpc } from './ipc/symphony-github-ipc'
+import { registerSwitchboardIpc } from './ipc/switchboard-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
@@ -38,6 +39,18 @@ import {
   MobileBridge,
 } from './mobile/bridge'
 import { MobileSwarmSnapshotService } from './mobile/sprintengine/snapshot'
+import {
+  addSwitchboardComment,
+  cancelSwitchboardTask,
+  claimSwitchboardTask,
+  createSwitchboardTask,
+  initializeSwitchboard,
+  moveSwitchboardTask,
+  promoteSwitchboardInboxTask,
+  publishSwitchboardTask,
+  readAllSwitchboardTasks,
+  updateSwitchboardTask,
+} from './switchboard-files'
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
@@ -107,6 +120,19 @@ registerSprintEngineIpc(ipcMain, {
   initializeSprintEngineState: sprintEngineArtifacts.initializeSprintEngineState,
   updateTask: sprintEngineArtifacts.updateTask,
   createTask: sprintEngineArtifacts.createTask,
+})
+
+registerSwitchboardIpc(ipcMain, {
+  initialize: initializeSwitchboard,
+  readAll: readAllSwitchboardTasks,
+  createTask: createSwitchboardTask,
+  updateTask: updateSwitchboardTask,
+  moveTask: moveSwitchboardTask,
+  promoteInboxTask: promoteSwitchboardInboxTask,
+  cancelTask: cancelSwitchboardTask,
+  addComment: addSwitchboardComment,
+  claimTask: claimSwitchboardTask,
+  publishTask: publishSwitchboardTask,
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────

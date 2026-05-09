@@ -1,0 +1,51 @@
+import { ipcRenderer } from 'electron'
+import type { ElectronApi } from '../../shared/electron-api'
+import type {
+  SwitchboardAddCommentInput,
+  SwitchboardCancelTaskInput,
+  SwitchboardClaimTaskInput,
+  SwitchboardClaimTaskResult,
+  SwitchboardCreateTaskInput,
+  SwitchboardInitApiResult,
+  SwitchboardMoveTaskInput,
+  SwitchboardMutationResult,
+  SwitchboardPromoteInboxTaskInput,
+  SwitchboardPublishTaskInput,
+  SwitchboardReadResult,
+  SwitchboardUpdateTaskInput,
+} from '../../shared/switchboard'
+
+export const switchboardApi = {
+  initializeSwitchboard: (workspaceRoot: string): Promise<SwitchboardInitApiResult> =>
+    ipcRenderer.invoke('switchboard:init', { workspaceRoot }),
+  readSwitchboardTasks: (workspaceRoot: string): Promise<SwitchboardReadResult> =>
+    ipcRenderer.invoke('switchboard:read-all', { workspaceRoot }),
+  createSwitchboardTask: (input: SwitchboardCreateTaskInput): Promise<SwitchboardMutationResult> =>
+    ipcRenderer.invoke('switchboard:create-task', input),
+  updateSwitchboardTask: (input: SwitchboardUpdateTaskInput): Promise<SwitchboardMutationResult> =>
+    ipcRenderer.invoke('switchboard:update-task', input),
+  moveSwitchboardTask: (input: SwitchboardMoveTaskInput): Promise<SwitchboardMutationResult> =>
+    ipcRenderer.invoke('switchboard:move-task', input),
+  promoteSwitchboardInboxTask: (input: SwitchboardPromoteInboxTaskInput): Promise<SwitchboardMutationResult> =>
+    ipcRenderer.invoke('switchboard:promote-inbox-task', input),
+  cancelSwitchboardTask: (input: SwitchboardCancelTaskInput): Promise<SwitchboardMutationResult> =>
+    ipcRenderer.invoke('switchboard:cancel-task', input),
+  addSwitchboardComment: (input: SwitchboardAddCommentInput): Promise<SwitchboardMutationResult> =>
+    ipcRenderer.invoke('switchboard:add-comment', input),
+  claimSwitchboardTask: (input: SwitchboardClaimTaskInput): Promise<SwitchboardClaimTaskResult> =>
+    ipcRenderer.invoke('switchboard:claim-task', input),
+  publishSwitchboardTask: (input: SwitchboardPublishTaskInput): Promise<SwitchboardMutationResult> =>
+    ipcRenderer.invoke('switchboard:publish-task', input),
+} satisfies Pick<
+  ElectronApi,
+  | 'initializeSwitchboard'
+  | 'readSwitchboardTasks'
+  | 'createSwitchboardTask'
+  | 'updateSwitchboardTask'
+  | 'moveSwitchboardTask'
+  | 'promoteSwitchboardInboxTask'
+  | 'cancelSwitchboardTask'
+  | 'addSwitchboardComment'
+  | 'claimSwitchboardTask'
+  | 'publishSwitchboardTask'
+>

@@ -87,6 +87,25 @@ import type {
   WindowState as SharedWindowState,
   WorkspaceFolderCheckResult as SharedWorkspaceFolderCheckResult,
 } from '../shared/electron-api'
+import type {
+  SwitchboardAddCommentInput as SharedSwitchboardAddCommentInput,
+  SwitchboardCancelTaskInput as SharedSwitchboardCancelTaskInput,
+  SwitchboardClaimTaskInput as SharedSwitchboardClaimTaskInput,
+  SwitchboardClaimTaskResult as SharedSwitchboardClaimTaskResult,
+  SwitchboardComment as SharedSwitchboardComment,
+  SwitchboardCreateTaskInput as SharedSwitchboardCreateTaskInput,
+  SwitchboardFolderStatus as SharedSwitchboardFolderStatus,
+  SwitchboardInitApiResult as SharedSwitchboardInitApiResult,
+  SwitchboardMoveTaskInput as SharedSwitchboardMoveTaskInput,
+  SwitchboardMutationResult as SharedSwitchboardMutationResult,
+  SwitchboardPromoteInboxTaskInput as SharedSwitchboardPromoteInboxTaskInput,
+  SwitchboardPublishTaskInput as SharedSwitchboardPublishTaskInput,
+  SwitchboardReadResult as SharedSwitchboardReadResult,
+  SwitchboardTask as SharedSwitchboardTask,
+  SwitchboardTaskRecord as SharedSwitchboardTaskRecord,
+  SwitchboardTaskStatus as SharedSwitchboardTaskStatus,
+  SwitchboardUpdateTaskInput as SharedSwitchboardUpdateTaskInput,
+} from '../shared/switchboard'
 
 declare global {
   type SaveDialogOptions = SharedSaveDialogOptions
@@ -175,6 +194,23 @@ declare global {
   type MobileBridgePairingChallenge = SharedMobileBridgePairingChallenge
   type MobileBridgeState = SharedMobileBridgeState
   type MobileBridgeSettingsUpdate = SharedMobileBridgeSettingsUpdate
+  type SwitchboardTaskStatus = SharedSwitchboardTaskStatus
+  type SwitchboardFolderStatus = SharedSwitchboardFolderStatus
+  type SwitchboardComment = SharedSwitchboardComment
+  type SwitchboardTask = SharedSwitchboardTask
+  type SwitchboardTaskRecord = SharedSwitchboardTaskRecord
+  type SwitchboardInitApiResult = SharedSwitchboardInitApiResult
+  type SwitchboardReadResult = SharedSwitchboardReadResult
+  type SwitchboardMutationResult = SharedSwitchboardMutationResult
+  type SwitchboardClaimTaskResult = SharedSwitchboardClaimTaskResult
+  type SwitchboardCreateTaskInput = SharedSwitchboardCreateTaskInput
+  type SwitchboardUpdateTaskInput = SharedSwitchboardUpdateTaskInput
+  type SwitchboardMoveTaskInput = SharedSwitchboardMoveTaskInput
+  type SwitchboardPromoteInboxTaskInput = SharedSwitchboardPromoteInboxTaskInput
+  type SwitchboardCancelTaskInput = SharedSwitchboardCancelTaskInput
+  type SwitchboardAddCommentInput = SharedSwitchboardAddCommentInput
+  type SwitchboardClaimTaskInput = SharedSwitchboardClaimTaskInput
+  type SwitchboardPublishTaskInput = SharedSwitchboardPublishTaskInput
 
   interface Window {
     api: ElectronApi

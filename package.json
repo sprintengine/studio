@@ -36,7 +36,10 @@
       "souls/prompts/**/*.md",
       "scripts/souls",
       "scripts/souls.cmd",
+      "scripts/switchboard",
+      "scripts/switchboard.cmd",
       "scripts/sprintengine_tool.py",
+      "switchboard_core/**/*.py",
       "sprintengine_core/**/*.py",
       "!out/**/*.map"
     ],
