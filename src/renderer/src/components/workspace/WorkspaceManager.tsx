@@ -1,10 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { SpecialistActionIcon, StatusDot, SwarmRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import CommandPalette from '../CommandPalette'
-import SettingsModal from '../settings/SettingsModal'
+import SettingsPanel from '../settings/SettingsPanel'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
@@ -430,10 +430,23 @@ export default function WorkspaceManager() {
   const openTemplateSelector = () => {
     setTemplateSelectorInitialState(null)
     setShowTemplateSelector(true)
+    setShowSettings(false)
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setHandoffOpen(false)
   }
+
+  const openSettings = useCallback((checkForUpdates = false) => {
+    setCheckForUpdatesOnSettingsOpen(checkForUpdates)
+    setShowSettings(true)
+    setShowTemplateSelector(false)
+    setSpecialistMenuOpen(false)
+    setSessionsOpen(false)
+    setViewMenuOpen(false)
+    setNotificationsOpen(false)
+    setAccountOpen(false)
+    setHandoffOpen(false)
+  }, [])
 
   const openFuturePlanWorkspace = (source: FuturePlanWorkspaceSource) => {
     setTemplateSelectorInitialState({
@@ -442,6 +455,7 @@ export default function WorkspaceManager() {
       futurePlanSource: source,
     })
     setShowTemplateSelector(true)
+    setShowSettings(false)
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setHandoffOpen(false)
@@ -794,18 +808,15 @@ export default function WorkspaceManager() {
   useEffect(() => {
     return window.api.onAppMenuCommand((command) => {
       if (command === 'show-settings') {
-        setCheckForUpdatesOnSettingsOpen(false)
-        setShowSettings(true)
+        openSettings(false)
         return
       }
       if (command === 'show-about') {
-        setCheckForUpdatesOnSettingsOpen(false)
-        setShowSettings(true)
+        openSettings(false)
         return
       }
       if (command === 'check-for-updates') {
-        setCheckForUpdatesOnSettingsOpen(true)
-        setShowSettings(true)
+        openSettings(true)
         return
       }
       if (!activeWorkspaceId) return
@@ -822,7 +833,7 @@ export default function WorkspaceManager() {
         }
       }
     })
-  }, [activeWorkspaceId, workspaces])
+  }, [activeWorkspaceId, openSettings, workspaces])
 
   const handleCreate = ({
     template,
@@ -1866,11 +1877,35 @@ export default function WorkspaceManager() {
               />
             ) : null}
           </div>
+
+          <button
+            type="button"
+            onClick={() => openSettings(false)}
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+              showSettings
+                ? 'border-[#303139] bg-[#17181d] text-[#ececee]'
+                : 'border-[#24252b] bg-[#111216] text-[#9a9aa2] hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc]'
+            }`}
+            title="Settings (Ctrl+,)"
+            aria-label="Settings"
+            aria-pressed={showSettings}
+          >
+            <GearIcon className="h-[18px] w-[18px]" />
+          </button>
         </div>
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {showTemplateSelector ? (
+        {showSettings ? (
+          <SettingsPanel
+            checkForUpdatesOnOpen={checkForUpdatesOnSettingsOpen}
+            onClose={() => {
+              setShowSettings(false)
+              setCheckForUpdatesOnSettingsOpen(false)
+              if (workspaces.length === 0) setShowTemplateSelector(true)
+            }}
+          />
+        ) : showTemplateSelector ? (
           <TemplateSelector
             onCreate={handleCreate}
             onClose={() => {
@@ -1959,16 +1994,6 @@ export default function WorkspaceManager() {
           </div>
         </div>
       ) : null}
-
-      {showSettings && (
-        <SettingsModal
-          checkForUpdatesOnOpen={checkForUpdatesOnSettingsOpen}
-          onClose={() => {
-            setShowSettings(false)
-            setCheckForUpdatesOnSettingsOpen(false)
-          }}
-        />
-      )}
 
       {showPalette && (
         <CommandPalette
@@ -2246,11 +2271,41 @@ function NotificationBellIcon({ className }: { className?: string }) {
 function MemoryGraphIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="6.5" cy="8" r="2.35" stroke="currentColor" strokeWidth="1.7" />
-      <circle cx="16.75" cy="6.25" r="2.15" stroke="currentColor" strokeWidth="1.7" />
-      <circle cx="17.5" cy="16.75" r="2.75" stroke="currentColor" strokeWidth="1.7" />
-      <circle cx="7.25" cy="17.25" r="1.75" fill="currentColor" />
-      <path d="M8.8 7.6L14.65 6.6M8.15 9.9L15.7 15.1M9 17.15H14.75" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
+      <path
+        d="M19.95 11.3c0-4.05-3.1-6.95-7.35-6.95-3.55 0-6.25 1.82-6.85 4.62-1.4.76-2.15 2.08-2.15 3.62 0 2.45 1.92 4.32 4.62 4.32h1.88c.92 0 1.66.74 1.66 1.66v1.1"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M19.95 11.3c0 1.42-.62 2.65-1.76 3.45-.72.5-1.08 1.08-1.08 1.82v.92"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.38 9.35c.5-1.28 1.72-2 3.02-1.78M10.4 7.57c.7-1.04 2.18-1.48 3.38-.85M13.78 6.72c1.32-.3 2.72.42 3.28 1.62"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.1 12.18c.7-1.1 2.18-1.42 3.28-.7M9.38 11.48c.66-.9 2.02-1.12 3-.48M12.38 11c.84-.92 2.38-.9 3.35.04"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.22 14.68c1.08-.48 2.48-.18 3.18.7M10.4 15.38c.84-.62 2.08-.52 2.82.26M13.22 15.64c.8-.62 1.98-.58 2.68.08"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -2489,6 +2544,20 @@ function AccountIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M12 12.25a4.25 4.25 0 1 0 0-8.5a4.25 4.25 0 0 0 0 8.5Z" stroke="currentColor" strokeWidth="1.8" />
       <path d="M4.75 20.25c.72-3.1 3.38-5.25 7.25-5.25s6.53 2.15 7.25 5.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function GearIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9.25 4.25L9.9 2.9h4.2l.65 1.35a1.8 1.8 0 0 0 2.2.92l1.43-.48 2.1 3.64-1.12 1a1.8 1.8 0 0 0 0 2.68l1.12 1-2.1 3.64-1.43-.48a1.8 1.8 0 0 0-2.2.92l-.65 1.35H9.9l-.65-1.35a1.8 1.8 0 0 0-2.2-.92l-1.43.48-2.1-3.64 1.12-1a1.8 1.8 0 0 0 0-2.68l-1.12-1 2.1-3.64 1.43.48a1.8 1.8 0 0 0 2.2-.92Z"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="11.67" r="3" stroke="currentColor" strokeWidth="1.65" />
     </svg>
   )
 }

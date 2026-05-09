@@ -379,11 +379,11 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         const dimmed = matchSet && !bothMatched
 
         ctx.strokeStyle = touchesHover
-          ? 'rgba(96, 165, 250, 0.95)'
+          ? 'rgba(96, 165, 250, 0.62)'
           : dimmed
-            ? 'rgba(255, 255, 255, 0.05)'
-            : 'rgba(255, 255, 255, 0.16)'
-        ctx.lineWidth = touchesHover ? baseLine * 1.6 : baseLine
+            ? 'rgba(255, 255, 255, 0.025)'
+            : 'rgba(255, 255, 255, 0.07)'
+        ctx.lineWidth = touchesHover ? baseLine * 1.35 : baseLine * 0.85
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
         ctx.lineTo(b.x, b.y)
@@ -401,9 +401,9 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
           const b = byId.get(s.dst)
           if (!a || !b) continue
           const norm = logMax > 0 ? Math.log(s.count + 1) / logMax : 0
-          const alpha = 0.18 + 0.65 * norm
+          const alpha = 0.1 + 0.3 * norm
           ctx.strokeStyle = hexWithAlpha(SYNAPSE_COLOR, alpha)
-          ctx.lineWidth = baseLine * (1.2 + 1.6 * norm)
+          ctx.lineWidth = baseLine * (0.9 + 1.05 * norm)
           ctx.beginPath()
           ctx.moveTo(a.x, a.y)
           ctx.lineTo(b.x, b.y)
@@ -419,9 +419,9 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         const isNeighbor = focusNeighbors?.has(node.id) ?? false
         const focused = isHover || isNeighbor || hoveredId === null
         if (dimmed) continue
-        const haloRadius = node.radius * (isHover ? 4.5 : 3.2)
+        const haloRadius = node.radius * (isHover ? 3.3 : 2.25)
         const grad = ctx.createRadialGradient(node.x, node.y, node.radius * 0.4, node.x, node.y, haloRadius)
-        const alpha = isHover ? 0.55 : focused ? 0.25 : 0.12
+        const alpha = isHover ? 0.34 : focused ? 0.13 : 0.07
         grad.addColorStop(0, hexWithAlpha(node.color, alpha))
         grad.addColorStop(1, hexWithAlpha(node.color, 0))
         ctx.fillStyle = grad

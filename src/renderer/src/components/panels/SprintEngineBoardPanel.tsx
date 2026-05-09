@@ -339,7 +339,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
   const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
   const setSwarmAutoApproveArtifacts = useWorkspaceStore((s) => s.setSwarmAutoApproveArtifacts)
-  const setSwarmKeepDoneAgentTerminals = useWorkspaceStore((s) => s.setSwarmKeepDoneAgentTerminals)
   const setSwarmCliPermissionPreset = useWorkspaceStore((s) => s.setSwarmCliPermissionPreset)
   const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
@@ -406,7 +405,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const agents = workspace?.agents ?? {}
   const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
   const autoApproveArtifacts = workspace?.swarmAutoState?.autoApproveArtifacts ?? false
-  const keepDoneAgentTerminals = workspace?.swarmAutoState?.keepDoneAgentTerminals ?? false
   const cliPermissionPreset = workspace?.swarmAutoState?.cliPermissionPreset ?? 'default'
   const isSymphonyWorkspace = workspace?.mode === 'symphony'
 
@@ -1109,10 +1107,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     setSwarmAutoApproveArtifacts(workspaceId, !autoApproveArtifacts)
   }
 
-  const toggleKeepDoneAgentTerminals = () => {
-    setSwarmKeepDoneAgentTerminals(workspaceId, !keepDoneAgentTerminals)
-  }
-
   const updateCliPermissionPreset = (preset: SwarmCliPermissionPreset) => {
     if (preset === 'bypass_all') {
       const confirmed = window.confirm(
@@ -1430,35 +1424,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   SprintEngine auto-run must be enabled before artifacts can be approved automatically.
                 </span>
               </>
-            ) : null}
-            {!isSymphonyWorkspace ? (
-              <button
-                type="button"
-                role="switch"
-                aria-checked={keepDoneAgentTerminals}
-                aria-label="Keep done agent terminals open"
-                onClick={toggleKeepDoneAgentTerminals}
-                className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
-                  keepDoneAgentTerminals
-                    ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
-                    : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
-                }`}
-                title="Keep completed Sprint Engine agent terminals open"
-              >
-                <span
-                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                    keepDoneAgentTerminals ? 'bg-[#5c7cff]' : 'bg-[#303139]'
-                  }`}
-                  aria-hidden="true"
-                >
-                  <span
-                    className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
-                      keepDoneAgentTerminals ? 'translate-x-4' : 'translate-x-0'
-                    }`}
-                  />
-                </span>
-                <span>Keep terminals</span>
-              </button>
             ) : null}
             {!isSymphonyWorkspace ? (
               <>

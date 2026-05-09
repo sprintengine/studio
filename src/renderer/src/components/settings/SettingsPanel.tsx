@@ -59,7 +59,7 @@ function relativePathBetween(fromPath: string, toPath: string): string | null {
   ].join('/') || '.'
 }
 
-export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }: Props) {
+export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }: Props) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
@@ -87,7 +87,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   const [memorySkillStatus, setMemorySkillStatus] = useState<BuiltinSkillStatus | null>(null)
   const [memorySkillPending, setMemorySkillPending] = useState(false)
   const [memorySkillMessage, setMemorySkillMessage] = useState<string | null>(null)
-  const dialogRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const autoCheckStartedRef = useRef(false)
 
   const commitMemoryDraft = useCallback((value: string) => {
@@ -103,18 +103,8 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
   }, [commitMemoryDraft, memoryDraft, onClose, searchExcludesDraft, setSearchExcludes])
 
   useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    dialogRef.current?.focus()
-    return () => previous?.focus()
+    panelRef.current?.focus()
   }, [])
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeSettings()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [closeSettings])
 
   useEffect(() => {
     setSearchExcludesDraft(searchExcludes.join('\n'))
@@ -388,34 +378,33 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
       : 'check'
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]"
-      onClick={(event) => event.target === event.currentTarget && closeSettings()}
+    <section
+      ref={panelRef}
+      aria-labelledby="settings-panel-title"
+      tabIndex={-1}
+      className="flex h-full min-h-0 flex-col bg-[#08090b] outline-none"
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-modal-title"
-        tabIndex={-1}
-        className="max-h-[92vh] w-[720px] max-w-[95vw] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11] p-6 outline-none"
-      >
-        <div className="mb-5 flex items-start justify-between">
-          <div>
-            <h2 id="settings-modal-title" className="text-[15px] font-semibold tracking-tight text-[#ececee]">Settings</h2>
-            <p className="mt-1 text-[12px] leading-5 text-[#9a9aa2]">Configure local CLIs, workspace paths, and usage telemetry.</p>
-          </div>
-          <button
-            type="button"
-            onClick={closeSettings}
-            aria-label="Close settings"
-            className="rounded-md px-2 py-1 text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </button>
+      <div className="flex shrink-0 items-center justify-between border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
+        <div className="min-w-0">
+          <h2 id="settings-panel-title" className="text-[15px] font-semibold tracking-tight text-[#ececee]">Settings</h2>
+          <p className="mt-0.5 text-[12px] leading-5 text-[#8a8a92]">Configure local CLIs, workspace paths, updates, and telemetry.</p>
         </div>
+        <button
+          type="button"
+          onClick={closeSettings}
+          aria-label="Close settings"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+        >
+          <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      <div
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
+        <div className="mx-auto w-full max-w-[920px] px-5 py-6">
 
         <div className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -666,7 +655,7 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
           </div>
 
           <div className="border-t border-[#24252b] pt-4">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#24252b] bg-[#111217] p-3">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-l-2 border-[#24252b] pl-3">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-[#ececee]">
                   Workspace Memory skill
@@ -765,16 +754,17 @@ export default function SettingsModal({ onClose, checkForUpdatesOnOpen = false }
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end border-t border-[#24252b] pt-4">
           <button
             onClick={closeSettings}
             className="rounded-md px-3.5 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
           >
-            Close
+            Done
           </button>
         </div>
       </div>
-    </div>
+      </div>
+    </section>
   )
 }
 

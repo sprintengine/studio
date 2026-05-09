@@ -1349,7 +1349,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (!ws) return
           const normalized = normalizeSwarmState(swarmState)
           ws.swarmState = normalized
-          ws.mode = normalized ? 'sprintengine' : 'standard'
+          ws.mode = normalized
+            ? ws.mode === 'symphony' || ws.templateId === 'symphony-mode'
+              ? 'symphony'
+              : 'sprintengine'
+            : 'standard'
           ws.swarmContext = normalizeSwarmWorkspaceContext(
             ws.swarmContext,
             ws.folderPath,
@@ -1366,7 +1370,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const ws = state.workspaces.find((w) => w.id === workspaceId)
           if (!ws) return
           ws.multiloopState = multiloopState
-          ws.mode = multiloopState ? 'multiloop' : ws.swarmState ? 'sprintengine' : 'standard'
+          ws.mode = multiloopState
+            ? 'multiloop'
+            : ws.swarmState
+              ? ws.mode === 'symphony' || ws.templateId === 'symphony-mode'
+                ? 'symphony'
+                : 'sprintengine'
+              : 'standard'
           ws.multiloopContext = normalizeMultiloopWorkspaceContext(
             ws.multiloopContext,
             ws.folderPath,
@@ -1596,7 +1606,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const swarmState = normalizeSwarmState(ws.swarmState)
           const multiloopState = ws.multiloopState ?? null
           const swarmReviewState = normalizeSwarmReviewState(ws.swarmReviewState)
-          const mode = multiloopState ? 'multiloop' : swarmReviewState ? 'swarm' : swarmState ? 'sprintengine' : ws.mode ?? 'standard'
+          const mode = multiloopState
+            ? 'multiloop'
+            : swarmReviewState
+              ? 'swarm'
+              : swarmState
+                ? ws.mode === 'symphony' || ws.templateId === 'symphony-mode'
+                  ? 'symphony'
+                  : 'sprintengine'
+                : ws.mode ?? 'standard'
           const agents = reconcileSwarmReviewAgents(
             Object.fromEntries(
               Object.entries(ws.agents).map(([k, v]) => [
@@ -1756,7 +1774,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 37,
+      version: 38,
       // Migrate older persisted state that lacks editorState / folderPath / swarmState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Partial<WorkspaceMigrationState> | undefined
@@ -2132,6 +2150,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 ? swarmReviewTabsLayoutModel(swarmReviewState, agents)
                 : ws.layoutModel,
             }
+          })
+        }
+        if (version < 38) {
+          mapMigrationWorkspaces(migrationState, (ws) => {
+            if (ws.templateId !== 'symphony-mode' || !normalizeSwarmState(ws.swarmState)) return ws
+            const nextWorkspace = {
+              ...ws,
+              mode: 'symphony' as const,
+            }
+            return migrateSwarmLayout(nextWorkspace)
           })
         }
         return state as never
