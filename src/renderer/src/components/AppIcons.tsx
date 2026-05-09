@@ -54,6 +54,17 @@ export function WorkspaceTypeIcon({
     )
   }
 
+  if (mode === 'switchboard') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="4.25" y="5.25" width="15.5" height="13.5" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
+        <path d="M8 9.25H8.01M12 9.25H12.01M16 9.25H16.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M8 13H8.01M12 13H12.01M16 13H16.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M7.5 16.75H10.5M13.5 16.75H16.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      </svg>
+    )
+  }
+
   if (mode === 'sprintengine') {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

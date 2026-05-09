@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createMultiloopTemplate, createSwarmReviewTemplate, createSwarmTemplate, createSymphonyTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { createMultiloopTemplate, createSwarmReviewTemplate, createSwarmTemplate, createSwitchboardTemplate, createSymphonyTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -64,7 +64,7 @@ type ExistingTeam = {
   state: SwarmState
 }
 
-type CreationMode = 'standard' | 'sprintengine' | 'symphony' | 'multiloop' | 'swarm'
+type CreationMode = 'standard' | 'sprintengine' | 'symphony' | 'switchboard' | 'multiloop' | 'swarm'
 
 type MarkdownPlanOption = {
   path: string
@@ -94,7 +94,7 @@ interface Props {
     swarmRoleCliDefaults?: SwarmRoleCliDefaults | null
     swarmAutoState?: Partial<SwarmAutoState> | null
     swarmReviewState?: SwarmReviewWorkspaceState | null
-    mode?: 'standard' | 'sprintengine' | 'symphony' | 'multiloop' | 'swarm'
+    mode?: 'standard' | 'sprintengine' | 'symphony' | 'switchboard' | 'multiloop' | 'swarm'
   }) => void
   onClose: () => void
   allowClose?: boolean
@@ -375,6 +375,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const totalAgents = countSwarmAgents(swarmRoleCounts)
   const swarmAccess = getSwarmAccessState(authState)
   const isSprintEngineLikeMode = mode === 'sprintengine' || mode === 'symphony'
+  const switchboardObjectiveComplete = Boolean(folderPath?.trim()) && name.trim().length > 0
   const detailsComplete = isSprintEngineLikeMode || mode === 'swarm' || name.trim().length > 0
   const swarmObjectiveComplete =
     selectedExistingTeam != null || (swarmTeamName.trim().length > 0 && swarmGoal.trim().length > 0)
@@ -405,6 +406,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       mode === 'standard'
       || (mode === 'swarm' && swarmReviewComplete)
       || (mode === 'multiloop' && multiloopObjectiveComplete)
+      || (mode === 'switchboard' && switchboardObjectiveComplete)
       || (mode === 'symphony' && swarmAccess.allowed && symphonyObjectiveComplete)
       || (mode === 'sprintengine'
         && (
@@ -525,6 +527,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     if (nextMode !== 'sprintengine') setSelectedExistingTeam(null)
     if (nextMode === 'standard' && !nameTouched) {
       setName(basename(folderPath ?? '') || 'workspace')
+    }
+    if (nextMode === 'switchboard' && !nameTouched) {
+      setName(toTitleName(basename(folderPath ?? '')) || 'Switchboard')
     }
     if (nextMode === 'symphony') {
       const folderName = toTitleName(basename(folderPath ?? '')) || 'Symphony Workspace'
@@ -688,6 +693,19 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       return
     }
 
+    if (mode === 'switchboard') {
+      if (!folderPath) return
+      const workspaceName = name.trim() || 'Switchboard'
+      onCreate({
+        template: createSwitchboardTemplate(),
+        name: workspaceName,
+        folderPath,
+        mode: 'switchboard',
+      })
+      onClose()
+      return
+    }
+
     if (mode === 'symphony') {
       if (!folderPath) return
 
@@ -810,7 +828,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
               disabled={!canCreate}
               className="h-9 rounded-md border border-[#ececee] bg-[#ececee] px-4 text-sm font-semibold text-[#08090b] transition-colors hover:bg-white disabled:border-[#303139] disabled:bg-[#17181d] disabled:text-[#5a5a63]"
             >
-              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'sprintengine' ? 'Create SprintEngine' : mode === 'symphony' ? 'Create Symphony' : mode === 'multiloop' ? 'Create Multiloop' : mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
+              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'sprintengine' ? 'Create SprintEngine' : mode === 'symphony' ? 'Create Symphony' : mode === 'switchboard' ? 'Create Switchboard' : mode === 'multiloop' ? 'Create Multiloop' : mode === 'swarm' ? 'Create Swarm' : 'Create Workspace'}
             </button>
           </div>
         </header>
@@ -820,6 +838,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
             <div className="inline-flex rounded-md bg-[#111216] p-1">
               {[
                 { id: 'standard' as const, label: 'Standard' },
+                { id: 'switchboard' as const, label: 'Switchboard' },
                 { id: 'sprintengine' as const, label: 'SprintEngine' },
                 { id: 'swarm' as const, label: 'Swarm' },
                 { id: 'symphony' as const, label: 'Symphony' },
@@ -829,6 +848,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                 const swarmOption = option.id === 'sprintengine'
                 const swarmReviewOption = option.id === 'swarm'
                 const symphonyOption = option.id === 'symphony'
+                const switchboardOption = option.id === 'switchboard'
                 const multiloopOption = option.id === 'multiloop'
                 return (
                   <button
@@ -843,6 +863,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                           ? 'border-[#d97757] bg-[#241513] text-[#ffe2d4] shadow-[inset_0_-2px_0_rgba(217,119,87,0.68)]'
                         : active && symphonyOption
                           ? 'border-[#4c2d73] bg-[#1a1530] text-[#f1e8ff] shadow-[inset_0_-2px_0_rgba(124,92,242,0.72)]'
+                        : active && switchboardOption
+                          ? 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff] shadow-[inset_0_-2px_0_rgba(124,92,242,0.6)]'
                         : active && multiloopOption
                           ? 'border-[#26373a] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(110,231,216,0.42)]'
                         : active
@@ -853,14 +875,16 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                               ? 'border-transparent text-[#ffb088] hover:bg-[#d97757]/10 hover:text-[#ffe2d4]'
                             : symphonyOption
                               ? 'border-transparent text-[#d4c8ff] hover:bg-[#7c5cf2]/10 hover:text-[#efe5ff]'
+                            : switchboardOption
+                              ? 'border-transparent text-[#cdbcff] hover:bg-[#7c5cf2]/10 hover:text-[#efe5ff]'
                             : multiloopOption
                               ? 'border-transparent text-[#9a9aa2] hover:bg-[#5c7cff]/8 hover:text-[#d4ddff]'
                             : 'border-transparent text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
                     }`}
                   >
-                    {swarmOption || swarmReviewOption || symphonyOption || multiloopOption ? (
+                    {swarmOption || swarmReviewOption || symphonyOption || switchboardOption || multiloopOption ? (
                       <WorkspaceTypeIcon
-                        mode={swarmOption ? 'sprintengine' : swarmReviewOption ? 'swarm' : symphonyOption ? 'symphony' : 'multiloop'}
+                        mode={swarmOption ? 'sprintengine' : swarmReviewOption ? 'swarm' : symphonyOption ? 'symphony' : switchboardOption ? 'switchboard' : 'multiloop'}
                         className={`h-3.5 w-3.5 shrink-0 ${
                           swarmOption
                             ? 'text-[#ffbf2f]'
@@ -868,6 +892,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                               ? 'text-[#d97757]'
                             : symphonyOption
                               ? 'text-[#a78bfa]'
+                              : switchboardOption
+                                ? 'text-[#a78bfa]'
                               : 'text-[#5c7cff]'
                         }`}
                       />

@@ -35,6 +35,8 @@ const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPan
 const SwarmReviewBriefPanel = React.lazy(() => import('../panels/SwarmReviewBriefPanel'))
 const SwarmReviewReportsPanel = React.lazy(() => import('../panels/SwarmReviewReportsPanel'))
 const SwarmReviewFindingsPanel = React.lazy(() => import('../panels/SwarmReviewFindingsPanel'))
+const WatchtowerPanel = React.lazy(() => import('../panels/WatchtowerPanel'))
+const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoardPanel'))
 const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
 const MobileCompanionPanel = React.lazy(() => import('../panels/MobileCompanionPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
@@ -318,6 +320,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('SwarmReviewReportsPanel', <SwarmReviewReportsPanel workspaceId={workspaceId} />)
         case 'swarm-review-findings':
           return timedPanel('SwarmReviewFindingsPanel', <SwarmReviewFindingsPanel workspaceId={workspaceId} />)
+        case 'watchtower-panel':
+          return timedPanel('WatchtowerPanel', <WatchtowerPanel workspaceId={workspaceId} />)
+        case 'switchboard-board':
+          return timedPanel('SwitchboardBoardPanel', <SwitchboardBoardPanel workspaceId={workspaceId} />)
         case 'memory-graph':
           return timedPanel('MemoryGraphPanel', <MemoryGraphPanel workspaceId={workspaceId} />)
         case 'mobile-companion':
@@ -505,9 +511,23 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       }
 
       if (node.getComponent() !== 'agent') {
-        if (node.getComponent()?.startsWith('sprintengine') || node.getComponent()?.startsWith('swarm-review')) {
+        const componentId = node.getComponent()
+        if (componentId === 'watchtower-panel' || componentId === 'switchboard-board') {
+          const isWatchtower = componentId === 'watchtower-panel'
+          renderValues.leading = (
+            <span
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
+                isWatchtower ? 'text-[#d97757]' : 'text-[#a78bfa]'
+              }`}
+              title={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
+              aria-label={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
+            >
+              <WorkspaceTypeIcon mode={isWatchtower ? 'swarm' : 'switchboard'} className="h-3.5 w-3.5" />
+            </span>
+          )
+        } else if (componentId?.startsWith('sprintengine') || componentId?.startsWith('swarm-review')) {
           const mode = workspace.mode === 'symphony' ? 'symphony' : 'sprintengine'
-          const iconMode = node.getComponent()?.startsWith('swarm-review') ? 'swarm' : mode
+          const iconMode = componentId?.startsWith('swarm-review') ? 'swarm' : mode
           renderValues.leading = (
             <span
               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${

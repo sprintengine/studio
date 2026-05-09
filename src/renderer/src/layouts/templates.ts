@@ -50,6 +50,16 @@ const multiloopBoardTab = () => ({
   name: 'Multiloop',
   component: 'multiloop-board',
 })
+const switchboardWatchtowerTab = () => ({
+  type: 'tab',
+  name: 'Watchtower',
+  component: 'watchtower-panel',
+})
+const switchboardBoardTab = () => ({
+  type: 'tab',
+  name: 'Board',
+  component: 'switchboard-board',
+})
 const swarmReviewBriefTab = () => ({
   type: 'tab',
   name: 'Review Brief',
@@ -149,6 +159,35 @@ export function createMultiloopTemplate(): LayoutTemplate {
             type: 'tabset',
             weight: 100,
             children: [multiloopBoardTab()],
+          },
+        ],
+      },
+    },
+  }
+}
+
+export function createSwitchboardTemplate(): LayoutTemplate {
+  return {
+    id: 'switchboard-mode',
+    name: 'Switchboard Mode',
+    description: 'Watchtower triage inbox and the durable Switchboard task board.',
+    previewSlots: [
+      editor('Watchtower', 4, 4, 168, 102),
+      editor('Board', 176, 4, 120, 102),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          {
+            type: 'tabset',
+            weight: 100,
+            children: [
+              switchboardWatchtowerTab(),
+              switchboardBoardTab(),
+            ],
           },
         ],
       },

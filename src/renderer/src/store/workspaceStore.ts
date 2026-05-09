@@ -1094,10 +1094,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const fallbackName = `${template.name} ${state.workspaces.length + 1}`
           const explicitMode = options?.mode
           const isSymphony = explicitMode === 'symphony' || template.id === 'symphony-mode'
-          const isSwarm = isSymphony || template.id === 'sprintengine-mode' || Boolean(options?.swarmState)
+          const isSwitchboard = explicitMode === 'switchboard' || template.id === 'switchboard-mode'
+          const isSwarm = !isSwitchboard && (isSymphony || template.id === 'sprintengine-mode' || Boolean(options?.swarmState))
           const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
           const swarmReviewState = normalizeSwarmReviewState(options?.swarmReviewState)
-          const isSwarmReview = explicitMode === 'swarm' || template.id === 'swarm-review-mode' || Boolean(swarmReviewState)
+          const isSwarmReview = !isSwitchboard && (explicitMode === 'swarm' || template.id === 'swarm-review-mode' || Boolean(swarmReviewState))
           const swarmState = isSwarm
             ? normalizeSwarmState(options?.swarmState)
               ?? createInitialSwarmState({
@@ -1133,13 +1134,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             name: swarmReviewState ? swarmReviewState.name : workspaceName,
             mode: multiloopState || isMultiloop
               ? 'multiloop'
-              : isSymphony
-                ? 'symphony'
-                : isSwarmReview
-                ? 'swarm'
-                : swarmState
-                  ? 'sprintengine'
-                  : 'standard',
+              : isSwitchboard
+                ? 'switchboard'
+                : isSymphony
+                  ? 'symphony'
+                  : isSwarmReview
+                  ? 'swarm'
+                  : swarmState
+                    ? 'sprintengine'
+                    : 'standard',
             folderPath,
             folderMissing: false,
             swarmContext: normalizeSwarmWorkspaceContext(

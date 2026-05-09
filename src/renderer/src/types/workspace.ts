@@ -2,7 +2,7 @@ import type { IJsonModel } from 'flexlayout-react'
 
 export type WorkspaceId = string
 export type AgentId = string
-export type WorkspaceMode = 'standard' | 'sprintengine' | 'symphony' | 'multiloop' | 'swarm'
+export type WorkspaceMode = 'standard' | 'sprintengine' | 'symphony' | 'switchboard' | 'multiloop' | 'swarm'
 
 export type PreviewSlot = {
   x: number
