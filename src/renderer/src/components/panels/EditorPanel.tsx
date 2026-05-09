@@ -12,6 +12,7 @@ import {
   setEditorBuffer,
   subscribeEditorBuffer,
 } from '../../utils/editorBuffers'
+import { removeFileTabsForPath } from '../../utils/modelRegistry'
 
 interface Props {
   workspaceId: string
@@ -34,6 +35,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const setActiveFile     = useWorkspaceStore((s) => s.setActiveFile)
   const updateFileContent = useWorkspaceStore((s) => s.updateFileContent)
   const markFileClean     = useWorkspaceStore((s) => s.markFileClean)
+  const closeFile         = useWorkspaceStore((s) => s.closeFile)
   const { repoRoot, status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderPath)
 
   const openFiles = editorState?.openFiles ?? []
@@ -204,6 +206,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     const editor = editorRef.current
     const selection = editor.getSelection()
     const hasSelection = Boolean(selection && !selection.isEmpty())
+    const canCloseOtherEditorTabs = Boolean(activeFilePath && openFiles.some((file) => file.path !== activeFilePath))
 
     const command = await window.api.showContextMenu([
       { id: 'cut', label: 'Cut', enabled: hasSelection },
@@ -211,6 +214,8 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       { id: 'paste', label: 'Paste' },
       { type: 'separator' },
       { id: 'select-all', label: 'Select All' },
+      { type: 'separator' },
+      { id: 'close-other-editor-tabs', label: 'Close Other Editor Tabs', enabled: canCloseOtherEditorTabs },
     ])
 
     if (command === 'cut') {
@@ -221,6 +226,13 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       editor.trigger('context-menu', 'editor.action.clipboardPasteAction', null)
     } else if (command === 'select-all') {
       editor.trigger('context-menu', 'editor.action.selectAll', null)
+    } else if (command === 'close-other-editor-tabs' && activeFilePath) {
+      openFiles
+        .filter((file) => file.path !== activeFilePath)
+        .forEach((file) => {
+          closeFile(workspaceId, file.path)
+          removeFileTabsForPath(workspaceId, file.path)
+        })
     }
   }
 

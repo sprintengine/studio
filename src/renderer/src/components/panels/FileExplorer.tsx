@@ -217,9 +217,15 @@ function FileIcon({ name }: { name: string }) {
   )
 }
 
-function ChevronIcon({ expanded }: { expanded: boolean }) {
+function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React.MouseEventHandler<HTMLButtonElement> }) {
   return (
-    <span className="inline-flex h-[18px] w-3 shrink-0 items-center justify-center text-[#838896] transition-colors group-hover:text-[#d7d7dc]">
+    <button
+      type="button"
+      tabIndex={-1}
+      onClick={onClick}
+      className="inline-flex h-[18px] w-3 shrink-0 items-center justify-center text-[#838896] transition-colors group-hover:text-[#d7d7dc]"
+      aria-label={expanded ? 'Collapse folder' : 'Expand folder'}
+    >
       <svg
         viewBox="0 0 12 12"
         aria-hidden="true"
@@ -228,7 +234,7 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
       >
         <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-    </span>
+    </button>
   )
 }
 
@@ -559,6 +565,7 @@ function ExplorerTree({
   const [childrenByPath, setChildrenByPath] = useState<Record<string, Entry[]>>({})
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set())
   const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null)
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
@@ -575,6 +582,7 @@ function ExplorerTree({
   const latestGitStatusRef = useRef<GitStatusSnapshot | null>(gitStatus)
   const lastManualRefreshRef = useRef(refreshToken)
   const lastCreateRequestTokenRef = useRef(0)
+  const selectionAnchorPathRef = useRef<string | null>(null)
 
   const visibleRows = useMemo(
     () => flattenTree(rootEntries, 0, expandedPaths, childrenByPath),
@@ -589,6 +597,10 @@ function ExplorerTree({
   const activeRows = isSearching
     ? searchRows
     : visibleRows
+  const selectedEntries = useMemo(
+    () => activeRows.filter((row) => selectedPaths.has(row.entry.path)).map((row) => row.entry),
+    [activeRows, selectedPaths]
+  )
   const searchDiagnosticsTitle = import.meta.env.DEV && searchDiagnostics
     ? `Search used ${searchDiagnostics.engine} in ${searchDiagnostics.elapsedMs} ms (${searchDiagnostics.resultCount}${searchDiagnostics.truncated ? '+' : ''} results)`
     : undefined
@@ -652,6 +664,52 @@ function ExplorerTree({
 
   const focusTree = () => {
     containerRef.current?.focus()
+  }
+
+  const selectOnlyEntry = (entry: Entry) => {
+    selectionAnchorPathRef.current = entry.path
+    setSelectedPath(entry.path)
+    setSelectedPaths(new Set([entry.path]))
+  }
+
+  const selectEntryRange = (anchorPath: string, targetPath: string) => {
+    const anchorIndex = activeRows.findIndex((row) => row.entry.path === anchorPath)
+    const targetIndex = activeRows.findIndex((row) => row.entry.path === targetPath)
+
+    if (anchorIndex === -1 || targetIndex === -1) {
+      setSelectedPaths(new Set([targetPath]))
+      return
+    }
+
+    const [start, end] = anchorIndex < targetIndex
+      ? [anchorIndex, targetIndex]
+      : [targetIndex, anchorIndex]
+    setSelectedPaths(new Set(activeRows.slice(start, end + 1).map((row) => row.entry.path)))
+  }
+
+  const selectEntry = (entry: Entry, event?: React.MouseEvent<HTMLDivElement>) => {
+    setSelectedPath(entry.path)
+
+    if (event?.shiftKey && selectionAnchorPathRef.current) {
+      selectEntryRange(selectionAnchorPathRef.current, entry.path)
+      return
+    }
+
+    if (event?.metaKey || event?.ctrlKey) {
+      selectionAnchorPathRef.current = entry.path
+      setSelectedPaths((current) => {
+        const next = new Set(current)
+        if (next.has(entry.path) && next.size > 1) {
+          next.delete(entry.path)
+        } else {
+          next.add(entry.path)
+        }
+        return next
+      })
+      return
+    }
+
+    selectOnlyEntry(entry)
   }
 
   const refreshParentDirectory = async (parentPath: string) => {
@@ -722,7 +780,7 @@ function ExplorerTree({
   }
 
   const activateEntry = async (entry: Entry) => {
-    setSelectedPath(entry.path)
+    selectOnlyEntry(entry)
     if (isSearching && entry.isDir) {
       focusTree()
       return
@@ -750,7 +808,12 @@ function ExplorerTree({
       }
 
       await refreshParentDirectory(targetDir)
-      setSelectedPath(newPath)
+      selectOnlyEntry({
+        name,
+        isDir: kind === 'dir',
+        path: newPath,
+        parentPath: targetDir,
+      })
 
       if (kind === 'file') {
         openFile(workspaceId, newPath, name, '')
@@ -769,7 +832,7 @@ function ExplorerTree({
   }, [createRequest?.token])
 
   const startRename = (entry: Entry) => {
-    setSelectedPath(entry.path)
+    selectOnlyEntry(entry)
     setRenameDraft({ entry, value: entry.name })
   }
 
@@ -809,7 +872,9 @@ function ExplorerTree({
           latestSearchExcludesRef.current
         ))
       }
+      selectionAnchorPathRef.current = nextPath
       setSelectedPath(nextPath)
+      setSelectedPaths(new Set([nextPath]))
       setRenameDraft(null)
       focusTree()
       void refreshGitStatus()
@@ -827,38 +892,63 @@ function ExplorerTree({
       const newPath = await window.api.copyPath(clipboard.path, targetDir)
       setExpandedPaths((current) => ({ ...current, [targetDir]: true }))
       await refreshParentDirectory(targetDir)
+      selectionAnchorPathRef.current = newPath
       setSelectedPath(newPath)
+      setSelectedPaths(new Set([newPath]))
       void refreshGitStatus()
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
     }
   }
 
-  const deleteEntry = async (entry: Entry) => {
+  const deleteEntries = async (entries: Entry[]) => {
+    const deletableEntries = entries.filter((entry) => !entry.gitDeleted)
+    if (!deletableEntries.length) return
+
     if (typeof window.api.deletePath !== 'function') {
       alert('Delete support is not loaded yet. Restart the app so Electron reloads the preload script.')
       return
     }
 
-    const targetLabel = entry.isDir ? `folder "${entry.name}" and its contents` : `file "${entry.name}"`
+    const topLevelEntries = deletableEntries.filter(
+      (entry) => !deletableEntries.some((candidate) => candidate.path !== entry.path && isPathOrChild(entry.path, candidate.path))
+    )
+    const targetLabel = topLevelEntries.length === 1
+      ? topLevelEntries[0].isDir
+        ? `folder "${topLevelEntries[0].name}" and its contents`
+        : `file "${topLevelEntries[0].name}"`
+      : `${topLevelEntries.length} selected items`
     if (!window.confirm(`Move ${targetLabel} to Trash?`)) return
 
     try {
-      await window.api.deletePath(entry.path)
-      removeOpenFilesForPath(workspaceId, entry.path)
-      removeFileTabsForPath(workspaceId, entry.path)
+      await Promise.all(topLevelEntries.map((entry) => window.api.deletePath(entry.path)))
+      topLevelEntries.forEach((entry) => {
+        removeOpenFilesForPath(workspaceId, entry.path)
+        removeFileTabsForPath(workspaceId, entry.path)
+      })
 
       setChildrenByPath((current) =>
-        Object.fromEntries(Object.entries(current).filter(([path]) => !isPathOrChild(path, entry.path)))
+        Object.fromEntries(
+          Object.entries(current).filter(([path]) => !topLevelEntries.some((entry) => isPathOrChild(path, entry.path)))
+        )
       )
       setExpandedPaths((current) =>
-        Object.fromEntries(Object.entries(current).filter(([path]) => !isPathOrChild(path, entry.path)))
+        Object.fromEntries(
+          Object.entries(current).filter(([path]) => !topLevelEntries.some((entry) => isPathOrChild(path, entry.path)))
+        )
       )
-      setSearchResults((current) => current.filter((result) => !isPathOrChild(result.path, entry.path)))
-      setClipboard((current) => current && isPathOrChild(current.path, entry.path) ? null : current)
+      setSearchResults((current) =>
+        current.filter((result) => !topLevelEntries.some((entry) => isPathOrChild(result.path, entry.path)))
+      )
+      setClipboard((current) =>
+        current && topLevelEntries.some((entry) => isPathOrChild(current.path, entry.path)) ? null : current
+      )
 
-      await refreshParentDirectory(entry.parentPath)
-      setSelectedPath(isSearching ? null : entry.parentPath)
+      await Promise.all(Array.from(new Set(topLevelEntries.map((entry) => entry.parentPath))).map(refreshParentDirectory))
+      const nextSelection = isSearching ? null : topLevelEntries[0]?.parentPath ?? null
+      selectionAnchorPathRef.current = nextSelection
+      setSelectedPath(nextSelection)
+      setSelectedPaths(nextSelection ? new Set([nextSelection]) : new Set())
       void refreshGitStatus()
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
@@ -907,29 +997,41 @@ function ExplorerTree({
     event.stopPropagation()
     focusTree()
 
-    if (entry) {
-      setSelectedPath(entry.path)
+    const contextSelection = entry && selectedPaths.has(entry.path) ? selectedEntries : entry ? [entry] : []
+
+    if (entry && !selectedPaths.has(entry.path)) {
+      selectOnlyEntry(entry)
     }
 
     const targetDir = entry ? (entry.isDir ? entry.path : entry.parentPath) : rootPath
-    const canUsePathCommands = !entry?.gitDeleted
+    const canUsePathCommands = contextSelection.length > 0 && contextSelection.every((selectedEntry) => !selectedEntry.gitDeleted)
+    const isSingleSelection = contextSelection.length === 1
     const canDeletePath = canUsePathCommands && typeof window.api.deletePath === 'function'
-    const canStartFuturePlan = Boolean(entry && canUsePathCommands && markdownSourceRelativePath(rootPath, entry))
+    const canStartFuturePlan = Boolean(
+      isSingleSelection && entry && canUsePathCommands && markdownSourceRelativePath(rootPath, entry)
+    )
+    const deleteLabel = contextSelection.length > 1
+      ? canDeletePath
+        ? `Delete ${contextSelection.length} Items`
+        : 'Delete Items (restart app)'
+      : canDeletePath
+        ? 'Delete'
+        : 'Delete (restart app)'
     const command = await window.api.showContextMenu([
-      ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
-      ...(entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
+      ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
+      ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
       ...(canStartFuturePlan ? [{ id: 'create-markdown-sprintengine', label: 'Start Future Plan...' }] : []),
-      ...(entry?.isDir && !isSearching && canUsePathCommands
+      ...(isSingleSelection && entry?.isDir && !isSearching && canUsePathCommands
         ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
         : []),
       ...(entry ? [{ type: 'separator' as const }] : []),
       { id: 'new-file', label: 'New File' },
       { id: 'new-folder', label: 'New Folder' },
       { type: 'separator' as const },
-      ...(entry && canUsePathCommands ? [{ id: 'copy', label: 'Copy' }] : []),
+      ...(isSingleSelection && entry && canUsePathCommands ? [{ id: 'copy', label: 'Copy' }] : []),
       { id: 'paste', label: 'Paste', enabled: Boolean(clipboard) && !isSearching },
-      ...(entry && canUsePathCommands ? [{ id: 'rename', label: 'Rename' }] : []),
-      ...(entry ? [{ id: 'delete', label: canDeletePath ? 'Delete' : 'Delete (restart app)', enabled: canDeletePath }] : []),
+      ...(isSingleSelection && entry && canUsePathCommands ? [{ id: 'rename', label: 'Rename' }] : []),
+      ...(entry ? [{ id: 'delete', label: deleteLabel, enabled: canDeletePath }] : []),
       { type: 'separator' as const },
       { id: 'refresh', label: 'Refresh' },
     ])
@@ -964,7 +1066,7 @@ function ExplorerTree({
     }
     if (command === 'paste' && !isSearching) return void pasteIntoDirectory(targetDir)
     if (command === 'rename' && entry) return startRename(entry)
-    if (command === 'delete' && entry) return void deleteEntry(entry)
+    if (command === 'delete' && contextSelection.length) return void deleteEntries(contextSelection)
     if (command === 'refresh') {
       if (isSearching || targetDir === rootPath) {
         await refreshTree('manual')
@@ -981,11 +1083,16 @@ function ExplorerTree({
     setChildrenByPath({})
     setExpandedPaths({})
     setSelectedPath(null)
+    setSelectedPaths(new Set())
+    selectionAnchorPathRef.current = null
 
     const startedAt = performance.now()
     loadDirectory(rootPath)
       .then((entries) => {
-        setSelectedPath(entries[0]?.path ?? null)
+        const firstPath = entries[0]?.path ?? null
+        setSelectedPath(firstPath)
+        setSelectedPaths(firstPath ? new Set([firstPath]) : new Set())
+        selectionAnchorPathRef.current = firstPath
         logPerfEvent('FileExplorer', 'refresh-tree', {
           cause: 'initial',
           rootPath,
@@ -1024,6 +1131,8 @@ function ExplorerTree({
         ...Object.fromEntries(parentDirectories.map((directory) => [directory, true])),
       }))
       setSelectedPath(revealPath)
+      setSelectedPaths(new Set([revealPath]))
+      selectionAnchorPathRef.current = revealPath
       logPerfEvent('FileExplorer', 'refresh-tree', {
         cause: 'reveal',
         rootPath,
@@ -1075,7 +1184,10 @@ function ExplorerTree({
         .then((response) => {
           if (requestSeq !== searchRequestSeqRef.current) return
           applySearchResponse(response)
-          setSelectedPath(response.entries[0]?.path ?? null)
+          const firstPath = response.entries[0]?.path ?? null
+          setSelectedPath(firstPath)
+          setSelectedPaths(firstPath ? new Set([firstPath]) : new Set())
+          selectionAnchorPathRef.current = firstPath
         })
         .catch(() => {
           if (requestSeq === searchRequestSeqRef.current) {
@@ -1133,13 +1245,27 @@ function ExplorerTree({
 
   useEffect(() => {
     if (!activeRows.length) {
-      if (!loading && !searching) setSelectedPath(null)
+      if (!loading && !searching) {
+        setSelectedPath(null)
+        setSelectedPaths(new Set())
+        selectionAnchorPathRef.current = null
+      }
       return
     }
 
     if (!selectedPath || !activeRows.some((row) => row.entry.path === selectedPath)) {
-      setSelectedPath(activeRows[0].entry.path)
+      const firstPath = activeRows[0].entry.path
+      setSelectedPath(firstPath)
+      setSelectedPaths(new Set([firstPath]))
+      selectionAnchorPathRef.current = firstPath
+      return
     }
+
+    const activePathSet = new Set(activeRows.map((row) => row.entry.path))
+    setSelectedPaths((current) => {
+      const next = new Set(Array.from(current).filter((path) => activePathSet.has(path)))
+      return next.size ? next : new Set([selectedPath])
+    })
   }, [activeRows, loading, searching, selectedPath])
 
   const handleKeyDown = async (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -1151,18 +1277,30 @@ function ExplorerTree({
       0
     )
     const currentEntry = activeRows[currentIndex].entry
+    const moveSelection = (nextIndex: number) => {
+      const nextRow = activeRows[nextIndex]
+      setSelectedPath(nextRow.entry.path)
+
+      if (event.shiftKey) {
+        const anchorPath = selectionAnchorPathRef.current ?? currentEntry.path
+        selectionAnchorPathRef.current = anchorPath
+        selectEntryRange(anchorPath, nextRow.entry.path)
+        return
+      }
+
+      selectionAnchorPathRef.current = nextRow.entry.path
+      setSelectedPaths(new Set([nextRow.entry.path]))
+    }
 
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      const nextRow = activeRows[Math.min(currentIndex + 1, activeRows.length - 1)]
-      setSelectedPath(nextRow.entry.path)
+      moveSelection(Math.min(currentIndex + 1, activeRows.length - 1))
       return
     }
 
     if (event.key === 'ArrowUp') {
       event.preventDefault()
-      const previousRow = activeRows[Math.max(currentIndex - 1, 0)]
-      setSelectedPath(previousRow.entry.path)
+      moveSelection(Math.max(currentIndex - 1, 0))
       return
     }
 
@@ -1192,6 +1330,12 @@ function ExplorerTree({
       if (parentRow) {
         setSelectedPath(parentRow.entry.path)
       }
+      return
+    }
+
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      await deleteEntries(selectedEntries.length ? selectedEntries : [currentEntry])
       return
     }
 
@@ -1252,7 +1396,8 @@ function ExplorerTree({
         className="flex flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[#303139]"
       >
         {activeRows.map(({ entry, depth }) => {
-          const isSelected = entry.path === selectedPath
+          const isSelected = selectedPaths.has(entry.path)
+          const isFocused = entry.path === selectedPath
           const isExpanded = entry.isDir && (isSearching || expandedPaths[entry.path])
           const isRenaming = renameDraft?.entry.path === entry.path
           const gitStatusKind = getEntryGitStatus(gitStatus, directoryStatus, entry)
@@ -1270,28 +1415,41 @@ function ExplorerTree({
               aria-expanded={entry.isDir ? isExpanded : undefined}
               draggable={!entry.gitDeleted && !isRenaming}
               onDragStart={(event) => handleDragStart(event, entry)}
-              onClick={() => {
+              onClick={(event) => {
+                if (isRenaming) return
+                selectEntry(entry, event)
+                focusTree()
+              }}
+              onDoubleClick={() => {
                 if (isRenaming) return
                 if (entry.gitDeleted) {
-                  setSelectedPath(entry.path)
+                  selectOnlyEntry(entry)
                   focusTree()
                   return
                 }
-                setSelectedPath(entry.path)
                 void activateEntry(entry)
                 focusTree()
               }}
               onContextMenu={(event) => void showContextMenu(event, entry)}
               className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
                 isSelected
-                  ? 'bg-[#17181d] text-[#ececee]'
+                  ? isFocused
+                    ? 'bg-[#1f2430] text-[#ececee]'
+                    : 'bg-[#17181d] text-[#ececee]'
                   : 'text-[#9a9aa2] hover:bg-[#15161a] hover:text-[#ececee]'
               }`}
               style={{ paddingLeft: `${8 + depth * 14}px` }}
             >
               {entry.isDir ? (
                 <>
-                  <ChevronIcon expanded={isExpanded} />
+                  <ChevronIcon
+                    expanded={isExpanded}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      if (!isSearching && !entry.gitDeleted) void toggleDirectory(entry)
+                    }}
+                  />
                   <FolderIcon expanded={isExpanded} />
                   {isRenaming ? (
                     renderRenameInput(

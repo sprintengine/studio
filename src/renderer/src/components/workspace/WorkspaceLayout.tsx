@@ -417,6 +417,35 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     }
   }, [])
 
+  const closeOtherTabsInSet = useCallback((node: TabNode) => {
+    const parent = node.getParent()
+    if (!(parent instanceof TabSetNode)) return
+
+    parent.getChildren().forEach((child) => {
+      if (!(child instanceof TabNode) || child.getId() === node.getId() || !child.isEnableClose()) return
+      cleanupNode(child)
+      modelRef.current?.doAction(Actions.deleteTab(child.getId()))
+    })
+  }, [cleanupNode])
+
+  const showTabContextMenu = useCallback(async (event: React.MouseEvent, node: TabNode) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const parent = node.getParent()
+    const otherClosableTabs = parent instanceof TabSetNode
+      ? parent.getChildren().filter((child) => child instanceof TabNode && child.getId() !== node.getId() && child.isEnableClose())
+      : []
+
+    const command = await window.api.showContextMenu([
+      { id: 'close-other-tabs', label: 'Close Other Tabs', enabled: otherClosableTabs.length > 0 },
+    ])
+
+    if (command === 'close-other-tabs') {
+      closeOtherTabsInSet(node)
+    }
+  }, [closeOtherTabsInSet])
+
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {
       if (renamingTabId === node.getId()) {
@@ -452,6 +481,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const tabContent = (
         <span
           className="min-w-0 truncate"
+          onContextMenu={(event) => void showTabContextMenu(event, node)}
           onDoubleClick={canRenameTab ? (event) => startRename(event, node) : undefined}
         >
           {renderValues.content}
@@ -558,7 +588,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.content = tabContent
       }
     },
-    [commitRename, renameValue, renamingTabId, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.swarmState]
+    [commitRename, renameValue, renamingTabId, showTabContextMenu, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.swarmState]
   )
 
   return (
