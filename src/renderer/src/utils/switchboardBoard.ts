@@ -8,6 +8,8 @@ import {
   type SwitchboardTaskStatus,
 } from '../../../shared/switchboard'
 
+const TASK_POLL_INTERVAL_MS = 5_000
+
 export const BOARD_STATUS_ORDER: SwitchboardTaskStatus[] = [
   'planning',
   'todo',
@@ -100,7 +102,12 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
     setProblems([])
     setSwitchboardRoot(null)
     void refresh()
-  }, [refresh])
+    if (!workspaceRoot) return
+    const handle = window.setInterval(() => {
+      void refresh()
+    }, TASK_POLL_INTERVAL_MS)
+    return () => window.clearInterval(handle)
+  }, [refresh, workspaceRoot])
 
   return {
     state,

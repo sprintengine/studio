@@ -12,8 +12,21 @@ import {
   statusLabel,
   useSwitchboardData,
 } from '../../utils/switchboardBoard'
+import {
+  providerLabel,
+  RUNNER_PROVIDERS,
+  RUNNER_QUEUES,
+  runnerQueueLabel,
+  useSwitchboardRunner,
+  type RunnerStatusKind,
+  type SwitchboardRunner,
+} from '../../utils/switchboardRunner'
 import type {
+  SwitchboardExecutionProviderKind,
   SwitchboardFolderStatus,
+  SwitchboardRunnerExecution,
+  SwitchboardRunnerQueue,
+  SwitchboardRunnerState,
   SwitchboardTaskRecord,
   SwitchboardTaskStatus,
 } from '../../../../shared/switchboard'
@@ -44,6 +57,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh, switchboardRoot } = useSwitchboardData(folderPath)
+  const runner = useSwitchboardRunner(folderPath)
 
   const grouped = useMemo(() => groupTasksByStatus(tasks), [tasks])
   const boardTasks = useMemo(
@@ -202,6 +216,8 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
             </button>
           </div>
         </header>
+
+        <RunnerToolbar runner={runner} workspaceId={workspaceId} />
 
         {state.kind === 'error' ? <Banner tone="error" message={state.message} onRetry={refresh} /> : null}
         {problems.length > 0 ? (
@@ -703,6 +719,352 @@ function CreateTaskDialog({
             Create in Todo
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+type RunnerSettings = {
+  queues: SwitchboardRunnerQueue[]
+  maxConcurrency: number
+  provider: SwitchboardExecutionProviderKind
+  cli: 'codex' | 'claude'
+}
+
+const DEFAULT_RUNNER_SETTINGS: RunnerSettings = {
+  queues: ['ready'],
+  maxConcurrency: 2,
+  provider: 'local-process',
+  cli: 'codex',
+}
+
+function settingsFromState(state: SwitchboardRunnerState | null): RunnerSettings {
+  if (!state) return DEFAULT_RUNNER_SETTINGS
+  return {
+    queues: state.queues.length > 0 ? [...state.queues] : ['ready'],
+    maxConcurrency: state.maxConcurrency || 2,
+    provider: state.provider,
+    cli: state.cli,
+  }
+}
+
+function RunnerToolbar({
+  runner,
+  workspaceId,
+}: {
+  runner: SwitchboardRunner
+  workspaceId: string
+}) {
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [draft, setDraft] = useState<RunnerSettings>(() => settingsFromState(runner.state))
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      setDraft(settingsFromState(runner.state))
+    }
+  }, [runner.state, settingsOpen])
+
+  const isStarted = runner.status === 'running' || runner.status === 'paused'
+  const canEdit = !isStarted
+
+  const handleStart = useCallback(async () => {
+    const ok = await runner.start({
+      workspaceId,
+      queues: draft.queues,
+      maxConcurrency: draft.maxConcurrency,
+      provider: draft.provider,
+      cli: draft.cli,
+    })
+    if (ok) setSettingsOpen(false)
+  }, [draft, runner, workspaceId])
+
+  const summaryQueues = runner.state ? runner.state.queues : draft.queues
+  const queuesLabel =
+    summaryQueues.length > 0 ? summaryQueues.map(runnerQueueLabel).join(' · ') : 'No queues'
+  const summaryProvider = runner.state ? runner.state.provider : draft.provider
+  const summaryCli = runner.state ? runner.state.cli : draft.cli
+  const summaryConcurrency = runner.state ? runner.state.maxConcurrency : draft.maxConcurrency
+  const activeCount = runner.state?.activeExecutions.length ?? 0
+  const updatedAt = runner.state?.updatedAt
+    ? formatRelativeTime(runner.state.updatedAt)
+    : null
+
+  return (
+    <div className="border-b border-[#1f2025]">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[#9a9aa2]">
+          <RunnerStatusPill status={runner.status} />
+          <ToolbarFact label="Provider" value={providerLabel(summaryProvider)} />
+          <ToolbarFact label="CLI" value={summaryCli} />
+          <ToolbarFact label="Concurrency" value={String(summaryConcurrency)} />
+          <ToolbarFact label="Queues" value={queuesLabel} />
+          <ToolbarFact label="Active" value={String(activeCount)} />
+          {updatedAt ? <span className="text-[11px] text-[#6f7078]">Updated {updatedAt}</span> : null}
+        </div>
+        <div className="relative flex items-center gap-1.5">
+          {runner.status === 'running' ? (
+            <button
+              type="button"
+              onClick={() => void runner.pause()}
+              disabled={runner.busy}
+              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+            >
+              Pause
+            </button>
+          ) : null}
+          {runner.status === 'paused' ? (
+            <button
+              type="button"
+              onClick={() => void runner.resume()}
+              disabled={runner.busy}
+              className="h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] disabled:opacity-50"
+            >
+              Resume
+            </button>
+          ) : null}
+          {isStarted ? (
+            <button
+              type="button"
+              onClick={() => void runner.tick()}
+              disabled={runner.busy}
+              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+              title="Run one runner tick now"
+            >
+              Tick
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-pressed={settingsOpen}
+            onClick={() => setSettingsOpen((value) => !value)}
+            className={`h-7 rounded border px-2.5 text-[11px] font-medium transition-colors ${
+              settingsOpen
+                ? 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff]'
+                : 'border-[#2a2b31] text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee]'
+            }`}
+          >
+            {canEdit ? 'Configure' : 'Settings'}
+          </button>
+          {!isStarted ? (
+            <button
+              type="button"
+              onClick={() => void handleStart()}
+              disabled={runner.busy || draft.queues.length === 0}
+              className="h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] disabled:opacity-50"
+            >
+              {runner.busy ? 'Starting…' : 'Start runner'}
+            </button>
+          ) : null}
+          {settingsOpen ? (
+            <RunnerSettingsPopover
+              draft={draft}
+              onChange={setDraft}
+              canEdit={canEdit}
+              onClose={() => setSettingsOpen(false)}
+              onStart={handleStart}
+              busy={runner.busy}
+              isStarted={isStarted}
+            />
+          ) : null}
+        </div>
+      </div>
+      {runner.error ? (
+        <div className="border-t border-[#3a2222] bg-[#1c1414] px-3 py-1.5 text-[11.5px] text-[#ffb3b5]">
+          Runner error: {runner.error}
+        </div>
+      ) : null}
+      {activeCount > 0 ? <ActiveExecutionsList executions={runner.state!.activeExecutions} /> : null}
+    </div>
+  )
+}
+
+function RunnerStatusPill({ status }: { status: RunnerStatusKind }) {
+  const map = {
+    running: { dot: 'bg-[#30d158]', label: 'Running', cls: 'text-[#a8e6b3]' },
+    paused: { dot: 'bg-[#f2c45f]', label: 'Paused', cls: 'text-[#f2d690]' },
+    stopped: { dot: 'bg-[#5a5a63]', label: 'Stopped', cls: 'text-[#9a9aa2]' },
+    unconfigured: { dot: 'bg-[#3a3b42]', label: 'Not started', cls: 'text-[#6f7078]' },
+  }[status]
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[11.5px] font-semibold ${map.cls}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${map.dot}`} aria-hidden="true" />
+      {map.label}
+    </span>
+  )
+}
+
+function ToolbarFact({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-baseline gap-1 text-[11.5px]">
+      <span className="text-[#6f7078]">{label}</span>
+      <span className="text-[#d7d7dc]">{value}</span>
+    </span>
+  )
+}
+
+function ActiveExecutionsList({ executions }: { executions: SwitchboardRunnerExecution[] }) {
+  return (
+    <div className="border-t border-[#16171b]">
+      <div className="px-3 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">
+        Active executions
+      </div>
+      <ul className="max-h-40 overflow-auto">
+        {executions.map((execution) => (
+          <li
+            key={execution.executionId}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#16171b] px-3 py-1.5 text-[11.5px]"
+          >
+            <span className="font-mono text-[11px] text-[#cdbcff]">{execution.taskId.slice(0, 8)}</span>
+            <span className="text-[#d7d7dc]">{execution.role || 'unknown role'}</span>
+            <span className="text-[#9a9aa2]">
+              {runnerQueueLabel(execution.claimedFrom)} → {execution.claimedStatus.replace(/_/g, ' ')}
+            </span>
+            <span className="text-[#6f7078]">{providerLabel(execution.provider)}</span>
+            <span className="text-[#6f7078]">started {formatRelativeTime(execution.startedAt)}</span>
+            {execution.status && execution.status !== 'active' ? (
+              <span className="text-[#f2c45f]">{execution.status}</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      <div className="border-t border-[#16171b] px-3 py-1.5 text-[10.5px] text-[#5a5a63]">
+        Live execution logs are not bridged to the renderer. Inspect Python runner output for details.
+      </div>
+    </div>
+  )
+}
+
+function RunnerSettingsPopover({
+  draft,
+  onChange,
+  canEdit,
+  onClose,
+  onStart,
+  busy,
+  isStarted,
+}: {
+  draft: RunnerSettings
+  onChange: (next: RunnerSettings) => void
+  canEdit: boolean
+  onClose: () => void
+  onStart: () => void
+  busy: boolean
+  isStarted: boolean
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label="Runner settings"
+      className="absolute right-0 top-9 z-30 w-[320px] rounded-md border border-[#2a2b31] bg-[#0d0e11] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose()
+      }}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#efe5ff]">
+          Runner settings
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-6 rounded border border-[#2a2b31] px-1.5 text-[10.5px] text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee]"
+        >
+          Close
+        </button>
+      </div>
+      <div className="space-y-3">
+        <div>
+          <div className="text-[10.5px] uppercase tracking-[0.08em] text-[#6f7078]">Queues</div>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {RUNNER_QUEUES.map((queue) => {
+              const active = draft.queues.includes(queue)
+              return (
+                <button
+                  key={queue}
+                  type="button"
+                  aria-pressed={active}
+                  disabled={!canEdit}
+                  onClick={() => {
+                    const next = active
+                      ? draft.queues.filter((q) => q !== queue)
+                      : [...draft.queues, queue]
+                    onChange({ ...draft, queues: next })
+                  }}
+                  className={`h-6 rounded border px-2 text-[10.5px] font-medium transition-colors ${
+                    active
+                      ? 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff]'
+                      : 'border-[#2a2b31] text-[#9a9aa2] hover:text-[#d7d7dc]'
+                  } disabled:opacity-50`}
+                >
+                  {runnerQueueLabel(queue)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <span className="text-[10.5px] uppercase tracking-[0.08em] text-[#6f7078]">Concurrency</span>
+            <input
+              type="number"
+              min={1}
+              max={16}
+              value={draft.maxConcurrency}
+              disabled={!canEdit}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10)
+                if (!Number.isFinite(parsed) || parsed < 1) return
+                onChange({ ...draft, maxConcurrency: Math.min(parsed, 16) })
+              }}
+              className="mt-1 h-7 w-full rounded border border-[#2a2b31] bg-[#08090b] px-2 text-[12px] text-[#ececee] disabled:opacity-50"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10.5px] uppercase tracking-[0.08em] text-[#6f7078]">CLI</span>
+            <select
+              value={draft.cli}
+              disabled={!canEdit}
+              onChange={(event) => onChange({ ...draft, cli: event.target.value as 'codex' | 'claude' })}
+              className="mt-1 h-7 w-full rounded border border-[#2a2b31] bg-[#08090b] px-1.5 text-[12px] text-[#ececee] disabled:opacity-50"
+            >
+              <option value="codex">Codex</option>
+              <option value="claude">Claude</option>
+            </select>
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-[10.5px] uppercase tracking-[0.08em] text-[#6f7078]">Provider</span>
+          <select
+            value={draft.provider}
+            disabled={!canEdit}
+            onChange={(event) =>
+              onChange({ ...draft, provider: event.target.value as SwitchboardExecutionProviderKind })
+            }
+            className="mt-1 h-7 w-full rounded border border-[#2a2b31] bg-[#08090b] px-1.5 text-[12px] text-[#ececee] disabled:opacity-50"
+          >
+            {RUNNER_PROVIDERS.map((provider) => (
+              <option key={provider} value={provider}>
+                {providerLabel(provider)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!canEdit ? (
+          <div className="text-[10.5px] leading-4 text-[#6f7078]">
+            Runner is {isStarted ? 'started' : 'unavailable'}; settings are read-only.
+          </div>
+        ) : (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onStart}
+              disabled={busy || draft.queues.length === 0}
+              className="h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-3 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] disabled:opacity-50"
+            >
+              {busy ? 'Starting…' : 'Start runner'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
