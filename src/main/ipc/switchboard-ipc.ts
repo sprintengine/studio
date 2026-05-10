@@ -17,6 +17,12 @@ import type {
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
   SwitchboardUpdateTaskInput,
+  WatchtowerOutputIngestResult,
+  WatchtowerOutputValidationResult,
+  WatchtowerRunAgentStatusInput,
+  WatchtowerRunCreateInput,
+  WatchtowerRunListResult,
+  WatchtowerRunResult,
 } from '../../shared/switchboard'
 
 type SwitchboardIpcDependencies = {
@@ -37,6 +43,12 @@ type SwitchboardIpcDependencies = {
   resumeRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   tickRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   getRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult>
+  createWatchtowerRun(input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult>
+  getWatchtowerRun(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult>
+  updateWatchtowerRunAgentStatus(input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult>
+  listWatchtowerRuns(workspaceRoot: string): Promise<WatchtowerRunListResult>
+  validateWatchtowerOutputs(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputValidationResult>
+  ingestWatchtowerOutputs(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputIngestResult>
 }
 
 export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDependencies): void {
@@ -110,4 +122,40 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
   ipcMain.handle('switchboard:runner:state', async (_, workspaceRoot?: string): Promise<SwitchboardRunnerResult> => {
     return deps.getRunnerState(workspaceRoot)
   })
+
+  ipcMain.handle('switchboard:watchtower:create-run', async (_, input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> => {
+    return deps.createWatchtowerRun(input)
+  })
+
+  ipcMain.handle(
+    'switchboard:watchtower:get-run',
+    async (_, input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult> => {
+      return deps.getWatchtowerRun(input)
+    }
+  )
+
+  ipcMain.handle(
+    'switchboard:watchtower:update-agent-status',
+    async (_, input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult> => {
+      return deps.updateWatchtowerRunAgentStatus(input)
+    }
+  )
+
+  ipcMain.handle('switchboard:watchtower:list-runs', async (_, workspaceRoot: string): Promise<WatchtowerRunListResult> => {
+    return deps.listWatchtowerRuns(workspaceRoot)
+  })
+
+  ipcMain.handle(
+    'switchboard:watchtower:validate-outputs',
+    async (_, input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputValidationResult> => {
+      return deps.validateWatchtowerOutputs(input)
+    }
+  )
+
+  ipcMain.handle(
+    'switchboard:watchtower:ingest-outputs',
+    async (_, input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputIngestResult> => {
+      return deps.ingestWatchtowerOutputs(input)
+    }
+  )
 }

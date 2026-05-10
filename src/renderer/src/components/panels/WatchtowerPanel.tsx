@@ -1,6 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
+  SWARM_REVIEW_PRESETS,
+  getSwarmReviewSector,
+  type SwarmReviewPresetId,
+} from '../../utils/swarmReview'
+import { buildWatchtowerStartupPrompt } from '../../utils/watchtowerPrompt'
+import { getSpecialistAction } from '../../specialists/specialistActions'
+import { focusOrAddAgentTab } from '../../utils/modelRegistry'
+import { prependAgentIdentifier } from '../../utils/agentPrompt'
+import type { AgentState, SpecialistActionId, SwarmReviewSectorId } from '../../types/workspace'
+import type {
+  SwitchboardTaskRecord,
+  WatchtowerOutputValidationResult,
+  WatchtowerRun,
+  WatchtowerRunAgent,
+} from '../../../../shared/switchboard'
+import {
   formatRelativeTime,
   priorityLabel,
   priorityToneClass,
@@ -9,7 +25,6 @@ import {
   useSwitchboardData,
 } from '../../utils/switchboardBoard'
 import { filterInboxTasks } from '../../utils/watchtower'
-import type { SwitchboardTaskRecord } from '../../../../shared/switchboard'
 
 const PANEL_BG = 'bg-[#08090b]'
 const ROW_DIVIDER = 'border-b border-[#1c1d22]'
@@ -39,12 +54,34 @@ const emptyDraft: DraftTask = {
   identifier: '',
 }
 
+function pathSeparatorFor(path: string): string {
+  return path.includes('\\') && !path.includes('/') ? '\\' : '/'
+}
+
+function joinPath(parent: string, child: string): string {
+  const separator = pathSeparatorFor(parent)
+  return `${parent}${parent.endsWith(separator) ? '' : separator}${child}`
+}
+
+type SelectedWatchtowerAgent = {
+  agentId: string
+  specialistId: SpecialistActionId
+  sectors: SwarmReviewSectorId[]
+  outputDirectory: string
+  reportPath: string
+}
+
 export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh, switchboardRoot } = useSwitchboardData(folderPath)
 
   const inbox = useMemo(() => filterInboxTasks(tasks), [tasks])
+  const [runs, setRuns] = useState<WatchtowerRun[]>([])
+  const [invalidOutputs, setInvalidOutputs] = useState<Record<string, Extract<WatchtowerOutputValidationResult, { ok: true }>['invalid']>>({})
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [preset, setPreset] = useState<SwarmReviewPresetId>('lean_code_review')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [draft, setDraft] = useState<DraftTask>(emptyDraft)
@@ -73,10 +110,156 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     () => inbox.find((record) => record.task.id === selectedId) ?? null,
     [inbox, selectedId]
   )
+  const selectedRun = useMemo(
+    () => runs.find((run) => run.runId === selectedRunId) ?? runs[0] ?? null,
+    [runs, selectedRunId]
+  )
 
   const showToast = useCallback((tone: ToastTone, message: string) => {
     setToast({ tone, message })
   }, [])
+
+  const refreshRuns = useCallback(async () => {
+    if (!folderPath) {
+      setRuns([])
+      return
+    }
+    const result = await window.api.listWatchtowerRuns(folderPath)
+    if (!result.ok) {
+      showToast('error', result.message)
+      return
+    }
+    setRuns(result.runs)
+    setSelectedRunId((current) => current && result.runs.some((run) => run.runId === current)
+      ? current
+      : result.runs[0]?.runId ?? null)
+  }, [folderPath, showToast])
+
+  useEffect(() => {
+    void refreshRuns()
+  }, [refreshRuns])
+
+  const handleRefreshAll = useCallback(async () => {
+    await Promise.all([refresh(), refreshRuns()])
+  }, [refresh, refreshRuns])
+
+  const selectedPreset = useMemo(
+    () => SWARM_REVIEW_PRESETS.find((item) => item.id === preset) ?? SWARM_REVIEW_PRESETS[0],
+    [preset]
+  )
+
+  const handleStartReview = useCallback(async () => {
+    if (!folderPath) return
+    const runNonce = crypto.randomUUID().slice(0, 8)
+    const agents = Object.entries(selectedPreset.agents)
+      .map(([specialistId, sectors]) => ({
+        specialistId: specialistId as SpecialistActionId,
+        sectors: (sectors ?? []) as SwarmReviewSectorId[],
+      }))
+      .filter((agent) => agent.sectors.length > 0)
+    if (agents.length === 0) {
+      showToast('error', 'Select a preset with at least one review agent.')
+      return
+    }
+    setBusy(true)
+    try {
+      const runAgents: WatchtowerRunAgent[] = agents.map((agent) => {
+        const agentId = `watchtower-${runNonce}-${agent.specialistId}`
+        return {
+          agentId,
+          specialistId: agent.specialistId,
+          status: 'running',
+          outputDir: `outputs/${agentId}`,
+          reportPath: `reports/${agentId}.md`,
+        }
+      })
+      const created = await window.api.createWatchtowerRun({
+        workspaceRoot: folderPath,
+        preset,
+        status: 'running',
+        agents: runAgents,
+      })
+      if (!created.ok) {
+        showToast('error', created.message)
+        return
+      }
+      const root = switchboardRoot ?? joinPath(joinPath(folderPath, '.multi-code'), 'switchboard')
+      const runRoot = joinPath(joinPath(root, 'watchtower-runs'), created.run.runId)
+      const selectedAgents: SelectedWatchtowerAgent[] = agents.map((agent) => {
+        const agentId = `watchtower-${runNonce}-${agent.specialistId}`
+        return {
+          agentId,
+          specialistId: agent.specialistId,
+          sectors: agent.sectors,
+          outputDirectory: joinPath(joinPath(runRoot, 'outputs'), agentId),
+          reportPath: joinPath(joinPath(runRoot, 'reports'), `${agentId}.md`),
+        }
+      })
+      for (const reviewAgent of selectedAgents) {
+        const specialist = getSpecialistAction(reviewAgent.specialistId)
+        const prompt = buildWatchtowerStartupPrompt({
+          run: created.run,
+          agent: reviewAgent,
+          workspaceRoot: folderPath,
+        })
+        const agentPatch: Partial<AgentState> = {
+          name: specialist.shortLabel,
+          kind: 'swarm_review',
+          specialistId: reviewAgent.specialistId,
+          cli: 'codex',
+          cliPermissionPreset: 'default',
+          cliStartupPrompt: prependAgentIdentifier(prompt, specialist.shortLabel, specialist.shortLabel),
+          watchtowerRunId: created.run.runId,
+          cliStartRequested: true,
+          cliOnboardingPromptSent: false,
+          cliHasLaunched: false,
+          cliResumeAvailable: false,
+          cliSessionId: crypto.randomUUID(),
+        }
+        updateAgent(workspaceId, reviewAgent.agentId, agentPatch)
+        focusOrAddAgentTab(workspaceId, reviewAgent.agentId, specialist.shortLabel)
+      }
+      setSelectedRunId(created.run.runId)
+      await refreshRuns()
+      showToast('success', 'Watchtower review started.')
+    } finally {
+      setBusy(false)
+    }
+  }, [folderPath, preset, refreshRuns, selectedPreset.agents, showToast, switchboardRoot, updateAgent, workspaceId])
+
+  const handleIngestRun = useCallback(async () => {
+    if (!folderPath || !selectedRun) return
+    setBusy(true)
+    try {
+      const result = await window.api.ingestWatchtowerOutputs({ workspaceRoot: folderPath, runId: selectedRun.runId })
+      if (!result.ok) {
+        showToast('error', result.message)
+        return
+      }
+      setInvalidOutputs((current) => ({ ...current, [selectedRun.runId]: result.invalid }))
+      await Promise.all([refresh(), refreshRuns()])
+      showToast('success', `Ingested ${result.summary.created}; skipped ${result.summary.skipped}; invalid ${result.summary.invalid}.`)
+    } finally {
+      setBusy(false)
+    }
+  }, [folderPath, refresh, refreshRuns, selectedRun, showToast])
+
+  const handleValidateRun = useCallback(async () => {
+    if (!folderPath || !selectedRun) return
+    setBusy(true)
+    try {
+      const result = await window.api.validateWatchtowerOutputs({ workspaceRoot: folderPath, runId: selectedRun.runId })
+      if (!result.ok) {
+        showToast('error', result.message)
+        return
+      }
+      setInvalidOutputs((current) => ({ ...current, [selectedRun.runId]: result.invalid }))
+      await refreshRuns()
+      showToast('info', `Validated ${result.valid.length}; invalid ${result.invalid.length}.`)
+    } finally {
+      setBusy(false)
+    }
+  }, [folderPath, refreshRuns, selectedRun, showToast])
 
   const handleCreate = useCallback(async () => {
     if (!folderPath || !draft.title.trim()) return
@@ -240,7 +423,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => void refresh()}
+              onClick={() => void handleRefreshAll()}
               className="h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee]"
               aria-label="Refresh inbox"
             >
@@ -255,6 +438,19 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             </button>
           </div>
         </header>
+
+        <ReviewRunSection
+          preset={preset}
+          onPresetChange={setPreset}
+          runs={runs}
+          selectedRun={selectedRun}
+          invalidOutputs={selectedRun ? invalidOutputs[selectedRun.runId] ?? [] : []}
+          onSelectRun={setSelectedRunId}
+          onValidateRun={handleValidateRun}
+          onStartReview={handleStartReview}
+          onIngestRun={handleIngestRun}
+          busy={busy}
+        />
 
         {state.kind === 'error' ? (
           <Banner tone="error" message={state.message} onRetry={refresh} />
@@ -324,6 +520,138 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       ) : null}
 
       {toast ? <ToastBanner toast={toast} /> : null}
+    </div>
+  )
+}
+
+function ReviewRunSection({
+  preset,
+  onPresetChange,
+  runs,
+  selectedRun,
+  invalidOutputs,
+  onSelectRun,
+  onValidateRun,
+  onStartReview,
+  onIngestRun,
+  busy,
+}: {
+  preset: SwarmReviewPresetId
+  onPresetChange: (next: SwarmReviewPresetId) => void
+  runs: WatchtowerRun[]
+  selectedRun: WatchtowerRun | null
+  invalidOutputs: Extract<WatchtowerOutputValidationResult, { ok: true }>['invalid']
+  onSelectRun: (runId: string) => void
+  onValidateRun: () => void
+  onStartReview: () => void
+  onIngestRun: () => void
+  busy: boolean
+}) {
+  const selectedPreset = SWARM_REVIEW_PRESETS.find((item) => item.id === preset) ?? SWARM_REVIEW_PRESETS[0]
+  const presetAgents = Object.entries(selectedPreset.agents)
+  return (
+    <div className="border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Review Run</div>
+          <div className="mt-1 truncate text-[12px] text-[#c8c8cf]">{selectedPreset.description}</div>
+        </div>
+        <button
+          type="button"
+          onClick={onStartReview}
+          disabled={busy || presetAgents.length === 0}
+          className="h-7 shrink-0 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] disabled:opacity-50"
+        >
+          Start
+        </button>
+      </div>
+      <div className="mt-3 grid gap-2">
+        <select
+          value={preset}
+          onChange={(event) => onPresetChange(event.target.value as SwarmReviewPresetId)}
+          className="h-8 rounded border border-[#2a2b31] bg-[#0d0e11] px-2 text-[12px] text-[#ececee]"
+        >
+          {SWARM_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => (
+            <option key={item.id} value={item.id}>{item.label}</option>
+          ))}
+        </select>
+        {presetAgents.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {presetAgents.map(([specialistId, sectors]) => {
+              const specialist = getSpecialistAction(specialistId as SpecialistActionId)
+              const labels = (sectors ?? []).map((sector) => getSwarmReviewSector(sector).label)
+              return (
+                <span key={specialistId} className="rounded border border-[#2a2b31] bg-[#111216] px-2 py-1 text-[11px] text-[#d7d7dc]">
+                  {specialist.shortLabel}: {labels.join(', ')}
+                </span>
+              )
+            })}
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-3 border-t border-[#1f2025] pt-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">Recent Runs</div>
+          {selectedRun ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={onValidateRun}
+                disabled={busy}
+                className="h-6 rounded border border-[#2a2b31] px-2 text-[11px] text-[#c8c8cf] hover:bg-[#111216] disabled:opacity-50"
+              >
+                Validate
+              </button>
+              <button
+                type="button"
+                onClick={onIngestRun}
+                disabled={busy}
+                className="h-6 rounded border border-[#2a2b31] px-2 text-[11px] text-[#c8c8cf] hover:bg-[#111216] disabled:opacity-50"
+              >
+                Ingest
+              </button>
+            </div>
+          ) : null}
+        </div>
+        {runs.length === 0 ? (
+          <div className="mt-2 text-[12px] text-[#6f7078]">No Watchtower runs yet.</div>
+        ) : (
+          <div className="mt-2 max-h-32 space-y-1 overflow-auto">
+            {runs.slice(0, 6).map((run) => (
+              <button
+                type="button"
+                key={run.runId}
+                onClick={() => onSelectRun(run.runId)}
+                className={`flex w-full min-w-0 items-center justify-between gap-2 rounded border px-2 py-1.5 text-left ${
+                  selectedRun?.runId === run.runId
+                    ? 'border-[#3a2820] bg-[#17110f]'
+                    : 'border-[#202128] bg-[#0d0e11] hover:bg-[#111216]'
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-mono text-[11px] text-[#d7d7dc]">{run.runId}</span>
+                  <span className="mt-0.5 block text-[11px] text-[#6f7078]">
+                    {run.status} · valid {run.counts.valid} · invalid {run.counts.invalid} · ingested {run.counts.ingested}
+                  </span>
+                </span>
+                <span className="shrink-0 text-[11px] text-[#6f7078]">{run.agents.length}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {invalidOutputs.length > 0 ? (
+          <div className="mt-2 max-h-28 overflow-auto rounded border border-[#3a2222] bg-[#171010]">
+            {invalidOutputs.slice(0, 4).map((output) => (
+              <div key={`${output.path}:${output.line ?? 'file'}`} className="border-b border-[#2a1919] px-2 py-1.5 last:border-b-0">
+                <div className="truncate font-mono text-[11px] text-[#ffb3b5]">
+                  {output.path}{output.line ? `:${output.line}` : ''}
+                </div>
+                <div className="mt-0.5 text-[11px] leading-4 text-[#d6a0a2]">{output.error}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

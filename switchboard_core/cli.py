@@ -38,6 +38,17 @@ from .store import (
     update_task,
     switchboard_root,
 )
+from .watchtower import (
+    create_watchtower_run,
+    create_watchtower_run_with_status,
+    ingest_watchtower_outputs,
+    list_watchtower_runs,
+    list_watchtower_runs_with_problems,
+    read_watchtower_run,
+    WATCHTOWER_RUN_STATUSES,
+    update_watchtower_agent_status,
+    validate_watchtower_outputs,
+)
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -295,6 +306,48 @@ def cmd_execution_worktree_cleanup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_watchtower_run_create(args: argparse.Namespace) -> int:
+    agents: list[dict[str, Any]] | None = None
+    if args.agents_json:
+        parsed = json.loads(args.agents_json)
+        if not isinstance(parsed, list):
+            raise SwitchboardError("--agents-json must contain a JSON array.")
+        agents = [item for item in parsed if isinstance(item, dict)]
+    run = (
+        create_watchtower_run_with_status(workspace_path(args), preset=args.preset, agents=agents, status=args.status)
+        if args.status != "pending" or agents is not None
+        else create_watchtower_run(workspace_path(args), preset=args.preset)
+    )
+    emit({"ok": True, "run": run})
+    return 0
+
+
+def cmd_watchtower_run_status(args: argparse.Namespace) -> int:
+    emit({"ok": True, "run": read_watchtower_run(workspace_path(args), args.run_id)})
+    return 0
+
+
+def cmd_watchtower_run_list(args: argparse.Namespace) -> int:
+    runs, problems = list_watchtower_runs_with_problems(workspace_path(args))
+    emit({"ok": True, "runs": runs, "problems": problems})
+    return 0
+
+
+def cmd_watchtower_run_agent_status(args: argparse.Namespace) -> int:
+    emit({"ok": True, "run": update_watchtower_agent_status(workspace_path(args), args.run_id, args.agent_id, args.status)})
+    return 0
+
+
+def cmd_watchtower_outputs_validate(args: argparse.Namespace) -> int:
+    emit(validate_watchtower_outputs(workspace_path(args), args.run_id))
+    return 0
+
+
+def cmd_watchtower_outputs_ingest(args: argparse.Namespace) -> int:
+    emit(ingest_watchtower_outputs(workspace_path(args), args.run_id))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="switchboard", description="Switchboard filesystem task CLI.")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -435,6 +488,48 @@ def build_parser() -> argparse.ArgumentParser:
     execution_cleanup_cmd.add_argument("execution_id")
     execution_cleanup_cmd.add_argument("--force", action="store_true")
     execution_cleanup_cmd.set_defaults(func=cmd_execution_worktree_cleanup)
+
+    watchtower = subcommands.add_parser("watchtower", help="Manage Watchtower review runs.")
+    watchtower_subcommands = watchtower.add_subparsers(dest="watchtower_command", required=True)
+
+    watchtower_run_create = watchtower_subcommands.add_parser("run-create", help="Create a Watchtower review run.")
+    watchtower_run_create.add_argument("--workspace", required=True)
+    watchtower_run_create.add_argument("--preset", required=True)
+    watchtower_run_create.add_argument("--status", choices=WATCHTOWER_RUN_STATUSES, default="pending", help=argparse.SUPPRESS)
+    watchtower_run_create.add_argument("--agents-json", help=argparse.SUPPRESS)
+    watchtower_run_create.set_defaults(func=cmd_watchtower_run_create)
+
+    watchtower_run_status = watchtower_subcommands.add_parser("run-status", help="Show Watchtower review run metadata.")
+    watchtower_run_status.add_argument("--workspace", required=True)
+    watchtower_run_status.add_argument("run_id")
+    watchtower_run_status.set_defaults(func=cmd_watchtower_run_status)
+
+    watchtower_run_list = watchtower_subcommands.add_parser("run-list", help="List Watchtower review runs.")
+    watchtower_run_list.add_argument("--workspace", required=True)
+    watchtower_run_list.set_defaults(func=cmd_watchtower_run_list)
+
+    watchtower_run_agent_status = watchtower_subcommands.add_parser("run-agent-status", help=argparse.SUPPRESS)
+    watchtower_run_agent_status.add_argument("--workspace", required=True)
+    watchtower_run_agent_status.add_argument("run_id")
+    watchtower_run_agent_status.add_argument("agent_id")
+    watchtower_run_agent_status.add_argument("--status", required=True, choices=WATCHTOWER_RUN_STATUSES)
+    watchtower_run_agent_status.set_defaults(func=cmd_watchtower_run_agent_status)
+
+    watchtower_outputs_validate = watchtower_subcommands.add_parser(
+        "outputs-validate",
+        help="Validate and quarantine Watchtower review output files.",
+    )
+    watchtower_outputs_validate.add_argument("--workspace", required=True)
+    watchtower_outputs_validate.add_argument("run_id")
+    watchtower_outputs_validate.set_defaults(func=cmd_watchtower_outputs_validate)
+
+    watchtower_outputs_ingest = watchtower_subcommands.add_parser(
+        "outputs-ingest",
+        help="Ingest valid Watchtower review output files into the inbox.",
+    )
+    watchtower_outputs_ingest.add_argument("--workspace", required=True)
+    watchtower_outputs_ingest.add_argument("run_id")
+    watchtower_outputs_ingest.set_defaults(func=cmd_watchtower_outputs_ingest)
 
     return parser
 

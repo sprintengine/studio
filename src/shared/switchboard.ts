@@ -154,6 +154,76 @@ export type SwitchboardInitApiResult =
   | SwitchboardInitResult
   | { ok: false; message: string }
 
+export type WatchtowerRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled'
+
+export type WatchtowerRunAgent = {
+  agentId: string
+  specialistId: string | null
+  status: WatchtowerRunStatus
+  outputDir: string
+  reportPath: string | null
+}
+
+export type WatchtowerRunCounts = {
+  valid: number
+  invalid: number
+  ingested: number
+}
+
+export type WatchtowerRun = {
+  schemaVersion: 1
+  runId: string
+  status: WatchtowerRunStatus
+  createdAt: string
+  completedAt: string | null
+  workspaceRoot: string
+  preset: string
+  agents: WatchtowerRunAgent[]
+  counts: WatchtowerRunCounts
+}
+
+export type WatchtowerRunCreateInput = {
+  workspaceRoot: string
+  preset: string
+  status?: WatchtowerRunStatus
+  agents?: WatchtowerRunAgent[]
+}
+
+export type WatchtowerRunResult =
+  | { ok: true; run: WatchtowerRun }
+  | { ok: false; message: string }
+
+export type WatchtowerRunAgentStatusInput = {
+  workspaceRoot: string
+  runId: string
+  agentId: string
+  status: WatchtowerRunStatus
+}
+
+export type WatchtowerRunListResult =
+  | { ok: true; runs: WatchtowerRun[]; problems?: Array<{ runId: string; path: string; message: string }> }
+  | { ok: false; message: string }
+
+export type WatchtowerOutputValidationResult =
+  | {
+      ok: true
+      runId: string
+      valid: Array<{ path: string; line: number | null; externalId: string; proposal: Record<string, unknown> }>
+      invalid: Array<{ path: string; line: number | null; error: string; quarantine?: Record<string, unknown> | null }>
+    }
+  | { ok: false; message: string }
+
+export type WatchtowerOutputIngestResult =
+  | {
+      ok: true
+      runId: string
+      created: Array<{ path: string; line: number | null; externalId: string; taskId: string }>
+      skipped: Array<{ path: string; line: number | null; externalId: string; reason: string }>
+      invalid: Array<{ path: string; line: number | null; error: string; quarantine?: Record<string, unknown> | null }>
+      summary: { created: number; skipped: number; invalid: number }
+    }
+  | { ok: false; message: string }
+
 export type SwitchboardCreateTaskInput = {
   workspaceRoot: string
   origin: 'watchtower' | 'board'

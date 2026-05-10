@@ -1471,6 +1471,50 @@ def create_task(
         return read_task_file(path, status)
 
 
+def create_inbox_task_if_source_missing(
+    workspace: Path,
+    *,
+    source_type: str,
+    external_id: str,
+    title: str,
+    description: str = "",
+    identifier: str | None = None,
+    priority: int | float | None = None,
+    labels: list[str] | None = None,
+    source: dict[str, Any] | None = None,
+    comments: list[dict[str, Any]] | None = None,
+) -> LocatedTask | None:
+    init_workspace(workspace)
+    if source_type not in SOURCE_TYPES:
+        raise SwitchboardError(f"Invalid source type: {source_type}")
+    if not external_id.strip():
+        raise SwitchboardError("source.externalId is required.")
+    if not title.strip():
+        raise SwitchboardError("title is required.")
+    with locked_folders(workspace, ["inbox"], owner="switchboard-cli"):
+        tasks, _problems, _locks = read_all(workspace)
+        for located in tasks:
+            current_source = located.task.get("source") if isinstance(located.task.get("source"), dict) else {}
+            if current_source.get("type") == source_type and current_source.get("externalId") == external_id:
+                return None
+        task = build_task(
+            title=title,
+            description=description,
+            inbox=True,
+            identifier=identifier,
+            priority=priority,
+            labels=labels,
+            source_input=source,
+            comments=comments,
+        )
+        errors = validate_task_shape(task)
+        if errors:
+            raise SwitchboardError(" ".join(errors))
+        path = task_path(workspace, "inbox", task["id"])
+        atomic_write_json(path, task)
+        return read_task_file(path, "inbox")
+
+
 def update_task(workspace: Path, task_id: str, updates: dict[str, Any]) -> LocatedTask:
     if not isinstance(updates, dict):
         raise SwitchboardError("updates must be an object.")

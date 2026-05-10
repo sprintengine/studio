@@ -20,6 +20,12 @@ import type {
   SwitchboardRunnerStartInput,
   SwitchboardTaskRecord,
   SwitchboardUpdateTaskInput,
+  WatchtowerOutputIngestResult,
+  WatchtowerOutputValidationResult,
+  WatchtowerRunCreateInput,
+  WatchtowerRunAgentStatusInput,
+  WatchtowerRunListResult,
+  WatchtowerRunResult,
 } from '../shared/switchboard'
 
 type PythonCommandResult =
@@ -360,4 +366,57 @@ export async function getSwitchboardRunnerState(workspaceRoot?: string): Promise
   const result = await requestSwitchboardBackend(workspaceRoot, '/runner/status', {})
   if (!result.ok) return { ok: false, message: result.message || 'Unable to read Switchboard runner status.' }
   return result.payload as SwitchboardRunnerResult
+}
+
+export async function createWatchtowerRun(input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> {
+  const args = ['watchtower', 'run-create', ...workspaceArgs(input.workspaceRoot), '--preset', input.preset]
+  if (input.status) args.push('--status', input.status)
+  if (input.agents) args.push('--agents-json', JSON.stringify(input.agents))
+  const result = await runSwitchboardCore(args)
+  if (!result.ok) return { ok: false, message: result.message || 'Unable to create Watchtower run.' }
+  return result.payload as WatchtowerRunResult
+}
+
+export async function getWatchtowerRun(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult> {
+  const result = await runSwitchboardCore(['watchtower', 'run-status', ...workspaceArgs(input.workspaceRoot), input.runId])
+  if (!result.ok) return { ok: false, message: result.message || 'Unable to read Watchtower run.' }
+  return result.payload as WatchtowerRunResult
+}
+
+export async function updateWatchtowerRunAgentStatus(input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult> {
+  const result = await runSwitchboardCore([
+    'watchtower',
+    'run-agent-status',
+    ...workspaceArgs(input.workspaceRoot),
+    input.runId,
+    input.agentId,
+    '--status',
+    input.status,
+  ])
+  if (!result.ok) return { ok: false, message: result.message || 'Unable to update Watchtower agent status.' }
+  return result.payload as WatchtowerRunResult
+}
+
+export async function listWatchtowerRuns(workspaceRoot: string): Promise<WatchtowerRunListResult> {
+  const result = await runSwitchboardCore(['watchtower', 'run-list', ...workspaceArgs(workspaceRoot)])
+  if (!result.ok) return { ok: false, message: result.message || 'Unable to list Watchtower runs.' }
+  return result.payload as WatchtowerRunListResult
+}
+
+export async function validateWatchtowerOutputs(input: {
+  workspaceRoot: string
+  runId: string
+}): Promise<WatchtowerOutputValidationResult> {
+  const result = await runSwitchboardCore(['watchtower', 'outputs-validate', ...workspaceArgs(input.workspaceRoot), input.runId])
+  if (!result.ok) return { ok: false, message: result.message || 'Unable to validate Watchtower outputs.' }
+  return result.payload as WatchtowerOutputValidationResult
+}
+
+export async function ingestWatchtowerOutputs(input: {
+  workspaceRoot: string
+  runId: string
+}): Promise<WatchtowerOutputIngestResult> {
+  const result = await runSwitchboardCore(['watchtower', 'outputs-ingest', ...workspaceArgs(input.workspaceRoot), input.runId])
+  if (!result.ok) return { ok: false, message: result.message || 'Unable to ingest Watchtower outputs.' }
+  return result.payload as WatchtowerOutputIngestResult
 }

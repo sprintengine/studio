@@ -288,6 +288,30 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       if (agent?.kind === 'swarm_review') {
         updateSwarmReviewAgentStatus(workspaceId, agentId, code === 0 ? 'done' : 'error')
       }
+      if (agent?.watchtowerRunId && (folderReadyPath || savedFolderPath)) {
+        void (async () => {
+          try {
+            const result = await window.api.updateWatchtowerRunAgentStatus({
+              workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
+              runId: agent.watchtowerRunId ?? '',
+              agentId,
+              status: code === 0 ? 'completed' : 'failed',
+            })
+            if (!result.ok) throw new Error(result.message)
+          } catch (error) {
+            publishDiagnosticSync({
+              level: 'error',
+              source: 'terminal',
+              title: 'Watchtower run status update failed',
+              message: error instanceof Error ? error.message : 'Could not update Watchtower run status.',
+              workspaceId,
+              workspaceName,
+              agentId,
+              sessionId,
+            })
+          }
+        })()
+      }
       updateAgent(workspaceId, agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
@@ -298,6 +322,14 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     const disposeError = window.api.onTerminalError(sessionId, (message) => {
       term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
       reportedTerminalFailure = true
+      if (agent?.watchtowerRunId && (folderReadyPath || savedFolderPath)) {
+        void window.api.updateWatchtowerRunAgentStatus({
+          workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
+          runId: agent.watchtowerRunId,
+          agentId,
+          status: 'failed',
+        })
+      }
       publishDiagnosticSync({
         level: 'error',
         source: 'terminal',
@@ -427,6 +459,14 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           cliHasLaunched: false,
           cliOnboardingPromptSent: false,
         })
+        if (agent?.watchtowerRunId && (folderReadyPath || savedFolderPath)) {
+          void window.api.updateWatchtowerRunAgentStatus({
+            workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
+            runId: agent.watchtowerRunId,
+            agentId,
+            status: 'failed',
+          })
+        }
         if (!reportedTerminalFailure) {
           reportedTerminalFailure = true
           publishDiagnosticSync({
@@ -490,6 +530,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agent?.kind,
     agent?.name,
     agent?.specialistId,
+    agent?.watchtowerRunId,
     agent?.execution.mode,
     agent?.execution.worktreeId,
     agent?.execution.cwd,

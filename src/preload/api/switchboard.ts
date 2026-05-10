@@ -18,6 +18,12 @@ import type {
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
   SwitchboardUpdateTaskInput,
+  WatchtowerOutputIngestResult,
+  WatchtowerOutputValidationResult,
+  WatchtowerRunAgentStatusInput,
+  WatchtowerRunCreateInput,
+  WatchtowerRunListResult,
+  WatchtowerRunResult,
 } from '../../shared/switchboard'
 
 export const switchboardApi = {
@@ -55,6 +61,18 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:runner:tick', workspaceRoot),
   getSwitchboardRunnerState: (workspaceRoot?: string): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:state', workspaceRoot),
+  createWatchtowerRun: (input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> =>
+    ipcRenderer.invoke('switchboard:watchtower:create-run', input),
+  getWatchtowerRun: (input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult> =>
+    ipcRenderer.invoke('switchboard:watchtower:get-run', input),
+  updateWatchtowerRunAgentStatus: (input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult> =>
+    ipcRenderer.invoke('switchboard:watchtower:update-agent-status', input),
+  listWatchtowerRuns: (workspaceRoot: string): Promise<WatchtowerRunListResult> =>
+    ipcRenderer.invoke('switchboard:watchtower:list-runs', workspaceRoot),
+  validateWatchtowerOutputs: (input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputValidationResult> =>
+    ipcRenderer.invoke('switchboard:watchtower:validate-outputs', input),
+  ingestWatchtowerOutputs: (input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputIngestResult> =>
+    ipcRenderer.invoke('switchboard:watchtower:ingest-outputs', input),
 } satisfies Pick<
   ElectronApi,
   | 'initializeSwitchboard'
@@ -74,4 +92,10 @@ export const switchboardApi = {
   | 'resumeSwitchboardRunner'
   | 'tickSwitchboardRunner'
   | 'getSwitchboardRunnerState'
+  | 'createWatchtowerRun'
+  | 'getWatchtowerRun'
+  | 'updateWatchtowerRunAgentStatus'
+  | 'listWatchtowerRuns'
+  | 'validateWatchtowerOutputs'
+  | 'ingestWatchtowerOutputs'
 >

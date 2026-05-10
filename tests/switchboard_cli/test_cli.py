@@ -107,6 +107,242 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertTrue((root / "runner" / "events.jsonl").is_file())
         self.assertTrue((root / "executions").is_dir())
 
+    def test_watchtower_run_create_status_and_list(self) -> None:
+        created = stdout_json(
+            self.run_cli(["watchtower", "run-create", *self.workspace_args(), "--preset", "lean_code_review"])
+        )
+
+        self.assertTrue(created["ok"])
+        run = created["run"]
+        self.assertRegex(run["runId"], r"^watchtower_[0-9]{8}T[0-9]{6}Z_[0-9a-f]{8}$")
+        self.assertEqual(run["status"], "pending")
+        self.assertEqual(run["preset"], "lean_code_review")
+        self.assertEqual(run["agents"], [])
+        self.assertEqual(run["counts"], {"valid": 0, "invalid": 0, "ingested": 0})
+
+        run_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / run["runId"]
+        self.assertTrue((run_dir / "run.json").is_file())
+        self.assertTrue((run_dir / "outputs").is_dir())
+        self.assertTrue((run_dir / "quarantine").is_dir())
+        self.assertTrue((run_dir / "reports").is_dir())
+
+        status = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run["runId"]]))
+        self.assertEqual(status["run"], run)
+
+        listed = stdout_json(self.run_cli(["watchtower", "run-list", *self.workspace_args()]))
+        self.assertEqual([item["runId"] for item in listed["runs"]], [run["runId"]])
+
+    def test_watchtower_run_create_accepts_agents_for_launch_metadata(self) -> None:
+        agents = [
+            {
+                "agentId": "watchtower-code-review",
+                "specialistId": "code-review",
+                "status": "running",
+                "outputDir": "outputs/watchtower-code-review",
+                "reportPath": "reports/watchtower-code-review.md",
+            }
+        ]
+
+        created = stdout_json(
+            self.run_cli(
+                [
+                    "watchtower",
+                    "run-create",
+                    *self.workspace_args(),
+                    "--preset",
+                    "lean_code_review",
+                    "--status",
+                    "running",
+                    "--agents-json",
+                    json.dumps(agents),
+                ]
+            )
+        )
+
+        self.assertEqual(created["run"]["status"], "running")
+        self.assertEqual(created["run"]["agents"], agents)
+        run_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / created["run"]["runId"]
+        self.assertTrue((run_dir / "outputs" / "watchtower-code-review").is_dir())
+        self.assertTrue((run_dir / "reports").is_dir())
+
+        completed = stdout_json(
+            self.run_cli(
+                [
+                    "watchtower",
+                    "run-agent-status",
+                    *self.workspace_args(),
+                    created["run"]["runId"],
+                    "watchtower-code-review",
+                    "--status",
+                    "completed",
+                ]
+            )
+        )
+
+        self.assertEqual(completed["run"]["status"], "completed")
+        self.assertEqual(completed["run"]["agents"][0]["status"], "completed")
+        self.assertIsNotNone(completed["run"]["completedAt"])
+
+    def test_watchtower_run_create_rejects_agent_paths_outside_run_directory(self) -> None:
+        rejected = self.run_cli(
+            [
+                "watchtower",
+                "run-create",
+                *self.workspace_args(),
+                "--preset",
+                "lean_code_review",
+                "--agents-json",
+                json.dumps(
+                    [
+                        {
+                            "agentId": "watchtower-code-review",
+                            "specialistId": "code-review",
+                            "outputDir": "../../outside",
+                        }
+                    ]
+                ),
+            ],
+            check=False,
+        )
+
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("escapes the run directory", stderr_json(rejected)["message"])
+
+    def test_watchtower_run_status_rejects_invalid_metadata(self) -> None:
+        created = stdout_json(
+            self.run_cli(["watchtower", "run-create", *self.workspace_args(), "--preset", "lean_code_review"])
+        )
+        run_id = created["run"]["runId"]
+        run_file = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / run_id / "run.json"
+        payload = json.loads(run_file.read_text(encoding="utf-8"))
+        payload["status"] = "mystery"
+        run_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+        rejected = self.run_cli(["watchtower", "run-status", *self.workspace_args(), run_id], check=False)
+
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("Watchtower run status is invalid", stderr_json(rejected)["message"])
+
+    def test_watchtower_run_list_reports_invalid_metadata_without_failing(self) -> None:
+        valid = stdout_json(
+            self.run_cli(["watchtower", "run-create", *self.workspace_args(), "--preset", "lean_code_review"])
+        )
+        bad_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / "watchtower_20260509T120000Z_badbad12"
+        bad_dir.mkdir(parents=True)
+        (bad_dir / "run.json").write_text("{not json\n", encoding="utf-8")
+
+        listed = stdout_json(self.run_cli(["watchtower", "run-list", *self.workspace_args()]))
+
+        self.assertEqual([run["runId"] for run in listed["runs"]], [valid["run"]["runId"]])
+        self.assertEqual(len(listed["problems"]), 1)
+        self.assertEqual(listed["problems"][0]["runId"], "watchtower_20260509T120000Z_badbad12")
+        self.assertIn("Invalid Watchtower run JSON", listed["problems"][0]["message"])
+
+    def test_watchtower_outputs_validate_quarantines_invalid_jsonl_entries(self) -> None:
+        created = stdout_json(
+            self.run_cli(["watchtower", "run-create", *self.workspace_args(), "--preset", "lean_code_review"])
+        )
+        run_id = created["run"]["runId"]
+        output_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / run_id / "outputs" / "reviewer"
+        output_dir.mkdir(parents=True)
+        valid_proposal = {
+            "title": "Tighten switchboard validation",
+            "description": "The reviewer found a concrete validation gap.",
+            "priority": 1,
+            "labels": ["Backend", "backend"],
+            "evidence": {"files": ["switchboard_core/store.py"], "summary": "Validation should reject malformed records."},
+            "localId": "validation-gap",
+        }
+        invalid_proposal = {
+            "title": "Agent-authored identity",
+            "description": "Agents must not set authoritative identity.",
+            "source": {"type": "watchtower", "externalId": "agent-picked-id"},
+        }
+        (output_dir / "proposed-tasks.jsonl").write_text(
+            "\n".join([json.dumps(valid_proposal), json.dumps(invalid_proposal)]) + "\n",
+            encoding="utf-8",
+        )
+
+        validated = stdout_json(self.run_cli(["watchtower", "outputs-validate", *self.workspace_args(), run_id]))
+
+        self.assertEqual(len(validated["valid"]), 1)
+        self.assertEqual(len(validated["invalid"]), 1)
+        self.assertEqual(validated["valid"][0]["externalId"], f"{run_id}_reviewer_validation-gap")
+        self.assertIn("source.externalId must be derived by Watchtower ingestion", validated["invalid"][0]["error"])
+        quarantine = validated["invalid"][0]["quarantine"]
+        self.assertTrue(Path(quarantine["path"]).is_file())
+        self.assertEqual(quarantine["originalPath"], "reviewer/proposed-tasks.jsonl")
+
+        status = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run_id]))
+        self.assertEqual(status["run"]["counts"], {"valid": 1, "invalid": 1, "ingested": 0})
+
+    def test_watchtower_outputs_validate_quarantines_duplicate_local_ids(self) -> None:
+        created = stdout_json(
+            self.run_cli(["watchtower", "run-create", *self.workspace_args(), "--preset", "lean_code_review"])
+        )
+        run_id = created["run"]["runId"]
+        output_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / run_id / "outputs" / "reviewer"
+        output_dir.mkdir(parents=True)
+        first = {
+            "title": "First finding",
+            "description": "First concrete finding.",
+            "localId": "same-id",
+        }
+        second = {
+            "title": "Second finding",
+            "description": "Second concrete finding.",
+            "localId": "same-id",
+        }
+        (output_dir / "proposed-tasks.jsonl").write_text(
+            "\n".join([json.dumps(first), json.dumps(second)]) + "\n",
+            encoding="utf-8",
+        )
+
+        validated = stdout_json(self.run_cli(["watchtower", "outputs-validate", *self.workspace_args(), run_id]))
+
+        self.assertEqual(len(validated["valid"]), 1)
+        self.assertEqual(len(validated["invalid"]), 1)
+        self.assertIn("Duplicate proposed task identity", validated["invalid"][0]["error"])
+        self.assertTrue(Path(validated["invalid"][0]["quarantine"]["path"]).is_file())
+
+    def test_watchtower_outputs_ingest_creates_inbox_tasks_and_skips_duplicates(self) -> None:
+        created = stdout_json(
+            self.run_cli(["watchtower", "run-create", *self.workspace_args(), "--preset", "lean_code_review"])
+        )
+        run_id = created["run"]["runId"]
+        output_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / run_id / "outputs" / "reviewer"
+        output_dir.mkdir(parents=True)
+        external_id = f"{run_id}_reviewer_import-finding"
+        proposal = {
+            "title": "Import Watchtower finding",
+            "description": "Create an inbox task from a validated Watchtower proposal.",
+            "priority": 2,
+            "labels": ["watchtower", "Backend"],
+            "evidence": {"files": ["switchboard_core/watchtower.py"], "summary": "Parser found a candidate task."},
+            "localId": "import-finding",
+        }
+        (output_dir / "proposed-task-1.json").write_text(json.dumps(proposal, indent=2) + "\n", encoding="utf-8")
+
+        ingested = stdout_json(self.run_cli(["watchtower", "outputs-ingest", *self.workspace_args(), run_id]))
+
+        self.assertEqual(ingested["summary"], {"created": 1, "skipped": 0, "invalid": 0})
+        task_id = ingested["created"][0]["taskId"]
+        task_path = self.task_file("inbox", task_id)
+        task = json.loads(task_path.read_text(encoding="utf-8"))
+        self.assertEqual(task["title"], proposal["title"])
+        self.assertEqual(task["source"], {"type": "watchtower", "externalId": external_id, "externalKey": None, "externalUrl": None})
+        self.assertEqual(task["labels"], ["watchtower", "backend"])
+        self.assertEqual(task["comments"][0]["kind"], "import")
+        self.assertIn(run_id, task["comments"][0]["body"])
+
+        duplicate = stdout_json(self.run_cli(["watchtower", "outputs-ingest", *self.workspace_args(), run_id]))
+
+        self.assertEqual(duplicate["summary"], {"created": 0, "skipped": 1, "invalid": 0})
+        inbox_tasks = stdout_json(self.run_cli(["list", *self.workspace_args(), "--status", "inbox"]))["tasks"]
+        self.assertEqual([item["id"] for item in inbox_tasks], [task_id])
+        status = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run_id]))
+        self.assertEqual(status["run"]["counts"], {"valid": 1, "invalid": 0, "ingested": 1})
+
     def test_create_list_show_and_comment_board_task(self) -> None:
         created = self.create_task(title="Board task")
         task_id = created["id"]

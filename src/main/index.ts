@@ -43,8 +43,12 @@ import {
   addSwitchboardComment,
   cancelSwitchboardTask,
   claimSwitchboardTask,
+  createWatchtowerRun,
   createSwitchboardTask,
+  getWatchtowerRun,
   initializeSwitchboard,
+  ingestWatchtowerOutputs,
+  listWatchtowerRuns,
   moveSwitchboardTask,
   promoteSwitchboardInboxTask,
   publishSwitchboardTask,
@@ -57,6 +61,8 @@ import {
   startSwitchboardRunner,
   tickSwitchboardRunner,
   updateSwitchboardTask,
+  updateWatchtowerRunAgentStatus,
+  validateWatchtowerOutputs,
 } from './switchboard-files'
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
@@ -147,6 +153,12 @@ registerSwitchboardIpc(ipcMain, {
   resumeRunner: resumeSwitchboardRunner,
   tickRunner: tickSwitchboardRunner,
   getRunnerState: getSwitchboardRunnerState,
+  createWatchtowerRun,
+  getWatchtowerRun,
+  updateWatchtowerRunAgentStatus,
+  listWatchtowerRuns,
+  validateWatchtowerOutputs,
+  ingestWatchtowerOutputs,
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────

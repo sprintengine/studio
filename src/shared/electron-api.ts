@@ -16,6 +16,12 @@ import type {
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
   SwitchboardUpdateTaskInput,
+  WatchtowerOutputIngestResult,
+  WatchtowerOutputValidationResult,
+  WatchtowerRunAgentStatusInput,
+  WatchtowerRunCreateInput,
+  WatchtowerRunListResult,
+  WatchtowerRunResult,
 } from './switchboard'
 
 export type SaveDialogOptions = {
@@ -1000,6 +1006,12 @@ export type ElectronApi = {
   resumeSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
   tickSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
   getSwitchboardRunnerState: (workspaceRoot?: string) => Promise<SwitchboardRunnerResult>
+  createWatchtowerRun: (input: WatchtowerRunCreateInput) => Promise<WatchtowerRunResult>
+  getWatchtowerRun: (input: { workspaceRoot: string; runId: string }) => Promise<WatchtowerRunResult>
+  updateWatchtowerRunAgentStatus: (input: WatchtowerRunAgentStatusInput) => Promise<WatchtowerRunResult>
+  listWatchtowerRuns: (workspaceRoot: string) => Promise<WatchtowerRunListResult>
+  validateWatchtowerOutputs: (input: { workspaceRoot: string; runId: string }) => Promise<WatchtowerOutputValidationResult>
+  ingestWatchtowerOutputs: (input: { workspaceRoot: string; runId: string }) => Promise<WatchtowerOutputIngestResult>
   initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
   terminalSpawn: (
     sessionId: string,
