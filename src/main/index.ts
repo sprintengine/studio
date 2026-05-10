@@ -49,6 +49,8 @@ import {
   promoteSwitchboardInboxTask,
   publishSwitchboardTask,
   readAllSwitchboardTasks,
+  recoverSwitchboardLock,
+  requeueSwitchboardTask,
   updateSwitchboardTask,
 } from './switchboard-files'
 
@@ -133,6 +135,8 @@ registerSwitchboardIpc(ipcMain, {
   addComment: addSwitchboardComment,
   claimTask: claimSwitchboardTask,
   publishTask: publishSwitchboardTask,
+  recoverLock: recoverSwitchboardLock,
+  requeueTask: requeueSwitchboardTask,
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────

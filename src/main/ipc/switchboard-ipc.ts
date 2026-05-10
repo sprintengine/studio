@@ -11,6 +11,9 @@ import type {
   SwitchboardPromoteInboxTaskInput,
   SwitchboardPublishTaskInput,
   SwitchboardReadResult,
+  SwitchboardRecoverLockInput,
+  SwitchboardRecoverLockResult,
+  SwitchboardRequeueTaskInput,
   SwitchboardUpdateTaskInput,
 } from '../../shared/switchboard'
 
@@ -25,6 +28,8 @@ type SwitchboardIpcDependencies = {
   addComment(input: SwitchboardAddCommentInput): Promise<SwitchboardMutationResult>
   claimTask(input: SwitchboardClaimTaskInput): Promise<SwitchboardClaimTaskResult>
   publishTask(input: SwitchboardPublishTaskInput): Promise<SwitchboardMutationResult>
+  recoverLock(input: SwitchboardRecoverLockInput): Promise<SwitchboardRecoverLockResult>
+  requeueTask(input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult>
 }
 
 export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDependencies): void {
@@ -69,5 +74,13 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
 
   ipcMain.handle('switchboard:publish-task', async (_, input: SwitchboardPublishTaskInput): Promise<SwitchboardMutationResult> => {
     return deps.publishTask(input)
+  })
+
+  ipcMain.handle('switchboard:recover-lock', async (_, input: SwitchboardRecoverLockInput): Promise<SwitchboardRecoverLockResult> => {
+    return deps.recoverLock(input)
+  })
+
+  ipcMain.handle('switchboard:requeue-task', async (_, input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult> => {
+    return deps.requeueTask(input)
   })
 }

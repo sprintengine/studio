@@ -13,7 +13,9 @@ import type {
   SwitchboardPromoteInboxTaskInput,
   SwitchboardPublishTaskInput,
   SwitchboardReadResult,
-  SwitchboardTask,
+  SwitchboardRecoverLockInput,
+  SwitchboardRecoverLockResult,
+  SwitchboardRequeueTaskInput,
   SwitchboardTaskRecord,
   SwitchboardUpdateTaskInput,
 } from '../shared/switchboard'
@@ -23,7 +25,13 @@ type PythonCommandResult =
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | null }
 
 function findRepositoryRoot(): string {
-  const starts = [process.cwd(), __dirname, process.resourcesPath].filter(Boolean)
+  const starts = [
+    process.env['MULTICODE_SWITCHBOARD_CORE_ROOT'],
+    process.cwd(),
+    __dirname,
+    process.resourcesPath,
+    process.env['APPDIR'],
+  ].filter(Boolean) as string[]
   for (const start of starts) {
     let current = resolve(start)
     for (;;) {
@@ -61,9 +69,13 @@ async function runSwitchboardCore(args: string[]): Promise<PythonCommandResult> 
   const python = findPythonExecutable(repoRoot)
 
   return new Promise((resolvePromise) => {
+    const existingPythonPath = process.env['PYTHONPATH']
     const child = spawn(python, ['-m', 'switchboard_core', ...args], {
       cwd: repoRoot,
-      env: process.env,
+      env: {
+        ...process.env,
+        PYTHONPATH: existingPythonPath ? `${repoRoot}${process.platform === 'win32' ? ';' : ':'}${existingPythonPath}` : repoRoot,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''
@@ -195,27 +207,38 @@ export async function claimSwitchboardTask(input: SwitchboardClaimTaskInput): Pr
   return claimResult(result)
 }
 
-async function readTaskForPublish(workspaceRoot: string, id: string): Promise<SwitchboardTask | null> {
-  const result = await runSwitchboardCore(['show', ...workspaceArgs(workspaceRoot), id])
-  if (!result.ok) return null
-  const record = result.payload.record as { task?: SwitchboardTask } | undefined
-  return record?.task ?? null
+export async function publishSwitchboardTask(input: SwitchboardPublishTaskInput): Promise<SwitchboardMutationResult> {
+  const to = input.to ?? 'testing'
+  const args = ['publish', ...workspaceArgs(input.workspaceRoot), input.id, '--to', to]
+  if (input.summary?.trim()) args.push('--summary', input.summary.trim())
+  for (const artifact of input.artifacts ?? []) {
+    if (artifact.trim()) args.push('--artifact', artifact.trim())
+  }
+  for (const command of input.commandsRun ?? []) {
+    if (command.trim()) args.push('--command', command.trim())
+  }
+  for (const touchedFile of input.touchedFiles ?? []) {
+    if (touchedFile.trim()) args.push('--touched-file', touchedFile.trim())
+  }
+  if (input.comment?.trim()) args.push('--comment', input.comment.trim())
+  const result = await runSwitchboardCore(args)
+  return mutationResult(result, 'Unable to publish Switchboard task.')
 }
 
-export async function publishSwitchboardTask(input: SwitchboardPublishTaskInput): Promise<SwitchboardMutationResult> {
-  if (input.summary?.trim()) {
-    const task = await readTaskForPublish(input.workspaceRoot, input.id)
-    if (task) {
-      const evidence = { ...task.evidence, summary: input.summary.trim() }
-      const updated = await updateSwitchboardTask({
-        workspaceRoot: input.workspaceRoot,
-        id: input.id,
-        updates: { evidence },
-      })
-      if (!updated.ok) return updated
-    }
-  }
-  const to = input.to ?? 'testing'
-  const result = await runSwitchboardCore(['publish', ...workspaceArgs(input.workspaceRoot), input.id, '--to', to])
-  return mutationResult(result, 'Unable to publish Switchboard task.')
+export async function recoverSwitchboardLock(input: SwitchboardRecoverLockInput): Promise<SwitchboardRecoverLockResult> {
+  const result = await runSwitchboardCore([
+    'recover-lock',
+    ...workspaceArgs(input.workspaceRoot),
+    '--status',
+    input.status,
+  ])
+  if (!result.ok) return { ok: false, message: result.message || 'Unable to recover Switchboard lock.' }
+  return result.payload as SwitchboardRecoverLockResult
+}
+
+export async function requeueSwitchboardTask(input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult> {
+  const args = ['requeue', ...workspaceArgs(input.workspaceRoot), input.id]
+  if (input.reason?.trim()) args.push('--reason', input.reason.trim())
+  const result = await runSwitchboardCore(args)
+  return mutationResult(result, 'Unable to requeue Switchboard task.')
 }

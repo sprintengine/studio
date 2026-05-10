@@ -53,6 +53,11 @@ PUBLISH_TRANSITIONS = {
     "testing_in_progress": "review",
     "review_in_progress": "done",
 }
+REQUEUE_TRANSITIONS = {
+    "in_progress": "ready",
+    "testing_in_progress": "testing",
+    "review_in_progress": "review",
+}
 SOURCE_TYPES = {"manual", "watchtower", "github", "jira", "campaign", "sprintengine"}
 COMMENT_KINDS = {"comment", "status_change", "claim", "evidence", "import"}
 AUTHOR_TYPES = {"user", "agent", "system"}
@@ -76,6 +81,19 @@ class FolderLock:
     folder: Path
     lock_dir: Path
     lock_file: Path
+
+
+@dataclass(frozen=True)
+class LockStatus:
+    folder_status: str
+    path: Path
+    locked: bool
+    stale: bool
+    owner: str | None
+    session_id: str | None
+    created_at: str | None
+    heartbeat_at: str | None
+    age_seconds: float | None
 
 
 def now_iso() -> str:
@@ -127,6 +145,48 @@ def init_workspace(workspace: Path) -> dict[str, Any]:
         "workspaceRoot": str(workspace.expanduser().resolve()),
         "switchboardRoot": str(root),
         "folders": folders,
+    }
+
+
+def lock_status_for(workspace: Path, status: str) -> LockStatus:
+    current = folder_path(workspace, status)
+    lock_file = current / "Lock"
+    metadata = lock_metadata(lock_file)
+    locked = bool(metadata and metadata.get("locked") is True)
+    heartbeat_at = metadata.get("heartbeatAt") if metadata and isinstance(metadata.get("heartbeatAt"), str) else None
+    created_at = metadata.get("createdAt") if metadata and isinstance(metadata.get("createdAt"), str) else None
+    timestamp = heartbeat_at or created_at
+    age_seconds: float | None = None
+    if timestamp:
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            age_seconds = max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds())
+        except ValueError:
+            age_seconds = None
+    return LockStatus(
+        folder_status=status,
+        path=lock_file,
+        locked=locked or (current / ".Lock.lock").exists(),
+        stale=lock_is_stale(metadata) if metadata else False,
+        owner=metadata.get("owner") if metadata and isinstance(metadata.get("owner"), str) else None,
+        session_id=metadata.get("sessionId") if metadata and isinstance(metadata.get("sessionId"), str) else None,
+        created_at=created_at,
+        heartbeat_at=heartbeat_at,
+        age_seconds=age_seconds,
+    )
+
+
+def lock_status_payload(status: LockStatus) -> dict[str, Any]:
+    return {
+        "folderStatus": status.folder_status,
+        "path": str(status.path),
+        "locked": status.locked,
+        "stale": status.stale,
+        "owner": status.owner,
+        "sessionId": status.session_id,
+        "createdAt": status.created_at,
+        "heartbeatAt": status.heartbeat_at,
+        "ageSeconds": status.age_seconds,
     }
 
 
@@ -318,10 +378,11 @@ def read_task_file(path: Path, folder_status: str) -> LocatedTask:
     return LocatedTask(task=payload, folder_status=folder_status, path=path, warnings=warnings)
 
 
-def read_all(workspace: Path) -> tuple[list[LocatedTask], list[dict[str, Any]]]:
+def read_all(workspace: Path) -> tuple[list[LocatedTask], list[dict[str, Any]], list[dict[str, Any]]]:
     init_workspace(workspace)
     tasks: list[LocatedTask] = []
     problems: list[dict[str, Any]] = []
+    locks = [lock_status_payload(lock_status_for(workspace, status)) for status in FOLDER_STATUSES]
     for status in FOLDER_STATUSES:
         current = folder_path(workspace, status)
         for entry in sorted(current.iterdir()):
@@ -331,7 +392,7 @@ def read_all(workspace: Path) -> tuple[list[LocatedTask], list[dict[str, Any]]]:
                 tasks.append(read_task_file(entry, status))
             except SwitchboardError as exc:
                 problems.append({"path": str(entry), "folderStatus": status, "message": str(exc)})
-    return tasks, problems
+    return tasks, problems, locks
 
 
 def find_task(workspace: Path, task_id: str) -> LocatedTask:
@@ -372,35 +433,40 @@ def create_task(
     if errors:
         raise SwitchboardError(" ".join(errors))
     status = "inbox" if inbox else "todo"
-    path = task_path(workspace, status, task["id"])
-    atomic_write_json(path, task)
-    return read_task_file(path, status)
+    with locked_folders(workspace, [status], owner="switchboard-cli"):
+        path = task_path(workspace, status, task["id"])
+        atomic_write_json(path, task)
+        return read_task_file(path, status)
 
 
 def update_task(workspace: Path, task_id: str, updates: dict[str, Any]) -> LocatedTask:
     if not isinstance(updates, dict):
         raise SwitchboardError("updates must be an object.")
-    located = find_task(workspace, task_id)
-    if "state" in updates and updates["state"] != located.task["state"]:
-        raise SwitchboardError("Use move to change Switchboard task status.")
-    task = {
-        **located.task,
-        **updates,
-        "id": located.task["id"],
-        "schemaVersion": 1,
-        "createdAt": located.task["createdAt"],
-        "updatedAt": now_iso(),
-        "state": located.task["state"] if located.folder_status == "inbox" else located.folder_status,
-    }
-    if "labels" in updates:
-        task["labels"] = normalize_labels(updates["labels"])
-    if "blockedBy" in updates:
-        task["blockedBy"] = [str(item).strip() for item in updates["blockedBy"] if str(item).strip()] if isinstance(updates["blockedBy"], list) else []
-    errors = validate_task_shape(task)
-    if errors:
-        raise SwitchboardError(" ".join(errors))
-    atomic_write_json(located.path, task)
-    return read_task_file(located.path, located.folder_status)
+    initial = find_task(workspace, task_id)
+    with locked_folders(workspace, [initial.folder_status], owner="switchboard-cli"):
+        located = find_task(workspace, task_id)
+        if located.folder_status != initial.folder_status:
+            raise SwitchboardError("Switchboard task moved before update could acquire its folder lock.")
+        if "state" in updates and updates["state"] != located.task["state"]:
+            raise SwitchboardError("Use move to change Switchboard task status.")
+        task = {
+            **located.task,
+            **updates,
+            "id": located.task["id"],
+            "schemaVersion": 1,
+            "createdAt": located.task["createdAt"],
+            "updatedAt": now_iso(),
+            "state": located.task["state"] if located.folder_status == "inbox" else located.folder_status,
+        }
+        if "labels" in updates:
+            task["labels"] = normalize_labels(updates["labels"])
+        if "blockedBy" in updates:
+            task["blockedBy"] = [str(item).strip() for item in updates["blockedBy"] if str(item).strip()] if isinstance(updates["blockedBy"], list) else []
+        errors = validate_task_shape(task)
+        if errors:
+            raise SwitchboardError(" ".join(errors))
+        atomic_write_json(located.path, task)
+        return read_task_file(located.path, located.folder_status)
 
 
 def add_comment(
@@ -417,28 +483,32 @@ def add_comment(
         raise SwitchboardError("Comment body is required.")
     if kind not in COMMENT_KINDS:
         raise SwitchboardError(f"Invalid comment kind: {kind}")
-    located = find_task(workspace, task_id)
-    now = now_iso()
-    task = {
-        **located.task,
-        "comments": [
-            *located.task["comments"],
-            {
-                "id": str(uuid.uuid4()),
-                "author": {
-                    "type": author_type,
-                    "id": author_id,
-                    "name": author_name,
+    initial = find_task(workspace, task_id)
+    with locked_folders(workspace, [initial.folder_status], owner="switchboard-cli"):
+        located = find_task(workspace, task_id)
+        if located.folder_status != initial.folder_status:
+            raise SwitchboardError("Switchboard task moved before comment could acquire its folder lock.")
+        now = now_iso()
+        task = {
+            **located.task,
+            "comments": [
+                *located.task["comments"],
+                {
+                    "id": str(uuid.uuid4()),
+                    "author": {
+                        "type": author_type,
+                        "id": author_id,
+                        "name": author_name,
+                    },
+                    "kind": kind,
+                    "body": body.strip(),
+                    "createdAt": now,
                 },
-                "kind": kind,
-                "body": body.strip(),
-                "createdAt": now,
-            },
-        ],
-        "updatedAt": now,
-    }
-    atomic_write_json(located.path, task)
-    return read_task_file(located.path, located.folder_status)
+            ],
+            "updatedAt": now,
+        }
+        atomic_write_json(located.path, task)
+        return read_task_file(located.path, located.folder_status)
 
 
 def lock_metadata(lock_file: Path) -> dict[str, Any] | None:
@@ -497,6 +567,25 @@ def release_lock(lock: FolderLock) -> None:
     if lock.lock_dir.exists():
         lock.lock_dir.rmdir()
     lock.lock_file.write_text(json.dumps({"locked": False}, indent=2) + "\n", encoding="utf-8")
+
+
+def recover_lock(workspace: Path, status: str) -> dict[str, Any]:
+    if status not in FOLDER_STATUSES:
+        raise SwitchboardError(f"Invalid Switchboard folder status: {status}")
+    init_workspace(workspace)
+    current = folder_path(workspace, status)
+    lock_file = current / "Lock"
+    metadata = lock_metadata(lock_file)
+    lock_dir = current / ".Lock.lock"
+    if not lock_dir.exists() and not (metadata and metadata.get("locked") is True):
+        return {"ok": True, "recovered": False, "lock": lock_status_payload(lock_status_for(workspace, status))}
+    if not lock_is_stale(metadata):
+        owner_text = metadata.get("owner", "unknown") if metadata else "unknown"
+        raise SwitchboardError(f"Switchboard folder lock is not stale: {status} (owner: {owner_text}).")
+    if lock_dir.exists():
+        lock_dir.rmdir()
+    lock_file.write_text(json.dumps({"locked": False}, indent=2) + "\n", encoding="utf-8")
+    return {"ok": True, "recovered": True, "lock": lock_status_payload(lock_status_for(workspace, status))}
 
 
 @contextmanager
@@ -618,7 +707,7 @@ def claim_task(workspace: Path, *, from_status: str, agent: str) -> LocatedTask 
         raise SwitchboardError("--agent is required.")
     init_workspace(workspace)
     with locked_folders(workspace, [from_status, CLAIM_TRANSITIONS[from_status]], owner=agent):
-        tasks, _problems = read_all(workspace)
+        tasks, _problems, _locks = read_all(workspace)
         candidates = sorted(
             [task for task in tasks if task.folder_status == from_status],
             key=lambda located: str(located.task.get("createdAt", "")),
@@ -652,11 +741,31 @@ def claim_task(workspace: Path, *, from_status: str, agent: str) -> LocatedTask 
         return read_task_file(destination, CLAIM_TRANSITIONS[from_status])
 
 
-def validate_publish(task: dict[str, Any], from_status: str, to_status: str) -> None:
+def merged_evidence(
+    task: dict[str, Any],
+    *,
+    summary: str | None = None,
+    artifacts: list[str] | None = None,
+    commands_run: list[str] | None = None,
+    touched_files: list[str] | None = None,
+) -> dict[str, Any]:
+    evidence = dict(task.get("evidence", {}))
+    if summary is not None and summary.strip():
+        evidence["summary"] = summary.strip()
+    if artifacts:
+        evidence["artifacts"] = [*evidence.get("artifacts", []), *[item for item in artifacts if item]]
+    if commands_run:
+        evidence["commandsRun"] = [*evidence.get("commandsRun", []), *[item for item in commands_run if item]]
+    if touched_files:
+        evidence["touchedFiles"] = [*evidence.get("touchedFiles", []), *[item for item in touched_files if item]]
+    return evidence
+
+
+def validate_publish(task: dict[str, Any], from_status: str, to_status: str, evidence_override: dict[str, Any] | None = None) -> None:
     expected = PUBLISH_TRANSITIONS.get(from_status)
     if expected != to_status:
         raise SwitchboardError(f"Cannot publish a task from {from_status} to {to_status}.")
-    evidence = task.get("evidence", {})
+    evidence = evidence_override or task.get("evidence", {})
     comments = task.get("comments", [])
     errors: list[str] = []
     summary = evidence.get("summary") if isinstance(evidence.get("summary"), str) else ""
@@ -689,32 +798,60 @@ def validate_publish(task: dict[str, Any], from_status: str, to_status: str) -> 
         raise SwitchboardError(" ".join(errors))
 
 
-def publish_task(workspace: Path, task_id: str, *, to_status: str) -> LocatedTask:
+def publish_task(
+    workspace: Path,
+    task_id: str,
+    *,
+    to_status: str,
+    summary: str | None = None,
+    artifacts: list[str] | None = None,
+    commands_run: list[str] | None = None,
+    touched_files: list[str] | None = None,
+    comment: str | None = None,
+) -> LocatedTask:
     if to_status not in PUBLISH_TARGETS:
         raise SwitchboardError("--to must be one of testing, review, or done.")
     init_workspace(workspace)
     located = find_task(workspace, task_id)
     if located.folder_status == "inbox":
         raise SwitchboardError("Inbox tasks cannot be published.")
-    validate_publish(located.task, located.folder_status, to_status)
     with locked_folders(workspace, [located.folder_status, to_status], owner="switchboard-cli"):
         located = find_task(workspace, task_id)
-        validate_publish(located.task, located.folder_status, to_status)
+        next_evidence = merged_evidence(
+            located.task,
+            summary=summary,
+            artifacts=artifacts,
+            commands_run=commands_run,
+            touched_files=touched_files,
+        )
+        validate_publish(located.task, located.folder_status, to_status, next_evidence)
         now = now_iso()
+        comments = list(located.task["comments"])
+        if comment and comment.strip():
+            comments.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "author": {"type": "system", "id": "switchboard-cli", "name": "Switchboard CLI"},
+                    "kind": "evidence",
+                    "body": comment.strip(),
+                    "createdAt": now,
+                }
+            )
+        comments.append(
+            {
+                "id": str(uuid.uuid4()),
+                "author": {"type": "system", "id": "switchboard", "name": "Switchboard"},
+                "kind": "status_change",
+                "body": f"Published from {located.folder_status} to {to_status}.",
+                "createdAt": now,
+            }
+        )
         task = {
             **located.task,
             "state": to_status,
+            "evidence": next_evidence,
             "updatedAt": now,
-            "comments": [
-                *located.task["comments"],
-                {
-                    "id": str(uuid.uuid4()),
-                    "author": {"type": "system", "id": "switchboard", "name": "Switchboard"},
-                    "kind": "status_change",
-                    "body": f"Published from {located.folder_status} to {to_status}.",
-                    "createdAt": now,
-                },
-            ],
+            "comments": comments,
         }
         destination = task_path(workspace, to_status, task_id)
         if destination.exists() and destination != located.path:
@@ -722,6 +859,44 @@ def publish_task(workspace: Path, task_id: str, *, to_status: str) -> LocatedTas
         atomic_write_json(located.path, task)
         os.replace(located.path, destination)
         return read_task_file(destination, to_status)
+
+
+def requeue_task(workspace: Path, task_id: str, *, reason: str | None = None) -> LocatedTask:
+    init_workspace(workspace)
+    located = find_task(workspace, task_id)
+    target = REQUEUE_TRANSITIONS.get(located.folder_status)
+    if not target:
+        raise SwitchboardError(f"Cannot requeue a task from {located.folder_status}.")
+    with locked_folders(workspace, [located.folder_status, target], owner="switchboard-cli"):
+        located = find_task(workspace, task_id)
+        target = REQUEUE_TRANSITIONS.get(located.folder_status)
+        if not target:
+            raise SwitchboardError(f"Cannot requeue a task from {located.folder_status}.")
+        now = now_iso()
+        comments = list(located.task["comments"])
+        comments.append(
+            {
+                "id": str(uuid.uuid4()),
+                "author": {"type": "system", "id": "switchboard", "name": "Switchboard"},
+                "kind": "status_change",
+                "body": f"Requeued from {located.folder_status} to {target}."
+                + (f" Reason: {reason.strip()}" if reason and reason.strip() else ""),
+                "createdAt": now,
+            }
+        )
+        task = {
+            **located.task,
+            "state": target,
+            "claim": None,
+            "updatedAt": now,
+            "comments": comments,
+        }
+        destination = task_path(workspace, target, task_id)
+        if destination.exists() and destination != located.path:
+            raise SwitchboardError("A Switchboard task already exists in the destination folder.")
+        atomic_write_json(located.path, task)
+        os.replace(located.path, destination)
+        return read_task_file(destination, target)
 
 
 def record_for_output(located: LocatedTask) -> dict[str, Any]:

@@ -17,6 +17,8 @@ from .store import (
     promote_task,
     publish_task,
     read_all,
+    recover_lock,
+    requeue_task,
     update_task,
 )
 
@@ -38,5 +40,7 @@ __all__ = [
     "promote_task",
     "publish_task",
     "read_all",
+    "recover_lock",
+    "requeue_task",
     "update_task",
 ]

@@ -20,6 +20,8 @@ import {
   publishSwitchboardTask,
   promoteSwitchboardInboxTask,
   readAllSwitchboardTasks,
+  recoverSwitchboardLock,
+  requeueSwitchboardTask,
   updateSwitchboardTask,
 } from './switchboard-files'
 
@@ -37,6 +39,7 @@ async function main(): Promise<void> {
   await assertClaimUsesReadyQueue()
   await assertMalformedFilesAreReported()
   await assertCliAndAdapterReadTheSameFiles()
+  await assertAdapterCanRecoverStaleLocks()
 }
 
 async function createWorkspace(): Promise<string> {
@@ -191,6 +194,55 @@ async function assertClaimUsesReadyQueue(): Promise<void> {
   })
   assert.equal(rejectedPublish.ok, false)
   assert.equal(!rejectedPublish.ok && rejectedPublish.message.includes('execution attempt'), true)
+
+  const claimedPath = join(
+    workspaceRoot,
+    '.multi-code',
+    'switchboard',
+    'tasks',
+    'in_progress',
+    `${claimed.ok ? claimed.record.task.id : ''}.json`
+  )
+  const task = JSON.parse(await readFile(claimedPath, 'utf8')) as {
+    execution: { attempts: unknown[] }
+  }
+  task.execution.attempts.push({
+    id: 'attempt-1',
+    agentId: 'developer-1',
+    startedAt: '2026-05-09T12:00:00Z',
+    completedAt: '2026-05-09T12:05:00Z',
+    summary: 'Implemented compact rows.',
+  })
+  await writeFile(claimedPath, `${JSON.stringify(task, null, 2)}\n`, 'utf8')
+
+  const published = await publishSwitchboardTask({
+    workspaceRoot,
+    id: claimed.ok ? claimed.record.task.id : '',
+    to: 'testing',
+    summary: 'Implementation evidence added during publish.',
+    commandsRun: ['npm run typecheck'],
+    touchedFiles: ['switchboard_core/store.py'],
+    comment: 'Published through adapter with atomic evidence.',
+  })
+  assert.equal(published.ok, true)
+  assert.equal(published.ok && published.record.location.folderStatus, 'testing')
+  assert.equal(published.ok && published.record.task.evidence.summary, 'Implementation evidence added during publish.')
+  assert.deepEqual(published.ok && published.record.task.evidence.commandsRun, ['npm run typecheck'])
+
+  const testingClaimed = await claimSwitchboardTask({
+    workspaceRoot,
+    from: 'testing',
+    owner: 'tester-1',
+  })
+  assert.equal(testingClaimed.ok, true)
+  const requeued = await requeueSwitchboardTask({
+    workspaceRoot,
+    id: testingClaimed.ok ? testingClaimed.record.task.id : '',
+    reason: 'Tester stopped.',
+  })
+  assert.equal(requeued.ok, true)
+  assert.equal(requeued.ok && requeued.record.location.folderStatus, 'testing')
+  assert.equal(requeued.ok && requeued.record.task.claim, null)
 }
 
 async function runSwitchboardCli(args: string[]): Promise<Record<string, unknown>> {
@@ -236,4 +288,34 @@ async function assertCliAndAdapterReadTheSameFiles(): Promise<void> {
     )),
     true
   )
+}
+
+async function assertAdapterCanRecoverStaleLocks(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  await initializeSwitchboard({ workspaceRoot })
+  const readyFolder = join(workspaceRoot, '.multi-code', 'switchboard', 'tasks', 'ready')
+  await mkdir(join(readyFolder, '.Lock.lock'))
+  await writeFile(
+    join(readyFolder, 'Lock'),
+    `${JSON.stringify({
+      locked: true,
+      owner: 'abandoned-agent',
+      sessionId: 'terminal-1',
+      createdAt: '2026-05-09T12:00:00Z',
+      heartbeatAt: '2026-05-09T12:00:00Z',
+    }, null, 2)}\n`,
+    'utf8'
+  )
+
+  const readLocked = await readAllSwitchboardTasks({ workspaceRoot })
+  assert.equal(readLocked.ok, true)
+  assert.equal(
+    readLocked.ok && readLocked.locks?.some((lock) => lock.folderStatus === 'ready' && lock.stale && lock.owner === 'abandoned-agent'),
+    true
+  )
+
+  const recovered = await recoverSwitchboardLock({ workspaceRoot, status: 'ready' })
+  assert.equal(recovered.ok, true)
+  assert.equal(recovered.ok && recovered.recovered, true)
+  assert.equal(recovered.ok && recovered.lock.locked, false)
 }

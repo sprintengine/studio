@@ -12,6 +12,9 @@ import type {
   SwitchboardPromoteInboxTaskInput,
   SwitchboardPublishTaskInput,
   SwitchboardReadResult,
+  SwitchboardRecoverLockInput,
+  SwitchboardRecoverLockResult,
+  SwitchboardRequeueTaskInput,
   SwitchboardUpdateTaskInput,
 } from '../../shared/switchboard'
 
@@ -36,6 +39,10 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:claim-task', input),
   publishSwitchboardTask: (input: SwitchboardPublishTaskInput): Promise<SwitchboardMutationResult> =>
     ipcRenderer.invoke('switchboard:publish-task', input),
+  recoverSwitchboardLock: (input: SwitchboardRecoverLockInput): Promise<SwitchboardRecoverLockResult> =>
+    ipcRenderer.invoke('switchboard:recover-lock', input),
+  requeueSwitchboardTask: (input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult> =>
+    ipcRenderer.invoke('switchboard:requeue-task', input),
 } satisfies Pick<
   ElectronApi,
   | 'initializeSwitchboard'
@@ -48,4 +55,6 @@ export const switchboardApi = {
   | 'addSwitchboardComment'
   | 'claimSwitchboardTask'
   | 'publishSwitchboardTask'
+  | 'recoverSwitchboardLock'
+  | 'requeueSwitchboardTask'
 >

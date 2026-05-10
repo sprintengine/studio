@@ -101,6 +101,9 @@ import type {
   SwitchboardPromoteInboxTaskInput as SharedSwitchboardPromoteInboxTaskInput,
   SwitchboardPublishTaskInput as SharedSwitchboardPublishTaskInput,
   SwitchboardReadResult as SharedSwitchboardReadResult,
+  SwitchboardRecoverLockInput as SharedSwitchboardRecoverLockInput,
+  SwitchboardRecoverLockResult as SharedSwitchboardRecoverLockResult,
+  SwitchboardRequeueTaskInput as SharedSwitchboardRequeueTaskInput,
   SwitchboardTask as SharedSwitchboardTask,
   SwitchboardTaskRecord as SharedSwitchboardTaskRecord,
   SwitchboardTaskStatus as SharedSwitchboardTaskStatus,
@@ -211,6 +214,9 @@ declare global {
   type SwitchboardAddCommentInput = SharedSwitchboardAddCommentInput
   type SwitchboardClaimTaskInput = SharedSwitchboardClaimTaskInput
   type SwitchboardPublishTaskInput = SharedSwitchboardPublishTaskInput
+  type SwitchboardRecoverLockInput = SharedSwitchboardRecoverLockInput
+  type SwitchboardRecoverLockResult = SharedSwitchboardRecoverLockResult
+  type SwitchboardRequeueTaskInput = SharedSwitchboardRequeueTaskInput
 
   interface Window {
     api: ElectronApi

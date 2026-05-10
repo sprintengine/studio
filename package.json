@@ -60,6 +60,21 @@
         "to": "scripts/sprintengine_tool.py"
       },
       {
+        "from": "scripts/switchboard",
+        "to": "scripts/switchboard"
+      },
+      {
+        "from": "scripts/switchboard.cmd",
+        "to": "scripts/switchboard.cmd"
+      },
+      {
+        "from": "switchboard_core",
+        "to": "switchboard_core",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
         "from": "sprintengine_core",
         "to": "sprintengine_core",
         "filter": [

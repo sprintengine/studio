@@ -8,5 +8,7 @@ export {
   promoteSwitchboardInboxTask,
   publishSwitchboardTask,
   readAllSwitchboardTasks,
+  recoverSwitchboardLock,
+  requeueSwitchboardTask,
   updateSwitchboardTask,
 } from './switchboard-python'

@@ -106,12 +106,25 @@ export type SwitchboardFileProblem = {
   message: string
 }
 
+export type SwitchboardLockStatus = {
+  folderStatus: SwitchboardFolderStatus
+  path: string
+  locked: boolean
+  stale: boolean
+  owner: string | null
+  sessionId: string | null
+  createdAt: string | null
+  heartbeatAt: string | null
+  ageSeconds: number | null
+}
+
 export type SwitchboardReadAllResult = {
   ok: true
   workspaceRoot: string
   switchboardRoot: string
   tasks: SwitchboardTaskRecord[]
   problems: SwitchboardFileProblem[]
+  locks?: SwitchboardLockStatus[]
 }
 
 export type SwitchboardInitResult = {
@@ -187,11 +200,30 @@ export type SwitchboardPublishTaskInput = {
   id: string
   to?: 'testing' | 'review' | 'done'
   summary?: string
+  artifacts?: string[]
+  commandsRun?: string[]
+  touchedFiles?: string[]
+  comment?: string
 }
 
 export type SwitchboardClaimTaskResult =
   | { ok: true; record: SwitchboardTaskRecord }
   | { ok: false; message: string }
+
+export type SwitchboardRecoverLockInput = {
+  workspaceRoot: string
+  status: SwitchboardFolderStatus
+}
+
+export type SwitchboardRecoverLockResult =
+  | { ok: true; recovered: boolean; lock: SwitchboardLockStatus }
+  | { ok: false; message: string }
+
+export type SwitchboardRequeueTaskInput = {
+  workspaceRoot: string
+  id: string
+  reason?: string
+}
 
 export const SWITCHBOARD_STATUS_LABELS: Record<SwitchboardFolderStatus, string> = {
   inbox: 'Inbox',

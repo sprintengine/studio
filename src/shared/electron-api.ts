@@ -10,6 +10,9 @@ import type {
   SwitchboardPromoteInboxTaskInput,
   SwitchboardPublishTaskInput,
   SwitchboardReadResult,
+  SwitchboardRecoverLockInput,
+  SwitchboardRecoverLockResult,
+  SwitchboardRequeueTaskInput,
   SwitchboardUpdateTaskInput,
 } from './switchboard'
 
@@ -988,6 +991,8 @@ export type ElectronApi = {
   addSwitchboardComment: (input: SwitchboardAddCommentInput) => Promise<SwitchboardMutationResult>
   claimSwitchboardTask: (input: SwitchboardClaimTaskInput) => Promise<SwitchboardClaimTaskResult>
   publishSwitchboardTask: (input: SwitchboardPublishTaskInput) => Promise<SwitchboardMutationResult>
+  recoverSwitchboardLock: (input: SwitchboardRecoverLockInput) => Promise<SwitchboardRecoverLockResult>
+  requeueSwitchboardTask: (input: SwitchboardRequeueTaskInput) => Promise<SwitchboardMutationResult>
   initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
   terminalSpawn: (
     sessionId: string,

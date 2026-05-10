@@ -23,6 +23,8 @@ from .store import (
     publish_task,
     read_all,
     record_for_output,
+    recover_lock,
+    requeue_task,
     task_summary,
     update_task,
     switchboard_root,
@@ -66,7 +68,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    tasks, problems = read_all(workspace_path(args))
+    tasks, problems, locks = read_all(workspace_path(args))
     status = args.status
     if status:
         tasks = [task for task in tasks if task.folder_status == status]
@@ -84,13 +86,14 @@ def cmd_list(args: argparse.Namespace) -> int:
                 for located in tasks
             ],
             "problems": problems,
+            "locks": locks,
         }
     )
     return 0
 
 
 def read_all_payload(workspace: Path) -> dict[str, Any]:
-    tasks, problems = read_all(workspace)
+    tasks, problems, locks = read_all(workspace)
     root = switchboard_root(workspace)
     return {
         "ok": True,
@@ -98,6 +101,7 @@ def read_all_payload(workspace: Path) -> dict[str, Any]:
         "switchboardRoot": str(root),
         "tasks": [record_for_output(task) for task in tasks],
         "problems": problems,
+        "locks": locks,
     }
 
 
@@ -203,8 +207,29 @@ def cmd_claim(args: argparse.Namespace) -> int:
 
 def cmd_publish(args: argparse.Namespace) -> int:
     before = find_task(workspace_path(args), args.task_id)
-    located = publish_task(workspace_path(args), args.task_id, to_status=args.to)
+    located = publish_task(
+        workspace_path(args),
+        args.task_id,
+        to_status=args.to,
+        summary=args.summary,
+        artifacts=args.artifact,
+        commands_run=args.command,
+        touched_files=args.touched_file,
+        comment=args.comment,
+    )
     emit(mutation_payload(action="publish", previous=before.folder_status, record=record_for_output(located)))
+    return 0
+
+
+def cmd_recover_lock(args: argparse.Namespace) -> int:
+    emit(recover_lock(workspace_path(args), args.status))
+    return 0
+
+
+def cmd_requeue(args: argparse.Namespace) -> int:
+    before = find_task(workspace_path(args), args.task_id)
+    located = requeue_task(workspace_path(args), args.task_id, reason=args.reason)
+    emit(mutation_payload(action="requeue", previous=before.folder_status, record=record_for_output(located)))
     return 0
 
 
@@ -278,7 +303,23 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_argument("--workspace", required=True)
     publish.add_argument("task_id", metavar="uuid")
     publish.add_argument("--to", required=True, choices=PUBLISH_TARGETS)
+    publish.add_argument("--summary")
+    publish.add_argument("--artifact", action="append", default=[])
+    publish.add_argument("--command", action="append", default=[])
+    publish.add_argument("--touched-file", action="append", default=[])
+    publish.add_argument("--comment")
     publish.set_defaults(func=cmd_publish)
+
+    recover = subcommands.add_parser("recover-lock", help="Recover a stale Switchboard folder lock.")
+    recover.add_argument("--workspace", required=True)
+    recover.add_argument("--status", required=True, choices=FOLDER_STATUSES)
+    recover.set_defaults(func=cmd_recover_lock)
+
+    requeue = subcommands.add_parser("requeue", help="Requeue an abandoned in-progress task.")
+    requeue.add_argument("--workspace", required=True)
+    requeue.add_argument("task_id", metavar="uuid")
+    requeue.add_argument("--reason")
+    requeue.set_defaults(func=cmd_requeue)
 
     return parser
 

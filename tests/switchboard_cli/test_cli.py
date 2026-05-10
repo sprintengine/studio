@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -170,6 +172,20 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertFalse(payload["claimed"])
         self.assertEqual(payload["message"], "No eligible task.")
 
+    def test_requeue_abandoned_in_progress_task(self) -> None:
+        task_id = self.create_task(title="Requeue task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["claim", *self.workspace_args(), "--from", "ready", "--agent", "developer-1"])
+
+        requeued = stdout_json(
+            self.run_cli(["requeue", *self.workspace_args(), task_id, "--reason", "Agent session stopped."])
+        )
+
+        self.assertEqual(requeued["previousFolder"], "in_progress")
+        self.assertEqual(requeued["nextFolder"], "ready")
+        self.assertIsNone(requeued["record"]["task"]["claim"])
+        self.assertIn("Agent session stopped.", requeued["record"]["task"]["comments"][-1]["body"])
+
     def test_publish_rejects_missing_implementation_evidence(self) -> None:
         task_id = self.create_task(title="Publish validation task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
@@ -210,6 +226,54 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertTrue(self.task_file("testing", task_id).is_file())
 
+    def test_publish_to_testing_can_add_evidence_atomically(self) -> None:
+        task_id = self.create_task(title="Atomic publish evidence task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["claim", *self.workspace_args(), "--from", "ready", "--agent", "developer-1"])
+
+        path = self.task_file("in_progress", task_id)
+        task = json.loads(path.read_text(encoding="utf-8"))
+        task["execution"]["attempts"].append(
+            {
+                "id": "attempt-1",
+                "agentId": "developer-1",
+                "startedAt": "2026-05-09T12:00:00Z",
+                "completedAt": "2026-05-09T12:05:00Z",
+                "summary": "Implemented CLI flow.",
+            }
+        )
+        path.write_text(json.dumps(task, indent=2) + "\n", encoding="utf-8")
+
+        published = stdout_json(
+            self.run_cli(
+                [
+                    "publish",
+                    *self.workspace_args(),
+                    task_id,
+                    "--to",
+                    "testing",
+                    "--summary",
+                    "Published with atomic evidence.",
+                    "--command",
+                    "python -m unittest tests.switchboard_cli.test_cli",
+                    "--touched-file",
+                    "switchboard_core/store.py",
+                    "--artifact",
+                    ".multi-code/switchboard/artifacts/report.md",
+                    "--comment",
+                    "Evidence attached during publish.",
+                ]
+            )
+        )
+
+        self.assertEqual(published["nextFolder"], "testing")
+        evidence = published["record"]["task"]["evidence"]
+        self.assertEqual(evidence["summary"], "Published with atomic evidence.")
+        self.assertIn("python -m unittest tests.switchboard_cli.test_cli", evidence["commandsRun"])
+        self.assertIn("switchboard_core/store.py", evidence["touchedFiles"])
+        self.assertIn(".multi-code/switchboard/artifacts/report.md", evidence["artifacts"])
+        self.assertEqual(published["record"]["task"]["comments"][-2]["body"], "Evidence attached during publish.")
+
     def test_publish_rejects_wrong_target(self) -> None:
         task_id = self.create_task(title="Wrong publish target")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
@@ -230,6 +294,106 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("Invalid task JSON", stderr_json(rejected)["message"])
+
+    def test_concurrent_claim_attempts_claim_one_task_once(self) -> None:
+        task_id = self.create_task(title="Concurrent claim task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+
+        def claim(agent: str) -> subprocess.CompletedProcess[str]:
+            return self.run_cli(["claim", *self.workspace_args(), "--from", "ready", "--agent", agent], check=False)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            completed = list(executor.map(claim, ["developer-a", "developer-b"]))
+
+        successes = [stdout_json(result) for result in completed if result.returncode == 0 and result.stdout.strip()]
+        claimed = [payload for payload in successes if payload.get("claimed") is True]
+        empty = [payload for payload in successes if payload.get("claimed") is False]
+        lock_failures = [stderr_json(result) for result in completed if result.returncode != 0]
+
+        self.assertEqual(len(claimed), 1)
+        self.assertEqual(claimed[0]["id"], task_id)
+        self.assertTrue(empty or lock_failures)
+        self.assertTrue(self.task_file("in_progress", task_id).is_file())
+
+    def test_create_fails_while_destination_folder_is_locked(self) -> None:
+        self.run_cli(["init", *self.workspace_args()])
+        todo = self.workspace / ".multi-code" / "switchboard" / "tasks" / "todo"
+        (todo / ".Lock.lock").mkdir()
+        (todo / "Lock").write_text(
+            json.dumps(
+                {
+                    "locked": True,
+                    "owner": "other-process",
+                    "sessionId": "session-1",
+                    "createdAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                    "heartbeatAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        rejected = self.run_cli(["create", *self.workspace_args(), "--title", "Locked create"], check=False)
+
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("Switchboard folder is locked", stderr_json(rejected)["message"])
+
+    def test_read_all_reports_stale_lock_and_recover_lock_clears_it(self) -> None:
+        self.run_cli(["init", *self.workspace_args()])
+        ready = self.workspace / ".multi-code" / "switchboard" / "tasks" / "ready"
+        stale_time = (datetime.now(timezone.utc) - timedelta(minutes=10)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        (ready / ".Lock.lock").mkdir()
+        (ready / "Lock").write_text(
+            json.dumps(
+                {
+                    "locked": True,
+                    "owner": "abandoned-agent",
+                    "sessionId": "terminal-1",
+                    "createdAt": stale_time,
+                    "heartbeatAt": stale_time,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        listed = stdout_json(self.run_cli(["list", *self.workspace_args()]))
+        ready_lock = next(lock for lock in listed["locks"] if lock["folderStatus"] == "ready")
+        self.assertTrue(ready_lock["locked"])
+        self.assertTrue(ready_lock["stale"])
+        self.assertEqual(ready_lock["owner"], "abandoned-agent")
+
+        recovered = stdout_json(self.run_cli(["recover-lock", *self.workspace_args(), "--status", "ready"]))
+        self.assertTrue(recovered["recovered"])
+        self.assertFalse(recovered["lock"]["locked"])
+        self.assertFalse((ready / ".Lock.lock").exists())
+
+    def test_concurrent_update_and_move_do_not_duplicate_or_corrupt_task(self) -> None:
+        task_id = self.create_task(title="Race task")["id"]
+
+        def update() -> subprocess.CompletedProcess[str]:
+            return self.run_cli(["update", *self.workspace_args(), task_id, "--updates-json", json.dumps({"title": "Updated race task"})], check=False)
+
+        def move() -> subprocess.CompletedProcess[str]:
+            return self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"], check=False)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            completed = list(executor.map(lambda fn: fn(), [update, move]))
+
+        self.assertTrue(any(result.returncode == 0 for result in completed))
+        locations = [
+            path
+            for path in [
+                self.task_file("todo", task_id),
+                self.task_file("ready", task_id),
+            ]
+            if path.exists()
+        ]
+        self.assertEqual(len(locations), 1)
+        task = json.loads(locations[0].read_text(encoding="utf-8"))
+        self.assertEqual(task["id"], task_id)
 
 
 if __name__ == "__main__":
