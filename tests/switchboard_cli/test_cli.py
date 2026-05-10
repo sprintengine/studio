@@ -186,6 +186,10 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(requeued["previousFolder"], "in_progress")
         self.assertEqual(requeued["nextFolder"], "ready")
         self.assertIsNone(requeued["record"]["task"]["claim"])
+        self.assertIsNone(requeued["record"]["task"]["execution"]["activeExecutionId"])
+        self.assertIsNone(requeued["record"]["task"]["execution"]["activeProvider"])
+        self.assertIsNone(requeued["record"]["task"]["execution"]["activeSessionId"])
+        self.assertIsNone(requeued["record"]["task"]["execution"].get("providerRef"))
         self.assertIn("Agent session stopped.", requeued["record"]["task"]["comments"][-1]["body"])
 
     def test_publish_rejects_missing_implementation_evidence(self) -> None:
@@ -225,6 +229,11 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertEqual(published["previousFolder"], "in_progress")
         self.assertEqual(published["nextFolder"], "testing")
+        self.assertIsNone(published["record"]["task"]["claim"])
+        self.assertIsNone(published["record"]["task"]["execution"]["activeExecutionId"])
+        self.assertIsNone(published["record"]["task"]["execution"]["activeProvider"])
+        self.assertIsNone(published["record"]["task"]["execution"]["activeSessionId"])
+        self.assertIsNone(published["record"]["task"]["execution"].get("providerRef"))
         self.assertFalse(path.exists())
         self.assertTrue(self.task_file("testing", task_id).is_file())
 

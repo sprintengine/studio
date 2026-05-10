@@ -88,7 +88,11 @@ function buildAgentPrompt(taskId: string, queue: SwitchboardRunnerQueue, workspa
 
 function activeSessionsFromExecutions(executions: SwitchboardRunnerExecution[]) {
   return executions
-    .filter((execution) => execution.provider === 'desktop-terminal' && typeof execution.providerRef.sessionId === 'string')
+    .filter((execution) =>
+      execution.status === 'active' &&
+      execution.provider === 'desktop-terminal' &&
+      typeof execution.providerRef.sessionId === 'string'
+    )
     .map((execution) => ({
       taskId: execution.taskId,
       queue: execution.claimedFrom,
@@ -324,7 +328,11 @@ export function createSwitchboardRunner(deps: SwitchboardRunnerDependencies) {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         state.lastError = message
-        await provider.stop?.({ executionId: id })
+        try {
+          await provider.stop?.({ executionId: id })
+        } catch (stopError) {
+          state.lastError = `${message}; provider stop failed: ${stopError instanceof Error ? stopError.message : String(stopError)}`
+        }
         try {
           await requeueClaimedTask(deps, config.workspaceRoot, taskId, `Switchboard runner could not persist execution metadata: ${message}`)
         } catch (requeueError) {

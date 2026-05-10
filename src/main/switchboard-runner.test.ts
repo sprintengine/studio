@@ -38,6 +38,7 @@ async function main(): Promise<void> {
   await assertTickIsIdempotentAfterConcurrencyIsFull()
   await assertLaunchFailureRequeuesClaimedTask()
   await assertExecutionLinkFailureStopsProviderAndRequeues()
+  await assertLegacyActiveSessionsOnlyIncludeActiveExecutions()
   await assertReconciliationMarksMissingExecutionAbandoned()
 }
 
@@ -281,6 +282,28 @@ async function assertExecutionLinkFailureStopsProviderAndRequeues(): Promise<voi
     assert.deepEqual(requeues, ['99999999-9999-4999-8999-999999999999'])
     assert.equal(stopped.length, 1)
     assert.match(state.ok ? state.lastError ?? '' : '', /update failed/)
+  })
+}
+
+async function assertLegacyActiveSessionsOnlyIncludeActiveExecutions(): Promise<void> {
+  await withWorkspace(async (workspaceRoot) => {
+    const { runner, active } = createHarness(workspaceRoot, ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'])
+    const started = await runner.start({} as WebContents, { workspaceRoot, maxConcurrency: 1, queues: ['ready'] })
+    const execution = started.ok ? started.activeExecutions[0] as SwitchboardRunnerExecution : null
+    assert.ok(execution)
+    active.set(execution.executionId, false)
+    const fileState = await readRunnerState(workspaceRoot)
+    fileState.activeExecutions = fileState.activeExecutions.map((activeExecution) => ({
+      ...activeExecution,
+      lastSeenAt: '2026-05-09T12:00:00Z',
+    }))
+    await writeRunnerState(fileState)
+
+    const status = await runner.getState(workspaceRoot)
+
+    assert.equal(status.ok, true)
+    assert.equal(status.ok && status.activeExecutions[0]?.status, 'abandoned')
+    assert.equal(status.ok && status.activeSessions.length, 0)
   })
 }
 

@@ -998,6 +998,15 @@ def merged_evidence(
     return evidence
 
 
+def clear_active_execution_metadata(task: dict[str, Any]) -> dict[str, Any]:
+    execution = dict(task.get("execution", {}))
+    execution["activeExecutionId"] = None
+    execution["activeProvider"] = None
+    execution["activeSessionId"] = None
+    execution["providerRef"] = None
+    return execution
+
+
 def validate_publish(task: dict[str, Any], from_status: str, to_status: str, evidence_override: dict[str, Any] | None = None) -> None:
     expected = PUBLISH_TRANSITIONS.get(from_status)
     if expected != to_status:
@@ -1086,6 +1095,8 @@ def publish_task(
         task = {
             **located.task,
             "state": to_status,
+            "claim": None,
+            "execution": clear_active_execution_metadata(located.task),
             "evidence": next_evidence,
             "updatedAt": now,
             "comments": comments,
@@ -1125,6 +1136,7 @@ def requeue_task(workspace: Path, task_id: str, *, reason: str | None = None) ->
             **located.task,
             "state": target,
             "claim": None,
+            "execution": clear_active_execution_metadata(located.task),
             "updatedAt": now,
             "comments": comments,
         }
