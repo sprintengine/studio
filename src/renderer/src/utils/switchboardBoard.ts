@@ -45,6 +45,7 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
   const [state, setState] = useState<SwitchboardLoadState>(workspaceRoot ? { kind: 'loading' } : { kind: 'idle' })
   const initializedRef = useRef<string | null>(null)
   const activeRootRef = useRef<string | null>(workspaceRoot ?? null)
+  const inFlightRef = useRef(false)
 
   const refresh = useCallback(async () => {
     activeRootRef.current = workspaceRoot ?? null
@@ -59,6 +60,7 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
       return
     }
 
+    inFlightRef.current = true
     setState((prev) => (prev.kind === 'ready' ? prev : { kind: 'loading' }))
 
     try {
@@ -94,6 +96,8 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
         kind: 'error',
         message: error instanceof Error ? error.message : 'Failed to read Switchboard tasks.',
       })
+    } finally {
+      inFlightRef.current = false
     }
   }, [workspaceRoot])
 
@@ -104,6 +108,7 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
     void refresh()
     if (!workspaceRoot) return
     const handle = window.setInterval(() => {
+      if (inFlightRef.current) return
       void refresh()
     }, TASK_POLL_INTERVAL_MS)
     return () => window.clearInterval(handle)

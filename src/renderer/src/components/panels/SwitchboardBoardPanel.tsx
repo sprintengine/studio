@@ -491,6 +491,23 @@ function BoardDetailPane({
             <span className="text-[12px] text-[#6f7078]">None</span>
           )}
         </PropertyRow>
+        <PropertyRow label="Worktree">
+          {task.execution.worktreePath ? (
+            <span className="block font-mono text-[12px] text-[#d7d7dc]">{task.execution.worktreePath}</span>
+          ) : (
+            <span className="text-[12px] text-[#6f7078]">None</span>
+          )}
+        </PropertyRow>
+        {task.execution.worktreeBranch ? (
+          <PropertyRow label="Worktree branch">
+            <span className="font-mono text-[12px] text-[#d7d7dc]">{task.execution.worktreeBranch}</span>
+          </PropertyRow>
+        ) : null}
+        {task.execution.worktreeState ? (
+          <PropertyRow label="Worktree state">
+            <span className="text-[12px] text-[#d7d7dc]">{task.execution.worktreeState}</span>
+          </PropertyRow>
+        ) : null}
 
         <Section title="Description">
           {task.description.trim() ? (
@@ -784,7 +801,14 @@ function RunnerToolbar({
   const summaryProvider = runner.state ? runner.state.provider : draft.provider
   const summaryCli = runner.state ? runner.state.cli : draft.cli
   const summaryConcurrency = runner.state ? runner.state.maxConcurrency : draft.maxConcurrency
-  const activeCount = runner.state?.activeExecutions.length ?? 0
+  const allExecutions = runner.state?.activeExecutions ?? []
+  const activeExecutions = allExecutions.filter(
+    (execution) => !execution.status || execution.status === 'active'
+  )
+  const inactiveExecutions = allExecutions.filter(
+    (execution) => execution.status && execution.status !== 'active'
+  )
+  const activeCount = activeExecutions.length
   const updatedAt = runner.state?.updatedAt
     ? formatRelativeTime(runner.state.updatedAt)
     : null
@@ -873,7 +897,12 @@ function RunnerToolbar({
           Runner error: {runner.error}
         </div>
       ) : null}
-      {activeCount > 0 ? <ActiveExecutionsList executions={runner.state!.activeExecutions} /> : null}
+      {activeExecutions.length > 0 ? (
+        <ExecutionsSection title="Active executions" executions={activeExecutions} tone="active" />
+      ) : null}
+      {inactiveExecutions.length > 0 ? (
+        <ExecutionsSection title="Other tracked executions" executions={inactiveExecutions} tone="inactive" />
+      ) : null}
     </div>
   )
 }
@@ -902,11 +931,21 @@ function ToolbarFact({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ActiveExecutionsList({ executions }: { executions: SwitchboardRunnerExecution[] }) {
+function ExecutionsSection({
+  title,
+  executions,
+  tone,
+}: {
+  title: string
+  executions: SwitchboardRunnerExecution[]
+  tone: 'active' | 'inactive'
+}) {
+  const includeLogsNote = tone === 'active'
   return (
     <div className="border-t border-[#16171b]">
-      <div className="px-3 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">
-        Active executions
+      <div className="flex items-baseline justify-between gap-3 px-3 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">
+        <span>{title}</span>
+        <span className="font-normal normal-case tracking-normal text-[#5a5a63]">{executions.length}</span>
       </div>
       <ul className="max-h-40 overflow-auto">
         {executions.map((execution) => (
@@ -921,15 +960,19 @@ function ActiveExecutionsList({ executions }: { executions: SwitchboardRunnerExe
             </span>
             <span className="text-[#6f7078]">{providerLabel(execution.provider)}</span>
             <span className="text-[#6f7078]">started {formatRelativeTime(execution.startedAt)}</span>
-            {execution.status && execution.status !== 'active' ? (
-              <span className="text-[#f2c45f]">{execution.status}</span>
+            {tone === 'inactive' && execution.status ? (
+              <span className="rounded border border-[#3a3426] bg-[#1d1714] px-1.5 py-0.5 text-[10.5px] text-[#f2c45f]">
+                {execution.status}
+              </span>
             ) : null}
           </li>
         ))}
       </ul>
-      <div className="border-t border-[#16171b] px-3 py-1.5 text-[10.5px] text-[#5a5a63]">
-        Live execution logs are not bridged to the renderer. Inspect Python runner output for details.
-      </div>
+      {includeLogsNote ? (
+        <div className="border-t border-[#16171b] px-3 py-1.5 text-[10.5px] text-[#5a5a63]">
+          Live execution logs are not bridged to the renderer. Inspect Python runner output for details.
+        </div>
+      ) : null}
     </div>
   )
 }
