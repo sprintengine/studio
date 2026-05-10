@@ -51,6 +51,16 @@ def stderr_json(completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
     return json.loads(completed.stderr)
 
 
+def process_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 class SwitchboardCliTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory(prefix="multicode-switchboard-cli-")
@@ -868,12 +878,21 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertEqual(stopped["status"], "stopped")
         self.assertTrue(stopped["terminated"])
+        pid = execution["providerRef"]["pid"]
+        for _ in range(30):
+            if not process_is_alive(pid):
+                break
+            time.sleep(0.1)
+        self.assertFalse(process_is_alive(pid))
         status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
         self.assertEqual(status["activeExecutions"][0]["status"], "stopped")
         metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution["executionId"]]))["execution"]
         self.assertEqual(metadata["status"], "stopped")
         self.assertEqual(metadata["worktreeState"], "stopped")
         task = json.loads(self.task_file("in_progress", task_id).read_text(encoding="utf-8"))
+        self.assertIsNone(task["execution"]["activeExecutionId"])
+        self.assertIsNone(task["execution"]["activeProvider"])
+        self.assertIsNone(task["execution"]["providerRef"])
         self.assertEqual(task["execution"]["attempts"][0]["summary"], "Stopped by test.")
         self.assertEqual(task["execution"]["attempts"][0]["worktreeState"], "stopped")
 
@@ -994,6 +1013,44 @@ class SwitchboardCliTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertTrue(payload["ok"])
             self.assertFalse(payload["enabled"])
+            process.wait(timeout=5)
+            self.assertIsNotNone(process.returncode)
+            self.assertFalse(descriptor_path.exists())
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            if process.stderr:
+                process.stderr.close()
+
+    def test_runner_stop_cli_shuts_down_backend(self) -> None:
+        self.run_cli(["init", *self.workspace_args()])
+        process = subprocess.Popen(
+            switchboard_command(["runner", "run", *self.workspace_args()]),
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            descriptor_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "server.json"
+            for _ in range(60):
+                if descriptor_path.exists():
+                    break
+                if process.poll() is not None:
+                    stderr = process.stderr.read() if process.stderr else ""
+                    self.fail(f"runner server exited early: {stderr}")
+                time.sleep(0.1)
+            self.assertTrue(descriptor_path.exists())
+
+            stopped = stdout_json(self.run_cli(["runner", "stop", *self.workspace_args()]))
+
+            self.assertTrue(stopped["ok"])
+            self.assertFalse(stopped["enabled"])
+            self.assertTrue(stopped["paused"])
             process.wait(timeout=5)
             self.assertIsNotNone(process.returncode)
             self.assertFalse(descriptor_path.exists())

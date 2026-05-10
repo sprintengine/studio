@@ -64,9 +64,10 @@ const states = new Map<string, WorkspaceState>()
 // Path helpers
 // =============================================================================
 
-const MULTICODE_HOOK_TAG = 'multicode-memory-activity'
-const HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'memory-activity.mjs')
-const TRACE_DIR_REL = join('.multicode', 'memory-trace')
+const MULTICODE_HOOK_TAG = 'multicode-knowledge-activity'
+const LEGACY_MULTICODE_HOOK_TAG = 'multicode-memory-activity'
+const HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'knowledge-activity.mjs')
+const TRACE_DIR_REL = join('.multicode', 'knowledge-trace')
 const INSTALLED_RECORD_REL = join('.multicode', 'hooks', 'installed.json')
 const CLAUDE_LOCAL_SETTINGS_REL = join('.claude', 'settings.local.json')
 
@@ -76,14 +77,14 @@ function workspaceKey(workspaceRoot: string): string {
 
 function getBundledHookScriptPath(): string | null {
   if (app.isPackaged) {
-    const packaged = join(process.resourcesPath, 'hooks', 'claude-memory-activity.mjs')
+    const packaged = join(process.resourcesPath, 'hooks', 'claude-knowledge-activity.mjs')
     return existsSync(packaged) ? packaged : null
   }
   const candidates = [
-    join(process.cwd(), 'resources', 'hooks', 'claude-memory-activity.mjs'),
-    join(app.getAppPath(), 'resources', 'hooks', 'claude-memory-activity.mjs'),
-    join(__dirname, '..', '..', 'resources', 'hooks', 'claude-memory-activity.mjs'),
-    join(__dirname, '..', '..', '..', 'resources', 'hooks', 'claude-memory-activity.mjs'),
+    join(process.cwd(), 'resources', 'hooks', 'claude-knowledge-activity.mjs'),
+    join(app.getAppPath(), 'resources', 'hooks', 'claude-knowledge-activity.mjs'),
+    join(__dirname, '..', '..', 'resources', 'hooks', 'claude-knowledge-activity.mjs'),
+    join(__dirname, '..', '..', '..', 'resources', 'hooks', 'claude-knowledge-activity.mjs'),
   ]
   return candidates.find((p) => existsSync(p)) ?? null
 }
@@ -124,7 +125,7 @@ function buildHookCommand(memoryRelativeRoot: string): string {
   // slashes work on every platform Node will accept the path.
   const scriptRel = HOOK_SCRIPT_REL.split(sep).join('/')
   const memoryRel = memoryRelativeRoot.split(sep).join('/')
-  return `node "${scriptRel}" --memory-root "${memoryRel}"`
+  return `node "${scriptRel}" --knowledge-root "${memoryRel}"`
 }
 
 function ensureMatcherBlock(
@@ -142,7 +143,7 @@ function ensureMatcherBlock(
 }
 
 function isMulticodeEntry(entry: ClaudeHookEntry): boolean {
-  return entry?._multicode === MULTICODE_HOOK_TAG
+  return entry?._multicode === MULTICODE_HOOK_TAG || entry?._multicode === LEGACY_MULTICODE_HOOK_TAG
 }
 
 async function mergeMulticodeHook(
@@ -198,12 +199,12 @@ export async function installMemoryActivityHook(
 ): Promise<ActivityInstallResult> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
   if (!memoryRelativeRoot?.trim()) {
-    return { ok: false, message: 'Memory folder must be configured before tracking activity.' }
+    return { ok: false, message: 'Knowledge folder must be configured before tracking activity.' }
   }
 
   const sourceScript = getBundledHookScriptPath()
   if (!sourceScript) {
-    return { ok: false, message: 'Memory activity hook script is missing from this build.' }
+    return { ok: false, message: 'Knowledge activity hook script is missing from this build.' }
   }
 
   try {
@@ -240,7 +241,7 @@ export async function installMemoryActivityHook(
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : 'Failed to install memory activity hook.',
+      message: error instanceof Error ? error.message : 'Failed to install knowledge activity hook.',
     }
   }
 }

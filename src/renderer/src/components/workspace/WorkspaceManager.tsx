@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
@@ -33,6 +33,7 @@ import { focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getM
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
+import { sprintEngineRoleAccent } from '../../utils/sprintengine'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
 import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
@@ -41,6 +42,7 @@ import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineStateSynchronizer from './SprintEngineStateSynchronizer'
 import WorkspaceGitStatusButton from './WorkspaceGitStatusButton'
 import WorkspaceLayout from './WorkspaceLayout'
+import WorkspaceSidebar from './WorkspaceSidebar'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
@@ -144,46 +146,6 @@ function getWorkspaceActivity(
   if (workspaceNeedsInput(workspace)) return 'needs-input'
   if (workspaceHasRunningAgent(workspace, terminalSessions)) return 'running'
   return 'idle'
-}
-
-function workspaceActivityTone(activity: WorkspaceActivity): 'running' | 'needs-input' | null {
-  switch (activity) {
-    case 'needs-input':
-      return 'needs-input'
-    case 'running':
-      return 'running'
-    default:
-      return null
-  }
-}
-
-function workspaceActivityLabel(activity: WorkspaceActivity): string {
-  switch (activity) {
-    case 'needs-input':
-      return 'Workspace needs input'
-    case 'running':
-      return 'Workspace has running agents'
-    default:
-      return 'Workspace idle'
-  }
-}
-
-function workspaceTabClass(mode: Workspace['mode'], active: boolean): string {
-  if (mode === 'sprintengine') {
-    return active
-      ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
-      : 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
-  }
-
-  if (mode === 'switchboard') {
-    return active
-      ? 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff] shadow-[inset_0_-2px_0_rgba(124,92,242,0.6)]'
-      : 'border-transparent text-[#cdbcff] hover:bg-[#7c5cf2]/10 hover:text-[#efe5ff]'
-  }
-
-  return active
-    ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
-    : 'border-transparent text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
 }
 
 function workspaceTabIconClass(mode: Workspace['mode']): string {
@@ -332,8 +294,10 @@ export default function WorkspaceManager() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
-  const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
+  const sidebarCollapsed = useWorkspaceStore((s) => s.sidebarCollapsed)
+  const setSidebarCollapsed = useWorkspaceStore((s) => s.setSidebarCollapsed)
+  const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setSprintEngineAutoEnabled = useWorkspaceStore((s) => s.setSprintEngineAutoEnabled)
   const authState = useWorkspaceStore((s) => s.authState)
@@ -392,15 +356,12 @@ export default function WorkspaceManager() {
   const [handoffOpen, setHandoffOpen] = useState(false)
   const [handoffTeamName, setHandoffTeamName] = useState('')
   const [handoffError, setHandoffError] = useState<string | null>(null)
-  const [renamingId, setRenamingId] = useState<string | null>(null)
-  const [renameValue, setRenameValue] = useState('')
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSnapshot[]>([])
   const [mountedWorkspaceIds, setMountedWorkspaceIds] = useState<string[]>([])
   const [windowState, setWindowState] = useState<WindowState>({
     isMaximized: false,
     isFullScreen: false,
   })
-  const renameInputRef = useRef<HTMLInputElement>(null)
   const specialistMenuRef = useRef<HTMLDivElement>(null)
   const sessionsRef = useRef<HTMLDivElement>(null)
   const viewMenuRef = useRef<HTMLDivElement>(null)
@@ -412,6 +373,7 @@ export default function WorkspaceManager() {
   const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
   const sessions = getSessionItems(workspaces, terminalSessions)
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
+  const settingsOpen = showSettings || Boolean(activeWorkspaceId && hasComponentTab(activeWorkspaceId, 'settings'))
   const renderedWorkspaceIds = workspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === activeWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
@@ -426,8 +388,46 @@ export default function WorkspaceManager() {
   }
 
   const openSettings = useCallback((checkForUpdates = false) => {
+    if (activeWorkspaceId) {
+      const model = getModel(activeWorkspaceId)
+      if (model) {
+        let settingsTabId: string | null = null
+        model.visitNodes((node) => {
+          if (settingsTabId || !(node instanceof TabNode) || node.getComponent() !== 'settings') return
+          settingsTabId = node.getId()
+        })
+
+        if (settingsTabId) {
+          if (checkForUpdates) {
+            model.doAction(Actions.updateNodeAttributes(settingsTabId, {
+              config: { checkForUpdatesRequestId: Date.now() },
+            }))
+          }
+          model.doAction(Actions.selectTab(settingsTabId))
+        } else {
+          const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+          if (targetTabset) {
+            model.doAction(
+              Actions.addNode(
+                {
+                  type: 'tab',
+                  name: 'Settings',
+                  component: 'settings',
+                  config: checkForUpdates ? { checkForUpdatesRequestId: Date.now() } : {},
+                },
+                targetTabset.getId(),
+                DockLocation.CENTER,
+                -1,
+                true
+              )
+            )
+          }
+        }
+      }
+    }
+
     setCheckForUpdatesOnSettingsOpen(checkForUpdates)
-    setShowSettings(true)
+    setShowSettings(!activeWorkspaceId)
     setShowTemplateSelector(false)
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
@@ -435,7 +435,7 @@ export default function WorkspaceManager() {
     setNotificationsOpen(false)
     setAccountOpen(false)
     setHandoffOpen(false)
-  }, [])
+  }, [activeWorkspaceId])
 
   const openFuturePlanWorkspace = (source: FuturePlanWorkspaceSource) => {
     setTemplateSelectorInitialState({
@@ -601,11 +601,6 @@ export default function WorkspaceManager() {
   }, [])
 
   useEffect(() => {
-    if (!renamingId) return
-    renameInputRef.current?.focus()
-  }, [renamingId])
-
-  useEffect(() => {
     if (!specialistMenuOpen) return
 
     const onPointerDown = (event: PointerEvent) => {
@@ -711,9 +706,23 @@ export default function WorkspaceManager() {
     setHandoffOpen(false)
   }, [activeWorkspaceId])
 
+  const closeWorkspaceById = useCallback(
+    (id: string) => {
+      const workspace = workspaces.find((candidate) => candidate.id === id)
+      if (workspace) terminateWorkspaceTerminals(workspace)
+      removeWorkspace(id)
+    },
+    [workspaces, removeWorkspace]
+  )
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || renamingId) return
+      if (event.defaultPrevented) return
+
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return
+      }
 
       const ctrl = event.ctrlKey || event.metaKey
       if (!ctrl) return
@@ -778,6 +787,16 @@ export default function WorkspaceManager() {
         event.preventDefault()
         openTemplateSelector()
       }
+      if (key === 'b') {
+        event.preventDefault()
+        setSidebarCollapsed(!sidebarCollapsed)
+        return
+      }
+      if (key === 'w' && event.shiftKey && activeWorkspaceId) {
+        event.preventDefault()
+        closeWorkspaceById(activeWorkspaceId)
+        return
+      }
       if (key === 'w' && showTemplateSelector) {
         event.preventDefault()
         if (workspaces.length > 0) setShowTemplateSelector(false)
@@ -800,11 +819,13 @@ export default function WorkspaceManager() {
     workspaces,
     activeWorkspaceId,
     showTemplateSelector,
-    renamingId,
     lastSelectedCli,
     removeWorkspace,
     setActiveWorkspace,
     setLastSelectedSpecialist,
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    closeWorkspaceById,
   ])
 
   useEffect(() => {
@@ -861,24 +882,63 @@ export default function WorkspaceManager() {
     setTemplateSelectorInitialState(null)
   }
 
-  const handleCloseTab = (event: React.MouseEvent, id: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const workspace = workspaces.find((candidate) => candidate.id === id)
-    if (workspace) terminateWorkspaceTerminals(workspace)
-    removeWorkspace(id)
-  }
+  const deleteWorkspaceWithState = useCallback(
+    async (id: string) => {
+      const workspace = workspaces.find((candidate) => candidate.id === id)
+      if (!workspace) return
+      terminateWorkspaceTerminals(workspace)
+      const dirPath =
+        workspace.mode === 'sprintengine'
+          ? workspace.sprintEngineContext?.teamDirectoryPath ?? null
+          : workspace.mode === 'multiloop'
+            ? workspace.multiloopContext?.loopDirectoryPath ?? null
+            : null
+      if (dirPath) {
+        try {
+          await window.api.deletePath(dirPath)
+        } catch (error) {
+          publishDiagnosticSync({
+            level: 'error',
+            source: 'workspace',
+            title: 'Delete workspace state failed',
+            message: `Could not remove ${dirPath}.`,
+            details: error instanceof Error ? error.message : String(error),
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+          })
+        }
+      }
+      removeWorkspace(id)
+    },
+    [workspaces, removeWorkspace]
+  )
 
-  const startRename = (event: React.MouseEvent, workspace: Workspace) => {
-    event.stopPropagation()
-    setRenamingId(workspace.id)
-    setRenameValue(workspace.name)
-  }
+  const handleForgetFolder = useCallback(
+    (folderPath: string) => {
+      const normalize = (value: string) =>
+        value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+      const targetKey = normalize(folderPath)
+      workspaces.forEach((workspace) => {
+        if (workspace.folderPath && normalize(workspace.folderPath) === targetKey) {
+          terminateWorkspaceTerminals(workspace)
+        }
+      })
+      forgetFolder(folderPath)
+    },
+    [workspaces, forgetFolder]
+  )
 
-  const commitRename = () => {
-    if (renamingId) renameWorkspace(renamingId, renameValue)
-    setRenamingId(null)
-  }
+  const handleRevealFolder = useCallback((folderPath: string) => {
+    void window.api.showItemInFolder(folderPath)
+  }, [])
+
+  const activityByWorkspaceId = useMemo(() => {
+    const map: Record<string, 'running' | 'needs-input' | 'idle'> = {}
+    for (const workspace of workspaces) {
+      map[workspace.id] = getWorkspaceActivity(workspace, terminalSessions)
+    }
+    return map
+  }, [workspaces, terminalSessions])
 
   const addNewSpecialist = async (
     specialistId: SpecialistActionId = lastSelectedSpecialist,
@@ -1062,7 +1122,7 @@ export default function WorkspaceManager() {
 
   const openMemoryGraph = () => {
     if (!activeWorkspaceId) return
-    focusOrAddComponentTab(activeWorkspaceId, 'memory-graph', 'Memory Graph')
+    focusOrAddComponentTab(activeWorkspaceId, 'memory-graph', 'Knowledge Graph')
     setSessionsOpen(false)
     setNotificationsOpen(false)
     setSpecialistMenuOpen(false)
@@ -1271,79 +1331,42 @@ export default function WorkspaceManager() {
         </div>
       )}
 
+      <div className="flex min-h-0 flex-1 flex-row">
+      <WorkspaceSidebar
+        workspaces={workspaces}
+        activeWorkspaceId={activeWorkspaceId}
+        sidebarCollapsed={sidebarCollapsed}
+        activityByWorkspaceId={activityByWorkspaceId}
+        onSelectWorkspace={(id) => {
+          setShowTemplateSelector(false)
+          setActiveWorkspace(id)
+        }}
+        onCloseWorkspace={closeWorkspaceById}
+        onDeleteWorkspaceWithState={deleteWorkspaceWithState}
+        onForgetFolder={handleForgetFolder}
+        onNewWorkspace={openTemplateSelector}
+        onRevealFolder={handleRevealFolder}
+        onSetSidebarCollapsed={setSidebarCollapsed}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
-          {workspaces.map((workspace) => {
-            const active = !showTemplateSelector && workspace.id === activeWorkspaceId
-            const activity = getWorkspaceActivity(workspace, terminalSessions)
-            const activityLabel = workspaceActivityLabel(activity)
-            const activityTone = workspaceActivityTone(activity)
-            return (
-              <div
-                key={workspace.id}
-                onMouseDown={(event) => {
-                  if (event.button !== 1) return
-                  handleCloseTab(event, workspace.id)
-                }}
-                onClick={() => {
-                  if (!renamingId) {
-                    setShowTemplateSelector(false)
-                    setActiveWorkspace(workspace.id)
-                  }
-                }}
-                className={`group inline-flex h-[30px] max-w-[260px] cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors ${
-                  workspaceTabClass(workspace.mode, active)
-                }`}
-              >
-                <WorkspaceTypeIcon
-                  mode={workspace.mode}
-                  className={`h-3.5 w-3.5 shrink-0 ${workspaceTabIconClass(workspace.mode)}`}
-                />
-                {renamingId === workspace.id ? (
-                  <input
-                    ref={renameInputRef}
-                    value={renameValue}
-                    onChange={(event) => setRenameValue(event.target.value)}
-                    onBlur={commitRename}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') commitRename()
-                      if (event.key === 'Escape') setRenamingId(null)
-                      event.stopPropagation()
-                    }}
-                    onClick={(event) => event.stopPropagation()}
-                    className="w-32 rounded border border-[#303139] bg-[#090a0c] px-1.5 py-0 text-[13px] text-[#ececee] focus:outline-none"
-                  />
-                ) : (
-                  <span
-                    onDoubleClick={(event) => startRename(event, workspace)}
-                    className="min-w-0 flex-1 truncate"
-                  >
-                    {workspace.name}
-                  </span>
-                )}
-
-                {activityTone ? (
-                  <StatusDot tone={activityTone} label={activityLabel} className="ml-0.5" />
-                ) : null}
-
-                <button
-                  onClick={(event) => handleCloseTab(event, workspace.id)}
-                  className="text-xs leading-none text-[#5a5a63] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#d7d7dc]"
-                  aria-label={`Close ${workspace.name}`}
-                >
-                  x
-                </button>
-              </div>
-            )
-          })}
-
-          <button
-            onClick={openTemplateSelector}
-            className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-[#8a8a92] transition-colors hover:bg-[#15161a] hover:text-[#d7d7dc]"
-            title={`New workspace (${shortcutLabel('Ctrl+T')})`}
-          >
-            + New Workspace
-          </button>
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+          {activeWorkspace ? (
+            <>
+              <WorkspaceTypeIcon
+                mode={activeWorkspace.mode}
+                className={`h-3.5 w-3.5 shrink-0 ${workspaceTabIconClass(activeWorkspace.mode)}`}
+              />
+              <span className="min-w-0 truncate text-[13px] font-semibold text-[#ececee]">
+                {activeWorkspace.name}
+              </span>
+              {activeWorkspace.folderPath ? (
+                <span className="hidden min-w-0 truncate text-[12px] text-[#5a5a63] md:inline">
+                  · {activeWorkspace.folderPath}
+                </span>
+              ) : null}
+            </>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
@@ -1479,8 +1502,8 @@ export default function WorkspaceManager() {
               onClick={openMemoryGraph}
               disabled={!activeWorkspaceId}
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-              title="Memory Graph"
-              aria-label="Memory Graph"
+              title="Knowledge Graph"
+              aria-label="Knowledge Graph"
             >
               <MemoryGraphIcon className="h-[18px] w-[18px]" />
             </button>
@@ -1882,13 +1905,13 @@ export default function WorkspaceManager() {
             type="button"
             onClick={() => openSettings(false)}
             className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-              showSettings
+              settingsOpen
                 ? 'border-[#303139] bg-[#17181d] text-[#ececee]'
                 : 'border-[#24252b] bg-[#111216] text-[#9a9aa2] hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc]'
             }`}
             title={`Settings (${shortcutLabel('Ctrl+,')})`}
             aria-label="Settings"
-            aria-pressed={showSettings}
+            aria-pressed={settingsOpen}
           >
             <GearIcon className="h-[18px] w-[18px]" />
           </button>
@@ -1933,6 +1956,8 @@ export default function WorkspaceManager() {
             })}
           </>
         )}
+      </div>
+      </div>
       </div>
 
       {handoffOpen ? (
@@ -2197,7 +2222,14 @@ function SessionsPopover({
                     className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[#d7d7dc] hover:bg-[#15161a]"
                   >
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92]">
+                      <span
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92]"
+                        style={item.role ? {
+                          borderColor: sprintEngineRoleAccent[item.role],
+                          color: sprintEngineRoleAccent[item.role],
+                          backgroundColor: `${sprintEngineRoleAccent[item.role]}14`,
+                        } : undefined}
+                      >
                         {item.role ? (
                           <SprintEngineRoleIcon role={item.role} className="h-[17px] w-[17px]" />
                         ) : item.kind === 'terminal' ? (
@@ -2687,7 +2719,7 @@ function toggleWorkspacePanel(workspaceId: string, component: WorkspacePanelComp
     : component === 'git'
       ? 'Git'
       : component === 'memory-graph'
-        ? 'Memory Graph'
+        ? 'Knowledge Graph'
         : component === 'mobile-companion'
           ? 'Mobile'
           : 'Editor'

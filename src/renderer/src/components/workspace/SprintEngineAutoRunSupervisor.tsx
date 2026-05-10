@@ -1026,18 +1026,18 @@ async function spawnAutoRunCandidate(
         ok: false,
         status: 'inaccessible',
         relativeRoot: memoryRelativeRoot,
-        message: 'Unable to resolve workspace memory.',
+        message: 'Unable to resolve workspace knowledge.',
       }))
       : null
     const memoryPrompt = memoryStatus
       ? memoryStatus.ok
         ? [
-          `Workspace memory is configured at ${memoryStatus.relativeRoot}.`,
-          'This is a local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
+          `Knowledge Graph is configured at ${memoryStatus.relativeRoot}.`,
+          'This is a repo-local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
           'Inspect it when relevant instead of assuming project context.',
-          'Use the workspace-memory skill if it is installed in .agents/skills.',
+          'Use the workspace-knowledge skill if it is installed in .agents/skills.',
         ].join(' ')
-        : `Workspace memory is configured at ${memoryRelativeRoot}, but the folder is currently missing or inaccessible. Do not guess another memory folder.`
+        : `Knowledge Graph is configured at ${memoryRelativeRoot}, but the folder is currently missing or inaccessible. Do not guess another knowledge folder.`
       : null
     const startupPrompt = [
       prependAgentIdentifier(

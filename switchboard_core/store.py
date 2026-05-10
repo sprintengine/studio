@@ -895,12 +895,19 @@ def start_local_process_execution(
     return execution
 
 
-def terminate_process(pid: Any) -> None:
+def terminate_process(pid: Any, *, timeout_seconds: float = 3.0) -> dict[str, Any]:
+    result = {"requested": False, "terminated": False, "escalated": False}
     if not isinstance(pid, int) or pid <= 0:
-        return
+        return result
+    if not process_is_running(pid):
+        result["terminated"] = True
+        return result
+
+    result["requested"] = True
     try:
         if os.name == "nt":
             subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            result["escalated"] = True
         else:
             os.killpg(pid, signal.SIGTERM)
     except OSError:
@@ -908,6 +915,32 @@ def terminate_process(pid: Any) -> None:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
+
+    deadline = time.monotonic() + max(0.1, timeout_seconds)
+    while time.monotonic() < deadline:
+        if not process_is_running(pid):
+            result["terminated"] = True
+            return result
+        time.sleep(0.05)
+
+    if os.name != "nt":
+        result["escalated"] = True
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except OSError:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if not process_is_running(pid):
+                result["terminated"] = True
+                return result
+            time.sleep(0.05)
+
+    result["terminated"] = not process_is_running(pid)
+    return result
 
 
 def execution_metadata_path(workspace: Path, execution_id: str) -> Path:
@@ -961,8 +994,9 @@ def execution_stop_unlocked(workspace: Path, execution_id: str, *, reason: str |
     provider_ref = metadata.get("providerRef") if isinstance(metadata.get("providerRef"), dict) else {}
     pid = provider_ref.get("pid")
     was_running = process_is_running(pid)
-    if was_running:
-        terminate_process(pid)
+    termination = terminate_process(pid) if was_running else {"requested": False, "terminated": not process_is_running(pid), "escalated": False}
+    if was_running and not termination.get("terminated"):
+        raise SwitchboardError("Switchboard execution process could not be stopped.")
     stopped_at = now_iso()
     stopped_reason = reason.strip() if isinstance(reason, str) and reason.strip() else "Stopped by user."
     updates: dict[str, Any] = {
@@ -978,6 +1012,7 @@ def execution_stop_unlocked(workspace: Path, execution_id: str, *, reason: str |
     mark_task_attempt_completed(workspace, stopped, stopped_at, None, summary=stopped_reason)
     if stopped.get("worktreePath"):
         update_task_worktree_state(workspace, stopped, str(stopped.get("worktreeState") or "stopped"))
+    clear_task_active_execution_if_matches(workspace, stopped)
     runner_state = read_runner_state(workspace)
     found = False
     next_executions = []
@@ -1008,14 +1043,20 @@ def execution_stop_unlocked(workspace: Path, execution_id: str, *, reason: str |
         workspace,
         "execution_stopped",
         message=stopped_reason,
-        data={"executionId": execution_id, "taskId": metadata.get("taskId"), "pid": pid, "terminated": was_running},
+        data={
+            "executionId": execution_id,
+            "taskId": metadata.get("taskId"),
+            "pid": pid,
+            "terminated": termination.get("terminated") is True,
+            "escalated": termination.get("escalated") is True,
+        },
     )
     return {
         "ok": True,
         "executionId": execution_id,
         "taskId": metadata.get("taskId"),
         "status": "stopped",
-        "terminated": was_running,
+        "terminated": termination.get("terminated") is True,
         "worktreeState": stopped.get("worktreeState"),
     }
 
@@ -1210,6 +1251,33 @@ def update_task_worktree_state(workspace: Path, execution: dict[str, Any], workt
     if execution_state.get("activeExecutionId") == execution_id or execution_state.get("worktreePath") == execution.get("worktreePath"):
         next_execution["worktreeState"] = worktree_state
     update_task(workspace, task_id, {"execution": next_execution})
+
+
+def clear_task_active_execution_if_matches(workspace: Path, execution: dict[str, Any]) -> None:
+    task_id = execution.get("taskId")
+    execution_id = execution.get("executionId")
+    if not isinstance(task_id, str) or not isinstance(execution_id, str):
+        return
+    try:
+        located = find_task(workspace, task_id)
+    except SwitchboardError:
+        return
+    execution_state = dict(located.task.get("execution", {}))
+    if execution_state.get("activeExecutionId") != execution_id:
+        return
+    update_task(
+        workspace,
+        task_id,
+        {
+            "execution": {
+                **execution_state,
+                "activeExecutionId": None,
+                "activeProvider": None,
+                "activeSessionId": None,
+                "providerRef": None,
+            }
+        },
+    )
 
 
 def link_runner_execution_to_task(workspace: Path, task_id: str, execution: dict[str, Any]) -> None:

@@ -22,7 +22,7 @@ export function registerMemoryActivityIpc(ipcMain: IpcMain): void {
     'memory-activity:install',
     async (_, input: EnableInput): Promise<ActivityInstallResult> => {
       if (!input?.workspaceRoot || !input.memoryRelativeRoot) {
-        return { ok: false, message: 'Workspace and memory root are required.' }
+        return { ok: false, message: 'Workspace and knowledge root are required.' }
       }
       const result = await installMemoryActivityHook(
         input.workspaceRoot,

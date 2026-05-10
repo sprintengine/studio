@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import signal
+import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +63,58 @@ def emit(payload: dict[str, Any]) -> None:
 
 def workspace_path(args: argparse.Namespace) -> Path:
     return Path(args.workspace)
+
+
+def runner_server_descriptor_path(workspace: Path) -> Path:
+    return switchboard_root(workspace) / "runner" / "server.json"
+
+
+def read_runner_server_descriptor(workspace: Path) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(runner_server_descriptor_path(workspace).read_text(encoding="utf-8"))
+        return parsed if isinstance(parsed, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def post_runner_stop_to_backend(workspace: Path) -> dict[str, Any] | None:
+    descriptor = read_runner_server_descriptor(workspace)
+    if not descriptor:
+        return None
+    host = descriptor.get("host")
+    port = descriptor.get("port")
+    token = descriptor.get("token")
+    if not isinstance(host, str) or not isinstance(port, int) or not isinstance(token, str):
+        return None
+    request = urllib.request.Request(
+        f"http://{host}:{port}/runner/stop",
+        data=b"{}",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        terminate_descriptor_process(workspace, descriptor)
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def terminate_descriptor_process(workspace: Path, descriptor: dict[str, Any]) -> None:
+    pid = descriptor.get("pid")
+    if isinstance(pid, int) and pid > 0:
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            else:
+                os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    try:
+        runner_server_descriptor_path(workspace).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def mutation_payload(
@@ -317,7 +374,8 @@ def cmd_runner_resume(args: argparse.Namespace) -> int:
 
 
 def cmd_runner_stop(args: argparse.Namespace) -> int:
-    emit(runner_stop(workspace_path(args)))
+    workspace = workspace_path(args)
+    emit(post_runner_stop_to_backend(workspace) or runner_stop(workspace))
     return 0
 
 

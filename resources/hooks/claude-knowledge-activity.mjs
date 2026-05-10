@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-// Multicode memory activity hook for Claude Code.
+// Multicode knowledge activity hook for Claude Code.
 //
 // Invoked as a PostToolUse hook. Reads Claude's JSON payload from stdin,
 // extracts the touched file path, and appends a single JSON line to the
-// session trace file under .multicode/memory-trace/. Silently no-ops when
-// the touched file is outside the configured memory root.
+// session trace file under .multicode/knowledge-trace/. Silently no-ops when
+// the touched file is outside the configured knowledge root.
 //
 // Args:
-//   --memory-root <relative-path>   Memory root, workspace-relative.
+//   --knowledge-root <relative-path>   Knowledge root, workspace-relative.
+//   --memory-root <relative-path>      Backward-compatible alias.
 //
 // The script always exits 0 so a hook failure never breaks Claude.
 
@@ -31,7 +32,7 @@ function parseArgs(argv) {
   const args = {}
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i]
-    if (a === '--memory-root') {
+    if (a === '--knowledge-root' || a === '--memory-root') {
       args.memoryRoot = argv[i + 1]
       i += 1
     }
@@ -42,7 +43,7 @@ function parseArgs(argv) {
 // Translate WSL paths to native form when the script runs on Windows.
 // Hook + Multicode always run on the same OS, but a Claude session inside
 // WSL may emit POSIX paths that point at the same files. We normalize so
-// the memory-root containment check works either way.
+// the knowledge-root containment check works either way.
 function translatePath(input) {
   if (!input) return input
   if (process.platform === 'win32') {
@@ -84,7 +85,7 @@ async function main() {
 
   const args = parseArgs(process.argv.slice(2))
   if (!args.memoryRoot) {
-    log('no --memory-root')
+    log('no --knowledge-root')
     return
   }
   const memoryRoot = isAbsolute(args.memoryRoot)
@@ -128,11 +129,11 @@ async function main() {
   log(`resolved=${resolved}`)
 
   if (!isInside(memoryRoot, resolved)) {
-    log(`outside memory root`)
+    log(`outside knowledge root`)
     return
   }
 
-  const traceDir = resolve(process.cwd(), '.multicode', 'memory-trace')
+  const traceDir = resolve(process.cwd(), '.multicode', 'knowledge-trace')
   await mkdir(traceDir, { recursive: true })
 
   const event = {

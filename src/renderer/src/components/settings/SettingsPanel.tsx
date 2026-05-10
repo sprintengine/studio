@@ -5,6 +5,7 @@ import type { AgentCli } from '../../types/workspace'
 interface Props {
   onClose: () => void
   checkForUpdatesOnOpen?: boolean
+  checkForUpdatesRequestId?: number
 }
 
 type MetaTone = 'positive' | 'muted'
@@ -12,6 +13,17 @@ type MetaTone = 'positive' | 'muted'
 type UpdateAction = 'check' | 'download' | 'restart'
 
 type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
+
+type SettingsTabId = 'updates' | 'github' | 'agents' | 'file-search' | 'knowledge-graph' | 'telemetry'
+
+const settingsTabs: Array<{ id: SettingsTabId; label: string; description: string }> = [
+  { id: 'updates', label: 'Updates', description: 'Version and release checks' },
+  { id: 'github', label: 'GitHub', description: 'Issue import token' },
+  { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
+  { id: 'file-search', label: 'File Search', description: 'Index exclude patterns' },
+  { id: 'knowledge-graph', label: 'Knowledge Graph', description: 'Workspace knowledge' },
+  { id: 'telemetry', label: 'Telemetry', description: 'Usage and diagnostics' },
+]
 
 function parseSearchExcludeText(value: string): string[] {
   return value
@@ -59,7 +71,11 @@ function relativePathBetween(fromPath: string, toPath: string): string | null {
   ].join('/') || '.'
 }
 
-export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }: Props) {
+export default function SettingsPanel({
+  onClose,
+  checkForUpdatesOnOpen = false,
+  checkForUpdatesRequestId,
+}: Props) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
@@ -87,8 +103,18 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
   const [memorySkillStatus, setMemorySkillStatus] = useState<BuiltinSkillStatus | null>(null)
   const [memorySkillPending, setMemorySkillPending] = useState(false)
   const [memorySkillMessage, setMemorySkillMessage] = useState<string | null>(null)
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>('updates')
   const panelRef = useRef<HTMLDivElement>(null)
+  const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
+    updates: null,
+    github: null,
+    agents: null,
+    'file-search': null,
+    'knowledge-graph': null,
+    telemetry: null,
+  })
   const autoCheckStartedRef = useRef(false)
+  const lastUpdateRequestIdRef = useRef<number | null>(null)
 
   const commitMemoryDraft = useCallback((value: string) => {
     if (!activeWorkspaceId) return
@@ -131,7 +157,7 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
     void window.api
       .builtinSkillStatus({
         workspaceRoot: activeWorkspace.folderPath,
-        skillId: 'workspace-memory',
+        skillId: 'workspace-knowledge',
       })
       .then((status) => {
         if (!cancelled) setMemorySkillStatus(status)
@@ -148,21 +174,21 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
     try {
       const result = await window.api.builtinSkillInstall({
         workspaceRoot: activeWorkspace.folderPath,
-        skillId: 'workspace-memory',
+        skillId: 'workspace-knowledge',
       })
       if (result.ok) {
         setMemorySkillMessage(result.status === 'updated'
-          ? 'Workspace Memory skill updated.'
-          : 'Workspace Memory skill installed.')
+          ? 'Workspace Knowledge skill updated.'
+          : 'Workspace Knowledge skill installed.')
         setMemorySkillStatus(await window.api.builtinSkillStatus({
           workspaceRoot: activeWorkspace.folderPath,
-          skillId: 'workspace-memory',
+          skillId: 'workspace-knowledge',
         }))
       } else {
         setMemorySkillMessage(result.message)
       }
     } catch (error) {
-      setMemorySkillMessage(error instanceof Error ? error.message : 'Failed to install Workspace Memory skill.')
+      setMemorySkillMessage(error instanceof Error ? error.message : 'Failed to install Workspace Knowledge skill.')
     } finally {
       setMemorySkillPending(false)
     }
@@ -173,17 +199,17 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
       if (!activeWorkspace?.folderPath) return
       const memoryRoot = activeWorkspace.memory.relativeRoot
       if (next && !memoryRoot) {
-        setActivityMessage('Configure a memory folder before enabling activity tracking.')
+        setActivityMessage('Configure a knowledge folder before enabling activity tracking.')
         return
       }
       if (next) {
         const confirmed = window.confirm(
-          'Enable memory activity tracking?\n\n'
+          'Enable knowledge activity tracking?\n\n'
           + 'Multicode will:\n'
           + ' • Add a hook to .claude/settings.local.json (workspace-only)\n'
           + ' • Copy a hook script to .multicode/hooks/\n'
-          + ' • Record memory file touches to .multicode/memory-trace/\n\n'
-          + 'Only files under your memory folder are recorded. Add .multicode/ to .gitignore.'
+          + ' • Record knowledge file touches to .multicode/knowledge-trace/\n\n'
+          + 'Only files under your knowledge folder are recorded. Add .multicode/ to .gitignore.'
         )
         if (!confirmed) return
       }
@@ -254,10 +280,17 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
   }, [])
 
   useEffect(() => {
+    if (typeof checkForUpdatesRequestId === 'number') {
+      if (lastUpdateRequestIdRef.current === checkForUpdatesRequestId) return
+      lastUpdateRequestIdRef.current = checkForUpdatesRequestId
+      void checkForUpdates()
+      return
+    }
+
     if (!checkForUpdatesOnOpen || autoCheckStartedRef.current) return
     autoCheckStartedRef.current = true
     void checkForUpdates()
-  }, [checkForUpdates, checkForUpdatesOnOpen])
+  }, [checkForUpdates, checkForUpdatesOnOpen, checkForUpdatesRequestId])
 
   const downloadUpdate = useCallback(async () => {
     setUpdateActionPending(true)
@@ -324,7 +357,7 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
         ok: false,
         status: 'invalid-relative-path',
         relativeRoot: null,
-        message: 'Memory path must be relative to the workspace folder.',
+        message: 'Knowledge path must be relative to the workspace folder.',
       })
       return
     }
@@ -341,7 +374,7 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
             ok: false,
             status: 'inaccessible',
             relativeRoot,
-            message: error instanceof Error ? error.message : 'Unable to check memory path.',
+            message: error instanceof Error ? error.message : 'Unable to check knowledge path.',
           })
         }
       })
@@ -377,6 +410,29 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
       ? 'download'
       : 'check'
 
+  const activeTab = settingsTabs.find((tab) => tab.id === activeSettingsTab) ?? settingsTabs[0]
+
+  const selectSettingsTab = useCallback((tabId: SettingsTabId) => {
+    setActiveSettingsTab(tabId)
+  }, [])
+
+  const onSettingsTabKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const keyToIndex: Record<string, number> = {
+      ArrowDown: (index + 1) % settingsTabs.length,
+      ArrowRight: (index + 1) % settingsTabs.length,
+      ArrowUp: (index - 1 + settingsTabs.length) % settingsTabs.length,
+      ArrowLeft: (index - 1 + settingsTabs.length) % settingsTabs.length,
+      Home: 0,
+      End: settingsTabs.length - 1,
+    }
+    const nextIndex = keyToIndex[event.key]
+    if (nextIndex === undefined) return
+    event.preventDefault()
+    const nextTab = settingsTabs[nextIndex]
+    setActiveSettingsTab(nextTab.id)
+    window.requestAnimationFrame(() => tabRefs.current[nextTab.id]?.focus())
+  }, [])
+
   return (
     <section
       ref={panelRef}
@@ -401,12 +457,47 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
         </button>
       </div>
 
-      <div
-        className="min-h-0 flex-1 overflow-y-auto"
-      >
-        <div className="mx-auto w-full max-w-[920px] px-5 py-6">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <aside className="shrink-0 border-b border-[#1f2025] bg-[#0a0b0e] p-1.5 md:w-48 md:border-b-0 md:border-r">
+          <div
+            role="tablist"
+            aria-label="Settings categories"
+            aria-orientation="vertical"
+            className="grid grid-cols-2 gap-1 md:grid-cols-1"
+          >
+            {settingsTabs.map((tab, index) => (
+              <SettingsTabButton
+                key={tab.id}
+                ref={(node) => {
+                  tabRefs.current[tab.id] = node
+                }}
+                tab={tab}
+                active={activeSettingsTab === tab.id}
+                onClick={() => selectSettingsTab(tab.id)}
+                onKeyDown={(event) => onSettingsTabKeyDown(event, index)}
+              />
+            ))}
+          </div>
+        </aside>
 
-        <div className="space-y-4">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="w-full max-w-[760px] px-4 py-5">
+            <div className="mb-4 border-b border-[#24252b] pb-3">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                {activeTab.label}
+              </div>
+              <h3 className="mt-1 text-[18px] font-semibold tracking-tight text-[#ececee]">
+                {activeTab.description}
+              </h3>
+            </div>
+
+        {activeSettingsTab === 'updates' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-updates"
+          aria-labelledby="settings-tab-updates"
+          className="space-y-4"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -466,8 +557,15 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
             <MetaCell label="Last checked" value={formatNullableDate(updateState?.lastCheckedAt)} />
           </div>
         </div>
+        ) : null}
 
-        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
+        {activeSettingsTab === 'github' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-github"
+          aria-labelledby="settings-tab-github"
+          className="space-y-4"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -525,8 +623,15 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
             {githubTokenStatus && !githubTokenStatus.encryptionAvailable ? ' Secure storage is unavailable, so the token is kept for this app session only.' : ''}
           </div>
         </div>
+        ) : null}
 
-        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
+        {activeSettingsTab === 'agents' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-agents"
+          aria-labelledby="settings-tab-agents"
+          className="space-y-4"
+        >
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
             Agent CLIs
           </div>
@@ -562,8 +667,15 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
             Use a full executable path if your CLI is not on PATH.
           </p>
         </div>
+        ) : null}
 
-        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
+        {activeSettingsTab === 'file-search' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-file-search"
+          aria-labelledby="settings-tab-file-search"
+          className="space-y-4"
+        >
           <div>
             <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
               File Search
@@ -591,12 +703,19 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
             <span className="font-mono text-[#d7d7dc]">dist</span>. Add one pattern per line or separate entries with commas.
           </p>
         </div>
+        ) : null}
 
-        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
+        {activeSettingsTab === 'knowledge-graph' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-knowledge-graph"
+          aria-labelledby="settings-tab-knowledge-graph"
+          className="space-y-4"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Workspace Memory
+                Workspace Knowledge
               </div>
               <div className="mt-1 text-sm font-semibold text-[#ececee]">
                 Markdown knowledge graph
@@ -611,7 +730,7 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
 
           <label className="block">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-              Memory folder
+              Knowledge folder
             </span>
             <div className="flex gap-2">
               <input
@@ -623,7 +742,7 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
                     event.currentTarget.blur()
                   }
                 }}
-                placeholder="../ecosystem-memory"
+                placeholder="../ecosystem-knowledge"
                 disabled={!activeWorkspace}
                 className="h-9 min-w-0 flex-1 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70 disabled:opacity-45"
               />
@@ -650,21 +769,21 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
               : memoryStatus
                 ? `${memoryStatus.message} Do not guess another folder.`
                 : activeWorkspace?.folderPath
-                  ? 'Set a relative path from the workspace folder. Leave empty to disable memory for this workspace.'
-                  : 'Open a workspace folder before configuring memory.'}
+                  ? 'Set a relative path from the workspace folder. Leave empty to disable the Knowledge Graph for this workspace.'
+                  : 'Open a workspace folder before configuring the Knowledge Graph.'}
           </div>
 
           <div className="border-t border-[#24252b] pt-4">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-l-2 border-[#24252b] pl-3">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-[#ececee]">
-                  Workspace Memory skill
+                  Workspace Knowledge skill
                 </div>
                 <div className="mt-1 text-[12px] leading-5 text-[#9a9aa2]">
                   {formatBuiltinSkillStatus(memorySkillStatus)}
                   {activeWorkspace?.memory.relativeRoot
-                    ? ` Agents will use the configured memory folder: ${activeWorkspace.memory.relativeRoot}.`
-                    : ' Configure a memory folder so agents know which graph to read and update.'}
+                    ? ` Agents will use the configured knowledge folder: ${activeWorkspace.memory.relativeRoot}.`
+                    : ' Configure a knowledge folder so agents know which graph to read and update.'}
                 </div>
               </div>
               <button
@@ -690,7 +809,7 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
 
             <SettingToggle
               label="Activity tracking (Claude Code)"
-              description="Record which memory files Claude touches in this workspace and animate the graph as files are read. Adds a workspace-local hook to .claude/settings.local.json. Only files under the memory folder are recorded."
+              description="Record which knowledge files Claude touches in this workspace and animate the graph as files are read. Adds a workspace-local hook to .claude/settings.local.json. Only files under the knowledge folder are recorded."
               enabled={activityInstalled}
               disabled={activityPending || !activeWorkspace?.folderPath || !activeWorkspace?.memory.relativeRoot}
               onChange={(next) => void toggleActivityTracking(next)}
@@ -702,8 +821,15 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
             ) : null}
           </div>
         </div>
+        ) : null}
 
-        <div className="mt-6 space-y-4 border-t border-[#24252b] pt-6">
+        {activeSettingsTab === 'telemetry' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-telemetry"
+          aria-labelledby="settings-tab-telemetry"
+          className="space-y-4"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
@@ -753,20 +879,54 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
             />
           </div>
         </div>
+        ) : null}
 
         <div className="mt-6 flex justify-end border-t border-[#24252b] pt-4">
           <button
+            type="button"
             onClick={closeSettings}
             className="rounded-md px-3.5 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
           >
             Done
           </button>
         </div>
-      </div>
+          </div>
+        </div>
       </div>
     </section>
   )
 }
+
+const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
+  tab: { id: SettingsTabId; label: string; description: string }
+  active: boolean
+  onClick: () => void
+  onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
+}>(function SettingsTabButton({ tab, active, onClick, onKeyDown }, ref) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      role="tab"
+      id={`settings-tab-${tab.id}`}
+      aria-selected={active}
+      aria-controls={`settings-panel-${tab.id}`}
+      tabIndex={active ? 0 : -1}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      className={`group min-h-12 rounded-md border-l-[3px] px-2.5 py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 ${
+        active
+          ? 'border-l-[#5c7cff] bg-[#100f1c] text-[#ececee]'
+          : 'border-l-transparent text-[#8a8a92] hover:bg-[#111216] hover:text-[#d7d7dc]'
+      }`}
+    >
+      <span className="block text-[13px] font-semibold leading-5">{tab.label}</span>
+      <span className={`mt-0.5 block truncate text-[11px] leading-4 ${active ? 'text-[#b8ccff]' : 'text-[#5f6068] group-hover:text-[#8a8a92]'}`}>
+        {tab.description}
+      </span>
+    </button>
+  )
+})
 
 function UpdateActionButton({
   label,
@@ -869,7 +1029,7 @@ function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null): string {
     case 'missing':
       return 'Not installed in this workspace.'
     case 'installed':
-      return 'Installed in .agents/skills/workspace-memory.'
+      return 'Installed in .agents/skills/workspace-knowledge.'
     case 'update-available':
       return `Update available. Installed version: ${status.installedVersion}.`
     case 'modified':

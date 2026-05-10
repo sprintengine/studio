@@ -88,6 +88,10 @@ interface WorkspaceStore {
   activeWorkspaceId: WorkspaceId | null
   appSettings: AppSettings
   authState: MulticodeAuthState
+  sidebarCollapsed: boolean
+  setSidebarCollapsed: (collapsed: boolean) => void
+  reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
+  forgetFolder: (folderPath: string) => void
   setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setLastSelectedCli: (cli: AgentCli) => void
@@ -942,6 +946,48 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       activeWorkspaceId: null,
       appSettings: defaultAppSettings(),
       authState: defaultAuthState(),
+      sidebarCollapsed: false,
+
+      setSidebarCollapsed: (collapsed) =>
+        set((state) => {
+          state.sidebarCollapsed = collapsed
+        }),
+
+      reorderWorkspaces: (orderedIds) =>
+        set((state) => {
+          const byId = new Map(state.workspaces.map((ws) => [ws.id, ws] as const))
+          const next: Workspace[] = []
+          for (const id of orderedIds) {
+            const ws = byId.get(id)
+            if (ws) {
+              next.push(ws)
+              byId.delete(id)
+            }
+          }
+          for (const remaining of byId.values()) next.push(remaining)
+          state.workspaces = next
+        }),
+
+      forgetFolder: (folderPath) =>
+        set((state) => {
+          if (!folderPath) return
+          const normalize = (value: string) =>
+            value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+          const key = normalize(folderPath)
+          state.workspaces = state.workspaces.filter((ws) => {
+            if (!ws.folderPath) return true
+            return normalize(ws.folderPath) !== key
+          })
+          if (
+            state.activeWorkspaceId
+            && !state.workspaces.find((w) => w.id === state.activeWorkspaceId)
+          ) {
+            state.activeWorkspaceId = state.workspaces.at(-1)?.id ?? null
+          }
+          state.appSettings.recentWorkspaceFolders = state.appSettings.recentWorkspaceFolders.filter(
+            (folder) => normalize(folder) !== key
+          )
+        }),
 
       setAuthState: (authState) =>
         set((state) => {
@@ -1989,6 +2035,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
       partialize: (s) => ({
         appSettings: s.appSettings,
+        sidebarCollapsed: s.sidebarCollapsed,
         workspaces: s.workspaces.map((ws) => ({
           ...ws,
           memory: normalizeWorkspaceMemoryConfig(ws.memory),

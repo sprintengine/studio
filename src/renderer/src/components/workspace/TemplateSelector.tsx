@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createMultiloopTemplate, createSprintEngineTemplate, createSwitchboardTemplate, LAYOUT_TEMPLATES } from '../../layouts/templates'
-import { WorkspaceTypeIcon } from '../AppIcons'
+import { SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
@@ -26,7 +26,9 @@ import {
 } from '../../utils/multiloopWorkspaceCreation'
 import {
   countSprintEngineAgents,
+  buildSprintEngineAgentRoster,
   createInitialSprintEngineState,
+  sprintEngineRoleAccent,
   sprintEngineRoleLabels,
   sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
@@ -41,7 +43,6 @@ import multiloopSplash from '../../assets/brand/multiloop-splash.png'
 import sprintEngineSplash from '../../assets/brand/sprintengine-splash.png'
 import switchboardSplash from '../../assets/brand/switchboard-splash.png'
 import multiloopWorkspacePreview from '../../assets/brand/multiloop-workspace-preview.png'
-import sprintEngineWorkspacePreview from '../../assets/brand/sprintengine-workspace-preview.png'
 import standardWorkspacePreview from '../../assets/brand/standard-workspace-preview.png'
 
 type ExistingTeam = {
@@ -1000,9 +1001,9 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                           return (
                           <div
                             key={role}
-                            className="flex min-h-[68px] items-center justify-between gap-3 border-b border-[#303139] px-3 py-2"
+                            className="grid min-h-[84px] gap-3 border-b border-[#303139] px-3 py-3"
                           >
-                            <span className="flex min-w-0 items-center gap-3">
+                            <span className="flex min-w-0 items-start gap-3">
                               <button
                                 type="button"
                                 role="switch"
@@ -1010,7 +1011,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                                 aria-label={`Include ${sprintEngineRoleLabels[role]} in roster`}
                                 disabled={role === 'architect' || selectedExistingTeam != null}
                                 onClick={() => setRoleIncluded(role, !included)}
-                                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ececee]/25 disabled:opacity-55 ${
+                                className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ececee]/25 disabled:opacity-55 ${
                                   included ? 'bg-[#5c7cff]' : 'bg-[#303139]'
                                 }`}
                               >
@@ -1021,7 +1022,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                                   aria-hidden="true"
                                 />
                               </button>
-                              <span className={`h-2 w-2 shrink-0 rounded-full ${included ? roleAccentClasses[role] : 'bg-[#3a3b42]'}`} />
+                              <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${included ? roleAccentClasses[role] : 'bg-[#3a3b42]'}`} />
                               <span className="min-w-0">
                                 <span className={`block truncate text-sm font-semibold ${included ? 'text-[#ececee]' : 'text-[#777780]'}`}>
                                   {sprintEngineRoleLabels[role]}
@@ -1031,7 +1032,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                                 </span>
                               </span>
                             </span>
-                            <div className="flex shrink-0 items-center gap-2">
+                            <div className="ml-12 flex min-w-0 items-center justify-between gap-2">
                               <div className="flex h-8 items-center overflow-hidden rounded-md border border-[#303139] bg-[#111216]">
                                 <button
                                   type="button"
@@ -1055,14 +1056,14 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                                   +
                                 </button>
                               </div>
-                            <label>
+                            <label className="min-w-0">
                               <span className="sr-only">{sprintEngineRoleLabels[role]} CLI</span>
                               <span className="relative block">
                                 <select
                                   value={sprintEngineRoleCliDefaults[role]}
                                   onChange={(event) => setRoleCliDefault(role, event.target.value as AgentCli)}
                                   disabled={!included}
-                                  className="h-8 appearance-none rounded-md border border-[#303139] bg-[#111216] py-1 pl-8 pr-7 text-[12px] font-semibold text-[#d7d7dc] outline-none transition-colors hover:bg-[#17181d] focus:border-[#ececee]/70 disabled:text-[#5a5a63]"
+                                  className="h-8 w-full min-w-[120px] appearance-none rounded-md border border-[#303139] bg-[#111216] py-1 pl-8 pr-7 text-[12px] font-semibold text-[#d7d7dc] outline-none transition-colors hover:bg-[#17181d] focus:border-[#ececee]/70 disabled:text-[#5a5a63]"
                                 >
                                   {cliOptions.map((option) => (
                                     <option key={option.value} value={option.value}>
@@ -1113,8 +1114,8 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                           </div>
                         </div>
                       </div>
-                      <div className="rounded-md border border-[#303139] bg-[#08090b] p-3">
-                        <SprintEngineWorkspacePreview />
+                      <div className="rounded-md border border-[#303139] bg-[#08090b]">
+                        <SprintEngineWorkspacePreview roleCounts={sprintEngineRoleCounts} />
                       </div>
                     </div>
                   </div>
@@ -1239,13 +1240,139 @@ function SwitchboardSplash() {
   )
 }
 
-function SprintEngineWorkspacePreview() {
+function SprintEngineWorkspacePreview({ roleCounts }: { roleCounts: SprintEngineRoleCounts }) {
+  const roster = buildSprintEngineAgentRoster(roleCounts)
+  const positions = buildSprintEnginePreviewMapPositions(roster)
+  const visibleRoles = sprintEngineRoleOrder.filter((role) => roleCounts[role] > 0)
+  const sampleTasks = [
+    { id: 'T1', title: 'Shape requirements', role: 'product' as SprintEngineRole, status: 'Done', tone: 'text-[#d4ffdc] bg-[#12301b] border-[#30d158]/30' },
+    { id: 'T2', title: 'Draft execution plan', role: 'architect' as SprintEngineRole, status: 'Ready', tone: 'text-[#ffe0a3] bg-[#2a210c] border-[#ffbf2f]/35' },
+    { id: 'T3', title: 'Build implementation slice', role: 'developer' as SprintEngineRole, status: 'Next', tone: 'text-[#d7d7dc] bg-[#17181d] border-[#303139]' },
+    { id: 'T4', title: 'Review and validate', role: 'code_reviewer' as SprintEngineRole, status: 'Gate', tone: 'text-[#ffdca6] bg-[#2a1a07] border-[#f59e0b]/35' },
+  ]
+
   return (
-    <WorkspacePreviewImage
-      src={sprintEngineWorkspacePreview}
-      alt="SprintEngine Kanban workspace preview"
-    />
+    <div className="grid overflow-hidden rounded-md lg:grid-cols-[minmax(0,1fr)_240px]">
+      <div className="min-w-0 border-b border-[#1f2025] p-4 lg:border-b-0 lg:border-r">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#f0d47a]">
+          How Sprint Engine Opens
+        </div>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-[#d7d7dc]">
+          A Sprint Engine workspace starts with an objective, an architect-owned plan, and a selected specialist roster. The roster becomes the run boundary: agents claim matching tasks, publish evidence, and route plan changes back through the architect.
+        </p>
+
+        <div className="mt-5 grid gap-2">
+          {sampleTasks.map((task) => (
+            <div
+              key={task.id}
+              className="grid grid-cols-[44px_minmax(0,1fr)_72px] items-center gap-3 rounded-md border border-[#24252b] bg-[#0d0e11] px-3 py-2"
+            >
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#5a5a63]">{task.id}</span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-[#ececee]">{task.title}</span>
+                <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.12em]">
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: sprintEngineRoleAccent[task.role] }}
+                  />
+                  <span className="truncate" style={{ color: sprintEngineRoleAccent[task.role] }}>
+                    {sprintEngineRoleLabels[task.role]}
+                  </span>
+                </span>
+              </span>
+              <span className={`truncate rounded-full border px-2 py-1 text-center text-[10px] font-bold uppercase tracking-[0.1em] ${task.tone}`}>
+                {task.status}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {visibleRoles.map((role) => (
+            <span
+              key={role}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[#303139] bg-[#111216] px-2 py-1 text-[11px] font-semibold text-[#d7d7dc]"
+            >
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: sprintEngineRoleAccent[role] }} />
+              {sprintEngineRoleLabels[role]}
+              <span className="text-[#777780]">x{roleCounts[role]}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className="relative min-h-[320px] overflow-hidden bg-[#08090b]"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle, rgba(255,255,255,0.12) 0, rgba(255,255,255,0.12) 1px, transparent 1px)',
+          backgroundSize: '22px 22px',
+        }}
+        aria-label={`${roster.length} selected Sprint Engine roster agents`}
+      >
+        <div className="absolute left-4 top-4 z-10 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+          Roster Map
+        </div>
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {positions
+            .filter((node) => node.agent.role !== 'architect')
+            .map((node) => (
+              <line
+                key={node.agent.id}
+                x1="50"
+                y1="38"
+                x2={node.x}
+                y2={node.y}
+                stroke={sprintEngineRoleAccent[node.agent.role]}
+                strokeWidth="0.22"
+                strokeDasharray="1.4 1.8"
+                opacity="0.46"
+              />
+            ))}
+        </svg>
+
+        {positions.map((node) => (
+          <div
+            key={node.agent.id}
+            className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 text-center"
+            style={{ left: `${node.x}%`, top: `${node.y}%` }}
+          >
+            <span
+              className="flex h-12 w-12 items-center justify-center rounded-full border bg-[#111216] text-[#9a9aa2]"
+              style={{ borderColor: sprintEngineRoleAccent[node.agent.role] }}
+            >
+              <SprintEngineRoleIcon role={node.agent.role} className="h-5 w-5" />
+            </span>
+            <span className="max-w-[86px] truncate text-[11px] font-semibold text-[#ececee]">{node.agent.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
+}
+
+function buildSprintEnginePreviewMapPositions(
+  roster: ReturnType<typeof buildSprintEngineAgentRoster>
+): Array<{ agent: ReturnType<typeof buildSprintEngineAgentRoster>[number]; x: number; y: number }> {
+  const architect = roster.find((agent) => agent.role === 'architect')
+  const others = roster.filter((agent) => agent.role !== 'architect')
+  const ordered = sprintEngineRoleOrder.flatMap((role) => others.filter((agent) => agent.role === role))
+  const positions: Array<{ agent: ReturnType<typeof buildSprintEngineAgentRoster>[number]; x: number; y: number }> = []
+
+  if (architect) positions.push({ agent: architect, x: 50, y: 38 })
+
+  ordered.forEach((agent, index) => {
+    const angle = (-108 + (216 / Math.max(1, ordered.length - 1)) * index) * (Math.PI / 180)
+    const radiusX = 34
+    const radiusY = 31
+    positions.push({
+      agent,
+      x: 50 + Math.cos(angle) * radiusX,
+      y: 55 + Math.sin(angle) * radiusY,
+    })
+  })
+
+  return positions
 }
 
 function MultiloopWorkspacePreview() {

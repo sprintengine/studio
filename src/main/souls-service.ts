@@ -9,6 +9,7 @@ const specialistSoulRoles: Record<SpecialistActionId, string> = {
   developer: 'developer',
   'devops-infra': 'devops',
   performance: 'performance',
+  'blog-writer': 'blog_writer',
   'frontend-design-review': 'frontend',
   'qa-test': 'tester',
   'security-review': 'security',

@@ -30,6 +30,7 @@ def test_souls_list_includes_canonical_roles() -> None:
         "developer",
         "devops",
         "frontend",
+        "blog_writer",
         "tester",
         "security",
         "code_reviewer",
@@ -59,6 +60,18 @@ def test_souls_get_returns_multiloop_coordinator() -> None:
     assert "principal-level coordination agent" in payload["content"]
     assert "Multiloop" not in payload["content"]
     assert "{{final_goal}}" not in payload["content"]
+
+
+def test_souls_get_returns_blog_writer_for_alias() -> None:
+    completed = run_souls("get", "blog-writer", "--format", "json")
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+
+    assert payload["ok"] is True
+    assert payload["role"] == "blog_writer"
+    assert "senior blog writer" in payload["content"]
+    assert "Image Generation" in payload["content"]
 
 
 def test_souls_validate_passes() -> None:

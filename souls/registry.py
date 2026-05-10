@@ -23,6 +23,7 @@ SOULS: tuple[Soul, ...] = (
     Soul("developer", "Developer", "developer.md"),
     Soul("devops", "DevOps", "devops.md", ("devops-infra",)),
     Soul("frontend", "Frontend", "frontend.md", ("frontend-design-review",)),
+    Soul("blog_writer", "Blog Writer", "blog_writer.md", ("blog-writer", "content-writer", "blogger")),
     Soul("tester", "Tester", "tester.md", ("qa-test",)),
     Soul("security", "Security", "security.md", ("security-review",)),
     Soul("code_reviewer", "Code Reviewer", "code_reviewer.md", ("code-review", "code-reviewer")),

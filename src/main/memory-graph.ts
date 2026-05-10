@@ -177,7 +177,7 @@ export async function resolveMemoryRoot(
       ok: false,
       status: 'missing-workspace',
       relativeRoot,
-      message: 'Open a workspace folder before configuring memory.',
+      message: 'Open a workspace folder before configuring the Knowledge Graph.',
     }
   }
   if (!relativeRoot) {
@@ -185,7 +185,7 @@ export async function resolveMemoryRoot(
       ok: false,
       status: 'invalid-relative-path',
       relativeRoot: null,
-      message: 'Memory path must be a non-empty relative path.',
+      message: 'Knowledge path must be a non-empty relative path.',
     }
   }
 
@@ -197,7 +197,7 @@ export async function resolveMemoryRoot(
         ok: false,
         status: 'missing-memory-root',
         relativeRoot,
-        message: 'Configured memory path is not a folder.',
+        message: 'Configured knowledge path is not a folder.',
       }
     }
   } catch (error) {
@@ -205,7 +205,7 @@ export async function resolveMemoryRoot(
       ok: false,
       status: 'missing-memory-root',
       relativeRoot,
-      message: error instanceof Error ? error.message : 'Configured memory folder is missing.',
+      message: error instanceof Error ? error.message : 'Configured knowledge folder is missing.',
     }
   }
 
@@ -532,7 +532,7 @@ export async function indexMemoryGraph(
       ok: false,
       status: 'inaccessible',
       relativeRoot: root.relativeRoot,
-      message: error instanceof Error ? error.message : 'Unable to index memory folder.',
+      message: error instanceof Error ? error.message : 'Unable to index knowledge folder.',
     }
   }
 }
@@ -574,12 +574,12 @@ export async function readMemoryPreview(
   const relativePath = relativePathInput.replace(/\\/g, '/').replace(/^\/+/u, '')
   const filePath = resolve(root.rootPath, relativePath)
   if (!isPathInside(root.rootPath, filePath)) {
-    return { ok: false, message: 'Memory preview path is outside the memory root.' }
+    return { ok: false, message: 'Knowledge preview path is outside the knowledge root.' }
   }
 
   try {
     const stats = await stat(filePath)
-    if (!stats.isFile()) return { ok: false, message: 'Memory preview target is not a file.' }
+    if (!stats.isFile()) return { ok: false, message: 'Knowledge preview target is not a file.' }
     const extension = extname(filePath).toLowerCase()
     const node: MemoryGraphNode = {
       id: relativePath,
@@ -620,6 +620,6 @@ export async function readMemoryPreview(
 
     return { ok: true, node, previewKind: 'unsupported', message: 'Preview is not available for this file type.' }
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'Unable to read memory preview.' }
+    return { ok: false, message: error instanceof Error ? error.message : 'Unable to read knowledge preview.' }
   }
 }

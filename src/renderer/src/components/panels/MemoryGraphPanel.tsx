@@ -246,7 +246,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
             onClick={() => void loadGraph()}
             className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-white/75 transition-colors hover:bg-white/10 hover:text-white"
             title="Refresh index"
-            aria-label="Refresh memory index"
+            aria-label="Refresh knowledge index"
           >
             <span aria-hidden>↻</span>
             <span>Refresh</span>
@@ -258,26 +258,26 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
         {!workspace?.memory.relativeRoot ? (
           <MemoryNotice
             tone="info"
-            title="Memory is not configured"
-            message="Set a workspace-relative memory path in Settings → Memory to render the graph. Multicode never guesses a folder for you."
+            title="Knowledge Graph is not configured"
+            message="Set a workspace-relative knowledge path in Settings → Knowledge to render the graph. Multicode never guesses a folder for you."
           />
         ) : loading ? (
           <LoadingOverlay />
         ) : indexResult && !indexResult.ok ? (
           <MemoryNotice
             tone="error"
-            title="Memory folder unavailable"
+            title="Knowledge folder unavailable"
             message={indexResult.message}
             hint="Do not guess another folder — check Settings or create the configured path."
           />
         ) : allNodes.length === 0 ? (
           <MemoryNotice
             tone="info"
-            title={query.trim() ? 'No matches' : 'No memory files found'}
+            title={query.trim() ? 'No matches' : 'No knowledge files found'}
             message={
               query.trim()
                 ? `No notes match "${query.trim()}".`
-                : 'The configured memory folder is empty. Add a Markdown file to start building the graph.'
+                : 'The configured knowledge folder is empty. Add a Markdown file to start building the graph.'
             }
           />
         ) : (
@@ -368,7 +368,7 @@ function LoadingOverlay() {
           style={{ background: '#69f0ae', boxShadow: '0 0 12px #69f0ae' }}
           aria-hidden
         />
-        <span>Indexing memory…</span>
+        <span>Indexing knowledge…</span>
       </div>
     </div>
   )

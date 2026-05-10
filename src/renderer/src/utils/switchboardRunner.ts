@@ -140,13 +140,15 @@ export function useSwitchboardRunner(workspaceRoot: string | null | undefined): 
     [refresh, workspaceRoot]
   )
 
-  const status: RunnerStatusKind = !state || !state.enabled
+  const status: RunnerStatusKind = !state
     ? 'unconfigured'
-    : state.paused
-      ? 'paused'
-      : state.running
-        ? 'running'
-        : 'stopped'
+    : !state.enabled
+      ? 'stopped'
+      : state.paused
+        ? 'paused'
+        : state.running
+          ? 'running'
+          : 'stopped'
 
   return { state, status, error, busy, refresh, start, pause, resume, stop, tick, stopExecution }
 }

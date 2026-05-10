@@ -272,6 +272,7 @@ export type SpecialistActionId =
   | 'developer'
   | 'devops-infra'
   | 'performance'
+  | 'blog-writer'
   | 'qa-test'
   | 'security-review'
   | 'frontend-design-review'

@@ -12,6 +12,7 @@ export type SpecialistIcon =
   | 'infra'
   | 'product'
   | 'performance'
+  | 'writing'
 
 export type SpecialistAction = {
   id: SpecialistActionId
@@ -100,6 +101,15 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     soulRole: 'frontend',
     soulFile: 'frontend.md',
     shortcut: 'Ctrl+Alt+F',
+  },
+  {
+    id: 'blog-writer',
+    label: 'Blog Writer',
+    shortLabel: 'Blog Writer',
+    description: 'Research, draft, edit, and package publish-ready blog posts with natural prose and image direction.',
+    icon: 'writing',
+    soulRole: 'blog_writer',
+    soulFile: 'blog_writer.md',
   },
   {
     id: 'qa-test',

@@ -42,6 +42,7 @@ Canonical roles:
 - `developer`
 - `devops`
 - `frontend`
+- `blog_writer`
 - `tester`
 - `security`
 - `code_reviewer`
@@ -53,6 +54,7 @@ Supported aliases:
 - `product-strategist` -> `product`
 - `devops-infra` -> `devops`
 - `frontend-design-review` -> `frontend`
+- `blog-writer`, `content-writer`, `blogger` -> `blog_writer`
 - `qa-test` -> `tester`
 - `security-review` -> `security`
 - `code-review`, `code-reviewer` -> `code_reviewer`

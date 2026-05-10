@@ -15,10 +15,12 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentState, FuturePlanWorkspaceSource, SprintEngineRole, SprintEngineRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { sprintEngineRoleAccent } from '../../utils/sprintengine'
 import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import MulticodeBlackHoleSpinner from '../brand/MulticodeBlackHoleSpinner'
 import AgentPanel from '../panels/AgentPanel'
 import FileExplorer from '../panels/FileExplorer'
+import SettingsPanel from '../settings/SettingsPanel'
 
 interface Props {
   workspaceId: string
@@ -37,6 +39,7 @@ const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoar
 const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
 const MobileCompanionPanel = React.lazy(() => import('../panels/MobileCompanionPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
+const AGENT_TAB_ROLE_CLASS_PREFIX = 'agent-tab-role-'
 const loadedPanelComponents = new Set<string>()
 type AgentTabActivity = 'needs-input' | 'running' | 'idle'
 const SPRINTENGINE_ROLES: SprintEngineRole[] = [
@@ -86,6 +89,10 @@ function agentTabActivityDot(
 
 function inferSprintEngineRoleFromAgentId(agentId: string): SprintEngineRole | null {
   return SPRINTENGINE_ROLES.find((role) => agentId === role || agentId.startsWith(`${role}-`)) ?? null
+}
+
+function sprintEngineRoleTabClass(role: SprintEngineRole): string {
+  return `${AGENT_TAB_ROLE_CLASS_PREFIX}${role.replace(/_/g, '-')}`
 }
 
 function PanelLoadingFallback() {
@@ -220,25 +227,30 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
       const agent = workspace.agents[agentId]
+      const role = agent?.kind === 'sprintengine'
+        ? workspace.sprintEngineState?.sprintEngineAgents[agentId]?.role ?? inferSprintEngineRoleFromAgentId(agentId)
+        : null
       const currentClassName = node.getClassName() ?? ''
       const classNames = currentClassName.split(/\s+/).filter(Boolean)
-      const hasClass = classNames.includes(AGENT_TAB_NEEDS_INPUT_CLASS)
       const needsInput = workspace.sprintEngineState?.sprintEngineAgents[agentId]?.status === 'needs_input'
+      const roleClassNames = new Set(SPRINTENGINE_ROLES.map(sprintEngineRoleTabClass))
+      const nextClassNames = classNames.filter((className) => !roleClassNames.has(className))
       if (agent?.name && node.getName() !== agent.name) {
         model.doAction(Actions.renameTab(node.getId(), agent.name))
       }
 
-      if (needsInput && !hasClass) {
-        model.doAction(Actions.updateNodeAttributes(node.getId(), {
-          className: [...classNames, AGENT_TAB_NEEDS_INPUT_CLASS].join(' '),
-        }))
+      if (needsInput) {
+        nextClassNames.push(AGENT_TAB_NEEDS_INPUT_CLASS)
       }
 
-      if (!needsInput && hasClass) {
+      if (role) {
+        nextClassNames.push(sprintEngineRoleTabClass(role))
+      }
+
+      const nextClassName = Array.from(new Set(nextClassNames)).join(' ')
+      if (nextClassName !== currentClassName) {
         model.doAction(Actions.updateNodeAttributes(node.getId(), {
-          className: classNames
-            .filter((className) => className !== AGENT_TAB_NEEDS_INPUT_CLASS)
-            .join(' '),
+          className: nextClassName,
         }))
       }
     })
@@ -247,7 +259,13 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   const factory = useCallback(
     (node: TabNode) => {
       const component = node.getComponent()
-      const config = node.getConfig() as { agentId?: string; terminalId?: string; filePath?: string; repoRoot?: string } | undefined
+      const config = node.getConfig() as {
+        agentId?: string
+        terminalId?: string
+        filePath?: string
+        repoRoot?: string
+        checkForUpdatesRequestId?: number
+      } | undefined
 
       switch (component) {
         case 'agent':
@@ -309,6 +327,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('MemoryGraphPanel', <MemoryGraphPanel workspaceId={workspaceId} />)
         case 'mobile-companion':
           return timedPanel('MobileCompanionPanel', <MobileCompanionPanel />)
+        case 'settings':
+          return (
+            <SettingsPanel
+              checkForUpdatesRequestId={config?.checkForUpdatesRequestId}
+              onClose={() => {
+                modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+              }}
+            />
+          )
         default:
           return <div className="h-full bg-[#08090b]" />
       }
@@ -566,7 +593,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       } else if (sprintEngineRole) {
         renderValues.leading = (
           <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[#9a9aa2]"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]"
+            style={{ color: sprintEngineRoleAccent[sprintEngineRole] }}
             title={`${sprintEngineRole} Sprint Engine agent`}
             aria-label={`${sprintEngineRole} Sprint Engine agent`}
           >

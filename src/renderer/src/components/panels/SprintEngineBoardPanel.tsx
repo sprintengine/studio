@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useFlipReorder } from '../../utils/flipReorder'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type {
   AgentCli,
@@ -42,13 +43,37 @@ import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 
-const columnMeta: { key: SprintEngineTaskBoardColumn; label: string; tint: string }[] = [
-  { key: 'todo', label: 'Todo', tint: 'bg-[#111216] text-[#9a9aa2]' },
-  { key: 'ready', label: 'Ready', tint: 'bg-[#30d158]/15 text-[#b9f7c8]' },
-  { key: 'in_progress', label: 'In Progress', tint: 'bg-[#ffa600]/18 text-[#ffd58a]' },
-  { key: 'needs_input', label: 'Needs Input', tint: 'bg-[#ffbf2f]/20 text-[#ffe0a3]' },
-  { key: 'done', label: 'Done', tint: 'bg-[#30d158]/12 text-[#d4ffdc]' },
+const columnMeta: { key: SprintEngineTaskBoardColumn; label: string }[] = [
+  { key: 'todo', label: 'Todo' },
+  { key: 'ready', label: 'Ready' },
+  { key: 'in_progress', label: 'In Progress' },
+  { key: 'needs_input', label: 'Needs Input' },
+  { key: 'done', label: 'Done' },
 ]
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (target.isContentEditable) return true
+  return false
+}
+
+function KanbanCardList({
+  children,
+  animateKey,
+}: {
+  children: React.ReactNode
+  animateKey: string
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useFlipReorder(ref, animateKey)
+  return (
+    <div ref={ref} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2">
+      {children}
+    </div>
+  )
+}
 
 const taskStateLabel: Record<SprintEngineTaskStatus, string> = {
   todo: 'Todo',
@@ -547,6 +572,99 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ),
     }))
   }, [sprintEngineState])
+
+  const previousColumnByTaskRef = useRef<Map<string, SprintEngineTaskBoardColumn>>(new Map())
+  const [recentlyMovedTaskIds, setRecentlyMovedTaskIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!sprintEngineState) {
+      previousColumnByTaskRef.current = new Map()
+      return
+    }
+    const nextMap = new Map<string, SprintEngineTaskBoardColumn>()
+    for (const task of sprintEngineState.tasks) {
+      nextMap.set(task.id, getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks))
+    }
+    const moved: string[] = []
+    for (const [taskId, column] of nextMap) {
+      const previousColumn = previousColumnByTaskRef.current.get(taskId)
+      if (previousColumn && previousColumn !== column) moved.push(taskId)
+    }
+    previousColumnByTaskRef.current = nextMap
+    if (moved.length > 0) {
+      setRecentlyMovedTaskIds(new Set(moved))
+    }
+  }, [sprintEngineState])
+
+  useEffect(() => {
+    if (recentlyMovedTaskIds.size === 0) return
+    const handle = window.setTimeout(() => setRecentlyMovedTaskIds(new Set()), 700)
+    return () => window.clearTimeout(handle)
+  }, [recentlyMovedTaskIds])
+
+  const handleKanbanKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (effectiveView !== 'kanban') return
+      if (isEditableTarget(event.target)) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+
+      if (event.key === 'Escape') {
+        if (selectedTaskId !== null) {
+          event.preventDefault()
+          setSelectedTaskId(null)
+        }
+        return
+      }
+
+      const navKeys = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'j', 'k', 'h', 'l']
+      if (!navKeys.includes(event.key)) return
+      event.preventDefault()
+      if (boardColumns.length === 0) return
+
+      const currentColumnIdx = selectedTaskId
+        ? boardColumns.findIndex((column) => column.cards.some((card) => card.id === selectedTaskId))
+        : -1
+      const currentCards = currentColumnIdx >= 0 ? boardColumns[currentColumnIdx].cards : []
+      const currentCardIdx = selectedTaskId
+        ? currentCards.findIndex((card) => card.id === selectedTaskId)
+        : -1
+
+      const goVertical = (delta: number) => {
+        if (currentColumnIdx < 0 || currentCards.length === 0) {
+          for (const column of boardColumns) {
+            if (column.cards.length > 0) {
+              setSelectedTaskId(column.cards[0].id)
+              return
+            }
+          }
+          return
+        }
+        const next = currentCardIdx + delta
+        if (next >= 0 && next < currentCards.length) {
+          setSelectedTaskId(currentCards[next].id)
+        }
+      }
+
+      const goHorizontal = (delta: number) => {
+        const startColumn = currentColumnIdx >= 0 ? currentColumnIdx : 0
+        for (let i = startColumn + delta; i >= 0 && i < boardColumns.length; i += delta) {
+          const cards = boardColumns[i].cards
+          if (cards.length > 0) {
+            const fallbackIdx = currentCardIdx >= 0 ? currentCardIdx : 0
+            const targetIdx = Math.min(Math.max(fallbackIdx, 0), cards.length - 1)
+            setSelectedTaskId(cards[targetIdx].id)
+            return
+          }
+        }
+      }
+
+      if (event.key === 'ArrowDown' || event.key === 'j') goVertical(1)
+      else if (event.key === 'ArrowUp' || event.key === 'k') goVertical(-1)
+      else if (event.key === 'ArrowRight' || event.key === 'l') goHorizontal(1)
+      else if (event.key === 'ArrowLeft' || event.key === 'h') goHorizontal(-1)
+    },
+    [boardColumns, effectiveView, selectedTaskId]
+  )
 
   const reviewArtifacts = useMemo(
     () => getReviewableSprintEngineArtifacts(sprintEngineState?.artifacts ?? []),
@@ -1509,232 +1627,452 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ) : null}
 
       {effectiveView === 'kanban' ? (
-        <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(260px,1fr))] overflow-auto bg-[#08090b]">
-          {sprintEngineState.tasks.length === 0 ? (
-            <div className="col-span-full flex h-full min-h-[320px] items-center justify-center p-6 text-center">
-              <div className="max-w-xl">
-                <div className="text-sm font-semibold text-[#ececee]">
-                  Waiting for the architect plan
+        <div
+          className="flex min-h-0 flex-1 bg-[#08090b] focus:outline-none"
+          tabIndex={0}
+          onKeyDown={handleKanbanKeyDown}
+          aria-label="Sprint Engine kanban"
+        >
+          <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-1.5 py-2">
+            {sprintEngineState.tasks.length === 0 ? (
+              <div className="flex h-full min-h-[320px] w-full items-center justify-center p-6 text-center">
+                <div className="max-w-xl">
+                  <div className="text-sm font-semibold text-[#ececee]">
+                    Waiting for the architect plan
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
+                    The board will populate as the architect adds tasks through the Sprint Engine tool.
+                  </p>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                  The board will populate as the architect adds tasks through the Sprint Engine tool.
-                </p>
               </div>
-            </div>
-          ) : null}
-          {sprintEngineState.tasks.length > 0 ? boardColumns.map((column) => (
-          <section
-            key={column.key}
-            className="flex min-h-0 min-w-0 flex-col border-r border-[#1f2025] bg-[#08090b] last:border-r-0"
-          >
-            <div className="flex h-11 shrink-0 items-center justify-between border-b border-[#1f2025] bg-[#0d0e11] px-3">
-              <div className="min-w-0 truncate text-sm font-semibold text-[#ececee]">{column.label}</div>
-              <span className="shrink-0 text-[11px] font-bold text-[#5a5a63]">
-                {column.cards.length}
-              </span>
-            </div>
-            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-              {column.cards.map((task) => {
-                const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
-                const claimRole = task.ownerAgentId ? ownerAgent?.role ?? task.role : null
-                const ownerLabel = task.ownerAgentId
-                  ? ownerAgent?.label ?? task.ownerAgentId
-                  : null
-                const ownerCliRunning = task.ownerAgentId
-                  ? Boolean(agents[task.ownerAgentId]?.cliStartRequested)
-                  : false
-                const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
-                const dependencyLabel = task.dependsOn.length > 0
-                  ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
-                  : 'root'
-                const attentionText = task.status === 'needs_input'
-                  ? task.notes[0] || 'Worker is waiting for input.'
-                  : task.status === 'done'
-                    ? task.evidence.summary || 'Completed with no summary recorded.'
-                    : null
-                const showTaskAction = boardColumn === 'ready' || task.status === 'in_progress' || task.status === 'needs_input'
-                const metadata = [
-                  ownerLabel ?? 'Unassigned',
-                  dependencyLabel,
-                  `${task.acceptanceCriteria.length} checks`,
-                ]
-                const taskArtifacts = artifactsByTaskId[task.id] ?? []
-                const quickOpenArtifact = task.status === 'needs_input'
-                  ? getPrimaryTaskArtifact(taskArtifacts)
-                  : null
-                const quickOpenArtifactAction = quickOpenArtifact
-                  ? artifactActions[quickOpenArtifact.id]
-                  : undefined
-                const quickOpenArtifactPending = quickOpenArtifactAction?.status === 'pending'
-                const mobileDecisionSummary = formatTaskMobileDecisionSummary(taskArtifacts)
-                const taskArtifactBlockers = artifactBlockersByTaskId[task.id] ?? []
-                const actionLabel = task.ownerAgentId
-                  ? ownerCliRunning ? 'Open Terminal' : 'Respawn'
-                  : `Spawn ${sprintEngineRoleLabels[task.role]}`
-                const sourceLabel = formatTaskSourceLabel(task)
-                const canMarkReady = task.status === 'todo'
-                  && !task.ownerAgentId
-                  && task.dispatch?.mode === 'manual'
-                  && task.dispatch.status !== 'ready'
-                const readyAction = taskReadyActions[task.id]
-                const syncStatusLabel = formatTaskSyncStatusLabel(task)
-                return (
-                  <article
-                    key={task.id}
-                    onClick={() => setSelectedTaskId(task.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        setSelectedTaskId(task.id)
-                      }
-                    }}
-                    className="group relative w-full cursor-pointer overflow-hidden rounded-md px-2.5 py-2.5 text-left text-[#9a9aa2] transition-colors hover:bg-[#111216] focus:outline-none focus:ring-1 focus:ring-[#303139]"
-                  >
-                    {claimRole || boardColumn === 'ready' || task.status === 'needs_input' ? (
-                      <span
-                        aria-hidden="true"
-                        className="pointer-events-none absolute inset-y-2 left-0 w-0.5 rounded-r-full"
-                        style={{
-                          backgroundColor: task.status === 'needs_input'
-                            ? '#ffbf2f'
-                            : boardColumn === 'ready'
-                              ? '#30d158'
-                              : sprintEngineRoleAccent[claimRole ?? task.role],
+            ) : null}
+            {sprintEngineState.tasks.length > 0 ? boardColumns.map((column) => (
+              <section
+                key={column.key}
+                className="flex h-full w-[260px] shrink-0 flex-col rounded-md bg-[#0a0b0e]"
+                aria-label={`${column.label} lane`}
+              >
+                <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <SprintEngineTaskStatusIcon
+                      column={column.key}
+                      className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]"
+                    />
+                    <span className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2]">
+                      {column.label}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-[#6f7078]">
+                    {column.cards.length}
+                  </span>
+                </div>
+                <KanbanCardList animateKey={column.cards.map((card) => card.id).join(',')}>
+                  {column.cards.map((task) => {
+                    const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
+                    const claimRole = task.ownerAgentId ? ownerAgent?.role ?? task.role : null
+                    const ownerLabel = task.ownerAgentId
+                      ? ownerAgent?.label ?? task.ownerAgentId
+                      : null
+                    const ownerCliRunning = task.ownerAgentId
+                      ? Boolean(agents[task.ownerAgentId]?.cliStartRequested)
+                      : false
+                    const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+                    const dependencyLabel = task.dependsOn.length > 0
+                      ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
+                      : 'root'
+                    const attentionText = task.status === 'needs_input'
+                      ? task.notes[0] || 'Worker is waiting for input.'
+                      : task.status === 'done'
+                        ? task.evidence.summary || 'Completed with no summary recorded.'
+                        : null
+                    const showTaskAction = boardColumn === 'ready' || task.status === 'in_progress' || task.status === 'needs_input'
+                    const metadata = [
+                      ownerLabel ?? 'Unassigned',
+                      dependencyLabel,
+                      `${task.acceptanceCriteria.length} checks`,
+                    ]
+                    const taskArtifacts = artifactsByTaskId[task.id] ?? []
+                    const quickOpenArtifact = task.status === 'needs_input'
+                      ? getPrimaryTaskArtifact(taskArtifacts)
+                      : null
+                    const quickOpenArtifactAction = quickOpenArtifact
+                      ? artifactActions[quickOpenArtifact.id]
+                      : undefined
+                    const quickOpenArtifactPending = quickOpenArtifactAction?.status === 'pending'
+                    const mobileDecisionSummary = formatTaskMobileDecisionSummary(taskArtifacts)
+                    const taskArtifactBlockers = artifactBlockersByTaskId[task.id] ?? []
+                    const actionLabel = task.ownerAgentId
+                      ? ownerCliRunning ? 'Open Terminal' : 'Respawn'
+                      : `Spawn ${sprintEngineRoleLabels[task.role]}`
+                    const sourceLabel = formatTaskSourceLabel(task)
+                    const canMarkReady = task.status === 'todo'
+                      && !task.ownerAgentId
+                      && task.dispatch?.mode === 'manual'
+                      && task.dispatch.status !== 'ready'
+                    const readyAction = taskReadyActions[task.id]
+                    const syncStatusLabel = formatTaskSyncStatusLabel(task)
+                    const taskSelected = selectedTaskId === task.id
+                    const justMoved = recentlyMovedTaskIds.has(task.id)
+                    return (
+                      <article
+                        key={task.id}
+                        data-flip-key={task.id}
+                        onClick={() => setSelectedTaskId(task.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setSelectedTaskId(task.id)
+                          }
                         }}
-                      />
-                    ) : null}
-                    <div className="flex items-start">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                          <span>{task.id}</span>
-                          <span className="rounded border border-[#303139] px-1.5 py-0.5 text-[9px] tracking-[0.1em] text-[#9a9aa2]">
-                            {sourceLabel}
-                          </span>
-                          {syncStatusLabel ? (
-                            <span className="rounded border border-[#ffbf2f]/35 bg-[#ffbf2f]/10 px-1.5 py-0.5 text-[9px] tracking-[0.1em] text-[#ffe0a3]">
-                              {syncStatusLabel}
-                            </span>
-                          ) : null}
+                        className={`group relative w-full cursor-pointer overflow-hidden rounded-md border px-2.5 py-2 text-left shadow-[0_1px_0_rgba(0,0,0,0.4)] transition-colors focus:outline-none focus:ring-1 ${
+                          justMoved ? 'card-just-moved-gold' : ''
+                        } ${
+                          taskSelected
+                            ? 'border-[#16171c] border-l-[3px] border-l-[#ffbf2f] bg-[#151106] pl-[7px] text-[#ececee] focus:ring-[#d6a536]'
+                            : 'border-[#16171c] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#111216] focus:ring-[#d6a536]'
+                        }`}
+                      >
+                        {claimRole || boardColumn === 'ready' || task.status === 'needs_input' ? (
                           <span
-                            className="h-1.5 w-1.5 shrink-0 rounded-full"
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-y-2 left-0 w-0.5 rounded-r-full"
                             style={{
-                              backgroundColor: sprintEngineRoleAccent[task.role],
+                              backgroundColor: task.status === 'needs_input'
+                                ? '#ffbf2f'
+                                : boardColumn === 'ready'
+                                  ? '#30d158'
+                                  : sprintEngineRoleAccent[claimRole ?? task.role],
                             }}
                           />
-                          <span style={{ color: sprintEngineRoleAccent[task.role] }}>
-                            {sprintEngineRoleLabels[task.role]}
+                        ) : null}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.08em] text-[#5a5a63]">
+                              <span className={`font-mono tabular-nums ${taskSelected ? 'text-[#f0d47a]' : 'text-[#8a8a92]'}`}>
+                                {task.id}
+                              </span>
+                              <span className="rounded border border-[#24252b] bg-[#08090b] px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-[#9a9aa2]">
+                                {sourceLabel}
+                              </span>
+                              {syncStatusLabel ? (
+                                <span className="rounded border border-[#ffbf2f]/35 bg-[#ffbf2f]/10 px-1.5 py-0.5 text-[9px] tracking-[0.1em] text-[#ffe0a3]">
+                                  {syncStatusLabel}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-1 line-clamp-2 text-[12.5px] font-medium leading-5 text-[#ececee]">{task.title}</div>
+                          </div>
+                          <span
+                            className="mt-0.5 shrink-0"
+                            style={{ color: sprintEngineRoleAccent[task.role] }}
+                            aria-hidden="true"
+                          >
+                            <SprintEngineRoleIcon role={task.role} className="h-3.5 w-3.5" />
                           </span>
                         </div>
-                        <div className="mt-1 text-sm font-semibold leading-5 text-[#ececee]">{task.title}</div>
-                      </div>
-                    </div>
 
-                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-[#5a5a63]">
-                      {metadata.map((item, index) => (
-                        <React.Fragment key={item}>
-                          {index > 0 ? <span className="shrink-0 text-[#3a3d49]">/</span> : null}
-                          <span className="min-w-0 truncate">{item}</span>
-                        </React.Fragment>
-                      ))}
-                    </div>
-
-                    {attentionText ? (
-                      <div className={`mt-2 line-clamp-2 border-l-2 pl-2 text-[11px] leading-5 ${
-                        task.status === 'needs_input'
-                          ? 'border-[#ffbf2f] text-[#ffe0a3]'
-                          : task.status === 'done'
-                            ? 'border-[#30d158] text-[#9a9aa2]'
-                            : 'border-[#5c7cff] text-[#b8ccff]'
-                      }`}>
-                        {attentionText}
-                      </div>
-                    ) : null}
-                    {taskArtifacts.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        <span className="rounded bg-[#17181d] px-1.5 py-0.5 text-[10px] font-semibold text-[#d7d7dc]">
-                          {formatArtifactSummary(taskArtifacts)}
-                        </span>
-                        {mobileDecisionSummary ? (
-                          <span className="rounded bg-[#5c7cff]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#b8ccff]">
-                            {mobileDecisionSummary}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {taskArtifactBlockers.length > 0 ? (
-                      <div className="mt-2 line-clamp-2 border-l-2 border-[#ffbf2f]/70 pl-2 text-[11px] leading-5 text-[#ffe0a3]">
-                        Waiting on {formatArtifactBlockerSummary(taskArtifactBlockers)}
-                      </div>
-                    ) : null}
-                    {showTaskAction || quickOpenArtifact ? (
-                      <div className="mt-2 flex flex-wrap justify-end gap-1.5">
-                        {quickOpenArtifact ? (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              void openArtifact(quickOpenArtifact)
-                            }}
-                            onKeyDown={(event) => {
-                              event.stopPropagation()
-                            }}
-                            disabled={quickOpenArtifactPending}
-                            title={quickOpenArtifact.title}
-                            className="rounded bg-[#ffbf2f]/12 px-2 py-1 text-[11px] font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/18 hover:text-[#fff0c8] disabled:opacity-45 disabled:hover:bg-[#ffbf2f]/12 disabled:hover:text-[#ffe0a3]"
+                        <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[10.5px] text-[#6f7078]">
+                          <span
+                            className="min-w-0 truncate"
+                            style={{ color: sprintEngineRoleAccent[task.role] }}
                           >
-                            {quickOpenArtifactPending && quickOpenArtifactAction?.kind === 'open'
-                              ? 'Opening...'
-                              : 'Open Artifact'}
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            openReadyTaskWorker(task)
-                          }}
-                          className="rounded px-2 py-1 text-[11px] font-semibold text-[#8a8a92] opacity-0 transition-colors hover:bg-[#17181d] hover:text-[#ececee] group-hover:opacity-100 group-focus:opacity-100"
-                        >
-                          {actionLabel}
-                        </button>
-                      </div>
-                    ) : null}
-                    {canMarkReady ? (
-                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#1f2025] pt-2">
-                        <span className="min-w-0 truncate text-[11px] text-[#7c7d86]">
-                          {readyAction?.message ?? 'Awaiting user Ready gate'}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={readyAction?.status === 'pending'}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            void markTaskReady(task)
-                          }}
-                          onKeyDown={(event) => {
-                            event.stopPropagation()
-                          }}
-                          className="shrink-0 rounded-md bg-[#5c7cff]/10 px-2.5 py-1 text-[11px] font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-wait disabled:opacity-60"
-                        >
-                          Ready
-                        </button>
-                      </div>
-                    ) : null}
-                  </article>
-                )
-              })}
+                            {sprintEngineRoleLabels[task.role]}
+                          </span>
+                          {metadata.map((item) => (
+                            <React.Fragment key={item}>
+                              <span className="shrink-0 text-[#3a3d49]">/</span>
+                              <span className="min-w-0 truncate">{item}</span>
+                            </React.Fragment>
+                          ))}
+                        </div>
 
-              {column.cards.length === 0 ? (
-                <div className="px-2 py-3 text-[12px] leading-5 text-[#5a5a63]">
-                  {emptyKanbanColumnLabel(column.key)}
+                        {attentionText ? (
+                          <div className={`mt-2 line-clamp-2 border-l-2 pl-2 text-[11px] leading-5 ${
+                            task.status === 'needs_input'
+                              ? 'border-[#ffbf2f] text-[#ffe0a3]'
+                              : task.status === 'done'
+                                ? 'border-[#30d158] text-[#9a9aa2]'
+                                : 'border-[#d6a536] text-[#f0d47a]'
+                          }`}>
+                            {attentionText}
+                          </div>
+                        ) : null}
+                        {taskArtifacts.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            <span className="rounded bg-[#17181d] px-1.5 py-0.5 text-[10px] font-semibold text-[#d7d7dc]">
+                              {formatArtifactSummary(taskArtifacts)}
+                            </span>
+                            {mobileDecisionSummary ? (
+                              <span className="rounded bg-[#221a0b] px-1.5 py-0.5 text-[10px] font-semibold text-[#f0d47a]">
+                                {mobileDecisionSummary}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {taskArtifactBlockers.length > 0 ? (
+                          <div className="mt-2 line-clamp-2 border-l-2 border-[#ffbf2f]/70 pl-2 text-[11px] leading-5 text-[#ffe0a3]">
+                            Waiting on {formatArtifactBlockerSummary(taskArtifactBlockers)}
+                          </div>
+                        ) : null}
+                        {showTaskAction || quickOpenArtifact ? (
+                          <div className="mt-2 flex flex-wrap justify-end gap-1.5">
+                            {quickOpenArtifact ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void openArtifact(quickOpenArtifact)
+                                }}
+                                onKeyDown={(event) => {
+                                  event.stopPropagation()
+                                }}
+                                disabled={quickOpenArtifactPending}
+                                title={quickOpenArtifact.title}
+                                className="rounded bg-[#ffbf2f]/12 px-2 py-1 text-[11px] font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/18 hover:text-[#fff0c8] disabled:opacity-45 disabled:hover:bg-[#ffbf2f]/12 disabled:hover:text-[#ffe0a3]"
+                              >
+                                {quickOpenArtifactPending && quickOpenArtifactAction?.kind === 'open'
+                                  ? 'Opening...'
+                                  : 'Open Artifact'}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openReadyTaskWorker(task)
+                              }}
+                              className="rounded px-2 py-1 text-[11px] font-semibold text-[#8a8a92] opacity-0 transition-colors hover:bg-[#17181d] hover:text-[#ececee] group-hover:opacity-100 group-focus:opacity-100"
+                            >
+                              {actionLabel}
+                            </button>
+                          </div>
+                        ) : null}
+                        {canMarkReady ? (
+                          <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#1f2025] pt-2">
+                            <span className="min-w-0 truncate text-[11px] text-[#7c7d86]">
+                              {readyAction?.message ?? 'Awaiting user Ready gate'}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={readyAction?.status === 'pending'}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                void markTaskReady(task)
+                              }}
+                              onKeyDown={(event) => {
+                                event.stopPropagation()
+                              }}
+                              className="shrink-0 rounded-md border border-[#4a3812] bg-[#221a0b] px-2.5 py-1 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#2b210e] disabled:cursor-wait disabled:opacity-60"
+                            >
+                              Ready
+                            </button>
+                          </div>
+                        ) : null}
+                      </article>
+                    )
+                  })}
+
+                  {column.cards.length === 0 ? (
+                    <div className="px-1 py-2 text-[11px] leading-5 text-[#5a5a63]">
+                      {emptyKanbanColumnLabel(column.key)}
+                    </div>
+                  ) : null}
+                </KanbanCardList>
+              </section>
+            )) : null}
+          </div>
+
+          <aside
+            className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[#13141a]"
+            aria-label="Selected Sprint Engine task detail"
+          >
+            {selectedTask ? (
+              <div className="flex h-full min-h-0 flex-col">
+                <header className="border-b border-[#1f2025] px-5 py-4">
+                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
+                    <span className="font-mono tabular-nums text-[12px] text-[#f0d47a]">{selectedTask.id}</span>
+                    <span>·</span>
+                    <span className="flex items-center gap-1.5">
+                      <SprintEngineTaskStatusIcon
+                        column={selectedTaskBoardColumn ?? 'todo'}
+                        className="h-3 w-3 text-[#9a9aa2]"
+                      />
+                      {selectedTaskStatusLabel}
+                    </span>
+                    <span>·</span>
+                    <span>{sprintEngineRoleLabels[selectedTask.role]}</span>
+                  </div>
+                  <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[#ececee]">
+                    {selectedTask.title}
+                  </h3>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {selectedTaskCanMarkReady ? (
+                      <button
+                        type="button"
+                        disabled={taskReadyActions[selectedTask.id]?.status === 'pending'}
+                        onClick={() => void markTaskReady(selectedTask)}
+                        className="h-7 rounded border border-[#4a3812] bg-[#221a0b] px-2.5 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#2b210e] disabled:cursor-wait disabled:opacity-60"
+                      >
+                        Move To Ready
+                      </button>
+                    ) : null}
+                    {selectedTaskCanSpawnWorker || (selectedTask.ownerAgentId && selectedTaskCanManageWorker) ? (
+                      <button
+                        type="button"
+                        onClick={() => openReadyTaskWorker(selectedTask)}
+                        className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] transition-colors hover:bg-[#111216] hover:text-[#ececee]"
+                      >
+                        {selectedTask.ownerAgentId
+                          ? selectedTaskOwnerCliRunning ? 'Open Terminal' : 'Respawn'
+                          : `Spawn ${sprintEngineRoleLabels[selectedTask.role]}`}
+                      </button>
+                    ) : null}
+                  </div>
+                </header>
+
+                <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[#d7d7dc]">
+                  <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+                    <MetaItem label="Source" value={formatTaskSourceLabel(selectedTask)} />
+                    <MetaItem label="Owner" value={selectedTaskOwnerLabel} />
+                    <MetaItem label="Dependencies" value={selectedTask.dependsOn.join(', ') || 'None'} />
+                    <MetaItem
+                      label={selectedTask.completedAt ? 'Completed' : 'Started'}
+                      value={formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt)}
+                    />
+                  </div>
+
+                  {selectedTask.source?.type === 'github' ? (
+                    <div className="border-l border-[#303139] pl-3">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                        GitHub Issue
+                      </div>
+                      <div className="mt-1 truncate text-sm text-[#d7d7dc]">
+                        {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
+                        {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
+                      </div>
+                      {formatTaskSyncStatusLabel(selectedTask) ? (
+                        <div className="mt-2 text-[12px] leading-5 text-[#ffe0a3]">
+                          {formatTaskSyncStatusDescription(selectedTask)}
+                        </div>
+                      ) : null}
+                      {selectedTask.source.externalUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
+                          }}
+                          className="mt-2 rounded px-2 py-1 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#221a0b]"
+                        >
+                          Open Issue
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {selectedTaskNeedsInputNote ? (
+                    <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
+                        Needs Input
+                      </div>
+                      <div className="mt-2 leading-6">{selectedTaskNeedsInputNote}</div>
+                      <div className="mt-2 text-[12px] text-[#ffe0a3]/75">
+                        Respond in the worker CLI to unblock this task.
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {selectedTaskArtifactBlockers.length > 0 ? (
+                    <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
+                  ) : null}
+
+                  {selectedTask.triage ? (
+                    <div className="border-l border-[#d6a536]/70 pl-3 text-sm text-[#f0d47a]">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#f0d47a]">
+                        Architect Triage
+                      </div>
+                      <div className="mt-2 leading-6">{selectedTask.triage.summary}</div>
+                    </div>
+                  ) : null}
+
+                  {taskReadyActions[selectedTask.id]?.message ? (
+                    <div className={`border-l pl-3 text-[12px] leading-5 ${
+                      taskReadyActions[selectedTask.id]?.status === 'error'
+                        ? 'border-[#ff787c]/70 text-[#ffb3b5]'
+                        : 'border-[#303139] text-[#9a9aa2]'
+                    }`}>
+                      {taskReadyActions[selectedTask.id]?.message}
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                      Description
+                    </div>
+                    <div>{selectedTask.description || 'No description recorded.'}</div>
+                  </div>
+
+                  <SectionList
+                    title="Acceptance Criteria"
+                    items={selectedTask.acceptanceCriteria}
+                    emptyLabel="No acceptance criteria recorded."
+                  />
+                  <SectionList title="Owned Paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
+                  <SectionList
+                    title="Implementation Notes"
+                    items={selectedTask.implementationNotes}
+                    emptyLabel="No implementation notes recorded."
+                  />
+                  <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
+
+                  <SprintEngineArtifactList
+                    artifacts={selectedTaskArtifacts}
+                    tasksById={tasksById}
+                    actions={artifactActions}
+                    emptyLabel="No review artifacts are attached to this task."
+                    onSelectTask={(taskId) => setSelectedTaskId(taskId)}
+                    onOpenArtifact={(artifact) => void openArtifact(artifact)}
+                    onApproveArtifact={(artifact) => void approveArtifact(artifact)}
+                    onRequestArtifactChanges={requestArtifactChanges}
+                  />
+
+                  <div>
+                    <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                      Evidence Summary
+                    </div>
+                    <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>
+                  </div>
+
+                  {selectedTask.feedback ? <AgentFeedback feedback={selectedTask.feedback} /> : null}
+
+                  <SectionList
+                    title="Commands Run"
+                    items={selectedTask.evidence.commandsRan}
+                    emptyLabel="No commands recorded."
+                  />
+                  <SectionList
+                    title="Results"
+                    items={selectedTask.evidence.results}
+                    emptyLabel="No test or validation results recorded."
+                  />
+                  <SectionList
+                    title="Touched Files"
+                    items={selectedTask.evidence.touchedFiles}
+                    emptyLabel="No touched files recorded."
+                  />
                 </div>
-              ) : null}
-            </div>
-          </section>
-        )) : null}
-      </div>
+              </div>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[#6f7078]">
+                <div className="text-[12px] uppercase tracking-[0.08em] text-[#5a5a63]">Detail</div>
+                <div className="text-[13px] text-[#8a8a92]">
+                  Select a task to inspect execution details, artifacts, and evidence.
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
       ) : null}
 
       {recoveryDialog ? (
@@ -2044,7 +2382,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         </div>
       ) : null}
 
-      {selectedTask && (
+      {selectedTask && effectiveView !== 'kanban' ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
           <div className="max-h-[90vh] w-full max-w-[920px] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
             <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
@@ -2299,7 +2637,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {showRunSummary ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
@@ -4241,6 +4579,73 @@ function emptyKanbanColumnLabel(column: SprintEngineTaskBoardColumn): string {
     default:
       return 'Planned tasks that are waiting on dependencies appear here.'
   }
+}
+
+function SprintEngineTaskStatusIcon({
+  column,
+  className,
+}: {
+  column: SprintEngineTaskBoardColumn
+  className?: string
+}) {
+  const label = columnMeta.find((item) => item.key === column)?.label ?? column
+
+  if (column === 'done') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="12" cy="12" r="6.4" fill="#30d158" />
+        <path d="M9.25 12L11.25 14L14.75 10.25" stroke="#0f1d10" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+
+  if (column === 'needs_input') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="12" cy="12" r="6.4" stroke="#ffbf2f" strokeWidth="1.7" strokeDasharray="2 1.6" />
+        <path d="M12 7.6V12.4" stroke="#ffbf2f" strokeWidth="1.7" strokeLinecap="round" />
+        <circle cx="12" cy="15.4" r="0.95" fill="#ffbf2f" />
+      </svg>
+    )
+  }
+
+  if (column === 'ready') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="12" cy="12" r="6.4" stroke="#30d158" strokeWidth="1.7" />
+        <circle cx="12" cy="12" r="2" fill="#30d158" />
+      </svg>
+    )
+  }
+
+  if (column === 'in_progress') {
+    const radius = 5.4
+    const cx = 12
+    const cy = 12
+    const sweep = 0.5
+    const angle = sweep * 2 * Math.PI
+    const endX = cx + radius * Math.sin(angle)
+    const endY = cy - radius * Math.cos(angle)
+    const wedgePath = `M ${cx} ${cy} L ${cx} ${cy - radius} A ${radius} ${radius} 0 0 1 ${endX.toFixed(2)} ${endY.toFixed(2)} Z`
+
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx={cx} cy={cy} r="6.4" stroke="#ffa600" strokeWidth="1.7" />
+        <path d={wedgePath} fill="#ffa600" opacity="0.85" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+      <title>{label}</title>
+      <circle cx="12" cy="12" r="6.4" stroke="currentColor" strokeWidth="1.7" />
+    </svg>
+  )
 }
 
 function formatArtifactSummary(artifacts: SprintEngineArtifact[]): string {

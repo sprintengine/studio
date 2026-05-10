@@ -23,10 +23,10 @@ type ManagedSkillManifest = {
 
 export const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
-    id: 'workspace-memory',
-    name: 'Workspace Memory',
+    id: 'workspace-knowledge',
+    name: 'Workspace Knowledge',
     version: '1.0.0',
-    description: 'Read and update a workspace-local Markdown memory graph.',
+    description: 'Read and update a workspace-local Markdown knowledge graph.',
   },
 ]
 

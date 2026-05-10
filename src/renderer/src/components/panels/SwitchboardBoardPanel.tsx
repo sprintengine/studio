@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { CommentIcon, PriorityIcon, StatusIcon } from '../AppIcons'
+import { useFlipReorder } from '../../utils/flipReorder'
 import {
   BOARD_STATUS_ORDER,
   formatRelativeTime,
@@ -34,6 +35,14 @@ import type {
 
 const PANEL_BG = 'bg-[#08090b]'
 const ACCENT = '#7c5cf2'
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (target.isContentEditable) return true
+  return false
+}
 
 type ToastTone = 'info' | 'success' | 'error'
 type Toast = { tone: ToastTone; message: string }
@@ -82,6 +91,13 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
   const [toast, setToast] = useState<Toast | null>(null)
   const [dragSource, setDragSource] = useState<{ taskId: string; from: SwitchboardFolderStatus } | null>(null)
   const [dropTarget, setDropTarget] = useState<{ lane: SwitchboardTaskStatus; index: number } | null>(null)
+  const [recentlyMovedId, setRecentlyMovedId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!recentlyMovedId) return
+    const handle = window.setTimeout(() => setRecentlyMovedId(null), 700)
+    return () => window.clearTimeout(handle)
+  }, [recentlyMovedId])
   const dragLegalTargets = useMemo(
     () => (dragSource ? new Set<SwitchboardTaskStatus>(legalMoveTargets(dragSource.from)) : new Set<SwitchboardTaskStatus>()),
     [dragSource]
@@ -152,6 +168,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
           showToast('error', result.message)
           return
         }
+        setRecentlyMovedId(record.task.id)
         await refresh()
         showToast('success', `Moved to ${statusLabel(to)}.`)
       } finally {
@@ -159,6 +176,104 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
       }
     },
     [folderPath, refresh, showToast]
+  )
+
+  const handleBoardKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (isEditableTarget(event.target)) return
+
+      if ((event.metaKey || event.ctrlKey) && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        if (!selected) return
+        const currentStatus = selected.location.folderStatus
+        const currentLaneIdx = BOARD_STATUS_ORDER.indexOf(currentStatus as SwitchboardTaskStatus)
+        if (currentLaneIdx === -1) return
+        const targets = legalMoveTargets(currentStatus)
+        const targetSet = new Set(targets)
+        let nextStatus: SwitchboardTaskStatus | null = null
+        if (event.key === 'ArrowRight') {
+          for (let i = currentLaneIdx + 1; i < BOARD_STATUS_ORDER.length; i += 1) {
+            if (targetSet.has(BOARD_STATUS_ORDER[i])) {
+              nextStatus = BOARD_STATUS_ORDER[i]
+              break
+            }
+          }
+        } else {
+          for (let i = currentLaneIdx - 1; i >= 0; i -= 1) {
+            if (targetSet.has(BOARD_STATUS_ORDER[i])) {
+              nextStatus = BOARD_STATUS_ORDER[i]
+              break
+            }
+          }
+        }
+        if (nextStatus) {
+          event.preventDefault()
+          void handleMove(selected, nextStatus)
+        }
+        return
+      }
+
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+
+      if (event.key === 'c') {
+        event.preventDefault()
+        setCreateOpen(true)
+        return
+      }
+
+      const navKeys = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'j', 'k', 'h', 'l']
+      if (!navKeys.includes(event.key)) return
+      event.preventDefault()
+
+      const currentLaneIdx = selected
+        ? BOARD_STATUS_ORDER.indexOf(selected.location.folderStatus as SwitchboardTaskStatus)
+        : -1
+      const currentCards = currentLaneIdx >= 0
+        ? grouped[BOARD_STATUS_ORDER[currentLaneIdx]] ?? []
+        : []
+      const currentCardIdx = selected
+        ? currentCards.findIndex((record) => record.task.id === selected.task.id)
+        : -1
+
+      const goVertical = (delta: number) => {
+        if (currentLaneIdx < 0 || currentCards.length === 0) {
+          for (const status of BOARD_STATUS_ORDER) {
+            const cards = grouped[status] ?? []
+            if (cards.length > 0) {
+              setSelectedId(cards[0].task.id)
+              return
+            }
+          }
+          return
+        }
+        const next = currentCardIdx + delta
+        if (next >= 0 && next < currentCards.length) {
+          setSelectedId(currentCards[next].task.id)
+        }
+      }
+
+      const goHorizontal = (delta: number) => {
+        const startLane = currentLaneIdx >= 0 ? currentLaneIdx : 0
+        for (
+          let i = startLane + delta;
+          i >= 0 && i < BOARD_STATUS_ORDER.length;
+          i += delta
+        ) {
+          const cards = grouped[BOARD_STATUS_ORDER[i]] ?? []
+          if (cards.length > 0) {
+            const fallbackIdx = currentCardIdx >= 0 ? currentCardIdx : 0
+            const targetIdx = Math.min(Math.max(fallbackIdx, 0), cards.length - 1)
+            setSelectedId(cards[targetIdx].task.id)
+            return
+          }
+        }
+      }
+
+      if (event.key === 'ArrowDown' || event.key === 'j') goVertical(1)
+      else if (event.key === 'ArrowUp' || event.key === 'k') goVertical(-1)
+      else if (event.key === 'ArrowRight' || event.key === 'l') goHorizontal(1)
+      else if (event.key === 'ArrowLeft' || event.key === 'h') goHorizontal(-1)
+    },
+    [grouped, handleMove, selected]
   )
 
   const handleAddComment = useCallback(async () => {
@@ -197,7 +312,12 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
 
   return (
     <div className={`relative flex h-full min-h-0 ${PANEL_BG} text-[#d7d7dc]`}>
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section
+        tabIndex={0}
+        onKeyDown={handleBoardKeyDown}
+        aria-label="Switchboard board"
+        className="flex min-w-0 flex-1 flex-col focus:outline-none"
+      >
         <header className="flex items-center justify-between gap-3 border-b border-[#1f2025] px-3 py-2.5">
           <div className="flex min-w-0 items-center gap-2">
             <span
@@ -255,6 +375,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
                   status={status}
                   records={grouped[status] ?? []}
                   executionStatusByTaskId={executionStatusByTaskId}
+                  recentlyMovedId={recentlyMovedId}
                   selectedId={selectedId}
                   onSelect={(id) => setSelectedId(id)}
                   dragActive={Boolean(dragSource)}
@@ -330,6 +451,7 @@ function BoardLane({
   status,
   records,
   executionStatusByTaskId,
+  recentlyMovedId,
   selectedId,
   onSelect,
   dragActive,
@@ -345,6 +467,7 @@ function BoardLane({
   status: SwitchboardTaskStatus
   records: SwitchboardTaskRecord[]
   executionStatusByTaskId: Map<string, SwitchboardExecutionStatus>
+  recentlyMovedId: string | null
   selectedId: string | null
   onSelect: (id: string) => void
   dragActive: boolean
@@ -358,6 +481,7 @@ function BoardLane({
   onCardDragEnd: () => void
 }) {
   const listRef = useRef<HTMLOListElement | null>(null)
+  useFlipReorder(listRef, records.map((record) => record.task.id).join(','))
   const dimmed = dragActive && !isLegalDropTarget && !isSourceLane
   const laneClass = [
     'flex h-full w-[260px] shrink-0 flex-col rounded-md transition-colors',
@@ -419,6 +543,7 @@ function BoardLane({
                 record={record}
                 executionStatus={executionStatusByTaskId.get(record.task.id) ?? null}
                 selected={selectedId === record.task.id}
+                justMoved={recentlyMovedId === record.task.id}
                 onSelect={() => onSelect(record.task.id)}
                 onDragStart={() => onCardDragStart(record)}
                 onDragEnd={onCardDragEnd}
@@ -436,6 +561,7 @@ function BoardCard({
   record,
   executionStatus,
   selected,
+  justMoved,
   onSelect,
   onDragStart,
   onDragEnd,
@@ -443,6 +569,7 @@ function BoardCard({
   record: SwitchboardTaskRecord
   executionStatus: SwitchboardExecutionStatus | null
   selected: boolean
+  justMoved: boolean
   onSelect: () => void
   onDragStart: () => void
   onDragEnd: () => void
@@ -466,6 +593,7 @@ function BoardCard({
   return (
     <li
       data-card="true"
+      data-flip-key={record.task.id}
       draggable
       tabIndex={0}
       role="button"
@@ -485,7 +613,7 @@ function BoardCard({
       }}
       className={`relative rounded-md border px-2.5 py-2 shadow-[0_1px_0_rgba(0,0,0,0.4)] transition-colors focus:outline-none focus:ring-1 focus:ring-[#7c5cf2] ${
         dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab'
-      } ${
+      } ${justMoved ? 'card-just-moved' : ''} ${
         selected
           ? 'border-[#16171c] border-l-[3px] border-l-[#7c5cf2] bg-[#100c1e] pl-[7px] text-[#ececee]'
           : 'border-[#16171c] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#111216]'

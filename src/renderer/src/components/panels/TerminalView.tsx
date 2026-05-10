@@ -70,7 +70,7 @@ async function resolveMemoryLaunchContext(
     ok: false,
     status: 'inaccessible',
     relativeRoot: configuredRoot,
-    message: error instanceof Error ? error.message : 'Unable to resolve workspace memory.',
+    message: error instanceof Error ? error.message : 'Unable to resolve workspace knowledge.',
   }))
 
   if (status.ok) {
@@ -78,10 +78,10 @@ async function resolveMemoryLaunchContext(
       rootPath: status.rootPath,
       relativeRoot: status.relativeRoot,
       promptSuffix: [
-        `Workspace memory is configured at ${status.relativeRoot}.`,
-        'This is a local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
+        `Knowledge Graph is configured at ${status.relativeRoot}.`,
+        'This is a repo-local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
         'Inspect it when relevant instead of assuming project context.',
-        'Use the workspace-memory skill if it is installed in .agents/skills.',
+        'Use the workspace-knowledge skill if it is installed in .agents/skills.',
       ].join(' '),
     }
   }
@@ -89,7 +89,7 @@ async function resolveMemoryLaunchContext(
   return {
     rootPath: undefined,
     relativeRoot: configuredRoot,
-    promptSuffix: `Workspace memory is configured at ${configuredRoot}, but the folder is currently missing or inaccessible. Do not guess another memory folder.`,
+    promptSuffix: `Knowledge Graph is configured at ${configuredRoot}, but the folder is currently missing or inaccessible. Do not guess another knowledge folder.`,
   }
 }
 

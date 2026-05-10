@@ -29,6 +29,14 @@ const PANEL_BG = 'bg-[#08090b]'
 const SECTION_DIVIDER = 'border-t border-[#1f2025]'
 const ACCENT = '#d97757'
 
+function isEditableInboxTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (target.isContentEditable) return true
+  return false
+}
+
 type ToastTone = 'info' | 'success' | 'error'
 
 type Toast = {
@@ -281,7 +289,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           kind: 'watchtower',
           specialistId: reviewAgent.specialistId,
           cli: 'codex',
-          cliPermissionPreset: 'default',
+          cliPermissionPreset: 'bypass_all',
           cliStartupPrompt: startupPrompt,
           watchtowerRunId: created.run.runId,
           cliStartRequested: true,
@@ -306,7 +314,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             kind: 'agent',
             workspaceId,
             agentId: reviewAgent.agentId,
-            cliPermissionPreset: 'default',
+            cliPermissionPreset: 'bypass_all',
           }
         ).catch((error): TerminalSpawnResult => ({
           ok: false,
@@ -484,6 +492,44 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     }
   }, [commentBody, folderPath, refresh, selected, showToast])
 
+  const handleInboxKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (isEditableInboxTarget(event.target)) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+
+      if (event.key === 'c') {
+        event.preventDefault()
+        setCreateOpen(true)
+        return
+      }
+
+      if (event.key === 'Escape') {
+        if (editing) {
+          event.preventDefault()
+          setEditing(false)
+        }
+        return
+      }
+
+      const navKeys = ['ArrowDown', 'ArrowUp', 'j', 'k']
+      if (!navKeys.includes(event.key)) return
+      event.preventDefault()
+
+      if (inbox.length === 0) return
+      const currentIdx = selectedId
+        ? inbox.findIndex((record) => record.task.id === selectedId)
+        : -1
+      const delta = event.key === 'ArrowDown' || event.key === 'j' ? 1 : -1
+      const nextIdx = Math.min(Math.max((currentIdx < 0 ? 0 : currentIdx) + delta, 0), inbox.length - 1)
+      const nextRecord = inbox[nextIdx]
+      if (nextRecord && nextRecord.task.id !== selectedId) {
+        setSelectedId(nextRecord.task.id)
+        setEditing(false)
+      }
+    },
+    [editing, inbox, selectedId]
+  )
+
   const startEdit = useCallback(() => {
     if (!selected) return
     setEditForm({
@@ -539,7 +585,9 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   return (
     <div className={`relative flex h-full min-h-0 ${PANEL_BG} text-[#d7d7dc]`}>
       <section
-        className="flex w-[44%] min-w-[320px] max-w-[560px] flex-col border-r border-[#1f2025]"
+        tabIndex={0}
+        onKeyDown={handleInboxKeyDown}
+        className="flex w-[44%] min-w-[320px] max-w-[560px] flex-col border-r border-[#1f2025] focus:outline-none"
         aria-label="Inbox"
       >
         <RunReviewSection

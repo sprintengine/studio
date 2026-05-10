@@ -41,8 +41,10 @@ function withSprintEngineEnv(
     ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
     ...(soulsRoot ? { MULTICODE_SOULS_ROOT: soulsRoot } : {}),
     ...(sprintEngineStatePath ? { SPRINTENGINE_STATE_PATH: sprintEngineStatePath } : {}),
-    ...(memoryRootPath ? { MULTICODE_MEMORY_ROOT: memoryRootPath } : {}),
-    ...(memoryRelativeRoot ? { MULTICODE_MEMORY_RELATIVE_ROOT: memoryRelativeRoot } : {}),
+    ...(memoryRootPath ? { MULTICODE_KNOWLEDGE_ROOT: memoryRootPath, MULTICODE_MEMORY_ROOT: memoryRootPath } : {}),
+    ...(memoryRelativeRoot
+      ? { MULTICODE_KNOWLEDGE_RELATIVE_ROOT: memoryRelativeRoot, MULTICODE_MEMORY_RELATIVE_ROOT: memoryRelativeRoot }
+      : {}),
   }
 
   if (process.platform !== 'win32') {
@@ -341,10 +343,12 @@ function buildSprintEngineShellBootstrap(
   }
 
   if (shellMemoryRootPath) {
+    lines.push(`export MULTICODE_KNOWLEDGE_ROOT=${quotePosix(shellMemoryRootPath)}`)
     lines.push(`export MULTICODE_MEMORY_ROOT=${quotePosix(shellMemoryRootPath)}`)
   }
 
   if (memoryRelativeRoot) {
+    lines.push(`export MULTICODE_KNOWLEDGE_RELATIVE_ROOT=${quotePosix(memoryRelativeRoot)}`)
     lines.push(`export MULTICODE_MEMORY_RELATIVE_ROOT=${quotePosix(memoryRelativeRoot)}`)
   }
 

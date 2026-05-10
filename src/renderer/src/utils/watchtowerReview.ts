@@ -10,7 +10,12 @@ export type WatchtowerReviewSector = {
   description: string
 }
 
-export type WatchtowerReviewPresetId = 'lean_code_review' | 'security_deep_review' | 'full_product_review' | 'custom'
+export type WatchtowerReviewPresetId =
+  | 'lean_code_review'
+  | 'performance_focused_review'
+  | 'security_deep_review'
+  | 'full_product_review'
+  | 'custom'
 
 export type WatchtowerReviewPreset = {
   id: WatchtowerReviewPresetId
@@ -46,6 +51,7 @@ export const WATCHTOWER_REVIEW_SPECIALIST_FOCUS: Record<SpecialistActionId, Watc
   'qa-test': ['qa_testing', 'cross_platform', 'accessibility', 'documentation'],
   'security-review': ['security'],
   'frontend-design-review': ['frontend_design', 'accessibility', 'brand_alignment', 'cross_platform'],
+  'blog-writer': ['documentation', 'brand_alignment'],
   'code-review': ['code_review', 'ai_slop', 'architecture_quality', 'documentation'],
 }
 
@@ -58,6 +64,17 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
       'code-review': ['code_review', 'ai_slop'],
       'qa-test': ['qa_testing'],
       performance: ['performance'],
+    },
+  },
+  {
+    id: 'performance_focused_review',
+    label: 'Performance Focus Review',
+    description: 'Performance-led review of code, infrastructure, runtime behavior, and regression risk.',
+    agents: {
+      performance: ['performance', 'cross_platform'],
+      'devops-infra': ['infrastructure', 'performance', 'cross_platform'],
+      'code-review': ['code_review', 'architecture_quality'],
+      'qa-test': ['qa_testing'],
     },
   },
   {
@@ -126,6 +143,8 @@ export function defaultSectorsForSpecialist(specialistId: SpecialistActionId): W
       return ['security']
     case 'frontend-design-review':
       return ['frontend_design', 'accessibility', 'brand_alignment']
+    case 'blog-writer':
+      return ['documentation', 'brand_alignment']
     case 'code-review':
       return ['code_review', 'ai_slop']
   }
@@ -148,4 +167,3 @@ export function normalizeWatchtowerReviewSectorsForSpecialist(
   const sectors = normalizeWatchtowerReviewSectors(input).filter((sector) => allowed.has(sector))
   return sectors.length > 0 ? sectors : defaultSectorsForSpecialist(specialistId)
 }
-

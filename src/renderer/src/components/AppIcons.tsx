@@ -46,10 +46,11 @@ export function WorkspaceTypeIcon({
   if (mode === 'switchboard') {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="4.25" y="5.25" width="15.5" height="13.5" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
-        <path d="M8 9.25H8.01M12 9.25H12.01M16 9.25H16.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-        <path d="M8 13H8.01M12 13H12.01M16 13H16.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-        <path d="M7.5 16.75H10.5M13.5 16.75H16.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+        <rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
+        <path d="M9 5.5V18.5M15 5.5V18.5" stroke="currentColor" strokeWidth={iconStroke - 0.3} />
+        <rect x="4.75" y="8" width="3" height="2.5" rx="0.6" fill="currentColor" />
+        <rect x="10.5" y="11" width="3" height="2.5" rx="0.6" fill="currentColor" />
+        <rect x="16.25" y="14" width="3" height="2.5" rx="0.6" fill="currentColor" />
       </svg>
     )
   }
@@ -105,6 +106,8 @@ export function SpecialistActionIcon({ icon, className }: IconProps & { icon: Sp
       return <ProductIcon className={className} />
     case 'performance':
       return <PerformanceIcon className={className} />
+    case 'writing':
+      return <WritingIcon className={className} />
   }
 }
 
@@ -135,6 +138,17 @@ const PRIORITY_LABELS: Record<'urgent' | 'high' | 'medium' | 'low' | 'none', str
   medium: 'Medium priority',
   low: 'Low priority',
   none: 'No priority',
+}
+
+function WritingIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5.25 4.75H14.5L18.75 9V19.25H5.25V4.75Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path d="M14.25 5V9.25H18.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path d="M8 13.25H15.75M8 16.25H13.25" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M7.75 9.5H10.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
 }
 
 function priorityKey(priority: number | null | undefined): keyof typeof PRIORITY_LABELS {
