@@ -23,7 +23,7 @@ export type MobileControlEventType =
 export type MobileControlCapability =
   | "snapshots.read"
   | "artifacts.read"
-  | "swarms.create"
+  | "sprintengines.create"
   | "tasks.start"
   | "artifacts.review"
   | "agents.followUp"
@@ -41,7 +41,7 @@ export type MobileControlErrorCode =
   | "command_expired"
   | "duplicate_idempotency_key"
   | "stale_snapshot"
-  | "swarm_not_found"
+  | "sprintengine_not_found"
   | "task_not_ready"
   | "artifact_not_found"
   | "path_not_allowed"
@@ -96,20 +96,20 @@ export interface MobileControlCommandBase<Type extends MobileControlCommandType,
 export type SnapshotRequestCommand = MobileControlCommandBase<
   "snapshot.request",
   {
-    swarmId?: string;
+    sprintEngineId?: string;
   }
 >;
 
 export type ArtifactReadCommand = MobileControlCommandBase<
   "artifact.read",
   {
-    swarmId: string;
+    sprintEngineId: string;
     artifactId: string;
     previewMode: ArtifactPreviewMode;
   }
 >;
 
-export type SwarmCreateCommand = MobileControlCommandBase<
+export type SprintEngineCreateCommand = MobileControlCommandBase<
   "sprintengine.create",
   {
     workspacePath: string;
@@ -121,7 +121,7 @@ export type SwarmCreateCommand = MobileControlCommandBase<
 export type TaskStartCommand = MobileControlCommandBase<
   "task.start",
   {
-    swarmId: string;
+    sprintEngineId: string;
     taskId: string;
     role: string;
   }
@@ -130,7 +130,7 @@ export type TaskStartCommand = MobileControlCommandBase<
 export type ArtifactApproveCommand = MobileControlCommandBase<
   "artifact.approve",
   {
-    swarmId: string;
+    sprintEngineId: string;
     artifactId: string;
     feedback?: string;
   }
@@ -139,7 +139,7 @@ export type ArtifactApproveCommand = MobileControlCommandBase<
 export type ArtifactRequestChangesCommand = MobileControlCommandBase<
   "artifact.requestChanges",
   {
-    swarmId: string;
+    sprintEngineId: string;
     artifactId: string;
     feedback: string;
   }
@@ -148,7 +148,7 @@ export type ArtifactRequestChangesCommand = MobileControlCommandBase<
 export type AgentFollowUpCommand = MobileControlCommandBase<
   "agent.followUp",
   {
-    swarmId: string;
+    sprintEngineId: string;
     agentId: string;
     text: string;
   }
@@ -165,7 +165,7 @@ export type DeviceRevokeCommand = MobileControlCommandBase<
 export type MobileControlCommand =
   | SnapshotRequestCommand
   | ArtifactReadCommand
-  | SwarmCreateCommand
+  | SprintEngineCreateCommand
   | TaskStartCommand
   | ArtifactApproveCommand
   | ArtifactRequestChangesCommand
@@ -190,8 +190,8 @@ export interface MobileControlArtifactSnapshot {
   path?: string;
 }
 
-export interface MobileControlSwarmSnapshot {
-  swarmId: string;
+export interface MobileControlSprintEngineSnapshot {
+  sprintEngineId: string;
   name: string;
   workspacePath: string;
   statePath: string;
@@ -214,7 +214,7 @@ export interface MobileControlSnapshot {
   protocolVersion: MobileControlProtocolVersion;
   generatedAt: string;
   desktopSessionId: string;
-  swarms: MobileControlSwarmSnapshot[];
+  sprintEngines: MobileControlSprintEngineSnapshot[];
 }
 
 export interface MobileControlEventBase<Type extends MobileControlEventType, Payload> {
@@ -259,7 +259,7 @@ export type DevicePresenceEvent = MobileControlEventBase<
 export type ArtifactReviewUpdatedEvent = MobileControlEventBase<
   "artifact.reviewUpdated",
   {
-    swarmId: string;
+    sprintEngineId: string;
     artifactId: string;
     status: MobileControlArtifactSnapshot["status"];
   }
@@ -268,7 +268,7 @@ export type ArtifactReviewUpdatedEvent = MobileControlEventBase<
 export type NotificationCreatedEvent = MobileControlEventBase<
   "notification.created",
   {
-    swarmId?: string;
+    sprintEngineId?: string;
     title: string;
     body: string;
     severity: "info" | "warning" | "error";
@@ -326,7 +326,7 @@ const eventTypes = [
 const capabilities = [
   "snapshots.read",
   "artifacts.read",
-  "swarms.create",
+  "sprintengines.create",
   "tasks.start",
   "artifacts.review",
   "agents.followUp",
@@ -345,7 +345,7 @@ const errorCodes = [
   "command_expired",
   "duplicate_idempotency_key",
   "stale_snapshot",
-  "swarm_not_found",
+  "sprintengine_not_found",
   "task_not_ready",
   "artifact_not_found",
   "path_not_allowed",
@@ -455,13 +455,13 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
     requireString(snapshot.value, "generatedAt") ??
     requireIsoDate(snapshot.value, "generatedAt") ??
     requireString(snapshot.value, "desktopSessionId") ??
-    requireArray(snapshot.value, "swarms");
+    requireArray(snapshot.value, "sprintEngines");
   if (baseError) {
     return invalidPayload(baseError);
   }
 
-  for (const sprintengine of snapshot.value.swarms as unknown[]) {
-    const error = validateSwarmSnapshot(sprintengine);
+  for (const sprintengine of snapshot.value.sprintEngines as unknown[]) {
+    const error = validateSprintEngineSnapshot(sprintengine);
     if (error) {
       return invalidPayload(error);
     }
@@ -599,10 +599,10 @@ function validateProtocolVersion(record: Record<string, unknown>): ValidationRes
 function validateCommandPayload(type: MobileControlCommandType, payload: Record<string, unknown>): string | null {
   switch (type) {
     case "snapshot.request":
-      return optionalString(payload, "swarmId");
+      return optionalString(payload, "sprintEngineId");
     case "artifact.read":
       return (
-        requireString(payload, "swarmId") ??
+        requireString(payload, "sprintEngineId") ??
         requireString(payload, "artifactId") ??
         requireLiteral(payload, "previewMode", artifactPreviewModes)
       );
@@ -614,16 +614,16 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       );
     case "task.start":
       return (
-        requireString(payload, "swarmId") ??
+        requireString(payload, "sprintEngineId") ??
         requireString(payload, "taskId") ??
         requireString(payload, "role")
       );
     case "artifact.approve":
-      return requireString(payload, "swarmId") ?? requireString(payload, "artifactId") ?? optionalString(payload, "feedback");
+      return requireString(payload, "sprintEngineId") ?? requireString(payload, "artifactId") ?? optionalString(payload, "feedback");
     case "artifact.requestChanges":
-      return requireString(payload, "swarmId") ?? requireString(payload, "artifactId") ?? requireString(payload, "feedback");
+      return requireString(payload, "sprintEngineId") ?? requireString(payload, "artifactId") ?? requireString(payload, "feedback");
     case "agent.followUp":
-      return requireString(payload, "swarmId") ?? requireString(payload, "agentId") ?? requireString(payload, "text");
+      return requireString(payload, "sprintEngineId") ?? requireString(payload, "agentId") ?? requireString(payload, "text");
     case "device.revoke":
       return requireString(payload, "deviceId") ?? optionalString(payload, "reason");
   }
@@ -656,13 +656,13 @@ function validateEventPayload(type: MobileControlEventType, payload: Record<stri
     }
     case "artifact.reviewUpdated":
       return (
-        requireString(payload, "swarmId") ??
+        requireString(payload, "sprintEngineId") ??
         requireString(payload, "artifactId") ??
         requireLiteral(payload, "status", artifactStatuses)
       );
     case "notification.created":
       return (
-        optionalString(payload, "swarmId") ??
+        optionalString(payload, "sprintEngineId") ??
         requireString(payload, "title") ??
         requireString(payload, "body") ??
         requireLiteral(payload, "severity", severityValues)
@@ -670,14 +670,14 @@ function validateEventPayload(type: MobileControlEventType, payload: Record<stri
   }
 }
 
-function validateSwarmSnapshot(input: unknown): string | null {
+function validateSprintEngineSnapshot(input: unknown): string | null {
   const sprintengine = validateObject(input, "snapshot.sprintengine");
   if (sprintengine.ok === false) {
     return sprintengine.error;
   }
 
   const baseError =
-    requireString(sprintengine.value, "swarmId") ??
+    requireString(sprintengine.value, "sprintEngineId") ??
     requireString(sprintengine.value, "name") ??
     requireString(sprintengine.value, "workspacePath") ??
     requireString(sprintengine.value, "statePath") ??

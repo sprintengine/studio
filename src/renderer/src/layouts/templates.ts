@@ -1,4 +1,4 @@
-import type { LayoutTemplate, PreviewSlot, SwarmMockConfig } from '../types/workspace'
+import type { LayoutTemplate, PreviewSlot, SprintEngineMockConfig } from '../types/workspace'
 
 // Helpers to keep preview slot definitions readable.
 // Previews are rendered in a 300×110 viewBox.
@@ -15,34 +15,24 @@ const agentTab = (id: string, name = id) => ({
 })
 const editorTab = { type: 'tab', name: 'Editor', component: 'editor' }
 const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
-const swarmProjectTab = () => ({
+const sprintEngineProjectTab = () => ({
   type: 'tab',
   name: 'Project',
   component: 'sprintengine-project',
 })
-const swarmMapTab = () => ({
+const sprintEngineMapTab = () => ({
   type: 'tab',
   name: 'SprintEngine Map',
   component: 'sprintengine-map',
 })
-const swarmTaskGraphTab = () => ({
+const sprintEngineTaskGraphTab = () => ({
   type: 'tab',
   name: 'Task Graph',
   component: 'sprintengine-task-graph',
 })
-const swarmKanbanTab = () => ({
+const sprintEngineKanbanTab = () => ({
   type: 'tab',
   name: 'Kanban',
-  component: 'sprintengine-kanban',
-})
-const symphonyIntakeTab = () => ({
-  type: 'tab',
-  name: 'Symphony Intake',
-  component: 'sprintengine-project',
-})
-const symphonyBoardTab = () => ({
-  type: 'tab',
-  name: 'Board',
   component: 'sprintengine-kanban',
 })
 const multiloopBoardTab = () => ({
@@ -60,23 +50,8 @@ const switchboardBoardTab = () => ({
   name: 'Board',
   component: 'switchboard-board',
 })
-const swarmReviewBriefTab = () => ({
-  type: 'tab',
-  name: 'Review Brief',
-  component: 'swarm-review-brief',
-})
-const swarmReviewReportsTab = () => ({
-  type: 'tab',
-  name: 'Reports',
-  component: 'swarm-review-reports',
-})
-const swarmReviewFindingsTab = () => ({
-  type: 'tab',
-  name: 'Findings Matrix',
-  component: 'swarm-review-findings',
-})
 
-export function createSwarmTemplate(_config: SwarmMockConfig): LayoutTemplate {
+export function createSprintEngineTemplate(_config: SprintEngineMockConfig): LayoutTemplate {
   return {
     id: 'sprintengine-mode',
     name: 'SprintEngine Mode',
@@ -97,40 +72,10 @@ export function createSwarmTemplate(_config: SwarmMockConfig): LayoutTemplate {
             type: 'tabset',
             weight: 100,
             children: [
-              swarmProjectTab(),
-              swarmMapTab(),
-              swarmTaskGraphTab(),
-              swarmKanbanTab(),
-            ],
-          },
-        ],
-      },
-    },
-  }
-}
-
-export function createSymphonyTemplate(_config: SwarmMockConfig): LayoutTemplate {
-  return {
-    id: 'symphony-mode',
-    name: 'Symphony Mode',
-    description: 'GitHub-backed intake, triage, Ready gate, and worker execution.',
-    previewSlots: [
-      editor('Intake', 4, 4, 168, 32),
-      editor('Board', 4, 42, 168, 64),
-      files('Repo', 176, 4, 120, 102),
-    ],
-    layout: {
-      global: { tabSetEnableDrop: true, tabEnableClose: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          {
-            type: 'tabset',
-            weight: 100,
-            children: [
-              symphonyIntakeTab(),
-              symphonyBoardTab(),
+              sprintEngineProjectTab(),
+              sprintEngineMapTab(),
+              sprintEngineTaskGraphTab(),
+              sprintEngineKanbanTab(),
             ],
           },
         ],
@@ -195,44 +140,7 @@ export function createSwitchboardTemplate(): LayoutTemplate {
   }
 }
 
-export function createSwarmReviewTemplate(): LayoutTemplate {
-  return {
-    id: 'swarm-review-mode',
-    name: 'Swarm Mode',
-    description: 'Specialist review swarm with reports and visible agent terminals.',
-    previewSlots: [
-      editor('Brief', 4, 4, 168, 30),
-      editor('Reports', 4, 40, 168, 66),
-      agent('Reviewers', 176, 4, 120, 102),
-    ],
-    layout: {
-      global: { tabSetEnableDrop: true, tabEnableClose: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          {
-            type: 'tabset',
-            weight: 58,
-            children: [
-              swarmReviewBriefTab(),
-              swarmReviewReportsTab(),
-              swarmReviewFindingsTab(),
-            ],
-          },
-          {
-            type: 'tabset',
-            weight: 42,
-            children: [],
-          },
-        ],
-      },
-    },
-  }
-}
 
-// Each template is a flexlayout-react JSON model.
-// To add a new template, add an entry here; no other code changes needed.
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   {
     id: 'solo',

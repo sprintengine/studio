@@ -1,5 +1,5 @@
 import type { SpecialistIcon } from '../specialists/specialistActions'
-import type { SwarmRole, Workspace } from '../types/workspace'
+import type { SprintEngineRole, Workspace } from '../types/workspace'
 import multiloopBlackHoleTabIcon from '../assets/brand/multiloop-black-hole-tab-icon.png'
 
 type IconProps = {
@@ -42,18 +42,6 @@ export function WorkspaceTypeIcon({
 }: IconProps & {
   mode: Workspace['mode']
 }) {
-  if (mode === 'symphony') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M5.25 15.75C7.1 12.35 9.35 10.65 12 10.65C14.65 10.65 16.9 12.35 18.75 15.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-        <path d="M7.1 12.65C8.45 10.15 10.08 8.9 12 8.9C13.92 8.9 15.55 10.15 16.9 12.65" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-        <path d="M12 5.25V18.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-        <path d="M9.25 18.75H14.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-        <circle cx="12" cy="5.25" r="2" fill="#08090b" stroke="currentColor" strokeWidth={iconStroke} />
-      </svg>
-    )
-  }
-
   if (mode === 'switchboard') {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -88,21 +76,6 @@ export function WorkspaceTypeIcon({
     )
   }
 
-  if (mode === 'swarm') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M12 4.75L17.75 8.05V14.7L12 18L6.25 14.7V8.05L12 4.75Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-        <path d="M8.75 9.15L12 7.25L15.25 9.15V12.9L12 14.8L8.75 12.9V9.15Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-        <path d="M3.75 8.25H6.25M17.75 8.25H20.25M3.75 14.75H6.25M17.75 14.75H20.25M12 18V20.25" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-        <rect x="2.75" y="7.25" width="2" height="2" rx="0.45" fill="currentColor" />
-        <rect x="19.25" y="7.25" width="2" height="2" rx="0.45" fill="currentColor" />
-        <rect x="2.75" y="13.75" width="2" height="2" rx="0.45" fill="currentColor" />
-        <rect x="19.25" y="13.75" width="2" height="2" rx="0.45" fill="currentColor" />
-        <rect x="11" y="20" width="2" height="2" rx="0.45" fill="currentColor" />
-      </svg>
-    )
-  }
-
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth={iconStroke} />
@@ -111,7 +84,6 @@ export function WorkspaceTypeIcon({
     </svg>
   )
 }
-
 export function SpecialistActionIcon({ icon, className }: IconProps & { icon: SpecialistIcon }) {
   switch (icon) {
     case 'architecture':
@@ -135,7 +107,7 @@ export function SpecialistActionIcon({ icon, className }: IconProps & { icon: Sp
   }
 }
 
-export function SwarmRoleIcon({ role, className }: IconProps & { role: SwarmRole }) {
+export function SprintEngineRoleIcon({ role, className }: IconProps & { role: SprintEngineRole }) {
   switch (role) {
     case 'architect':
       return <ArchitectureIcon className={className} />

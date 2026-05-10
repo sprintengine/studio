@@ -316,7 +316,7 @@ export default function WorktreeManager({
         terminalRows,
         row.path,
         false,
-        workspace?.swarmContext?.statePath,
+        workspace?.sprintEngineContext?.statePath,
         undefined,
         undefined,
         undefined,

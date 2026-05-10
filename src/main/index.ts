@@ -5,6 +5,7 @@ import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
+import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
@@ -15,7 +16,6 @@ import { registerSoulsIpc } from './ipc/souls-ipc'
 import {
   registerSprintEngineIpc,
 } from './ipc/sprintengine-ipc'
-import { registerSymphonyGitHubIpc } from './ipc/symphony-github-ipc'
 import { registerSwitchboardIpc } from './ipc/switchboard-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
@@ -24,7 +24,7 @@ import { initializeMultiloopState } from './multiloop-init'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
 import { readMultiloopPrompt, readSpecialistSoul } from './souls-service'
-import { discoverMobileSwarmStatePaths } from './mobile-swarm-discovery'
+import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
@@ -38,7 +38,9 @@ import { createBuiltinSkillManager } from './builtin-skills'
 import {
   MobileBridge,
 } from './mobile/bridge'
-import { MobileSwarmSnapshotService } from './mobile/sprintengine/snapshot'
+import { MobileSprintEngineSnapshotService } from './mobile/sprintengine/snapshot'
+import { importGitHubIssuesIntoWatchtower } from './switchboard-github'
+import { importJiraIssuesIntoWatchtower } from './switchboard-jira'
 import {
   addSwitchboardComment,
   cancelSwitchboardTask,
@@ -76,7 +78,7 @@ const terminalRuntime = createTerminalRuntime({
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
   logMainPerfEvent,
 })
-const mobileSnapshotService = new MobileSwarmSnapshotService()
+const mobileSnapshotService = new MobileSprintEngineSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
 const builtinSkillManager = createBuiltinSkillManager()
 const githubTokenStore = new GitHubTokenStore()
@@ -85,7 +87,7 @@ const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
   accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
   commandService: terminalRuntime.commandService,
   snapshotService: mobileSnapshotService,
-  statePathsProvider: () => discoverMobileSwarmStatePaths(mobileWorkspaceRoots),
+  statePathsProvider: () => discoverMobileSprintEngineStatePaths(mobileWorkspaceRoots),
 })
 
 function getAuthenticatedMulticodeUserId(): string | null {
@@ -159,6 +161,8 @@ registerSwitchboardIpc(ipcMain, {
   listWatchtowerRuns,
   validateWatchtowerOutputs,
   ingestWatchtowerOutputs,
+  importGitHubIssues: (workspaceRoot) => importGitHubIssuesIntoWatchtower({ workspaceRoot, tokenStore: githubTokenStore }),
+  importJiraIssues: (workspaceRoot) => importJiraIssuesIntoWatchtower({ workspaceRoot }),
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────
@@ -195,10 +199,7 @@ registerGitIpc(ipcMain, {
   withIpcDiagnostics,
 })
 
-registerSymphonyGitHubIpc(ipcMain, {
-  withIpcDiagnostics,
-  githubTokenStore,
-})
+registerGitHubTokenIpc(ipcMain, githubTokenStore)
 
 registerMenuDialogIpc(ipcMain)
 

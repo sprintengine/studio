@@ -6,7 +6,7 @@ import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
-import { slugifySwarmName } from '../../utils/sprintengineStateFile'
+import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
 import type { FuturePlanWorkspaceSource } from '../../types/workspace'
 
@@ -969,7 +969,7 @@ function ExplorerTree({
         sourcePath: entry.path,
         sourceRelativePath,
         sourceContent,
-        teamName: slugifySwarmName(basename),
+        teamName: slugifySprintEngineName(basename),
         goal: markdownTitle(sourceContent) ?? fallbackGoal,
       })
     } catch (error) {

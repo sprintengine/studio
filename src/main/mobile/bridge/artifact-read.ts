@@ -1,19 +1,19 @@
 import { readFile } from 'fs/promises'
 import { basename, dirname } from 'path'
-import type { MobileControlCommand, MobileSwarmCommandResult } from '../sprintengine/command'
-import { MobileSwarmSnapshotService } from '../sprintengine/snapshot'
+import type { MobileControlCommand, MobileSprintEngineCommandResult } from '../sprintengine/command'
+import { MobileSprintEngineSnapshotService } from '../sprintengine/snapshot'
 import { resolveArtifactPathForRead } from './artifact-path'
 import { acceptedBridgeCommand, failedCommandResult } from './command-results'
 import { stringPayload } from './command-payload'
 
 export async function dispatchArtifactRead(input: {
   command: MobileControlCommand
-  snapshotService: MobileSwarmSnapshotService
+  snapshotService: MobileSprintEngineSnapshotService
   desktopSessionId: string
   statePathsProvider: () => Promise<string[]>
-}): Promise<MobileSwarmCommandResult> {
+}): Promise<MobileSprintEngineCommandResult> {
   const { command, snapshotService, desktopSessionId, statePathsProvider } = input
-  const swarmId = stringPayload(command.payload, 'swarmId')
+  const sprintEngineId = stringPayload(command.payload, 'sprintEngineId')
   const artifactId = stringPayload(command.payload, 'artifactId')
   const previewMode = stringPayload(command.payload, 'previewMode')
   if (previewMode !== 'text' && previewMode !== 'markdown') {
@@ -25,7 +25,7 @@ export async function dispatchArtifactRead(input: {
     desktopSessionId,
     statePaths,
   })
-  const sprintengine = snapshot.swarms.find((candidate) => candidate.swarmId === swarmId)
+  const sprintengine = snapshot.sprintEngines.find((candidate) => candidate.sprintEngineId === sprintEngineId)
   const artifact = sprintengine?.artifacts.find((candidate) => candidate.artifactId === artifactId)
   if (!sprintengine || !artifact?.path) {
     return failedCommandResult(command, 'artifact_not_found', 'Requested artifact was not found.')
@@ -35,7 +35,7 @@ export async function dispatchArtifactRead(input: {
   const content = await readFile(artifactPath, 'utf8')
   return acceptedBridgeCommand(command, {
     artifactId,
-    swarmId,
+    sprintEngineId,
     previewMode,
     path: artifact.path,
     name: basename(artifactPath),

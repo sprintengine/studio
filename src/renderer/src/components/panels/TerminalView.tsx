@@ -6,8 +6,8 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
 import { buildSpecialistSoulStartupPrompt, getSpecialistAction } from '../../specialists/specialistActions'
-import { buildSwarmAgentRosterForState, buildSwarmRosterCommandArgs, swarmRoleLabels } from '../../utils/sprintengine'
-import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
+import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, sprintEngineRoleLabels } from '../../utils/sprintengine'
+import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
@@ -115,8 +115,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     checkingFolder,
     message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
-  const swarmContext = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.swarmContext ?? null
+  const sprintEngineContext = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext ?? null
   )
   const memoryRelativeRoot = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.memory.relativeRoot ?? null
@@ -130,13 +130,13 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     if (
       workspace?.mode !== 'sprintengine'
-      || !workspace.swarmAutoState.enabled
+      || !workspace.sprintEngineAutoState.enabled
       || currentAgent?.kind !== 'sprintengine'
     ) {
       return undefined
     }
 
-    return workspace.swarmAutoState.cliPermissionPreset
+    return workspace.sprintEngineAutoState.cliPermissionPreset
   })
   const storedExecutionWorktreePath = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
@@ -146,35 +146,34 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cli = agent?.cli ?? 'codex'
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
-  const updateSwarmReviewAgentStatus = useWorkspaceStore((s) => s.updateSwarmReviewAgentStatus)
   const startupPrompt = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     const currentAgent = workspace?.agents[agentId]
     if (currentAgent?.cliStartupPrompt) return currentAgent.cliStartupPrompt
 
-    if (workspace?.mode !== 'sprintengine' || !workspace.swarmState) return null
+    if (workspace?.mode !== 'sprintengine' || !workspace.sprintEngineState) return null
 
-    const rosterAgent = buildSwarmAgentRosterForState(workspace.swarmState).find(
+    const rosterAgent = buildSprintEngineAgentRosterForState(workspace.sprintEngineState).find(
       (candidate) => candidate.id === agentId
     )
 
     if (!rosterAgent) return null
 
-    const basePrompt = buildSwarmStartupPrompt(
+    const basePrompt = buildSprintEngineStartupPrompt(
       rosterAgent.role,
       agentId,
-      workspace.swarmState.goal,
+      workspace.sprintEngineState.goal,
       {
         executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath).cwd,
         workspaceRoot: folderReadyPath ?? undefined,
-        rosterArgs: buildSwarmRosterCommandArgs(workspace.swarmState),
-        commandMode: getSwarmStartupCommandMode(rosterAgent.role, agentId, workspace.swarmState),
+        rosterArgs: buildSprintEngineRosterCommandArgs(workspace.sprintEngineState),
+        commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, workspace.sprintEngineState),
       }
     )
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
       ? currentAgent.name
       : ''
-    return customName ? prependAgentIdentifier(basePrompt, customName, swarmRoleLabels[rosterAgent.role]) : basePrompt
+    return customName ? prependAgentIdentifier(basePrompt, customName, sprintEngineRoleLabels[rosterAgent.role]) : basePrompt
   })
   const startupPromptRef = useRef<string | null>(startupPrompt)
 
@@ -285,9 +284,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         })
       }
       if (currentSessionId !== sessionId) return
-      if (agent?.kind === 'swarm_review') {
-        updateSwarmReviewAgentStatus(workspaceId, agentId, code === 0 ? 'done' : 'error')
-      }
       if (agent?.watchtowerRunId && (folderReadyPath || savedFolderPath)) {
         void (async () => {
           try {
@@ -371,7 +367,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     const ensureSpecialistStartupPrompt = async (promptAlreadySentForActiveSession: boolean) => {
       if (startupPromptRef.current || promptAlreadySentForActiveSession) return
-      if (agent.kind !== 'specialist' || !agent.specialistId) return
+      if ((agent.kind !== 'specialist' && agent.kind !== 'watchtower') || !agent.specialistId) return
 
       const specialist = getSpecialistAction(agent.specialistId)
       const prompt = buildSpecialistSoulStartupPrompt(specialist)
@@ -394,7 +390,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       await ensureSpecialistStartupPrompt(promptAlreadySentForActiveSession)
       if (disposed) return
 
-      const swarmStatePath = folderReadyPath ? swarmContext?.statePath : undefined
+      const sprintEngineStatePath = folderReadyPath ? sprintEngineContext?.statePath : undefined
       const executionRoot = resolveAgentExecutionRoot(
         agent.execution,
         storedExecutionWorktreePath,
@@ -406,7 +402,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         cliPermissionPreset ? `CLI permissions: ${cliPermissionPreset}` : null,
         `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
-        swarmStatePath ? `Sprint Engine state: ${swarmStatePath}` : null,
+        sprintEngineStatePath ? `Sprint Engine state: ${sprintEngineStatePath}` : null,
       ].filter(Boolean).join('\n')
       const memoryContext = await resolveMemoryLaunchContext(folderReadyPath ?? null, memoryRelativeRoot)
       if (disposed) return
@@ -420,7 +416,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         term.rows,
         executionRoot.cwd,
         shouldResumeCli,
-        swarmStatePath,
+        sprintEngineStatePath,
         cli,
         launchInitialPrompt,
         cliRuntimes,
@@ -540,11 +536,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     folderReadyPath,
     workspaceName,
     savedFolderPath,
-    swarmContext?.statePath,
+    sprintEngineContext?.statePath,
     memoryRelativeRoot,
     storedExecutionWorktreePath,
     updateAgent,
-    updateSwarmReviewAgentStatus,
   ])
 
   const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)

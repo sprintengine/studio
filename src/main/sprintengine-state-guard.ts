@@ -2,16 +2,16 @@ import { lstat, readdir, realpath, stat } from 'fs/promises'
 import { basename, dirname, resolve } from 'path'
 import { isMissingPathError } from './filesystem-workspace'
 
-function isSwarmStateFilePath(input: string): boolean {
+function isSprintEngineStateFilePath(input: string): boolean {
   const statePath = resolve(input)
   const teamDirectory = dirname(statePath)
-  const swarmDirectory = dirname(teamDirectory)
-  const multiCodeDirectory = dirname(swarmDirectory)
+  const sprintEngineDirectory = dirname(teamDirectory)
+  const multiCodeDirectory = dirname(sprintEngineDirectory)
   const workspaceRoot = dirname(multiCodeDirectory)
 
   return (
     basename(statePath) === 'state.yaml'
-    && basename(swarmDirectory) === 'sprintengine'
+    && basename(sprintEngineDirectory) === 'sprintengine'
     && basename(multiCodeDirectory) === '.multi-code'
     && workspaceRoot !== multiCodeDirectory
   )
@@ -58,7 +58,7 @@ async function getExistingDirectoryPath(targetPath: string): Promise<string | nu
   }
 }
 
-async function directorySubtreeContainsSwarmStatePath(directoryPath: string): Promise<boolean> {
+async function directorySubtreeContainsSprintEngineStatePath(directoryPath: string): Promise<boolean> {
   const visitedRealDirectories = new Set<string>()
 
   const visit = async (currentDirectory: string): Promise<boolean> => {
@@ -90,7 +90,7 @@ async function directorySubtreeContainsSwarmStatePath(directoryPath: string): Pr
 
     for (const entry of entries) {
       const entryPath = resolve(currentDirectory, entry.name)
-      if (entry.name === 'state.yaml' && isSwarmStateFilePath(entryPath)) {
+      if (entry.name === 'state.yaml' && isSprintEngineStateFilePath(entryPath)) {
         return true
       }
       if (entry.isDirectory() && await visit(entryPath)) {
@@ -104,9 +104,9 @@ async function directorySubtreeContainsSwarmStatePath(directoryPath: string): Pr
   return visit(directoryPath)
 }
 
-export async function assertNotDirectSwarmStateMutation(targetPath: string): Promise<void> {
+export async function assertNotDirectSprintEngineStateMutation(targetPath: string): Promise<void> {
   const realTargetPath = await getRealMutationTargetPath(targetPath)
-  if (isSwarmStateFilePath(targetPath) || (realTargetPath && isSwarmStateFilePath(realTargetPath))) {
+  if (isSprintEngineStateFilePath(targetPath) || (realTargetPath && isSprintEngineStateFilePath(realTargetPath))) {
     throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
   }
 
@@ -115,14 +115,14 @@ export async function assertNotDirectSwarmStateMutation(targetPath: string): Pro
     return
   }
 
-  if (await directorySubtreeContainsSwarmStatePath(existingDirectoryPath)) {
+  if (await directorySubtreeContainsSprintEngineStatePath(existingDirectoryPath)) {
     throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
   }
 
   const realDirectoryPath = realTargetPath && realTargetPath !== resolve(existingDirectoryPath)
     ? await getExistingDirectoryPath(realTargetPath)
     : null
-  if (realDirectoryPath && await directorySubtreeContainsSwarmStatePath(realDirectoryPath)) {
+  if (realDirectoryPath && await directorySubtreeContainsSprintEngineStatePath(realDirectoryPath)) {
     throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
   }
 }

@@ -1515,6 +1515,78 @@ def create_inbox_task_if_source_missing(
         return read_task_file(path, "inbox")
 
 
+def source_matches_import_identity(source: dict[str, Any], source_type: str, external_id: str | None, external_url: str | None) -> bool:
+    if source.get("type") != source_type:
+        return False
+    if external_id and source.get("externalId") == external_id:
+        return True
+    return bool(not external_id and external_url and source.get("externalUrl") == external_url)
+
+
+def import_inbox_task(
+    workspace: Path,
+    *,
+    provider: str,
+    external_id: str | None,
+    external_key: str | None,
+    external_url: str | None,
+    title: str,
+    identifier: str | None = None,
+    description: str = "",
+    labels: list[str] | None = None,
+    priority: int | float | None = None,
+    updated_at: str | None = None,
+) -> tuple[LocatedTask | None, str]:
+    if provider not in {"github", "jira"}:
+        raise SwitchboardError("Import provider must be github or jira.")
+    identity = external_id.strip() if isinstance(external_id, str) and external_id.strip() else None
+    url_identity = external_url.strip() if isinstance(external_url, str) and external_url.strip() else None
+    if not identity and not url_identity:
+        raise SwitchboardError("Imported task requires source.externalId or source.externalUrl.")
+    if not title.strip():
+        raise SwitchboardError("Imported task title is required.")
+    now = now_iso()
+    with locked_folders(workspace, ["inbox"], owner="switchboard-import"):
+        tasks, _problems, _locks = read_all(workspace)
+        for located in tasks:
+            source = located.task.get("source") if isinstance(located.task.get("source"), dict) else {}
+            if source_matches_import_identity(source, provider, identity, url_identity):
+                return None, "duplicate"
+        source = {
+            "type": provider,
+            "externalId": identity,
+            "externalKey": external_key.strip() if isinstance(external_key, str) and external_key.strip() else None,
+            "externalUrl": url_identity,
+        }
+        body_parts = [f"Imported from {provider}."]
+        if updated_at:
+            body_parts.append(f"External updated at: {updated_at}.")
+        task = build_task(
+            title=title,
+            description=description,
+            inbox=True,
+            identifier=identifier if isinstance(identifier, str) and identifier.strip() else source["externalKey"],
+            priority=priority,
+            labels=labels,
+            source_input=source,
+            comments=[
+                {
+                    "id": str(uuid.uuid4()),
+                    "author": {"type": "system", "id": "switchboard-import", "name": "Switchboard Import"},
+                    "kind": "import",
+                    "body": " ".join(body_parts),
+                    "createdAt": now,
+                }
+            ],
+        )
+        errors = validate_task_shape(task)
+        if errors:
+            raise SwitchboardError(" ".join(errors))
+        path = task_path(workspace, "inbox", task["id"])
+        atomic_write_json(path, task)
+        return read_task_file(path, "inbox"), "created"
+
+
 def update_task(workspace: Path, task_id: str, updates: dict[str, Any]) -> LocatedTask:
     if not isinstance(updates, dict):
         raise SwitchboardError("updates must be an object.")

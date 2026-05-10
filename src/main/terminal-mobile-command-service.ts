@@ -1,13 +1,13 @@
 import type { TerminalSessionSnapshot } from '../shared/electron-api'
-import { MobileSwarmCommandService } from './mobile/sprintengine/command'
+import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import {
-  DesktopMobileSwarmSessionOrchestrator,
-  type DesktopMobileSwarmSessionAdapters,
+  DesktopMobileSprintEngineSessionOrchestrator,
+  type DesktopMobileSprintEngineSessionAdapters,
 } from './mobile/sprintengine/session'
 
 type TerminalMobileCommandServiceOptions = {
   listTerminals(): Promise<TerminalSessionSnapshot[]>
-  spawnAgentTerminal: DesktopMobileSwarmSessionAdapters['spawnAgentTerminal']
+  spawnAgentTerminal: DesktopMobileSprintEngineSessionAdapters['spawnAgentTerminal']
   writeTerminal(sessionId: string, data: string): void
 }
 
@@ -15,8 +15,8 @@ export function createTerminalMobileCommandService({
   listTerminals,
   spawnAgentTerminal,
   writeTerminal,
-}: TerminalMobileCommandServiceOptions): MobileSwarmCommandService {
-  const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
+}: TerminalMobileCommandServiceOptions): MobileSprintEngineCommandService {
+  const orchestrator = new DesktopMobileSprintEngineSessionOrchestrator({
     adapters: {
       listTerminals,
       spawnAgentTerminal,
@@ -24,7 +24,7 @@ export function createTerminalMobileCommandService({
     },
   })
 
-  return new MobileSwarmCommandService({
+  return new MobileSprintEngineCommandService({
     workspaceRoot: process.cwd(),
     sessionOrchestrator: orchestrator,
   })

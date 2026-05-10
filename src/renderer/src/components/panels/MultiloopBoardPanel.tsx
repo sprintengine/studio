@@ -23,12 +23,12 @@ import type {
   MultiloopStateDisplayError,
   MultiloopTask,
   MultiloopTaskStatus,
-  SwarmCliPermissionPreset,
-  SwarmRole,
-  SwarmState,
+  SprintEngineCliPermissionPreset,
+  SprintEngineRole,
+  SprintEngineState,
   WorkspaceId,
 } from '../../types/workspace'
-import { buildSwarmStartupPrompt, getSwarmStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
+import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import {
   buildMultiloopLaunchContextLines,
@@ -45,8 +45,8 @@ import {
 } from '../../utils/multiloop'
 import { autoRunReasonToLabel, selectMultiloopAutoRunCandidates, type MultiloopAutoRunSelection } from '../../utils/multiloopAutoRun'
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
-import { parseSwarmStateFile } from '../../utils/sprintengineStateFile'
-import { buildSwarmAgentRosterForState, buildSwarmRosterCommandArgs, swarmRoleLabels } from '../../utils/sprintengine'
+import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
+import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, sprintEngineRoleLabels } from '../../utils/sprintengine'
 
 type Props = {
   workspaceId: WorkspaceId
@@ -113,7 +113,7 @@ const taskStatusClass: Record<MultiloopTaskStatus, string> = {
 }
 
 const multiloopCliPermissionOptions: Array<{
-  value: SwarmCliPermissionPreset
+  value: SprintEngineCliPermissionPreset
   label: string
   title: string
 }> = [
@@ -203,12 +203,12 @@ function resolveProjectPath(path: string, workspaceRoot: string | null | undefin
   return `${workspaceRoot.replace(/[\\/]+$/u, '')}${sep}${path.replace(/^[\\/]+/u, '')}`
 }
 
-function isSwarmRole(role: MultiloopRole): role is SwarmRole {
+function isSprintEngineRole(role: MultiloopRole): role is SprintEngineRole {
   return role !== 'coordinator'
 }
 
-function getLinkedSprintEngineAgentId(role: SwarmRole, linkedState: SwarmState | null): string {
-  return buildSwarmAgentRosterForState(linkedState).find((agent) => agent.role === role)?.id ?? role
+function getLinkedSprintEngineAgentId(role: SprintEngineRole, linkedState: SprintEngineState | null): string {
+  return buildSprintEngineAgentRosterForState(linkedState).find((agent) => agent.role === role)?.id ?? role
 }
 
 function buildMultiloopStartupPrompt({
@@ -266,7 +266,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [goalExpanded, setGoalExpanded] = useState(false)
-  const [linkedSwarmStatesByPath, setLinkedSwarmStatesByPath] = useState<Record<string, SwarmState>>({})
+  const [linkedSprintEngineStatesByPath, setLinkedSprintEngineStatesByPath] = useState<Record<string, SprintEngineState>>({})
   const [linkedExecutionReadStatesByPath, setLinkedExecutionReadStatesByPath] = useState<Record<string, LinkedExecutionReadState>>({})
   const [linkedExecutionReadRevision, setLinkedExecutionReadRevision] = useState(0)
   const roadmapRailRef = useRef<HTMLElement | null>(null)
@@ -304,21 +304,21 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     try {
       const currentMilestone = getActiveMultiloopMilestone(multiloopState)
       const sprintEngineLink = currentMilestone?.sprintEngine ?? null
-      const linkedState = sprintEngineLink ? linkedSwarmStatesByPath[sprintEngineLink.statePath] ?? null : null
-      if (sprintEngineLink && isSwarmRole(role)) {
+      const linkedState = sprintEngineLink ? linkedSprintEngineStatesByPath[sprintEngineLink.statePath] ?? null : null
+      if (sprintEngineLink && isSprintEngineRole(role)) {
         if (!workspaceRoot) throw new Error('Open this Multiloop workspace from a project folder before launching Sprint Engine workers.')
         if (!linkedState) throw new Error(`Linked Sprint Engine state is not readable yet: ${sprintEngineLink.statePath}`)
 
         const agentId = getLinkedSprintEngineAgentId(role, linkedState)
         const existingAgent = workspace.agents[agentId]
-        const tabName = swarmRoleLabels[role]
+        const tabName = sprintEngineRoleLabels[role]
         const startupPrompt = prependAgentIdentifier(
-          buildSwarmStartupPrompt(role, agentId, linkedState.goal, {
+          buildSprintEngineStartupPrompt(role, agentId, linkedState.goal, {
             executionCwd: workspaceRoot,
             workspaceRoot,
-            swarmStatePath: sprintEngineLink.statePath,
-            rosterArgs: buildSwarmRosterCommandArgs(linkedState),
-            commandMode: getSwarmStartupCommandMode(role, agentId, linkedState),
+            sprintEngineStatePath: sprintEngineLink.statePath,
+            rosterArgs: buildSprintEngineRosterCommandArgs(linkedState),
+            commandMode: getSprintEngineStartupCommandMode(role, agentId, linkedState),
           }),
           tabName,
           tabName
@@ -455,8 +455,8 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     void window.api.readfile(resolvedStatePath)
       .then((content) => {
         if (cancelled()) return
-        const parsed = parseSwarmStateFile(content, link.teamSlug)
-        setLinkedSwarmStatesByPath((current) => ({ ...current, [link.statePath]: parsed }))
+        const parsed = parseSprintEngineStateFile(content, link.teamSlug)
+        setLinkedSprintEngineStatesByPath((current) => ({ ...current, [link.statePath]: parsed }))
         setLinkedExecutionReadStatesByPath((current) => ({
           ...current,
           [link.statePath]: { status: 'idle' },
@@ -464,7 +464,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
       })
       .catch((error: unknown) => {
         if (cancelled()) return
-        setLinkedSwarmStatesByPath((current) => {
+        setLinkedSprintEngineStatesByPath((current) => {
           const next = { ...current }
           delete next[link.statePath]
           return next
@@ -484,7 +484,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     const links = (multiloopState?.roadmap ?? [])
       .flatMap((milestone) => milestone.sprintEngine ? [milestone.sprintEngine] : [])
     if (links.length === 0) {
-      setLinkedSwarmStatesByPath({})
+      setLinkedSprintEngineStatesByPath({})
       setLinkedExecutionReadStatesByPath({})
       return
     }
@@ -500,11 +500,11 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     }
   }, [linkedExecutionReadRevision, multiloopState?.roadmap, readLinkedExecutionState])
 
-  const selectedLinkedSwarmState = selectedMilestone?.sprintEngine
-    ? linkedSwarmStatesByPath[selectedMilestone.sprintEngine.statePath] ?? null
+  const selectedLinkedSprintEngineState = selectedMilestone?.sprintEngine
+    ? linkedSprintEngineStatesByPath[selectedMilestone.sprintEngine.statePath] ?? null
     : null
-  const activeLinkedSwarmState = activeMilestone?.sprintEngine
-    ? linkedSwarmStatesByPath[activeMilestone.sprintEngine.statePath] ?? null
+  const activeLinkedSprintEngineState = activeMilestone?.sprintEngine
+    ? linkedSprintEngineStatesByPath[activeMilestone.sprintEngine.statePath] ?? null
     : null
   const selectedLinkedExecutionReadState = selectedMilestone?.sprintEngine
     ? linkedExecutionReadStatesByPath[selectedMilestone.sprintEngine.statePath] ?? { status: 'idle' }
@@ -514,12 +514,12 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     : { status: 'idle' } as const
 
   const visibleTasks = useMemo(
-    () => (multiloopState ? getMilestoneExecutionTasks(multiloopState, selectedMilestone, selectedLinkedSwarmState) : []),
-    [multiloopState, selectedLinkedSwarmState, selectedMilestone]
+    () => (multiloopState ? getMilestoneExecutionTasks(multiloopState, selectedMilestone, selectedLinkedSprintEngineState) : []),
+    [multiloopState, selectedLinkedSprintEngineState, selectedMilestone]
   )
   const activeTasks = useMemo(
-    () => (multiloopState ? getMilestoneExecutionTasks(multiloopState, activeMilestone, activeLinkedSwarmState) : []),
-    [activeLinkedSwarmState, activeMilestone, multiloopState]
+    () => (multiloopState ? getMilestoneExecutionTasks(multiloopState, activeMilestone, activeLinkedSprintEngineState) : []),
+    [activeLinkedSprintEngineState, activeMilestone, multiloopState]
   )
   const activeBlockers = useMemo(
     () => (multiloopState ? getActiveMultiloopBlockers(multiloopState, activeMilestone?.id) : []),
@@ -534,32 +534,32 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
       ? getMilestoneExecutionReadiness({
         state: multiloopState,
         milestone: activeMilestone,
-        linkedSwarmState: activeLinkedSwarmState,
+        linkedSprintEngineState: activeLinkedSprintEngineState,
         linkedReadState: activeLinkedExecutionReadState,
         activeBlockers,
       })
       : 'no_active_milestone'),
-    [activeBlockers, activeLinkedExecutionReadState, activeLinkedSwarmState, activeMilestone, multiloopState]
+    [activeBlockers, activeLinkedExecutionReadState, activeLinkedSprintEngineState, activeMilestone, multiloopState]
   )
   const visibleReadiness = useMemo(
     () => (multiloopState
       ? getMilestoneExecutionReadiness({
         state: multiloopState,
         milestone: selectedMilestone,
-        linkedSwarmState: selectedLinkedSwarmState,
+        linkedSprintEngineState: selectedLinkedSprintEngineState,
         linkedReadState: selectedLinkedExecutionReadState,
         activeBlockers: visibleBlockers,
       })
       : 'no_active_milestone'),
-    [multiloopState, selectedLinkedExecutionReadState, selectedLinkedSwarmState, selectedMilestone, visibleBlockers]
+    [multiloopState, selectedLinkedExecutionReadState, selectedLinkedSprintEngineState, selectedMilestone, visibleBlockers]
   )
   const primaryAction = useMemo(
     () => getPrimaryNextAction(activeReadiness, {
-      linkedSwarmState: activeLinkedSwarmState,
+      linkedSprintEngineState: activeLinkedSprintEngineState,
       milestone: activeMilestone,
       tasks: activeTasks,
     }),
-    [activeLinkedSwarmState, activeMilestone, activeReadiness, activeTasks]
+    [activeLinkedSprintEngineState, activeMilestone, activeReadiness, activeTasks]
   )
   const autoRunSelection = useMemo<MultiloopAutoRunSelection | null>(
     () => (multiloopState
@@ -568,14 +568,14 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         limit: multiloopAutoState?.maxConcurrentAgents ?? 1,
         pendingSpawns: multiloopAutoState?.pendingSpawns ?? [],
         coordinatorAutoSpawnKey: multiloopAutoState?.coordinatorAutoSpawnKey ?? null,
-        linkedSwarmState: activeLinkedSwarmState,
+        linkedSprintEngineState: activeLinkedSprintEngineState,
       })
       : null),
-    [activeLinkedSwarmState, multiloopAutoState?.coordinatorAutoSpawnKey, multiloopAutoState?.maxConcurrentAgents, multiloopAutoState?.pendingSpawns, multiloopState]
+    [activeLinkedSprintEngineState, multiloopAutoState?.coordinatorAutoSpawnKey, multiloopAutoState?.maxConcurrentAgents, multiloopAutoState?.pendingSpawns, multiloopState]
   )
   const latestEvidenceTasks = useMemo(
-    () => (multiloopState ? getLatestExecutionEvidenceTasks(multiloopState, activeLinkedSwarmState, 4) : []),
-    [activeLinkedSwarmState, multiloopState]
+    () => (multiloopState ? getLatestExecutionEvidenceTasks(multiloopState, activeLinkedSprintEngineState, 4) : []),
+    [activeLinkedSprintEngineState, multiloopState]
   )
   const selectedTask = useMemo(
     () => visibleTasks.find((task) => task.id === selectedTaskId) ?? visibleTasks.find((task) => task.status !== 'done') ?? visibleTasks[0] ?? null,
@@ -584,9 +584,9 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const relatedArtifacts = useMemo(
     () => [
       ...getRelatedArtifacts(multiloopState?.artifacts ?? [], selectedMilestone?.id ?? null, visibleTasks),
-      ...getMilestoneExecutionArtifacts(selectedMilestone, selectedLinkedSwarmState),
+      ...getMilestoneExecutionArtifacts(selectedMilestone, selectedLinkedSprintEngineState),
     ],
-    [multiloopState?.artifacts, selectedLinkedSwarmState, selectedMilestone, visibleTasks]
+    [multiloopState?.artifacts, selectedLinkedSprintEngineState, selectedMilestone, visibleTasks]
   )
   const fullGoal = formatMultiloopGoal(multiloopState?.loop.finalGoal ?? '')
   const goalPreview = formatMultiloopGoalPreview(multiloopState?.loop.finalGoal ?? '')
@@ -669,7 +669,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
           autoRunEnabled={autoRunEnabled}
           autoRunReasonLabel={autoRunReasonLabel}
           launchState={roleLaunchState}
-          linkedSprintEngineState={activeLinkedSwarmState}
+          linkedSprintEngineState={activeLinkedSprintEngineState}
           linkedExecutionReadState={activeLinkedExecutionReadState}
           cliPermissionPreset={multiloopAutoState?.cliPermissionPreset ?? 'default'}
           primaryAction={primaryAction}
@@ -731,7 +731,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
               />
               <ExecutionSourceStrip
                 milestone={selectedMilestone}
-                linkedSwarmState={selectedLinkedSwarmState}
+                linkedSprintEngineState={selectedLinkedSprintEngineState}
                 linkedExecutionReadState={selectedLinkedExecutionReadState}
                 workspaceRoot={workspaceRoot}
                 onOpenStateFile={(link) => void openLinkedStateFile(link)}
@@ -847,15 +847,15 @@ function ExecutionStatusStrip({
   runStateLabel: string
   autoRunReasonLabel: string
   launchState: RoleLaunchState
-  linkedSprintEngineState: SwarmState | null
+  linkedSprintEngineState: SprintEngineState | null
   linkedExecutionReadState: LinkedExecutionReadState
   autoRunEnabled: boolean
-  cliPermissionPreset: SwarmCliPermissionPreset
+  cliPermissionPreset: SprintEngineCliPermissionPreset
   primaryAction: MultiloopPrimaryNextAction
   primaryActionDisabled: boolean
   onMilestoneFocus: () => void
   onToggleAutoRun: () => void
-  onPermissionPresetChange: (preset: SwarmCliPermissionPreset) => void
+  onPermissionPresetChange: (preset: SprintEngineCliPermissionPreset) => void
   onOpenRole: (role: MultiloopRole) => void
   onPrimaryAction: () => void
 }) {
@@ -930,9 +930,9 @@ function RunSettingsPopover({
   autoRunEnabled: boolean
   runStateLabel: string
   autoRunReasonLabel: string
-  cliPermissionPreset: SwarmCliPermissionPreset
+  cliPermissionPreset: SprintEngineCliPermissionPreset
   onToggleAutoRun: () => void
-  onPermissionPresetChange: (preset: SwarmCliPermissionPreset) => void
+  onPermissionPresetChange: (preset: SprintEngineCliPermissionPreset) => void
 }) {
   const popover = usePopoverFocus('multiloop-run-popover')
   return (
@@ -966,7 +966,7 @@ function RunSettingsPopover({
             CLI permission preset
             <select
               value={cliPermissionPreset}
-              onChange={(event) => onPermissionPresetChange(event.currentTarget.value as SwarmCliPermissionPreset)}
+              onChange={(event) => onPermissionPresetChange(event.currentTarget.value as SprintEngineCliPermissionPreset)}
               title={multiloopCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title}
               className="mt-2 h-8 w-full rounded-[6px] border border-[#303139] bg-[#0f1014] px-2 text-[12px] font-medium text-[#d7d7dc] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]"
             >
@@ -992,7 +992,7 @@ function MoreTerminalsPopover({
   agents: Record<string, AgentState>
   launchState: RoleLaunchState
   hasSprintEngineLink: boolean
-  linkedSprintEngineState: SwarmState | null
+  linkedSprintEngineState: SprintEngineState | null
   linkedExecutionReadState: LinkedExecutionReadState
   onOpenRole: (role: MultiloopRole) => void
 }) {
@@ -1029,7 +1029,7 @@ function MoreTerminalsPopover({
               <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#777882]">{group.label}</div>
               {group.roles.map((role) => {
                 const soul = getMultiloopRole(role)
-                const isLinkedWorker = hasSprintEngineLink && isSwarmRole(role)
+                const isLinkedWorker = hasSprintEngineLink && isSprintEngineRole(role)
                 const agentId = isLinkedWorker && linkedSprintEngineState ? getLinkedSprintEngineAgentId(role, linkedSprintEngineState) : `multiloop-${role}`
                 const exists = Boolean(agents[agentId])
                 const loading = launchState.status === 'loading' && launchState.role === role
@@ -1234,13 +1234,13 @@ function MilestoneSummary({
 
 function ExecutionSourceStrip({
   milestone,
-  linkedSwarmState,
+  linkedSprintEngineState,
   linkedExecutionReadState,
   workspaceRoot,
   onOpenStateFile,
 }: {
   milestone: MultiloopMilestone | null
-  linkedSwarmState: SwarmState | null
+  linkedSprintEngineState: SprintEngineState | null
   linkedExecutionReadState: LinkedExecutionReadState
   workspaceRoot: string | null
   onOpenStateFile: (link: NonNullable<MultiloopMilestone['sprintEngine']>) => void
@@ -1253,7 +1253,7 @@ function ExecutionSourceStrip({
   return (
     <div className="flex flex-wrap items-center gap-2 border-l-2 border-[#355da8] bg-[#0d0e12] px-3 py-2 text-sm leading-6 text-[#b8b9c1]">
       <span className="font-semibold text-[#b8ccff]">Sprint Engine</span>
-      <span>{linkedSwarmState?.name || milestone.sprintEngine.teamSlug}</span>
+      <span>{linkedSprintEngineState?.name || milestone.sprintEngine.teamSlug}</span>
       <button
         type="button"
         onClick={() => onOpenStateFile(milestone.sprintEngine!)}

@@ -6,6 +6,7 @@ import type {
   SwitchboardClaimTaskResult,
   SwitchboardCreateTaskInput,
   SwitchboardInitApiResult,
+  SwitchboardImportResult,
   SwitchboardMoveTaskInput,
   SwitchboardMutationResult,
   SwitchboardPromoteInboxTaskInput,
@@ -49,6 +50,8 @@ type SwitchboardIpcDependencies = {
   listWatchtowerRuns(workspaceRoot: string): Promise<WatchtowerRunListResult>
   validateWatchtowerOutputs(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputValidationResult>
   ingestWatchtowerOutputs(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputIngestResult>
+  importGitHubIssues(workspaceRoot: string): Promise<SwitchboardImportResult>
+  importJiraIssues(workspaceRoot: string): Promise<SwitchboardImportResult>
 }
 
 export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDependencies): void {
@@ -158,4 +161,12 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
       return deps.ingestWatchtowerOutputs(input)
     }
   )
+
+  ipcMain.handle('switchboard:import:github-issues', async (_, workspaceRoot: string): Promise<SwitchboardImportResult> => {
+    return deps.importGitHubIssues(workspaceRoot)
+  })
+
+  ipcMain.handle('switchboard:import:jira-issues', async (_, workspaceRoot: string): Promise<SwitchboardImportResult> => {
+    return deps.importJiraIssues(workspaceRoot)
+  })
 }

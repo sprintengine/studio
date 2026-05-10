@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import {
-  MobileSwarmActivityPublisher,
+  MobileSprintEngineActivityPublisher,
   pushTokenHash,
   type MobileNotificationDelivery,
   type MobilePushRegistrationTarget,
 } from './activity'
-import type { MobileControlSnapshot, MobileSwarmSnapshot } from './snapshot'
-import type { MobileSwarmCommandAuditEntry } from './command'
+import type { MobileControlSnapshot, MobileSprintEngineSnapshot } from './snapshot'
+import type { MobileSprintEngineCommandAuditEntry } from './command'
 
 const now = new Date('2026-04-28T20:40:00.000Z')
 
@@ -26,7 +26,7 @@ function assertPushTokenHashIsStable(): void {
 
 async function assertSnapshotActivityPublishesSanitizedNotifications(): Promise<void> {
   const deliveries: MobileNotificationDelivery[] = []
-  const publisher = new MobileSwarmActivityPublisher({
+  const publisher = new MobileSprintEngineActivityPublisher({
     now: () => now,
     getPushTargets: () => [{ deviceId: 'device_1', registrationId: 'mpr_1' }],
     publish: (delivery) => deliveries.push(delivery),
@@ -53,8 +53,8 @@ async function assertSnapshotActivityPublishesSanitizedNotifications(): Promise<
   assert.deepEqual(
     emitted.map((delivery) => delivery.event.payload.deepLink).sort(),
     [
-      'multicode-mobile://swarms/team/artifacts/A1',
-      'multicode-mobile://swarms/team/tasks/T1',
+      'multicode-mobile://sprintengines/team/artifacts/A1',
+      'multicode-mobile://sprintengines/team/tasks/T1',
     ]
   )
 
@@ -71,7 +71,7 @@ async function assertRevokedRegistrationsReceiveNoNotifications(): Promise<void>
     { deviceId: 'revoked_device', registrationId: 'mpr_revoked', revokedAt: now.toISOString() },
   ]
   const deliveries: MobileNotificationDelivery[] = []
-  const publisher = new MobileSwarmActivityPublisher({
+  const publisher = new MobileSprintEngineActivityPublisher({
     now: () => now,
     getPushTargets: () => targets,
     publish: (delivery) => deliveries.push(delivery),
@@ -90,7 +90,7 @@ async function assertRevokedRegistrationsReceiveNoNotifications(): Promise<void>
 
 async function assertCommandFailureAndDesktopOfflinePublishNotifications(): Promise<void> {
   const deliveries: MobileNotificationDelivery[] = []
-  const publisher = new MobileSwarmActivityPublisher({
+  const publisher = new MobileSprintEngineActivityPublisher({
     now: () => now,
     getPushTargets: () => [{ deviceId: 'device_1', registrationId: 'mpr_1' }],
     publish: (delivery) => deliveries.push(delivery),
@@ -104,30 +104,30 @@ async function assertCommandFailureAndDesktopOfflinePublishNotifications(): Prom
     deliveries.map((delivery) => delivery.event.payload.category),
     ['command.failed', 'desktop.offline']
   )
-  assert.equal(deliveries[0].event.payload.deepLink, 'multicode-mobile://swarms/team/commands/cmd_1')
+  assert.equal(deliveries[0].event.payload.deepLink, 'multicode-mobile://sprintengines/team/commands/cmd_1')
   assert.equal(deliveries[1].event.payload.deepLink, 'multicode-mobile://desktop')
 }
 
-function snapshot(swarms: MobileSwarmSnapshot[]): MobileControlSnapshot {
+function snapshot(sprintEngines: MobileSprintEngineSnapshot[]): MobileControlSnapshot {
   return {
     protocolVersion: 1,
     generatedAt: now.toISOString(),
     desktopSessionId: 'desktop_1',
-    swarms,
+    sprintEngines,
   }
 }
 
 function sprintengine(
-  swarmId: string,
-  input: Pick<MobileSwarmSnapshot, 'tasks' | 'artifacts'>
-): MobileSwarmSnapshot {
+  sprintEngineId: string,
+  input: Pick<MobileSprintEngineSnapshot, 'tasks' | 'artifacts'>
+): MobileSprintEngineSnapshot {
   return {
-    swarmId,
+    sprintEngineId,
     name: 'Mobile SprintEngine',
     workspacePath: '/private/workspace',
-    statePath: `/private/workspace/.multi-code/sprintengine/${swarmId}/state.yaml`,
-    planPath: `/private/workspace/.multi-code/sprintengine/${swarmId}/plan.md`,
-    snapshotVersion: `snap_${swarmId}`,
+    statePath: `/private/workspace/.multi-code/sprintengine/${sprintEngineId}/state.yaml`,
+    planPath: `/private/workspace/.multi-code/sprintengine/${sprintEngineId}/plan.md`,
+    snapshotVersion: `snap_${sprintEngineId}`,
     updatedAt: now.toISOString(),
     board: {
       todo: 0,
@@ -142,7 +142,7 @@ function sprintengine(
   }
 }
 
-function task(taskId: string, status: MobileSwarmSnapshot['tasks'][number]['status']): MobileSwarmSnapshot['tasks'][number] {
+function task(taskId: string, status: MobileSprintEngineSnapshot['tasks'][number]['status']): MobileSprintEngineSnapshot['tasks'][number] {
   return {
     taskId,
     title: `Task ${taskId} source code`,
@@ -154,8 +154,8 @@ function task(taskId: string, status: MobileSwarmSnapshot['tasks'][number]['stat
 
 function artifact(
   artifactId: string,
-  status: MobileSwarmSnapshot['artifacts'][number]['status']
-): MobileSwarmSnapshot['artifacts'][number] {
+  status: MobileSprintEngineSnapshot['artifacts'][number]['status']
+): MobileSprintEngineSnapshot['artifacts'][number] {
   return {
     artifactId,
     title: `Artifact ${artifactId} artifact body`,
@@ -166,7 +166,7 @@ function artifact(
   }
 }
 
-function commandAudit(): MobileSwarmCommandAuditEntry {
+function commandAudit(): MobileSprintEngineCommandAuditEntry {
   return {
     auditId: 'msa_1',
     commandId: 'cmd_1',

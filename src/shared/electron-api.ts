@@ -5,6 +5,7 @@ import type {
   SwitchboardClaimTaskResult,
   SwitchboardCreateTaskInput,
   SwitchboardInitApiResult,
+  SwitchboardImportResult,
   SwitchboardMoveTaskInput,
   SwitchboardMutationResult,
   SwitchboardPromoteInboxTaskInput,
@@ -218,7 +219,7 @@ export type BuiltinSkillInstallResult =
 
 export type AgentCli = 'codex' | 'claude'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
-export type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 
 export type CliRuntimeSettings = {
   command: string
@@ -236,7 +237,7 @@ export type TerminalSpawnMetadata = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
-  cliPermissionPreset?: SwarmCliPermissionPreset
+  cliPermissionPreset?: SprintEngineCliPermissionPreset
   memoryRootPath?: string
   memoryRelativeRoot?: string
 }
@@ -251,7 +252,7 @@ export type TerminalSessionSnapshot = {
   terminalId?: string
   cli?: AgentCli
   cwd?: string
-  swarmStatePath?: string
+  sprintEngineStatePath?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
@@ -414,65 +415,6 @@ export type GitHubRepoRef = {
   webUrl: string
 }
 
-export type SymphonyGitHubSyncInput = {
-  repoRoot: string
-  statePath: string
-  token?: string | null
-}
-
-export type SymphonyGitHubWriteBackInput = {
-  repoRoot: string
-  statePath: string
-  taskId: string
-  kind: 'work_started' | 'review_ready'
-  token?: string | null
-}
-
-export type SymphonyGitHubSyncedTask = {
-  id: string
-  title: string
-  status: string
-  role: string
-  source?: {
-    type: 'github'
-    externalId: string
-    externalUrl: string
-    repo: string
-    title: string
-    body?: string
-    externalUpdatedAt: string
-    syncedAt: string
-    syncStatus: 'clean' | 'local_changed' | 'remote_changed' | 'conflict'
-  }
-  dispatch?: {
-    mode: 'manual'
-    status: 'todo' | 'ready'
-    triagedBy: 'none' | 'user' | 'architect'
-    readyAt?: string
-  }
-}
-
-export type SymphonyGitHubSyncResult =
-  | {
-      ok: true
-      repo: GitHubRepoRef
-      fetched: number
-      created: number
-      updated: number
-      tasks: SymphonyGitHubSyncedTask[]
-    }
-  | { ok: false; message: string }
-
-export type SymphonyGitHubWriteBackResult =
-  | {
-      ok: true
-      repo: GitHubRepoRef
-      taskId: string
-      issueNumber: string
-      commentUrl: string | null
-    }
-  | { ok: false; message: string }
-
 export type GitHubTokenStatus = {
   configured: boolean
   source: 'settings' | 'environment' | 'none'
@@ -575,11 +517,11 @@ export type AppUpdateCheckResult =
   | { ok: true; state: AppUpdateState; message: string }
   | { ok: false; state: AppUpdateState; message: string }
 
-export type SwarmArtifactCommandResult =
+export type SprintEngineArtifactCommandResult =
   | { ok: true; data: unknown }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 
-export type SwarmTaskMutationRole =
+export type SprintEngineTaskMutationRole =
   | 'architect'
   | 'product'
   | 'developer'
@@ -589,22 +531,22 @@ export type SwarmTaskMutationRole =
   | 'code_reviewer'
   | 'performance'
 
-export type SwarmTaskUpdateInput = {
+export type SprintEngineTaskUpdateInput = {
   statePath: string
   taskId: string
   title?: string
   description?: string
-  role?: SwarmTaskMutationRole
+  role?: SprintEngineTaskMutationRole
   acceptanceCriteria?: string[]
   implementationNotes?: string[]
   notes?: string[]
 }
 
-export type SwarmTaskCreateInput = {
+export type SprintEngineTaskCreateInput = {
   statePath: string
   title: string
   description?: string
-  role: SwarmTaskMutationRole
+  role: SprintEngineTaskMutationRole
   acceptanceCriteria?: string[]
   implementationNotes?: string[]
   notes?: string[]
@@ -753,7 +695,7 @@ export type MobileControlCommandType =
 export type MobileControlCapability =
   | 'snapshots.read'
   | 'artifacts.read'
-  | 'swarms.create'
+  | 'sprintengines.create'
   | 'tasks.start'
   | 'artifacts.review'
   | 'agents.followUp'
@@ -972,23 +914,21 @@ export type ElectronApi = {
   copyGitWorktreeIncludedFiles: (
     input: GitWorktreeCopyIncludedInput
   ) => Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>>
-  getSymphonyGitHubTokenStatus: () => Promise<GitHubTokenStatus>
-  setSymphonyGitHubToken: (token: string) => Promise<GitHubTokenStatus>
-  clearSymphonyGitHubToken: () => Promise<GitHubTokenStatus>
-  syncSymphonyGitHubIssues: (input: SymphonyGitHubSyncInput) => Promise<SymphonyGitHubSyncResult>
-  writeBackSymphonyGitHubIssue: (input: SymphonyGitHubWriteBackInput) => Promise<SymphonyGitHubWriteBackResult>
-  openSwarmArtifact: (statePath: string, artifactPath: string) => Promise<SwarmArtifactCommandResult>
-  approveSwarmArtifact: (statePath: string, artifactId: string) => Promise<SwarmArtifactCommandResult>
-  autoApproveSwarmArtifact: (statePath: string, artifactId: string) => Promise<SwarmArtifactCommandResult>
-  requestSwarmArtifactChanges: (
+  getGitHubTokenStatus: () => Promise<GitHubTokenStatus>
+  setGitHubToken: (token: string) => Promise<GitHubTokenStatus>
+  clearGitHubToken: () => Promise<GitHubTokenStatus>
+  openSprintEngineArtifact: (statePath: string, artifactPath: string) => Promise<SprintEngineArtifactCommandResult>
+  approveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
+  autoApproveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
+  requestSprintEngineArtifactChanges: (
     statePath: string,
     artifactId: string,
     feedback: string
-  ) => Promise<SwarmArtifactCommandResult>
-  readySwarmTask: (statePath: string, taskId: string) => Promise<SwarmArtifactCommandResult>
-  initializeSprintEngineState: (input: SprintEngineStateInitializeInput) => Promise<SwarmArtifactCommandResult>
-  updateSwarmTask: (input: SwarmTaskUpdateInput) => Promise<SwarmArtifactCommandResult>
-  createSwarmTask: (input: SwarmTaskCreateInput) => Promise<SwarmArtifactCommandResult>
+  ) => Promise<SprintEngineArtifactCommandResult>
+  readySprintEngineTask: (statePath: string, taskId: string) => Promise<SprintEngineArtifactCommandResult>
+  initializeSprintEngineState: (input: SprintEngineStateInitializeInput) => Promise<SprintEngineArtifactCommandResult>
+  updateSprintEngineTask: (input: SprintEngineTaskUpdateInput) => Promise<SprintEngineArtifactCommandResult>
+  createSprintEngineTask: (input: SprintEngineTaskCreateInput) => Promise<SprintEngineArtifactCommandResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>
   createSwitchboardTask: (input: SwitchboardCreateTaskInput) => Promise<SwitchboardMutationResult>
@@ -1012,6 +952,8 @@ export type ElectronApi = {
   listWatchtowerRuns: (workspaceRoot: string) => Promise<WatchtowerRunListResult>
   validateWatchtowerOutputs: (input: { workspaceRoot: string; runId: string }) => Promise<WatchtowerOutputValidationResult>
   ingestWatchtowerOutputs: (input: { workspaceRoot: string; runId: string }) => Promise<WatchtowerOutputIngestResult>
+  importGitHubIssuesToWatchtower: (workspaceRoot: string) => Promise<SwitchboardImportResult>
+  importJiraIssuesToWatchtower: (workspaceRoot: string) => Promise<SwitchboardImportResult>
   initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
   terminalSpawn: (
     sessionId: string,
@@ -1019,7 +961,7 @@ export type ElectronApi = {
     rows: number,
     cwd?: string,
     resume?: boolean,
-    swarmStatePath?: string,
+    sprintEngineStatePath?: string,
     cli?: AgentCli,
     initialPrompt?: string,
     cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,

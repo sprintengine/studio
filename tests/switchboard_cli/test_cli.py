@@ -367,6 +367,54 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(commented["record"]["task"]["comments"][-1]["body"], "Needs focused validation.")
         self.assertEqual(commented["record"]["task"]["comments"][-1]["author"]["name"], "Reviewer")
 
+    def test_import_task_creates_uuid_inbox_task_and_skips_duplicate_source(self) -> None:
+        item = {
+            "provider": "github",
+            "externalId": "I_kwDO123",
+            "externalKey": "owner/repo#12",
+            "externalUrl": "https://github.com/owner/repo/issues/12",
+            "identifier": "repo#12",
+            "title": "GitHub issue",
+            "description": "Issue body",
+            "labels": ["bug", "backend"],
+            "priority": None,
+            "updatedAt": "2026-05-09T12:00:00Z",
+        }
+
+        imported = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(item)]))
+
+        self.assertTrue(imported["created"])
+        task_id = imported["id"]
+        self.assertRegex(task_id, r"^[0-9a-f-]{36}$")
+        self.assertNotEqual(task_id, "repo#12")
+        task = json.loads(self.task_file("inbox", task_id).read_text(encoding="utf-8"))
+        self.assertEqual(task["identifier"], "repo#12")
+        self.assertEqual(task["source"]["type"], "github")
+        self.assertEqual(task["source"]["externalId"], "I_kwDO123")
+
+        duplicate = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(item)]))
+        self.assertFalse(duplicate["created"])
+        self.assertTrue(duplicate["skipped"])
+        inbox = stdout_json(self.run_cli(["list", *self.workspace_args(), "--status", "inbox"]))["tasks"]
+        self.assertEqual(len(inbox), 1)
+
+    def test_import_task_uses_url_identity_when_external_id_is_missing(self) -> None:
+        first = {
+            "provider": "jira",
+            "externalUrl": "https://jira.example.test/browse/KEY-123",
+            "externalKey": "KEY-123",
+            "title": "Jira issue",
+        }
+        second = {**first, "title": "Changed remote title"}
+
+        created = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(first)]))
+        duplicate = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(second)]))
+
+        self.assertTrue(created["created"])
+        self.assertFalse(duplicate["created"])
+        task = json.loads(self.task_file("inbox", created["id"]).read_text(encoding="utf-8"))
+        self.assertEqual(task["title"], "Jira issue")
+
     def test_create_inbox_promote_and_cancel_with_reason(self) -> None:
         created = self.create_task(inbox=True, title="Inbox task")
         task_id = created["id"]

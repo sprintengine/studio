@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import type {
   MobileControlCommand,
-  MobileSwarmCommandResult,
+  MobileSprintEngineCommandResult,
 } from '../sprintengine/command'
 import type {
   MobileControlErrorCode,
@@ -14,7 +14,7 @@ const mobileControlProtocolVersion = 1 as const
 export function acceptedBridgeCommand(
   command: MobileControlCommand,
   data: unknown
-): Extract<MobileSwarmCommandResult, { ok: true }> {
+): Extract<MobileSprintEngineCommandResult, { ok: true }> {
   return {
     ok: true,
     commandId: command.commandId,
@@ -41,7 +41,7 @@ export function failedCommandResult(
   command: Pick<MobileControlCommand, 'commandId' | 'type' | 'idempotencyKey'> | RelayCommandEnvelope,
   code: MobileControlErrorCode,
   message: string
-): Extract<MobileSwarmCommandResult, { ok: false }> {
+): Extract<MobileSprintEngineCommandResult, { ok: false }> {
   const commandType = 'type' in command ? command.type : relayCommandTypeToMobile(command.commandType)
   return {
     ok: false,
@@ -67,7 +67,7 @@ export function failedCommandResult(
   }
 }
 
-export function summarizeCommandResult(result: MobileSwarmCommandResult): Record<string, unknown> {
+export function summarizeCommandResult(result: MobileSprintEngineCommandResult): Record<string, unknown> {
   if (!result.ok) {
     return {
       ok: false,

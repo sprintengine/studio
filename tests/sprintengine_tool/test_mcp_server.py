@@ -125,7 +125,7 @@ def test_mcp_plan_add_task_can_create_manual_dispatch_local_task(tmp_path) -> No
         "sprintengine.plan.add_task",
         {
             "statePath": str(fixture.state_path),
-            "title": "Local Symphony task",
+            "title": "Local manual task",
             "description": "Refined execution brief",
             "role": "developer",
             "acceptance": ["Manual gate remains closed."],

@@ -3,18 +3,18 @@ import { mkdir, readFile, stat, writeFile } from 'fs/promises'
 import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type {
-  SwarmArtifactCommandResult,
+  SprintEngineArtifactCommandResult,
   SprintEngineStateInitializeInput,
-  SwarmTaskCreateInput,
-  SwarmTaskMutationRole,
-  SwarmTaskUpdateInput,
+  SprintEngineTaskCreateInput,
+  SprintEngineTaskMutationRole,
+  SprintEngineTaskUpdateInput,
 } from '../shared/electron-api'
 import type {
-  SwarmArtifactOpenPayload,
-  SwarmArtifactReviewAction,
-  SwarmArtifactReviewMode,
-  SwarmArtifactReviewPayload,
-  SwarmTaskReadyPayload,
+  SprintEngineArtifactOpenPayload,
+  SprintEngineArtifactReviewAction,
+  SprintEngineArtifactReviewMode,
+  SprintEngineArtifactReviewPayload,
+  SprintEngineTaskReadyPayload,
 } from './ipc/sprintengine-ipc'
 
 type SprintEngineArtifactDependencies = {
@@ -33,7 +33,7 @@ type SprintEngineMcpToolResponse =
   | { ok: true; tool: string; result: unknown }
   | { ok: false; tool: string; error?: { code?: string; message?: string } }
 
-type SwarmArtifactRecord = {
+type SprintEngineArtifactRecord = {
   id: string
   kind: string
   title: string
@@ -43,13 +43,13 @@ type SwarmArtifactRecord = {
   taskId: string
 }
 
-type SwarmTaskRecord = {
+type SprintEngineTaskRecord = {
   id: string
   status: string
   ownerAgentId: string
 }
 
-const validTaskRoles = new Set<SwarmTaskMutationRole>([
+const validTaskRoles = new Set<SprintEngineTaskMutationRole>([
   'architect',
   'product',
   'developer',
@@ -60,13 +60,13 @@ const validTaskRoles = new Set<SwarmTaskMutationRole>([
   'performance',
 ])
 
-type ValidSwarmStatePath = {
+type ValidSprintEngineStatePath = {
   statePath: string
   teamDirectory: string
   workspaceRoot: string
 }
 
-type SerializableSwarmStatePayload = {
+type SerializableSprintEngineStatePayload = {
   name: string
   goal: string
   agents: Record<string, unknown>
@@ -88,7 +88,7 @@ const autoApprovableArtifactKinds = new Set([
   'validation_report',
 ])
 
-function validateSwarmStatePath(input: unknown): ValidSwarmStatePath {
+function validateSprintEngineStatePath(input: unknown): ValidSprintEngineStatePath {
   if (typeof input !== 'string' || !input.trim()) {
     throw new Error('A Sprint Engine state path is required.')
   }
@@ -100,13 +100,13 @@ function validateSwarmStatePath(input: unknown): ValidSwarmStatePath {
 
   const statePath = resolve(rawStatePath)
   const teamDirectory = dirname(statePath)
-  const swarmDirectory = dirname(teamDirectory)
-  const multiCodeDirectory = dirname(swarmDirectory)
+  const sprintEngineDirectory = dirname(teamDirectory)
+  const multiCodeDirectory = dirname(sprintEngineDirectory)
   const workspaceRoot = dirname(multiCodeDirectory)
 
   if (
     basename(statePath) !== 'state.yaml'
-    || basename(swarmDirectory) !== 'sprintengine'
+    || basename(sprintEngineDirectory) !== 'sprintengine'
     || basename(multiCodeDirectory) !== '.multi-code'
     || workspaceRoot === multiCodeDirectory
   ) {
@@ -124,7 +124,7 @@ function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
   )
 }
 
-function resolveArtifactFilePath(state: ValidSwarmStatePath, artifactPathInput: unknown): string {
+function resolveArtifactFilePath(state: ValidSprintEngineStatePath, artifactPathInput: unknown): string {
   if (typeof artifactPathInput !== 'string' || !artifactPathInput.trim()) {
     throw new Error('Artifact path is required.')
   }
@@ -151,7 +151,7 @@ function resolveArtifactFilePath(state: ValidSwarmStatePath, artifactPathInput: 
   return fullPath
 }
 
-function resolveSwarmArtifactId(input: unknown): string {
+function resolveSprintEngineArtifactId(input: unknown): string {
   if (typeof input !== 'string' || !input.trim()) {
     throw new Error('Artifact id is required.')
   }
@@ -162,7 +162,7 @@ function resolveSwarmArtifactId(input: unknown): string {
   return artifactId
 }
 
-function resolveSwarmTaskId(input: unknown): string {
+function resolveSprintEngineTaskId(input: unknown): string {
   if (typeof input !== 'string' || !input.trim()) {
     throw new Error('Task id is required.')
   }
@@ -173,14 +173,14 @@ function resolveSwarmTaskId(input: unknown): string {
   return taskId
 }
 
-function resolveTaskRole(input: unknown): SwarmTaskMutationRole {
-  if (typeof input !== 'string' || !validTaskRoles.has(input as SwarmTaskMutationRole)) {
+function resolveTaskRole(input: unknown): SprintEngineTaskMutationRole {
+  if (typeof input !== 'string' || !validTaskRoles.has(input as SprintEngineTaskMutationRole)) {
     throw new Error('Task role is invalid.')
   }
-  return input as SwarmTaskMutationRole
+  return input as SprintEngineTaskMutationRole
 }
 
-function resolveOptionalTaskRole(input: unknown): SwarmTaskMutationRole | undefined {
+function resolveOptionalTaskRole(input: unknown): SprintEngineTaskMutationRole | undefined {
   return input === undefined || input === null ? undefined : resolveTaskRole(input)
 }
 
@@ -219,7 +219,7 @@ function resolveArray(input: unknown, field: string): unknown[] {
   return input
 }
 
-function resolveInitialSwarmStatePayload(payload: SprintEngineStateInitializeInput): SerializableSwarmStatePayload {
+function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitializeInput): SerializableSprintEngineStatePayload {
   return {
     name: resolveRequiredString(payload?.name, 'Sprint Engine name'),
     goal: resolveOptionalString(payload?.goal, 'Sprint Engine goal') ?? '',
@@ -230,7 +230,7 @@ function resolveInitialSwarmStatePayload(payload: SprintEngineStateInitializeInp
   }
 }
 
-function buildInitialSwarmStateContent(payload: SerializableSwarmStatePayload): string {
+function buildInitialSprintEngineStateContent(payload: SerializableSprintEngineStatePayload): string {
   return `${JSON.stringify({
     sprintengine: {
       name: payload.name,
@@ -255,7 +255,7 @@ function getSprintEngineMcpPythonExecutable(workspaceRoot: string): string {
 }
 
 function runSprintEngineMcpTool(
-  state: ValidSwarmStatePath,
+  state: ValidSprintEngineStatePath,
   tool: string,
   payload: Record<string, unknown>,
   actor: SprintEngineMcpActorContext
@@ -322,12 +322,12 @@ async function requireSprintEngineMcpAuthority(
   }
 }
 
-function parseSwarmStateForArtifactReview(content: string): {
-  tasks: SwarmTaskRecord[]
-  artifacts: SwarmArtifactRecord[]
+function parseSprintEngineStateForArtifactReview(content: string): {
+  tasks: SprintEngineTaskRecord[]
+  artifacts: SprintEngineArtifactRecord[]
 } {
   const parsed = JSON.parse(content) as Record<string, unknown>
-  const tasks = (Array.isArray(parsed.tasks) ? parsed.tasks : []).flatMap((task): SwarmTaskRecord[] => {
+  const tasks = (Array.isArray(parsed.tasks) ? parsed.tasks : []).flatMap((task): SprintEngineTaskRecord[] => {
     if (!task || typeof task !== 'object') return []
     const record = task as Record<string, unknown>
     return typeof record.id === 'string' && typeof record.status === 'string'
@@ -338,7 +338,7 @@ function parseSwarmStateForArtifactReview(content: string): {
         }]
       : []
   })
-  const artifacts = (Array.isArray(parsed.artifacts) ? parsed.artifacts : []).flatMap((artifact): SwarmArtifactRecord[] => {
+  const artifacts = (Array.isArray(parsed.artifacts) ? parsed.artifacts : []).flatMap((artifact): SprintEngineArtifactRecord[] => {
     if (!artifact || typeof artifact !== 'object') return []
     const record = artifact as Record<string, unknown>
     if (typeof record.id !== 'string') return []
@@ -356,9 +356,9 @@ function parseSwarmStateForArtifactReview(content: string): {
 }
 
 function getArtifactAutoApprovalBlocker(
-  artifact: SwarmArtifactRecord,
-  tasks: SwarmTaskRecord[],
-  artifacts: SwarmArtifactRecord[]
+  artifact: SprintEngineArtifactRecord,
+  tasks: SprintEngineTaskRecord[],
+  artifacts: SprintEngineArtifactRecord[]
 ): string | null {
   if (artifact.status === 'approved') return 'Artifact is already approved.'
   if (artifact.status === 'superseded') return 'Superseded artifacts are obsolete and cannot receive auto-approval intent.'
@@ -392,9 +392,9 @@ function getArtifactAutoApprovalBlocker(
   return null
 }
 
-async function assertAutoApprovalAllowed(state: ValidSwarmStatePath, artifactId: string): Promise<SwarmArtifactRecord> {
+async function assertAutoApprovalAllowed(state: ValidSprintEngineStatePath, artifactId: string): Promise<SprintEngineArtifactRecord> {
   const stateContent = await readFile(state.statePath, 'utf8')
-  const { tasks, artifacts } = parseSwarmStateForArtifactReview(stateContent)
+  const { tasks, artifacts } = parseSprintEngineStateForArtifactReview(stateContent)
   const artifact = artifacts.find((candidate) => candidate.id === artifactId)
   if (!artifact) throw new Error('Requested artifact was not found in the Sprint Engine state.')
 
@@ -410,21 +410,21 @@ async function assertAutoApprovalAllowed(state: ValidSwarmStatePath, artifactId:
 }
 
 export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDependencies): {
-  openArtifact(payload: SwarmArtifactOpenPayload): Promise<SwarmArtifactCommandResult>
+  openArtifact(payload: SprintEngineArtifactOpenPayload): Promise<SprintEngineArtifactCommandResult>
   reviewArtifact(
-    payload: SwarmArtifactReviewPayload,
-    action: SwarmArtifactReviewAction,
-    mode: SwarmArtifactReviewMode
-  ): Promise<SwarmArtifactCommandResult>
-  readyTask(payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult>
-  initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SwarmArtifactCommandResult>
-  updateTask(payload: SwarmTaskUpdateInput): Promise<SwarmArtifactCommandResult>
-  createTask(payload: SwarmTaskCreateInput): Promise<SwarmArtifactCommandResult>
+    payload: SprintEngineArtifactReviewPayload,
+    action: SprintEngineArtifactReviewAction,
+    mode: SprintEngineArtifactReviewMode
+  ): Promise<SprintEngineArtifactCommandResult>
+  readyTask(payload: SprintEngineTaskReadyPayload): Promise<SprintEngineArtifactCommandResult>
+  initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult>
+  updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
+  createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
 } {
   return {
     async openArtifact(payload) {
       try {
-        const state = validateSwarmStatePath(payload?.statePath)
+        const state = validateSprintEngineStatePath(payload?.statePath)
         const targetPath = resolveArtifactFilePath(state, payload?.artifactPath)
 
         if (/^https?:\/\//i.test(targetPath)) {
@@ -446,8 +446,8 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
 
     async reviewArtifact(payload, action, mode) {
       try {
-        const state = validateSwarmStatePath(payload?.statePath)
-        const artifactId = resolveSwarmArtifactId(payload?.artifactId)
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const artifactId = resolveSprintEngineArtifactId(payload?.artifactId)
         const actor = await requireSprintEngineMcpAuthority(deps)
         let feedback: string | undefined
 
@@ -513,8 +513,8 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
 
     async readyTask(payload) {
       try {
-        const state = validateSwarmStatePath(payload?.statePath)
-        const taskId = resolveSwarmTaskId(payload?.taskId)
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const taskId = resolveSprintEngineTaskId(payload?.taskId)
         const actor = await requireSprintEngineMcpAuthority(deps)
         const toolResult = await runSprintEngineMcpTool(
           state,
@@ -553,11 +553,11 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
 
     async initializeSprintEngineState(payload) {
       try {
-        const state = validateSwarmStatePath(payload?.statePath)
+        const state = validateSprintEngineStatePath(payload?.statePath)
         const actor = await requireSprintEngineMcpAuthority(deps)
-        const initialState = resolveInitialSwarmStatePayload(payload)
+        const initialState = resolveInitialSprintEngineStatePayload(payload)
         await mkdir(state.teamDirectory, { recursive: true })
-        await writeFile(state.statePath, buildInitialSwarmStateContent(initialState), { encoding: 'utf8', flag: 'wx' })
+        await writeFile(state.statePath, buildInitialSprintEngineStateContent(initialState), { encoding: 'utf8', flag: 'wx' })
         const stateContent = await readFile(state.statePath, 'utf8')
         return {
           ok: true,
@@ -577,8 +577,8 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
 
     async updateTask(payload) {
       try {
-        const state = validateSwarmStatePath(payload?.statePath)
-        const taskId = resolveSwarmTaskId(payload?.taskId)
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const taskId = resolveSprintEngineTaskId(payload?.taskId)
         const actor = await requireSprintEngineMcpAuthority(deps)
         const toolPayload = {
           statePath: state.statePath,
@@ -626,7 +626,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
 
     async createTask(payload) {
       try {
-        const state = validateSwarmStatePath(payload?.statePath)
+        const state = validateSprintEngineStatePath(payload?.statePath)
         const actor = await requireSprintEngineMcpAuthority(deps)
         const toolPayload = {
           statePath: state.statePath,

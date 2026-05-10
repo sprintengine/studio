@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
-import type { AgentCli, CliRuntimeSettings, SwarmCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
+import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 
 export type ShellLaunchConfig = {
   command: string
@@ -25,14 +25,14 @@ export function getTerminalEnv(): Record<string, string> {
   return env
 }
 
-function withSwarmEnv(
+function withSprintEngineEnv(
   env: Record<string, string>,
   cwd: string,
-  swarmStatePath?: string,
+  sprintEngineStatePath?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string
 ): Record<string, string> {
-  const bundledToolPath = getBundledSwarmToolPath()
+  const bundledToolPath = getBundledSprintEngineToolPath()
   const soulsRoot = getBundledSoulsRoot()
   const nextEnv = {
     ...env,
@@ -40,14 +40,14 @@ function withSwarmEnv(
     SPRINTENGINE_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
     ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
     ...(soulsRoot ? { MULTICODE_SOULS_ROOT: soulsRoot } : {}),
-    ...(swarmStatePath ? { SPRINTENGINE_STATE_PATH: swarmStatePath } : {}),
+    ...(sprintEngineStatePath ? { SPRINTENGINE_STATE_PATH: sprintEngineStatePath } : {}),
     ...(memoryRootPath ? { MULTICODE_MEMORY_ROOT: memoryRootPath } : {}),
     ...(memoryRelativeRoot ? { MULTICODE_MEMORY_RELATIVE_ROOT: memoryRelativeRoot } : {}),
   }
 
   if (process.platform !== 'win32') return nextEnv
 
-  const shimDirectory = ensureWindowsSwarmShimDirectory()
+  const shimDirectory = ensureWindowsSprintEngineShimDirectory()
   if (!shimDirectory) return nextEnv
 
   const pathKey = Object.keys(nextEnv).find((key) => key.toLowerCase() === 'path') ?? 'Path'
@@ -57,7 +57,7 @@ function withSwarmEnv(
   }
 }
 
-function ensureWindowsSwarmShimDirectory(): string | null {
+function ensureWindowsSprintEngineShimDirectory(): string | null {
   if (process.platform !== 'win32') return null
 
   try {
@@ -201,7 +201,7 @@ function nativeWindowsCodexPromptArg(value: string | undefined): string | undefi
 
 function getCliPermissionArgs(
   cli: AgentCli,
-  preset: SwarmCliPermissionPreset = 'default'
+  preset: SprintEngineCliPermissionPreset = 'default'
 ): string[] {
   if (preset === 'auto_workspace') {
     return cli === 'codex'
@@ -228,7 +228,7 @@ function getCliRuntimeSettings(
   }
 }
 
-function getBundledSwarmToolPath(): string | null {
+function getBundledSprintEngineToolPath(): string | null {
   const candidates = [
     join(process.cwd(), '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
     join(app.getAppPath(), '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
@@ -252,16 +252,16 @@ function getBundledSoulsRoot(): string | null {
   return candidates.find((candidate) => existsSync(join(candidate, 'souls', '__main__.py'))) ?? null
 }
 
-function buildSwarmShellBootstrap(
-  swarmStatePath?: string,
+function buildSprintEngineShellBootstrap(
+  sprintEngineStatePath?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string
 ): string {
   const shellStatePath =
-    swarmStatePath && process.platform === 'win32' ? toWslPath(swarmStatePath) : swarmStatePath
+    sprintEngineStatePath && process.platform === 'win32' ? toWslPath(sprintEngineStatePath) : sprintEngineStatePath
   const shellMemoryRootPath =
     memoryRootPath && process.platform === 'win32' ? toWslPath(memoryRootPath) : memoryRootPath
-  const bundledToolPath = getBundledSwarmToolPath()
+  const bundledToolPath = getBundledSprintEngineToolPath()
   const soulsRoot = getBundledSoulsRoot()
   const shellBundledToolPath =
     bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
@@ -361,19 +361,19 @@ function buildWslShellScript(
   cwd: string,
   sessionId: string,
   resume = false,
-  swarmStatePath?: string,
+  sprintEngineStatePath?: string,
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SwarmCliPermissionPreset = 'default',
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
   memoryRootPath?: string,
   memoryRelativeRoot?: string
 ): string {
-  const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'wsl', [cwd, swarmStatePath, memoryRootPath])
+  const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
-    buildSwarmShellBootstrap(swarmStatePath, memoryRootPath, memoryRelativeRoot),
+    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot),
     buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset),
     'exec bash -li',
   ].join('; ')
@@ -383,11 +383,11 @@ export function getShellLaunchConfig(
   cwd: string,
   sessionId: string,
   resume = false,
-  swarmStatePath?: string,
+  sprintEngineStatePath?: string,
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
-  cliPermissionPreset: SwarmCliPermissionPreset = 'default',
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
   memoryRootPath?: string,
   memoryRelativeRoot?: string
 ): ShellLaunchConfig {
@@ -395,9 +395,9 @@ export function getShellLaunchConfig(
 
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
     const windowsCwd = toWindowsPath(cwd)
-    const windowsStatePath = swarmStatePath ? toWindowsPath(swarmStatePath) : undefined
+    const windowsStatePath = sprintEngineStatePath ? toWindowsPath(sprintEngineStatePath) : undefined
     const windowsMemoryRootPath = memoryRootPath ? toWindowsPath(memoryRootPath) : undefined
-    const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'windows', [cwd, swarmStatePath, memoryRootPath])
+    const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'windows', [cwd, sprintEngineStatePath, memoryRootPath])
     if (!isNativeWindowsPath(windowsCwd)) {
       throw new Error(
         `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`
@@ -420,7 +420,7 @@ export function getShellLaunchConfig(
     return {
       command: 'powershell.exe',
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
-      env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, memoryRelativeRoot),
+      env: withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, memoryRelativeRoot),
       cwd: windowsCwd,
       pathStyle: 'windows',
       startupScriptPath,
@@ -435,7 +435,7 @@ export function getShellLaunchConfig(
         cwd,
         sessionId,
         resume,
-        swarmStatePath,
+        sprintEngineStatePath,
         cli,
         initialPrompt,
         cliRuntime,
@@ -460,7 +460,7 @@ export function getShellLaunchConfig(
   const shellPath = process.env.SHELL || 'bash'
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
-    buildSwarmShellBootstrap(swarmStatePath, memoryRootPath, memoryRelativeRoot),
+    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot),
     buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
@@ -470,7 +470,7 @@ export function getShellLaunchConfig(
     command: shellPath,
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
     cwd,
-    env: withSwarmEnv(getTerminalEnv(), cwd, swarmStatePath, memoryRootPath, memoryRelativeRoot),
+    env: withSprintEngineEnv(getTerminalEnv(), cwd, sprintEngineStatePath, memoryRootPath, memoryRelativeRoot),
     pathStyle: 'posix',
     startupScriptPath,
   }
@@ -478,18 +478,18 @@ export function getShellLaunchConfig(
 
 export function getPlainShellLaunchConfig(
   cwd: string,
-  swarmStatePath?: string,
+  sprintEngineStatePath?: string,
   sessionId = 'plain-terminal'
 ): ShellLaunchConfig {
   if (process.platform === 'win32') {
     const windowsCwd = toWindowsPath(cwd)
-    const windowsStatePath = swarmStatePath ? toWindowsPath(swarmStatePath) : undefined
+    const windowsStatePath = sprintEngineStatePath ? toWindowsPath(sprintEngineStatePath) : undefined
 
     if (isNativeWindowsPath(windowsCwd)) {
       return {
         command: 'powershell.exe',
         args: ['-NoLogo'],
-        env: withSwarmEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
+        env: withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
         cwd: windowsCwd,
         pathStyle: 'windows',
       }
@@ -501,7 +501,7 @@ export function getPlainShellLaunchConfig(
       [
         buildUserShellStartup(),
         `cd ${quotePosix(toWslPath(cwd))}`,
-        buildSwarmShellBootstrap(swarmStatePath),
+        buildSprintEngineShellBootstrap(sprintEngineStatePath),
         'exec bash -li',
       ].join('; ')
     )
@@ -522,7 +522,7 @@ export function getPlainShellLaunchConfig(
   const shellPath = process.env.SHELL || 'bash'
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
-    buildSwarmShellBootstrap(swarmStatePath),
+    buildSprintEngineShellBootstrap(sprintEngineStatePath),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
   const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
@@ -543,7 +543,7 @@ function buildNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
 ): string {
   const permissionArgs = getCliPermissionArgs(cli, cliPermissionPreset)
   const command = cliRuntime.command || cli
@@ -590,7 +590,7 @@ function buildAgentLaunchCommand(
   resume = false,
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
 ): string {
   if (cli === 'claude') {
     return buildClaudeLaunchCommand(sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset)
@@ -610,7 +610,7 @@ function buildCodexLaunchCommand(
   resume = false,
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
 ): string {
   const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
   const configuredCommand = cliRuntime?.command?.trim()
@@ -631,7 +631,7 @@ function buildClaudeLaunchCommand(
   resume = false,
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SwarmCliPermissionPreset = 'default'
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
 ): string {
   const quotedSessionId = quotePosix(sessionId)
   const claudeCommand = quotePosixCommand(cliRuntime?.command?.trim() || 'claude')

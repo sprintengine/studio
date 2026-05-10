@@ -28,8 +28,8 @@ export default function PlainTerminalPanel({ workspaceId, terminalId, cwdOverrid
     checkingFolder,
     message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
-  const swarmContext = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.swarmContext ?? null
+  const sprintEngineContext = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext ?? null
   )
   const workspaceName = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.name
@@ -153,14 +153,14 @@ export default function PlainTerminalPanel({ workspaceId, terminalId, cwdOverrid
 
     if (cwdOverride || !(savedFolderPath && !folderReadyPath)) {
       const terminalCwd = cwdOverride ?? folderReadyPath ?? undefined
-      const swarmStatePath = cwdOverride ? undefined : folderReadyPath ? swarmContext?.statePath : undefined
+      const sprintEngineStatePath = cwdOverride ? undefined : folderReadyPath ? sprintEngineContext?.statePath : undefined
       void window.api.terminalSpawn(
         sessionId,
         term.cols,
         term.rows,
         terminalCwd,
         false,
-        swarmStatePath,
+        sprintEngineStatePath,
         undefined,
         undefined,
         undefined,
@@ -182,7 +182,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId, cwdOverrid
             details: [
               `Session: ${sessionId}`,
               `Workspace path: ${terminalCwd ?? savedFolderPath ?? 'default app path'}`,
-              swarmStatePath ? `Sprint Engine state: ${swarmStatePath}` : null,
+              sprintEngineStatePath ? `Sprint Engine state: ${sprintEngineStatePath}` : null,
             ].filter(Boolean).join('\n'),
             workspaceId,
             workspaceName,
@@ -229,7 +229,7 @@ export default function PlainTerminalPanel({ workspaceId, terminalId, cwdOverrid
         void window.api.terminalKill(sessionId).catch(() => {})
       }
     }
-  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, swarmContext?.statePath, terminalId, workspaceId, workspaceName])
+  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, sprintEngineContext?.statePath, terminalId, workspaceId, workspaceName])
 
   const folderBlocked = Boolean(!cwdOverride && savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {

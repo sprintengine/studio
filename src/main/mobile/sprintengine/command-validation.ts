@@ -76,17 +76,17 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
     case 'sprintengine.create':
       return requireString(payload, 'workspacePath') ?? requireString(payload, 'productPrompt') ?? optionalString(payload, 'requestedRole')
     case 'artifact.approve':
-      return requireString(payload, 'swarmId') ?? requireString(payload, 'artifactId') ?? optionalString(payload, 'feedback')
+      return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'artifactId') ?? optionalString(payload, 'feedback')
     case 'artifact.requestChanges':
-      return requireString(payload, 'swarmId') ?? requireString(payload, 'artifactId') ?? requireString(payload, 'feedback')
+      return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'artifactId') ?? requireString(payload, 'feedback')
     case 'snapshot.request':
-      return optionalString(payload, 'swarmId')
+      return optionalString(payload, 'sprintEngineId')
     case 'artifact.read':
-      return requireString(payload, 'swarmId') ?? requireString(payload, 'artifactId') ?? requireString(payload, 'previewMode')
+      return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'artifactId') ?? requireString(payload, 'previewMode')
     case 'task.start':
-      return requireString(payload, 'swarmId') ?? requireString(payload, 'taskId') ?? requireString(payload, 'role')
+      return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'taskId') ?? requireString(payload, 'role')
     case 'agent.followUp':
-      return requireString(payload, 'swarmId') ?? requireString(payload, 'agentId') ?? requireString(payload, 'text')
+      return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'agentId') ?? requireString(payload, 'text')
     case 'device.revoke':
       return requireString(payload, 'deviceId') ?? optionalString(payload, 'reason')
   }

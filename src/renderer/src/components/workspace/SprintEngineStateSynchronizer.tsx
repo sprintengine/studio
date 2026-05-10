@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { parseSwarmStateFile } from '../../utils/sprintengineStateFile'
+import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
 
 const SPRINTENGINE_STATE_WATCH_DEBOUNCE_MS = 120
 const SPRINTENGINE_STATE_RECOVERY_INITIAL_MS = 10_000
@@ -10,7 +10,7 @@ const SPRINTENGINE_STATE_WATCH_RECOVERY_INITIAL_MS = 60_000
 const SPRINTENGINE_STATE_RECOVERY_MAX_MS = 120_000
 const SPRINTENGINE_STATE_UNCHANGED_LOG_INTERVAL_MS = 30_000
 
-type SwarmStateRefreshCause = 'initial' | 'watch' | 'recovery'
+type SprintEngineStateRefreshCause = 'initial' | 'watch' | 'recovery'
 
 function getParentDirectoryPath(path: string): string {
   const normalized = path.replace(/[\\/]+$/, '')
@@ -24,14 +24,14 @@ function getBaseName(path: string): string {
 
 export default function SprintEngineStateSynchronizer({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
-  const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
+  const setSprintEngineState = useWorkspaceStore((s) => s.setSprintEngineState)
   const { folderReadyPath } = useWorkspaceFolderStatus(workspaceId)
   const lastSyncedContentRef = useRef<string | null>(null)
   const readCountRef = useRef(0)
   const lastUnchangedLogAtRef = useRef(0)
 
   useEffect(() => {
-    if (!workspace?.swarmContext?.statePath || !folderReadyPath) return
+    if (!workspace?.sprintEngineContext?.statePath || !folderReadyPath) return
 
     let disposed = false
     let stopWatching: (() => Promise<void>) | null = null
@@ -39,8 +39,8 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
     let recoveryTimeout: number | null = null
     let recoveryDelayMs = SPRINTENGINE_STATE_RECOVERY_INITIAL_MS
     let watching = false
-    const stateFilePath = workspace.swarmContext.statePath
-    const swarmDirectory = getParentDirectoryPath(stateFilePath)
+    const stateFilePath = workspace.sprintEngineContext.statePath
+    const sprintEngineDirectory = getParentDirectoryPath(stateFilePath)
 
     lastSyncedContentRef.current = null
     readCountRef.current = 0
@@ -73,7 +73,7 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
       }, recoveryDelayMs)
     }
 
-    const readExternalState = async (cause: SwarmStateRefreshCause) => {
+    const readExternalState = async (cause: SprintEngineStateRefreshCause) => {
       const startedAt = performance.now()
       readCountRef.current += 1
       try {
@@ -85,9 +85,9 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
           const now = Date.now()
           if (now - lastUnchangedLogAtRef.current >= SPRINTENGINE_STATE_UNCHANGED_LOG_INTERVAL_MS) {
             lastUnchangedLogAtRef.current = now
-            logPerfEvent('SwarmState', 'refresh', {
+            logPerfEvent('SprintEngineState', 'refresh', {
               workspaceId,
-              team: workspace.swarmState?.name ?? getBaseName(swarmDirectory),
+              team: workspace.sprintEngineState?.name ?? getBaseName(sprintEngineDirectory),
               cause,
               elapsedMs: Math.round(performance.now() - startedAt),
               changed: false,
@@ -99,10 +99,10 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
         }
 
         resetRecoveryDelay()
-        const parsed = parseSwarmStateFile(content, getBaseName(swarmDirectory))
+        const parsed = parseSprintEngineStateFile(content, getBaseName(sprintEngineDirectory))
         lastSyncedContentRef.current = content
-        setSwarmState(workspaceId, parsed)
-        logPerfEvent('SwarmState', 'refresh', {
+        setSprintEngineState(workspaceId, parsed)
+        logPerfEvent('SprintEngineState', 'refresh', {
           workspaceId,
           team: parsed.name,
           cause,
@@ -115,9 +115,9 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
         scheduleRecovery()
       } catch (error) {
         if (cause === 'recovery') backOffRecoveryDelay()
-        logPerfEvent('SwarmState', 'refresh-error', {
+        logPerfEvent('SprintEngineState', 'refresh-error', {
           workspaceId,
-          team: workspace.swarmState?.name ?? getBaseName(swarmDirectory),
+          team: workspace.sprintEngineState?.name ?? getBaseName(sprintEngineDirectory),
           cause,
           elapsedMs: Math.round(performance.now() - startedAt),
           message: error instanceof Error ? error.message : String(error),
@@ -130,7 +130,7 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
 
     const startWatching = async () => {
       try {
-        stopWatching = await window.api.watchPath(swarmDirectory, (event) => {
+        stopWatching = await window.api.watchPath(sprintEngineDirectory, (event) => {
           if (event.path && !event.path.endsWith('state.yaml')) return
           if (debounce !== null) window.clearTimeout(debounce)
           debounce = window.setTimeout(() => { void readExternalState('watch') }, SPRINTENGINE_STATE_WATCH_DEBOUNCE_MS)
@@ -169,7 +169,7 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       if (stopWatching) void stopWatching()
     }
-  }, [folderReadyPath, setSwarmState, workspace?.swarmContext?.statePath, workspaceId])
+  }, [folderReadyPath, setSprintEngineState, workspace?.sprintEngineContext?.statePath, workspaceId])
 
   return null
 }

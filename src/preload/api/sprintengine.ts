@@ -1,59 +1,59 @@
 import { ipcRenderer } from 'electron'
 import type {
   ElectronApi,
-  SwarmArtifactCommandResult,
+  SprintEngineArtifactCommandResult,
   SprintEngineStateInitializeInput,
-  SwarmTaskCreateInput,
-  SwarmTaskUpdateInput,
+  SprintEngineTaskCreateInput,
+  SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
 
 export const sprintEngineApi = {
-  openSwarmArtifact: (
+  openSprintEngineArtifact: (
     statePath: string,
     artifactPath: string
-  ): Promise<SwarmArtifactCommandResult> =>
+  ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:artifact:open', { statePath, artifactPath }),
-  approveSwarmArtifact: (
+  approveSprintEngineArtifact: (
     statePath: string,
     artifactId: string
-  ): Promise<SwarmArtifactCommandResult> =>
+  ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:artifact:approve', { statePath, artifactId }),
-  autoApproveSwarmArtifact: (
+  autoApproveSprintEngineArtifact: (
     statePath: string,
     artifactId: string
-  ): Promise<SwarmArtifactCommandResult> =>
+  ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:artifact:auto-approve', { statePath, artifactId }),
-  requestSwarmArtifactChanges: (
+  requestSprintEngineArtifactChanges: (
     statePath: string,
     artifactId: string,
     feedback: string
-  ): Promise<SwarmArtifactCommandResult> =>
+  ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:artifact:request-changes', { statePath, artifactId, feedback }),
-  readySwarmTask: (
+  readySprintEngineTask: (
     statePath: string,
     taskId: string
-  ): Promise<SwarmArtifactCommandResult> =>
+  ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:ready', { statePath, taskId }),
   initializeSprintEngineState: (
     input: SprintEngineStateInitializeInput
-  ): Promise<SwarmArtifactCommandResult> =>
+  ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:state:initialize', input),
-  updateSwarmTask: (
-    input: SwarmTaskUpdateInput
-  ): Promise<SwarmArtifactCommandResult> =>
+  updateSprintEngineTask: (
+    input: SprintEngineTaskUpdateInput
+  ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:update', input),
-  createSwarmTask: (
-    input: SwarmTaskCreateInput
-  ): Promise<SwarmArtifactCommandResult> =>
+  createSprintEngineTask: (
+    input: SprintEngineTaskCreateInput
+  ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:create', input),
 } satisfies Pick<
   ElectronApi,
-  | 'openSwarmArtifact'
-  | 'approveSwarmArtifact'
-  | 'autoApproveSwarmArtifact'
-  | 'requestSwarmArtifactChanges'
-  | 'readySwarmTask'
+  | 'openSprintEngineArtifact'
+  | 'approveSprintEngineArtifact'
+  | 'autoApproveSprintEngineArtifact'
+  | 'requestSprintEngineArtifactChanges'
+  | 'readySprintEngineTask'
   | 'initializeSprintEngineState'
-  | 'updateSwarmTask'
-  | 'createSwarmTask'
+  | 'updateSprintEngineTask'
+  | 'createSprintEngineTask'
 >

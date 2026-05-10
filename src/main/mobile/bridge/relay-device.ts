@@ -11,7 +11,7 @@ const CAPABILITY_BY_RELAY_SCOPE: Record<MobileRelayScope, MobileControlCapabilit
   'relay:snapshot:read': 'snapshots.read',
   'relay:artifact:read': 'artifacts.read',
   'relay:artifact:review': 'artifacts.review',
-  'relay:sprintengine:create': 'swarms.create',
+  'relay:sprintengine:create': 'sprintengines.create',
   'relay:task:start': 'tasks.start',
   'relay:agent:followup': 'agents.followUp',
   'relay:push:register': null,

@@ -1,4 +1,4 @@
-type PlanFileSwarmHandoffPromptArgs = {
+type PlanFileSprintEngineHandoffPromptArgs = {
   teamSlug: string
   goal: string
   sourcePath: string
@@ -11,7 +11,7 @@ function quoteShellArg(value: string): string {
   return `"${value.replace(/"/g, '\\"')}"`
 }
 
-export function buildCurrentContextSwarmHandoffPrompt(teamSlug: string): string {
+export function buildCurrentContextSprintEngineHandoffPrompt(teamSlug: string): string {
   return [
     'Convert your current plan and context into a sprintengine handoff.',
     `Team name: \`${teamSlug}\``,
@@ -32,14 +32,14 @@ export function buildCurrentContextSwarmHandoffPrompt(teamSlug: string): string 
   ].join('\n\n')
 }
 
-export function buildPlanFileSwarmHandoffPrompt({
+export function buildPlanFileSprintEngineHandoffPrompt({
   teamSlug,
   goal,
   sourcePath,
   sourceContent,
   statePath,
   rosterArgs = [],
-}: PlanFileSwarmHandoffPromptArgs): string {
+}: PlanFileSprintEngineHandoffPromptArgs): string {
   const contentLines = sourceContent.trim().split(/\r?\n/).length
   const rosterFlags = rosterArgs.length > 0
     ? ` ${rosterArgs.map((arg) => `--agent ${quoteShellArg(arg)}`).join(' ')}`

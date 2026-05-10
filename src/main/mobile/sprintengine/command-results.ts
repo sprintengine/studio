@@ -2,45 +2,45 @@ import { randomUUID } from 'crypto'
 import type {
   MobileControlCommand,
   MobileControlError,
-  MobileSwarmCommandAuditEntry,
-  MobileSwarmCommandResult,
+  MobileSprintEngineCommandAuditEntry,
+  MobileSprintEngineCommandResult,
 } from './command'
-import type { ValidSwarmStatePath } from './state-path'
+import type { ValidSprintEngineStatePath } from './state-path'
 import { buildError } from './command-validation'
 import { redactToolArgs } from './tool-runner'
 
-type MobileSwarmCommandAuditStatus = 'accepted' | 'rejected' | 'failed'
+type MobileSprintEngineCommandAuditStatus = 'accepted' | 'rejected' | 'failed'
 
-type MobileSwarmCommandAuditInput = {
+type MobileSprintEngineCommandAuditInput = {
   command?: MobileControlCommand
-  status: MobileSwarmCommandAuditStatus
+  status: MobileSprintEngineCommandAuditStatus
   code?: MobileControlError['code']
   message: string
-  state?: ValidSwarmStatePath
+  state?: ValidSprintEngineStatePath
   artifactId?: string
   workspacePath?: string
   toolArgs?: string[]
   exitCode?: number | null
 }
 
-export class MobileSwarmCommandResultRecorder {
-  private readonly auditLog: MobileSwarmCommandAuditEntry[] = []
+export class MobileSprintEngineCommandResultRecorder {
+  private readonly auditLog: MobileSprintEngineCommandAuditEntry[] = []
 
   constructor(
     private readonly now: () => Date,
-    private readonly auditSink?: (entry: MobileSwarmCommandAuditEntry) => void
+    private readonly auditSink?: (entry: MobileSprintEngineCommandAuditEntry) => void
   ) {}
 
-  getAuditLog(): MobileSwarmCommandAuditEntry[] {
+  getAuditLog(): MobileSprintEngineCommandAuditEntry[] {
     return [...this.auditLog]
   }
 
   acceptSessionCommand(
     command: MobileControlCommand,
     data: unknown,
-    state: ValidSwarmStatePath,
+    state: ValidSprintEngineStatePath,
     message: string
-  ): MobileSwarmCommandResult {
+  ): MobileSprintEngineCommandResult {
     const audit = this.recordAudit({
       command,
       status: 'accepted',
@@ -66,12 +66,12 @@ export class MobileSwarmCommandResultRecorder {
     code: MobileControlError['code'],
     message: string,
     retryable: boolean,
-    state?: ValidSwarmStatePath,
+    state?: ValidSprintEngineStatePath,
     artifactId?: string,
     workspacePath?: string,
     toolArgs?: string[],
     exitCode?: number | null
-  ): MobileSwarmCommandResult {
+  ): MobileSprintEngineCommandResult {
     const audit = this.recordAudit({
       command,
       status: code === 'python_tool_failed' ? 'failed' : 'rejected',
@@ -94,7 +94,7 @@ export class MobileSwarmCommandResultRecorder {
     }
   }
 
-  rejectUnknown(error: MobileControlError): MobileSwarmCommandResult {
+  rejectUnknown(error: MobileControlError): MobileSprintEngineCommandResult {
     const audit = this.recordAudit({
       status: 'rejected',
       code: error.code,
@@ -110,8 +110,8 @@ export class MobileSwarmCommandResultRecorder {
     }
   }
 
-  recordAudit(input: MobileSwarmCommandAuditInput): MobileSwarmCommandAuditEntry {
-    const entry: MobileSwarmCommandAuditEntry = {
+  recordAudit(input: MobileSprintEngineCommandAuditInput): MobileSprintEngineCommandAuditEntry {
+    const entry: MobileSprintEngineCommandAuditEntry = {
       auditId: `msa_${randomUUID()}`,
       commandId: input.command?.commandId ?? 'unknown',
       commandType: input.command?.type ?? 'unknown',

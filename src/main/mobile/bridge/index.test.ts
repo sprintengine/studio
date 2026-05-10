@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice } from './index'
-import { MobileSwarmCommandService } from '../sprintengine/command'
+import { MobileSprintEngineCommandService } from '../sprintengine/command'
 
 const now = new Date('2026-04-28T22:00:00.000Z')
 
@@ -18,7 +18,7 @@ async function main(): Promise<void> {
 }
 
 async function assertDesktopPairingDisplayUsesCurrentRelayPayload(): Promise<void> {
-  const fixture = await writeSwarmFixture()
+  const fixture = await writeSprintEngineFixture()
   const relay = new PairingChallengeRelayTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -56,7 +56,7 @@ async function assertDesktopPairingDisplayUsesCurrentRelayPayload(): Promise<voi
 }
 
 async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise<void> {
-  const fixture = await writeSwarmFixture()
+  const fixture = await writeSprintEngineFixture()
   const relay = new LegacyPairingChallengeRelayTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -83,37 +83,37 @@ async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise
 }
 
 async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Promise<void> {
-  const fixture = await writeSwarmFixture()
+  const fixture = await writeSprintEngineFixture()
   const toolInvocations: Array<{ args: string[]; cwd: string }> = []
   const relay = new FakeRelayTransport([
     commandDelivery('cmd_approve', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'artifact.approve',
-      payload: { swarmId: 'relay-team', artifactId: 'A1' },
+      payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
       device: pairedDevice({ scopes: ['relay:artifact:review'] }),
     }),
     commandDelivery('cmd_missing_device', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'artifact.approve',
-      payload: { swarmId: 'relay-team', artifactId: 'A1' },
+      payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
       device: null,
     }),
     commandDelivery('cmd_revoked', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'artifact.requestChanges',
-      payload: { swarmId: 'relay-team', artifactId: 'A1', feedback: 'Needs more detail.' },
+      payload: { sprintEngineId: 'relay-team', artifactId: 'A1', feedback: 'Needs more detail.' },
       device: pairedDevice({ revokedAt: now.toISOString(), scopes: ['relay:artifact:review'] }),
     }),
     commandDelivery('cmd_wrong_session', {
       desktopRelaySessionId: 'drs_other',
       commandType: 'artifact.approve',
-      payload: { swarmId: 'relay-team', artifactId: 'A1' },
+      payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
       device: pairedDevice({ scopes: ['relay:artifact:review'] }),
     }),
     commandDelivery('cmd_missing_capability', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'task.start',
-      payload: { swarmId: 'relay-team', taskId: 'T1', role: 'developer' },
+      payload: { sprintEngineId: 'relay-team', taskId: 'T1', role: 'developer' },
       device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
     }),
   ])
@@ -127,7 +127,7 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      commandService: new MobileSwarmCommandService({
+      commandService: new MobileSprintEngineCommandService({
         workspaceRoot: fixture.workspaceRoot,
         statePaths: [fixture.statePath],
         now: () => now,
@@ -151,7 +151,7 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   assert.equal(relay.connects[0].commands.includes('task.start'), true)
   assert.equal(toolInvocations.length, 1)
   assert.equal(toolInvocations[0].cwd, fixture.workspaceRoot)
-  assert.equal(relay.snapshots[0].snapshot.swarms[0].swarmId, 'relay-team')
+  assert.equal(relay.snapshots[0].snapshot.sprintEngines[0].sprintEngineId, 'relay-team')
 
   const resultByCommand = new Map(relay.results.map((result) => [result.commandId, result]))
   assert.equal(resultByCommand.get('cmd_approve')?.status, 'completed')
@@ -162,7 +162,7 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
 }
 
 async function assertDesktopRevocationUpdatesRelayAuthority(): Promise<void> {
-  const fixture = await writeSwarmFixture()
+  const fixture = await writeSprintEngineFixture()
   const relay = new RelayServiceBackedTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -174,7 +174,7 @@ async function assertDesktopRevocationUpdatesRelayAuthority(): Promise<void> {
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => relay.desktopAccessToken,
       relayTransport: relay,
-      commandService: new MobileSwarmCommandService({
+      commandService: new MobileSprintEngineCommandService({
         workspaceRoot: fixture.workspaceRoot,
         statePaths: [fixture.statePath],
         now: () => now,
@@ -195,7 +195,7 @@ async function assertDesktopRevocationUpdatesRelayAuthority(): Promise<void> {
 }
 
 async function assertRelayServiceDeliveriesDispatchAndRecordResults(): Promise<void> {
-  const fixture = await writeSwarmFixture()
+  const fixture = await writeSprintEngineFixture()
   const toolInvocations: Array<{ args: string[]; cwd: string }> = []
   const relay = new RelayServiceBackedTransport()
   const bridge = new MobileBridge(
@@ -208,7 +208,7 @@ async function assertRelayServiceDeliveriesDispatchAndRecordResults(): Promise<v
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => relay.desktopAccessToken,
       relayTransport: relay,
-      commandService: new MobileSwarmCommandService({
+      commandService: new MobileSprintEngineCommandService({
         workspaceRoot: fixture.workspaceRoot,
         statePaths: [fixture.statePath],
         now: () => now,
@@ -243,7 +243,7 @@ class FakeRelayTransport implements MobileRelayTransport {
     resultCode: string
     summary: Record<string, unknown>
   }> = []
-  readonly snapshots: Array<{ snapshot: { swarms: Array<{ swarmId: string }> } }> = []
+  readonly snapshots: Array<{ snapshot: { sprintEngines: Array<{ sprintEngineId: string }> } }> = []
   private delivered = false
 
   constructor(private readonly deliveries: Awaited<ReturnType<MobileRelayTransport['listPendingCommands']>>) {}
@@ -515,7 +515,7 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
           commandType: 'artifact.approve',
           issuedAt: now.toISOString(),
           expiresAt: new Date(now.getTime() + 30_000).toISOString(),
-          payload: { swarmId: 'relay-team', artifactId: 'A1' },
+          payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
         },
       }),
       (error) => error && typeof error === 'object' && 'status' in error && error.status === 403
@@ -543,7 +543,7 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
         commandType: 'artifact.approve',
         issuedAt: now.toISOString(),
         expiresAt: new Date(now.getTime() + 30_000).toISOString(),
-        payload: { swarmId: 'relay-team', artifactId: 'A2' },
+        payload: { sprintEngineId: 'relay-team', artifactId: 'A2' },
       },
     })
   }
@@ -558,13 +558,13 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
         commandType: 'artifact.approve',
         issuedAt: now.toISOString(),
         expiresAt: new Date(now.getTime() + 30_000).toISOString(),
-        payload: { swarmId: 'relay-team', artifactId: 'A1' },
+        payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
       },
     })
   }
 }
 
-async function writeSwarmFixture(): Promise<{ workspaceRoot: string; statePath: string }> {
+async function writeSprintEngineFixture(): Promise<{ workspaceRoot: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-'))
   const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'relay-team')
   await mkdir(join(teamDirectory, 'documents'), { recursive: true })

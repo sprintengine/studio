@@ -3,7 +3,7 @@ import type {
   AgentCli,
   AgentExecutionMode,
   CliRuntimeSettings,
-  SwarmCliPermissionPreset,
+  SprintEngineCliPermissionPreset,
   TerminalKind,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
@@ -15,7 +15,7 @@ export type TerminalSpawnPayload = {
   rows: number
   cwd?: string
   resume?: boolean
-  swarmStatePath?: string
+  sprintEngineStatePath?: string
   cli?: AgentCli
   initialPrompt?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
@@ -27,7 +27,7 @@ export type TerminalSpawnPayload = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
-  cliPermissionPreset?: SwarmCliPermissionPreset
+  cliPermissionPreset?: SprintEngineCliPermissionPreset
   memoryRootPath?: string
   memoryRelativeRoot?: string
 }

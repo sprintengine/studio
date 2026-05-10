@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
-  SWARM_REVIEW_PRESETS,
-  getSwarmReviewSector,
-  type SwarmReviewPresetId,
-} from '../../utils/swarmReview'
+  WATCHTOWER_REVIEW_PRESETS,
+  getWatchtowerReviewSector,
+  type WatchtowerReviewPresetId,
+} from '../../utils/watchtowerReview'
 import { buildWatchtowerStartupPrompt } from '../../utils/watchtowerPrompt'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import { prependAgentIdentifier } from '../../utils/agentPrompt'
-import type { AgentState, SpecialistActionId, SwarmReviewSectorId } from '../../types/workspace'
+import type { AgentState, SpecialistActionId, WatchtowerReviewSectorId } from '../../types/workspace'
 import type {
   SwitchboardTaskRecord,
+  SwitchboardImportResult,
   WatchtowerOutputValidationResult,
   WatchtowerRun,
   WatchtowerRunAgent,
@@ -66,7 +67,7 @@ function joinPath(parent: string, child: string): string {
 type SelectedWatchtowerAgent = {
   agentId: string
   specialistId: SpecialistActionId
-  sectors: SwarmReviewSectorId[]
+  sectors: WatchtowerReviewSectorId[]
   outputDirectory: string
   reportPath: string
 }
@@ -80,8 +81,9 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const inbox = useMemo(() => filterInboxTasks(tasks), [tasks])
   const [runs, setRuns] = useState<WatchtowerRun[]>([])
   const [invalidOutputs, setInvalidOutputs] = useState<Record<string, Extract<WatchtowerOutputValidationResult, { ok: true }>['invalid']>>({})
+  const [importResult, setImportResult] = useState<SwitchboardImportResult | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
-  const [preset, setPreset] = useState<SwarmReviewPresetId>('lean_code_review')
+  const [preset, setPreset] = useState<WatchtowerReviewPresetId>('lean_code_review')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [draft, setDraft] = useState<DraftTask>(emptyDraft)
@@ -144,7 +146,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   }, [refresh, refreshRuns])
 
   const selectedPreset = useMemo(
-    () => SWARM_REVIEW_PRESETS.find((item) => item.id === preset) ?? SWARM_REVIEW_PRESETS[0],
+    () => WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0],
     [preset]
   )
 
@@ -154,7 +156,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     const agents = Object.entries(selectedPreset.agents)
       .map(([specialistId, sectors]) => ({
         specialistId: specialistId as SpecialistActionId,
-        sectors: (sectors ?? []) as SwarmReviewSectorId[],
+        sectors: (sectors ?? []) as WatchtowerReviewSectorId[],
       }))
       .filter((agent) => agent.sectors.length > 0)
     if (agents.length === 0) {
@@ -204,7 +206,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         })
         const agentPatch: Partial<AgentState> = {
           name: specialist.shortLabel,
-          kind: 'swarm_review',
+          kind: 'watchtower',
           specialistId: reviewAgent.specialistId,
           cli: 'codex',
           cliPermissionPreset: 'default',
@@ -260,6 +262,38 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       setBusy(false)
     }
   }, [folderPath, refreshRuns, selectedRun, showToast])
+
+  const handleImportGitHub = useCallback(async () => {
+    if (!folderPath) return
+    setBusy(true)
+    try {
+      const result = await window.api.importGitHubIssuesToWatchtower(folderPath)
+      setImportResult(result)
+      if (!result.ok) {
+        showToast(result.unavailable ? 'info' : 'error', result.message)
+        return
+      }
+      await refresh()
+      showToast('success', `GitHub import: ${result.summary.created} created, ${result.summary.skipped} skipped.`)
+    } finally {
+      setBusy(false)
+    }
+  }, [folderPath, refresh, showToast])
+
+  const handleImportJira = useCallback(async () => {
+    if (!folderPath) return
+    setBusy(true)
+    try {
+      const result = await window.api.importJiraIssuesToWatchtower(folderPath)
+      setImportResult(result)
+      showToast(result.ok ? 'success' : result.unavailable ? 'info' : 'error', result.ok
+        ? `Jira import: ${result.summary.created} created, ${result.summary.skipped} skipped.`
+        : result.message)
+      if (result.ok) await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }, [folderPath, refresh, showToast])
 
   const handleCreate = useCallback(async () => {
     if (!folderPath || !draft.title.trim()) return
@@ -449,6 +483,9 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           onValidateRun={handleValidateRun}
           onStartReview={handleStartReview}
           onIngestRun={handleIngestRun}
+          importResult={importResult}
+          onImportGitHub={handleImportGitHub}
+          onImportJira={handleImportJira}
           busy={busy}
         />
 
@@ -534,10 +571,13 @@ function ReviewRunSection({
   onValidateRun,
   onStartReview,
   onIngestRun,
+  importResult,
+  onImportGitHub,
+  onImportJira,
   busy,
 }: {
-  preset: SwarmReviewPresetId
-  onPresetChange: (next: SwarmReviewPresetId) => void
+  preset: WatchtowerReviewPresetId
+  onPresetChange: (next: WatchtowerReviewPresetId) => void
   runs: WatchtowerRun[]
   selectedRun: WatchtowerRun | null
   invalidOutputs: Extract<WatchtowerOutputValidationResult, { ok: true }>['invalid']
@@ -545,9 +585,12 @@ function ReviewRunSection({
   onValidateRun: () => void
   onStartReview: () => void
   onIngestRun: () => void
+  importResult: SwitchboardImportResult | null
+  onImportGitHub: () => void
+  onImportJira: () => void
   busy: boolean
 }) {
-  const selectedPreset = SWARM_REVIEW_PRESETS.find((item) => item.id === preset) ?? SWARM_REVIEW_PRESETS[0]
+  const selectedPreset = WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
   const presetAgents = Object.entries(selectedPreset.agents)
   return (
     <div className="border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-3">
@@ -568,10 +611,10 @@ function ReviewRunSection({
       <div className="mt-3 grid gap-2">
         <select
           value={preset}
-          onChange={(event) => onPresetChange(event.target.value as SwarmReviewPresetId)}
+          onChange={(event) => onPresetChange(event.target.value as WatchtowerReviewPresetId)}
           className="h-8 rounded border border-[#2a2b31] bg-[#0d0e11] px-2 text-[12px] text-[#ececee]"
         >
-          {SWARM_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => (
+          {WATCHTOWER_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => (
             <option key={item.id} value={item.id}>{item.label}</option>
           ))}
         </select>
@@ -579,13 +622,70 @@ function ReviewRunSection({
           <div className="flex flex-wrap gap-1.5">
             {presetAgents.map(([specialistId, sectors]) => {
               const specialist = getSpecialistAction(specialistId as SpecialistActionId)
-              const labels = (sectors ?? []).map((sector) => getSwarmReviewSector(sector).label)
+              const labels = (sectors ?? []).map((sector) => getWatchtowerReviewSector(sector).label)
               return (
                 <span key={specialistId} className="rounded border border-[#2a2b31] bg-[#111216] px-2 py-1 text-[11px] text-[#d7d7dc]">
                   {specialist.shortLabel}: {labels.join(', ')}
                 </span>
               )
             })}
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-3 border-t border-[#1f2025] pt-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">Imports</div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onImportGitHub}
+              disabled={busy}
+              className="h-6 rounded border border-[#2a2b31] px-2 text-[11px] text-[#c8c8cf] hover:bg-[#111216] disabled:opacity-50"
+            >
+              GitHub
+            </button>
+            <button
+              type="button"
+              onClick={onImportJira}
+              disabled={busy}
+              className="h-6 rounded border border-[#2a2b31] px-2 text-[11px] text-[#c8c8cf] hover:bg-[#111216] disabled:opacity-50"
+            >
+              Jira
+            </button>
+          </div>
+        </div>
+        {importResult ? (
+          <div className="mt-2 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5 text-[11px] text-[#8a8a92]">
+            {importResult.ok ? (
+              <>
+                <div>
+                  {importResult.provider}: created {importResult.summary.created}, updated {importResult.summary.updated}, skipped {importResult.summary.skipped}, errors {importResult.summary.errors}
+                </div>
+                {importResult.items.length > 0 ? (
+                  <div className="mt-1 max-h-24 overflow-auto border-t border-[#202128] pt-1">
+                    {importResult.items.slice(0, 8).map((item, index) => (
+                      <div key={`${item.externalKey ?? item.externalUrl ?? index}:${index}`} className="flex min-w-0 items-center gap-2 py-0.5">
+                        <span className={
+                          item.status === 'created'
+                            ? 'shrink-0 text-[#8fd49c]'
+                            : item.status === 'error'
+                              ? 'shrink-0 text-[#ff9ea0]'
+                              : 'shrink-0 text-[#d8b56d]'
+                        }>
+                          {item.status}
+                        </span>
+                        <span className="truncate font-mono text-[#a1a1aa]">
+                          {item.externalKey ?? item.externalUrl ?? 'unknown source'}
+                        </span>
+                        {item.message ? <span className="truncate text-[#6f7078]">{item.message}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <span>{importResult.provider}: {importResult.message}</span>
+            )}
           </div>
         ) : null}
       </div>

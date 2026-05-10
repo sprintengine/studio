@@ -15,7 +15,7 @@ import {
 } from './terminal-launch'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
-import { MobileSwarmCommandService } from './mobile/sprintengine/command'
+import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import {
   appendTerminalOutput,
   getTerminalSize,
@@ -43,7 +43,7 @@ type TerminalIpcHandlers = {
 }
 
 type TerminalRuntime = {
-  commandService: MobileSwarmCommandService
+  commandService: MobileSprintEngineCommandService
   ipcHandlers: TerminalIpcHandlers
 }
 
@@ -164,7 +164,7 @@ function disposeOtherAgentSessions(
   sessionId: string,
   workspaceId: string | undefined,
   agentId: string | undefined,
-  swarmStatePath: string | undefined
+  sprintEngineStatePath: string | undefined
 ): void {
   if (!workspaceId || !agentId) return
 
@@ -176,7 +176,7 @@ function disposeOtherAgentSessions(
       && session.kind === 'agent'
       && session.workspaceId === workspaceId
       && session.agentId === agentId
-      && (!swarmStatePath || !session.swarmStatePath || session.swarmStatePath === swarmStatePath)
+      && (!sprintEngineStatePath || !session.sprintEngineStatePath || session.sprintEngineStatePath === sprintEngineStatePath)
     ))
     .map((session) => session.sessionId)
 
@@ -219,7 +219,7 @@ function attachTerminalSession(
   }
 }
 
-function createMobileCommandService(): MobileSwarmCommandService {
+function createMobileCommandService(): MobileSprintEngineCommandService {
   return createTerminalMobileCommandService({
     listTerminals: async () => {
       return [...terminals.values()].map(getTerminalSnapshot)
@@ -238,7 +238,7 @@ function createMobileCommandService(): MobileSwarmCommandService {
 async function spawnMobileAgentTerminal(input: {
   sessionId: string
   cwd: string
-  swarmStatePath: string
+  sprintEngineStatePath: string
   agentId: string
   initialPrompt: string
   cli: AgentCli
@@ -264,7 +264,7 @@ async function spawnMobileAgentTerminal(input: {
       input.cwd,
       input.sessionId,
       false,
-      input.swarmStatePath,
+      input.sprintEngineStatePath,
       input.cli,
       input.initialPrompt,
       undefined,
@@ -295,7 +295,7 @@ async function spawnMobileAgentTerminal(input: {
       agentId: input.agentId,
       cli: input.cli,
       cwd: launchCwd ?? input.cwd,
-      swarmStatePath: input.swarmStatePath,
+      sprintEngineStatePath: input.sprintEngineStatePath,
       executionMode: input.executionMode,
       worktreeId: input.worktreeId,
       worktreePath: input.worktreePath,
@@ -321,7 +321,7 @@ async function spawnTerminalFromIpc(
     rows,
     cwd,
     resume,
-    swarmStatePath,
+    sprintEngineStatePath,
     cli = 'codex',
     initialPrompt,
     cliRuntimes,
@@ -361,7 +361,7 @@ async function spawnTerminalFromIpc(
 
     try {
       const workingDirectory = cwd || process.cwd()
-      if (swarmStatePath && (kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
+      if (sprintEngineStatePath && (kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
         try {
           requireAuthenticatedUser('Sign in to launch Sprint Engine specialist workflows from the app.')
         } catch (error) {
@@ -377,16 +377,16 @@ async function spawnTerminalFromIpc(
         }
       }
       if ((kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
-        disposeOtherAgentSessions(sessionId, workspaceId, agentId, swarmStatePath)
+        disposeOtherAgentSessions(sessionId, workspaceId, agentId, sprintEngineStatePath)
       }
 
       const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = shellOnly
-        ? getPlainShellLaunchConfig(workingDirectory, swarmStatePath, sessionId)
+        ? getPlainShellLaunchConfig(workingDirectory, sprintEngineStatePath, sessionId)
         : getShellLaunchConfig(
           workingDirectory,
           sessionId,
           resume,
-          swarmStatePath,
+          sprintEngineStatePath,
           cli,
           initialPrompt,
           cliRuntimes,
@@ -421,7 +421,7 @@ async function spawnTerminalFromIpc(
         terminalId,
         cli: shellOnly ? undefined : cli,
         cwd: launchCwd ?? workingDirectory,
-        swarmStatePath,
+        sprintEngineStatePath,
         executionMode,
         worktreeId,
         worktreePath,

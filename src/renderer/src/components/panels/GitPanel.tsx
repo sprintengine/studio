@@ -567,7 +567,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       30,
       repoRoot,
       false,
-      workspace?.swarmContext?.statePath,
+      workspace?.sprintEngineContext?.statePath,
       undefined,
       undefined,
       undefined,

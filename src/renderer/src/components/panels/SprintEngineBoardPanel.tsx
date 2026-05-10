@@ -5,45 +5,44 @@ import type {
   AgentCli,
   AgentExecution,
   AgentState,
-  SwarmArtifact,
-  SwarmCliPermissionPreset,
-  SwarmRole,
-  SwarmState,
-  SwarmTask,
-  SwarmTaskBoardColumn,
-  SwarmTaskFeedback,
-  SwarmTaskFeedbackFinding,
-  SwarmTaskFeedbackIssue,
-  SwarmTaskStatus,
+  SprintEngineArtifact,
+  SprintEngineCliPermissionPreset,
+  SprintEngineRole,
+  SprintEngineState,
+  SprintEngineTask,
+  SprintEngineTaskBoardColumn,
+  SprintEngineTaskFeedback,
+  SprintEngineTaskFeedbackFinding,
+  SprintEngineTaskFeedbackIssue,
+  SprintEngineTaskStatus,
 } from '../../types/workspace'
-import { SwarmRoleIcon } from '../AppIcons'
+import { SprintEngineRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import {
-  buildSwarmAgentRosterForState,
-  getSwarmArtifactAutoApprovalEligibility,
-  getNextSwarmAgentId,
-  getReviewableSwarmArtifacts,
-  getSwarmArtifactDependencyBlockers,
-  getSwarmArtifactsByTaskId,
-  getSwarmTaskBoardColumn,
-  swarmRoleAccent,
-  swarmArtifactKindLabels,
-  swarmArtifactStatusLabels,
-  swarmRoleLabels,
-  swarmRoleOrder,
+  buildSprintEngineAgentRosterForState,
+  getSprintEngineArtifactAutoApprovalEligibility,
+  getNextSprintEngineAgentId,
+  getReviewableSprintEngineArtifacts,
+  getSprintEngineArtifactDependencyBlockers,
+  getSprintEngineArtifactsByTaskId,
+  getSprintEngineTaskBoardColumn,
+  sprintEngineRoleAccent,
+  sprintEngineArtifactKindLabels,
+  sprintEngineArtifactStatusLabels,
+  sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
 import { renderMarkdown } from '../../utils/markdown'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
-  getSwarmPlanFilePath,
-  getSwarmRootDirectoryPath,
-  parseSwarmStateFile,
+  getSprintEnginePlanFilePath,
+  getSprintEngineRootDirectoryPath,
+  parseSprintEngineStateFile,
 } from '../../utils/sprintengineStateFile'
 import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 
-const columnMeta: { key: SwarmTaskBoardColumn; label: string; tint: string }[] = [
+const columnMeta: { key: SprintEngineTaskBoardColumn; label: string; tint: string }[] = [
   { key: 'todo', label: 'Todo', tint: 'bg-[#111216] text-[#9a9aa2]' },
   { key: 'ready', label: 'Ready', tint: 'bg-[#30d158]/15 text-[#b9f7c8]' },
   { key: 'in_progress', label: 'In Progress', tint: 'bg-[#ffa600]/18 text-[#ffd58a]' },
@@ -51,20 +50,20 @@ const columnMeta: { key: SwarmTaskBoardColumn; label: string; tint: string }[] =
   { key: 'done', label: 'Done', tint: 'bg-[#30d158]/12 text-[#d4ffdc]' },
 ]
 
-const taskStateLabel: Record<SwarmTaskStatus, string> = {
+const taskStateLabel: Record<SprintEngineTaskStatus, string> = {
   todo: 'Todo',
   in_progress: 'In Progress',
   needs_input: 'Needs Input',
   done: 'Done',
 }
 
-const addableRoles: SwarmRole[] = ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'performance', 'tester', 'security']
+const addableRoles: SprintEngineRole[] = ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'performance', 'tester', 'security']
 const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
   { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
   { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
 ]
-const swarmCliPermissionOptions: Array<{
-  value: SwarmCliPermissionPreset
+const sprintEngineCliPermissionOptions: Array<{
+  value: SprintEngineCliPermissionPreset
   label: string
   title: string
 }> = [
@@ -85,7 +84,7 @@ const swarmCliPermissionOptions: Array<{
   },
 ]
 
-function RefreshSwarmIcon() {
+function RefreshSprintEngineIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
       <path
@@ -99,7 +98,7 @@ function RefreshSwarmIcon() {
   )
 }
 
-function PlaySwarmIcon() {
+function PlaySprintEngineIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
       <path
@@ -110,7 +109,7 @@ function PlaySwarmIcon() {
   )
 }
 
-function PauseSwarmIcon() {
+function PauseSprintEngineIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
       <path
@@ -121,7 +120,7 @@ function PauseSwarmIcon() {
   )
 }
 
-function ZoomInSwarmIcon() {
+function ZoomInSprintEngineIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
       <path
@@ -135,7 +134,7 @@ function ZoomInSwarmIcon() {
   )
 }
 
-function ZoomOutSwarmIcon() {
+function ZoomOutSprintEngineIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
       <path
@@ -189,7 +188,7 @@ function getBaseName(path: string): string {
   return separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed
 }
 
-type OpenedSwarmArtifact = {
+type OpenedSprintEngineArtifact = {
   path: string
   name: string
   content: string
@@ -245,7 +244,7 @@ function resolveArtifactPathForEditor(statePath: string, artifactPathInput: stri
   return targetPath
 }
 
-const roleSummaries: Record<SwarmRole, string> = {
+const roleSummaries: Record<SprintEngineRole, string> = {
   architect: 'Plans the run and gates readiness.',
   product: 'Shapes scope, positioning, audience fit, and priority tradeoffs.',
   developer: 'Builds implementation and integration work.',
@@ -258,7 +257,7 @@ const roleSummaries: Record<SwarmRole, string> = {
 
 interface Props {
   workspaceId: string
-  fixedView?: SwarmView
+  fixedView?: SprintEngineView
 }
 
 type SyncState = {
@@ -275,7 +274,7 @@ type PlanReaderState = {
   mode: 'preview' | 'source'
 }
 
-type SwarmView = 'project' | 'map' | 'task-graph' | 'kanban'
+type SprintEngineView = 'project' | 'map' | 'task-graph' | 'kanban'
 
 type SpawnDialogState = {
   agentId: string
@@ -300,22 +299,8 @@ type TaskReadyActionState = {
   message: string
 }
 
-type TaskMutationActionState = {
-  status: 'idle' | 'pending' | 'success' | 'error'
-  message: string
-}
-
-type TaskEditFormState = {
-  title: string
-  description: string
-  role: SwarmRole
-  acceptanceCriteria: string
-  implementationNotes: string
-  notes: string
-}
-
 function buildWorkerRespawnStartupPrompt(
-  role: SwarmRole,
+  role: SprintEngineRole,
   agentId: string
 ): string {
   return [
@@ -336,11 +321,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const workspace = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
   )
-  const setSwarmState = useWorkspaceStore((s) => s.setSwarmState)
-  const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
-  const setSwarmAutoApproveArtifacts = useWorkspaceStore((s) => s.setSwarmAutoApproveArtifacts)
-  const setSwarmCliPermissionPreset = useWorkspaceStore((s) => s.setSwarmCliPermissionPreset)
-  const addSwarmMember = useWorkspaceStore((s) => s.addSwarmMember)
+  const setSprintEngineState = useWorkspaceStore((s) => s.setSprintEngineState)
+  const setSprintEngineAutoEnabled = useWorkspaceStore((s) => s.setSprintEngineAutoEnabled)
+  const setSprintEngineAutoApproveArtifacts = useWorkspaceStore((s) => s.setSprintEngineAutoApproveArtifacts)
+  const setSprintEngineCliPermissionPreset = useWorkspaceStore((s) => s.setSprintEngineCliPermissionPreset)
+  const addSprintEngineMember = useWorkspaceStore((s) => s.addSprintEngineMember)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
@@ -354,38 +339,18 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     recheckFolder,
   } = useWorkspaceFolderStatus(workspaceId)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [activeView, setActiveView] = useState<SwarmView>('project')
+  const [activeView, setActiveView] = useState<SprintEngineView>('project')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
   const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
   const [cliPickerOpen, setCliPickerOpen] = useState(false)
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
-  const [addMemberRole, setAddMemberRole] = useState<SwarmRole>('developer')
+  const [addMemberRole, setAddMemberRole] = useState<SprintEngineRole>('developer')
   const [showRunSummary, setShowRunSummary] = useState(false)
   const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
-  const [githubSyncBusy, setGithubSyncBusy] = useState(false)
   const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
   const [taskReadyActions, setTaskReadyActions] = useState<Record<string, TaskReadyActionState>>({})
-  const [taskEditOpen, setTaskEditOpen] = useState(false)
-  const [taskEditForm, setTaskEditForm] = useState<TaskEditFormState | null>(null)
-  const [taskEditAction, setTaskEditAction] = useState<TaskMutationActionState>({
-    status: 'idle',
-    message: '',
-  })
-  const [createTaskOpen, setCreateTaskOpen] = useState(false)
-  const [createTaskForm, setCreateTaskForm] = useState<TaskEditFormState>({
-    title: '',
-    description: '',
-    role: 'developer',
-    acceptanceCriteria: '',
-    implementationNotes: '',
-    notes: '',
-  })
-  const [createTaskAction, setCreateTaskAction] = useState<TaskMutationActionState>({
-    status: 'idle',
-    message: '',
-  })
   const [planReader, setPlanReader] = useState<PlanReaderState>({
     open: false,
     status: 'idle',
@@ -398,24 +363,23 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     message: 'Waiting for a Sprint Engine workspace folder.',
   })
 
-  const swarmState = workspace?.swarmState ?? null
-  const swarmContext = workspace?.swarmContext ?? null
+  const sprintEngineState = workspace?.sprintEngineState ?? null
+  const sprintEngineContext = workspace?.sprintEngineContext ?? null
   const effectiveView = fixedView ?? activeView
   const folderPath = folderReadyPath
   const agents = workspace?.agents ?? {}
-  const autoEnabled = workspace?.swarmAutoState?.enabled ?? false
-  const autoApproveArtifacts = workspace?.swarmAutoState?.autoApproveArtifacts ?? false
-  const cliPermissionPreset = workspace?.swarmAutoState?.cliPermissionPreset ?? 'default'
-  const isSymphonyWorkspace = workspace?.mode === 'symphony'
+  const autoEnabled = workspace?.sprintEngineAutoState?.enabled ?? false
+  const autoApproveArtifacts = workspace?.sprintEngineAutoState?.autoApproveArtifacts ?? false
+  const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
 
-  const resolveReadableSwarmStatePath = async (): Promise<string | null> => {
+  const resolveReadableSprintEngineStatePath = async (): Promise<string | null> => {
     if (!folderPath) return null
-    return swarmContext?.statePath ?? null
+    return sprintEngineContext?.statePath ?? null
   }
 
   const roster = useMemo(
-    () => buildSwarmAgentRosterForState(swarmState),
-    [swarmState]
+    () => buildSprintEngineAgentRosterForState(sprintEngineState),
+    [sprintEngineState]
   )
 
   const rosterById = useMemo(
@@ -440,7 +404,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       })
       return
     }
-    if (!swarmContext?.statePath) {
+    if (!sprintEngineContext?.statePath) {
       setSyncState({
         status: 'idle',
         message: 'Waiting for agent-managed state.',
@@ -450,18 +414,18 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
     setSyncState({
       status: 'live',
-      message: `Watching agent-managed state at ${swarmContext.statePath}`,
+      message: `Watching agent-managed state at ${sprintEngineContext.statePath}`,
     })
-  }, [folderMissing, folderPath, savedFolderPath, swarmContext?.statePath])
+  }, [folderMissing, folderPath, savedFolderPath, sprintEngineContext?.statePath])
 
   const runtimeAgents = useMemo(
     () => roster.map((agent) => ({
       agentId: agent.id,
-      role: swarmState?.swarmAgents[agent.id]?.role ?? agent.role,
-      status: swarmState?.swarmAgents[agent.id]?.status ?? 'idle',
-      currentTaskId: swarmState?.swarmAgents[agent.id]?.currentTaskId ?? null,
+      role: sprintEngineState?.sprintEngineAgents[agent.id]?.role ?? agent.role,
+      status: sprintEngineState?.sprintEngineAgents[agent.id]?.status ?? 'idle',
+      currentTaskId: sprintEngineState?.sprintEngineAgents[agent.id]?.currentTaskId ?? null,
     })),
-    [roster, swarmState?.swarmAgents]
+    [roster, sprintEngineState?.sprintEngineAgents]
   )
 
   const runtimeAgentById = useMemo(
@@ -470,10 +434,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   )
 
   const readyTasks = useMemo(() => (
-    swarmState?.tasks.filter(
-      (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === 'ready'
+    sprintEngineState?.tasks.filter(
+      (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
     ) ?? []
-  ), [swarmState])
+  ), [sprintEngineState])
 
   function startAgentTerminal(
     agentId: string,
@@ -488,9 +452,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   ) {
     const current = agents[agentId]
     const selectedCli = cli ?? current?.cli ?? 'codex'
-    const role = swarmState?.swarmAgents[agentId]?.role
+    const role = sprintEngineState?.sprintEngineAgents[agentId]?.role
     const roleLabel = role
-      ? swarmRoleLabels[role]
+      ? sprintEngineRoleLabels[role]
       : undefined
     const startupPrompt = options?.startupPrompt && options.agentName
       ? prependAgentIdentifier(options.startupPrompt, options.agentName, roleLabel)
@@ -574,55 +538,44 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   }
 
   const boardColumns = useMemo(() => {
-    if (!swarmState) return []
+    if (!sprintEngineState) return []
 
     return columnMeta.map((column) => ({
       ...column,
-      cards: swarmState.tasks.filter(
-        (task) => getSwarmTaskBoardColumn(task, swarmState.tasks) === column.key
+      cards: sprintEngineState.tasks.filter(
+        (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === column.key
       ),
     }))
-  }, [swarmState])
+  }, [sprintEngineState])
 
   const reviewArtifacts = useMemo(
-    () => getReviewableSwarmArtifacts(swarmState?.artifacts ?? []),
-    [swarmState?.artifacts]
+    () => getReviewableSprintEngineArtifacts(sprintEngineState?.artifacts ?? []),
+    [sprintEngineState?.artifacts]
   )
 
   const artifactsByTaskId = useMemo(
-    () => getSwarmArtifactsByTaskId(reviewArtifacts),
+    () => getSprintEngineArtifactsByTaskId(reviewArtifacts),
     [reviewArtifacts]
   )
 
   const artifactBlockersByTaskId = useMemo(() => {
-    if (!swarmState) return {}
+    if (!sprintEngineState) return {}
     return Object.fromEntries(
-      swarmState.tasks.map((task) => [
+      sprintEngineState.tasks.map((task) => [
         task.id,
-        getSwarmArtifactDependencyBlockers(task, swarmState.tasks, reviewArtifacts),
+        getSprintEngineArtifactDependencyBlockers(task, sprintEngineState.tasks, reviewArtifacts),
       ])
     )
-  }, [reviewArtifacts, swarmState])
+  }, [reviewArtifacts, sprintEngineState])
 
   const tasksById = useMemo(
-    () => Object.fromEntries((swarmState?.tasks ?? []).map((task) => [task.id, task])),
-    [swarmState?.tasks]
+    () => Object.fromEntries((sprintEngineState?.tasks ?? []).map((task) => [task.id, task])),
+    [sprintEngineState?.tasks]
   )
 
-  const selectedTask = swarmState?.tasks.find((task) => task.id === selectedTaskId) ?? null
+  const selectedTask = sprintEngineState?.tasks.find((task) => task.id === selectedTaskId) ?? null
 
-  useEffect(() => {
-    if (!selectedTask) {
-      setTaskEditOpen(false)
-      setTaskEditForm(null)
-      setTaskEditAction({ status: 'idle', message: '' })
-      return
-    }
-    if (!taskEditOpen) return
-    setTaskEditForm(buildTaskEditForm(selectedTask))
-  }, [selectedTask, taskEditOpen])
-
-  if (!swarmState) {
+  if (!sprintEngineState) {
     return (
       <div className="flex h-full items-center justify-center bg-[#08090b] text-sm text-[#5a5a63]">
         Sprint Engine workspace data is missing.
@@ -630,20 +583,20 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     )
   }
 
-  const doneCount = swarmState.tasks.filter((task) => task.status === 'done').length
+  const doneCount = sprintEngineState.tasks.filter((task) => task.status === 'done').length
   const activeCount = runtimeAgents.filter((agent) => agent.status === 'running').length
   const needsInputCount = runtimeAgents.filter((agent) => agent.status === 'needs_input').length
-  const runPhase = getRunPhase(swarmState, runtimeAgents)
-  const allTasksDone = swarmState.tasks.length > 0 && doneCount === swarmState.tasks.length
-  const runSummary = buildRunSummary(swarmState.tasks)
+  const runPhase = getRunPhase(sprintEngineState, runtimeAgents)
+  const allTasksDone = sprintEngineState.tasks.length > 0 && doneCount === sprintEngineState.tasks.length
+  const runSummary = buildRunSummary(sprintEngineState.tasks)
   const architectAgentId = roster.find((agent) => agent.role === 'architect')?.id ?? null
-  const planFilePath = folderPath && swarmContext
-    ? getSwarmPlanFilePath(folderPath, swarmContext.teamSlug)
+  const planFilePath = folderPath && sprintEngineContext
+    ? getSprintEnginePlanFilePath(folderPath, sprintEngineContext.teamSlug)
     : null
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
-  const workerRoles: SwarmRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'performance', 'tester', 'security']
+  const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'performance', 'tester', 'security']
   const roleTaskLaunches = workerRoles.flatMap((role) => {
-    const activeTask = swarmState.tasks.find((task) =>
+    const activeTask = sprintEngineState.tasks.find((task) =>
       task.role === role && (task.status === 'in_progress' || task.status === 'needs_input')
     )
     const readyTask = readyTasks.find((task) => task.role === role && !task.ownerAgentId)
@@ -656,7 +609,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     )
     return [{ role, task, agent }]
   })
-  const roleTaskLaunchSet = new Set<SwarmRole>(roleTaskLaunches.map(({ role }) => role))
+  const roleTaskLaunchSet = new Set<SprintEngineRole>(roleTaskLaunches.map(({ role }) => role))
   const specialistReviewAgents = roster.filter((agent) => agent.role !== 'architect')
   const spawnDialogAgent = spawnDialog ? rosterById[spawnDialog.agentId] : undefined
   const spawnDialogRuntime = spawnDialog
@@ -671,22 +624,22 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const selectedCliOption = cliOptions.find((option) => option.value === spawnDialog?.cli) ?? cliOptions[0]
   const selectedRecoveryCliOption =
     cliOptions.find((option) => option.value === recoveryDialog?.cli) ?? cliOptions[0]
-  const hasPlannedTasks = swarmState.tasks.length > 0
+  const hasPlannedTasks = sprintEngineState.tasks.length > 0
   const relinkFolder = async () => {
     const dir = await window.api.openDir()
     if (dir) setFolderPath(workspaceId, dir)
   }
-  const refreshSwarmState = async () => {
+  const refreshSprintEngineState = async () => {
     if (!folderPath || manualRefreshBusy) return
 
     setManualRefreshBusy(true)
     setSyncState({ status: 'syncing', message: 'Refreshing Sprint Engine state...' })
     try {
-      const stateFilePath = await resolveReadableSwarmStatePath()
+      const stateFilePath = await resolveReadableSprintEngineStatePath()
       if (!stateFilePath) throw new Error('No workspace folder is ready.')
       const content = await window.api.readfile(stateFilePath)
-      const parsed = parseSwarmStateFile(content, getBaseName(getParentDirectoryPath(stateFilePath)))
-      setSwarmState(workspaceId, parsed)
+      const parsed = parseSprintEngineStateFile(content, getBaseName(getParentDirectoryPath(stateFilePath)))
+      setSprintEngineState(workspaceId, parsed)
       setSyncState({
         status: 'live',
         message: `Refreshed ${parsed.tasks.length} tasks from ${stateFilePath}`,
@@ -701,34 +654,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     }
   }
 
-  const syncGitHubIssues = async () => {
-    if (!folderPath || !swarmContext?.statePath || githubSyncBusy) return
-
-    setGithubSyncBusy(true)
-    setSyncState({ status: 'syncing', message: 'Syncing open GitHub issues...' })
-    try {
-      const result = await window.api.syncSymphonyGitHubIssues({
-        repoRoot: folderPath,
-        statePath: swarmContext.statePath,
-      })
-      if (!result.ok) throw new Error(result.message)
-      await refreshSwarmState()
-      setSyncState({
-        status: 'live',
-        message: `Synced ${result.fetched} open GitHub issues from ${result.repo.owner}/${result.repo.repo}. Created ${result.created}, updated ${result.updated}.`,
-      })
-    } catch (error) {
-      setSyncState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Failed to sync GitHub issues.',
-      })
-    } finally {
-      setGithubSyncBusy(false)
-    }
-  }
-
-  const markTaskReady = async (task: SwarmTask) => {
-    if (!swarmContext?.statePath) {
+  const markTaskReady = async (task: SprintEngineTask) => {
+    if (!sprintEngineContext?.statePath) {
       setSyncState({
         status: 'error',
         message: 'This Sprint Engine workspace is missing its selected team context.',
@@ -741,17 +668,17 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       [task.id]: { status: 'pending', message: 'Moving task to Ready...' },
     }))
     try {
-      const result = await window.api.readySwarmTask(swarmContext.statePath, task.id)
+      const result = await window.api.readySprintEngineTask(sprintEngineContext.statePath, task.id)
       if (!result.ok) throw new Error(result.message)
 
       const data = result.data && typeof result.data === 'object'
         ? result.data as { stateContent?: unknown }
         : {}
       if (typeof data.stateContent === 'string') {
-        const parsed = parseSwarmStateFile(data.stateContent, swarmContext.teamName)
-        setSwarmState(workspaceId, parsed)
+        const parsed = parseSprintEngineStateFile(data.stateContent, sprintEngineContext.teamName)
+        setSprintEngineState(workspaceId, parsed)
       } else {
-        await refreshSwarmState()
+        await refreshSprintEngineState()
       }
 
       setTaskReadyActions((current) => ({
@@ -772,94 +699,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     }
   }
 
-  const applyTaskMutationResult = async (
-    result: Awaited<ReturnType<typeof window.api.updateSwarmTask>>,
-    fallbackMessage: string
-  ) => {
-    if (!result.ok) throw new Error(result.message)
-
-    const data = result.data && typeof result.data === 'object'
-      ? result.data as { stateContent?: unknown }
-      : {}
-    if (typeof data.stateContent === 'string') {
-      const parsed = parseSwarmStateFile(data.stateContent, swarmContext?.teamName)
-      setSwarmState(workspaceId, parsed)
-    } else {
-      await refreshSwarmState()
-    }
-    setSyncState({ status: 'live', message: fallbackMessage })
-  }
-
-  const openTaskEditor = (task: SwarmTask) => {
-    setTaskEditForm(buildTaskEditForm(task))
-    setTaskEditAction({ status: 'idle', message: '' })
-    setTaskEditOpen(true)
-  }
-
-  const saveTaskEdits = async () => {
-    if (!selectedTask || !taskEditForm || !swarmContext?.statePath || taskEditAction.status === 'pending') return
-
-    setTaskEditAction({ status: 'pending', message: 'Saving task details...' })
-    try {
-      await applyTaskMutationResult(
-        await window.api.updateSwarmTask({
-          statePath: swarmContext.statePath,
-          taskId: selectedTask.id,
-          title: taskEditForm.title,
-          description: taskEditForm.description,
-          role: taskEditForm.role,
-          acceptanceCriteria: linesFromTextarea(taskEditForm.acceptanceCriteria),
-          implementationNotes: linesFromTextarea(taskEditForm.implementationNotes),
-          notes: linesFromTextarea(taskEditForm.notes),
-        }),
-        `Updated ${selectedTask.id}.`
-      )
-      setTaskEditAction({ status: 'success', message: 'Task details saved.' })
-      setTaskEditOpen(false)
-    } catch (error) {
-      setTaskEditAction({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Failed to save task details.',
-      })
-    }
-  }
-
-  const createLocalTask = async () => {
-    if (!swarmContext?.statePath || createTaskAction.status === 'pending') return
-
-    setCreateTaskAction({ status: 'pending', message: 'Creating local task...' })
-    try {
-      await applyTaskMutationResult(
-        await window.api.createSwarmTask({
-          statePath: swarmContext.statePath,
-          title: createTaskForm.title,
-          description: createTaskForm.description,
-          role: createTaskForm.role,
-          acceptanceCriteria: linesFromTextarea(createTaskForm.acceptanceCriteria),
-          implementationNotes: linesFromTextarea(createTaskForm.implementationNotes),
-          notes: linesFromTextarea(createTaskForm.notes),
-          manualDispatch: true,
-        }),
-        'Created local Symphony task.'
-      )
-      setCreateTaskAction({ status: 'success', message: 'Local task created.' })
-      setCreateTaskOpen(false)
-      setCreateTaskForm({
-        title: '',
-        description: '',
-        role: 'developer',
-        acceptanceCriteria: '',
-        implementationNotes: '',
-        notes: '',
-      })
-    } catch (error) {
-      setCreateTaskAction({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Failed to create local task.',
-      })
-    }
-  }
-
   const setArtifactAction = (
     artifactId: string,
     state: ArtifactActionState | null
@@ -876,20 +715,20 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   }
 
   const requireArtifactStatePath = (): string | null => {
-    if (!swarmContext?.statePath) {
+    if (!sprintEngineContext?.statePath) {
       setSyncState({
         status: 'error',
         message: 'This Sprint Engine workspace is missing its selected team context.',
       })
       return null
     }
-    return swarmContext.statePath
+    return sprintEngineContext.statePath
   }
 
   const readArtifactForEditor = async (
     statePath: string,
-    artifact: SwarmArtifact
-  ): Promise<OpenedSwarmArtifact> => {
+    artifact: SprintEngineArtifact
+  ): Promise<OpenedSprintEngineArtifact> => {
     const artifactPath = resolveArtifactPathForEditor(statePath, artifact.path)
     const exists = await window.api.pathExists(artifactPath)
     if (!exists) {
@@ -904,7 +743,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     }
   }
 
-  const openArtifact = async (artifact: SwarmArtifact) => {
+  const openArtifact = async (artifact: SprintEngineArtifact) => {
     const statePath = requireArtifactStatePath()
     if (!statePath) return
 
@@ -933,10 +772,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     }
   }
 
-  const resolveArtifactProducerAgentId = (artifact: SwarmArtifact): string | null => {
+  const resolveArtifactProducerAgentId = (artifact: SprintEngineArtifact): string | null => {
     const linkedTask = tasksById[artifact.taskId]
     const createdBy = artifact.createdBy.trim()
-    if (createdBy && (rosterById[createdBy] || agents[createdBy] || swarmState?.swarmAgents[createdBy])) {
+    if (createdBy && (rosterById[createdBy] || agents[createdBy] || sprintEngineState?.sprintEngineAgents[createdBy])) {
       return createdBy
     }
 
@@ -952,7 +791,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     return null
   }
 
-  const focusArtifactProducerTerminal = (artifact: SwarmArtifact): { agentId: string; label: string } | null => {
+  const focusArtifactProducerTerminal = (artifact: SprintEngineArtifact): { agentId: string; label: string } | null => {
     const agentId = resolveArtifactProducerAgentId(artifact)
     if (!agentId) {
       setArtifactAction(artifact.id, {
@@ -983,7 +822,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       && session.kind === 'agent'
       && session.workspaceId === workspaceId
       && session.agentId === agentId
-      && (!swarmContext || session.swarmStatePath === swarmContext.statePath)
+      && (!sprintEngineContext || session.sprintEngineStatePath === sprintEngineContext.statePath)
     )
     if (!runningSession) return null
 
@@ -1000,7 +839,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   // Review actions are terminal handoffs. The renderer must not invoke sprintengine
   // Python mutation commands; the producing agent receives the user's decision
   // and updates Sprint Engine state through its own tool flow.
-  const approveArtifact = async (artifact: SwarmArtifact) => {
+  const approveArtifact = async (artifact: SprintEngineArtifact) => {
     setArtifactAction(artifact.id, { kind: 'approve', status: 'pending', message: 'Sending approval...' })
     try {
       const target = focusArtifactProducerTerminal(artifact)
@@ -1027,7 +866,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     }
   }
 
-  const requestArtifactChanges = (artifact: SwarmArtifact) => {
+  const requestArtifactChanges = (artifact: SprintEngineArtifact) => {
     const target = focusArtifactProducerTerminal(artifact)
     if (!target) return
 
@@ -1063,7 +902,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       </div>
     </div>
   ) : null
-  const showPlanningActions = !isSymphonyWorkspace && !hasPlannedTasks
+  const showPlanningActions = !hasPlannedTasks
   const needsInputAgent = runtimeAgents.find((agent) => agent.status === 'needs_input')
   const runningAgent = runtimeAgents.find((agent) => agent.status === 'running')
   const focusAgent = needsInputAgent ?? runningAgent
@@ -1073,7 +912,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const showFocusAgentAction = Boolean(focusAgent)
     && (!focusAgentRole || focusAgentRole === 'architect' || !roleTaskLaunchSet.has(focusAgentRole))
   const selectedTaskBoardColumn = selectedTask
-    ? getSwarmTaskBoardColumn(selectedTask, swarmState.tasks)
+    ? getSprintEngineTaskBoardColumn(selectedTask, sprintEngineState.tasks)
     : null
   const selectedTaskStatusLabel = selectedTask
     ? selectedTaskBoardColumn === 'ready' ? 'Ready' : taskStateLabel[selectedTask.status]
@@ -1093,21 +932,21 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     : false
   const selectedTaskArtifacts = selectedTask ? artifactsByTaskId[selectedTask.id] ?? [] : []
   const selectedTaskArtifactBlockers = selectedTask ? artifactBlockersByTaskId[selectedTask.id] ?? [] : []
-  const activateView = (view: SwarmView) => {
+  const activateView = (view: SprintEngineView) => {
     if (fixedView) return
     setActiveView(view)
   }
 
   const toggleAuto = () => {
-    setSwarmAutoEnabled(workspaceId, !autoEnabled)
+    setSprintEngineAutoEnabled(workspaceId, !autoEnabled)
   }
 
   const toggleArtifactAutoApproval = () => {
     if (!autoEnabled) return
-    setSwarmAutoApproveArtifacts(workspaceId, !autoApproveArtifacts)
+    setSprintEngineAutoApproveArtifacts(workspaceId, !autoApproveArtifacts)
   }
 
-  const updateCliPermissionPreset = (preset: SwarmCliPermissionPreset) => {
+  const updateCliPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
     if (preset === 'bypass_all') {
       const confirmed = window.confirm(
         'Bypass permissions lets spawned Sprint Engine agents run without CLI approval prompts. Use this only in repositories and environments you trust.'
@@ -1115,7 +954,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       if (!confirmed) return
     }
 
-    setSwarmCliPermissionPreset(workspaceId, preset)
+    setSprintEngineCliPermissionPreset(workspaceId, preset)
   }
 
   const getAgentName = (agentId: string, fallback: string) => agents[agentId]?.name ?? fallback
@@ -1127,7 +966,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
   const openAddMemberDialog = () => {
     const uncoveredRole = addableRoles.find((role) =>
-      swarmState.tasks.some((task) => task.role === role && task.status !== 'done')
+      sprintEngineState.tasks.some((task) => task.role === role && task.status !== 'done')
       && !roster.some((agent) => agent.role === role)
     )
     setAddMemberRole(uncoveredRole ?? 'developer')
@@ -1136,12 +975,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   }
 
   const confirmAddMember = async () => {
-    if (swarmState.rosterConfigured) {
-      if (!architectAgentId || !swarmContext) return
-      const agentId = getNextSwarmAgentId(addMemberRole, swarmState.swarmAgents)
+    if (sprintEngineState.rosterConfigured) {
+      if (!architectAgentId || !sprintEngineContext) return
+      const agentId = getNextSprintEngineAgentId(addMemberRole, sprintEngineState.sprintEngineAgents)
       const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
       const label = getAgentName(architectAgentId, fallbackLabel)
-      const prompt = buildRosterRevisionPrompt(addMemberRole, agentId, swarmContext.teamSlug)
+      const prompt = buildRosterRevisionPrompt(addMemberRole, agentId, sprintEngineContext.teamSlug)
       const started = await startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
         freshSession: true,
         agentName: getCustomAgentName(architectAgentId, fallbackLabel),
@@ -1153,7 +992,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       return
     }
 
-    const addedAgent = addSwarmMember(workspaceId, addMemberRole)
+    const addedAgent = addSprintEngineMember(workspaceId, addMemberRole)
     if (!addedAgent) return
 
     void startAgentTerminalWhenReady(addedAgent.id, addedAgent.label)
@@ -1192,7 +1031,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     setSpawnDialog(null)
   }
 
-  const openReadySpawnDialogForRole = (role: SwarmRole) => {
+  const openReadySpawnDialogForRole = (role: SprintEngineRole) => {
     const existing = roster.find((agent) =>
       agent.role === role
       && runtimeAgentById[agent.id]?.status !== 'done'
@@ -1202,13 +1041,13 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         agent.role === role
         && runtimeAgentById[agent.id]?.status !== 'done'
       )
-    const agent = existing ?? addSwarmMember(workspaceId, role)
+    const agent = existing ?? addSprintEngineMember(workspaceId, role)
     if (!agent) return
 
     openSpawnDialog(agent.id)
   }
 
-  const openReadyTaskWorker = (task: SwarmTask) => {
+  const openReadyTaskWorker = (task: SprintEngineTask) => {
     if (task.ownerAgentId) {
       const agentId = task.ownerAgentId
       const agent = rosterById[agentId]
@@ -1232,29 +1071,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     openReadySpawnDialogForRole(task.role)
   }
 
-  const writeBackGitHubProgress = async (
-    task: SwarmTask,
-    kind: 'work_started' | 'review_ready'
-  ) => {
-    if (!folderPath || !swarmContext?.statePath || task.source?.type !== 'github') return
-    const result = await window.api.writeBackSymphonyGitHubIssue({
-      repoRoot: folderPath,
-      statePath: swarmContext.statePath,
-      taskId: task.id,
-      kind,
-    })
-    if (!result.ok) {
-      setSyncState({ status: 'error', message: result.message })
-      return
-    }
-    setSyncState({
-      status: 'live',
-      message: `Posted GitHub progress comment for ${task.id}.`,
-    })
-  }
-
   const loadPlanReader = async () => {
-    if (!swarmState || !folderPath || !swarmContext) {
+    if (!sprintEngineState || !folderPath || !sprintEngineContext) {
       setPlanReader((current) => ({
         ...current,
         open: true,
@@ -1266,9 +1084,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       return
     }
 
-    const swarmRootDirectory = getSwarmRootDirectoryPath(folderPath)
-    const swarmDirectory = swarmContext.teamDirectoryPath
-    const nextPlanFilePath = getSwarmPlanFilePath(folderPath, swarmContext.teamSlug)
+    const sprintEngineRootDirectory = getSprintEngineRootDirectoryPath(folderPath)
+    const sprintEngineDirectory = sprintEngineContext.teamDirectoryPath
+    const nextPlanFilePath = getSprintEnginePlanFilePath(folderPath, sprintEngineContext.teamSlug)
     setPlanReader((current) => ({
       ...current,
       open: true,
@@ -1278,7 +1096,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
     try {
       await window.api.ensureDir(folderPath, 'sprintengine')
-      await window.api.ensureDir(swarmRootDirectory, swarmContext.teamSlug)
+      await window.api.ensureDir(sprintEngineRootDirectory, sprintEngineContext.teamSlug)
 
       let content = ''
       try {
@@ -1300,7 +1118,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         open: true,
         status: 'error',
         content: '',
-        error: error instanceof Error ? error.message : `Failed to load plan from ${swarmDirectory}.`,
+        error: error instanceof Error ? error.message : `Failed to load plan from ${sprintEngineDirectory}.`,
       }))
     }
   }
@@ -1374,95 +1192,87 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       <div className="border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            {!isSymphonyWorkspace ? (
-              <>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoEnabled}
-                  aria-label={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
-                  onClick={toggleAuto}
-                  title={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
-                  className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors ${
-                    autoEnabled
-                      ? 'border-[#5c7cff]/55 bg-[#5c7cff]/14 text-[#d4ddff] hover:border-[#5c7cff]/75 hover:bg-[#5c7cff]/18'
-                      : 'border-[#303139] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoEnabled}
+              aria-label={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
+              onClick={toggleAuto}
+              title={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
+              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors ${
+                autoEnabled
+                  ? 'border-[#5c7cff]/55 bg-[#5c7cff]/14 text-[#d4ddff] hover:border-[#5c7cff]/75 hover:bg-[#5c7cff]/18'
+                  : 'border-[#303139] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
+              }`}
+            >
+              {autoEnabled ? <PauseSprintEngineIcon /> : <PlaySprintEngineIcon />}
+            </button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoApproveArtifacts}
+              aria-label="Approve all artifacts"
+              aria-describedby={!autoEnabled ? 'artifact-auto-approval-disabled' : undefined}
+              onClick={toggleArtifactAutoApproval}
+              disabled={!autoEnabled}
+              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                autoEnabled && autoApproveArtifacts
+                  ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
+                  : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
+              } disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]`}
+              title={autoEnabled ? 'Approve all artifacts' : 'Start sprintengine auto-run before approving all artifacts'}
+            >
+              <span
+                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                  autoEnabled && autoApproveArtifacts ? 'bg-[#5c7cff]' : 'bg-[#303139]'
+                }`}
+                aria-hidden="true"
+              >
+                <span
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
+                    autoApproveArtifacts ? 'translate-x-4' : 'translate-x-0'
                   }`}
-                >
-                  {autoEnabled ? <PauseSwarmIcon /> : <PlaySwarmIcon />}
-                </button>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoApproveArtifacts}
-                  aria-label="Approve all artifacts"
-                  aria-describedby={!autoEnabled ? 'artifact-auto-approval-disabled' : undefined}
-                  onClick={toggleArtifactAutoApproval}
-                  disabled={!autoEnabled}
-                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
-                    autoEnabled && autoApproveArtifacts
-                      ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
-                      : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
-                  } disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]`}
-                  title={autoEnabled ? 'Approve all artifacts' : 'Start sprintengine auto-run before approving all artifacts'}
-                >
-                  <span
-                    className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                      autoEnabled && autoApproveArtifacts ? 'bg-[#5c7cff]' : 'bg-[#303139]'
-                    }`}
-                    aria-hidden="true"
-                  >
-                    <span
-                      className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#08090b] transition-transform ${
-                        autoApproveArtifacts ? 'translate-x-4' : 'translate-x-0'
-                      }`}
-                    />
-                  </span>
-                  <span>Approve all artifacts</span>
-                </button>
-                <span id="artifact-auto-approval-disabled" className="sr-only">
-                  SprintEngine auto-run must be enabled before artifacts can be approved automatically.
-                </span>
-              </>
-            ) : null}
-            {!isSymphonyWorkspace ? (
-              <>
-                <label className="sr-only" htmlFor={`sprintengine-cli-permissions-${workspaceId}`}>
-                  CLI permissions for sprintengine auto-run
-                </label>
-                <select
-                  id={`sprintengine-cli-permissions-${workspaceId}`}
-                  value={cliPermissionPreset}
-                  onChange={(event) =>
-                    updateCliPermissionPreset(event.currentTarget.value as SwarmCliPermissionPreset)
-                  }
-                  title={
-                    swarmCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title
-                    ?? 'CLI permissions for sprintengine auto-run'
-                  }
-                  className={`h-8 rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none transition-colors focus:ring-1 ${
-                    cliPermissionPreset === 'bypass_all'
-                      ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
-                      : cliPermissionPreset === 'auto_workspace'
-                        ? 'border-[#5c7cff]/40 text-[#d4ddff] focus:ring-[#5c7cff]/40'
-                        : 'border-[#303139] text-[#8a8a92] focus:ring-[#303139]'
-                  }`}
-                >
-                  {swarmCliPermissionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </>
-            ) : null}
+                />
+              </span>
+              <span>Approve all artifacts</span>
+            </button>
+            <span id="artifact-auto-approval-disabled" className="sr-only">
+              SprintEngine auto-run must be enabled before artifacts can be approved automatically.
+            </span>
+            <label className="sr-only" htmlFor={`sprintengine-cli-permissions-${workspaceId}`}>
+              CLI permissions for sprintengine auto-run
+            </label>
+            <select
+              id={`sprintengine-cli-permissions-${workspaceId}`}
+              value={cliPermissionPreset}
+              onChange={(event) =>
+                updateCliPermissionPreset(event.currentTarget.value as SprintEngineCliPermissionPreset)
+              }
+              title={
+                sprintEngineCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title
+                ?? 'CLI permissions for sprintengine auto-run'
+              }
+              className={`h-8 rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none transition-colors focus:ring-1 ${
+                cliPermissionPreset === 'bypass_all'
+                  ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
+                  : cliPermissionPreset === 'auto_workspace'
+                    ? 'border-[#5c7cff]/40 text-[#d4ddff] focus:ring-[#5c7cff]/40'
+                    : 'border-[#303139] text-[#8a8a92] focus:ring-[#303139]'
+              }`}
+            >
+              {sprintEngineCliPermissionOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
             {!fixedView ? (
               <div className="ml-1 flex flex-wrap items-center gap-1">
                 {([
-                  { id: 'project' as const, label: isSymphonyWorkspace ? 'Intake' : 'Project' },
-                  { id: 'map' as const, label: isSymphonyWorkspace ? 'Agents' : 'Map' },
+                  { id: 'project' as const, label: 'Project' },
+                  { id: 'map' as const, label: 'Map' },
                   { id: 'task-graph' as const, label: 'Task Graph' },
-                  { id: 'kanban' as const, label: isSymphonyWorkspace ? 'Board' : 'Kanban' },
+                  { id: 'kanban' as const, label: 'Kanban' },
                 ]).map((view) => (
                   <button
                     key={view.id}
@@ -1480,38 +1290,15 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             ) : null}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1.5">
-            {isSymphonyWorkspace ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCreateTaskOpen(true)
-                    setCreateTaskAction({ status: 'idle', message: '' })
-                  }}
-                  disabled={!swarmContext?.statePath}
-                  className="rounded-md bg-[#30d158]/10 px-3 py-1.5 text-sm font-semibold text-[#b9f7c8] transition-colors hover:bg-[#30d158]/16 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#30d158]/10"
-                >
-                  New Local Task
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void syncGitHubIssues()}
-                  disabled={!folderPath || !swarmContext?.statePath || githubSyncBusy}
-                  className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]/10"
-                >
-                  {githubSyncBusy ? 'Syncing GitHub...' : 'Sync GitHub'}
-                </button>
-              </>
-            ) : null}
             <button
               type="button"
-              onClick={() => void refreshSwarmState()}
+              onClick={() => void refreshSprintEngineState()}
               disabled={!folderPath || manualRefreshBusy}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#838896]"
-              title={isSymphonyWorkspace ? 'Refresh Symphony board' : 'Refresh Sprint Engine state'}
-              aria-label={isSymphonyWorkspace ? 'Refresh Symphony board' : 'Refresh Sprint Engine state'}
+              title="Refresh Sprint Engine state"
+              aria-label="Refresh Sprint Engine state"
             >
-              <RefreshSwarmIcon />
+              <RefreshSprintEngineIcon />
             </button>
             {showFocusAgentAction && focusAgent ? (
               <button
@@ -1539,10 +1326,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               const targetIsLaunched = targetAgentId ? Boolean(agents[targetAgentId]?.cliStartRequested) : false
               const targetLabel = ownerAgentId
                 ? agent?.label ?? ownerAgentId
-                : agent?.label ?? swarmRoleLabels[role]
+                : agent?.label ?? sprintEngineRoleLabels[role]
               const actionLabel = ownerAgentId
                 ? targetIsLaunched ? `Open ${targetLabel}` : `Respawn ${targetLabel}`
-                : targetIsLaunched ? `Open ${targetLabel}` : `Spawn ${swarmRoleLabels[role]}`
+                : targetIsLaunched ? `Open ${targetLabel}` : `Spawn ${sprintEngineRoleLabels[role]}`
               return (
                 <button
                   key={role}
@@ -1567,7 +1354,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 {agents[architectAgentId]?.cliStartRequested ? 'Open Architect' : 'Spawn Architect'}
               </button>
             ) : null}
-            {architectAgentId && !isSymphonyWorkspace ? (
+            {architectAgentId ? (
               <button
                 onClick={openRecoveryDialog}
                 className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
@@ -1671,8 +1458,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       {folderStatusBanner}
 
       {effectiveView === 'project' ? (
-        <SwarmProjectView
-          swarmState={swarmState}
+        <SprintEngineProjectView
+          sprintEngineState={sprintEngineState}
           roster={roster}
           runtimeAgents={runtimeAgents}
           agents={agents}
@@ -1683,14 +1470,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
           readyTasks={readyTasks}
           reviewArtifacts={reviewArtifacts}
           artifactActions={artifactActions}
-          isSymphony={isSymphonyWorkspace}
-          githubSyncBusy={githubSyncBusy}
-          canSyncGitHub={Boolean(folderPath && swarmContext?.statePath && !githubSyncBusy)}
-          onCreateLocalTask={() => {
-            setCreateTaskOpen(true)
-            setCreateTaskAction({ status: 'idle', message: '' })
-          }}
-          onSyncGitHub={() => void syncGitHubIssues()}
           onSelectAgent={(agentId) => {
             if (agents[agentId]?.cliStartRequested) {
               openAgentTerminal(agentId)
@@ -1708,9 +1487,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ) : null}
 
       {effectiveView === 'map' ? (
-        <SwarmMapView
+        <SprintEngineMapView
           workspaceId={workspaceId}
-          swarmState={swarmState}
+          sprintEngineState={sprintEngineState}
           roster={roster}
           rosterById={rosterById}
           runtimeAgents={runtimeAgents}
@@ -1721,8 +1500,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ) : null}
 
       {effectiveView === 'task-graph' ? (
-        <SwarmTaskGraphView
-          swarmState={swarmState}
+        <SprintEngineTaskGraphView
+          sprintEngineState={sprintEngineState}
           rosterById={rosterById}
           selectedTaskId={selectedTaskId}
           onSelectTask={setSelectedTaskId}
@@ -1731,7 +1510,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
       {effectiveView === 'kanban' ? (
         <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(260px,1fr))] overflow-auto bg-[#08090b]">
-          {swarmState.tasks.length === 0 && !isSymphonyWorkspace ? (
+          {sprintEngineState.tasks.length === 0 ? (
             <div className="col-span-full flex h-full min-h-[320px] items-center justify-center p-6 text-center">
               <div className="max-w-xl">
                 <div className="text-sm font-semibold text-[#ececee]">
@@ -1743,7 +1522,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               </div>
             </div>
           ) : null}
-          {swarmState.tasks.length > 0 || isSymphonyWorkspace ? boardColumns.map((column) => (
+          {sprintEngineState.tasks.length > 0 ? boardColumns.map((column) => (
           <section
             key={column.key}
             className="flex min-h-0 min-w-0 flex-col border-r border-[#1f2025] bg-[#08090b] last:border-r-0"
@@ -1764,7 +1543,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 const ownerCliRunning = task.ownerAgentId
                   ? Boolean(agents[task.ownerAgentId]?.cliStartRequested)
                   : false
-                const boardColumn = getSwarmTaskBoardColumn(task, swarmState.tasks)
+                const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
                 const statusLabel = boardColumn === 'ready' ? 'Ready' : taskStateLabel[task.status]
                 const dependencyLabel = task.dependsOn.length > 0
                   ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
@@ -1792,7 +1571,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 const taskArtifactBlockers = artifactBlockersByTaskId[task.id] ?? []
                 const actionLabel = task.ownerAgentId
                   ? ownerCliRunning ? 'Open Terminal' : 'Respawn'
-                  : `Spawn ${swarmRoleLabels[task.role]}`
+                  : `Spawn ${sprintEngineRoleLabels[task.role]}`
                 const sourceLabel = formatTaskSourceLabel(task)
                 const canMarkReady = task.status === 'todo'
                   && !task.ownerAgentId
@@ -1823,7 +1602,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                             ? '#ffbf2f'
                             : boardColumn === 'ready'
                               ? '#30d158'
-                              : swarmRoleAccent[claimRole ?? task.role],
+                              : sprintEngineRoleAccent[claimRole ?? task.role],
                         }}
                       />
                     ) : null}
@@ -1842,11 +1621,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                           <span
                             className="h-1.5 w-1.5 shrink-0 rounded-full"
                             style={{
-                              backgroundColor: swarmRoleAccent[task.role],
+                              backgroundColor: sprintEngineRoleAccent[task.role],
                             }}
                           />
-                          <span style={{ color: swarmRoleAccent[task.role] }}>
-                            {swarmRoleLabels[task.role]}
+                          <span style={{ color: sprintEngineRoleAccent[task.role] }}>
+                            {sprintEngineRoleLabels[task.role]}
                           </span>
                         </div>
                         <div className="mt-1 text-sm font-semibold leading-5 text-[#ececee]">{task.title}</div>
@@ -2002,7 +1781,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
             <div className="space-y-4 px-5 py-5">
               <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-                <MetaItem label="Tasks" value={`${swarmState.tasks.length} to check`} />
+                <MetaItem label="Tasks" value={`${sprintEngineState.tasks.length} to check`} />
                 <MetaItem label="Backup" value="state-timestamp.yaml" />
               </div>
 
@@ -2146,7 +1925,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
             <div className="space-y-4 px-5 py-5">
               <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-                <MetaItem label="Role" value={swarmRoleLabels[spawnDialogAgent.role]} />
+                <MetaItem label="Role" value={sprintEngineRoleLabels[spawnDialogAgent.role]} />
                 <MetaItem label="Status" value={runtimeStatusLabel(spawnDialogRuntime?.status ?? 'idle')} />
               </div>
 
@@ -2281,30 +2060,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         </div>
       ) : null}
 
-      {isSymphonyWorkspace && createTaskOpen ? (
-        <TaskMutationDialog
-          title="New Local Task"
-          form={createTaskForm}
-          action={createTaskAction}
-          submitLabel="Create Task"
-          onChange={setCreateTaskForm}
-          onCancel={() => setCreateTaskOpen(false)}
-          onSubmit={() => void createLocalTask()}
-        />
-      ) : null}
-
-      {isSymphonyWorkspace && selectedTask && taskEditOpen && taskEditForm ? (
-        <TaskMutationDialog
-          title={`Edit ${selectedTask.id}`}
-          form={taskEditForm}
-          action={taskEditAction}
-          submitLabel="Save Changes"
-          onChange={setTaskEditForm}
-          onCancel={() => setTaskEditOpen(false)}
-          onSubmit={() => void saveTaskEdits()}
-        />
-      ) : null}
-
       {selectedTask && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
           <div className="max-h-[90vh] w-full max-w-[920px] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
@@ -2318,20 +2073,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 </h3>
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#5a5a63]">
                   <span className="font-mono">{selectedTask.id}</span>
-                  <span>{swarmRoleLabels[selectedTask.role]}</span>
+                  <span>{sprintEngineRoleLabels[selectedTask.role]}</span>
                   <span className="font-semibold text-[#d7d7dc]">{selectedTaskStatusLabel}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {isSymphonyWorkspace && selectedTask.status === 'todo' && !selectedTask.ownerAgentId ? (
-                  <button
-                    type="button"
-                    onClick={() => openTaskEditor(selectedTask)}
-                    className="rounded-md bg-[#5c7cff]/10 px-3 py-2 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16"
-                  >
-                    Edit
-                  </button>
-                ) : null}
                 <button
                   onClick={() => setSelectedTaskId(null)}
                   className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
@@ -2370,24 +2116,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {selectedTask.status === 'in_progress' ? (
-                      <button
-                        type="button"
-                        onClick={() => void writeBackGitHubProgress(selectedTask, 'work_started')}
-                        className="rounded-md px-3 py-2 text-sm font-semibold text-[#b9f7c8] transition-colors hover:bg-[#30d158]/10"
-                      >
-                        Comment Started
-                      </button>
-                    ) : null}
-                    {selectedTask.status === 'needs_input' || selectedTask.status === 'done' ? (
-                      <button
-                        type="button"
-                        onClick={() => void writeBackGitHubProgress(selectedTask, 'review_ready')}
-                        className="rounded-md px-3 py-2 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/10"
-                      >
-                        Comment Review
-                      </button>
-                    ) : null}
                     {selectedTask.source.externalUrl ? (
                       <button
                         type="button"
@@ -2433,7 +2161,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     </span>
                     {selectedTask.triage.suggestedRole ? (
                       <span className="rounded bg-[#17181d] px-1.5 py-0.5">
-                        {swarmRoleLabels[selectedTask.triage.suggestedRole]}
+                        {sprintEngineRoleLabels[selectedTask.triage.suggestedRole]}
                       </span>
                     ) : null}
                     <span className="rounded bg-[#17181d] px-1.5 py-0.5">
@@ -2502,7 +2230,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                       Ready To Claim
                     </div>
                     <div className="mt-1 text-sm text-[#ececee]">
-                      Start a {swarmRoleLabels[selectedTask.role]} for this ready task.
+                      Start a {sprintEngineRoleLabels[selectedTask.role]} for this ready task.
                     </div>
                   </div>
                   <button
@@ -2512,7 +2240,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     }}
                     className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff]"
                   >
-                    Spawn {swarmRoleLabels[selectedTask.role]}
+                    Spawn {sprintEngineRoleLabels[selectedTask.role]}
                   </button>
                 </div>
               ) : null}
@@ -2542,7 +2270,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
               <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
 
-              <SwarmArtifactList
+              <SprintEngineArtifactList
                 artifacts={selectedTaskArtifacts}
                 tasksById={tasksById}
                 actions={artifactActions}
@@ -2598,7 +2326,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   Run Summary
                 </div>
                 <h3 className="text-[14px] font-semibold tracking-tight text-[#ececee]">
-                  {formatSwarmGoal(swarmState.goal)}
+                  {formatSprintEngineGoal(sprintEngineState.goal)}
                 </h3>
                 <p className="mt-2 text-sm text-[#9a9aa2]">
                   Final evidence collected from completed sprintengine task cards.
@@ -2678,7 +2406,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   SprintEngine Roster
                 </div>
                 <h3 className="text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  {swarmState.rosterConfigured ? 'Add Roster Member' : 'Spawn Team Member'}
+                  {sprintEngineState.rosterConfigured ? 'Add Roster Member' : 'Spawn Team Member'}
                 </h3>
               </div>
               <button
@@ -2693,7 +2421,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               {addableRoles.map((role) => {
                 const selected = role === addMemberRole
                 const activeForRole = roster.filter((agent) => agent.role === role).length
-                const openTasksForRole = swarmState.tasks.filter(
+                const openTasksForRole = sprintEngineState.tasks.filter(
                   (task) => task.role === role && task.status !== 'done'
                 ).length
 
@@ -2712,15 +2440,15 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                       <span
                         className="hidden h-8 w-8 shrink-0 items-center justify-center rounded border bg-[#111216] sm:flex"
                         style={{
-                          borderColor: selected ? swarmRoleAccent[role] : '#303139',
+                          borderColor: selected ? sprintEngineRoleAccent[role] : '#303139',
                           color: '#9a9aa2',
                         }}
                       >
-                        <SwarmRoleIcon role={role} className="h-4 w-4" />
+                        <SprintEngineRoleIcon role={role} className="h-4 w-4" />
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold">
-                          {swarmRoleLabels[role]}
+                          {sprintEngineRoleLabels[role]}
                         </div>
                         <p className={`mt-1 text-[12px] leading-5 ${selected ? 'text-[#b8ccff]' : 'text-[#9a9aa2]'}`}>
                           {roleSummaries[role]}
@@ -2748,7 +2476,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 onClick={() => void confirmAddMember()}
                 className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff]"
               >
-                {swarmState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {swarmRoleLabels[addMemberRole]}
+                {sprintEngineState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {sprintEngineRoleLabels[addMemberRole]}
               </button>
             </div>
           </div>
@@ -2859,18 +2587,18 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 type RosterItem = {
   id: string
   label: string
-  role: SwarmRole
+  role: SprintEngineRole
 }
 
 type RuntimeAgentView = {
   agentId: string
-  role: SwarmRole
+  role: SprintEngineRole
   status: string
   currentTaskId: string | null
 }
 
-function SwarmProjectView({
-  swarmState,
+function SprintEngineProjectView({
+  sprintEngineState,
   roster,
   runtimeAgents,
   agents,
@@ -2881,11 +2609,6 @@ function SwarmProjectView({
   readyTasks,
   reviewArtifacts,
   artifactActions,
-  isSymphony,
-  githubSyncBusy,
-  canSyncGitHub,
-  onCreateLocalTask,
-  onSyncGitHub,
   onSelectAgent,
   onSelectTask,
   onAddMember,
@@ -2894,7 +2617,7 @@ function SwarmProjectView({
   onApproveArtifact,
   onRequestArtifactChanges,
 }: {
-  swarmState: SwarmState
+  sprintEngineState: SprintEngineState
   roster: RosterItem[]
   runtimeAgents: RuntimeAgentView[]
   agents: Record<string, AgentState>
@@ -2902,28 +2625,23 @@ function SwarmProjectView({
   doneCount: number
   activeCount: number
   needsInputCount: number
-  readyTasks: SwarmTask[]
-  reviewArtifacts: SwarmArtifact[]
+  readyTasks: SprintEngineTask[]
+  reviewArtifacts: SprintEngineArtifact[]
   artifactActions: Record<string, ArtifactActionState>
-  isSymphony: boolean
-  githubSyncBusy: boolean
-  canSyncGitHub: boolean
-  onCreateLocalTask: () => void
-  onSyncGitHub: () => void
   onSelectAgent: (agentId: string) => void
   onSelectTask: (taskId: string) => void
   onAddMember: () => void
   onReadPlan: () => void
-  onOpenArtifact: (artifact: SwarmArtifact) => void
-  onApproveArtifact: (artifact: SwarmArtifact) => void
-  onRequestArtifactChanges: (artifact: SwarmArtifact) => void
+  onOpenArtifact: (artifact: SprintEngineArtifact) => void
+  onApproveArtifact: (artifact: SprintEngineArtifact) => void
+  onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
 }) {
   const [goalExpanded, setGoalExpanded] = useState(false)
-  const fullGoal = formatSwarmGoal(swarmState.goal)
-  const goalPreview = formatSwarmGoalPreview(swarmState.goal)
+  const fullGoal = formatSprintEngineGoal(sprintEngineState.goal)
+  const goalPreview = formatSprintEngineGoalPreview(sprintEngineState.goal)
   const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 260
   const tasksByRole = useMemo(() => {
-    const counts: Record<SwarmRole, { open: number; ready: number }> = {
+    const counts: Record<SprintEngineRole, { open: number; ready: number }> = {
       architect: { open: 0, ready: 0 },
       product: { open: 0, ready: 0 },
       developer: { open: 0, ready: 0 },
@@ -2934,35 +2652,35 @@ function SwarmProjectView({
       security: { open: 0, ready: 0 },
     }
 
-    swarmState.tasks.forEach((task) => {
+    sprintEngineState.tasks.forEach((task) => {
       if (task.status !== 'done') counts[task.role].open += 1
       if (readyTasks.some((readyTask) => readyTask.id === task.id)) counts[task.role].ready += 1
     })
 
     return counts
-  }, [readyTasks, swarmState.tasks])
+  }, [readyTasks, sprintEngineState.tasks])
 
   const currentTaskByAgentId = useMemo(() => {
-    const tasksById = Object.fromEntries(swarmState.tasks.map((task) => [task.id, task]))
+    const tasksById = Object.fromEntries(sprintEngineState.tasks.map((task) => [task.id, task]))
     return Object.fromEntries(
       runtimeAgents.map((agent) => [
         agent.agentId,
         agent.currentTaskId ? tasksById[agent.currentTaskId] ?? null : null,
       ])
     )
-  }, [runtimeAgents, swarmState.tasks])
+  }, [runtimeAgents, sprintEngineState.tasks])
   const tasksById = useMemo(
-    () => Object.fromEntries(swarmState.tasks.map((task) => [task.id, task])),
-    [swarmState.tasks]
+    () => Object.fromEntries(sprintEngineState.tasks.map((task) => [task.id, task])),
+    [sprintEngineState.tasks]
   )
   const blockedByArtifacts = useMemo(() => (
-    swarmState.tasks
+    sprintEngineState.tasks
       .map((task) => ({
         task,
-        blockers: getSwarmArtifactDependencyBlockers(task, swarmState.tasks, reviewArtifacts),
+        blockers: getSprintEngineArtifactDependencyBlockers(task, sprintEngineState.tasks, reviewArtifacts),
       }))
       .filter(({ blockers }) => blockers.length > 0)
-  ), [reviewArtifacts, swarmState.tasks])
+  ), [reviewArtifacts, sprintEngineState.tasks])
 
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-[#08090b] p-4">
@@ -2971,87 +2689,65 @@ function SwarmProjectView({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                {isSymphony ? 'Symphony Intake' : 'Project Brief'}
+                Project Brief
               </div>
               <h2 className="mt-1 truncate text-lg font-semibold text-[#ececee]">
-                {swarmState.name}
+                {sprintEngineState.name}
               </h2>
             </div>
-            {isSymphony ? (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={onCreateLocalTask}
-                  className="rounded-md bg-[#a855f7]/12 px-3 py-1.5 text-sm font-semibold text-[#e9d5ff] transition-colors hover:bg-[#a855f7]/18"
-                >
-                  New Local Task
-                </button>
-                <button
-                  type="button"
-                  onClick={onSyncGitHub}
-                  disabled={!canSyncGitHub}
-                  className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 disabled:cursor-default disabled:opacity-45"
-                >
-                  {githubSyncBusy ? 'Syncing GitHub...' : 'Sync GitHub'}
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={onReadPlan}
-                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Read Plan
-              </button>
-            )}
+            <button
+              onClick={onReadPlan}
+              className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+            >
+              Read Plan
+            </button>
           </div>
 
           <div className="mt-4 space-y-5">
             <div className="grid gap-x-6 gap-y-3 border-y border-[#1f2025] py-4 sm:grid-cols-4">
-              <MetaItem label={isSymphony ? 'Queue' : 'Phase'} value={isSymphony ? getSymphonyQueueLabel(swarmState.tasks) : runPhase} />
-              <MetaItem label="Tasks" value={String(swarmState.tasks.length)} />
-              <MetaItem label="Done" value={`${doneCount}/${swarmState.tasks.length}`} />
+              <MetaItem label="Phase" value={runPhase} />
+              <MetaItem label="Tasks" value={String(sprintEngineState.tasks.length)} />
+              <MetaItem label="Done" value={`${doneCount}/${sprintEngineState.tasks.length}`} />
               <MetaItem label="Active" value={`${activeCount} running, ${needsInputCount} waiting`} />
             </div>
 
-            {!isSymphony ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (canExpandGoal) setGoalExpanded((current) => !current)
-                }}
-                aria-expanded={goalExpanded}
-                className={`block w-full border-l-2 border-[#303139] pl-3 text-left transition-colors ${
-                  canExpandGoal ? 'hover:border-[#5c7cff]' : ''
-                }`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                    Goal
-                  </div>
-                  {canExpandGoal ? (
-                    <svg
-                      className={`h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${goalExpanded ? 'rotate-180' : ''}`}
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      aria-hidden="true"
-                    >
-                      <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                if (canExpandGoal) setGoalExpanded((current) => !current)
+              }}
+              aria-expanded={goalExpanded}
+              className={`block w-full border-l-2 border-[#303139] pl-3 text-left transition-colors ${
+                canExpandGoal ? 'hover:border-[#5c7cff]' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Goal
                 </div>
-                <div className={`mt-2 whitespace-pre-wrap text-sm leading-6 text-[#d7d7dc] ${
-                  goalExpanded ? 'max-h-72 overflow-y-auto pr-2' : 'line-clamp-4'
-                }`}>
-                  {goalExpanded ? fullGoal : goalPreview}
-                </div>
-              </button>
-            ) : null}
+                {canExpandGoal ? (
+                  <svg
+                    className={`h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${goalExpanded ? 'rotate-180' : ''}`}
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : null}
+              </div>
+              <div className={`mt-2 whitespace-pre-wrap text-sm leading-6 text-[#d7d7dc] ${
+                goalExpanded ? 'max-h-72 overflow-y-auto pr-2' : 'line-clamp-4'
+              }`}>
+                {goalExpanded ? fullGoal : goalPreview}
+              </div>
+            </button>
 
-            <SwarmArtifactList
+            <SprintEngineArtifactList
               artifacts={reviewArtifacts}
               tasksById={tasksById}
               actions={artifactActions}
-              emptyLabel={isSymphony ? 'No review artifacts are registered for this Symphony workspace.' : 'No review artifacts are registered for this sprintengine run.'}
+              emptyLabel="No review artifacts are registered for this sprintengine run."
               onSelectTask={onSelectTask}
               onOpenArtifact={onOpenArtifact}
               onApproveArtifact={onApproveArtifact}
@@ -3120,7 +2816,7 @@ function SwarmProjectView({
                   <span
                     className="flex h-9 w-9 items-center justify-center rounded-full border bg-[#111216] text-[11px] font-bold text-[#ececee]"
                     style={{
-                      borderColor: swarmRoleAccent[agent.role],
+                      borderColor: sprintEngineRoleAccent[agent.role],
                     }}
                   >
                     {agent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
@@ -3144,7 +2840,7 @@ function SwarmProjectView({
                         : 'text-[#d4ddff] hover:bg-[#5c7cff]/12'
                     }`}
                   >
-                    {isLaunched ? 'Open Terminal' : `Spawn ${swarmRoleLabels[agent.role]}`}
+                    {isLaunched ? 'Open Terminal' : `Spawn ${sprintEngineRoleLabels[agent.role]}`}
                   </button>
                 </div>
               )
@@ -3156,8 +2852,8 @@ function SwarmProjectView({
   )
 }
 
-function SwarmMapView({
-  swarmState,
+function SprintEngineMapView({
+  sprintEngineState,
   roster,
   rosterById,
   runtimeAgents,
@@ -3166,7 +2862,7 @@ function SwarmMapView({
   onSelectAgent,
 }: {
   workspaceId: string
-  swarmState: SwarmState
+  sprintEngineState: SprintEngineState
   roster: RosterItem[]
   rosterById: Record<string, RosterItem | undefined>
   runtimeAgents: RuntimeAgentView[]
@@ -3179,10 +2875,10 @@ function SwarmMapView({
     ? runtimeAgents.find((agent) => agent.agentId === selectedAgentId)
     : undefined
   const selectedTask = selectedRuntime?.currentTaskId
-    ? swarmState.tasks.find((task) => task.id === selectedRuntime.currentTaskId)
+    ? sprintEngineState.tasks.find((task) => task.id === selectedRuntime.currentTaskId)
     : null
   const positions = buildMapPositions(roster)
-  const doneCount = swarmState.tasks.filter((task) => task.status === 'done').length
+  const doneCount = sprintEngineState.tasks.filter((task) => task.status === 'done').length
   const activeCount = runtimeAgents.filter((agent) => agent.status === 'running').length
   const needsInputCount = runtimeAgents.filter((agent) => agent.status === 'needs_input').length
   const mapCanvasRef = useRef<HTMLDivElement | null>(null)
@@ -3238,7 +2934,7 @@ function SwarmMapView({
                 y1="38"
                 x2={node.x}
                 y2={node.y}
-                stroke={swarmRoleAccent[node.agent.role]}
+                stroke={sprintEngineRoleAccent[node.agent.role]}
                 strokeWidth="0.18"
                 strokeDasharray="1.2 1.8"
                 opacity="0.42"
@@ -3250,7 +2946,7 @@ function SwarmMapView({
           const runtime = runtimeAgents.find((agent) => agent.agentId === node.agent.id)
           const selected = node.agent.id === selectedAgentId
           const task = runtime?.currentTaskId
-            ? swarmState.tasks.find((candidate) => candidate.id === runtime.currentTaskId)
+            ? sprintEngineState.tasks.find((candidate) => candidate.id === runtime.currentTaskId)
             : null
 
           return (
@@ -3265,12 +2961,12 @@ function SwarmMapView({
               <span
                 className="relative flex h-16 w-16 items-center justify-center rounded-full border bg-[#111216] text-base font-semibold text-[#ececee]"
                 style={{
-                  borderColor: selected ? swarmRoleAccent[node.agent.role] : '#303139',
+                  borderColor: selected ? sprintEngineRoleAccent[node.agent.role] : '#303139',
                   color: '#9a9aa2',
-                  boxShadow: selected ? `0 0 0 3px ${hexToRgba(swarmRoleAccent[node.agent.role], 0.16)}` : undefined,
+                  boxShadow: selected ? `0 0 0 3px ${hexToRgba(sprintEngineRoleAccent[node.agent.role], 0.16)}` : undefined,
                 }}
               >
-                <SwarmRoleIcon role={node.agent.role} className="h-7 w-7" />
+                <SprintEngineRoleIcon role={node.agent.role} className="h-7 w-7" />
                 <span
                   className="absolute -right-1 top-3 h-3 w-3 rounded-full border border-[#08090b]"
                   style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
@@ -3295,8 +2991,8 @@ function SwarmMapView({
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">SprintEngine State</div>
           <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <MetaItem label="Phase" value={runPhase} />
-            <MetaItem label="Board" value={`${swarmState.tasks.length} tasks`} />
-            <MetaItem label="Tasks" value={`${doneCount}/${swarmState.tasks.length} done`} />
+            <MetaItem label="Board" value={`${sprintEngineState.tasks.length} tasks`} />
+            <MetaItem label="Tasks" value={`${doneCount}/${sprintEngineState.tasks.length} done`} />
             <MetaItem label="Agents" value={`${activeCount} run, ${needsInputCount} wait`} />
           </div>
         </div>
@@ -3307,15 +3003,15 @@ function SwarmMapView({
               <span
                 className="flex h-14 w-14 items-center justify-center rounded-full border bg-[#111216] text-base font-semibold text-[#ececee]"
                 style={{
-                  borderColor: swarmRoleAccent[selectedAgent.role],
+                  borderColor: sprintEngineRoleAccent[selectedAgent.role],
                   color: '#9a9aa2',
                 }}
               >
-                <SwarmRoleIcon role={selectedAgent.role} className="h-7 w-7" />
+                <SprintEngineRoleIcon role={selectedAgent.role} className="h-7 w-7" />
               </span>
               <div className="min-w-0">
                 <div className="truncate text-lg font-semibold text-[#ececee]">{selectedAgent.label}</div>
-                <div className="mt-1 text-sm text-[#9a9aa2]">{swarmRoleLabels[selectedAgent.role]}</div>
+                <div className="mt-1 text-sm text-[#9a9aa2]">{sprintEngineRoleLabels[selectedAgent.role]}</div>
               </div>
             </div>
 
@@ -3338,19 +3034,19 @@ function SwarmMapView({
   )
 }
 
-function SwarmTaskGraphView({
-  swarmState,
+function SprintEngineTaskGraphView({
+  sprintEngineState,
   rosterById,
   selectedTaskId,
   onSelectTask,
 }: {
-  swarmState: SwarmState
+  sprintEngineState: SprintEngineState
   rosterById: Record<string, RosterItem | undefined>
   selectedTaskId: string | null
   onSelectTask: (taskId: string) => void
 }) {
-  const graph = useMemo(() => buildTaskGraphLayout(swarmState.tasks), [swarmState.tasks])
-  const focusTaskId = useMemo(() => getTaskGraphFocusTaskId(swarmState.tasks), [swarmState.tasks])
+  const graph = useMemo(() => buildTaskGraphLayout(sprintEngineState.tasks), [sprintEngineState.tasks])
+  const focusTaskId = useMemo(() => getTaskGraphFocusTaskId(sprintEngineState.tasks), [sprintEngineState.tasks])
   const [graphZoom, setGraphZoom] = useState(defaultTaskGraphZoom)
   const graphCanvasRef = useRef<HTMLDivElement | null>(null)
   const graphScrollRef = useRef<HTMLDivElement | null>(null)
@@ -3466,7 +3162,7 @@ function SwarmTaskGraphView({
           aria-label="Zoom out task graph"
           title="Zoom out"
         >
-          <ZoomOutSwarmIcon />
+          <ZoomOutSprintEngineIcon />
         </button>
         <div className="w-12 text-center text-[11px] font-semibold tabular-nums text-[#d7d7dc]" aria-live="polite">
           {zoomPercent}%
@@ -3479,7 +3175,7 @@ function SwarmTaskGraphView({
           aria-label="Zoom in task graph"
           title="Zoom in"
         >
-          <ZoomInSwarmIcon />
+          <ZoomInSprintEngineIcon />
         </button>
         <button
           type="button"
@@ -3553,7 +3249,7 @@ function SwarmTaskGraphView({
             </div>
           ) : null}
 
-          {swarmState.tasks.length === 0 ? (
+          {sprintEngineState.tasks.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
               <div className="max-w-xl">
                 <div className="text-sm font-semibold text-[#ececee]">Waiting for the architect plan</div>
@@ -3618,7 +3314,7 @@ function SwarmTaskGraphView({
                     End Product
                   </div>
                   <div className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[#d4ffdc]">
-                    {formatSwarmGoalPreview(swarmState.goal)}
+                    {formatSprintEngineGoalPreview(sprintEngineState.goal)}
                   </div>
                   <div className="mt-3 text-[10px] uppercase tracking-[0.12em] text-[#9a9aa2]">
                     {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
@@ -3633,7 +3329,7 @@ function SwarmTaskGraphView({
             const ownerLabel = task.ownerAgentId ? ownerAgent?.label ?? task.ownerAgentId : null
             const isFocused = task.id === focusTaskId
             const isSelected = task.id === selectedTaskId
-            const boardColumn = getSwarmTaskBoardColumn(task, swarmState.tasks)
+            const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
             const dependencyLabel = task.dependsOn.length > 0
               ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
               : 'root'
@@ -3657,7 +3353,7 @@ function SwarmTaskGraphView({
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
                   style={{
-                    backgroundColor: swarmRoleAccent[task.role],
+                    backgroundColor: sprintEngineRoleAccent[task.role],
                   }}
                 />
                 <div className="flex items-start justify-between gap-3 pl-2">
@@ -3668,11 +3364,11 @@ function SwarmTaskGraphView({
                       <span
                         className="h-1.5 w-1.5 shrink-0 rounded-full"
                         style={{
-                          backgroundColor: swarmRoleAccent[task.role],
+                          backgroundColor: sprintEngineRoleAccent[task.role],
                         }}
                       />
-                      <span className="min-w-0 truncate" style={{ color: swarmRoleAccent[task.role] }}>
-                        {swarmRoleLabels[task.role]}
+                      <span className="min-w-0 truncate" style={{ color: sprintEngineRoleAccent[task.role] }}>
+                        {sprintEngineRoleLabels[task.role]}
                       </span>
                     </div>
                   </div>
@@ -3698,7 +3394,7 @@ function SwarmTaskGraphView({
                   {ownerLabel && ownerRole ? (
                     <>
                       <span className="text-[#3a3d49]">/</span>
-                      <span className="max-w-full truncate" style={{ color: swarmRoleAccent[ownerRole] }}>
+                      <span className="max-w-full truncate" style={{ color: sprintEngineRoleAccent[ownerRole] }}>
                         {ownerLabel}
                       </span>
                     </>
@@ -3748,7 +3444,7 @@ type TaskGraphLayoutNode =
   | {
       id: string
       type: 'task'
-      task: SwarmTask
+      task: SprintEngineTask
       x: number
       y: number
       width: number
@@ -3804,7 +3500,7 @@ function getNextTaskGraphZoom(currentZoom: number, direction: 'in' | 'out'): num
   return [...taskGraphZoomLevels].reverse().find((level) => level < currentZoom - 0.001) ?? taskGraphZoomLevels[0]
 }
 
-function buildTaskGraphLayout(tasks: SwarmTask[]): TaskGraphLayout {
+function buildTaskGraphLayout(tasks: SprintEngineTask[]): TaskGraphLayout {
   const nodeWidth = 272
   const nodeHeight = 154
   const endNodeWidth = 252
@@ -3891,7 +3587,7 @@ function buildTaskGraphLayout(tasks: SwarmTask[]): TaskGraphLayout {
     })
   }
 
-  const groups = new Map<number, SwarmTask[]>()
+  const groups = new Map<number, SprintEngineTask[]>()
   tasks.forEach((task) => {
     const level = levelByTask.get(task.id) ?? 0
     const group = groups.get(level) ?? []
@@ -3979,8 +3675,8 @@ function buildTaskGraphLayout(tasks: SwarmTask[]): TaskGraphLayout {
   }
 }
 
-function getTaskGraphFocusTaskId(tasks: SwarmTask[]): string | null {
-  const newestBy = (candidates: SwarmTask[], field: 'startedAt' | 'completedAt') =>
+function getTaskGraphFocusTaskId(tasks: SprintEngineTask[]): string | null {
+  const newestBy = (candidates: SprintEngineTask[], field: 'startedAt' | 'completedAt') =>
     candidates
       .map((task, index) => ({ task, index }))
       .sort((a, b) => {
@@ -3992,7 +3688,7 @@ function getTaskGraphFocusTaskId(tasks: SwarmTask[]): string | null {
     newestBy(tasks.filter((task) => task.status === 'in_progress'), 'startedAt')
     ?? newestBy(tasks.filter((task) => task.status === 'needs_input'), 'startedAt')
     ?? newestBy(tasks.filter((task) => task.status === 'done'), 'completedAt')
-    ?? tasks.find((task) => getSwarmTaskBoardColumn(task, tasks) === 'ready')?.id
+    ?? tasks.find((task) => getSprintEngineTaskBoardColumn(task, tasks) === 'ready')?.id
     ?? tasks[0]?.id
     ?? null
   )
@@ -4035,16 +3731,16 @@ function taskGraphEdgePath(from: TaskGraphLayoutNode, to: TaskGraphLayoutNode): 
 }
 
 function taskGraphEdgeStyle(
-  dependency: SwarmTask,
-  dependent: SwarmTask
+  dependency: SprintEngineTask,
+  dependent: SprintEngineTask
 ): Omit<TaskGraphLayoutEdge, 'id' | 'fromId' | 'toId'> {
   const dependencyDone = dependency.status === 'done'
   const active = dependent.status === 'in_progress' || dependent.status === 'needs_input'
   const color = active
-    ? swarmRoleAccent[dependent.role]
+    ? sprintEngineRoleAccent[dependent.role]
     : dependencyDone
       ? '#30d158'
-      : swarmRoleAccent[dependency.role]
+      : sprintEngineRoleAccent[dependency.role]
 
   return {
     color,
@@ -4055,10 +3751,10 @@ function taskGraphEdgeStyle(
 }
 
 function taskGraphEndEdgeStyle(
-  task: SwarmTask
+  task: SprintEngineTask
 ): Omit<TaskGraphLayoutEdge, 'id' | 'fromId' | 'toId'> {
   return {
-    color: task.status === 'done' ? '#30d158' : swarmRoleAccent[task.role],
+    color: task.status === 'done' ? '#30d158' : sprintEngineRoleAccent[task.role],
     opacity: task.status === 'done' ? 0.58 : 0.32,
     weight: task.status === 'done' ? 2 : 1.5,
     dashed: false,
@@ -4088,138 +3784,6 @@ function MetaItem({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] uppercase tracking-[0.14em] text-[#5a5a63]">{label}</div>
       <div className="mt-1 font-medium text-[#ececee] [overflow-wrap:anywhere]">{value}</div>
     </div>
-  )
-}
-
-function TaskMutationDialog({
-  title,
-  form,
-  action,
-  submitLabel,
-  onChange,
-  onCancel,
-  onSubmit,
-}: {
-  title: string
-  form: TaskEditFormState
-  action: TaskMutationActionState
-  submitLabel: string
-  onChange: (form: TaskEditFormState) => void
-  onCancel: () => void
-  onSubmit: () => void
-}) {
-  const pending = action.status === 'pending'
-  return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#08090b]/82 px-4 py-6 backdrop-blur-sm">
-      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-[#303139] bg-[#0d0e11] shadow-2xl">
-        <div className="flex items-center justify-between gap-3 border-b border-[#1f2025] px-5 py-4">
-          <h2 className="text-base font-semibold text-[#ececee]">{title}</h2>
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={pending}
-            className="rounded-md px-3 py-1.5 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45"
-          >
-            Close
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
-          <label className="block">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Title</span>
-            <input
-              value={form.title}
-              onChange={(event) => onChange({ ...form, title: event.currentTarget.value })}
-              className="mt-2 w-full rounded-md border border-[#303139] bg-[#08090b] px-3 py-2 text-sm text-[#ececee] outline-none focus:border-[#5c7cff]/60"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Role</span>
-            <select
-              value={form.role}
-              onChange={(event) => onChange({ ...form, role: event.currentTarget.value as SwarmRole })}
-              className="mt-2 w-full rounded-md border border-[#303139] bg-[#08090b] px-3 py-2 text-sm text-[#ececee] outline-none focus:border-[#5c7cff]/60"
-            >
-              {swarmRoleOrder.map((role) => (
-                <option key={role} value={role}>{swarmRoleLabels[role]}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Execution Brief</span>
-            <textarea
-              value={form.description}
-              onChange={(event) => onChange({ ...form, description: event.currentTarget.value })}
-              rows={6}
-              className="mt-2 w-full resize-y rounded-md border border-[#303139] bg-[#08090b] px-3 py-2 text-sm leading-6 text-[#ececee] outline-none focus:border-[#5c7cff]/60"
-            />
-          </label>
-          <div className="grid gap-4 md:grid-cols-3">
-            <TaskLinesField
-              label="Acceptance Criteria"
-              value={form.acceptanceCriteria}
-              onChange={(value) => onChange({ ...form, acceptanceCriteria: value })}
-            />
-            <TaskLinesField
-              label="Implementation Notes"
-              value={form.implementationNotes}
-              onChange={(value) => onChange({ ...form, implementationNotes: value })}
-            />
-            <TaskLinesField
-              label="Task Notes"
-              value={form.notes}
-              onChange={(value) => onChange({ ...form, notes: value })}
-            />
-          </div>
-          {action.message ? (
-            <div className={`text-sm ${
-              action.status === 'error' ? 'text-[#ffb3bf]' : 'text-[#9a9aa2]'
-            }`}>
-              {action.message}
-            </div>
-          ) : null}
-        </div>
-        <div className="flex items-center justify-end gap-2 border-t border-[#1f2025] px-5 py-4">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={pending}
-            className="rounded-md px-3 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={pending || !form.title.trim()}
-            className="rounded-md bg-[#5c7cff]/14 px-3 py-2 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/20 disabled:cursor-default disabled:opacity-45"
-          >
-            {pending ? 'Working...' : submitLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function TaskLinesField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="block">
-      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">{label}</span>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
-        rows={7}
-        className="mt-2 w-full resize-y rounded-md border border-[#303139] bg-[#08090b] px-3 py-2 text-sm leading-6 text-[#ececee] outline-none focus:border-[#5c7cff]/60"
-      />
-    </label>
   )
 }
 
@@ -4253,11 +3817,11 @@ function SectionList({
   )
 }
 
-const feedbackScoreLabels: Array<{ key: keyof SwarmTaskFeedback['scores']; label: string }> = [
+const feedbackScoreLabels: Array<{ key: keyof SprintEngineTaskFeedback['scores']; label: string }> = [
   { key: 'directiveClarityPct', label: 'Directive clarity' },
   { key: 'taskClarityPct', label: 'Task clarity' },
   { key: 'acceptanceCriteriaClarityPct', label: 'Acceptance clarity' },
-  { key: 'swarmToolEffectivenessPct', label: 'Sprint Engine tool' },
+  { key: 'sprintEngineToolEffectivenessPct', label: 'Sprint Engine tool' },
   { key: 'promptOptimizationPct', label: 'Prompt fit' },
   { key: 'contextFitPct', label: 'Context fit' },
   { key: 'hallucinationRiskPct', label: 'Hallucination risk' },
@@ -4266,7 +3830,7 @@ const feedbackScoreLabels: Array<{ key: keyof SwarmTaskFeedback['scores']; label
   { key: 'confidencePct', label: 'Confidence' },
 ]
 
-const feedbackIssueCategoryLabels: Record<SwarmTaskFeedbackIssue['category'], string> = {
+const feedbackIssueCategoryLabels: Record<SprintEngineTaskFeedbackIssue['category'], string> = {
   system_prompt: 'System Prompt',
   role_prompt: 'Role Prompt',
   task_card: 'Task Card',
@@ -4280,13 +3844,13 @@ const feedbackIssueCategoryLabels: Record<SwarmTaskFeedbackIssue['category'], st
   other: 'Other',
 }
 
-const feedbackIssueSeverityLabels: Record<SwarmTaskFeedbackIssue['severity'], string> = {
+const feedbackIssueSeverityLabels: Record<SprintEngineTaskFeedbackIssue['severity'], string> = {
   low: 'Low',
   medium: 'Medium',
   high: 'High',
 }
 
-const feedbackIssueStatusLabels: Record<NonNullable<SwarmTaskFeedbackIssue['status']>, string> = {
+const feedbackIssueStatusLabels: Record<NonNullable<SprintEngineTaskFeedbackIssue['status']>, string> = {
   new: 'New',
   reviewed: 'Reviewed',
   applied: 'Applied',
@@ -4294,7 +3858,7 @@ const feedbackIssueStatusLabels: Record<NonNullable<SwarmTaskFeedbackIssue['stat
   deferred: 'Deferred',
 }
 
-const feedbackFindingKindLabels: Record<SwarmTaskFeedbackFinding['kind'], string> = {
+const feedbackFindingKindLabels: Record<SprintEngineTaskFeedbackFinding['kind'], string> = {
   code_bug: 'Code Bug',
   security_issue: 'Security Issue',
   product_requirement_violation: 'Requirement Violation',
@@ -4306,14 +3870,14 @@ const feedbackFindingKindLabels: Record<SwarmTaskFeedbackFinding['kind'], string
   other: 'Other',
 }
 
-const feedbackFindingSeverityLabels: Record<SwarmTaskFeedbackFinding['severity'], string> = {
+const feedbackFindingSeverityLabels: Record<SprintEngineTaskFeedbackFinding['severity'], string> = {
   critical: 'Critical',
   high: 'High',
   medium: 'Medium',
   low: 'Low',
 }
 
-const feedbackFindingAreaLabels: Record<SwarmTaskFeedbackFinding['area'], string> = {
+const feedbackFindingAreaLabels: Record<SprintEngineTaskFeedbackFinding['area'], string> = {
   frontend: 'Frontend',
   backend: 'Backend',
   database: 'Database',
@@ -4331,7 +3895,7 @@ const feedbackFindingAreaLabels: Record<SwarmTaskFeedbackFinding['area'], string
   other: 'Other',
 }
 
-const feedbackFindingStatusLabels: Record<NonNullable<SwarmTaskFeedbackFinding['status']>, string> = {
+const feedbackFindingStatusLabels: Record<NonNullable<SprintEngineTaskFeedbackFinding['status']>, string> = {
   open: 'Open',
   accepted: 'Accepted',
   fixed: 'Fixed',
@@ -4339,7 +3903,7 @@ const feedbackFindingStatusLabels: Record<NonNullable<SwarmTaskFeedbackFinding['
   deferred: 'Deferred',
 }
 
-function AgentFeedback({ feedback }: { feedback: SwarmTaskFeedback }) {
+function AgentFeedback({ feedback }: { feedback: SprintEngineTaskFeedback }) {
   const scores = feedbackScoreLabels.flatMap((metric) => {
     const value = feedback.scores[metric.key]
     return typeof value === 'number' ? [{ ...metric, value }] : []
@@ -4389,7 +3953,7 @@ function PromptImprovementIssues({
   issues,
   className = '',
 }: {
-  issues: SwarmTaskFeedbackIssue[]
+  issues: SprintEngineTaskFeedbackIssue[]
   className?: string
 }) {
   if (issues.length === 0) return null
@@ -4436,7 +4000,7 @@ function RoleFindings({
   findings,
   className = '',
 }: {
-  findings: SwarmTaskFeedbackFinding[]
+  findings: SprintEngineTaskFeedbackFinding[]
   className?: string
 }) {
   if (findings.length === 0) return null
@@ -4471,7 +4035,7 @@ function RoleFindings({
   )
 }
 
-function SwarmArtifactList({
+function SprintEngineArtifactList({
   artifacts,
   tasksById,
   actions,
@@ -4481,14 +4045,14 @@ function SwarmArtifactList({
   onApproveArtifact,
   onRequestArtifactChanges,
 }: {
-  artifacts: SwarmArtifact[]
-  tasksById: Record<string, SwarmTask | undefined>
+  artifacts: SprintEngineArtifact[]
+  tasksById: Record<string, SprintEngineTask | undefined>
   actions: Record<string, ArtifactActionState>
   emptyLabel: string
   onSelectTask: (taskId: string) => void
-  onOpenArtifact: (artifact: SwarmArtifact) => void
-  onApproveArtifact: (artifact: SwarmArtifact) => void
-  onRequestArtifactChanges: (artifact: SwarmArtifact) => void
+  onOpenArtifact: (artifact: SprintEngineArtifact) => void
+  onApproveArtifact: (artifact: SprintEngineArtifact) => void
+  onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
 }) {
   const sortedArtifacts = [...artifacts].sort((a, b) => {
     const statusOrder = ['ready_for_review', 'changes_requested', 'draft', 'approved', 'superseded']
@@ -4516,7 +4080,7 @@ function SwarmArtifactList({
             const action = actions[artifact.id]
             const pending = action?.status === 'pending'
             const readyForReview = artifact.status === 'ready_for_review'
-            const autoApprovalEligibility = getSwarmArtifactAutoApprovalEligibility(artifact)
+            const autoApprovalEligibility = getSprintEngineArtifactAutoApprovalEligibility(artifact)
             const mobileDecision = getMobileArtifactDecision(artifact)
 
             return (
@@ -4525,11 +4089,11 @@ function SwarmArtifactList({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-[#ececee]">{artifact.title}</span>
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] ${artifactStatusTone(artifact.status)}`}>
-                      {swarmArtifactStatusLabels[artifact.status]}
+                      {sprintEngineArtifactStatusLabels[artifact.status]}
                     </span>
                   </div>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#5a5a63]">
-                    <span>{swarmArtifactKindLabels[artifact.kind]}</span>
+                    <span>{sprintEngineArtifactKindLabels[artifact.kind]}</span>
                     <button
                       type="button"
                       onClick={() => onSelectTask(artifact.taskId)}
@@ -4614,7 +4178,7 @@ function SwarmArtifactList({
 function ArtifactBlockerList({
   blockers,
 }: {
-  blockers: ReturnType<typeof getSwarmArtifactDependencyBlockers>
+  blockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
 }) {
   return (
     <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
@@ -4630,7 +4194,7 @@ function ArtifactBlockerList({
             <div className="mt-1 flex flex-wrap gap-1.5">
               {blocker.artifacts.map((artifact) => (
                 <span key={artifact.id} className="rounded bg-[#17181d] px-1.5 py-0.5 text-[11px] text-[#d7d7dc]">
-                  {artifact.title} - {swarmArtifactStatusLabels[artifact.status]}
+                  {artifact.title} - {sprintEngineArtifactStatusLabels[artifact.status]}
                 </span>
               ))}
             </div>
@@ -4646,7 +4210,7 @@ function formatTimestamp(value: string | null): string {
   return new Date(value).toLocaleString()
 }
 
-function formatTaskSourceLabel(task: SwarmTask): string {
+function formatTaskSourceLabel(task: SprintEngineTask): string {
   if (!task.source) return 'Local'
   if (task.source.type === 'github') {
     return task.source.externalId ? `GitHub #${task.source.externalId}` : 'GitHub'
@@ -4654,29 +4218,7 @@ function formatTaskSourceLabel(task: SwarmTask): string {
   return task.source.type.charAt(0).toUpperCase() + task.source.type.slice(1)
 }
 
-function linesFromTextarea(value: string): string[] {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-}
-
-function linesToTextarea(values: string[]): string {
-  return values.join('\n')
-}
-
-function buildTaskEditForm(task: SwarmTask): TaskEditFormState {
-  return {
-    title: task.title,
-    description: task.description,
-    role: task.role,
-    acceptanceCriteria: linesToTextarea(task.acceptanceCriteria),
-    implementationNotes: linesToTextarea(task.implementationNotes),
-    notes: linesToTextarea(task.notes),
-  }
-}
-
-function formatTaskSyncStatusLabel(task: SwarmTask): string | null {
+function formatTaskSyncStatusLabel(task: SprintEngineTask): string | null {
   switch (task.source?.syncStatus) {
     case 'local_changed':
       return 'Local edits'
@@ -4689,7 +4231,7 @@ function formatTaskSyncStatusLabel(task: SwarmTask): string | null {
   }
 }
 
-function formatTaskSyncStatusDescription(task: SwarmTask): string {
+function formatTaskSyncStatusDescription(task: SprintEngineTask): string {
   switch (task.source?.syncStatus) {
     case 'local_changed':
       return 'Local execution details differ from the last synced GitHub issue.'
@@ -4702,7 +4244,7 @@ function formatTaskSyncStatusDescription(task: SwarmTask): string {
   }
 }
 
-function emptyKanbanColumnLabel(column: SwarmTaskBoardColumn): string {
+function emptyKanbanColumnLabel(column: SprintEngineTaskBoardColumn): string {
   switch (column) {
     case 'ready':
       return 'No ready work. Waiting on dependencies or active workers.'
@@ -4717,7 +4259,7 @@ function emptyKanbanColumnLabel(column: SwarmTaskBoardColumn): string {
   }
 }
 
-function formatArtifactSummary(artifacts: SwarmArtifact[]): string {
+function formatArtifactSummary(artifacts: SprintEngineArtifact[]): string {
   const pendingCount = artifacts.filter((artifact) =>
     artifact.status !== 'approved' && artifact.status !== 'superseded'
   ).length
@@ -4732,8 +4274,8 @@ function formatArtifactSummary(artifacts: SwarmArtifact[]): string {
   return `${approvedCount} approved ${approvedCount === 1 ? 'artifact' : 'artifacts'}`
 }
 
-function getPrimaryTaskArtifact(artifacts: SwarmArtifact[]): SwarmArtifact | null {
-  const statusOrder: SwarmArtifact['status'][] = [
+function getPrimaryTaskArtifact(artifacts: SprintEngineArtifact[]): SprintEngineArtifact | null {
+  const statusOrder: SprintEngineArtifact['status'][] = [
     'ready_for_review',
     'changes_requested',
     'draft',
@@ -4756,7 +4298,7 @@ type MobileArtifactDecision = {
   note?: string
 }
 
-function getMobileArtifactDecision(artifact: SwarmArtifact): MobileArtifactDecision | null {
+function getMobileArtifactDecision(artifact: SprintEngineArtifact): MobileArtifactDecision | null {
   const mobileHistory = [...artifact.reviewHistory]
     .reverse()
     .find((entry) => isMobileActor(entry.actor))
@@ -4789,7 +4331,7 @@ function getMobileArtifactDecision(artifact: SwarmArtifact): MobileArtifactDecis
   return null
 }
 
-function formatTaskMobileDecisionSummary(artifacts: SwarmArtifact[]): string | null {
+function formatTaskMobileDecisionSummary(artifacts: SprintEngineArtifact[]): string | null {
   const mobileDecisionCount = artifacts.filter((artifact) => getMobileArtifactDecision(artifact)).length
   if (mobileDecisionCount === 0) return null
   return `${mobileDecisionCount} mobile ${mobileDecisionCount === 1 ? 'decision' : 'decisions'}`
@@ -4828,14 +4370,14 @@ function mobileActionLabel(action: string): string {
 }
 
 function formatArtifactBlockerSummary(
-  blockers: ReturnType<typeof getSwarmArtifactDependencyBlockers>
+  blockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
 ): string {
   const artifactCount = blockers.reduce((total, blocker) => total + blocker.artifacts.length, 0)
   const taskIds = blockers.map((blocker) => blocker.taskId).join(', ')
   return `${artifactCount} ${artifactCount === 1 ? 'artifact' : 'artifacts'} from ${taskIds}`
 }
 
-function artifactStatusTone(status: SwarmArtifact['status']): string {
+function artifactStatusTone(status: SprintEngineArtifact['status']): string {
   switch (status) {
     case 'approved':
       return 'bg-[#30d158]/12 text-[#d4ffdc]'
@@ -4851,12 +4393,12 @@ function artifactStatusTone(status: SwarmArtifact['status']): string {
 }
 
 function taskGraphNodeStyle(
-  task: SwarmTask,
-  ownerRole: SwarmRole | null,
+  task: SprintEngineTask,
+  ownerRole: SprintEngineRole | null,
   focused: boolean,
   selected: boolean
 ): React.CSSProperties {
-  const roleAccent = swarmRoleAccent[ownerRole ?? task.role]
+  const roleAccent = sprintEngineRoleAccent[ownerRole ?? task.role]
   const statusAccent =
     task.status === 'done'
       ? '#30d158'
@@ -4871,7 +4413,7 @@ function taskGraphNodeStyle(
   }
 }
 
-function taskGraphStatusTone(taskStatus: SwarmTaskStatus, boardColumn: SwarmTaskBoardColumn): string {
+function taskGraphStatusTone(taskStatus: SprintEngineTaskStatus, boardColumn: SprintEngineTaskBoardColumn): string {
   if (boardColumn === 'ready') return 'text-[#b9f7c8]'
 
   switch (taskStatus) {
@@ -4929,37 +4471,30 @@ function runtimeStatusLabel(status: string): string {
 }
 
 function getTaskOwnerLabel(
-  task: SwarmTask,
+  task: SprintEngineTask,
   rosterById: Record<string, { label: string } | undefined>
 ): string {
   if (task.ownerAgentId) {
     return rosterById[task.ownerAgentId]?.label ?? task.ownerAgentId
   }
 
-  return task.status === 'done' ? swarmRoleLabels[task.role] : 'No active worker'
+  return task.status === 'done' ? sprintEngineRoleLabels[task.role] : 'No active worker'
 }
 
-function getRunPhase(swarmState: SwarmState, runtimeAgents: RuntimeAgentView[]): string {
-  if (swarmState.tasks.length > 0 && swarmState.tasks.every((task) => task.status === 'done')) {
+function getRunPhase(sprintEngineState: SprintEngineState, runtimeAgents: RuntimeAgentView[]): string {
+  if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
     return 'Complete'
   }
   if (runtimeAgents.some((agent) => agent.status === 'running' || agent.status === 'needs_input')) {
     return 'Running'
   }
-  if (swarmState.tasks.length > 0) {
+  if (sprintEngineState.tasks.length > 0) {
     return 'Tasked'
   }
   return 'Planning'
 }
 
-function getSymphonyQueueLabel(tasks: SwarmTask[]): string {
-  if (tasks.length === 0) return 'Empty'
-  if (tasks.some((task) => task.status === 'in_progress' || task.status === 'needs_input')) return 'Running'
-  if (tasks.some((task) => getSwarmTaskBoardColumn(task, tasks) === 'ready')) return 'Ready'
-  return 'Triage'
-}
-
-function formatSwarmGoal(goal: string): string {
+function formatSprintEngineGoal(goal: string): string {
   const trimmed = goal.trim()
   if (!trimmed || trimmed.toLowerCase() === 'launch Sprint Engine mode') {
     return 'Untitled sprintengine run'
@@ -4968,8 +4503,8 @@ function formatSwarmGoal(goal: string): string {
   return trimmed
 }
 
-function formatSwarmGoalPreview(goal: string): string {
-  const formatted = formatSwarmGoal(goal)
+function formatSprintEngineGoalPreview(goal: string): string {
+  const formatted = formatSprintEngineGoal(goal)
   if (formatted === 'Untitled sprintengine run') return formatted
 
   const firstLine = goal
@@ -4990,7 +4525,7 @@ function buildRecoveryAuditPrompt(): string {
   ].join('\n')
 }
 
-function buildPlanReviewStartupPrompt(role: SwarmRole, agentId: string): string {
+function buildPlanReviewStartupPrompt(role: SprintEngineRole, agentId: string): string {
   return [
     'Fetch the canonical plan review instructions from the Python tool.',
     `Run \`Sprint Engine plan start-review --role ${role} --id ${agentId}\` now.`,
@@ -5004,11 +4539,11 @@ function buildAddressPlanReviewsPrompt(): string {
   ].join('\n')
 }
 
-function buildRosterRevisionPrompt(role: SwarmRole, agentId: string, teamSlug: string): string {
+function buildRosterRevisionPrompt(role: SprintEngineRole, agentId: string, teamSlug: string): string {
   return [
     'Revise this Sprint Engine plan for a newly added roster member.',
     `Team: \`${teamSlug}\``,
-    `New roster member: ${swarmRoleLabels[role]} (\`${role}\`) with agent id \`${agentId}\`.`,
+    `New roster member: ${sprintEngineRoleLabels[role]} (\`${role}\`) with agent id \`${agentId}\`.`,
     '',
     'First add the member to the canonical Sprint Engine roster:',
     '',
@@ -5022,7 +4557,7 @@ function buildRosterRevisionPrompt(role: SwarmRole, agentId: string, teamSlug: s
   ].join('\n')
 }
 
-function buildRunSummary(tasks: SwarmTask[]) {
+function buildRunSummary(tasks: SprintEngineTask[]) {
   const completed = tasks.filter((task) => task.status === 'done')
   const touchedFiles = uniqueStrings(completed.flatMap((task) => task.evidence.touchedFiles))
   const commandsRan = uniqueStrings(completed.flatMap((task) => task.evidence.commandsRan))
@@ -5058,7 +4593,7 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
 }
 
-function buildFeedbackSummary(tasks: SwarmTask[]): string[] {
+function buildFeedbackSummary(tasks: SprintEngineTask[]): string[] {
   const feedbackTasks = tasks.filter((task) => task.feedback)
   if (feedbackTasks.length === 0) return []
 
@@ -5073,7 +4608,7 @@ function buildFeedbackSummary(tasks: SwarmTask[]): string[] {
   })
 }
 
-function buildFeedbackIssueSummary(tasks: SwarmTask[]): string[] {
+function buildFeedbackIssueSummary(tasks: SprintEngineTask[]): string[] {
   return tasks.flatMap((task) =>
     (task.feedback?.issues ?? []).map((issue) => {
       const parts = [
@@ -5088,7 +4623,7 @@ function buildFeedbackIssueSummary(tasks: SwarmTask[]): string[] {
   )
 }
 
-function buildFeedbackFindingSummary(tasks: SwarmTask[]): string[] {
+function buildFeedbackFindingSummary(tasks: SprintEngineTask[]): string[] {
   const findings = tasks.flatMap((task) =>
     (task.feedback?.findings ?? []).map((finding) => ({ task, finding }))
   )
@@ -5153,9 +4688,9 @@ function buildFeedbackFindingSummary(tasks: SwarmTask[]): string[] {
 }
 
 function summarizeFindingCounts<T extends string>(
-  findings: SwarmTaskFeedbackFinding[],
+  findings: SprintEngineTaskFeedbackFinding[],
   order: readonly T[],
-  getValue: (finding: SwarmTaskFeedbackFinding) => T,
+  getValue: (finding: SprintEngineTaskFeedbackFinding) => T,
   labels: Record<T, string>
 ): string {
   const counts = new Map<T, number>()

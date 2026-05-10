@@ -82,8 +82,8 @@ import type {
   SessionUser as SharedSessionUser,
   SoulPromptResult as SharedSoulPromptResult,
   SpecialistActionId as SharedSpecialistActionId,
-  SwarmArtifactCommandResult as SharedSwarmArtifactCommandResult,
-  SwarmCliPermissionPreset as SharedSwarmCliPermissionPreset,
+  SprintEngineArtifactCommandResult as SharedSprintEngineArtifactCommandResult,
+  SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
   TerminalKind as SharedTerminalKind,
   TerminalPathStyle as SharedTerminalPathStyle,
   TerminalSessionSnapshot as SharedTerminalSessionSnapshot,
@@ -127,7 +127,7 @@ declare global {
   type AppUpdateProgress = SharedAppUpdateProgress
   type AppUpdateState = SharedAppUpdateState
   type AppUpdateCheckResult = SharedAppUpdateCheckResult
-  type SwarmCliPermissionPreset = SharedSwarmCliPermissionPreset
+  type SprintEngineCliPermissionPreset = SharedSprintEngineCliPermissionPreset
   type CliRuntimeSettings = SharedCliRuntimeSettings
   type TerminalKind = SharedTerminalKind
   type TerminalPathStyle = SharedTerminalPathStyle
@@ -164,7 +164,7 @@ declare global {
   type DiagnosticLogEntry = SharedDiagnosticLogEntry
   type WorkspaceFolderCheckResult = SharedWorkspaceFolderCheckResult
   type WindowState = SharedWindowState
-  type SwarmArtifactCommandResult = SharedSwarmArtifactCommandResult
+  type SprintEngineArtifactCommandResult = SharedSprintEngineArtifactCommandResult
   type MultiloopInitInput = SharedMultiloopInitInput
   type MultiloopInitResult = SharedMultiloopInitResult
   type SessionUser = SharedSessionUser

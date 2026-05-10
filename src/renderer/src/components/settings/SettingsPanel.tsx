@@ -11,7 +11,7 @@ type MetaTone = 'positive' | 'muted'
 
 type UpdateAction = 'check' | 'download' | 'restart'
 
-type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getSymphonyGitHubTokenStatus>>
+type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
 
 function parseSearchExcludeText(value: string): string[] {
   return value
@@ -223,7 +223,7 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
 
   useEffect(() => {
     let cancelled = false
-    void window.api.getSymphonyGitHubTokenStatus().then((status) => {
+    void window.api.getGitHubTokenStatus().then((status) => {
       if (!cancelled) setGithubTokenStatus(status)
     })
     return () => {
@@ -284,10 +284,10 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
     setGithubTokenPending(true)
     setGithubTokenMessage('')
     try {
-      const status = await window.api.setSymphonyGitHubToken(token)
+      const status = await window.api.setGitHubToken(token)
       setGithubTokenStatus(status)
       setGithubTokenDraft('')
-      setGithubTokenMessage('Saved. Symphony can now sync private issues and post issue comments.')
+      setGithubTokenMessage('Saved. Switchboard can now import private GitHub issues.')
     } catch (error) {
       setGithubTokenMessage(error instanceof Error ? error.message : 'Could not save the GitHub token.')
     } finally {
@@ -299,11 +299,11 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
     setGithubTokenPending(true)
     setGithubTokenMessage('')
     try {
-      const status = await window.api.clearSymphonyGitHubToken()
+      const status = await window.api.clearGitHubToken()
       setGithubTokenStatus(status)
       setGithubTokenDraft('')
       setGithubTokenMessage(status.configured && status.source === 'environment'
-        ? 'Saved token cleared. Symphony is still using a GitHub token from the environment.'
+        ? 'Saved token cleared. GitHub imports are still using a token from the environment.'
         : 'GitHub token cleared.')
     } catch (error) {
       setGithubTokenMessage(error instanceof Error ? error.message : 'Could not clear the GitHub token.')
@@ -474,7 +474,7 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
                 GitHub Issues
               </div>
               <div className="mt-1 text-sm font-semibold text-[#ececee]">
-                Symphony access token
+                GitHub access token
               </div>
             </div>
             <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${githubTokenStatusClass(githubTokenStatus)}`}>
@@ -521,7 +521,7 @@ export default function SettingsPanel({ onClose, checkForUpdatesOnOpen = false }
               ? 'border-[#5c7cff]/70 text-[#b8ccff]'
               : 'border-[rgba(255,255,255,0.10)] text-[#9a9aa2]'
           }`}>
-            {githubTokenMessage || 'Symphony uses this token to sync private GitHub issues and post issue comments. The token is stored on this device and is not saved in workspace files.'}
+            {githubTokenMessage || 'Switchboard uses this token to import private GitHub issues. The token is stored on this device and is not saved in workspace files.'}
             {githubTokenStatus && !githubTokenStatus.encryptionAvailable ? ' Secure storage is unavailable, so the token is kept for this app session only.' : ''}
           </div>
         </div>

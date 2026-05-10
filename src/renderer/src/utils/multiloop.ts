@@ -22,11 +22,11 @@ import type {
   MultiloopTask,
   MultiloopTaskEvidence,
   MultiloopTaskStatus,
-  SwarmArtifact,
-  SwarmState,
-  SwarmTask,
+  SprintEngineArtifact,
+  SprintEngineState,
+  SprintEngineTask,
 } from '../types/workspace'
-import { getSwarmTaskBoardColumn } from './sprintengine'
+import { getSprintEngineTaskBoardColumn } from './sprintengine'
 
 const currentSchemaVersion = 1
 
@@ -131,11 +131,11 @@ export function getLatestMultiloopEvidenceTasks(state: MultiloopState, limit = 5
 export function getMilestoneExecutionTasks(
   state: MultiloopState,
   milestone: MultiloopMilestone | null | undefined,
-  linkedSwarmState?: SwarmState | null
+  linkedSprintEngineState?: SprintEngineState | null
 ): MultiloopTask[] {
   if (!milestone) return []
-  if (milestone.sprintEngine && linkedSwarmState) {
-    return linkedSwarmState.tasks.map((task) => swarmTaskToMultiloopTask(task, linkedSwarmState, milestone.id))
+  if (milestone.sprintEngine && linkedSprintEngineState) {
+    return linkedSprintEngineState.tasks.map((task) => sprintEngineTaskToMultiloopTask(task, linkedSprintEngineState, milestone.id))
   }
   if (milestone.sprintEngine) return []
   return getMultiloopTasksForMilestone(state, milestone.id)
@@ -166,13 +166,13 @@ export type MultiloopPrimaryNextAction =
 export function getMilestoneExecutionReadiness({
   state,
   milestone,
-  linkedSwarmState,
+  linkedSprintEngineState,
   linkedReadState,
   activeBlockers,
 }: {
   state: MultiloopState
   milestone: MultiloopMilestone | null | undefined
-  linkedSwarmState?: SwarmState | null
+  linkedSprintEngineState?: SprintEngineState | null
   linkedReadState?: LinkedExecutionReadinessReadState
   activeBlockers?: MultiloopBlocker[]
 }): MultiloopExecutionReadiness {
@@ -181,10 +181,10 @@ export function getMilestoneExecutionReadiness({
   if (milestone.sprintEngine) {
     if (linkedReadState?.status === 'loading') return 'loading_execution'
     if (linkedReadState?.status === 'error') return 'execution_unavailable'
-    if (!linkedSwarmState) return 'loading_execution'
+    if (!linkedSprintEngineState) return 'loading_execution'
   }
 
-  const tasks = getMilestoneExecutionTasks(state, milestone, linkedSwarmState)
+  const tasks = getMilestoneExecutionTasks(state, milestone, linkedSprintEngineState)
   if (tasks.length === 0) return milestone.sprintEngine ? 'no_tasks' : 'multiloop_no_tasks'
   if (tasks.every((task) => task.status === 'done')) return 'all_done'
 
@@ -199,11 +199,11 @@ export function getMilestoneExecutionReadiness({
 export function getPrimaryNextAction(
   readiness: MultiloopExecutionReadiness,
   {
-    linkedSwarmState,
+    linkedSprintEngineState,
     milestone,
     tasks,
   }: {
-    linkedSwarmState?: SwarmState | null
+    linkedSprintEngineState?: SprintEngineState | null
     milestone: MultiloopMilestone | null | undefined
     tasks: MultiloopTask[]
   }
@@ -213,7 +213,7 @@ export function getPrimaryNextAction(
   if (readiness === 'all_done') return { kind: 'open_coordinator', reason: 'all_done' }
   if (readiness === 'needs_input') {
     const needsInputTask = tasks.find((task) => task.status === 'needs_input')
-    return isMultiloopRole(needsInputTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSwarmState))
+    return isMultiloopRole(needsInputTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSprintEngineState))
       ? { kind: 'open_role', role: needsInputTask.role }
       : { kind: 'open_coordinator', reason: 'needs_input' }
   }
@@ -221,7 +221,7 @@ export function getPrimaryNextAction(
   if (readiness === 'no_active_milestone') return { kind: 'open_coordinator', reason: 'no_active_milestone' }
 
   const readyTask = tasks.find((task) => task.status === 'ready' || task.status === 'todo' || task.status === 'in_progress')
-  if (isMultiloopRole(readyTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSwarmState))) {
+  if (isMultiloopRole(readyTask?.role) && (!milestone?.sprintEngine || Boolean(linkedSprintEngineState))) {
     return { kind: 'open_role', role: readyTask.role }
   }
   return { kind: 'open_coordinator', reason: 'plan_execution' }
@@ -229,11 +229,11 @@ export function getPrimaryNextAction(
 
 export function getLatestExecutionEvidenceTasks(
   state: MultiloopState,
-  linkedSwarmState?: SwarmState | null,
+  linkedSprintEngineState?: SprintEngineState | null,
   limit = 5
 ): MultiloopTask[] {
   const activeMilestone = getActiveMultiloopMilestone(state)
-  const sourceTasks = getMilestoneExecutionTasks(state, activeMilestone, linkedSwarmState)
+  const sourceTasks = getMilestoneExecutionTasks(state, activeMilestone, linkedSprintEngineState)
   return sourceTasks
     .filter((task) => hasTaskEvidence(task.evidence))
     .sort((a, b) => evidenceSortKey(b).localeCompare(evidenceSortKey(a)))
@@ -242,10 +242,10 @@ export function getLatestExecutionEvidenceTasks(
 
 export function getMilestoneExecutionArtifacts(
   milestone: MultiloopMilestone | null | undefined,
-  linkedSwarmState?: SwarmState | null
+  linkedSprintEngineState?: SprintEngineState | null
 ): MultiloopArtifact[] {
-  if (!milestone?.sprintEngine || !linkedSwarmState) return []
-  return linkedSwarmState.artifacts.map((artifact) => swarmArtifactToMultiloopArtifact(artifact, milestone.id))
+  if (!milestone?.sprintEngine || !linkedSprintEngineState) return []
+  return linkedSprintEngineState.artifacts.map((artifact) => sprintEngineArtifactToMultiloopArtifact(artifact, milestone.id))
 }
 
 const renderedStateRedaction = '[redacted]'
@@ -741,12 +741,12 @@ function evidenceSortKey(task: MultiloopTask): string {
   return task.updatedAt ?? task.completedAt ?? task.startedAt ?? task.createdAt ?? task.id
 }
 
-function swarmTaskToMultiloopTask(task: SwarmTask, swarmState: SwarmState, milestoneId: string): MultiloopTask {
+function sprintEngineTaskToMultiloopTask(task: SprintEngineTask, sprintEngineState: SprintEngineState, milestoneId: string): MultiloopTask {
   return {
     id: task.id,
     milestoneId,
     role: task.role,
-    status: getSwarmTaskBoardColumn(task, swarmState.tasks),
+    status: getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks),
     title: task.title,
     description: task.description,
     ownerAgentId: task.ownerAgentId,
@@ -770,7 +770,7 @@ function swarmTaskToMultiloopTask(task: SwarmTask, swarmState: SwarmState, miles
   }
 }
 
-function swarmArtifactToMultiloopArtifact(artifact: SwarmArtifact, milestoneId: string): MultiloopArtifact {
+function sprintEngineArtifactToMultiloopArtifact(artifact: SprintEngineArtifact, milestoneId: string): MultiloopArtifact {
   return {
     id: artifact.id,
     kind: artifact.kind,

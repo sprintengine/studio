@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import {
-  MobileSwarmSnapshotService,
-  readSwarmSnapshot,
+  MobileSprintEngineSnapshotService,
+  readSprintEngineSnapshot,
 } from './snapshot'
 
 const generatedAt = '2026-04-28T19:30:00.000Z'
@@ -39,7 +39,7 @@ async function assertFixtureSnapshotMatchesDesktopBoardCounts(): Promise<void> {
     ],
   })
 
-  const snapshot = await readSwarmSnapshot(statePath)
+  const snapshot = await readSprintEngineSnapshot(statePath)
 
   assert.deepEqual(snapshot.board, {
     todo: 1,
@@ -91,7 +91,7 @@ async function assertSnapshotOmitsNonMobileStatePayloads(): Promise<void> {
     ],
   })
 
-  const snapshot = await readSwarmSnapshot(statePath)
+  const snapshot = await readSprintEngineSnapshot(statePath)
   const serialized = JSON.stringify(snapshot)
 
   assert.equal(serialized.includes('raw terminal stream'), false)
@@ -106,7 +106,7 @@ async function assertPublishingIsThrottled(): Promise<void> {
     tasks: [task('T1', 'done', [])],
     artifacts: [],
   })
-  const service = new MobileSwarmSnapshotService({ publishThrottleMs: 60 })
+  const service = new MobileSprintEngineSnapshotService({ publishThrottleMs: 60 })
   const published: string[] = []
   service.subscribe((snapshot) => {
     published.push(snapshot.generatedAt)
@@ -140,7 +140,7 @@ async function assertSnapshotSkipsMalformedStateFiles(): Promise<void> {
   const malformedStatePath = await writeStateText(
     `${String.raw`{"sprintengine":{"name":"Bad"},"tasks":[{"evidence":{"commandsRan":[".multi-code\sprintengine\state.yaml"]}}]}`}\n`
   )
-  const service = new MobileSwarmSnapshotService()
+  const service = new MobileSprintEngineSnapshotService()
 
   const snapshot = await service.readSnapshot({
     desktopSessionId: 'desktop_1',
@@ -148,7 +148,7 @@ async function assertSnapshotSkipsMalformedStateFiles(): Promise<void> {
     generatedAt,
   })
 
-  assert.deepEqual(snapshot.swarms.map((swarm) => swarm.name), ['Valid Snapshot'])
+  assert.deepEqual(snapshot.sprintEngines.map((sprintEngine) => sprintEngine.name), ['Valid Snapshot'])
   service.shutdown()
 }
 

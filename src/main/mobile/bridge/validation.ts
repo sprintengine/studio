@@ -9,7 +9,7 @@ import type {
 const MOBILE_CONTROL_CAPABILITIES: MobileControlCapability[] = [
   'snapshots.read',
   'artifacts.read',
-  'swarms.create',
+  'sprintengines.create',
   'tasks.start',
   'artifacts.review',
   'agents.followUp',

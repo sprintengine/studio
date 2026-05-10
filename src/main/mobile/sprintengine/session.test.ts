@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { DesktopMobileSwarmSessionOrchestrator, type DesktopMobileSwarmSessionAdapters } from './session'
-import type { MobileSwarmTaskStartRequest } from './command'
+import { DesktopMobileSprintEngineSessionOrchestrator, type DesktopMobileSprintEngineSessionAdapters } from './session'
+import type { MobileSprintEngineTaskStartRequest } from './command'
 
 const now = new Date('2026-04-28T20:20:00.000Z')
 
@@ -29,7 +29,7 @@ async function assertTaskStartUsesCurrentWorkspace(): Promise<void> {
       return { ok: true, sessionId: input.sessionId }
     },
   })
-  const orchestrator = new DesktopMobileSwarmSessionOrchestrator({ adapters, now: () => now })
+  const orchestrator = new DesktopMobileSprintEngineSessionOrchestrator({ adapters, now: () => now })
 
   const result = await orchestrator.startTask(taskStartRequest(fixture))
 
@@ -44,7 +44,7 @@ async function assertTaskStartUsesCurrentWorkspace(): Promise<void> {
 
 async function assertTaskStartRejectsTerminalLimit(): Promise<void> {
   const fixture = await writeFixture('session-limit-team')
-  const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
+  const orchestrator = new DesktopMobileSprintEngineSessionOrchestrator({
     adapters: adaptersForFixture({
       listTerminals: async () => [
         {
@@ -52,7 +52,7 @@ async function assertTaskStartRejectsTerminalLimit(): Promise<void> {
           running: true,
           kind: 'agent',
           agentId: 'developer-1',
-          swarmStatePath: fixture.statePath,
+          sprintEngineStatePath: fixture.statePath,
         },
       ],
     }),
@@ -62,14 +62,14 @@ async function assertTaskStartRejectsTerminalLimit(): Promise<void> {
 
   await assert.rejects(
     () => orchestrator.startTask(taskStartRequest(fixture)),
-    /running sprintengine terminal limit/
+    /running Sprint Engine terminal limit/
   )
 }
 
 async function assertFollowUpWritesOnlyToKnownAgentTerminal(): Promise<void> {
   const fixture = await writeFixture('session-follow-up-team')
   const writes: Array<{ sessionId: string; data: string }> = []
-  const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
+  const orchestrator = new DesktopMobileSprintEngineSessionOrchestrator({
     adapters: adaptersForFixture({
       listTerminals: async () => [
         {
@@ -77,7 +77,7 @@ async function assertFollowUpWritesOnlyToKnownAgentTerminal(): Promise<void> {
           running: true,
           kind: 'agent',
           agentId: 'developer-1',
-          swarmStatePath: fixture.statePath,
+          sprintEngineStatePath: fixture.statePath,
         },
       ],
       writeTerminal: (sessionId, data) => {
@@ -88,7 +88,7 @@ async function assertFollowUpWritesOnlyToKnownAgentTerminal(): Promise<void> {
   })
 
   const result = await orchestrator.sendFollowUp({
-    swarmId: fixture.swarmId,
+    sprintEngineId: fixture.sprintEngineId,
     statePath: fixture.statePath,
     teamDirectory: fixture.teamDirectory,
     workspaceRoot: fixture.workspaceRoot,
@@ -113,7 +113,7 @@ async function assertFollowUpRejectsCrLfBeforeTerminalWrite(): Promise<void> {
     ['Please post evidence.\u001B[2J', /single message/],
   ] as const) {
     const writes: Array<{ sessionId: string; data: string }> = []
-    const orchestrator = new DesktopMobileSwarmSessionOrchestrator({
+    const orchestrator = new DesktopMobileSprintEngineSessionOrchestrator({
       adapters: adaptersForFixture({
         listTerminals: async () => [
           {
@@ -121,7 +121,7 @@ async function assertFollowUpRejectsCrLfBeforeTerminalWrite(): Promise<void> {
             running: true,
             kind: 'agent',
             agentId: 'developer-1',
-            swarmStatePath: fixture.statePath,
+            sprintEngineStatePath: fixture.statePath,
           },
         ],
         writeTerminal: (sessionId, data) => {
@@ -133,7 +133,7 @@ async function assertFollowUpRejectsCrLfBeforeTerminalWrite(): Promise<void> {
 
     await assert.rejects(
       () => orchestrator.sendFollowUp({
-        swarmId: fixture.swarmId,
+        sprintEngineId: fixture.sprintEngineId,
         statePath: fixture.statePath,
         teamDirectory: fixture.teamDirectory,
         workspaceRoot: fixture.workspaceRoot,
@@ -148,7 +148,7 @@ async function assertFollowUpRejectsCrLfBeforeTerminalWrite(): Promise<void> {
   }
 }
 
-function adaptersForFixture(overrides: Partial<DesktopMobileSwarmSessionAdapters> = {}): DesktopMobileSwarmSessionAdapters {
+function adaptersForFixture(overrides: Partial<DesktopMobileSprintEngineSessionAdapters> = {}): DesktopMobileSprintEngineSessionAdapters {
   return {
     listTerminals: async () => [],
     spawnAgentTerminal: async (input) => ({ ok: true, sessionId: input.sessionId }),
@@ -157,19 +157,19 @@ function adaptersForFixture(overrides: Partial<DesktopMobileSwarmSessionAdapters
   }
 }
 
-async function writeFixture(swarmId: string): Promise<{
-  swarmId: string
+async function writeFixture(sprintEngineId: string): Promise<{
+  sprintEngineId: string
   workspaceRoot: string
   teamDirectory: string
   statePath: string
 }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-session-'))
-  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', swarmId)
+  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', sprintEngineId)
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'state.yaml')
   await writeFile(statePath, `${JSON.stringify({
     sprintengine: {
-      name: swarmId,
+      name: sprintEngineId,
       goal: 'Build mobile sprintengine control.',
     },
     tasks: [
@@ -182,22 +182,22 @@ async function writeFixture(swarmId: string): Promise<{
         dependsOn: [],
       },
     ],
-    swarmAgents: {
+    sprintEngineAgents: {
       'developer-1': { role: 'developer', status: 'idle', currentTaskId: null },
     },
   }, null, 2)}\n`, 'utf8')
 
   return {
-    swarmId,
+    sprintEngineId,
     workspaceRoot,
     teamDirectory,
     statePath,
   }
 }
 
-function taskStartRequest(fixture: Awaited<ReturnType<typeof writeFixture>>): MobileSwarmTaskStartRequest {
+function taskStartRequest(fixture: Awaited<ReturnType<typeof writeFixture>>): MobileSprintEngineTaskStartRequest {
   return {
-    swarmId: fixture.swarmId,
+    sprintEngineId: fixture.sprintEngineId,
     statePath: fixture.statePath,
     teamDirectory: fixture.teamDirectory,
     workspaceRoot: fixture.workspaceRoot,

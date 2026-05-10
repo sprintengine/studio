@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
-import { SpecialistActionIcon, StatusDot, SwarmRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import CommandPalette from '../CommandPalette'
 import SettingsPanel from '../settings/SettingsPanel'
@@ -23,7 +23,7 @@ import type {
   LayoutTemplate,
   MultiloopRole,
   SpecialistActionId,
-  SwarmCliPermissionPreset,
+  SprintEngineCliPermissionPreset,
   Workspace,
 } from '../../types/workspace'
 import { pickRandomAgentName } from '../../utils/agentNames'
@@ -31,9 +31,9 @@ import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/ag
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel, hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
-import { buildCurrentContextSwarmHandoffPrompt } from '../../utils/sprintengineHandoff'
+import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
-import { slugifySwarmName } from '../../utils/sprintengineStateFile'
+import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
 import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
 import MultiloopAutoRunSupervisor from './MultiloopAutoRunSupervisor'
@@ -61,22 +61,6 @@ const VIEWS_FOR_MODE: Record<string, { label: string; views: ViewItem[] }> = {
       { component: 'multiloop-board', name: 'Multiloop' },
     ],
   },
-  symphony: {
-    label: 'Symphony',
-    views: [
-      { component: 'sprintengine-project', name: 'Symphony Intake' },
-      { component: 'sprintengine-kanban', name: 'Board' },
-      { component: 'sprintengine-task-graph', name: 'Task Graph' },
-    ],
-  },
-  swarm: {
-    label: 'Swarm',
-    views: [
-      { component: 'swarm-review-brief', name: 'Review Brief' },
-      { component: 'swarm-review-reports', name: 'Reports' },
-      { component: 'swarm-review-findings', name: 'Findings Matrix' },
-    ],
-  },
 }
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 5 * 60_000
@@ -85,7 +69,7 @@ const AGENT_SPAWN_CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
   { value: 'claude', label: 'Claude Code' },
 ]
 const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
-  value: SwarmCliPermissionPreset
+  value: SprintEngineCliPermissionPreset
   label: string
   title: string
 }> = [
@@ -121,13 +105,13 @@ type SessionItem = {
   label: string
   cli: AgentCli
   status: SessionStatus
-  role: NonNullable<Workspace['swarmState']>['swarmAgents'][string]['role'] | null
+  role: NonNullable<Workspace['sprintEngineState']>['sprintEngineAgents'][string]['role'] | null
   taskId: string | null
   sessionId: string
 }
 
 function workspaceNeedsInput(workspace: Workspace): boolean {
-  return Object.values(workspace.swarmState?.swarmAgents ?? {}).some(
+  return Object.values(workspace.sprintEngineState?.sprintEngineAgents ?? {}).some(
     (agent) => agent.status === 'needs_input'
   )
 }
@@ -173,23 +157,13 @@ function workspaceActivityLabel(activity: WorkspaceActivity): string {
 }
 
 function workspaceTabClass(mode: Workspace['mode'], active: boolean): string {
-  if (mode === 'symphony') {
-    return active
-      ? 'border-[#4c2d73] bg-[#1a1530] text-[#f1e8ff] shadow-[inset_0_-2px_0_rgba(124,92,242,0.72)]'
-      : 'border-transparent text-[#d4c8ff] hover:bg-[#7c5cf2]/10 hover:text-[#efe5ff]'
-  }
-
   if (mode === 'sprintengine') {
     return active
       ? 'border-[#3a3426] bg-[#17181d] text-[#ececee] shadow-[inset_0_-2px_0_rgba(255,191,47,0.42)]'
       : 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
   }
 
-  if (mode === 'swarm') {
-    return active
-      ? 'border-[#d97757] bg-[#241513] text-[#ffe2d4] shadow-[inset_0_-2px_0_rgba(217,119,87,0.68)]'
-      : 'border-transparent text-[#ffb088] hover:bg-[#d97757]/10 hover:text-[#ffe2d4]'
-  }
+
 
   return active
     ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
@@ -197,9 +171,7 @@ function workspaceTabClass(mode: Workspace['mode'], active: boolean): string {
 }
 
 function workspaceTabIconClass(mode: Workspace['mode']): string {
-  if (mode === 'symphony') return 'text-[#a78bfa]'
   if (mode === 'sprintengine') return 'text-[#ffbf2f]'
-  if (mode === 'swarm') return 'text-[#d97757]'
   return 'text-[#9a9aa2]'
 }
 
@@ -238,7 +210,7 @@ function getSessionItems(
       if (session.kind === 'agent') {
         if (!session.agentId) return []
         const agent = workspace.agents[session.agentId]
-        const runtime = workspace.swarmState?.swarmAgents[session.agentId]
+        const runtime = workspace.sprintEngineState?.sprintEngineAgents[session.agentId]
         const status: SessionStatus = runtime?.status === 'needs_input' ? 'needs-input' : 'running'
 
         return [{
@@ -283,7 +255,7 @@ function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]): stri
       session.terminalId ?? '',
       session.cli ?? '',
       session.cwd ?? '',
-      session.swarmStatePath ?? '',
+      session.sprintEngineStatePath ?? '',
       session.executionMode ?? '',
       session.worktreeId ?? '',
       session.worktreePath ?? '',
@@ -346,7 +318,7 @@ export default function WorkspaceManager() {
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
-  const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
+  const setSprintEngineAutoEnabled = useWorkspaceStore((s) => s.setSprintEngineAutoEnabled)
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'claude')
@@ -388,7 +360,7 @@ export default function WorkspaceManager() {
   const [showPalette, setShowPalette] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   const [agentCliDropdownOpen, setAgentCliDropdownOpen] = useState(false)
-  const [agentSpawnPermissionPreset, setAgentSpawnPermissionPresetState] = useState<SwarmCliPermissionPreset>(
+  const [agentSpawnPermissionPreset, setAgentSpawnPermissionPresetState] = useState<SprintEngineCliPermissionPreset>(
     lastAgentSpawnPermissionPreset
   )
   const selectedAgentPermissionOption = AGENT_SPAWN_PERMISSION_OPTIONS.find(
@@ -461,7 +433,7 @@ export default function WorkspaceManager() {
     setHandoffOpen(false)
   }
 
-  const setAgentSpawnPermissionPreset = (preset: SwarmCliPermissionPreset) => {
+  const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
     setAgentSpawnPermissionPresetState(preset)
     setLastAgentSpawnPermissionPreset(preset)
   }
@@ -828,7 +800,7 @@ export default function WorkspaceManager() {
         toggleWorkspacePanel(activeWorkspaceId, 'git')
       } else if (command === 'open-sprintengine-kanban') {
         const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
-        if (workspace?.mode === 'sprintengine' || workspace?.mode === 'symphony' || workspace?.swarmContext) {
+        if (workspace?.mode === 'sprintengine' || workspace?.sprintEngineContext) {
           focusOrAddComponentTab(activeWorkspaceId, 'sprintengine-kanban', 'Kanban')
         }
       }
@@ -839,24 +811,22 @@ export default function WorkspaceManager() {
     template,
     name,
     folderPath,
-    swarmState,
-    swarmContext,
-    swarmRoleCliDefaults,
-    swarmAutoState,
-    swarmReviewState,
+    sprintEngineState,
+    sprintEngineContext,
+    sprintEngineRoleCliDefaults,
+    sprintEngineAutoState,
     mode,
   }: {
     template: LayoutTemplate
     name: string
     folderPath: string | null
-    swarmState?: Workspace['swarmState']
-    swarmContext?: Workspace['swarmContext']
-    swarmRoleCliDefaults?: Workspace['swarmRoleCliDefaults'] | null
-    swarmAutoState?: Partial<Workspace['swarmAutoState']> | null
-    swarmReviewState?: Workspace['swarmReviewState'] | null
+    sprintEngineState?: Workspace['sprintEngineState']
+    sprintEngineContext?: Workspace['sprintEngineContext']
+    sprintEngineRoleCliDefaults?: Workspace['sprintEngineRoleCliDefaults'] | null
+    sprintEngineAutoState?: Partial<Workspace['sprintEngineAutoState']> | null
     mode?: Workspace['mode']
   }) => {
-    addWorkspace(template, { name, folderPath, swarmState, swarmContext, swarmRoleCliDefaults, swarmAutoState, swarmReviewState, mode })
+    addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAutoState, mode })
     setShowTemplateSelector(false)
     setTemplateSelectorInitialState(null)
   }
@@ -1080,7 +1050,7 @@ export default function WorkspaceManager() {
 
   const openHandoffDialog = () => {
     if (!activeWorkspace) return
-    setHandoffTeamName(slugifySwarmName(activeWorkspace.name))
+    setHandoffTeamName(slugifySprintEngineName(activeWorkspace.name))
     setHandoffError(null)
     setSessionsOpen(false)
     setSpecialistMenuOpen(false)
@@ -1089,14 +1059,14 @@ export default function WorkspaceManager() {
 
   const confirmHandoff = async () => {
     if (!activeWorkspaceId || !activeWorkspace) return
-    const teamSlug = slugifySwarmName(handoffTeamName)
+    const teamSlug = slugifySprintEngineName(handoffTeamName)
     const target = getActiveCliSession(activeWorkspace, terminalSessions)
     if (!target) {
       setHandoffError('Open or focus a running CLI session before handing off.')
       return
     }
 
-    const prompt = buildCurrentContextSwarmHandoffPrompt(teamSlug)
+    const prompt = buildCurrentContextSprintEngineHandoffPrompt(teamSlug)
     await window.api.terminalWrite(
       target.sessionId,
       `\x1b[200~${prompt.replace(/\r?\n/g, '\n')}\x1b[201~\r`
@@ -1215,7 +1185,7 @@ export default function WorkspaceManager() {
   const stopSession = (item: SessionItem) => {
     void window.api.terminalKill(item.sessionId).catch(() => {})
     setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
-    if (item.workspace.mode === 'sprintengine' || item.workspace.mode === 'symphony') setSwarmAutoEnabled(item.workspace.id, false)
+    if (item.workspace.mode === 'sprintengine') setSprintEngineAutoEnabled(item.workspace.id, false)
     if (item.agentId) {
       updateAgent(item.workspace.id, item.agentId, {
         cliStartRequested: false,
@@ -1246,7 +1216,7 @@ export default function WorkspaceManager() {
           : null
       ))}
       {!MULTICODE_DISABLE_SPRINTENGINE_SYNC && workspaces.map((workspace) => (
-        workspace.id === activeWorkspaceId && (workspace.mode === 'sprintengine' || workspace.mode === 'symphony' || workspace.swarmContext)
+        workspace.id === activeWorkspaceId && (workspace.mode === 'sprintengine' || workspace.sprintEngineContext)
           ? <SprintEngineStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}
@@ -1384,7 +1354,7 @@ export default function WorkspaceManager() {
             </div>
           ) : null}
 
-          {workspaceActionsEnabled && activeWorkspace && (activeWorkspace.mode === 'sprintengine' || activeWorkspace.mode === 'multiloop' || activeWorkspace.mode === 'symphony') ? (
+          {workspaceActionsEnabled && activeWorkspace && (activeWorkspace.mode === 'sprintengine' || activeWorkspace.mode === 'multiloop') ? (
             <div ref={viewMenuRef} className="relative inline-flex">
               <button
                 type="button"
@@ -1684,7 +1654,7 @@ export default function WorkspaceManager() {
                       id="agent-spawn-cli-permissions"
                       value={agentSpawnPermissionPreset}
                       onChange={(event) =>
-                        setAgentSpawnPermissionPreset(event.currentTarget.value as SwarmCliPermissionPreset)
+                        setAgentSpawnPermissionPreset(event.currentTarget.value as SprintEngineCliPermissionPreset)
                       }
                       title={
                         AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === agentSpawnPermissionPreset)?.title
@@ -1873,7 +1843,7 @@ export default function WorkspaceManager() {
                 onRefresh={() => void refreshAuthState()}
                 onLogout={() => void logout()}
                 onSwitchOrganization={() => void switchOrganization()}
-                onUpgrade={() => void window.api.authOpenUpgrade('swarm_mode')}
+                onUpgrade={() => void window.api.authOpenUpgrade('sprintengine')}
               />
             ) : null}
           </div>
@@ -2199,7 +2169,7 @@ function SessionsPopover({
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92]">
                         {item.role ? (
-                          <SwarmRoleIcon role={item.role} className="h-[17px] w-[17px]" />
+                          <SprintEngineRoleIcon role={item.role} className="h-[17px] w-[17px]" />
                         ) : item.kind === 'terminal' ? (
                           <TerminalSessionIcon className="h-[17px] w-[17px]" />
                         ) : (
@@ -2425,7 +2395,7 @@ function killTerminalForLayoutTab(workspaceId: string, node: TabNode): void {
     const agentId = config?.agentId ?? node.getId()
     const agent = workspace.agents[agentId]
     if (agent?.cliSessionId) void window.api.terminalKill(agent.cliSessionId).catch(() => {})
-    if (agent?.kind === 'sprintengine') state.setSwarmAutoEnabled(workspaceId, false)
+    if (agent?.kind === 'sprintengine') state.setSprintEngineAutoEnabled(workspaceId, false)
     state.updateAgent(workspaceId, agentId, {
       cliStartRequested: false,
       cliHasLaunched: false,

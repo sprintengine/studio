@@ -1,46 +1,46 @@
 import type {
   AgentId,
-  SwarmArtifact,
-  SwarmArtifactKind,
-  SwarmArtifactReviewHistoryEntry,
-  SwarmArtifactStatus,
-  SwarmMockConfig,
-  SwarmRole,
-  SwarmRoleCounts,
-  SwarmRuntimeAgent,
-  SwarmSkillMap,
-  SwarmTaskDispatch,
-  SwarmTaskDispatchMode,
-  SwarmTaskDispatchStatus,
-  SwarmTaskDispatchTriagedBy,
-  SwarmTaskBoardColumn,
-  SwarmTaskEvidence,
-  SwarmTaskFeedback,
-  SwarmTaskFeedbackFinding,
-  SwarmTaskFeedbackFindingArea,
-  SwarmTaskFeedbackFindingKind,
-  SwarmTaskFeedbackFindingSeverity,
-  SwarmTaskFeedbackFindingStatus,
-  SwarmTaskFeedbackIssue,
-  SwarmTaskFeedbackIssueCategory,
-  SwarmTaskFeedbackIssueSeverity,
-  SwarmTaskFeedbackIssueStatus,
-  SwarmTaskSource,
-  SwarmTaskSourceSyncStatus,
-  SwarmTaskSourceType,
-  SwarmTaskTriage,
-  SwarmState,
-  SwarmTask,
-  SwarmTaskStatus,
+  SprintEngineArtifact,
+  SprintEngineArtifactKind,
+  SprintEngineArtifactReviewHistoryEntry,
+  SprintEngineArtifactStatus,
+  SprintEngineMockConfig,
+  SprintEngineRole,
+  SprintEngineRoleCounts,
+  SprintEngineRuntimeAgent,
+  SprintEngineSkillMap,
+  SprintEngineTaskDispatch,
+  SprintEngineTaskDispatchMode,
+  SprintEngineTaskDispatchStatus,
+  SprintEngineTaskDispatchTriagedBy,
+  SprintEngineTaskBoardColumn,
+  SprintEngineTaskEvidence,
+  SprintEngineTaskFeedback,
+  SprintEngineTaskFeedbackFinding,
+  SprintEngineTaskFeedbackFindingArea,
+  SprintEngineTaskFeedbackFindingKind,
+  SprintEngineTaskFeedbackFindingSeverity,
+  SprintEngineTaskFeedbackFindingStatus,
+  SprintEngineTaskFeedbackIssue,
+  SprintEngineTaskFeedbackIssueCategory,
+  SprintEngineTaskFeedbackIssueSeverity,
+  SprintEngineTaskFeedbackIssueStatus,
+  SprintEngineTaskSource,
+  SprintEngineTaskSourceSyncStatus,
+  SprintEngineTaskSourceType,
+  SprintEngineTaskTriage,
+  SprintEngineState,
+  SprintEngineTask,
+  SprintEngineTaskStatus,
 } from '../types/workspace'
 
-export type SwarmAgentRosterItem = {
+export type SprintEngineAgentRosterItem = {
   id: AgentId
   label: string
-  role: SwarmRole
+  role: SprintEngineRole
 }
 
-export const swarmRoleLabels: Record<SwarmRole, string> = {
+export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   architect: 'Architect',
   product: 'Product Strategist',
   developer: 'Developer',
@@ -51,7 +51,7 @@ export const swarmRoleLabels: Record<SwarmRole, string> = {
   performance: 'Performance Engineer',
 }
 
-export const swarmRoleAccent: Record<SwarmRole, string> = {
+export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   architect: '#d4a757',
   product: '#e879a7',
   developer: '#c7ccd4',
@@ -62,7 +62,7 @@ export const swarmRoleAccent: Record<SwarmRole, string> = {
   performance: '#a78bfa',
 }
 
-export const swarmArtifactKindLabels: Record<SwarmArtifactKind, string> = {
+export const sprintEngineArtifactKindLabels: Record<SprintEngineArtifactKind, string> = {
   architect_plan: 'Architect Plan',
   product_strategy: 'Product Strategy',
   requirements: 'Requirements',
@@ -75,7 +75,7 @@ export const swarmArtifactKindLabels: Record<SwarmArtifactKind, string> = {
   validation_report: 'Validation Report',
 }
 
-export const swarmArtifactStatusLabels: Record<SwarmArtifactStatus, string> = {
+export const sprintEngineArtifactStatusLabels: Record<SprintEngineArtifactStatus, string> = {
   draft: 'Draft',
   ready_for_review: 'Ready For Review',
   approved: 'Approved',
@@ -83,7 +83,7 @@ export const swarmArtifactStatusLabels: Record<SwarmArtifactStatus, string> = {
   superseded: 'Superseded',
 }
 
-export const swarmRoleOrder: SwarmRole[] = [
+export const sprintEngineRoleOrder: SprintEngineRole[] = [
   'architect',
   'product',
   'frontend',
@@ -94,7 +94,7 @@ export const swarmRoleOrder: SwarmRole[] = [
   'security',
 ]
 
-const swarmArtifactKinds: readonly SwarmArtifactKind[] = [
+const sprintEngineArtifactKinds: readonly SprintEngineArtifactKind[] = [
   'architect_plan',
   'product_strategy',
   'requirements',
@@ -107,7 +107,7 @@ const swarmArtifactKinds: readonly SwarmArtifactKind[] = [
   'validation_report',
 ]
 
-const swarmArtifactStatuses: readonly SwarmArtifactStatus[] = [
+const sprintEngineArtifactStatuses: readonly SprintEngineArtifactStatus[] = [
   'draft',
   'ready_for_review',
   'approved',
@@ -115,7 +115,7 @@ const swarmArtifactStatuses: readonly SwarmArtifactStatus[] = [
   'superseded',
 ]
 
-const feedbackIssueCategories: readonly SwarmTaskFeedbackIssueCategory[] = [
+const feedbackIssueCategories: readonly SprintEngineTaskFeedbackIssueCategory[] = [
   'system_prompt',
   'role_prompt',
   'task_card',
@@ -129,9 +129,9 @@ const feedbackIssueCategories: readonly SwarmTaskFeedbackIssueCategory[] = [
   'other',
 ]
 
-const feedbackIssueSeverities: readonly SwarmTaskFeedbackIssueSeverity[] = ['low', 'medium', 'high']
-const feedbackIssueStatuses: readonly SwarmTaskFeedbackIssueStatus[] = ['new', 'reviewed', 'applied', 'rejected', 'deferred']
-const feedbackFindingKinds: readonly SwarmTaskFeedbackFindingKind[] = [
+const feedbackIssueSeverities: readonly SprintEngineTaskFeedbackIssueSeverity[] = ['low', 'medium', 'high']
+const feedbackIssueStatuses: readonly SprintEngineTaskFeedbackIssueStatus[] = ['new', 'reviewed', 'applied', 'rejected', 'deferred']
+const feedbackFindingKinds: readonly SprintEngineTaskFeedbackFindingKind[] = [
   'code_bug',
   'security_issue',
   'product_requirement_violation',
@@ -142,8 +142,8 @@ const feedbackFindingKinds: readonly SwarmTaskFeedbackFindingKind[] = [
   'documentation_gap',
   'other',
 ]
-const feedbackFindingSeverities: readonly SwarmTaskFeedbackFindingSeverity[] = ['critical', 'high', 'medium', 'low']
-const feedbackFindingAreas: readonly SwarmTaskFeedbackFindingArea[] = [
+const feedbackFindingSeverities: readonly SprintEngineTaskFeedbackFindingSeverity[] = ['critical', 'high', 'medium', 'low']
+const feedbackFindingAreas: readonly SprintEngineTaskFeedbackFindingArea[] = [
   'frontend',
   'backend',
   'database',
@@ -160,14 +160,14 @@ const feedbackFindingAreas: readonly SwarmTaskFeedbackFindingArea[] = [
   'product',
   'other',
 ]
-const feedbackFindingStatuses: readonly SwarmTaskFeedbackFindingStatus[] = ['open', 'accepted', 'fixed', 'rejected', 'deferred']
-const swarmTaskSourceTypes: readonly SwarmTaskSourceType[] = ['local', 'github', 'jira', 'linear']
-const swarmTaskSourceSyncStatuses: readonly SwarmTaskSourceSyncStatus[] = ['clean', 'local_changed', 'remote_changed', 'conflict']
-const swarmTaskDispatchModes: readonly SwarmTaskDispatchMode[] = ['dependency', 'manual']
-const swarmTaskDispatchStatuses: readonly SwarmTaskDispatchStatus[] = ['todo', 'ready']
-const swarmTaskDispatchTriagedByValues: readonly SwarmTaskDispatchTriagedBy[] = ['none', 'user', 'architect']
+const feedbackFindingStatuses: readonly SprintEngineTaskFeedbackFindingStatus[] = ['open', 'accepted', 'fixed', 'rejected', 'deferred']
+const sprintEngineTaskSourceTypes: readonly SprintEngineTaskSourceType[] = ['local', 'github', 'jira', 'linear']
+const sprintEngineTaskSourceSyncStatuses: readonly SprintEngineTaskSourceSyncStatus[] = ['clean', 'local_changed', 'remote_changed', 'conflict']
+const sprintEngineTaskDispatchModes: readonly SprintEngineTaskDispatchMode[] = ['dependency', 'manual']
+const sprintEngineTaskDispatchStatuses: readonly SprintEngineTaskDispatchStatus[] = ['todo', 'ready']
+const sprintEngineTaskDispatchTriagedByValues: readonly SprintEngineTaskDispatchTriagedBy[] = ['none', 'user', 'architect']
 
-const reviewGateArtifactKinds = new Set<SwarmArtifactKind>([
+const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
   'architect_plan',
   'product_strategy',
   'requirements',
@@ -180,23 +180,23 @@ const reviewGateArtifactKinds = new Set<SwarmArtifactKind>([
   'validation_report',
 ])
 
-export type SwarmArtifactDependencyBlocker = {
+export type SprintEngineArtifactDependencyBlocker = {
   taskId: string
   title: string
-  artifacts: SwarmArtifact[]
+  artifacts: SprintEngineArtifact[]
 }
 
-export type SwarmArtifactAutoApprovalEligibility = {
+export type SprintEngineArtifactAutoApprovalEligibility = {
   eligible: boolean
   label: string
   reason: string | null
 }
 
-function emptyEvidence(summary = ''): SwarmTaskEvidence {
+function emptyEvidence(summary = ''): SprintEngineTaskEvidence {
   return { summary, touchedFiles: [], commandsRan: [], results: [] }
 }
 
-function isSwarmRole(value: unknown): value is SwarmRole {
+function isSprintEngineRole(value: unknown): value is SprintEngineRole {
   return (
     value === 'architect'
     || value === 'product'
@@ -209,12 +209,12 @@ function isSwarmRole(value: unknown): value is SwarmRole {
   )
 }
 
-function isSwarmArtifactKind(value: unknown): value is SwarmArtifactKind {
-  return swarmArtifactKinds.includes(value as SwarmArtifactKind)
+function isSprintEngineArtifactKind(value: unknown): value is SprintEngineArtifactKind {
+  return sprintEngineArtifactKinds.includes(value as SprintEngineArtifactKind)
 }
 
-function isSwarmArtifactStatus(value: unknown): value is SwarmArtifactStatus {
-  return swarmArtifactStatuses.includes(value as SwarmArtifactStatus)
+function isSprintEngineArtifactStatus(value: unknown): value is SprintEngineArtifactStatus {
+  return sprintEngineArtifactStatuses.includes(value as SprintEngineArtifactStatus)
 }
 
 function stringOrNull(value: unknown): string | null {
@@ -231,63 +231,63 @@ function percentOrUndefined(value: unknown): number | undefined {
     : undefined
 }
 
-function isFeedbackIssueCategory(value: unknown): value is SwarmTaskFeedbackIssueCategory {
-  return feedbackIssueCategories.includes(value as SwarmTaskFeedbackIssueCategory)
+function isFeedbackIssueCategory(value: unknown): value is SprintEngineTaskFeedbackIssueCategory {
+  return feedbackIssueCategories.includes(value as SprintEngineTaskFeedbackIssueCategory)
 }
 
-function isFeedbackIssueSeverity(value: unknown): value is SwarmTaskFeedbackIssueSeverity {
-  return feedbackIssueSeverities.includes(value as SwarmTaskFeedbackIssueSeverity)
+function isFeedbackIssueSeverity(value: unknown): value is SprintEngineTaskFeedbackIssueSeverity {
+  return feedbackIssueSeverities.includes(value as SprintEngineTaskFeedbackIssueSeverity)
 }
 
-function isFeedbackIssueStatus(value: unknown): value is SwarmTaskFeedbackIssueStatus {
-  return feedbackIssueStatuses.includes(value as SwarmTaskFeedbackIssueStatus)
+function isFeedbackIssueStatus(value: unknown): value is SprintEngineTaskFeedbackIssueStatus {
+  return feedbackIssueStatuses.includes(value as SprintEngineTaskFeedbackIssueStatus)
 }
 
-function isFeedbackFindingKind(value: unknown): value is SwarmTaskFeedbackFindingKind {
-  return feedbackFindingKinds.includes(value as SwarmTaskFeedbackFindingKind)
+function isFeedbackFindingKind(value: unknown): value is SprintEngineTaskFeedbackFindingKind {
+  return feedbackFindingKinds.includes(value as SprintEngineTaskFeedbackFindingKind)
 }
 
-function isFeedbackFindingSeverity(value: unknown): value is SwarmTaskFeedbackFindingSeverity {
-  return feedbackFindingSeverities.includes(value as SwarmTaskFeedbackFindingSeverity)
+function isFeedbackFindingSeverity(value: unknown): value is SprintEngineTaskFeedbackFindingSeverity {
+  return feedbackFindingSeverities.includes(value as SprintEngineTaskFeedbackFindingSeverity)
 }
 
-function isFeedbackFindingArea(value: unknown): value is SwarmTaskFeedbackFindingArea {
-  return feedbackFindingAreas.includes(value as SwarmTaskFeedbackFindingArea)
+function isFeedbackFindingArea(value: unknown): value is SprintEngineTaskFeedbackFindingArea {
+  return feedbackFindingAreas.includes(value as SprintEngineTaskFeedbackFindingArea)
 }
 
-function isFeedbackFindingStatus(value: unknown): value is SwarmTaskFeedbackFindingStatus {
-  return feedbackFindingStatuses.includes(value as SwarmTaskFeedbackFindingStatus)
+function isFeedbackFindingStatus(value: unknown): value is SprintEngineTaskFeedbackFindingStatus {
+  return feedbackFindingStatuses.includes(value as SprintEngineTaskFeedbackFindingStatus)
 }
 
-function isSwarmTaskSourceType(value: unknown): value is SwarmTaskSourceType {
-  return swarmTaskSourceTypes.includes(value as SwarmTaskSourceType)
+function isSprintEngineTaskSourceType(value: unknown): value is SprintEngineTaskSourceType {
+  return sprintEngineTaskSourceTypes.includes(value as SprintEngineTaskSourceType)
 }
 
-function isSwarmTaskSourceSyncStatus(value: unknown): value is SwarmTaskSourceSyncStatus {
-  return swarmTaskSourceSyncStatuses.includes(value as SwarmTaskSourceSyncStatus)
+function isSprintEngineTaskSourceSyncStatus(value: unknown): value is SprintEngineTaskSourceSyncStatus {
+  return sprintEngineTaskSourceSyncStatuses.includes(value as SprintEngineTaskSourceSyncStatus)
 }
 
-function isSwarmTaskDispatchMode(value: unknown): value is SwarmTaskDispatchMode {
-  return swarmTaskDispatchModes.includes(value as SwarmTaskDispatchMode)
+function isSprintEngineTaskDispatchMode(value: unknown): value is SprintEngineTaskDispatchMode {
+  return sprintEngineTaskDispatchModes.includes(value as SprintEngineTaskDispatchMode)
 }
 
-function isSwarmTaskDispatchStatus(value: unknown): value is SwarmTaskDispatchStatus {
-  return swarmTaskDispatchStatuses.includes(value as SwarmTaskDispatchStatus)
+function isSprintEngineTaskDispatchStatus(value: unknown): value is SprintEngineTaskDispatchStatus {
+  return sprintEngineTaskDispatchStatuses.includes(value as SprintEngineTaskDispatchStatus)
 }
 
-function isSwarmTaskDispatchTriagedBy(value: unknown): value is SwarmTaskDispatchTriagedBy {
-  return swarmTaskDispatchTriagedByValues.includes(value as SwarmTaskDispatchTriagedBy)
+function isSprintEngineTaskDispatchTriagedBy(value: unknown): value is SprintEngineTaskDispatchTriagedBy {
+  return sprintEngineTaskDispatchTriagedByValues.includes(value as SprintEngineTaskDispatchTriagedBy)
 }
 
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function normalizeSwarmTaskSource(value: unknown): SwarmTaskSource | undefined {
+function normalizeSprintEngineTaskSource(value: unknown): SprintEngineTaskSource | undefined {
   if (!value || typeof value !== 'object') return undefined
 
   const record = value as Record<string, unknown>
-  if (!isSwarmTaskSourceType(record.type)) return undefined
+  if (!isSprintEngineTaskSourceType(record.type)) return undefined
 
   const externalId = optionalTrimmedString(record.externalId)
   const externalUrl = optionalTrimmedString(record.externalUrl)
@@ -296,7 +296,7 @@ function normalizeSwarmTaskSource(value: unknown): SwarmTaskSource | undefined {
   const body = typeof record.body === 'string' ? record.body : undefined
   const externalUpdatedAt = optionalTrimmedString(record.externalUpdatedAt)
   const syncedAt = optionalTrimmedString(record.syncedAt)
-  const syncStatus = isSwarmTaskSourceSyncStatus(record.syncStatus) ? record.syncStatus : undefined
+  const syncStatus = isSprintEngineTaskSourceSyncStatus(record.syncStatus) ? record.syncStatus : undefined
 
   return {
     type: record.type,
@@ -311,14 +311,14 @@ function normalizeSwarmTaskSource(value: unknown): SwarmTaskSource | undefined {
   }
 }
 
-function normalizeSwarmTaskDispatch(value: unknown): SwarmTaskDispatch | undefined {
+function normalizeSprintEngineTaskDispatch(value: unknown): SprintEngineTaskDispatch | undefined {
   if (!value || typeof value !== 'object') return undefined
 
   const record = value as Record<string, unknown>
-  if (!isSwarmTaskDispatchMode(record.mode)) return undefined
+  if (!isSprintEngineTaskDispatchMode(record.mode)) return undefined
 
-  const status = isSwarmTaskDispatchStatus(record.status) ? record.status : undefined
-  const triagedBy = isSwarmTaskDispatchTriagedBy(record.triagedBy) ? record.triagedBy : undefined
+  const status = isSprintEngineTaskDispatchStatus(record.status) ? record.status : undefined
+  const triagedBy = isSprintEngineTaskDispatchTriagedBy(record.triagedBy) ? record.triagedBy : undefined
   const readyAt = optionalTrimmedString(record.readyAt)
 
   return {
@@ -329,10 +329,10 @@ function normalizeSwarmTaskDispatch(value: unknown): SwarmTaskDispatch | undefin
   }
 }
 
-function normalizeSwarmTaskFeedbackIssues(value: unknown): SwarmTaskFeedbackIssue[] {
+function normalizeSprintEngineTaskFeedbackIssues(value: unknown): SprintEngineTaskFeedbackIssue[] {
   if (!Array.isArray(value)) return []
 
-  return value.flatMap((issue, index): SwarmTaskFeedbackIssue[] => {
+  return value.flatMap((issue, index): SprintEngineTaskFeedbackIssue[] => {
     if (!issue || typeof issue !== 'object') return []
     const record = issue as Record<string, unknown>
     const category = record.category
@@ -366,10 +366,10 @@ function normalizeSwarmTaskFeedbackIssues(value: unknown): SwarmTaskFeedbackIssu
   })
 }
 
-function normalizeSwarmTaskFeedbackFindings(value: unknown): SwarmTaskFeedbackFinding[] {
+function normalizeSprintEngineTaskFeedbackFindings(value: unknown): SprintEngineTaskFeedbackFinding[] {
   if (!Array.isArray(value)) return []
 
-  return value.flatMap((finding, index): SwarmTaskFeedbackFinding[] => {
+  return value.flatMap((finding, index): SprintEngineTaskFeedbackFinding[] => {
     if (!finding || typeof finding !== 'object') return []
     const record = finding as Record<string, unknown>
     const kind = record.kind
@@ -409,7 +409,7 @@ function normalizeSwarmTaskFeedbackFindings(value: unknown): SwarmTaskFeedbackFi
   })
 }
 
-function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefined {
+function normalizeSprintEngineTaskFeedback(value: unknown): SprintEngineTaskFeedback | undefined {
   if (!value || typeof value !== 'object') return undefined
 
   const record = value as Record<string, unknown>
@@ -420,7 +420,7 @@ function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefin
     directiveClarityPct: percentOrUndefined(scoresRecord.directiveClarityPct),
     taskClarityPct: percentOrUndefined(scoresRecord.taskClarityPct),
     acceptanceCriteriaClarityPct: percentOrUndefined(scoresRecord.acceptanceCriteriaClarityPct),
-    swarmToolEffectivenessPct: percentOrUndefined(scoresRecord.swarmToolEffectivenessPct),
+    sprintEngineToolEffectivenessPct: percentOrUndefined(scoresRecord.sprintEngineToolEffectivenessPct),
     promptOptimizationPct: percentOrUndefined(scoresRecord.promptOptimizationPct),
     contextFitPct: percentOrUndefined(scoresRecord.contextFitPct),
     hallucinationRiskPct: percentOrUndefined(scoresRecord.hallucinationRiskPct),
@@ -435,15 +435,15 @@ function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefin
   const suggestedImprovement = typeof record.suggestedImprovement === 'string' && record.suggestedImprovement.trim()
     ? record.suggestedImprovement
     : undefined
-  const issues = normalizeSwarmTaskFeedbackIssues(record.issues)
-  const findings = normalizeSwarmTaskFeedbackFindings(record.findings)
+  const issues = normalizeSprintEngineTaskFeedbackIssues(record.issues)
+  const findings = normalizeSprintEngineTaskFeedbackFindings(record.findings)
 
   if (
     typeof record.schemaVersion !== 'number'
     || typeof record.capturedAt !== 'string'
     || typeof record.source !== 'string'
     || typeof record.agentId !== 'string'
-    || !isSwarmRole(record.role)
+    || !isSprintEngineRole(record.role)
     || (!hasScore && !topFriction && !suggestedImprovement && issues.length === 0 && findings.length === 0)
   ) {
     return undefined
@@ -463,7 +463,7 @@ function normalizeSwarmTaskFeedback(value: unknown): SwarmTaskFeedback | undefin
   }
 }
 
-function normalizeSwarmTaskTriage(value: unknown): SwarmTaskTriage | undefined {
+function normalizeSprintEngineTaskTriage(value: unknown): SprintEngineTaskTriage | undefined {
   if (!value || typeof value !== 'object') return undefined
 
   const record = value as Record<string, unknown>
@@ -479,7 +479,7 @@ function normalizeSwarmTaskTriage(value: unknown): SwarmTaskTriage | undefined {
     return undefined
   }
 
-  const suggestedRole = isSwarmRole(record.suggestedRole) ? record.suggestedRole : undefined
+  const suggestedRole = isSprintEngineRole(record.suggestedRole) ? record.suggestedRole : undefined
   return {
     summary,
     ...(suggestedRole ? { suggestedRole } : {}),
@@ -493,7 +493,7 @@ function normalizeSwarmTaskTriage(value: unknown): SwarmTaskTriage | undefined {
   }
 }
 
-function normalizeSwarmArtifactReviewHistory(value: unknown): SwarmArtifactReviewHistoryEntry[] {
+function normalizeSprintEngineArtifactReviewHistory(value: unknown): SprintEngineArtifactReviewHistoryEntry[] {
   if (!Array.isArray(value)) return []
 
   return value.flatMap((entry) => {
@@ -516,7 +516,7 @@ function normalizeSwarmArtifactReviewHistory(value: unknown): SwarmArtifactRevie
   })
 }
 
-function normalizeSwarmArtifacts(value: unknown): SwarmArtifact[] {
+function normalizeSprintEngineArtifacts(value: unknown): SprintEngineArtifact[] {
   if (!Array.isArray(value)) return []
 
   return value.flatMap((artifact, index) => {
@@ -524,8 +524,8 @@ function normalizeSwarmArtifacts(value: unknown): SwarmArtifact[] {
     const record = artifact as Record<string, unknown>
     if (
       typeof record.id !== 'string'
-      || !isSwarmArtifactKind(record.kind)
-      || !isSwarmArtifactStatus(record.status)
+      || !isSprintEngineArtifactKind(record.kind)
+      || !isSprintEngineArtifactStatus(record.status)
     ) {
       return []
     }
@@ -543,7 +543,7 @@ function normalizeSwarmArtifacts(value: unknown): SwarmArtifact[] {
       createdBy: typeof record.createdBy === 'string' ? record.createdBy : '',
       taskId: typeof record.taskId === 'string' ? record.taskId : '',
       fingerprint: stringOrNull(record.fingerprint),
-      reviewHistory: normalizeSwarmArtifactReviewHistory(record.reviewHistory),
+      reviewHistory: normalizeSprintEngineArtifactReviewHistory(record.reviewHistory),
       recommendedTasks: stringArray(record.recommendedTasks),
       createdAt: stringOrNull(record.createdAt),
       updatedAt: stringOrNull(record.updatedAt),
@@ -555,11 +555,11 @@ function normalizeSwarmArtifacts(value: unknown): SwarmArtifact[] {
   })
 }
 
-export function createDefaultSwarmRoleCounts(): SwarmRoleCounts {
+export function createDefaultSprintEngineRoleCounts(): SprintEngineRoleCounts {
   return { architect: 1, product: 1, developer: 1, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
 }
 
-export function createDefaultSwarmSkills(): SwarmSkillMap {
+export function createDefaultSprintEngineSkills(): SprintEngineSkillMap {
   return {
     architect: ['Deep repo analysis', 'Planning', 'Task decomposition', 'Dependency mapping'],
     product: ['Market research', 'Competitor analysis', 'Audience fit', 'Product positioning'],
@@ -572,13 +572,13 @@ export function createDefaultSwarmSkills(): SwarmSkillMap {
   }
 }
 
-export function countSwarmAgents(roleCounts: SwarmRoleCounts): number {
+export function countSprintEngineAgents(roleCounts: SprintEngineRoleCounts): number {
   return Object.values(roleCounts).reduce((total, count) => total + Math.max(0, count), 0)
 }
 
-export function normalizeSwarmRoleCounts(
-  roleCounts?: Partial<SwarmRoleCounts> | null
-): SwarmRoleCounts {
+export function normalizeSprintEngineRoleCounts(
+  roleCounts?: Partial<SprintEngineRoleCounts> | null
+): SprintEngineRoleCounts {
   return {
     architect: Math.max(0, roleCounts?.architect ?? 1),
     product: Math.max(0, roleCounts?.product ?? 1),
@@ -591,7 +591,7 @@ export function normalizeSwarmRoleCounts(
   }
 }
 
-function roleAgentIndex(agentId: string, role: SwarmRole): number {
+function roleAgentIndex(agentId: string, role: SprintEngineRole): number {
   const base = role
   if (agentId === base) return 1
   const match = agentId.match(new RegExp(`^${base}-(\\d+)$`))
@@ -599,15 +599,15 @@ function roleAgentIndex(agentId: string, role: SwarmRole): number {
   return Number(match[1])
 }
 
-export function getNextSwarmAgentId(
-  role: SwarmRole,
-  swarmAgents: Record<AgentId, SwarmRuntimeAgent>
+export function getNextSprintEngineAgentId(
+  role: SprintEngineRole,
+  sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
 ): AgentId {
-  const usedIds = new Set(Object.keys(swarmAgents))
+  const usedIds = new Set(Object.keys(sprintEngineAgents))
   if (!usedIds.has(role) && role !== 'developer') return role
 
   let nextIndex = 1
-  for (const [agentId, agent] of Object.entries(swarmAgents)) {
+  for (const [agentId, agent] of Object.entries(sprintEngineAgents)) {
     if (agent.role !== role) continue
     const index = roleAgentIndex(agentId, role)
     if (Number.isFinite(index)) nextIndex = Math.max(nextIndex, index + 1)
@@ -621,72 +621,72 @@ export function getNextSwarmAgentId(
   return candidate
 }
 
-export function buildSwarmAgentRoster(roleCounts: SwarmRoleCounts): SwarmAgentRosterItem[] {
-  const roster: SwarmAgentRosterItem[] = []
+export function buildSprintEngineAgentRoster(roleCounts: SprintEngineRoleCounts): SprintEngineAgentRosterItem[] {
+  const roster: SprintEngineAgentRosterItem[] = []
 
-  for (const role of swarmRoleOrder) {
+  for (const role of sprintEngineRoleOrder) {
     const count = Math.max(role === 'architect' ? 1 : 0, roleCounts[role])
     for (let i = 0; i < count; i++) {
       const id = count > 1 || role === 'developer' ? `${role}-${i + 1}` : role
       const suffix = count > 1 ? ` ${i + 1}` : ''
-      roster.push({ id, label: `${swarmRoleLabels[role]}${suffix}`, role })
+      roster.push({ id, label: `${sprintEngineRoleLabels[role]}${suffix}`, role })
     }
   }
 
   return roster
 }
 
-export function buildSwarmAgentRosterFromRuntimeAgents(
-  swarmAgents: Record<AgentId, SwarmRuntimeAgent>
-): SwarmAgentRosterItem[] {
-  const roleTotals: Record<SwarmRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
-  for (const agent of Object.values(swarmAgents)) {
-    if (isSwarmRole(agent?.role)) roleTotals[agent.role] += 1
+export function buildSprintEngineAgentRosterFromRuntimeAgents(
+  sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
+): SprintEngineAgentRosterItem[] {
+  const roleTotals: Record<SprintEngineRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
+  for (const agent of Object.values(sprintEngineAgents)) {
+    if (isSprintEngineRole(agent?.role)) roleTotals[agent.role] += 1
   }
 
-  const seenByRole: Record<SwarmRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
+  const seenByRole: Record<SprintEngineRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
 
-  return Object.entries(swarmAgents)
-    .filter((entry): entry is [AgentId, SwarmRuntimeAgent] => isSwarmRole(entry[1]?.role))
+  return Object.entries(sprintEngineAgents)
+    .filter((entry): entry is [AgentId, SprintEngineRuntimeAgent] => isSprintEngineRole(entry[1]?.role))
     .sort(([aId, a], [bId, b]) => {
-      const roleDelta = swarmRoleOrder.indexOf(a.role) - swarmRoleOrder.indexOf(b.role)
+      const roleDelta = sprintEngineRoleOrder.indexOf(a.role) - sprintEngineRoleOrder.indexOf(b.role)
       return roleDelta !== 0 ? roleDelta : roleAgentIndex(aId, a.role) - roleAgentIndex(bId, b.role)
     })
     .map(([id, agent]) => {
       seenByRole[agent.role] += 1
       const suffix = roleTotals[agent.role] > 1 ? ` ${seenByRole[agent.role]}` : ''
-      return { id, label: `${swarmRoleLabels[agent.role]}${suffix}`, role: agent.role }
+      return { id, label: `${sprintEngineRoleLabels[agent.role]}${suffix}`, role: agent.role }
     })
 }
 
-export function buildSwarmAgentRosterForState(
-  swarmState: Pick<SwarmState, 'roleCounts' | 'swarmAgents'> | null | undefined
-): SwarmAgentRosterItem[] {
-  if (swarmState?.swarmAgents && Object.keys(swarmState.swarmAgents).length > 0) {
-    return buildSwarmAgentRosterFromRuntimeAgents(swarmState.swarmAgents)
+export function buildSprintEngineAgentRosterForState(
+  sprintEngineState: Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents'> | null | undefined
+): SprintEngineAgentRosterItem[] {
+  if (sprintEngineState?.sprintEngineAgents && Object.keys(sprintEngineState.sprintEngineAgents).length > 0) {
+    return buildSprintEngineAgentRosterFromRuntimeAgents(sprintEngineState.sprintEngineAgents)
   }
-  return buildSwarmAgentRoster(swarmState?.roleCounts ?? createDefaultSwarmRoleCounts())
+  return buildSprintEngineAgentRoster(sprintEngineState?.roleCounts ?? createDefaultSprintEngineRoleCounts())
 }
 
-export function buildSwarmRosterCommandArgs(
-  swarmState: Pick<SwarmState, 'roleCounts' | 'swarmAgents' | 'rosterConfigured'> | SwarmRoleCounts | null | undefined
+export function buildSprintEngineRosterCommandArgs(
+  sprintEngineState: Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents' | 'rosterConfigured'> | SprintEngineRoleCounts | null | undefined
 ): string[] {
-  if (swarmState && 'roleCounts' in swarmState && !swarmState.rosterConfigured) return []
-  const roster = swarmState && 'roleCounts' in swarmState
-    ? buildSwarmAgentRosterForState(swarmState)
-    : buildSwarmAgentRoster(normalizeSwarmRoleCounts(swarmState as Partial<SwarmRoleCounts> | null | undefined))
+  if (sprintEngineState && 'roleCounts' in sprintEngineState && !sprintEngineState.rosterConfigured) return []
+  const roster = sprintEngineState && 'roleCounts' in sprintEngineState
+    ? buildSprintEngineAgentRosterForState(sprintEngineState)
+    : buildSprintEngineAgentRoster(normalizeSprintEngineRoleCounts(sprintEngineState as Partial<SprintEngineRoleCounts> | null | undefined))
   return roster.map((agent) => `${agent.role}:${agent.id}`)
 }
 
-export function createInitialSwarmState(config: SwarmMockConfig): SwarmState {
-  const roleCounts = normalizeSwarmRoleCounts(config.roleCounts)
-  const roster = buildSwarmAgentRoster(roleCounts)
+export function createInitialSprintEngineState(config: SprintEngineMockConfig): SprintEngineState {
+  const roleCounts = normalizeSprintEngineRoleCounts(config.roleCounts)
+  const roster = buildSprintEngineAgentRoster(roleCounts)
   return {
     name: config.name?.trim() || 'Sprint Engine Team',
     goal: config.goal,
     rosterConfigured: true,
     roleCounts,
-    swarmAgents: Object.fromEntries(
+    sprintEngineAgents: Object.fromEntries(
       roster.map((agent) => [
         agent.id,
         { role: agent.role, status: 'idle' as const, currentTaskId: null },
@@ -698,10 +698,10 @@ export function createInitialSwarmState(config: SwarmMockConfig): SwarmState {
   }
 }
 
-export function getSwarmTaskBoardColumn(
-  task: SwarmTask,
-  tasks: SwarmTask[]
-): SwarmTaskBoardColumn {
+export function getSprintEngineTaskBoardColumn(
+  task: SprintEngineTask,
+  tasks: SprintEngineTask[]
+): SprintEngineTaskBoardColumn {
   if (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'done') {
     return task.status
   }
@@ -713,23 +713,23 @@ export function getSwarmTaskBoardColumn(
   return 'ready'
 }
 
-export function getSwarmTaskSourceType(task: Pick<SwarmTask, 'source'>): SwarmTaskSourceType {
+export function getSprintEngineTaskSourceType(task: Pick<SprintEngineTask, 'source'>): SprintEngineTaskSourceType {
   return task.source?.type ?? 'local'
 }
 
-export function getReviewableSwarmArtifacts(artifacts: SwarmArtifact[]): SwarmArtifact[] {
+export function getReviewableSprintEngineArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
   return artifacts.filter((artifact) =>
     reviewGateArtifactKinds.has(artifact.kind) && artifact.status !== 'superseded'
   )
 }
 
-export function isSwarmArtifactAutoApprovableKind(kind: SwarmArtifactKind): boolean {
+export function isSprintEngineArtifactAutoApprovableKind(kind: SprintEngineArtifactKind): boolean {
   return reviewGateArtifactKinds.has(kind)
 }
 
-export function getSwarmArtifactAutoApprovalEligibility(
-  artifact: SwarmArtifact
-): SwarmArtifactAutoApprovalEligibility {
+export function getSprintEngineArtifactAutoApprovalEligibility(
+  artifact: SprintEngineArtifact
+): SprintEngineArtifactAutoApprovalEligibility {
   if (artifact.status !== 'ready_for_review') {
     return {
       eligible: false,
@@ -746,7 +746,7 @@ export function getSwarmArtifactAutoApprovalEligibility(
     }
   }
 
-  if (isSwarmArtifactAutoApprovableKind(artifact.kind)) {
+  if (isSprintEngineArtifactAutoApprovableKind(artifact.kind)) {
     return {
       eligible: true,
       label: 'Auto-approval ready',
@@ -761,15 +761,15 @@ export function getSwarmArtifactAutoApprovalEligibility(
   }
 }
 
-export function getAutoApprovableReadySwarmArtifacts(
-  swarmState: Pick<SwarmState, 'tasks' | 'artifacts'>
-): SwarmArtifact[] {
-  const reviewArtifacts = getReviewableSwarmArtifacts(swarmState.artifacts)
-  const reviewArtifactsByTaskId = getSwarmArtifactsByTaskId(reviewArtifacts)
-  const tasksById = new Map(swarmState.tasks.map((task) => [task.id, task]))
+export function getAutoApprovableReadySprintEngineArtifacts(
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'artifacts'>
+): SprintEngineArtifact[] {
+  const reviewArtifacts = getReviewableSprintEngineArtifacts(sprintEngineState.artifacts)
+  const reviewArtifactsByTaskId = getSprintEngineArtifactsByTaskId(reviewArtifacts)
+  const tasksById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
 
   return reviewArtifacts.filter((artifact) => {
-    if (!getSwarmArtifactAutoApprovalEligibility(artifact).eligible) return false
+    if (!getSprintEngineArtifactAutoApprovalEligibility(artifact).eligible) return false
 
     const task = tasksById.get(artifact.taskId)
     if (!task || task.status !== 'needs_input') return false
@@ -780,27 +780,27 @@ export function getAutoApprovableReadySwarmArtifacts(
     if (blockingArtifacts.length === 0) return false
 
     return blockingArtifacts.every((candidate) =>
-      getSwarmArtifactAutoApprovalEligibility(candidate).eligible
+      getSprintEngineArtifactAutoApprovalEligibility(candidate).eligible
     )
   })
 }
 
-export function getSwarmArtifactsByTaskId(
-  artifacts: SwarmArtifact[]
-): Record<string, SwarmArtifact[]> {
-  return artifacts.reduce<Record<string, SwarmArtifact[]>>((byTaskId, artifact) => {
+export function getSprintEngineArtifactsByTaskId(
+  artifacts: SprintEngineArtifact[]
+): Record<string, SprintEngineArtifact[]> {
+  return artifacts.reduce<Record<string, SprintEngineArtifact[]>>((byTaskId, artifact) => {
     if (!artifact.taskId) return byTaskId
     byTaskId[artifact.taskId] = [...(byTaskId[artifact.taskId] ?? []), artifact]
     return byTaskId
   }, {})
 }
 
-export function getSwarmArtifactDependencyBlockers(
-  task: SwarmTask,
-  tasks: SwarmTask[],
-  artifacts: SwarmArtifact[]
-): SwarmArtifactDependencyBlocker[] {
-  const artifactsByTaskId = getSwarmArtifactsByTaskId(getReviewableSwarmArtifacts(artifacts))
+export function getSprintEngineArtifactDependencyBlockers(
+  task: SprintEngineTask,
+  tasks: SprintEngineTask[],
+  artifacts: SprintEngineArtifact[]
+): SprintEngineArtifactDependencyBlocker[] {
+  const artifactsByTaskId = getSprintEngineArtifactsByTaskId(getReviewableSprintEngineArtifacts(artifacts))
   const tasksById = new Map(tasks.map((candidate) => [candidate.id, candidate]))
 
   return task.dependsOn.flatMap((dependencyId) => {
@@ -820,21 +820,21 @@ export function getSwarmArtifactDependencyBlockers(
   })
 }
 
-export function normalizeSwarmState(input: SwarmState | null | undefined): SwarmState | null {
+export function normalizeSprintEngineState(input: SprintEngineState | null | undefined): SprintEngineState | null {
   if (!input) return null
 
   const tasks = (Array.isArray(input.tasks) ? input.tasks : []).map((task, index) => {
-    const feedback = normalizeSwarmTaskFeedback(task.feedback)
-    const triage = normalizeSwarmTaskTriage(task.triage)
-    const source = normalizeSwarmTaskSource(task.source)
-    const dispatch = normalizeSwarmTaskDispatch(task.dispatch)
+    const feedback = normalizeSprintEngineTaskFeedback(task.feedback)
+    const triage = normalizeSprintEngineTaskTriage(task.triage)
+    const source = normalizeSprintEngineTaskSource(task.source)
+    const dispatch = normalizeSprintEngineTaskDispatch(task.dispatch)
     return {
       id: task.id ?? `task-${index + 1}`,
       title: task.title ?? `Task ${index + 1}`,
       description: task.description ?? '',
-      role: isSwarmRole(task.role) ? task.role : 'developer' as SwarmRole,
-      status: (['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SwarmTaskStatus)
-        ? task.status as SwarmTaskStatus
+      role: isSprintEngineRole(task.role) ? task.role : 'developer' as SprintEngineRole,
+      status: (['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SprintEngineTaskStatus)
+        ? task.status as SprintEngineTaskStatus
         : 'todo' as const,
       ...(source ? { source } : {}),
       ...(dispatch ? { dispatch } : {}),
@@ -852,7 +852,7 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
     }
   })
 
-  const roleCounts = normalizeSwarmRoleCounts(input.roleCounts)
+  const roleCounts = normalizeSprintEngineRoleCounts(input.roleCounts)
 
   return {
     name: input.name?.trim() || 'Sprint Engine Team',
@@ -861,11 +861,11 @@ export function normalizeSwarmState(input: SwarmState | null | undefined): Swarm
     ...(input.source ? { source: input.source } : {}),
     updatedAt: input.updatedAt ?? null,
     roleCounts,
-    swarmAgents: input.swarmAgents && Object.keys(input.swarmAgents).length > 0
-      ? input.swarmAgents
-      : Object.fromEntries(buildSwarmAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
+    sprintEngineAgents: input.sprintEngineAgents && Object.keys(input.sprintEngineAgents).length > 0
+      ? input.sprintEngineAgents
+      : Object.fromEntries(buildSprintEngineAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
     events: input.events ?? [],
     tasks,
-    artifacts: normalizeSwarmArtifacts(input.artifacts),
+    artifacts: normalizeSprintEngineArtifacts(input.artifacts),
   }
 }

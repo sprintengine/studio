@@ -1,13 +1,13 @@
 import type {
-  SwarmRole,
-  SwarmRoleCounts,
-  SwarmRuntimeAgent,
-  SwarmState,
+  SprintEngineRole,
+  SprintEngineRoleCounts,
+  SprintEngineRuntimeAgent,
+  SprintEngineState,
 } from '../types/workspace'
 import {
-  buildSwarmAgentRoster,
-  createDefaultSwarmRoleCounts,
-  normalizeSwarmState,
+  buildSprintEngineAgentRoster,
+  createDefaultSprintEngineRoleCounts,
+  normalizeSprintEngineState,
 } from './sprintengine'
 
 // The shared Sprint Engine state file is agent-managed. The Electron app may locate
@@ -19,7 +19,7 @@ function joinPath(basePath: string, child: string): string {
   return `${basePath.replace(/[\\/]+$/, '')}${sep}${child}`
 }
 
-export function slugifySwarmName(name: string | null | undefined): string {
+export function slugifySprintEngineName(name: string | null | undefined): string {
   const slug = (name ?? '')
     .trim()
     .toLowerCase()
@@ -28,62 +28,62 @@ export function slugifySwarmName(name: string | null | undefined): string {
   return slug || 'sprintengine-team'
 }
 
-export function getSwarmRootDirectoryPath(folderPath: string): string {
+export function getSprintEngineRootDirectoryPath(folderPath: string): string {
   return joinPath(joinPath(folderPath, '.multi-code'), 'sprintengine')
 }
 
-export function getSwarmDirectoryPath(folderPath: string, swarmName?: string): string {
-  return joinPath(getSwarmRootDirectoryPath(folderPath), slugifySwarmName(swarmName))
+export function getSprintEngineDirectoryPath(folderPath: string, sprintEngineName?: string): string {
+  return joinPath(getSprintEngineRootDirectoryPath(folderPath), slugifySprintEngineName(sprintEngineName))
 }
 
-export function getExistingSwarmStateFilePath(folderPath: string, swarmDirectoryName: string): string {
-  return joinPath(joinPath(getSwarmRootDirectoryPath(folderPath), swarmDirectoryName), 'state.yaml')
+export function getExistingSprintEngineStateFilePath(folderPath: string, sprintEngineDirectoryName: string): string {
+  return joinPath(joinPath(getSprintEngineRootDirectoryPath(folderPath), sprintEngineDirectoryName), 'state.yaml')
 }
 
-export function getSwarmStateFilePath(folderPath: string, swarmName?: string): string {
-  return joinPath(getSwarmDirectoryPath(folderPath, swarmName), 'state.yaml')
+export function getSprintEngineStateFilePath(folderPath: string, sprintEngineName?: string): string {
+  return joinPath(getSprintEngineDirectoryPath(folderPath, sprintEngineName), 'state.yaml')
 }
 
-export function getSwarmPlanFilePath(folderPath: string, swarmName?: string): string {
-  return joinPath(getSwarmDirectoryPath(folderPath, swarmName), 'plan.md')
+export function getSprintEnginePlanFilePath(folderPath: string, sprintEngineName?: string): string {
+  return joinPath(getSprintEngineDirectoryPath(folderPath, sprintEngineName), 'plan.md')
 }
 
-function isSwarmRole(value: unknown): value is SwarmRole {
+function isSprintEngineRole(value: unknown): value is SprintEngineRole {
   return ['architect', 'product', 'developer', 'frontend', 'tester', 'security', 'code_reviewer', 'performance'].includes(value as string)
 }
 
-function countRolesFromAgents(agents: Record<string, { role: SwarmRole }> | undefined): SwarmRoleCounts | null {
+function countRolesFromAgents(agents: Record<string, { role: SprintEngineRole }> | undefined): SprintEngineRoleCounts | null {
   if (!agents) return null
-  const counts = createDefaultSwarmRoleCounts()
-  for (const key of Object.keys(counts) as SwarmRole[]) counts[key] = 0
+  const counts = createDefaultSprintEngineRoleCounts()
+  for (const key of Object.keys(counts) as SprintEngineRole[]) counts[key] = 0
   for (const agent of Object.values(agents)) {
-    if (isSwarmRole(agent?.role)) counts[agent.role] += 1
+    if (isSprintEngineRole(agent?.role)) counts[agent.role] += 1
   }
   return Object.values(counts).some((c) => c > 0) ? counts : null
 }
 
-export function parseSwarmStateFile(content: string, fallbackName?: string): SwarmState {
+export function parseSprintEngineStateFile(content: string, fallbackName?: string): SprintEngineState {
   const parsed = JSON.parse(content) as Record<string, unknown>
   const sprintengine = (parsed.sprintengine ?? {}) as Record<string, unknown>
-  const agents = (parsed.agents ?? {}) as Record<string, SwarmRuntimeAgent>
-  const roleCounts = countRolesFromAgents(agents) ?? createDefaultSwarmRoleCounts()
+  const agents = (parsed.agents ?? {}) as Record<string, SprintEngineRuntimeAgent>
+  const roleCounts = countRolesFromAgents(agents) ?? createDefaultSprintEngineRoleCounts()
 
-  const candidate: SwarmState = {
+  const candidate: SprintEngineState = {
     name: (sprintengine.name as string) ?? fallbackName ?? 'Sprint Engine Team',
     goal: (sprintengine.goal as string) ?? '',
     rosterConfigured: Boolean(sprintengine.rosterConfigured),
     source: typeof parsed.source === 'object' && parsed.source !== null
-      ? parsed.source as SwarmState['source']
+      ? parsed.source as SprintEngineState['source']
       : undefined,
     updatedAt: typeof sprintengine.updatedAt === 'string' ? sprintengine.updatedAt : null,
     roleCounts,
-    swarmAgents: Object.keys(agents).length > 0
+    sprintEngineAgents: Object.keys(agents).length > 0
       ? agents
-      : Object.fromEntries(buildSwarmAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
-    events: Array.isArray(parsed.events) ? parsed.events as SwarmState['events'] : [],
-    tasks: Array.isArray(parsed.tasks) ? parsed.tasks as SwarmState['tasks'] : [],
-    artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts as SwarmState['artifacts'] : [],
+      : Object.fromEntries(buildSprintEngineAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
+    events: Array.isArray(parsed.events) ? parsed.events as SprintEngineState['events'] : [],
+    tasks: Array.isArray(parsed.tasks) ? parsed.tasks as SprintEngineState['tasks'] : [],
+    artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts as SprintEngineState['artifacts'] : [],
   }
 
-  return normalizeSwarmState(candidate) ?? candidate
+  return normalizeSprintEngineState(candidate) ?? candidate
 }

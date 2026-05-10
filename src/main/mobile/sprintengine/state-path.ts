@@ -1,35 +1,35 @@
 import { basename, dirname, isAbsolute, resolve } from 'path'
-import { MobileSwarmCommandError } from './command-error'
+import { MobileSprintEngineCommandError } from './command-error'
 
-export type ValidSwarmStatePath = {
+export type ValidSprintEngineStatePath = {
   statePath: string
   teamDirectory: string
   workspaceRoot: string
 }
 
-export function validateSwarmStatePath(input: string): ValidSwarmStatePath {
+export function validateSprintEngineStatePath(input: string): ValidSprintEngineStatePath {
   if (typeof input !== 'string' || !input.trim()) {
-    throw new MobileSwarmCommandError('path_not_allowed', 'A Sprint Engine state path is required.', false)
+    throw new MobileSprintEngineCommandError('path_not_allowed', 'A Sprint Engine state path is required.', false)
   }
 
   const rawStatePath = input.trim()
   if (!isAbsolute(rawStatePath)) {
-    throw new MobileSwarmCommandError('path_not_allowed', 'Sprint Engine state path must be absolute.', false)
+    throw new MobileSprintEngineCommandError('path_not_allowed', 'Sprint Engine state path must be absolute.', false)
   }
 
   const statePath = resolve(rawStatePath)
   const teamDirectory = dirname(statePath)
-  const swarmDirectory = dirname(teamDirectory)
-  const multiCodeDirectory = dirname(swarmDirectory)
+  const sprintEngineDirectory = dirname(teamDirectory)
+  const multiCodeDirectory = dirname(sprintEngineDirectory)
   const workspaceRoot = dirname(multiCodeDirectory)
 
   if (
     basename(statePath) !== 'state.yaml'
-    || basename(swarmDirectory) !== 'sprintengine'
+    || basename(sprintEngineDirectory) !== 'sprintengine'
     || basename(multiCodeDirectory) !== '.multi-code'
     || workspaceRoot === multiCodeDirectory
   ) {
-    throw new MobileSwarmCommandError('path_not_allowed', 'Sprint Engine state path must point to .multi-code/sprintengine/<team>/state.yaml.', false)
+    throw new MobileSprintEngineCommandError('path_not_allowed', 'Sprint Engine state path must point to .multi-code/sprintengine/<team>/state.yaml.', false)
   }
 
   return { statePath, teamDirectory, workspaceRoot }

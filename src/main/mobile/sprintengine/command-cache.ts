@@ -1,22 +1,22 @@
 import { createHash } from 'crypto'
 import type {
   MobileControlCommand,
-  MobileSwarmCommandResult,
+  MobileSprintEngineCommandResult,
 } from './command'
 
 const maxRememberedIdempotencyKeys = 500
 
-type CachedMobileSwarmCommandResult = {
+type CachedMobileSprintEngineCommandResult = {
   requestHash: string
-  result: MobileSwarmCommandResult
+  result: MobileSprintEngineCommandResult
 }
 
-export type RememberedMobileSwarmCommandResult =
+export type RememberedMobileSprintEngineCommandResult =
   | { status: 'miss' }
   | { status: 'conflict' }
-  | { status: 'hit'; result: MobileSwarmCommandResult }
+  | { status: 'hit'; result: MobileSprintEngineCommandResult }
 
-const idempotencyResults = new Map<string, CachedMobileSwarmCommandResult>()
+const idempotencyResults = new Map<string, CachedMobileSprintEngineCommandResult>()
 
 export function requestHashFor(command: MobileControlCommand): string {
   const hashInput = stableJsonStringify({
@@ -28,15 +28,15 @@ export function requestHashFor(command: MobileControlCommand): string {
   return createHash('sha256').update(hashInput).digest('hex')
 }
 
-export function cloneCommandResult(result: MobileSwarmCommandResult): MobileSwarmCommandResult {
-  return JSON.parse(JSON.stringify(result)) as MobileSwarmCommandResult
+export function cloneCommandResult(result: MobileSprintEngineCommandResult): MobileSprintEngineCommandResult {
+  return JSON.parse(JSON.stringify(result)) as MobileSprintEngineCommandResult
 }
 
 export function idempotencyKeyForCommand(workspaceRoot: string, command: MobileControlCommand): string {
   return `${workspaceRoot}:${command.deviceId}:${command.idempotencyKey}`
 }
 
-export function rememberedCommandResult(key: string, requestHash: string): RememberedMobileSwarmCommandResult {
+export function rememberedCommandResult(key: string, requestHash: string): RememberedMobileSprintEngineCommandResult {
   const cached = idempotencyResults.get(key)
   if (!cached) return { status: 'miss' }
 
@@ -53,7 +53,7 @@ export function rememberedCommandResult(key: string, requestHash: string): Remem
 export function rememberCommandResult(
   key: string,
   requestHash: string,
-  result: MobileSwarmCommandResult
+  result: MobileSprintEngineCommandResult
 ): void {
   idempotencyResults.set(key, {
     requestHash,

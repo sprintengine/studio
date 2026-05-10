@@ -22,7 +22,7 @@ const validCommand: MobileControlCommand = {
   idempotencyKey: "mobile:device_1:cmd_1",
   expectedSnapshotVersion: "snap_1",
   payload: {
-    swarmId: "mobile-sprintengine-companion-integration",
+    sprintEngineId: "mobile-sprintengine-companion-integration",
     artifactId: "A1",
     feedback: "Clarify the acceptance criteria.",
   },
@@ -32,10 +32,10 @@ const validSnapshot: MobileControlSnapshot = {
   protocolVersion: mobileControlProtocolVersion,
   generatedAt: now,
   desktopSessionId: "desktop_session_1",
-  swarms: [
+  sprintEngines: [
     {
-      swarmId: "mobile-sprintengine-companion-integration",
-      name: "Mobile SprintEngine Companion Integration",
+      sprintEngineId: "mobile-sprintengine-companion-integration",
+      name: "Mobile Sprint Engine Companion Integration",
       workspacePath: "/workspace/multicode",
       statePath: "/workspace/multicode/.multi-code/sprintengine/state.yaml",
       planPath: "/workspace/multicode/.multi-code/sprintengine/plan.md",
@@ -83,7 +83,7 @@ assertInvalid(
   validateMobileControlCommand({
     ...validCommand,
     payload: {
-      swarmId: "mobile-sprintengine-companion-integration",
+      sprintEngineId: "mobile-sprintengine-companion-integration",
       artifactId: "A1",
     },
   }),
@@ -92,11 +92,11 @@ assertInvalid(
   "invalid snapshot board count",
   validateMobileControlSnapshot({
     ...validSnapshot,
-    swarms: [
+    sprintEngines: [
       {
-        ...validSnapshot.swarms[0],
+        ...validSnapshot.sprintEngines[0],
         board: {
-          ...validSnapshot.swarms[0].board,
+          ...validSnapshot.sprintEngines[0].board,
           ready: -1,
         },
       },
@@ -107,12 +107,12 @@ assertInvalid(
   "invalid task dependency list",
   validateMobileControlSnapshot({
     ...validSnapshot,
-    swarms: [
+    sprintEngines: [
       {
-        ...validSnapshot.swarms[0],
+        ...validSnapshot.sprintEngines[0],
         tasks: [
           {
-            ...validSnapshot.swarms[0].tasks[0],
+            ...validSnapshot.sprintEngines[0].tasks[0],
             dependsOn: ["T1", 42],
           },
         ],

@@ -2,7 +2,7 @@ import type { IJsonModel } from 'flexlayout-react'
 
 export type WorkspaceId = string
 export type AgentId = string
-export type WorkspaceMode = 'standard' | 'sprintengine' | 'symphony' | 'switchboard' | 'multiloop' | 'swarm'
+export type WorkspaceMode = 'standard' | 'sprintengine' | 'switchboard' | 'multiloop'
 
 export type PreviewSlot = {
   x: number
@@ -21,16 +21,16 @@ export type LayoutTemplate = {
   layout: IJsonModel
 }
 
-export type SwarmRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer' | 'performance'
+export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer' | 'performance'
 
-export type SwarmSkillMap = Record<SwarmRole, string[]>
-export type SwarmRoleCounts = Record<SwarmRole, number>
+export type SprintEngineSkillMap = Record<SprintEngineRole, string[]>
+export type SprintEngineRoleCounts = Record<SprintEngineRole, number>
 
-export type SwarmTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'done'
+export type SprintEngineTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'done'
 
-export type SwarmTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done'
+export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done'
 
-export type SwarmArtifactKind =
+export type SprintEngineArtifactKind =
   | 'architect_plan'
   | 'product_strategy'
   | 'requirements'
@@ -42,14 +42,14 @@ export type SwarmArtifactKind =
   | 'performance_review'
   | 'validation_report'
 
-export type SwarmArtifactStatus =
+export type SprintEngineArtifactStatus =
   | 'draft'
   | 'ready_for_review'
   | 'approved'
   | 'changes_requested'
   | 'superseded'
 
-export type SwarmEvent = {
+export type SprintEngineEvent = {
   id: string
   timestamp: string
   type: string
@@ -57,23 +57,23 @@ export type SwarmEvent = {
   message: string
 }
 
-export type SwarmArtifactReviewHistoryEntry = {
+export type SprintEngineArtifactReviewHistoryEntry = {
   action: string
   actor: string
   timestamp: string
   note?: string
 }
 
-export type SwarmArtifact = {
+export type SprintEngineArtifact = {
   id: string
-  kind: SwarmArtifactKind
+  kind: SprintEngineArtifactKind
   title: string
   path: string
-  status: SwarmArtifactStatus
+  status: SprintEngineArtifactStatus
   createdBy: string
   taskId: string
   fingerprint: string | null
-  reviewHistory: SwarmArtifactReviewHistoryEntry[]
+  reviewHistory: SprintEngineArtifactReviewHistoryEntry[]
   recommendedTasks: string[]
   createdAt: string | null
   updatedAt: string | null
@@ -83,18 +83,18 @@ export type SwarmArtifact = {
   changesRequestedAt?: string | null
 }
 
-export type SwarmTaskEvidence = {
+export type SprintEngineTaskEvidence = {
   summary: string
   touchedFiles: string[]
   commandsRan: string[]
   results: string[]
 }
 
-export type SwarmTaskFeedbackScores = {
+export type SprintEngineTaskFeedbackScores = {
   directiveClarityPct?: number
   taskClarityPct?: number
   acceptanceCriteriaClarityPct?: number
-  swarmToolEffectivenessPct?: number
+  sprintEngineToolEffectivenessPct?: number
   promptOptimizationPct?: number
   contextFitPct?: number
   hallucinationRiskPct?: number
@@ -103,7 +103,7 @@ export type SwarmTaskFeedbackScores = {
   confidencePct?: number
 }
 
-export type SwarmTaskFeedbackIssueCategory =
+export type SprintEngineTaskFeedbackIssueCategory =
   | 'system_prompt'
   | 'role_prompt'
   | 'task_card'
@@ -116,23 +116,23 @@ export type SwarmTaskFeedbackIssueCategory =
   | 'ui'
   | 'other'
 
-export type SwarmTaskFeedbackIssueSeverity = 'low' | 'medium' | 'high'
-export type SwarmTaskFeedbackIssueStatus = 'new' | 'reviewed' | 'applied' | 'rejected' | 'deferred'
+export type SprintEngineTaskFeedbackIssueSeverity = 'low' | 'medium' | 'high'
+export type SprintEngineTaskFeedbackIssueStatus = 'new' | 'reviewed' | 'applied' | 'rejected' | 'deferred'
 
-export type SwarmTaskFeedbackIssue = {
+export type SprintEngineTaskFeedbackIssue = {
   id: string
-  category: SwarmTaskFeedbackIssueCategory
-  severity: SwarmTaskFeedbackIssueSeverity
+  category: SprintEngineTaskFeedbackIssueCategory
+  severity: SprintEngineTaskFeedbackIssueSeverity
   target?: string
   title: string
   detail: string
   evidence?: string
   suggestedPromptChange?: string
   suggestedProcessChange?: string
-  status?: SwarmTaskFeedbackIssueStatus
+  status?: SprintEngineTaskFeedbackIssueStatus
 }
 
-export type SwarmTaskFeedbackFindingKind =
+export type SprintEngineTaskFeedbackFindingKind =
   | 'code_bug'
   | 'security_issue'
   | 'product_requirement_violation'
@@ -143,9 +143,9 @@ export type SwarmTaskFeedbackFindingKind =
   | 'documentation_gap'
   | 'other'
 
-export type SwarmTaskFeedbackFindingSeverity = 'critical' | 'high' | 'medium' | 'low'
+export type SprintEngineTaskFeedbackFindingSeverity = 'critical' | 'high' | 'medium' | 'low'
 
-export type SwarmTaskFeedbackFindingArea =
+export type SprintEngineTaskFeedbackFindingArea =
   | 'frontend'
   | 'backend'
   | 'database'
@@ -162,37 +162,37 @@ export type SwarmTaskFeedbackFindingArea =
   | 'product'
   | 'other'
 
-export type SwarmTaskFeedbackFindingStatus = 'open' | 'accepted' | 'fixed' | 'rejected' | 'deferred'
+export type SprintEngineTaskFeedbackFindingStatus = 'open' | 'accepted' | 'fixed' | 'rejected' | 'deferred'
 
-export type SwarmTaskFeedbackFinding = {
+export type SprintEngineTaskFeedbackFinding = {
   id: string
-  kind: SwarmTaskFeedbackFindingKind
-  severity: SwarmTaskFeedbackFindingSeverity
-  area: SwarmTaskFeedbackFindingArea
+  kind: SprintEngineTaskFeedbackFindingKind
+  severity: SprintEngineTaskFeedbackFindingSeverity
+  area: SprintEngineTaskFeedbackFindingArea
   title: string
   detail: string
   recommendation?: string
   requirementId?: string
   file?: string
-  status?: SwarmTaskFeedbackFindingStatus
+  status?: SprintEngineTaskFeedbackFindingStatus
 }
 
-export type SwarmTaskFeedback = {
+export type SprintEngineTaskFeedback = {
   schemaVersion: number
   capturedAt: string
   source: 'agent_self_report' | string
   agentId: string
-  role: SwarmRole
-  scores: SwarmTaskFeedbackScores
+  role: SprintEngineRole
+  scores: SprintEngineTaskFeedbackScores
   topFriction?: string
   suggestedImprovement?: string
-  issues?: SwarmTaskFeedbackIssue[]
-  findings?: SwarmTaskFeedbackFinding[]
+  issues?: SprintEngineTaskFeedbackIssue[]
+  findings?: SprintEngineTaskFeedbackFinding[]
 }
 
-export type SwarmTaskTriage = {
+export type SprintEngineTaskTriage = {
   summary: string
-  suggestedRole?: SwarmRole
+  suggestedRole?: SprintEngineRole
   acceptanceCriteria: string[]
   likelyAffectedAreas: string[]
   missingInformation: string[]
@@ -202,11 +202,11 @@ export type SwarmTaskTriage = {
   triagedAt: string
 }
 
-export type SwarmTaskSourceType = 'local' | 'github' | 'jira' | 'linear'
-export type SwarmTaskSourceSyncStatus = 'clean' | 'local_changed' | 'remote_changed' | 'conflict'
+export type SprintEngineTaskSourceType = 'local' | 'github' | 'jira' | 'linear'
+export type SprintEngineTaskSourceSyncStatus = 'clean' | 'local_changed' | 'remote_changed' | 'conflict'
 
-export type SwarmTaskSource = {
-  type: SwarmTaskSourceType
+export type SprintEngineTaskSource = {
+  type: SprintEngineTaskSourceType
   externalId?: string
   externalUrl?: string
   repo?: string
@@ -214,43 +214,43 @@ export type SwarmTaskSource = {
   body?: string
   externalUpdatedAt?: string
   syncedAt?: string
-  syncStatus?: SwarmTaskSourceSyncStatus
+  syncStatus?: SprintEngineTaskSourceSyncStatus
 }
 
-export type SwarmTaskDispatchMode = 'dependency' | 'manual'
-export type SwarmTaskDispatchStatus = 'todo' | 'ready'
-export type SwarmTaskDispatchTriagedBy = 'none' | 'user' | 'architect'
+export type SprintEngineTaskDispatchMode = 'dependency' | 'manual'
+export type SprintEngineTaskDispatchStatus = 'todo' | 'ready'
+export type SprintEngineTaskDispatchTriagedBy = 'none' | 'user' | 'architect'
 
-export type SwarmTaskDispatch = {
-  mode: SwarmTaskDispatchMode
-  status?: SwarmTaskDispatchStatus
-  triagedBy?: SwarmTaskDispatchTriagedBy
+export type SprintEngineTaskDispatch = {
+  mode: SprintEngineTaskDispatchMode
+  status?: SprintEngineTaskDispatchStatus
+  triagedBy?: SprintEngineTaskDispatchTriagedBy
   readyAt?: string
 }
 
-export type SwarmRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'
+export type SprintEngineRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'
 
-export type SwarmRuntimeAgent = {
-  role: SwarmRole
-  status: SwarmRuntimeAgentStatus
+export type SprintEngineRuntimeAgent = {
+  role: SprintEngineRole
+  status: SprintEngineRuntimeAgentStatus
   currentTaskId: string | null
 }
 
-export type SwarmAutoPendingSpawn = {
+export type SprintEngineAutoPendingSpawn = {
   taskId: string
   agentId: string
   startedAt?: number
 }
 
-export type SwarmCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 
-export type SwarmAutoState = {
+export type SprintEngineAutoState = {
   enabled: boolean
   autoApproveArtifacts: boolean
   keepDoneAgentTerminals: boolean
-  cliPermissionPreset: SwarmCliPermissionPreset
+  cliPermissionPreset: SprintEngineCliPermissionPreset
   maxConcurrentAgents: number
-  pendingSpawns: SwarmAutoPendingSpawn[]
+  pendingSpawns: SprintEngineAutoPendingSpawn[]
 }
 
 export type MultiloopAutoPendingSpawn = {
@@ -262,13 +262,13 @@ export type MultiloopAutoPendingSpawn = {
 
 export type MultiloopAutoState = {
   enabled: boolean
-  cliPermissionPreset: SwarmCliPermissionPreset
+  cliPermissionPreset: SprintEngineCliPermissionPreset
   maxConcurrentAgents: number
   coordinatorAutoSpawnKey?: string | null
   pendingSpawns: MultiloopAutoPendingSpawn[]
 }
 
-export type SwarmReviewSectorId =
+export type WatchtowerReviewSectorId =
   | 'code_review'
   | 'ai_slop'
   | 'architecture_quality'
@@ -283,30 +283,7 @@ export type SwarmReviewSectorId =
   | 'accessibility'
   | 'documentation'
 
-export type SwarmReviewRunStatus = 'draft' | 'ready' | 'running' | 'complete'
-export type SwarmReviewAgentStatus = 'ready' | 'running' | 'done' | 'needs_input' | 'error'
-
-export type SwarmReviewAgent = {
-  agentId: AgentId
-  specialistId: SpecialistActionId
-  sectors: SwarmReviewSectorId[]
-  status: SwarmReviewAgentStatus
-  reportPath: string
-  cli?: AgentCli
-}
-
-export type SwarmReviewWorkspaceState = {
-  schemaVersion: 1
-  runId: string
-  name: string
-  objective: string
-  createdAt: string
-  status: SwarmReviewRunStatus
-  outputDirectory: string
-  agents: SwarmReviewAgent[]
-}
-
-export type SwarmWorkspaceContext = {
+export type SprintEngineWorkspaceContext = {
   teamName: string
   teamSlug: string
   teamDirectoryPath: string
@@ -494,7 +471,7 @@ export type FuturePlanWorkspaceSource = {
   goal: string
 }
 
-export type SwarmSource = {
+export type SprintEngineSource = {
   kind: 'markdown' | string
   origin: 'file' | 'stdin' | 'inline' | string
   path: string
@@ -502,41 +479,41 @@ export type SwarmSource = {
   capturedAt?: string
 }
 
-export type SwarmTask = {
+export type SprintEngineTask = {
   id: string
   title: string
   description: string
-  role: SwarmRole
-  status: SwarmTaskStatus
-  source?: SwarmTaskSource
-  dispatch?: SwarmTaskDispatch
+  role: SprintEngineRole
+  status: SprintEngineTaskStatus
+  source?: SprintEngineTaskSource
+  dispatch?: SprintEngineTaskDispatch
   ownerAgentId: string | null
   dependsOn: string[]
   ownedPaths: string[]
   acceptanceCriteria: string[]
   implementationNotes: string[]
-  evidence: SwarmTaskEvidence
-  feedback?: SwarmTaskFeedback
-  triage?: SwarmTaskTriage
+  evidence: SprintEngineTaskEvidence
+  feedback?: SprintEngineTaskFeedback
+  triage?: SprintEngineTaskTriage
   notes: string[]
   startedAt: string | null
   completedAt: string | null
 }
 
-export type SwarmState = {
+export type SprintEngineState = {
   name: string
   goal: string
   rosterConfigured?: boolean
-  source?: SwarmSource
+  source?: SprintEngineSource
   updatedAt?: string | null
-  roleCounts: SwarmRoleCounts
-  swarmAgents: Record<string, SwarmRuntimeAgent>
-  events: SwarmEvent[]
-  tasks: SwarmTask[]
-  artifacts: SwarmArtifact[]
+  roleCounts: SprintEngineRoleCounts
+  sprintEngineAgents: Record<string, SprintEngineRuntimeAgent>
+  events: SprintEngineEvent[]
+  tasks: SprintEngineTask[]
+  artifacts: SprintEngineArtifact[]
 }
 
-export type SwarmMockConfig = Pick<SwarmState, 'name' | 'goal' | 'roleCounts'>
+export type SprintEngineMockConfig = Pick<SprintEngineState, 'name' | 'goal' | 'roleCounts'>
 
 export type AgentMessage = {
   role: 'user' | 'assistant' | 'system'
@@ -546,7 +523,7 @@ export type AgentMessage = {
 
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 export type AgentCli = 'codex' | 'claude'
-export type SwarmRoleCliDefaults = Partial<Record<SwarmRole, AgentCli>>
+export type SprintEngineRoleCliDefaults = Partial<Record<SprintEngineRole, AgentCli>>
 export type MultiloopRole =
   | 'coordinator'
   | 'architect'
@@ -558,7 +535,7 @@ export type MultiloopRole =
   | 'code_reviewer'
   | 'performance'
 
-export type AgentKind = 'general' | 'specialist' | 'sprintengine' | 'multiloop' | 'swarm_review'
+export type AgentKind = 'general' | 'specialist' | 'watchtower' | 'sprintengine' | 'multiloop'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
 export type SpecialistActionId =
@@ -660,7 +637,7 @@ export type AppSettings = {
   lastSelectedCli: AgentCli
   lastSelectedSpecialist: SpecialistActionId
   lastSelectedMultiloopRole: MultiloopRole
-  lastAgentSpawnPermissionPreset: SwarmCliPermissionPreset
+  lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   searchExcludes: string[]
   recentWorkspaceFolders: string[]
   usageTelemetry: UsageTelemetrySettings
@@ -713,7 +690,7 @@ export type AgentState = {
   cliOnboardingPromptSent?: boolean
   cliResumeAvailable?: boolean
   cli?: AgentCli
-  cliPermissionPreset?: SwarmCliPermissionPreset
+  cliPermissionPreset?: SprintEngineCliPermissionPreset
   cliStartupPrompt?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId
@@ -754,7 +731,7 @@ export type Workspace = {
   mode: WorkspaceMode
   folderPath: string | null
   folderMissing?: boolean
-  swarmContext?: SwarmWorkspaceContext | null
+  sprintEngineContext?: SprintEngineWorkspaceContext | null
   multiloopContext?: MultiloopWorkspaceContext | null
   templateId: string
   layoutModel: IJsonModel
@@ -762,11 +739,10 @@ export type Workspace = {
   worktreeState: WorkspaceWorktreeState
   memory: WorkspaceMemoryConfig
   editorState: EditorState
-  swarmState: SwarmState | null
+  sprintEngineState: SprintEngineState | null
   multiloopState?: MultiloopState | null
-  swarmReviewState?: SwarmReviewWorkspaceState | null
-  swarmRoleCliDefaults?: SwarmRoleCliDefaults
-  swarmAutoState: SwarmAutoState
+  sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
+  sprintEngineAutoState: SprintEngineAutoState
   multiloopAutoState: MultiloopAutoState
   createdAt: number
 }

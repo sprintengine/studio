@@ -32,7 +32,7 @@ export type TerminalSession = {
   terminalId?: string
   cli?: AgentCli
   cwd?: string
-  swarmStatePath?: string
+  sprintEngineStatePath?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
@@ -97,7 +97,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     terminalId: session.terminalId,
     cli: session.cli,
     cwd: session.cwd,
-    swarmStatePath: session.swarmStatePath,
+    sprintEngineStatePath: session.sprintEngineStatePath,
     executionMode: session.executionMode,
     worktreeId: session.worktreeId,
     worktreePath: session.worktreePath,

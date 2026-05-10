@@ -1,9 +1,9 @@
 import {
-  MobileSwarmCommandService,
-  type MobileSwarmCommandResult,
+  MobileSprintEngineCommandService,
+  type MobileSprintEngineCommandResult,
 } from '../sprintengine/command'
 import type { MobilePushRegistrationTarget } from '../sprintengine/activity'
-import { MobileSwarmSnapshotService, type MobileControlSnapshot } from '../sprintengine/snapshot'
+import { MobileSprintEngineSnapshotService, type MobileControlSnapshot } from '../sprintengine/snapshot'
 import { getErrorMessage } from '../../error-message'
 import { hashSecret } from './crypto'
 import { getDesktopDisplayName } from './desktop'
@@ -54,7 +54,7 @@ export type MobileControlCommandType =
 export type MobileControlCapability =
   | 'snapshots.read'
   | 'artifacts.read'
-  | 'swarms.create'
+  | 'sprintengines.create'
   | 'tasks.start'
   | 'artifacts.review'
   | 'agents.followUp'
@@ -72,7 +72,7 @@ export type MobileControlErrorCode =
   | 'command_expired'
   | 'duplicate_idempotency_key'
   | 'stale_snapshot'
-  | 'swarm_not_found'
+  | 'sprintengine_not_found'
   | 'task_not_ready'
   | 'artifact_not_found'
   | 'path_not_allowed'
@@ -302,16 +302,16 @@ export type MobileBridgeSettingsUpdate = {
 
 type DesktopSessionProvider = () => Promise<{ authenticated: boolean; session?: { id: string; expiresAt: string } }>
 type DesktopAccessTokenProvider = () => Promise<string | null>
-type SwarmStatePathsProvider = () => Promise<string[]>
+type SprintEngineStatePathsProvider = () => Promise<string[]>
 
 export type MobileBridgeOptions = {
   relayUrl?: string | null
   storePath?: string
   accessTokenProvider?: DesktopAccessTokenProvider
   relayTransport?: MobileRelayTransport
-  commandService?: MobileSwarmCommandService
-  snapshotService?: MobileSwarmSnapshotService
-  statePathsProvider?: SwarmStatePathsProvider
+  commandService?: MobileSprintEngineCommandService
+  snapshotService?: MobileSprintEngineSnapshotService
+  statePathsProvider?: SprintEngineStatePathsProvider
   commandPollIntervalMs?: number
 }
 
@@ -323,7 +323,7 @@ const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000
 const REQUESTED_SCOPES: MobileControlCapability[] = [
   'snapshots.read',
   'artifacts.read',
-  'swarms.create',
+  'sprintengines.create',
   'tasks.start',
   'artifacts.review',
   'agents.followUp',
@@ -388,9 +388,9 @@ export class MobileBridge {
   private readonly storePathOverride?: string
   private readonly accessTokenProvider: DesktopAccessTokenProvider
   private readonly relayTransport: MobileRelayTransport
-  private readonly commandService: MobileSwarmCommandService
-  private readonly snapshotService: MobileSwarmSnapshotService
-  private readonly statePathsProvider: SwarmStatePathsProvider
+  private readonly commandService: MobileSprintEngineCommandService
+  private readonly snapshotService: MobileSprintEngineSnapshotService
+  private readonly statePathsProvider: SprintEngineStatePathsProvider
   private readonly commandPollIntervalMs: number
   private readonly activeRelayCommandIds = new Set<string>()
 
@@ -402,9 +402,9 @@ export class MobileBridge {
     this.storePathOverride = options.storePath
     this.accessTokenProvider = options.accessTokenProvider ?? (async () => null)
     this.relayTransport = options.relayTransport ?? new FetchMobileRelayTransport()
-    this.commandService = options.commandService ?? new MobileSwarmCommandService()
-    this.snapshotService = options.snapshotService ?? new MobileSwarmSnapshotService()
-    this.statePathsProvider = options.statePathsProvider ?? defaultSwarmStatePaths
+    this.commandService = options.commandService ?? new MobileSprintEngineCommandService()
+    this.snapshotService = options.snapshotService ?? new MobileSprintEngineSnapshotService()
+    this.statePathsProvider = options.statePathsProvider ?? defaultSprintEngineStatePaths
     this.commandPollIntervalMs = Math.max(250, options.commandPollIntervalMs ?? DEFAULT_COMMAND_POLL_INTERVAL_MS)
   }
 
@@ -908,7 +908,7 @@ export class MobileBridge {
   private async dispatchRelayCommand(
     envelope: RelayCommandEnvelope,
     device: MobileRelayAuthenticatedDevice | null
-  ): Promise<MobileSwarmCommandResult> {
+  ): Promise<MobileSprintEngineCommandResult> {
     const commandType = relayCommandTypeToMobile(envelope.commandType)
     const authorizationError = authorizeRelayCommand({
       desktopRelaySessionId: this.desktopRelaySessionId,
@@ -988,7 +988,7 @@ export class MobileBridge {
     }
   }
 
-  private async postCommandResult(commandId: string, result: MobileSwarmCommandResult): Promise<void> {
+  private async postCommandResult(commandId: string, result: MobileSprintEngineCommandResult): Promise<void> {
     if (!this.relayUrl || !this.relayToken) return
     const summary = summarizeCommandResult(result)
     await this.relayTransport.postCommandResult({
@@ -1029,6 +1029,6 @@ function normalizeRelayCommandDelivery(delivery: RelayCommandDelivery): {
   return { envelope: delivery.envelope, device: delivery.device }
 }
 
-async function defaultSwarmStatePaths(): Promise<string[]> {
+async function defaultSprintEngineStatePaths(): Promise<string[]> {
   return []
 }

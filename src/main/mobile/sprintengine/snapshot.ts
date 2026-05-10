@@ -5,11 +5,11 @@ import { readFile, stat } from 'fs/promises'
 const mobileControlProtocolVersion = 1 as const
 const defaultPublishThrottleMs = 1000
 
-type SwarmTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'done'
+type SprintEngineTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'done'
 type MobileTaskStatus = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'blocked' | 'done'
 type MobileArtifactStatus = 'draft' | 'ready_for_review' | 'approved' | 'changes_requested'
 
-export type MobileSwarmTaskSnapshot = {
+export type MobileSprintEngineTaskSnapshot = {
   taskId: string
   title: string
   role: string
@@ -18,7 +18,7 @@ export type MobileSwarmTaskSnapshot = {
   dependsOn: string[]
 }
 
-export type MobileSwarmArtifactSnapshot = {
+export type MobileSprintEngineArtifactSnapshot = {
   artifactId: string
   title: string
   kind: string
@@ -27,8 +27,8 @@ export type MobileSwarmArtifactSnapshot = {
   path?: string
 }
 
-export type MobileSwarmSnapshot = {
-  swarmId: string
+export type MobileSprintEngineSnapshot = {
+  sprintEngineId: string
   name: string
   workspacePath: string
   statePath: string
@@ -43,30 +43,30 @@ export type MobileSwarmSnapshot = {
     blocked: number
     done: number
   }
-  tasks: MobileSwarmTaskSnapshot[]
-  artifacts: MobileSwarmArtifactSnapshot[]
+  tasks: MobileSprintEngineTaskSnapshot[]
+  artifacts: MobileSprintEngineArtifactSnapshot[]
 }
 
 export type MobileControlSnapshot = {
   protocolVersion: typeof mobileControlProtocolVersion
   generatedAt: string
   desktopSessionId: string
-  swarms: MobileSwarmSnapshot[]
+  sprintEngines: MobileSprintEngineSnapshot[]
 }
 
-export type MobileSwarmSnapshotRequest = {
+export type MobileSprintEngineSnapshotRequest = {
   desktopSessionId: string
   statePaths: string[]
   generatedAt?: string
 }
 
-type MobileSwarmSnapshotListener = (snapshot: MobileControlSnapshot) => void
+type MobileSprintEngineSnapshotListener = (snapshot: MobileControlSnapshot) => void
 
-type MobileSwarmSnapshotServiceOptions = {
+type MobileSprintEngineSnapshotServiceOptions = {
   publishThrottleMs?: number
 }
 
-type RawSwarmState = {
+type RawSprintEngineState = {
   sprintengine?: Record<string, unknown>
   tasks?: unknown[]
   artifacts?: unknown[]
@@ -76,45 +76,45 @@ type NormalizedTask = {
   id: string
   title: string
   role: string
-  status: SwarmTaskStatus
+  status: SprintEngineTaskStatus
   ownerAgentId: string | null
   dependsOn: string[]
 }
 
-export class MobileSwarmSnapshotService {
-  private readonly listeners = new Set<MobileSwarmSnapshotListener>()
+export class MobileSprintEngineSnapshotService {
+  private readonly listeners = new Set<MobileSprintEngineSnapshotListener>()
   private readonly publishThrottleMs: number
   private lastPublishedAt = 0
-  private pendingRequest: MobileSwarmSnapshotRequest | null = null
+  private pendingRequest: MobileSprintEngineSnapshotRequest | null = null
   private publishTimer: NodeJS.Timeout | null = null
 
-  constructor(options: MobileSwarmSnapshotServiceOptions = {}) {
+  constructor(options: MobileSprintEngineSnapshotServiceOptions = {}) {
     this.publishThrottleMs = Math.max(0, options.publishThrottleMs ?? defaultPublishThrottleMs)
   }
 
-  subscribe(listener: MobileSwarmSnapshotListener): () => void {
+  subscribe(listener: MobileSprintEngineSnapshotListener): () => void {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
     }
   }
 
-  async readSnapshot(request: MobileSwarmSnapshotRequest): Promise<MobileControlSnapshot> {
+  async readSnapshot(request: MobileSprintEngineSnapshotRequest): Promise<MobileControlSnapshot> {
     const generatedAt = request.generatedAt ?? new Date().toISOString()
-    const settledSwarms = await Promise.allSettled(
-      request.statePaths.map((statePath) => readSwarmSnapshot(statePath))
+    const settledSprintEngines = await Promise.allSettled(
+      request.statePaths.map((statePath) => readSprintEngineSnapshot(statePath))
     )
-    const swarms = settledSwarms.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
+    const sprintEngines = settledSprintEngines.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
 
     return {
       protocolVersion: mobileControlProtocolVersion,
       generatedAt,
       desktopSessionId: request.desktopSessionId,
-      swarms,
+      sprintEngines,
     }
   }
 
-  async publishSnapshot(request: MobileSwarmSnapshotRequest): Promise<MobileControlSnapshot | null> {
+  async publishSnapshot(request: MobileSprintEngineSnapshotRequest): Promise<MobileControlSnapshot | null> {
     const now = Date.now()
     const elapsedMs = now - this.lastPublishedAt
     if (elapsedMs >= this.publishThrottleMs) {
@@ -168,21 +168,21 @@ export class MobileSwarmSnapshotService {
   }
 }
 
-export async function readSwarmSnapshot(statePathInput: string): Promise<MobileSwarmSnapshot> {
+export async function readSprintEngineSnapshot(statePathInput: string): Promise<MobileSprintEngineSnapshot> {
   const statePath = resolve(statePathInput)
   if (basename(statePath) !== 'state.yaml') {
-    throw new Error('SprintEngine snapshot state path must point to a state.yaml file.')
+    throw new Error('Sprint Engine snapshot state path must point to a state.yaml file.')
   }
 
   const [content, stateStats] = await Promise.all([
     readFile(statePath, 'utf8'),
     stat(statePath),
   ])
-  const parsed = JSON.parse(content) as RawSwarmState
+  const parsed = JSON.parse(content) as RawSprintEngineState
   const teamDirectory = dirname(statePath)
-  const swarmRootDirectory = dirname(teamDirectory)
-  const workspacePath = dirname(swarmRootDirectory)
-  const swarmId = basename(teamDirectory)
+  const sprintEngineRootDirectory = dirname(teamDirectory)
+  const workspacePath = dirname(sprintEngineRootDirectory)
+  const sprintEngineId = basename(teamDirectory)
   const sprintengine = parsed.sprintengine && typeof parsed.sprintengine === 'object' ? parsed.sprintengine : {}
   const updatedAt = isoStringOrNull(sprintengine.updatedAt) ?? stateStats.mtime.toISOString()
   const tasks = normalizeTasks(parsed.tasks)
@@ -196,8 +196,8 @@ export async function readSwarmSnapshot(statePathInput: string): Promise<MobileS
   })
 
   return {
-    swarmId,
-    name: stringOrFallback(sprintengine.name, swarmId),
+    sprintEngineId,
+    name: stringOrFallback(sprintengine.name, sprintEngineId),
     workspacePath,
     statePath,
     planPath: join(teamDirectory, 'plan.md'),
@@ -229,7 +229,7 @@ function normalizeTasks(value: unknown): NormalizedTask[] {
   })
 }
 
-function normalizeArtifacts(value: unknown): MobileSwarmArtifactSnapshot[] {
+function normalizeArtifacts(value: unknown): MobileSprintEngineArtifactSnapshot[] {
   if (!Array.isArray(value)) return []
 
   return value.flatMap((artifact, index) => {
@@ -250,7 +250,7 @@ function normalizeArtifacts(value: unknown): MobileSwarmArtifactSnapshot[] {
   })
 }
 
-function toTaskSnapshot(task: NormalizedTask, tasks: NormalizedTask[]): MobileSwarmTaskSnapshot {
+function toTaskSnapshot(task: NormalizedTask, tasks: NormalizedTask[]): MobileSprintEngineTaskSnapshot {
   const status = getMobileTaskStatus(task, tasks)
   return {
     taskId: task.id,
@@ -273,8 +273,8 @@ function getMobileTaskStatus(task: NormalizedTask, tasks: NormalizedTask[]): Mob
   return dependenciesDone ? 'ready' : 'todo'
 }
 
-function countBoard(tasks: MobileSwarmTaskSnapshot[]): MobileSwarmSnapshot['board'] {
-  const board: MobileSwarmSnapshot['board'] = {
+function countBoard(tasks: MobileSprintEngineTaskSnapshot[]): MobileSprintEngineSnapshot['board'] {
+  const board: MobileSprintEngineSnapshot['board'] = {
     todo: 0,
     ready: 0,
     inProgress: 0,
@@ -309,7 +309,7 @@ function countBoard(tasks: MobileSwarmTaskSnapshot[]): MobileSwarmSnapshot['boar
   return board
 }
 
-function normalizeTaskStatus(value: unknown): SwarmTaskStatus {
+function normalizeTaskStatus(value: unknown): SprintEngineTaskStatus {
   if (value === 'in_progress' || value === 'needs_input' || value === 'done') return value
   return 'todo'
 }

@@ -12,10 +12,10 @@ import {
 import 'flexlayout-react/style/dark.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentState, FuturePlanWorkspaceSource, SwarmRole, SwarmRuntimeAgentStatus } from '../../types/workspace'
+import type { AgentState, FuturePlanWorkspaceSource, SprintEngineRole, SprintEngineRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { SpecialistActionIcon, StatusDot, SwarmRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import MulticodeBlackHoleSpinner from '../brand/MulticodeBlackHoleSpinner'
 import AgentPanel from '../panels/AgentPanel'
 import FileExplorer from '../panels/FileExplorer'
@@ -32,9 +32,6 @@ const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictR
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
 const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
-const SwarmReviewBriefPanel = React.lazy(() => import('../panels/SwarmReviewBriefPanel'))
-const SwarmReviewReportsPanel = React.lazy(() => import('../panels/SwarmReviewReportsPanel'))
-const SwarmReviewFindingsPanel = React.lazy(() => import('../panels/SwarmReviewFindingsPanel'))
 const WatchtowerPanel = React.lazy(() => import('../panels/WatchtowerPanel'))
 const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoardPanel'))
 const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
@@ -42,7 +39,7 @@ const MobileCompanionPanel = React.lazy(() => import('../panels/MobileCompanionP
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
 type AgentTabActivity = 'needs-input' | 'running' | 'idle'
-const SPRINTENGINE_ROLES: SwarmRole[] = [
+const SPRINTENGINE_ROLES: SprintEngineRole[] = [
   'architect',
   'product',
   'developer',
@@ -60,7 +57,7 @@ type AgentTabActivityDot = {
 
 function agentTabActivity(
   agent: AgentState | undefined,
-  runtimeStatus: SwarmRuntimeAgentStatus | undefined
+  runtimeStatus: SprintEngineRuntimeAgentStatus | undefined
 ): AgentTabActivity {
   if (runtimeStatus === 'needs_input') return 'needs-input'
   if (agent?.cliStartRequested || agent?.cliHasLaunched || agent?.cliSessionId) return 'running'
@@ -87,7 +84,7 @@ function agentTabActivityDot(
   }
 }
 
-function inferSwarmRoleFromAgentId(agentId: string): SwarmRole | null {
+function inferSprintEngineRoleFromAgentId(agentId: string): SprintEngineRole | null {
   return SPRINTENGINE_ROLES.find((role) => agentId === role || agentId.startsWith(`${role}-`)) ?? null
 }
 
@@ -142,7 +139,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
   const closeFile = useWorkspaceStore((s) => s.closeFile)
-  const setSwarmAutoEnabled = useWorkspaceStore((s) => s.setSwarmAutoEnabled)
+  const setSprintEngineAutoEnabled = useWorkspaceStore((s) => s.setSprintEngineAutoEnabled)
   // Keep a stable Model instance per workspace — re-creating it destroys drag/resize state
   const modelRef = useRef<Model | null>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
@@ -209,24 +206,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     const model = modelRef.current
     if (!model) return
 
-    if (workspace.mode === 'symphony') {
-      model.visitNodes((node) => {
-        if (!(node instanceof TabNode)) return
-        const component = node.getComponent()
-        const desiredName =
-          component === 'sprintengine-project'
-            ? 'Symphony Intake'
-            : component === 'sprintengine-kanban'
-              ? 'Board'
-              : component === 'sprintengine-map'
-                ? 'Agent Map'
-                : null
-        if (desiredName && node.getName() !== desiredName) {
-          model.doAction(Actions.renameTab(node.getId(), desiredName))
-        }
-      })
-    }
-
     model.visitNodes((node) => {
       if (!(node instanceof TabNode) || node.getComponent() !== 'agent') return
 
@@ -236,7 +215,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const currentClassName = node.getClassName() ?? ''
       const classNames = currentClassName.split(/\s+/).filter(Boolean)
       const hasClass = classNames.includes(AGENT_TAB_NEEDS_INPUT_CLASS)
-      const needsInput = workspace.swarmState?.swarmAgents[agentId]?.status === 'needs_input'
+      const needsInput = workspace.sprintEngineState?.sprintEngineAgents[agentId]?.status === 'needs_input'
       if (agent?.name && node.getName() !== agent.name) {
         model.doAction(Actions.renameTab(node.getId(), agent.name))
       }
@@ -255,7 +234,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         }))
       }
     })
-  }, [workspace.agents, workspace.mode, workspace.swarmState?.swarmAgents])
+  }, [workspace.agents, workspace.mode, workspace.sprintEngineState?.sprintEngineAgents])
 
   const factory = useCallback(
     (node: TabNode) => {
@@ -314,12 +293,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             'MultiloopBoardPanel',
             <MultiloopBoardPanel workspaceId={workspaceId} />
           )
-        case 'swarm-review-brief':
-          return timedPanel('SwarmReviewBriefPanel', <SwarmReviewBriefPanel workspaceId={workspaceId} />)
-        case 'swarm-review-reports':
-          return timedPanel('SwarmReviewReportsPanel', <SwarmReviewReportsPanel workspaceId={workspaceId} />)
-        case 'swarm-review-findings':
-          return timedPanel('SwarmReviewFindingsPanel', <SwarmReviewFindingsPanel workspaceId={workspaceId} />)
         case 'watchtower-panel':
           return timedPanel('WatchtowerPanel', <WatchtowerPanel workspaceId={workspaceId} />)
         case 'switchboard-board':
@@ -348,7 +321,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         const agent = workspace.agents[agentId]
         const sessionId = agent?.cliSessionId
         if (sessionId) void window.api.terminalKill(sessionId).catch(() => {})
-        if (agent?.kind === 'sprintengine') setSwarmAutoEnabled(workspaceId, false)
+        if (agent?.kind === 'sprintengine') setSprintEngineAutoEnabled(workspaceId, false)
         updateAgent(workspaceId, agentId, {
           cliStartRequested: false,
           cliHasLaunched: false,
@@ -363,7 +336,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         void window.api.terminalKill(`terminal-${terminalId}`).catch(() => {})
       }
     },
-    [closeFile, setSwarmAutoEnabled, updateAgent, workspace.agents, workspaceId]
+    [closeFile, setSprintEngineAutoEnabled, updateAgent, workspace.agents, workspaceId]
   )
 
   const handleAction = useCallback(
@@ -522,23 +495,18 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
               title={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
               aria-label={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
             >
-              <WorkspaceTypeIcon mode={isWatchtower ? 'swarm' : 'switchboard'} className="h-3.5 w-3.5" />
+              <WorkspaceTypeIcon mode={isWatchtower ? 'switchboard' : 'switchboard'} className="h-3.5 w-3.5" />
             </span>
           )
-        } else if (componentId?.startsWith('sprintengine') || componentId?.startsWith('swarm-review')) {
-          const mode = workspace.mode === 'symphony' ? 'symphony' : 'sprintengine'
-          const iconMode = componentId?.startsWith('swarm-review') ? 'swarm' : mode
+        } else if (componentId?.startsWith('sprintengine')) {
+          const iconMode = 'sprintengine'
           renderValues.leading = (
             <span
               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
-                iconMode === 'swarm'
-                  ? 'text-[#d97757]'
-                  : mode === 'symphony'
-                    ? 'text-[#a78bfa]'
-                    : 'text-[#ffbf2f]'
+                'text-[#ffbf2f]'
               }`}
-              title={iconMode === 'swarm' ? 'Swarm panel' : mode === 'symphony' ? 'Symphony panel' : 'Sprint Engine panel'}
-              aria-label={iconMode === 'swarm' ? 'Swarm panel' : mode === 'symphony' ? 'Symphony panel' : 'Sprint Engine panel'}
+              title='Sprint Engine panel'
+              aria-label='Sprint Engine panel'
             >
               <WorkspaceTypeIcon mode={iconMode} className="h-3.5 w-3.5" />
             </span>
@@ -551,15 +519,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
       const agent = workspace.agents[agentId]
-      const runtimeAgent = workspace.swarmState?.swarmAgents[agentId]
+      const runtimeAgent = workspace.sprintEngineState?.sprintEngineAgents[agentId]
       const activity = agentTabActivity(agent, runtimeAgent?.status)
       const currentTaskId = runtimeAgent?.currentTaskId
       const activityDot = agentTabActivityDot(activity, currentTaskId)
-      const specialist = (agent?.kind === 'specialist' || agent?.kind === 'swarm_review') && agent.specialistId
+      const specialist = (agent?.kind === 'specialist' || agent?.kind === 'watchtower') && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
-      const swarmRole = agent?.kind === 'sprintengine'
-        ? runtimeAgent?.role ?? inferSwarmRoleFromAgentId(agentId)
+      const sprintEngineRole = agent?.kind === 'sprintengine'
+        ? runtimeAgent?.role ?? inferSprintEngineRoleFromAgentId(agentId)
         : null
       const multiloopRole = agent?.kind === 'multiloop' ? agent.multiloopRole : null
 
@@ -573,14 +541,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             <SpecialistActionIcon icon={specialist.icon} className="h-3.5 w-3.5" />
           </span>
         )
-      } else if (swarmRole) {
+      } else if (sprintEngineRole) {
         renderValues.leading = (
           <span
             className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[#9a9aa2]"
-            title={`${swarmRole} Sprint Engine agent`}
-            aria-label={`${swarmRole} Sprint Engine agent`}
+            title={`${sprintEngineRole} Sprint Engine agent`}
+            aria-label={`${sprintEngineRole} Sprint Engine agent`}
           >
-            <SwarmRoleIcon role={swarmRole} className="h-3.5 w-3.5" />
+            <SprintEngineRoleIcon role={sprintEngineRole} className="h-3.5 w-3.5" />
           </span>
         )
       } else if (multiloopRole) {
@@ -608,7 +576,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.content = tabContent
       }
     },
-    [commitRename, renameValue, renamingTabId, showTabContextMenu, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.swarmState]
+    [commitRename, renameValue, renamingTabId, showTabContextMenu, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.sprintEngineState]
   )
 
   return (

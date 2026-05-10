@@ -8,6 +8,8 @@ import type {
   SwitchboardClaimTaskResult,
   SwitchboardCreateTaskInput,
   SwitchboardInitApiResult,
+  SwitchboardImportItem,
+  SwitchboardImportItemResult,
   SwitchboardMoveTaskInput,
   SwitchboardMutationResult,
   SwitchboardPromoteInboxTaskInput,
@@ -249,6 +251,43 @@ export async function createSwitchboardTask(input: SwitchboardCreateTaskInput): 
     JSON.stringify(input),
   ])
   return mutationResult(result, 'Unable to create Switchboard task.')
+}
+
+export async function importSwitchboardItem(
+  workspaceRoot: string,
+  item: SwitchboardImportItem
+): Promise<SwitchboardImportItemResult> {
+  const result = await runSwitchboardCore([
+    'import-task',
+    ...workspaceArgs(workspaceRoot),
+    '--input-json',
+    JSON.stringify(item),
+  ])
+  if (!result.ok) {
+    return {
+      provider: item.provider,
+      externalKey: item.externalKey,
+      externalUrl: item.externalUrl,
+      status: 'error',
+      message: result.message || 'Unable to import task.',
+    }
+  }
+  if (result.payload.created === true) {
+    return {
+      provider: item.provider,
+      externalKey: item.externalKey,
+      externalUrl: item.externalUrl,
+      status: 'created',
+      taskId: typeof result.payload.id === 'string' ? result.payload.id : null,
+    }
+  }
+  return {
+    provider: item.provider,
+    externalKey: item.externalKey,
+    externalUrl: item.externalUrl,
+    status: 'skipped',
+    message: 'Duplicate source identity.',
+  }
 }
 
 export async function updateSwitchboardTask(input: SwitchboardUpdateTaskInput): Promise<SwitchboardMutationResult> {

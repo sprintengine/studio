@@ -1,4 +1,4 @@
-import type { SwarmState } from '../types/workspace'
+import type { SprintEngineState } from '../types/workspace'
 
 export function normalizeAgentIdentifier(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
@@ -32,7 +32,7 @@ function quoteShellArg(value: string): string {
   return JSON.stringify(value)
 }
 
-function buildWindowsSwarmToolCommand(command: string, workspaceRoot?: string): string {
+function buildWindowsSprintEngineToolCommand(command: string, workspaceRoot?: string): string {
   const python = workspaceRoot
     ? `${workspaceRoot.replace(/[\\/]+$/u, '')}\\.venv\\Scripts\\python.exe`
     : '.\\.venv\\Scripts\\python.exe'
@@ -43,14 +43,14 @@ function quotePowerShellArg(value: string): string {
   return `"${value.replace(/"/g, '`"')}"`
 }
 
-export function buildSwarmStartupPrompt(
+export function buildSprintEngineStartupPrompt(
   role: string,
   agentId: string,
   goal: string,
   options: {
     executionCwd?: string
     workspaceRoot?: string
-    swarmStatePath?: string
+    sprintEngineStatePath?: string
     rosterArgs?: string[]
     commandMode?: 'init' | 'join'
   } = {}
@@ -59,16 +59,16 @@ export function buildSwarmStartupPrompt(
   const rosterFlags = commandMode === 'init' && options.rosterArgs?.length
     ? ` ${options.rosterArgs.map((arg) => `--agent ${quoteShellArg(arg)}`).join(' ')}`
     : ''
-  const swarmCommand = commandMode === 'init'
+  const sprintEngineCommand = commandMode === 'init'
     ? `init --goal ${quoteShellArg(goal)}${rosterFlags}`
     : `join --role ${role} --id ${agentId}`
   const command = commandMode === 'init'
-    ? `Run \`sprintengine ${swarmCommand}\` to receive your full prompt and instructions.`
-    : `Run \`sprintengine ${swarmCommand}\` to receive your full prompt and next directive.`
+    ? `Run \`sprintengine ${sprintEngineCommand}\` to receive your full prompt and instructions.`
+    : `Run \`sprintengine ${sprintEngineCommand}\` to receive your full prompt and next directive.`
 
   const context = [
     options.executionCwd ? `Worker cwd: ${options.executionCwd}` : null,
-    options.swarmStatePath ? `Shared Sprint Engine state: ${options.swarmStatePath}` : null,
+    options.sprintEngineStatePath ? `Shared Sprint Engine state: ${options.sprintEngineStatePath}` : null,
     commandMode === 'init' && options.rosterArgs?.length
       ? `Selected Sprint Engine roster: ${options.rosterArgs.join(', ')}. The architect must create tasks only for roles present in this roster.`
       : null,
@@ -81,22 +81,22 @@ export function buildSwarmStartupPrompt(
     [
       'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
       '```powershell',
-      buildWindowsSwarmToolCommand(swarmCommand, options.workspaceRoot),
+      buildWindowsSprintEngineToolCommand(sprintEngineCommand, options.workspaceRoot),
       '```',
     ].join('\n'),
     command,
   ].filter(Boolean).join('\n\n')
 }
 
-export function getSwarmStartupCommandMode(
+export function getSprintEngineStartupCommandMode(
   role: string,
   agentId: string,
-  swarmState: Pick<SwarmState, 'tasks'> | null | undefined
+  sprintEngineState: Pick<SprintEngineState, 'tasks'> | null | undefined
 ): 'init' | 'join' {
   if (role !== 'architect') return 'join'
   if (agentId !== 'architect') return 'join'
 
-  const hasCompletedArchitectTask = swarmState?.tasks.some((task) =>
+  const hasCompletedArchitectTask = sprintEngineState?.tasks.some((task) =>
     task.role === 'architect' && task.status === 'done'
   )
   return hasCompletedArchitectTask ? 'join' : 'init'

@@ -224,6 +224,47 @@ export type WatchtowerOutputIngestResult =
     }
   | { ok: false; message: string }
 
+export type SwitchboardImportProvider = 'github' | 'jira'
+
+export type SwitchboardImportItem = {
+  provider: SwitchboardImportProvider
+  externalId?: string | null
+  externalKey?: string | null
+  externalUrl?: string | null
+  identifier?: string | null
+  title: string
+  description?: string
+  labels?: string[]
+  priority?: number | null
+  updatedAt?: string | null
+}
+
+export type SwitchboardImportItemResult = {
+  provider: SwitchboardImportProvider
+  externalKey?: string | null
+  externalUrl?: string | null
+  status: 'created' | 'updated' | 'skipped' | 'error'
+  taskId?: string | null
+  message?: string | null
+}
+
+export type SwitchboardImportSummary = {
+  created: number
+  updated: number
+  skipped: number
+  errors: number
+}
+
+export type SwitchboardImportResult =
+  | {
+      ok: true
+      provider: SwitchboardImportProvider
+      summary: SwitchboardImportSummary
+      items: SwitchboardImportItemResult[]
+      unavailable?: false
+    }
+  | { ok: false; provider: SwitchboardImportProvider; message: string; unavailable?: boolean }
+
 export type SwitchboardCreateTaskInput = {
   workspaceRoot: string
   origin: 'watchtower' | 'board'

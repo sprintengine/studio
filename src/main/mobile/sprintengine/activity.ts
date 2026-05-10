@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto'
-import type { MobileSwarmCommandAuditEntry } from './command'
-import type { MobileControlSnapshot, MobileSwarmArtifactSnapshot, MobileSwarmSnapshot, MobileSwarmTaskSnapshot } from './snapshot'
+import type { MobileSprintEngineCommandAuditEntry } from './command'
+import type { MobileControlSnapshot, MobileSprintEngineArtifactSnapshot, MobileSprintEngineSnapshot, MobileSprintEngineTaskSnapshot } from './snapshot'
 
 const mobileControlProtocolVersion = 1 as const
 
@@ -12,10 +12,10 @@ export type MobileNotificationCategory =
   | 'sprintengine.complete'
 
 type MobileNotificationTarget =
-  | { kind: 'artifact'; swarmId: string; artifactId: string }
-  | { kind: 'task'; swarmId: string; taskId: string }
-  | { kind: 'sprintengine'; swarmId: string }
-  | { kind: 'command'; commandId: string; swarmId?: string }
+  | { kind: 'artifact'; sprintEngineId: string; artifactId: string }
+  | { kind: 'task'; sprintEngineId: string; taskId: string }
+  | { kind: 'sprintengine'; sprintEngineId: string }
+  | { kind: 'command'; commandId: string; sprintEngineId?: string }
   | { kind: 'desktop' }
 
 export type MobileNotificationEvent = {
@@ -25,7 +25,7 @@ export type MobileNotificationEvent = {
   emittedAt: string
   payload: {
     category: MobileNotificationCategory
-    swarmId?: string
+    sprintEngineId?: string
     title: string
     body: string
     severity: 'info' | 'warning' | 'error'
@@ -46,38 +46,38 @@ export type MobilePushRegistrationTarget = {
   revokedAt?: string
 }
 
-type MobileSwarmActivityPublisherOptions = {
+type MobileSprintEngineActivityPublisherOptions = {
   now?: () => Date
   getPushTargets: () => readonly MobilePushRegistrationTarget[]
   publish: (delivery: MobileNotificationDelivery) => void
 }
 
-export class MobileSwarmActivityPublisher {
+export class MobileSprintEngineActivityPublisher {
   private previousSnapshot: MobileControlSnapshot | null = null
   private previousDesktopOffline = false
   private readonly now: () => Date
   private readonly getPushTargets: () => readonly MobilePushRegistrationTarget[]
   private readonly publishDelivery: (delivery: MobileNotificationDelivery) => void
 
-  constructor(options: MobileSwarmActivityPublisherOptions) {
+  constructor(options: MobileSprintEngineActivityPublisherOptions) {
     this.now = options.now ?? (() => new Date())
     this.getPushTargets = options.getPushTargets
     this.publishDelivery = options.publish
   }
 
   publishSnapshotActivity(snapshot: MobileControlSnapshot): MobileNotificationDelivery[] {
-    const previousBySwarm = new Map(
-      (this.previousSnapshot?.swarms ?? []).map((sprintengine) => [sprintengine.swarmId, sprintengine])
+    const previousBySprintEngine = new Map(
+      (this.previousSnapshot?.sprintEngines ?? []).map((sprintengine) => [sprintengine.sprintEngineId, sprintengine])
     )
-    const events = snapshot.swarms.flatMap((sprintengine) =>
-      this.eventsForSwarmTransition(previousBySwarm.get(sprintengine.swarmId) ?? null, sprintengine)
+    const events = snapshot.sprintEngines.flatMap((sprintengine) =>
+      this.eventsForSprintEngineTransition(previousBySprintEngine.get(sprintengine.sprintEngineId) ?? null, sprintengine)
     )
 
     this.previousSnapshot = snapshot
     return this.deliver(events)
   }
 
-  publishCommandAudit(entry: MobileSwarmCommandAuditEntry): MobileNotificationDelivery[] {
+  publishCommandAudit(entry: MobileSprintEngineCommandAuditEntry): MobileNotificationDelivery[] {
     if (entry.status !== 'failed') return []
 
     return this.deliver([
@@ -90,9 +90,9 @@ export class MobileSwarmActivityPublisher {
         target: {
           kind: 'command',
           commandId: entry.commandId,
-          ...(entry.statePath ? { swarmId: swarmIdFromStatePath(entry.statePath) } : {}),
+          ...(entry.statePath ? { sprintEngineId: sprintEngineIdFromStatePath(entry.statePath) } : {}),
         },
-        ...(entry.statePath ? { swarmId: swarmIdFromStatePath(entry.statePath) } : {}),
+        ...(entry.statePath ? { sprintEngineId: sprintEngineIdFromStatePath(entry.statePath) } : {}),
       }),
     ])
   }
@@ -117,9 +117,9 @@ export class MobileSwarmActivityPublisher {
     ])
   }
 
-  private eventsForSwarmTransition(
-    previous: MobileSwarmSnapshot | null,
-    next: MobileSwarmSnapshot
+  private eventsForSprintEngineTransition(
+    previous: MobileSprintEngineSnapshot | null,
+    next: MobileSprintEngineSnapshot
   ): MobileNotificationEvent[] {
     const previousTasks = new Map((previous?.tasks ?? []).map((task) => [task.taskId, task]))
     const previousArtifacts = new Map((previous?.artifacts ?? []).map((artifact) => [artifact.artifactId, artifact]))
@@ -140,61 +140,61 @@ export class MobileSwarmActivityPublisher {
     }
 
     if (isComplete(next) && (!previous || !isComplete(previous))) {
-      events.push(this.swarmCompleteEvent(next))
+      events.push(this.sprintEngineCompleteEvent(next))
     }
 
     return events
   }
 
   private artifactReadyEvent(
-    sprintengine: MobileSwarmSnapshot,
-    artifact: MobileSwarmArtifactSnapshot
+    sprintengine: MobileSprintEngineSnapshot,
+    artifact: MobileSprintEngineArtifactSnapshot
   ): MobileNotificationEvent {
     return this.notification({
       category: 'artifact.ready',
-      swarmId: sprintengine.swarmId,
+      sprintEngineId: sprintengine.sprintEngineId,
       title: 'Artifact ready for review',
       body: `${artifact.kind} ${artifact.artifactId} is ready in ${sprintengine.name}.`,
       severity: 'info',
-      deepLink: `multicode-mobile://swarms/${encodeURIComponent(sprintengine.swarmId)}/artifacts/${encodeURIComponent(artifact.artifactId)}`,
+      deepLink: `multicode-mobile://sprintengines/${encodeURIComponent(sprintengine.sprintEngineId)}/artifacts/${encodeURIComponent(artifact.artifactId)}`,
       target: {
         kind: 'artifact',
-        swarmId: sprintengine.swarmId,
+        sprintEngineId: sprintengine.sprintEngineId,
         artifactId: artifact.artifactId,
       },
     })
   }
 
   private taskNeedsInputEvent(
-    sprintengine: MobileSwarmSnapshot,
-    task: MobileSwarmTaskSnapshot
+    sprintengine: MobileSprintEngineSnapshot,
+    task: MobileSprintEngineTaskSnapshot
   ): MobileNotificationEvent {
     return this.notification({
       category: 'task.needs_input',
-      swarmId: sprintengine.swarmId,
+      sprintEngineId: sprintengine.sprintEngineId,
       title: 'Task needs input',
       body: `${task.taskId} needs attention in ${sprintengine.name}.`,
       severity: 'warning',
-      deepLink: `multicode-mobile://swarms/${encodeURIComponent(sprintengine.swarmId)}/tasks/${encodeURIComponent(task.taskId)}`,
+      deepLink: `multicode-mobile://sprintengines/${encodeURIComponent(sprintengine.sprintEngineId)}/tasks/${encodeURIComponent(task.taskId)}`,
       target: {
         kind: 'task',
-        swarmId: sprintengine.swarmId,
+        sprintEngineId: sprintengine.sprintEngineId,
         taskId: task.taskId,
       },
     })
   }
 
-  private swarmCompleteEvent(sprintengine: MobileSwarmSnapshot): MobileNotificationEvent {
+  private sprintEngineCompleteEvent(sprintengine: MobileSprintEngineSnapshot): MobileNotificationEvent {
     return this.notification({
       category: 'sprintengine.complete',
-      swarmId: sprintengine.swarmId,
-      title: 'SprintEngine complete',
+      sprintEngineId: sprintengine.sprintEngineId,
+      title: 'Sprint Engine complete',
       body: `${sprintengine.name} has finished all tasks.`,
       severity: 'info',
-      deepLink: `multicode-mobile://swarms/${encodeURIComponent(sprintengine.swarmId)}`,
+      deepLink: `multicode-mobile://sprintengines/${encodeURIComponent(sprintengine.sprintEngineId)}`,
       target: {
         kind: 'sprintengine',
-        swarmId: sprintengine.swarmId,
+        sprintEngineId: sprintengine.sprintEngineId,
       },
     })
   }
@@ -233,17 +233,17 @@ export function pushTokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
 
-function isComplete(sprintengine: MobileSwarmSnapshot): boolean {
+function isComplete(sprintengine: MobileSprintEngineSnapshot): boolean {
   return sprintengine.tasks.length > 0 && sprintengine.tasks.every((task) => task.status === 'done')
 }
 
-function commandDeepLink(entry: MobileSwarmCommandAuditEntry): string {
-  const swarmId = entry.statePath ? swarmIdFromStatePath(entry.statePath) : null
-  if (!swarmId) return 'multicode-mobile://commands'
-  return `multicode-mobile://swarms/${encodeURIComponent(swarmId)}/commands/${encodeURIComponent(entry.commandId)}`
+function commandDeepLink(entry: MobileSprintEngineCommandAuditEntry): string {
+  const sprintEngineId = entry.statePath ? sprintEngineIdFromStatePath(entry.statePath) : null
+  if (!sprintEngineId) return 'multicode-mobile://commands'
+  return `multicode-mobile://sprintengines/${encodeURIComponent(sprintEngineId)}/commands/${encodeURIComponent(entry.commandId)}`
 }
 
-function swarmIdFromStatePath(statePath: string): string {
+function sprintEngineIdFromStatePath(statePath: string): string {
   const normalized = statePath.replace(/\\/gu, '/')
   return normalized.split('/').at(-2) ?? 'unknown'
 }

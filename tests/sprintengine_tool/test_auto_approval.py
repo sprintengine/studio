@@ -162,7 +162,7 @@ def test_auto_approval_policy_allows_only_approved_artifact_kinds(tmp_path) -> N
 
 def test_renderer_auto_approval_policy_matches_approved_artifact_kinds() -> None:
     renderer_source = (Path(__file__).resolve().parents[2] / "src/renderer/src/utils/sprintengine.ts").read_text(encoding="utf-8")
-    match = re.search(r"const reviewGateArtifactKinds = new Set<SwarmArtifactKind>\(\[([\s\S]*?)\]\)", renderer_source)
+    match = re.search(r"const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>\(\[([\s\S]*?)\]\)", renderer_source)
     assert match, "renderer reviewGateArtifactKinds declaration not found"
 
     renderer_kinds = set(re.findall(r"'([^']+)'", match.group(1)))

@@ -6,6 +6,7 @@ export {
   createSwitchboardTask,
   getWatchtowerRun,
   initializeSwitchboard,
+  importSwitchboardItem,
   ingestWatchtowerOutputs,
   listWatchtowerRuns,
   moveSwitchboardTask,

@@ -1,7 +1,7 @@
 import { buildSpecialistSoulStartupPrompt, getSpecialistAction } from '../specialists/specialistActions'
-import type { SpecialistActionId, SwarmReviewSectorId } from '../types/workspace'
+import type { SpecialistActionId, WatchtowerReviewSectorId } from '../types/workspace'
 import type { WatchtowerRun } from '../../../shared/switchboard'
-import { getSwarmReviewSector, sectorLabel } from './swarmReview'
+import { getWatchtowerReviewSector, sectorLabel } from './watchtowerReview'
 
 function relativePath(path: string, rootPath: string | null | undefined): string {
   const normalizedPath = path.replace(/\\/g, '/')
@@ -12,9 +12,9 @@ function relativePath(path: string, rootPath: string | null | undefined): string
   return normalizedPath
 }
 
-function sectorInstructions(sectors: SwarmReviewSectorId[]): string[] {
+function sectorInstructions(sectors: WatchtowerReviewSectorId[]): string[] {
   return sectors.map((sectorId) => {
-    const sector = getSwarmReviewSector(sectorId)
+    const sector = getWatchtowerReviewSector(sectorId)
     return `${sector.label}: ${sector.description}`
   })
 }
@@ -24,7 +24,7 @@ export function buildWatchtowerStartupPrompt(input: {
   agent: {
     agentId: string
     specialistId: SpecialistActionId
-    sectors: SwarmReviewSectorId[]
+    sectors: WatchtowerReviewSectorId[]
     outputDirectory: string
     reportPath: string
   }

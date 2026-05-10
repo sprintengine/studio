@@ -13,7 +13,7 @@ type MobileControlCommandType =
 type MobileControlCapability =
   | 'snapshots.read'
   | 'artifacts.read'
-  | 'swarms.create'
+  | 'sprintengines.create'
   | 'tasks.start'
   | 'artifacts.review'
   | 'agents.followUp'
@@ -267,7 +267,7 @@ export default function MobileCompanionPanel() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-base font-semibold">Mobile Companion</h2>
-            <p className="mt-1 text-sm text-[#8b8c94]">Pair your phone and control SprintEngine from mobile.</p>
+            <p className="mt-1 text-sm text-[#8b8c94]">Pair your phone and control Sprint Engine from mobile.</p>
           </div>
           <button
             type="button"

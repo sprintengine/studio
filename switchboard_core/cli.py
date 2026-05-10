@@ -18,6 +18,7 @@ from .store import (
     create_task,
     find_task,
     init_workspace,
+    import_inbox_task,
     move_task,
     promote_task,
     publish_task,
@@ -158,6 +159,37 @@ def cmd_create(args: argparse.Namespace) -> int:
         comments=input_payload.get("comments"),
     )
     emit(mutation_payload(action="create", previous=None, record=record_for_output(located)))
+    return 0
+
+
+def cmd_import_task(args: argparse.Namespace) -> int:
+    parsed = json.loads(args.input_json)
+    if not isinstance(parsed, dict):
+        raise SwitchboardError("--input-json must contain a JSON object.")
+    located, status = import_inbox_task(
+        workspace_path(args),
+        provider=str(parsed.get("provider") or ""),
+        external_id=parsed.get("externalId") if isinstance(parsed.get("externalId"), str) else None,
+        external_key=parsed.get("externalKey") if isinstance(parsed.get("externalKey"), str) else None,
+        external_url=parsed.get("externalUrl") if isinstance(parsed.get("externalUrl"), str) else None,
+        identifier=parsed.get("identifier") if isinstance(parsed.get("identifier"), str) else None,
+        title=parsed.get("title") if isinstance(parsed.get("title"), str) else "",
+        description=parsed.get("description") if isinstance(parsed.get("description"), str) else "",
+        labels=parsed.get("labels") if isinstance(parsed.get("labels"), list) else None,
+        priority=parsed.get("priority"),
+        updated_at=parsed.get("updatedAt") if isinstance(parsed.get("updatedAt"), str) else None,
+    )
+    if located is None:
+        emit({"ok": True, "status": status, "created": False, "skipped": True})
+        return 0
+    emit(
+        {
+            **mutation_payload(action="import", previous=None, record=record_for_output(located)),
+            "status": status,
+            "created": True,
+            "skipped": False,
+        }
+    )
     return 0
 
 
@@ -373,6 +405,11 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--inbox", action="store_true")
     create.add_argument("--input-json", help=argparse.SUPPRESS)
     create.set_defaults(func=cmd_create)
+
+    import_task = subcommands.add_parser("import-task", help=argparse.SUPPRESS)
+    import_task.add_argument("--workspace", required=True)
+    import_task.add_argument("--input-json", required=True)
+    import_task.set_defaults(func=cmd_import_task)
 
     read_all_cmd = subcommands.add_parser("read-all", help=argparse.SUPPRESS)
     read_all_cmd.add_argument("--workspace", required=True)

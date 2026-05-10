@@ -2,23 +2,23 @@ import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { join, resolve } from 'path'
 
-export type SwarmToolInvocation = {
+export type SprintEngineToolInvocation = {
   args: string[]
   cwd: string
 }
 
-export type SwarmToolExecutionResult = {
+export type SprintEngineToolExecutionResult = {
   exitCode: number | null
   stdout: string
   stderr: string
 }
 
-export type SwarmToolExecutor = (invocation: SwarmToolInvocation) => Promise<SwarmToolExecutionResult>
+export type SprintEngineToolExecutor = (invocation: SprintEngineToolInvocation) => Promise<SprintEngineToolExecutionResult>
 
-export function createSwarmToolExecutor(swarmToolPath: string): SwarmToolExecutor {
+export function createSprintEngineToolExecutor(sprintEngineToolPath: string): SprintEngineToolExecutor {
   return (invocation) => new Promise((resolvePromise) => {
     const executable = getWorkspacePythonExecutable(invocation.cwd)
-    const child = spawn(executable, [swarmToolPath, ...invocation.args], {
+    const child = spawn(executable, [sprintEngineToolPath, ...invocation.args], {
       cwd: invocation.cwd,
       env: {
         ...process.env,
@@ -47,7 +47,7 @@ export function createSwarmToolExecutor(swarmToolPath: string): SwarmToolExecuto
   })
 }
 
-export function defaultSwarmToolPath(): string {
+export function defaultSprintEngineToolPath(): string {
   return resolve(process.cwd(), 'scripts', 'sprintengine_tool.py')
 }
 

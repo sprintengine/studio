@@ -1,24 +1,24 @@
-import { createSwarmTemplate } from '../layouts/templates'
+import { createSprintEngineTemplate } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type {
-  SwarmRoleCounts,
-  SwarmRoleCliDefaults,
-  SwarmWorkspaceContext,
+  SprintEngineRoleCounts,
+  SprintEngineRoleCliDefaults,
+  SprintEngineWorkspaceContext,
   WorkspaceId,
 } from '../types/workspace'
 import {
-  buildSwarmAgentRosterForState,
-  buildSwarmRosterCommandArgs,
-  createInitialSwarmState,
+  buildSprintEngineAgentRosterForState,
+  buildSprintEngineRosterCommandArgs,
+  createInitialSprintEngineState,
 } from './sprintengine'
-import { buildPlanFileSwarmHandoffPrompt } from './sprintengineHandoff'
+import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
 import {
-  getSwarmDirectoryPath,
-  getSwarmStateFilePath,
-  slugifySwarmName,
+  getSprintEngineDirectoryPath,
+  getSprintEngineStateFilePath,
+  slugifySprintEngineName,
 } from './sprintengineStateFile'
 
-const planSourcedSwarmRoleCounts: SwarmRoleCounts = {
+const planSourcedSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
   product: 1,
   developer: 0,
@@ -29,24 +29,24 @@ const planSourcedSwarmRoleCounts: SwarmRoleCounts = {
   security: 0,
 }
 
-export type PlanSourcedSwarmWorkspaceArgs = {
+export type PlanSourcedSprintEngineWorkspaceArgs = {
   rootPath: string
   teamName: string
   goal: string
   sourcePath: string
   sourceContent: string
-  roleCounts?: SwarmRoleCounts
-  roleCliDefaults?: SwarmRoleCliDefaults
+  roleCounts?: SprintEngineRoleCounts
+  roleCliDefaults?: SprintEngineRoleCliDefaults
   pathExists?: (path: string) => boolean | Promise<boolean>
 }
 
-export type PlanSourcedSwarmWorkspaceResult = {
+export type PlanSourcedSprintEngineWorkspaceResult = {
   workspaceId: WorkspaceId
-  swarmContext: SwarmWorkspaceContext
+  sprintEngineContext: SprintEngineWorkspaceContext
   architectAgentId: string
 }
 
-export class PlanSourcedSwarmWorkspaceError extends Error {
+export class PlanSourcedSprintEngineWorkspaceError extends Error {
   constructor(
     public readonly code:
       | 'missing-root'
@@ -57,79 +57,79 @@ export class PlanSourcedSwarmWorkspaceError extends Error {
       | 'missing-architect'
   ) {
     super(code)
-    this.name = 'PlanSourcedSwarmWorkspaceError'
+    this.name = 'PlanSourcedSprintEngineWorkspaceError'
   }
 }
 
-export function buildPlanSourcedSwarmWorkspaceContext(
+export function buildPlanSourcedSprintEngineWorkspaceContext(
   rootPath: string,
   teamName: string
-): SwarmWorkspaceContext {
+): SprintEngineWorkspaceContext {
   const trimmedRoot = rootPath.trim()
   const trimmedTeamName = teamName.trim()
-  const teamSlug = slugifySwarmName(trimmedTeamName)
+  const teamSlug = slugifySprintEngineName(trimmedTeamName)
 
   return {
     teamName: trimmedTeamName,
     teamSlug,
-    teamDirectoryPath: getSwarmDirectoryPath(trimmedRoot, teamSlug),
-    statePath: getSwarmStateFilePath(trimmedRoot, teamSlug),
+    teamDirectoryPath: getSprintEngineDirectoryPath(trimmedRoot, teamSlug),
+    statePath: getSprintEngineStateFilePath(trimmedRoot, teamSlug),
   }
 }
 
-export async function createPlanSourcedSwarmWorkspace({
+export async function createPlanSourcedSprintEngineWorkspace({
   rootPath,
   teamName,
   goal,
   sourcePath,
   sourceContent,
-  roleCounts = planSourcedSwarmRoleCounts,
+  roleCounts = planSourcedSprintEngineRoleCounts,
   roleCliDefaults,
   pathExists,
-}: PlanSourcedSwarmWorkspaceArgs): Promise<PlanSourcedSwarmWorkspaceResult> {
+}: PlanSourcedSprintEngineWorkspaceArgs): Promise<PlanSourcedSprintEngineWorkspaceResult> {
   const trimmedRoot = rootPath.trim()
   const trimmedTeamName = teamName.trim()
   const trimmedGoal = goal.trim()
   const trimmedSourcePath = sourcePath.trim()
 
-  if (!trimmedRoot) throw new PlanSourcedSwarmWorkspaceError('missing-root')
-  if (!trimmedTeamName) throw new PlanSourcedSwarmWorkspaceError('missing-team')
-  if (!trimmedGoal) throw new PlanSourcedSwarmWorkspaceError('missing-goal')
-  if (!trimmedSourcePath) throw new PlanSourcedSwarmWorkspaceError('missing-source')
+  if (!trimmedRoot) throw new PlanSourcedSprintEngineWorkspaceError('missing-root')
+  if (!trimmedTeamName) throw new PlanSourcedSprintEngineWorkspaceError('missing-team')
+  if (!trimmedGoal) throw new PlanSourcedSprintEngineWorkspaceError('missing-goal')
+  if (!trimmedSourcePath) throw new PlanSourcedSprintEngineWorkspaceError('missing-source')
 
-  const swarmContext = buildPlanSourcedSwarmWorkspaceContext(trimmedRoot, trimmedTeamName)
-  if (pathExists && await pathExists(swarmContext.statePath)) {
-    throw new PlanSourcedSwarmWorkspaceError('team-exists')
+  const sprintEngineContext = buildPlanSourcedSprintEngineWorkspaceContext(trimmedRoot, trimmedTeamName)
+  if (pathExists && await pathExists(sprintEngineContext.statePath)) {
+    throw new PlanSourcedSprintEngineWorkspaceError('team-exists')
   }
 
-  const swarmState = createInitialSwarmState({
-    name: swarmContext.teamName,
+  const sprintEngineState = createInitialSprintEngineState({
+    name: sprintEngineContext.teamName,
     goal: trimmedGoal,
     roleCounts,
   })
-  const architect = buildSwarmAgentRosterForState(swarmState).find((agent) => agent.role === 'architect')
-  if (!architect) throw new PlanSourcedSwarmWorkspaceError('missing-architect')
+  const architect = buildSprintEngineAgentRosterForState(sprintEngineState).find((agent) => agent.role === 'architect')
+  if (!architect) throw new PlanSourcedSprintEngineWorkspaceError('missing-architect')
 
-  const template = createSwarmTemplate({
-    name: swarmState.name,
-    goal: swarmState.goal,
-    roleCounts: swarmState.roleCounts,
+  const template = createSprintEngineTemplate({
+    name: sprintEngineState.name,
+    goal: sprintEngineState.goal,
+    roleCounts: sprintEngineState.roleCounts,
   })
   const workspaceId = useWorkspaceStore.getState().addWorkspace(template, {
-    name: swarmContext.teamName,
+    name: sprintEngineContext.teamName,
     folderPath: trimmedRoot,
-    swarmState,
-    swarmContext,
-    swarmRoleCliDefaults: roleCliDefaults,
+    sprintEngineState,
+    sprintEngineContext,
+    sprintEngineRoleCliDefaults: roleCliDefaults,
   })
 
-  const startupPrompt = buildPlanFileSwarmHandoffPrompt({
-    teamSlug: swarmContext.teamSlug,
+  const startupPrompt = buildPlanFileSprintEngineHandoffPrompt({
+    teamSlug: sprintEngineContext.teamSlug,
     goal: trimmedGoal,
     sourcePath: trimmedSourcePath,
     sourceContent,
-    statePath: swarmContext.statePath,
-    rosterArgs: buildSwarmRosterCommandArgs(swarmState),
+    statePath: sprintEngineContext.statePath,
+    rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
   })
 
   useWorkspaceStore.getState().updateAgent(workspaceId, architect.id, {
@@ -139,7 +139,7 @@ export async function createPlanSourcedSwarmWorkspace({
 
   return {
     workspaceId,
-    swarmContext,
+    sprintEngineContext,
     architectAgentId: architect.id,
   }
 }

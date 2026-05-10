@@ -20,7 +20,7 @@ const SIDE_EFFECTING_COMMANDS = new Set<MobileControlCommandType>([
 const CAPABILITY_BY_COMMAND: Record<MobileControlCommandType, MobileControlCapability> = {
   'snapshot.request': 'snapshots.read',
   'artifact.read': 'artifacts.read',
-  'sprintengine.create': 'swarms.create',
+  'sprintengine.create': 'sprintengines.create',
   'task.start': 'tasks.start',
   'artifact.approve': 'artifacts.review',
   'artifact.requestChanges': 'artifacts.review',

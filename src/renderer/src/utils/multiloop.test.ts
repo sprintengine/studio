@@ -18,8 +18,8 @@ import { createMultiloopWorkspace, MultiloopWorkspaceCreationError } from './mul
 import { selectMultiloopAutoRunCandidates } from './multiloopAutoRun'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { createMultiloopTemplate } from '../layouts/templates'
-import { parseSwarmStateFile } from './sprintengineStateFile'
-import { createPlanSourcedSwarmWorkspace } from './sprintengineWorkspaceCreation'
+import { parseSprintEngineStateFile } from './sprintengineStateFile'
+import { createPlanSourcedSprintEngineWorkspace } from './sprintengineWorkspaceCreation'
 
 function baseMultiloopState() {
   return {
@@ -274,7 +274,7 @@ function testMilestoneSprintEngineLinkParsingAndExecutionMapping() {
     agents: {},
     blockers: [],
   })
-  const linkedSwarmState = parseSwarmStateFile(JSON.stringify({
+  const linkedSprintEngineState = parseSprintEngineStateFile(JSON.stringify({
     sprintengine: {
       name: 'Fixture Loop M2',
       goal: 'Execute the active milestone through Sprint Engine.',
@@ -320,8 +320,8 @@ function testMilestoneSprintEngineLinkParsingAndExecutionMapping() {
   }))
 
   assert.equal(state.roadmap[0].sprintEngine?.teamSlug, 'fixture-loop-m2')
-  assert.deepEqual(getMilestoneExecutionTasks(state, state.roadmap[0], linkedSwarmState).map((task) => [task.id, task.status]), [['S1', 'ready']])
-  assert.deepEqual(getMilestoneExecutionArtifacts(state.roadmap[0], linkedSwarmState).map((artifact) => artifact.id), ['A-linked'])
+  assert.deepEqual(getMilestoneExecutionTasks(state, state.roadmap[0], linkedSprintEngineState).map((task) => [task.id, task.status]), [['S1', 'ready']])
+  assert.deepEqual(getMilestoneExecutionArtifacts(state.roadmap[0], linkedSprintEngineState).map((artifact) => artifact.id), ['A-linked'])
 }
 
 function testLinkedMilestoneDoesNotFallbackToLegacyTasksWhenStateMissing() {
@@ -631,7 +631,7 @@ function testMultiloopAutoRunSelectsLinkedSprintEngineTask() {
       },
     ],
   })
-  const linkedSwarmState = parseSwarmStateFile(JSON.stringify({
+  const linkedSprintEngineState = parseSprintEngineStateFile(JSON.stringify({
     sprintengine: {
       name: 'Fixture Loop M2',
       goal: 'Execute linked work.',
@@ -661,7 +661,7 @@ function testMultiloopAutoRunSelectsLinkedSprintEngineTask() {
     events: [],
   }))
 
-  const selection = selectMultiloopAutoRunCandidates({ state, linkedSwarmState, limit: 1 })
+  const selection = selectMultiloopAutoRunCandidates({ state, linkedSprintEngineState, limit: 1 })
 
   assert.equal(selection.reason, 'ready')
   assert.equal(selection.candidates[0].kind, 'sprintengine-task')
@@ -686,7 +686,7 @@ function testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone() {
     ],
     tasks: [],
   })
-  const linkedSwarmState = parseSwarmStateFile(JSON.stringify({
+  const linkedSprintEngineState = parseSprintEngineStateFile(JSON.stringify({
     sprintengine: {
       name: 'Fixture Loop M2',
       goal: 'Execute linked work.',
@@ -714,7 +714,7 @@ function testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone() {
     events: [],
   }))
 
-  const selection = selectMultiloopAutoRunCandidates({ state, linkedSwarmState, limit: 1 })
+  const selection = selectMultiloopAutoRunCandidates({ state, linkedSprintEngineState, limit: 1 })
 
   assert.equal(selection.reason, 'all-done')
   assert.deepEqual(selection.candidates.map((candidate) => candidate.agentId), ['multiloop-coordinator'])
@@ -764,8 +764,8 @@ function testMultiloopAutoRunPausesForBlockersAndUnknownRoles() {
   assert.deepEqual(unknownRoleSelection.skippedUnknownRoles, ['implementor'])
 }
 
-function testSwarmParsingRegression() {
-  const state = parseSwarmStateFile(JSON.stringify({
+function testSprintEngineParsingRegression() {
+  const state = parseSprintEngineStateFile(JSON.stringify({
     sprintengine: {
       name: 'Regression SprintEngine',
       goal: 'Keep Sprint Engine workspace parsing stable.',
@@ -801,7 +801,7 @@ function testSwarmParsingRegression() {
   assert.equal(state.roleCounts.architect, 1)
   assert.equal(state.roleCounts.tester, 1)
   assert.equal(state.tasks[0].status, 'in_progress')
-  assert.equal(state.swarmAgents.tester.currentTaskId, 'T1')
+  assert.equal(state.sprintEngineAgents.tester.currentTaskId, 'T1')
 }
 
 async function testMultiloopWorkspaceCreationOpensParsedState() {
@@ -938,9 +938,9 @@ function testSetMultiloopStatePreservesExistingLayoutModel() {
   }
 }
 
-async function testSwarmWorkspaceCreationRegressionKeepsSwarmModeAndPrompt() {
+async function testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeAndPrompt() {
   const beforeIds = new Set(useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id))
-  const result = await createPlanSourcedSwarmWorkspace({
+  const result = await createPlanSourcedSprintEngineWorkspace({
     rootPath: 'C:\\repo',
     teamName: 'Regression SprintEngine',
     goal: 'Keep sprintengine creation stable.',
@@ -957,9 +957,9 @@ async function testSwarmWorkspaceCreationRegressionKeepsSwarmModeAndPrompt() {
   assert.equal(createdWorkspace.id, result.workspaceId)
   assert.equal(createdWorkspace.name, 'Regression SprintEngine')
   assert.equal(createdWorkspace.mode, 'sprintengine')
-  assert.equal(createdWorkspace.swarmContext?.teamSlug, 'regression-sprintengine')
+  assert.equal(createdWorkspace.sprintEngineContext?.teamSlug, 'regression-sprintengine')
   assert.equal(createdWorkspace.multiloopContext, null)
-  assert.equal(createdWorkspace.swarmState?.name, 'Regression SprintEngine')
+  assert.equal(createdWorkspace.sprintEngineState?.name, 'Regression SprintEngine')
   assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('sprintengine handover'), true)
   assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('multiloop'), false)
 }
@@ -980,12 +980,12 @@ testMultiloopAutoRunSpawnsCoordinatorOnceWhenMilestoneDone()
 testMultiloopAutoRunSelectsLinkedSprintEngineTask()
 testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone()
 testMultiloopAutoRunPausesForBlockersAndUnknownRoles()
-testSwarmParsingRegression()
+testSprintEngineParsingRegression()
 testSetMultiloopStatePreservesExistingLayoutModel()
 
 void (async () => {
   await testMultiloopWorkspaceCreationOpensParsedState()
   await testMultiloopWorkspaceCreationRejectsInvalidInputBeforeIpc()
   await testMultiloopWorkspaceCreationSurfacesExistingStateFailure()
-  await testSwarmWorkspaceCreationRegressionKeepsSwarmModeAndPrompt()
+  await testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeAndPrompt()
 })()

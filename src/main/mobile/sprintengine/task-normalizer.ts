@@ -1,4 +1,4 @@
-export type SwarmTaskRecord = {
+export type SprintEngineTaskRecord = {
   id: string
   role: string
   status: 'todo' | 'in_progress' | 'needs_input' | 'done'
@@ -6,10 +6,10 @@ export type SwarmTaskRecord = {
   dependsOn: string[]
 }
 
-export function normalizeSwarmTasks(value: unknown): SwarmTaskRecord[] {
+export function normalizeSprintEngineTasks(value: unknown): SprintEngineTaskRecord[] {
   if (!Array.isArray(value)) return []
 
-  return value.flatMap((task): SwarmTaskRecord[] => {
+  return value.flatMap((task): SprintEngineTaskRecord[] => {
     if (!task || typeof task !== 'object' || Array.isArray(task)) return []
     const record = task as Record<string, unknown>
     if (typeof record.id !== 'string' || !record.id.trim()) return []
@@ -29,7 +29,7 @@ export function normalizeSwarmTasks(value: unknown): SwarmTaskRecord[] {
   })
 }
 
-function normalizeTaskStatus(value: unknown): SwarmTaskRecord['status'] {
+function normalizeTaskStatus(value: unknown): SprintEngineTaskRecord['status'] {
   if (value === 'in_progress' || value === 'needs_input' || value === 'done') return value
   return 'todo'
 }

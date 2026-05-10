@@ -44,8 +44,6 @@ import type {
   GitWorktreeOperationResult as SharedGitWorktreeOperationResult,
   GitWorktreeRemoveInput as SharedGitWorktreeRemoveInput,
   GitWorktreeRepairInput as SharedGitWorktreeRepairInput,
-  SymphonyGitHubSyncInput as SharedSymphonyGitHubSyncInput,
-  SymphonyGitHubSyncResult as SharedSymphonyGitHubSyncResult,
   MemoryGraphEdge as SharedMemoryGraphEdge,
   MemoryGraphIndexResult as SharedMemoryGraphIndexResult,
   MemoryGraphNode as SharedMemoryGraphNode,
@@ -76,8 +74,8 @@ import type {
   SessionUser as SharedSessionUser,
   SoulPromptResult as SharedSoulPromptResult,
   SpecialistActionId as SharedSpecialistActionId,
-  SwarmArtifactCommandResult as SharedSwarmArtifactCommandResult,
-  SwarmCliPermissionPreset as SharedSwarmCliPermissionPreset,
+  SprintEngineArtifactCommandResult as SharedSprintEngineArtifactCommandResult,
+  SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
   TerminalKind as SharedTerminalKind,
   TerminalSessionSnapshot as SharedTerminalSessionSnapshot,
   TerminalSpawnMetadata as SharedTerminalSpawnMetadata,
@@ -140,7 +138,7 @@ declare global {
   type AppUpdateProgress = SharedAppUpdateProgress
   type AppUpdateState = SharedAppUpdateState
   type AppUpdateCheckResult = SharedAppUpdateCheckResult
-  type SwarmCliPermissionPreset = SharedSwarmCliPermissionPreset
+  type SprintEngineCliPermissionPreset = SharedSprintEngineCliPermissionPreset
   type CliRuntimeSettings = SharedCliRuntimeSettings
   type TerminalKind = SharedTerminalKind
   type TerminalSpawnMetadata = SharedTerminalSpawnMetadata
@@ -170,15 +168,13 @@ declare global {
   type GitWorktreeRemoveInput = SharedGitWorktreeRemoveInput
   type GitWorktreeRepairInput = SharedGitWorktreeRepairInput
   type GitWorktreeCopyIncludedInput = SharedGitWorktreeCopyIncludedInput
-  type SymphonyGitHubSyncInput = SharedSymphonyGitHubSyncInput
-  type SymphonyGitHubSyncResult = SharedSymphonyGitHubSyncResult
   type DiagnosticLevel = SharedDiagnosticLevel
   type DiagnosticSource = SharedDiagnosticSource
   type DiagnosticLogInput = SharedDiagnosticLogInput
   type DiagnosticLogEntry = SharedDiagnosticLogEntry
   type WorkspaceFolderCheckResult = SharedWorkspaceFolderCheckResult
   type WindowState = SharedWindowState
-  type SwarmArtifactCommandResult = SharedSwarmArtifactCommandResult
+  type SprintEngineArtifactCommandResult = SharedSprintEngineArtifactCommandResult
   type MultiloopInitInput = SharedMultiloopInitInput
   type MultiloopInitResult = SharedMultiloopInitResult
   type SessionUser = SharedSessionUser

@@ -1,73 +1,73 @@
 import type { IpcMain } from 'electron'
 import type {
-  SwarmArtifactCommandResult,
+  SprintEngineArtifactCommandResult,
   SprintEngineStateInitializeInput,
-  SwarmTaskCreateInput,
-  SwarmTaskUpdateInput,
+  SprintEngineTaskCreateInput,
+  SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
 
-export type SwarmArtifactOpenPayload = {
+export type SprintEngineArtifactOpenPayload = {
   statePath: string
   artifactPath: string
 }
 
-export type SwarmArtifactReviewPayload = {
+export type SprintEngineArtifactReviewPayload = {
   statePath: string
   artifactId: string
   feedback?: string
 }
 
-export type SwarmTaskReadyPayload = {
+export type SprintEngineTaskReadyPayload = {
   statePath: string
   taskId: string
 }
 
-export type SwarmArtifactReviewAction = 'approve' | 'request-changes'
-export type SwarmArtifactReviewMode = 'user' | 'auto-run'
+export type SprintEngineArtifactReviewAction = 'approve' | 'request-changes'
+export type SprintEngineArtifactReviewMode = 'user' | 'auto-run'
 
 type SprintEngineIpcDependencies = {
-  openArtifact(payload: SwarmArtifactOpenPayload): Promise<SwarmArtifactCommandResult>
+  openArtifact(payload: SprintEngineArtifactOpenPayload): Promise<SprintEngineArtifactCommandResult>
   reviewArtifact(
-    payload: SwarmArtifactReviewPayload,
-    action: SwarmArtifactReviewAction,
-    mode: SwarmArtifactReviewMode
-  ): Promise<SwarmArtifactCommandResult>
-  readyTask(payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult>
-  initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SwarmArtifactCommandResult>
-  updateTask(payload: SwarmTaskUpdateInput): Promise<SwarmArtifactCommandResult>
-  createTask(payload: SwarmTaskCreateInput): Promise<SwarmArtifactCommandResult>
+    payload: SprintEngineArtifactReviewPayload,
+    action: SprintEngineArtifactReviewAction,
+    mode: SprintEngineArtifactReviewMode
+  ): Promise<SprintEngineArtifactCommandResult>
+  readyTask(payload: SprintEngineTaskReadyPayload): Promise<SprintEngineArtifactCommandResult>
+  initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult>
+  updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
+  createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
 }
 
 export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
-  ipcMain.handle('sprintengine:artifact:open', async (_, payload: SwarmArtifactOpenPayload): Promise<SwarmArtifactCommandResult> => {
+  ipcMain.handle('sprintengine:artifact:open', async (_, payload: SprintEngineArtifactOpenPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.openArtifact(payload)
   })
 
-  ipcMain.handle('sprintengine:artifact:approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
+  ipcMain.handle('sprintengine:artifact:approve', async (_, payload: SprintEngineArtifactReviewPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.reviewArtifact(payload, 'approve', 'user')
   })
 
-  ipcMain.handle('sprintengine:artifact:auto-approve', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
+  ipcMain.handle('sprintengine:artifact:auto-approve', async (_, payload: SprintEngineArtifactReviewPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.reviewArtifact(payload, 'approve', 'auto-run')
   })
 
-  ipcMain.handle('sprintengine:artifact:request-changes', async (_, payload: SwarmArtifactReviewPayload): Promise<SwarmArtifactCommandResult> => {
+  ipcMain.handle('sprintengine:artifact:request-changes', async (_, payload: SprintEngineArtifactReviewPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.reviewArtifact(payload, 'request-changes', 'user')
   })
 
-  ipcMain.handle('sprintengine:task:ready', async (_, payload: SwarmTaskReadyPayload): Promise<SwarmArtifactCommandResult> => {
+  ipcMain.handle('sprintengine:task:ready', async (_, payload: SprintEngineTaskReadyPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.readyTask(payload)
   })
 
-  ipcMain.handle('sprintengine:state:initialize', async (_, payload: SprintEngineStateInitializeInput): Promise<SwarmArtifactCommandResult> => {
+  ipcMain.handle('sprintengine:state:initialize', async (_, payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.initializeSprintEngineState(payload)
   })
 
-  ipcMain.handle('sprintengine:task:update', async (_, payload: SwarmTaskUpdateInput): Promise<SwarmArtifactCommandResult> => {
+  ipcMain.handle('sprintengine:task:update', async (_, payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.updateTask(payload)
   })
 
-  ipcMain.handle('sprintengine:task:create', async (_, payload: SwarmTaskCreateInput): Promise<SwarmArtifactCommandResult> => {
+  ipcMain.handle('sprintengine:task:create', async (_, payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.createTask(payload)
   })
 }

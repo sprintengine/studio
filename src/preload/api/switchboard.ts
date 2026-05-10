@@ -7,6 +7,7 @@ import type {
   SwitchboardClaimTaskResult,
   SwitchboardCreateTaskInput,
   SwitchboardInitApiResult,
+  SwitchboardImportResult,
   SwitchboardMoveTaskInput,
   SwitchboardMutationResult,
   SwitchboardPromoteInboxTaskInput,
@@ -73,6 +74,10 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:watchtower:validate-outputs', input),
   ingestWatchtowerOutputs: (input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputIngestResult> =>
     ipcRenderer.invoke('switchboard:watchtower:ingest-outputs', input),
+  importGitHubIssuesToWatchtower: (workspaceRoot: string): Promise<SwitchboardImportResult> =>
+    ipcRenderer.invoke('switchboard:import:github-issues', workspaceRoot),
+  importJiraIssuesToWatchtower: (workspaceRoot: string): Promise<SwitchboardImportResult> =>
+    ipcRenderer.invoke('switchboard:import:jira-issues', workspaceRoot),
 } satisfies Pick<
   ElectronApi,
   | 'initializeSwitchboard'
@@ -98,4 +103,6 @@ export const switchboardApi = {
   | 'listWatchtowerRuns'
   | 'validateWatchtowerOutputs'
   | 'ingestWatchtowerOutputs'
+  | 'importGitHubIssuesToWatchtower'
+  | 'importJiraIssuesToWatchtower'
 >

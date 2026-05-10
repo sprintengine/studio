@@ -1,6 +1,6 @@
 import type { MobileControlError } from './command'
 
-export class MobileSwarmCommandError extends Error {
+export class MobileSprintEngineCommandError extends Error {
   constructor(
     readonly code: MobileControlError['code'],
     message: string,
@@ -10,7 +10,7 @@ export class MobileSwarmCommandError extends Error {
   }
 }
 
-export function getMobileSwarmCommandErrorMessage(error: unknown): string {
-  if (error instanceof MobileSwarmCommandError) return error.message
+export function getMobileSprintEngineCommandErrorMessage(error: unknown): string {
+  if (error instanceof MobileSprintEngineCommandError) return error.message
   return error instanceof Error ? error.message : String(error)
 }

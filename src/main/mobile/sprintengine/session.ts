@@ -1,13 +1,13 @@
 import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
-import { join } from 'path'
+import { win32 } from 'path'
 import {
-  MobileSwarmCommandError,
-  type MobileSwarmFollowUpRequest,
-  type MobileSwarmFollowUpResult,
-  type MobileSwarmSessionOrchestrator,
-  type MobileSwarmTaskStartRequest,
-  type MobileSwarmTaskStartResult,
+  MobileSprintEngineCommandError,
+  type MobileSprintEngineFollowUpRequest,
+  type MobileSprintEngineFollowUpResult,
+  type MobileSprintEngineSessionOrchestrator,
+  type MobileSprintEngineTaskStartRequest,
+  type MobileSprintEngineTaskStartResult,
 } from './command'
 
 type AgentCli = 'codex' | 'claude'
@@ -18,7 +18,7 @@ type TerminalSessionSnapshot = {
   kind: 'agent' | 'terminal'
   agentId?: string
   cli?: AgentCli
-  swarmStatePath?: string
+  sprintEngineStatePath?: string
   executionMode?: 'current_workspace' | 'worktree'
   worktreeId?: string
   worktreePath?: string
@@ -27,7 +27,7 @@ type TerminalSessionSnapshot = {
 type SpawnMobileAgentTerminalInput = {
   sessionId: string
   cwd: string
-  swarmStatePath: string
+  sprintEngineStatePath: string
   agentId: string
   initialPrompt: string
   cli: AgentCli
@@ -38,14 +38,14 @@ type SpawnMobileAgentTerminalResult =
   | { ok: true; sessionId: string }
   | { ok: false; message: string }
 
-export type DesktopMobileSwarmSessionAdapters = {
+export type DesktopMobileSprintEngineSessionAdapters = {
   listTerminals(): Promise<TerminalSessionSnapshot[]>
   spawnAgentTerminal(input: SpawnMobileAgentTerminalInput): Promise<SpawnMobileAgentTerminalResult>
   writeTerminal(sessionId: string, data: string): Promise<void> | void
 }
 
-type DesktopMobileSwarmSessionOptions = {
-  adapters: DesktopMobileSwarmSessionAdapters
+type DesktopMobileSprintEngineSessionOptions = {
+  adapters: DesktopMobileSprintEngineSessionAdapters
   maxRunningAgentTerminals?: number
   now?: () => Date
 }
@@ -56,7 +56,7 @@ type RuntimeAgent = {
   currentTaskId: string | null
 }
 
-type RawSwarmState = {
+type RawSprintEngineState = {
   sprintengine?: {
     goal?: unknown
   }
@@ -66,10 +66,10 @@ type RawSwarmState = {
     status?: unknown
     ownerAgentId?: unknown
   }>
-  swarmAgents?: Record<string, RuntimeAgent>
+  sprintEngineAgents?: Record<string, RuntimeAgent>
 }
 
-const swarmRoleLabels: Record<string, string> = {
+const sprintEngineRoleLabels: Record<string, string> = {
   architect: 'Architect',
   product: 'Product Strategist',
   developer: 'Developer',
@@ -80,47 +80,47 @@ const swarmRoleLabels: Record<string, string> = {
   performance: 'Performance Engineer',
 }
 
-export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSessionOrchestrator {
+export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprintEngineSessionOrchestrator {
   private readonly maxRunningAgentTerminals: number
   private readonly now: () => Date
 
-  constructor(private readonly options: DesktopMobileSwarmSessionOptions) {
+  constructor(private readonly options: DesktopMobileSprintEngineSessionOptions) {
     this.maxRunningAgentTerminals = Math.max(1, options.maxRunningAgentTerminals ?? 8)
     this.now = options.now ?? (() => new Date())
   }
 
-  async startTask(request: MobileSwarmTaskStartRequest): Promise<MobileSwarmTaskStartResult> {
+  async startTask(request: MobileSprintEngineTaskStartRequest): Promise<MobileSprintEngineTaskStartResult> {
     const sessions = await this.options.adapters.listTerminals()
-    const swarmSessions = sessions.filter((session) =>
+    const sprintEngineSessions = sessions.filter((session) =>
       session.running
       && session.kind === 'agent'
-      && session.swarmStatePath === request.statePath
+      && session.sprintEngineStatePath === request.statePath
     )
 
-    if (swarmSessions.length >= this.maxRunningAgentTerminals) {
-      throw new MobileSwarmCommandError('task_not_ready', 'Desktop has reached the running sprintengine terminal limit.', true)
+    if (sprintEngineSessions.length >= this.maxRunningAgentTerminals) {
+      throw new MobileSprintEngineCommandError('task_not_ready', 'Desktop has reached the running Sprint Engine terminal limit.', true)
     }
 
-    const state = await readRawSwarmState(request.statePath)
-    const agentId = chooseAgentId(state, request.role, swarmSessions)
-    if (swarmSessions.some((session) => session.agentId === agentId)) {
-      throw new MobileSwarmCommandError('task_not_ready', 'The selected Sprint Engine agent already has a running terminal.', false)
+    const state = await readRawSprintEngineState(request.statePath)
+    const agentId = chooseAgentId(state, request.role, sprintEngineSessions)
+    if (sprintEngineSessions.some((session) => session.agentId === agentId)) {
+      throw new MobileSprintEngineCommandError('task_not_ready', 'The selected Sprint Engine agent already has a running terminal.', false)
     }
 
     const executionCwd = request.workspaceRoot
-    const executionMode: MobileSwarmTaskStartResult['executionMode'] = 'current_workspace'
+    const executionMode: MobileSprintEngineTaskStartResult['executionMode'] = 'current_workspace'
 
     const sessionId = randomUUID()
     const spawn = await this.options.adapters.spawnAgentTerminal({
       sessionId,
       cwd: executionCwd,
-      swarmStatePath: request.statePath,
+      sprintEngineStatePath: request.statePath,
       agentId,
       cli: 'codex',
       initialPrompt: buildStartupPrompt({
         role: request.role,
         agentId,
-        label: swarmRoleLabels[request.role] ?? request.role,
+        label: sprintEngineRoleLabels[request.role] ?? request.role,
         goal: typeof state.sprintengine?.goal === 'string' ? state.sprintengine.goal : '',
         workspaceRoot: request.workspaceRoot,
         executionCwd,
@@ -130,7 +130,7 @@ export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSession
     })
 
     if (!spawn.ok) {
-      throw new MobileSwarmCommandError('desktop_unavailable', spawn.message, true)
+      throw new MobileSprintEngineCommandError('desktop_unavailable', spawn.message, true)
     }
 
     return {
@@ -140,18 +140,18 @@ export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSession
     }
   }
 
-  async sendFollowUp(request: MobileSwarmFollowUpRequest): Promise<MobileSwarmFollowUpResult> {
+  async sendFollowUp(request: MobileSprintEngineFollowUpRequest): Promise<MobileSprintEngineFollowUpResult> {
     const text = normalizeFollowUpTextForTerminal(request.text)
     const sessions = await this.options.adapters.listTerminals()
     const session = sessions.find((candidate) =>
       candidate.running
       && candidate.kind === 'agent'
-      && candidate.swarmStatePath === request.statePath
+      && candidate.sprintEngineStatePath === request.statePath
       && candidate.agentId === request.agentId
     )
 
     if (!session) {
-      throw new MobileSwarmCommandError('task_not_ready', 'Follow-up target agent does not have a running desktop terminal.', true)
+      throw new MobileSprintEngineCommandError('task_not_ready', 'Follow-up target agent does not have a running desktop terminal.', true)
     }
 
     const message = [
@@ -172,28 +172,28 @@ export class DesktopMobileSwarmSessionOrchestrator implements MobileSwarmSession
 
 function normalizeFollowUpTextForTerminal(value: string): string {
   if (/[\u0000-\u001F\u007F]/u.test(value)) {
-    throw new MobileSwarmCommandError('invalid_payload', 'Follow-up text must be a single message without terminal control characters.', false)
+    throw new MobileSprintEngineCommandError('invalid_payload', 'Follow-up text must be a single message without terminal control characters.', false)
   }
 
   const text = value.trim()
   if (!text) {
-    throw new MobileSwarmCommandError('invalid_payload', 'Follow-up text is required.', false)
+    throw new MobileSprintEngineCommandError('invalid_payload', 'Follow-up text is required.', false)
   }
 
   return text
 }
 
-async function readRawSwarmState(statePath: string): Promise<RawSwarmState> {
-  return JSON.parse(await readFile(statePath, 'utf8')) as RawSwarmState
+async function readRawSprintEngineState(statePath: string): Promise<RawSprintEngineState> {
+  return JSON.parse(await readFile(statePath, 'utf8')) as RawSprintEngineState
 }
 
 function chooseAgentId(
-  state: RawSwarmState,
+  state: RawSprintEngineState,
   role: string,
   runningSessions: TerminalSessionSnapshot[]
 ): string {
   const runningAgentIds = new Set(runningSessions.flatMap((session) => session.agentId ? [session.agentId] : []))
-  const agents = state.swarmAgents && typeof state.swarmAgents === 'object' ? state.swarmAgents : {}
+  const agents = state.sprintEngineAgents && typeof state.sprintEngineAgents === 'object' ? state.sprintEngineAgents : {}
   const idleAgent = Object.entries(agents)
     .sort(([first], [second]) => agentIdSortValue(first, role) - agentIdSortValue(second, role))
     .find(([agentId, agent]) =>
@@ -238,7 +238,7 @@ function buildStartupPrompt(input: {
   executionCwd: string
   statePath: string
 }): string {
-  const windowsPython = join(input.workspaceRoot, '.venv', 'Scripts', 'python.exe')
+  const windowsPython = win32.join(input.workspaceRoot, '.venv', 'Scripts', 'python.exe')
   return [
     `${input.label}: ${input.label} - Fetch the canonical Sprint Engine instructions from the Python tool.`,
     `Worker cwd: ${input.executionCwd}`,
