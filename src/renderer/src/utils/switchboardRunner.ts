@@ -21,7 +21,9 @@ export type SwitchboardRunner = {
   start: (input: Omit<SwitchboardRunnerStartInput, 'workspaceRoot'>) => Promise<boolean>
   pause: () => Promise<boolean>
   resume: () => Promise<boolean>
+  stop: () => Promise<boolean>
   tick: () => Promise<boolean>
+  stopExecution: (executionId: string, reason?: string) => Promise<boolean>
 }
 
 const POLL_INTERVAL_MS = 5_000
@@ -105,9 +107,37 @@ export function useSwitchboardRunner(workspaceRoot: string | null | undefined): 
     () => runAction((root) => window.api.resumeSwitchboardRunner(root)),
     [runAction]
   )
+  const stop = useCallback(
+    () => runAction((root) => window.api.stopSwitchboardRunner(root)),
+    [runAction]
+  )
   const tick = useCallback(
     () => runAction((root) => window.api.tickSwitchboardRunner(root)),
     [runAction]
+  )
+  const stopExecution = useCallback(
+    async (executionId: string, reason?: string): Promise<boolean> => {
+      const targetRoot = workspaceRoot ?? null
+      if (!targetRoot) return false
+      setBusy(true)
+      try {
+        const result = await window.api.stopSwitchboardExecution({ workspaceRoot: targetRoot, executionId, reason })
+        if (activeRootRef.current !== targetRoot) return false
+        if (result.ok === false) {
+          setError(result.message)
+          return false
+        }
+        await refresh()
+        return true
+      } catch (caught) {
+        if (activeRootRef.current !== targetRoot) return false
+        setError(caught instanceof Error ? caught.message : 'Runner action failed.')
+        return false
+      } finally {
+        setBusy(false)
+      }
+    },
+    [refresh, workspaceRoot]
   )
 
   const status: RunnerStatusKind = !state || !state.enabled
@@ -118,7 +148,7 @@ export function useSwitchboardRunner(workspaceRoot: string | null | undefined): 
         ? 'running'
         : 'stopped'
 
-  return { state, status, error, busy, refresh, start, pause, resume, tick }
+  return { state, status, error, busy, refresh, start, pause, resume, stop, tick, stopExecution }
 }
 
 export function runnerQueueLabel(queue: SwitchboardRunnerQueue): string {

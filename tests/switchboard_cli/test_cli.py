@@ -9,10 +9,14 @@ import time
 import urllib.error
 import urllib.request
 import unittest
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
+
+from switchboard_core.store import runner_command_for
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -80,6 +84,34 @@ class SwitchboardCliTests(unittest.TestCase):
             args.append("--inbox")
         return stdout_json(self.run_cli(args))
 
+    def fake_cli_on_path(self, name: str) -> Path:
+        path = self.workspace / name
+        path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def test_runner_command_for_codex_uses_non_interactive_exec(self) -> None:
+        codex = self.fake_cli_on_path("codex")
+
+        with patch.dict(os.environ, {"PATH": str(self.workspace)}, clear=True):
+            command = runner_command_for({"cli": "codex"})
+
+        self.assertEqual(command, [str(codex), "exec", "--dangerously-bypass-approvals-and-sandbox", "-"])
+
+    def test_runner_command_for_claude_uses_non_interactive_print(self) -> None:
+        claude = self.fake_cli_on_path("claude")
+
+        with patch.dict(os.environ, {"PATH": str(self.workspace)}, clear=True):
+            command = runner_command_for({"cli": "claude"})
+
+        self.assertEqual(command, [str(claude), "--print", "--permission-mode", "bypassPermissions"])
+
+    def test_runner_command_for_override_is_preserved(self) -> None:
+        with patch.dict(os.environ, {"SWITCHBOARD_LOCAL_PROCESS_COMMAND": "python3 -c pass"}, clear=True):
+            command = runner_command_for({"cli": "codex"})
+
+        self.assertEqual(command, ["python3", "-c", "pass"])
+
     def test_init_creates_full_folder_model_and_locks(self) -> None:
         payload = stdout_json(self.run_cli(["init", *self.workspace_args()]))
 
@@ -122,8 +154,8 @@ class SwitchboardCliTests(unittest.TestCase):
 
         run_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / run["runId"]
         self.assertTrue((run_dir / "run.json").is_file())
-        self.assertTrue((run_dir / "outputs").is_dir())
-        self.assertTrue((run_dir / "quarantine").is_dir())
+        self.assertFalse((run_dir / "outputs").exists())
+        self.assertFalse((run_dir / "quarantine").exists())
         self.assertTrue((run_dir / "reports").is_dir())
 
         status = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run["runId"]]))
@@ -162,7 +194,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(created["run"]["status"], "running")
         self.assertEqual(created["run"]["agents"], agents)
         run_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / created["run"]["runId"]
-        self.assertTrue((run_dir / "outputs" / "watchtower-code-review").is_dir())
+        self.assertFalse((run_dir / "outputs").exists())
         self.assertTrue((run_dir / "reports").is_dir())
 
         completed = stdout_json(
@@ -238,110 +270,42 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(listed["problems"][0]["runId"], "watchtower_20260509T120000Z_badbad12")
         self.assertIn("Invalid Watchtower run JSON", listed["problems"][0]["message"])
 
-    def test_watchtower_outputs_validate_quarantines_invalid_jsonl_entries(self) -> None:
-        created = stdout_json(
+    def test_create_help_documents_agent_json_schema(self) -> None:
+        completed = self.run_cli(["create", "--help"])
+
+        self.assertIn("--input-json", completed.stdout)
+        self.assertIn("Agent JSON schema", completed.stdout)
+        self.assertIn("Watchtower agents should create findings directly in the inbox", completed.stdout)
+
+    def test_watchtower_agent_can_create_inbox_task_directly(self) -> None:
+        created_run = stdout_json(
             self.run_cli(["watchtower", "run-create", *self.workspace_args(), "--preset", "lean_code_review"])
         )
-        run_id = created["run"]["runId"]
-        output_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / run_id / "outputs" / "reviewer"
-        output_dir.mkdir(parents=True)
-        valid_proposal = {
-            "title": "Tighten switchboard validation",
-            "description": "The reviewer found a concrete validation gap.",
-            "priority": 1,
-            "labels": ["Backend", "backend"],
-            "evidence": {"files": ["switchboard_core/store.py"], "summary": "Validation should reject malformed records."},
-            "localId": "validation-gap",
-        }
-        invalid_proposal = {
-            "title": "Agent-authored identity",
-            "description": "Agents must not set authoritative identity.",
-            "source": {"type": "watchtower", "externalId": "agent-picked-id"},
-        }
-        (output_dir / "proposed-tasks.jsonl").write_text(
-            "\n".join([json.dumps(valid_proposal), json.dumps(invalid_proposal)]) + "\n",
-            encoding="utf-8",
-        )
-
-        validated = stdout_json(self.run_cli(["watchtower", "outputs-validate", *self.workspace_args(), run_id]))
-
-        self.assertEqual(len(validated["valid"]), 1)
-        self.assertEqual(len(validated["invalid"]), 1)
-        self.assertEqual(validated["valid"][0]["externalId"], f"{run_id}_reviewer_validation-gap")
-        self.assertIn("source.externalId must be derived by Watchtower ingestion", validated["invalid"][0]["error"])
-        quarantine = validated["invalid"][0]["quarantine"]
-        self.assertTrue(Path(quarantine["path"]).is_file())
-        self.assertEqual(quarantine["originalPath"], "reviewer/proposed-tasks.jsonl")
-
-        status = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run_id]))
-        self.assertEqual(status["run"]["counts"], {"valid": 1, "invalid": 1, "ingested": 0})
-
-    def test_watchtower_outputs_validate_quarantines_duplicate_local_ids(self) -> None:
-        created = stdout_json(
-            self.run_cli(["watchtower", "run-create", *self.workspace_args(), "--preset", "lean_code_review"])
-        )
-        run_id = created["run"]["runId"]
-        output_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / run_id / "outputs" / "reviewer"
-        output_dir.mkdir(parents=True)
-        first = {
-            "title": "First finding",
-            "description": "First concrete finding.",
-            "localId": "same-id",
-        }
-        second = {
-            "title": "Second finding",
-            "description": "Second concrete finding.",
-            "localId": "same-id",
-        }
-        (output_dir / "proposed-tasks.jsonl").write_text(
-            "\n".join([json.dumps(first), json.dumps(second)]) + "\n",
-            encoding="utf-8",
-        )
-
-        validated = stdout_json(self.run_cli(["watchtower", "outputs-validate", *self.workspace_args(), run_id]))
-
-        self.assertEqual(len(validated["valid"]), 1)
-        self.assertEqual(len(validated["invalid"]), 1)
-        self.assertIn("Duplicate proposed task identity", validated["invalid"][0]["error"])
-        self.assertTrue(Path(validated["invalid"][0]["quarantine"]["path"]).is_file())
-
-    def test_watchtower_outputs_ingest_creates_inbox_tasks_and_skips_duplicates(self) -> None:
-        created = stdout_json(
-            self.run_cli(["watchtower", "run-create", *self.workspace_args(), "--preset", "lean_code_review"])
-        )
-        run_id = created["run"]["runId"]
-        output_dir = self.workspace / ".multi-code" / "switchboard" / "watchtower-runs" / run_id / "outputs" / "reviewer"
-        output_dir.mkdir(parents=True)
-        external_id = f"{run_id}_reviewer_import-finding"
-        proposal = {
-            "title": "Import Watchtower finding",
-            "description": "Create an inbox task from a validated Watchtower proposal.",
+        run_id = created_run["run"]["runId"]
+        external_id = f"{run_id}:watchtower-code-review:{uuid.uuid4()}"
+        payload = {
+            "title": "Direct Watchtower finding",
+            "description": "Evidence: switchboard_core/cli.py should expose the task creation schema.",
             "priority": 2,
             "labels": ["watchtower", "Backend"],
-            "evidence": {"files": ["switchboard_core/watchtower.py"], "summary": "Parser found a candidate task."},
-            "localId": "import-finding",
+            "source": {
+                "type": "watchtower",
+                "externalId": external_id,
+                "externalKey": f"{run_id}:watchtower-code-review",
+                "externalUrl": None,
+            },
         }
-        (output_dir / "proposed-task-1.json").write_text(json.dumps(proposal, indent=2) + "\n", encoding="utf-8")
 
-        ingested = stdout_json(self.run_cli(["watchtower", "outputs-ingest", *self.workspace_args(), run_id]))
+        created_task = stdout_json(
+            self.run_cli(["create", *self.workspace_args(), "--inbox", "--input-json", json.dumps(payload)])
+        )
 
-        self.assertEqual(ingested["summary"], {"created": 1, "skipped": 0, "invalid": 0})
-        task_id = ingested["created"][0]["taskId"]
-        task_path = self.task_file("inbox", task_id)
-        task = json.loads(task_path.read_text(encoding="utf-8"))
-        self.assertEqual(task["title"], proposal["title"])
-        self.assertEqual(task["source"], {"type": "watchtower", "externalId": external_id, "externalKey": None, "externalUrl": None})
+        task_id = created_task["id"]
+        self.assertEqual(created_task["nextFolder"], "inbox")
+        task = json.loads(self.task_file("inbox", task_id).read_text(encoding="utf-8"))
+        self.assertEqual(task["title"], payload["title"])
         self.assertEqual(task["labels"], ["watchtower", "backend"])
-        self.assertEqual(task["comments"][0]["kind"], "import")
-        self.assertIn(run_id, task["comments"][0]["body"])
-
-        duplicate = stdout_json(self.run_cli(["watchtower", "outputs-ingest", *self.workspace_args(), run_id]))
-
-        self.assertEqual(duplicate["summary"], {"created": 0, "skipped": 1, "invalid": 0})
-        inbox_tasks = stdout_json(self.run_cli(["list", *self.workspace_args(), "--status", "inbox"]))["tasks"]
-        self.assertEqual([item["id"] for item in inbox_tasks], [task_id])
-        status = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run_id]))
-        self.assertEqual(status["run"]["counts"], {"valid": 1, "invalid": 0, "ingested": 1})
+        self.assertEqual(task["source"], payload["source"])
 
     def test_create_list_show_and_comment_board_task(self) -> None:
         created = self.create_task(title="Board task")
@@ -760,6 +724,18 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIn("start", [event["type"] for event in events])
         self.assertIn("tick", [event["type"] for event in events])
 
+    def test_runner_stop_disables_runner_state(self) -> None:
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready"])
+
+        stopped = stdout_json(self.run_cli(["runner", "stop", *self.workspace_args()]))
+
+        self.assertFalse(stopped["enabled"])
+        self.assertTrue(stopped["paused"])
+        self.assertFalse(stopped["running"])
+        status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+        self.assertFalse(status["enabled"])
+        self.assertTrue(status["paused"])
+
     def test_provider_capability_failure_does_not_claim(self) -> None:
         task_id = self.create_task(title="Unsupported provider task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
@@ -868,6 +844,39 @@ class SwitchboardCliTests(unittest.TestCase):
         metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution["executionId"]]))["execution"]
         self.assertEqual(metadata["worktreeState"], "cleaned")
 
+    def test_execution_stop_terminates_process_and_marks_task_attempt(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Stop execution task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        command = f"{sys.executable} -c \"import time; time.sleep(30)\""
+        ticked = stdout_json(
+            self.run_cli(["runner", "tick", *self.workspace_args()], env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command})
+        )
+        execution = ticked["activeExecutions"][0]
+
+        stopped = stdout_json(
+            self.run_cli([
+                "execution",
+                "stop",
+                *self.workspace_args(),
+                execution["executionId"],
+                "--reason",
+                "Stopped by test.",
+            ])
+        )
+
+        self.assertEqual(stopped["status"], "stopped")
+        self.assertTrue(stopped["terminated"])
+        status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+        self.assertEqual(status["activeExecutions"][0]["status"], "stopped")
+        metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution["executionId"]]))["execution"]
+        self.assertEqual(metadata["status"], "stopped")
+        self.assertEqual(metadata["worktreeState"], "stopped")
+        task = json.loads(self.task_file("in_progress", task_id).read_text(encoding="utf-8"))
+        self.assertEqual(task["execution"]["attempts"][0]["summary"], "Stopped by test.")
+        self.assertEqual(task["execution"]["attempts"][0]["worktreeState"], "stopped")
+
     def test_runner_status_reconciles_missing_worktree_after_restart(self) -> None:
         self.init_git_repo()
         task_id = self.create_task(title="Missing worktree reconciliation task")["id"]
@@ -950,6 +959,51 @@ class SwitchboardCliTests(unittest.TestCase):
                 process.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 process.kill()
+            if process.stderr:
+                process.stderr.close()
+
+    def test_runner_stop_endpoint_shuts_down_backend(self) -> None:
+        self.run_cli(["init", *self.workspace_args()])
+        process = subprocess.Popen(
+            switchboard_command(["runner", "run", *self.workspace_args()]),
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            descriptor_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "server.json"
+            descriptor: dict[str, Any] | None = None
+            for _ in range(60):
+                if descriptor_path.exists():
+                    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+                    break
+                if process.poll() is not None:
+                    stderr = process.stderr.read() if process.stderr else ""
+                    self.fail(f"runner server exited early: {stderr}")
+                time.sleep(0.1)
+            self.assertIsNotNone(descriptor)
+            assert descriptor is not None
+            request = urllib.request.Request(
+                f"http://{descriptor['host']}:{descriptor['port']}/runner/stop",
+                data=b"{}",
+                headers={"Authorization": f"Bearer {descriptor['token']}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=3) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertFalse(payload["enabled"])
+            process.wait(timeout=5)
+            self.assertIsNotNone(process.returncode)
+            self.assertFalse(descriptor_path.exists())
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
             if process.stderr:
                 process.stderr.close()
 

@@ -33,6 +33,8 @@ If no tasks are ready, stop.
 ## Quality Standards
 
 - Verify every acceptance criterion explicitly
+- Do not accept sample data, hardcoded demo state, fake API responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or mock-only paths as proof that product behavior works unless the task explicitly names a prototype, fixture, mockup, or test harness deliverable.
+- For integration behavior, require evidence through the real owned module, IPC/API/CLI contract, file, persistence layer, service, device, or external integration. If that path cannot be exercised, mark the task blocked or `needs_input` and record the gap.
 - Log command output as `--result` entries so evidence is auditable
 - Use only project-root-relative paths in `sprintengine task log --file`, notes, artifacts, and handoff text. Never use absolute or machine-specific paths.
 - When running Python in this repo, use the project virtual environment if it exists: prefer `.venv/bin/python -m pip` on POSIX shells, or `.venv\Scripts\python.exe -m pip` on Windows. You may install task-required Python packages into the repo-local `.venv`; never install Python packages globally.

@@ -10,6 +10,7 @@ from .store import (
     CLAIMABLE_STATUSES,
     FOLDER_STATUSES,
     PUBLISH_TARGETS,
+    SOURCE_TYPES,
     TASK_STATUSES,
     SwitchboardError,
     add_comment,
@@ -31,8 +32,10 @@ from .store import (
     runner_run,
     runner_start,
     runner_status,
+    runner_stop,
     runner_tick,
     execution_logs,
+    execution_stop,
     execution_status,
     execution_worktree_cleanup,
     task_summary,
@@ -42,13 +45,10 @@ from .store import (
 from .watchtower import (
     create_watchtower_run,
     create_watchtower_run_with_status,
-    ingest_watchtower_outputs,
-    list_watchtower_runs,
     list_watchtower_runs_with_problems,
     read_watchtower_run,
     WATCHTOWER_RUN_STATUSES,
     update_watchtower_agent_status,
-    validate_watchtower_outputs,
 )
 
 
@@ -147,15 +147,23 @@ def cmd_create(args: argparse.Namespace) -> int:
     title = input_payload.get("title", args.title)
     if not isinstance(title, str):
         raise SwitchboardError("title is required.")
+    source = input_payload.get("source")
+    if source is None and any((args.source_type, args.source_external_id, args.source_external_key, args.source_external_url)):
+        source = {
+            "type": args.source_type,
+            "externalId": args.source_external_id,
+            "externalKey": args.source_external_key,
+            "externalUrl": args.source_external_url,
+        }
     located = create_task(
         workspace_path(args),
         title=title,
         description=input_payload.get("description", args.description or ""),
         inbox=bool(input_payload.get("origin") == "watchtower" or args.inbox),
         identifier=input_payload.get("identifier"),
-        priority=input_payload.get("priority"),
-        labels=input_payload.get("labels"),
-        source=input_payload.get("source"),
+        priority=input_payload.get("priority", args.priority),
+        labels=input_payload.get("labels", args.label),
+        source=source,
         comments=input_payload.get("comments"),
     )
     emit(mutation_payload(action="create", previous=None, record=record_for_output(located)))
@@ -308,6 +316,11 @@ def cmd_runner_resume(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runner_stop(args: argparse.Namespace) -> int:
+    emit(runner_stop(workspace_path(args)))
+    return 0
+
+
 def cmd_runner_status(args: argparse.Namespace) -> int:
     emit(runner_status(workspace_path(args)))
     return 0
@@ -330,6 +343,11 @@ def cmd_execution_status(args: argparse.Namespace) -> int:
 
 def cmd_execution_logs(args: argparse.Namespace) -> int:
     emit(execution_logs(workspace_path(args), args.execution_id, stream=args.stream, tail=args.tail))
+    return 0
+
+
+def cmd_execution_stop(args: argparse.Namespace) -> int:
+    emit(execution_stop(workspace_path(args), args.execution_id, reason=args.reason))
     return 0
 
 
@@ -370,16 +388,6 @@ def cmd_watchtower_run_agent_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_watchtower_outputs_validate(args: argparse.Namespace) -> int:
-    emit(validate_watchtower_outputs(workspace_path(args), args.run_id))
-    return 0
-
-
-def cmd_watchtower_outputs_ingest(args: argparse.Namespace) -> int:
-    emit(ingest_watchtower_outputs(workspace_path(args), args.run_id))
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="switchboard", description="Switchboard filesystem task CLI.")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -398,12 +406,41 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("task_id", metavar="uuid")
     show.set_defaults(func=cmd_show)
 
-    create = subcommands.add_parser("create", help="Create a Switchboard task.")
+    create = subcommands.add_parser(
+        "create",
+        help="Create a Switchboard task.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Agent JSON schema for --input-json:
+  {
+    "title": "Short actionable task title",
+    "description": "Concrete context, evidence, and expected outcome.",
+    "priority": 1,
+    "labels": ["watchtower", "security"],
+    "identifier": "optional-human-readable-id",
+    "source": {
+      "type": "watchtower",
+      "externalId": "watchtower_run:agent:random-uuid",
+      "externalKey": "watchtower_run:agent",
+      "externalUrl": null
+    }
+  }
+
+Watchtower agents should create findings directly in the inbox:
+  switchboard create --workspace /repo --inbox --input-json '{"title":"Fix auth redirect","description":"Evidence: src/main/auth.ts ...","source":{"type":"watchtower","externalId":"watchtower_...:agent:uuid"}}'
+""",
+    )
     create.add_argument("--workspace", required=True)
-    create.add_argument("--title")
-    create.add_argument("--description", default="")
-    create.add_argument("--inbox", action="store_true")
-    create.add_argument("--input-json", help=argparse.SUPPRESS)
+    create.add_argument("--title", help="Task title. Required unless supplied by --input-json.")
+    create.add_argument("--description", default="", help="Task description. Overridden by --input-json.description when present.")
+    create.add_argument("--inbox", action="store_true", help="Create the task in the Switchboard inbox instead of todo.")
+    create.add_argument("--priority", type=float, help="Numeric priority. Overridden by --input-json.priority when present.")
+    create.add_argument("--label", action="append", default=[], help="Task label. May be repeated. Overridden by --input-json.labels.")
+    create.add_argument("--source-type", choices=sorted(SOURCE_TYPES), help="Source type for provenance.")
+    create.add_argument("--source-external-id", help="Source external id for provenance.")
+    create.add_argument("--source-external-key", help="Source external key for provenance.")
+    create.add_argument("--source-external-url", help="Source external URL for provenance.")
+    create.add_argument("--input-json", help="JSON object containing title, description, priority, labels, identifier, source, and comments.")
     create.set_defaults(func=cmd_create)
 
     import_task = subcommands.add_parser("import-task", help=argparse.SUPPRESS)
@@ -492,6 +529,10 @@ def build_parser() -> argparse.ArgumentParser:
     runner_resume_cmd.add_argument("--workspace", required=True)
     runner_resume_cmd.set_defaults(func=cmd_runner_resume)
 
+    runner_stop_cmd = runner_subcommands.add_parser("stop", help="Stop the persistent runner backend.")
+    runner_stop_cmd.add_argument("--workspace", required=True)
+    runner_stop_cmd.set_defaults(func=cmd_runner_stop)
+
     runner_status_cmd = runner_subcommands.add_parser("status", help="Show runner state.")
     runner_status_cmd.add_argument("--workspace", required=True)
     runner_status_cmd.set_defaults(func=cmd_runner_status)
@@ -519,6 +560,12 @@ def build_parser() -> argparse.ArgumentParser:
     execution_logs_cmd.add_argument("--stream", choices=("stdout", "stderr"), required=True)
     execution_logs_cmd.add_argument("--tail", type=int, default=200)
     execution_logs_cmd.set_defaults(func=cmd_execution_logs)
+
+    execution_stop_cmd = execution_subcommands.add_parser("stop", help="Stop an active Switchboard execution.")
+    execution_stop_cmd.add_argument("--workspace", required=True)
+    execution_stop_cmd.add_argument("execution_id")
+    execution_stop_cmd.add_argument("--reason")
+    execution_stop_cmd.set_defaults(func=cmd_execution_stop)
 
     execution_cleanup_cmd = execution_subcommands.add_parser("cleanup-worktree", help="Remove an execution worktree.")
     execution_cleanup_cmd.add_argument("--workspace", required=True)
@@ -551,22 +598,6 @@ def build_parser() -> argparse.ArgumentParser:
     watchtower_run_agent_status.add_argument("agent_id")
     watchtower_run_agent_status.add_argument("--status", required=True, choices=WATCHTOWER_RUN_STATUSES)
     watchtower_run_agent_status.set_defaults(func=cmd_watchtower_run_agent_status)
-
-    watchtower_outputs_validate = watchtower_subcommands.add_parser(
-        "outputs-validate",
-        help="Validate and quarantine Watchtower review output files.",
-    )
-    watchtower_outputs_validate.add_argument("--workspace", required=True)
-    watchtower_outputs_validate.add_argument("run_id")
-    watchtower_outputs_validate.set_defaults(func=cmd_watchtower_outputs_validate)
-
-    watchtower_outputs_ingest = watchtower_subcommands.add_parser(
-        "outputs-ingest",
-        help="Ingest valid Watchtower review output files into the inbox.",
-    )
-    watchtower_outputs_ingest.add_argument("--workspace", required=True)
-    watchtower_outputs_ingest.add_argument("run_id")
-    watchtower_outputs_ingest.set_defaults(func=cmd_watchtower_outputs_ingest)
 
     return parser
 

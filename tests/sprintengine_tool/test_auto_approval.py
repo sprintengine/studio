@@ -181,3 +181,43 @@ def test_electron_auto_run_sends_approval_intent_instead_of_approving_directly()
     assert "Artifact auto-approved" not in supervisor_source
     assert "action: 'approve-intent'" in main_source
     assert "id: mode === 'auto-run' ? 'auto-run' : actor.id" not in main_source
+
+
+def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function sendContinuationPromptsToIdleAgents" in supervisor_source
+    assert "Sprint Engine roster runner found a ready" in supervisor_source
+    assert "sprintengine join --role ${task.role} --id ${agentId}" in supervisor_source
+    assert "await sendContinuationPromptsToIdleAgents(" in supervisor_source
+    assert "continuation-prompt-sent" in supervisor_source
+
+
+def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "const status = await window.api.terminalStatus(latestAgent.cliSessionId).catch(() => ({ running: false }))" in supervisor_source
+    assert "if (status.running) return 'skipped'" in supervisor_source
+    assert "cliSessionId: undefined" in supervisor_source
+    assert "if (!agent.cliSessionId)" in supervisor_source
+    assert "agent.kind !== 'sprintengine'" in supervisor_source
+
+
+def test_electron_roster_runner_starts_roster_agents_without_task_named_workers() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "async function startMissingRosterAgents" in supervisor_source
+    assert "buildSprintEngineAgentRosterForState(sprintEngineState)" in supervisor_source
+    assert "taskId: `roster-${agent.id}`" in supervisor_source
+    assert "candidate-pick-ready-task-waiting-for-roster-agent" in supervisor_source
+    assert "function buildAutoRunAgentId" not in supervisor_source
+    assert "buildAutoRunAgentId(task.role, task.id)" not in supervisor_source

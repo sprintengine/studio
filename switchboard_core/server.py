@@ -19,9 +19,11 @@ from .store import (
     runner_resume,
     runner_start,
     runner_status,
+    runner_stop,
     runner_tick,
     runner_run_loop,
     execution_logs,
+    execution_stop,
     execution_status,
     execution_worktree_cleanup,
     switchboard_root,
@@ -79,6 +81,7 @@ def serve(workspace: Path) -> dict[str, Any]:
             server.serve_forever()
         finally:
             stop_event.set()
+            remove_descriptor_if_current(server_path, os.getpid())
         return {"ok": True, "server": descriptor}
     finally:
         release_server_lock(server_lock)
@@ -123,6 +126,15 @@ def read_descriptor(path: Path) -> dict[str, Any] | None:
         return parsed if isinstance(parsed, dict) else None
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def remove_descriptor_if_current(path: Path, pid: int) -> None:
+    descriptor = read_descriptor(path)
+    if descriptor and descriptor.get("pid") == pid:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def descriptor_process_alive(descriptor: dict[str, Any]) -> bool:
@@ -205,6 +217,9 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[2] == "cleanup-worktree":
                 self.respond_or_error(lambda: execution_worktree_cleanup(self.server.workspace, parts[1], force=payload.get("force") is True))
                 return
+            if len(parts) == 3 and parts[2] == "stop":
+                self.respond_or_error(lambda: execution_stop(self.server.workspace, parts[1], reason=payload.get("reason") if isinstance(payload.get("reason"), str) else None))
+                return
             self.respond({"ok": False, "message": "Not found."}, status=404)
             return
         if parsed.path == "/runner/start":
@@ -223,6 +238,12 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/runner/resume":
             self.respond(runner_resume(self.server.workspace))
+            return
+        if parsed.path == "/runner/stop":
+            payload = runner_stop(self.server.workspace)
+            self.respond(payload)
+            self.server.stop_event.set()
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
         if parsed.path == "/runner/tick":
             self.respond(runner_tick(self.server.workspace))

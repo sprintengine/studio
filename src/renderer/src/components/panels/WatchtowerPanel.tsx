@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   WATCHTOWER_REVIEW_PRESETS,
@@ -7,20 +7,18 @@ import {
 } from '../../utils/watchtowerReview'
 import { buildWatchtowerStartupPrompt } from '../../utils/watchtowerPrompt'
 import { getSpecialistAction } from '../../specialists/specialistActions'
-import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import { prependAgentIdentifier } from '../../utils/agentPrompt'
 import type { AgentState, SpecialistActionId, WatchtowerReviewSectorId } from '../../types/workspace'
 import type {
   SwitchboardTaskRecord,
   SwitchboardImportResult,
-  WatchtowerOutputValidationResult,
   WatchtowerRun,
   WatchtowerRunAgent,
 } from '../../../../shared/switchboard'
+import { CommentIcon, PriorityIcon } from '../AppIcons'
 import {
   formatRelativeTime,
   priorityLabel,
-  priorityToneClass,
   shortIdentifier,
   sourceLabel,
   useSwitchboardData,
@@ -28,7 +26,6 @@ import {
 import { filterInboxTasks } from '../../utils/watchtower'
 
 const PANEL_BG = 'bg-[#08090b]'
-const ROW_DIVIDER = 'border-b border-[#1c1d22]'
 const SECTION_DIVIDER = 'border-t border-[#1f2025]'
 const ACCENT = '#d97757'
 
@@ -64,6 +61,44 @@ function joinPath(parent: string, child: string): string {
   return `${parent}${parent.endsWith(separator) ? '' : separator}${child}`
 }
 
+function sanitizeIdentityPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^[-._]+|[-._]+$/gu, '') || 'item'
+}
+
+function findTaskAttribution(
+  record: SwitchboardTaskRecord,
+  runs: WatchtowerRun[]
+): { run: WatchtowerRun; agent: WatchtowerRunAgent } | null {
+  if (record.task.source.type !== 'watchtower') return null
+  const externalKey = record.task.source.externalKey ?? null
+  const externalId = record.task.source.externalId ?? null
+  for (const run of runs) {
+    if (externalKey?.startsWith(`${run.runId}:`)) {
+      const remainder = externalKey.slice(run.runId.length + 1)
+      const agent = run.agents.find((candidate) => remainder.startsWith(`${candidate.agentId}:`)
+        || remainder.startsWith(`${sanitizeIdentityPart(candidate.agentId)}:`))
+      if (agent) return { run, agent }
+    }
+    if (externalId?.startsWith(`${run.runId}_`)) {
+      const remainder = externalId.slice(run.runId.length + 1)
+      const agent = run.agents.find((candidate) => remainder.startsWith(`${sanitizeIdentityPart(candidate.agentId)}_`))
+      if (agent) return { run, agent }
+    }
+  }
+  return null
+}
+
+function countTasksPerAgent(run: WatchtowerRun, tasks: SwitchboardTaskRecord[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const agent of run.agents) counts.set(agent.agentId, 0)
+  for (const record of tasks) {
+    const attribution = findTaskAttribution(record, [run])
+    if (!attribution) continue
+    counts.set(attribution.agent.agentId, (counts.get(attribution.agent.agentId) ?? 0) + 1)
+  }
+  return counts
+}
+
 type SelectedWatchtowerAgent = {
   agentId: string
   specialistId: SpecialistActionId
@@ -75,12 +110,12 @@ type SelectedWatchtowerAgent = {
 export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh, switchboardRoot } = useSwitchboardData(folderPath)
 
   const inbox = useMemo(() => filterInboxTasks(tasks), [tasks])
   const [runs, setRuns] = useState<WatchtowerRun[]>([])
-  const [invalidOutputs, setInvalidOutputs] = useState<Record<string, Extract<WatchtowerOutputValidationResult, { ok: true }>['invalid']>>({})
   const [importResult, setImportResult] = useState<SwitchboardImportResult | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [preset, setPreset] = useState<WatchtowerReviewPresetId>('lean_code_review')
@@ -92,12 +127,21 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const [commentBody, setCommentBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<Toast | null>(null)
+  const [fetchOpen, setFetchOpen] = useState(false)
+  const backgroundExitDisposers = useRef<Array<() => void>>([])
 
   useEffect(() => {
     if (!toast) return
     const handle = window.setTimeout(() => setToast(null), 4000)
     return () => window.clearTimeout(handle)
   }, [toast])
+
+  useEffect(() => {
+    return () => {
+      backgroundExitDisposers.current.forEach((dispose) => dispose())
+      backgroundExitDisposers.current = []
+    }
+  }, [])
 
   useEffect(() => {
     if (selectedId && !inbox.some((record) => record.task.id === selectedId)) {
@@ -116,6 +160,18 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     () => runs.find((run) => run.runId === selectedRunId) ?? runs[0] ?? null,
     [runs, selectedRunId]
   )
+  const selectedRunAgentCounts = useMemo(
+    () => (selectedRun ? countTasksPerAgent(selectedRun, tasks) : new Map<string, number>()),
+    [selectedRun, tasks]
+  )
+  const inboxAttribution = useMemo(() => {
+    const map = new Map<string, { run: WatchtowerRun; agent: WatchtowerRunAgent }>()
+    for (const record of inbox) {
+      const attribution = findTaskAttribution(record, runs)
+      if (attribution) map.set(record.task.id, attribution)
+    }
+    return map
+  }, [inbox, runs])
 
   const showToast = useCallback((tone: ToastTone, message: string) => {
     setToast({ tone, message })
@@ -140,6 +196,20 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   useEffect(() => {
     void refreshRuns()
   }, [refreshRuns])
+
+  const hasActiveRun = useMemo(
+    () => runs.some((run) => run.status === 'running' || run.status === 'pending'
+      || run.agents.some((agent) => agent.status === 'running' || agent.status === 'pending')),
+    [runs]
+  )
+
+  useEffect(() => {
+    if (!hasActiveRun) return
+    const handle = window.setInterval(() => {
+      void refreshRuns()
+    }, 5_000)
+    return () => window.clearInterval(handle)
+  }, [hasActiveRun, refreshRuns])
 
   const handleRefreshAll = useCallback(async () => {
     await Promise.all([refresh(), refreshRuns()])
@@ -204,22 +274,86 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           agent: reviewAgent,
           workspaceRoot: folderPath,
         })
+        const sessionId = crypto.randomUUID()
+        const startupPrompt = prependAgentIdentifier(prompt, specialist.shortLabel, specialist.shortLabel)
         const agentPatch: Partial<AgentState> = {
           name: specialist.shortLabel,
           kind: 'watchtower',
           specialistId: reviewAgent.specialistId,
           cli: 'codex',
           cliPermissionPreset: 'default',
-          cliStartupPrompt: prependAgentIdentifier(prompt, specialist.shortLabel, specialist.shortLabel),
+          cliStartupPrompt: startupPrompt,
           watchtowerRunId: created.run.runId,
           cliStartRequested: true,
           cliOnboardingPromptSent: false,
           cliHasLaunched: false,
           cliResumeAvailable: false,
-          cliSessionId: crypto.randomUUID(),
+          cliSessionId: sessionId,
         }
         updateAgent(workspaceId, reviewAgent.agentId, agentPatch)
-        focusOrAddAgentTab(workspaceId, reviewAgent.agentId, specialist.shortLabel)
+        const spawnResult = await window.api.terminalSpawn(
+          sessionId,
+          100,
+          30,
+          folderPath,
+          false,
+          undefined,
+          'codex',
+          startupPrompt,
+          cliRuntimes,
+          false,
+          {
+            kind: 'agent',
+            workspaceId,
+            agentId: reviewAgent.agentId,
+            cliPermissionPreset: 'default',
+          }
+        ).catch((error): TerminalSpawnResult => ({
+          ok: false,
+          sessionId,
+          message: error instanceof Error ? error.message : 'Failed to start terminal.',
+          exitCode: 1,
+        }))
+
+        if (!spawnResult.ok) {
+          updateAgent(workspaceId, reviewAgent.agentId, {
+            cliStartRequested: false,
+            cliHasLaunched: false,
+            cliOnboardingPromptSent: false,
+            cliResumeAvailable: false,
+          })
+          await window.api.updateWatchtowerRunAgentStatus({
+            workspaceRoot: folderPath,
+            runId: created.run.runId,
+            agentId: reviewAgent.agentId,
+            status: 'failed',
+          })
+          showToast('error', `${specialist.shortLabel} was not started: ${spawnResult.message}`)
+          continue
+        }
+
+        updateAgent(workspaceId, reviewAgent.agentId, {
+          cliHasLaunched: true,
+          cliOnboardingPromptSent: true,
+          cliResumeAvailable: true,
+          cliStartupPrompt: undefined,
+        })
+        const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
+          const status = code === 0 ? 'completed' : 'failed'
+          void window.api.updateWatchtowerRunAgentStatus({
+            workspaceRoot: folderPath,
+            runId: created.run.runId,
+            agentId: reviewAgent.agentId,
+            status,
+          })
+          updateAgent(workspaceId, reviewAgent.agentId, {
+            cliStartRequested: false,
+            cliHasLaunched: false,
+            cliOnboardingPromptSent: false,
+          })
+          void refreshRuns()
+        })
+        backgroundExitDisposers.current.push(disposeExit)
       }
       setSelectedRunId(created.run.runId)
       await refreshRuns()
@@ -227,41 +361,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     } finally {
       setBusy(false)
     }
-  }, [folderPath, preset, refreshRuns, selectedPreset.agents, showToast, switchboardRoot, updateAgent, workspaceId])
-
-  const handleIngestRun = useCallback(async () => {
-    if (!folderPath || !selectedRun) return
-    setBusy(true)
-    try {
-      const result = await window.api.ingestWatchtowerOutputs({ workspaceRoot: folderPath, runId: selectedRun.runId })
-      if (!result.ok) {
-        showToast('error', result.message)
-        return
-      }
-      setInvalidOutputs((current) => ({ ...current, [selectedRun.runId]: result.invalid }))
-      await Promise.all([refresh(), refreshRuns()])
-      showToast('success', `Ingested ${result.summary.created}; skipped ${result.summary.skipped}; invalid ${result.summary.invalid}.`)
-    } finally {
-      setBusy(false)
-    }
-  }, [folderPath, refresh, refreshRuns, selectedRun, showToast])
-
-  const handleValidateRun = useCallback(async () => {
-    if (!folderPath || !selectedRun) return
-    setBusy(true)
-    try {
-      const result = await window.api.validateWatchtowerOutputs({ workspaceRoot: folderPath, runId: selectedRun.runId })
-      if (!result.ok) {
-        showToast('error', result.message)
-        return
-      }
-      setInvalidOutputs((current) => ({ ...current, [selectedRun.runId]: result.invalid }))
-      await refreshRuns()
-      showToast('info', `Validated ${result.valid.length}; invalid ${result.invalid.length}.`)
-    } finally {
-      setBusy(false)
-    }
-  }, [folderPath, refreshRuns, selectedRun, showToast])
+  }, [cliRuntimes, folderPath, preset, refreshRuns, selectedPreset.agents, showToast, switchboardRoot, updateAgent, workspaceId])
 
   const handleImportGitHub = useCallback(async () => {
     if (!folderPath) return
@@ -440,19 +540,39 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     <div className={`relative flex h-full min-h-0 ${PANEL_BG} text-[#d7d7dc]`}>
       <section
         className="flex w-[44%] min-w-[320px] max-w-[560px] flex-col border-r border-[#1f2025]"
-        aria-label="Watchtower inbox"
+        aria-label="Inbox"
       >
-        <header className="flex items-center justify-between gap-3 border-b border-[#1f2025] px-3 py-2.5">
+        <RunReviewSection
+          preset={preset}
+          onPresetChange={setPreset}
+          runs={runs}
+          selectedRun={selectedRun}
+          selectedRunAgentCounts={selectedRunAgentCounts}
+          onSelectRun={setSelectedRunId}
+          onStartReview={handleStartReview}
+          busy={busy}
+        />
+
+        <FetchExternalSection
+          open={fetchOpen}
+          onToggle={() => setFetchOpen((current) => !current)}
+          importResult={importResult}
+          onImportGitHub={handleImportGitHub}
+          onImportJira={handleImportJira}
+          busy={busy}
+        />
+
+        <header className="flex items-center justify-between gap-3 border-b border-t border-[#1f2025] bg-[#0b0c0f] px-3 py-2.5">
           <div className="flex min-w-0 items-center gap-2">
             <span
               className="h-2 w-2 shrink-0 rounded-full"
               style={{ background: ACCENT }}
               aria-hidden="true"
             />
-            <h2 className="truncate text-[12px] font-semibold uppercase tracking-[0.08em] text-[#ececee]">
-              Watchtower Inbox
+            <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#ececee]">
+              Inbox
             </h2>
-            <span className="shrink-0 text-[11px] text-[#6f7078]">{inbox.length}</span>
+            <span className="shrink-0 tabular-nums text-[11px] text-[#6f7078]">{inbox.length}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <button
@@ -473,22 +593,6 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           </div>
         </header>
 
-        <ReviewRunSection
-          preset={preset}
-          onPresetChange={setPreset}
-          runs={runs}
-          selectedRun={selectedRun}
-          invalidOutputs={selectedRun ? invalidOutputs[selectedRun.runId] ?? [] : []}
-          onSelectRun={setSelectedRunId}
-          onValidateRun={handleValidateRun}
-          onStartReview={handleStartReview}
-          onIngestRun={handleIngestRun}
-          importResult={importResult}
-          onImportGitHub={handleImportGitHub}
-          onImportJira={handleImportJira}
-          busy={busy}
-        />
-
         {state.kind === 'error' ? (
           <Banner tone="error" message={state.message} onRetry={refresh} />
         ) : null}
@@ -503,16 +607,15 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           {state.kind === 'loading' && inbox.length === 0 ? (
             <li className="px-3 py-3 text-[12px] text-[#6f7078]">Loading inbox...</li>
           ) : inbox.length === 0 ? (
-            <li className="px-3 py-6 text-[12px] text-[#6f7078]">
-              {state.kind === 'ready'
-                ? 'Inbox is empty. Create a task or run a Watchtower review.'
-                : 'No inbox tasks yet.'}
+            <li className="px-3 py-6 text-[12px] leading-5 text-[#6f7078]">
+              {inboxEmptyMessage(state.kind, runs)}
             </li>
           ) : (
             inbox.map((record) => (
               <InboxRow
                 key={record.task.id}
                 record={record}
+                attribution={inboxAttribution.get(record.task.id) ?? null}
                 selected={selectedId === record.task.id}
                 onSelect={() => {
                   setSelectedId(record.task.id)
@@ -561,33 +664,70 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   )
 }
 
-function ReviewRunSection({
+function inboxEmptyMessage(stateKind: 'idle' | 'loading' | 'ready' | 'error', runs: WatchtowerRun[]): string {
+  if (stateKind !== 'ready') return 'No inbox tasks yet.'
+  if (runs.length === 0) return 'Inbox empty. Run a review or fetch issues.'
+  const activeRun = runs.find((run) => run.status === 'running' || run.status === 'pending'
+    || run.agents.some((agent) => agent.status === 'running' || agent.status === 'pending'))
+  if (activeRun) return 'Reviewers running. Tasks land here as each one finds something.'
+  const lastRun = runs[0]
+  const failedAgents = lastRun?.agents.filter((agent) => agent.status === 'failed') ?? []
+  if (failedAgents.length > 0) {
+    const names = failedAgents.map((agent) => specialistShortLabel(agent)).join(', ')
+    return `Last review: ${names} failed. See the run row above for details.`
+  }
+  return 'Last review found nothing actionable. Run another review or fetch issues.'
+}
+
+function specialistShortLabel(agent: WatchtowerRunAgent): string {
+  if (!agent.specialistId) return agent.agentId
+  try {
+    return getSpecialistAction(agent.specialistId as SpecialistActionId).shortLabel
+  } catch {
+    return agent.specialistId
+  }
+}
+
+function agentPillState(agent: WatchtowerRunAgent, addedCount: number): { label: string; tone: 'running' | 'done' | 'idle' | 'failed' } {
+  switch (agent.status) {
+    case 'running':
+    case 'pending':
+      return { label: addedCount > 0 ? `reviewing… ${addedCount} added` : 'reviewing…', tone: 'running' }
+    case 'completed':
+      return { label: addedCount === 0 ? 'no findings' : `${addedCount} added`, tone: 'done' }
+    case 'failed':
+      return { label: 'failed', tone: 'failed' }
+    case 'canceled':
+      return { label: 'canceled', tone: 'idle' }
+    default:
+      return { label: agent.status, tone: 'idle' }
+  }
+}
+
+const PILL_TONE_CLASSES: Record<'running' | 'done' | 'idle' | 'failed', string> = {
+  running: 'border-[#3a3426] bg-[#1d1714] text-[#f2c45f]',
+  done: 'border-[#234d27] bg-[#0f1d10] text-[#9be39e]',
+  idle: 'border-[#2a2b31] bg-[#111216] text-[#9a9aa2]',
+  failed: 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]',
+}
+
+function RunReviewSection({
   preset,
   onPresetChange,
   runs,
   selectedRun,
-  invalidOutputs,
+  selectedRunAgentCounts,
   onSelectRun,
-  onValidateRun,
   onStartReview,
-  onIngestRun,
-  importResult,
-  onImportGitHub,
-  onImportJira,
   busy,
 }: {
   preset: WatchtowerReviewPresetId
   onPresetChange: (next: WatchtowerReviewPresetId) => void
   runs: WatchtowerRun[]
   selectedRun: WatchtowerRun | null
-  invalidOutputs: Extract<WatchtowerOutputValidationResult, { ok: true }>['invalid']
+  selectedRunAgentCounts: Map<string, number>
   onSelectRun: (runId: string) => void
-  onValidateRun: () => void
   onStartReview: () => void
-  onIngestRun: () => void
-  importResult: SwitchboardImportResult | null
-  onImportGitHub: () => void
-  onImportJira: () => void
   busy: boolean
 }) {
   const selectedPreset = WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
@@ -596,7 +736,7 @@ function ReviewRunSection({
     <div className="border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-3">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Review Run</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Run a review</div>
           <div className="mt-1 truncate text-[12px] text-[#c8c8cf]">{selectedPreset.description}</div>
         </div>
         <button
@@ -613,12 +753,13 @@ function ReviewRunSection({
           value={preset}
           onChange={(event) => onPresetChange(event.target.value as WatchtowerReviewPresetId)}
           className="h-8 rounded border border-[#2a2b31] bg-[#0d0e11] px-2 text-[12px] text-[#ececee]"
+          aria-label="Review preset"
         >
           {WATCHTOWER_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => (
             <option key={item.id} value={item.id}>{item.label}</option>
           ))}
         </select>
-        {presetAgents.length > 0 ? (
+        {presetAgents.length > 0 && !selectedRun ? (
           <div className="flex flex-wrap gap-1.5">
             {presetAgents.map(([specialistId, sectors]) => {
               const specialist = getSpecialistAction(specialistId as SpecialistActionId)
@@ -632,179 +773,208 @@ function ReviewRunSection({
           </div>
         ) : null}
       </div>
-      <div className="mt-3 border-t border-[#1f2025] pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">Imports</div>
-          <div className="flex items-center gap-1">
+      {selectedRun ? (
+        <div className="mt-3 border-t border-[#1f2025] pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">
+              {selectedRun.status === 'running' || selectedRun.agents.some((agent) => agent.status === 'running')
+                ? 'Active review'
+                : 'Last review'}
+            </div>
+            {runs.length > 1 ? (
+              <select
+                value={selectedRun.runId}
+                onChange={(event) => onSelectRun(event.target.value)}
+                className="h-6 max-w-[180px] truncate rounded border border-[#2a2b31] bg-[#0d0e11] px-1.5 font-mono text-[11px] text-[#c8c8cf]"
+                aria-label="Switch run"
+              >
+                {runs.slice(0, 8).map((run) => (
+                  <option key={run.runId} value={run.runId}>
+                    {run.runId}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
+          <ul className="mt-2 space-y-1">
+            {selectedRun.agents.map((agent) => {
+              const added = selectedRunAgentCounts.get(agent.agentId) ?? 0
+              const pill = agentPillState(agent, added)
+              return (
+                <li
+                  key={agent.agentId}
+                  className="flex min-w-0 items-center justify-between gap-2 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5"
+                >
+                  <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
+                  <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] ${PILL_TONE_CLASSES[pill.tone]}`}>
+                    {pill.label}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : runs.length === 0 ? null : (
+        <div className="mt-3 border-t border-[#1f2025] pt-3 text-[12px] text-[#6f7078]">
+          No active review.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FetchExternalSection({
+  open,
+  onToggle,
+  importResult,
+  onImportGitHub,
+  onImportJira,
+  busy,
+}: {
+  open: boolean
+  onToggle: () => void
+  importResult: SwitchboardImportResult | null
+  onImportGitHub: () => void
+  onImportJira: () => void
+  busy: boolean
+}) {
+  return (
+    <div className="border-b border-[#1f2025] bg-[#0b0c0f]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#0e0f12]"
+      >
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Fetch external</span>
+        <span className="text-[11px] text-[#6f7078]">{open ? '−' : '+'}</span>
+      </button>
+      {open ? (
+        <div className="px-3 pb-3">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={onImportGitHub}
               disabled={busy}
-              className="h-6 rounded border border-[#2a2b31] px-2 text-[11px] text-[#c8c8cf] hover:bg-[#111216] disabled:opacity-50"
+              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#c8c8cf] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
             >
-              GitHub
+              Fetch GitHub
             </button>
             <button
               type="button"
               onClick={onImportJira}
               disabled={busy}
-              className="h-6 rounded border border-[#2a2b31] px-2 text-[11px] text-[#c8c8cf] hover:bg-[#111216] disabled:opacity-50"
+              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#c8c8cf] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
             >
-              Jira
+              Fetch Jira
             </button>
           </div>
-        </div>
-        {importResult ? (
-          <div className="mt-2 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5 text-[11px] text-[#8a8a92]">
-            {importResult.ok ? (
-              <>
-                <div>
-                  {importResult.provider}: created {importResult.summary.created}, updated {importResult.summary.updated}, skipped {importResult.summary.skipped}, errors {importResult.summary.errors}
-                </div>
-                {importResult.items.length > 0 ? (
-                  <div className="mt-1 max-h-24 overflow-auto border-t border-[#202128] pt-1">
-                    {importResult.items.slice(0, 8).map((item, index) => (
-                      <div key={`${item.externalKey ?? item.externalUrl ?? index}:${index}`} className="flex min-w-0 items-center gap-2 py-0.5">
-                        <span className={
-                          item.status === 'created'
-                            ? 'shrink-0 text-[#8fd49c]'
-                            : item.status === 'error'
-                              ? 'shrink-0 text-[#ff9ea0]'
-                              : 'shrink-0 text-[#d8b56d]'
-                        }>
-                          {item.status}
-                        </span>
-                        <span className="truncate font-mono text-[#a1a1aa]">
-                          {item.externalKey ?? item.externalUrl ?? 'unknown source'}
-                        </span>
-                        {item.message ? <span className="truncate text-[#6f7078]">{item.message}</span> : null}
-                      </div>
-                    ))}
+          {importResult ? (
+            <div className="mt-2 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5 text-[11px] text-[#8a8a92]">
+              {importResult.ok ? (
+                <>
+                  <div>
+                    {importResult.provider}: created {importResult.summary.created}, updated {importResult.summary.updated}, skipped {importResult.summary.skipped}, errors {importResult.summary.errors}
                   </div>
-                ) : null}
-              </>
-            ) : (
-              <span>{importResult.provider}: {importResult.message}</span>
-            )}
-          </div>
-        ) : null}
-      </div>
-      <div className="mt-3 border-t border-[#1f2025] pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">Recent Runs</div>
-          {selectedRun ? (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={onValidateRun}
-                disabled={busy}
-                className="h-6 rounded border border-[#2a2b31] px-2 text-[11px] text-[#c8c8cf] hover:bg-[#111216] disabled:opacity-50"
-              >
-                Validate
-              </button>
-              <button
-                type="button"
-                onClick={onIngestRun}
-                disabled={busy}
-                className="h-6 rounded border border-[#2a2b31] px-2 text-[11px] text-[#c8c8cf] hover:bg-[#111216] disabled:opacity-50"
-              >
-                Ingest
-              </button>
+                  {importResult.items.length > 0 ? (
+                    <div className="mt-1 max-h-24 overflow-auto border-t border-[#202128] pt-1">
+                      {importResult.items.slice(0, 8).map((item, index) => (
+                        <div key={`${item.externalKey ?? item.externalUrl ?? index}:${index}`} className="flex min-w-0 items-center gap-2 py-0.5">
+                          <span className={
+                            item.status === 'created'
+                              ? 'shrink-0 text-[#8fd49c]'
+                              : item.status === 'error'
+                                ? 'shrink-0 text-[#ff9ea0]'
+                                : 'shrink-0 text-[#d8b56d]'
+                          }>
+                            {item.status}
+                          </span>
+                          <span className="truncate font-mono text-[#a1a1aa]">
+                            {item.externalKey ?? item.externalUrl ?? 'unknown source'}
+                          </span>
+                          {item.message ? <span className="truncate text-[#6f7078]">{item.message}</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <span>{importResult.provider}: {importResult.message}</span>
+              )}
             </div>
           ) : null}
         </div>
-        {runs.length === 0 ? (
-          <div className="mt-2 text-[12px] text-[#6f7078]">No Watchtower runs yet.</div>
-        ) : (
-          <div className="mt-2 max-h-32 space-y-1 overflow-auto">
-            {runs.slice(0, 6).map((run) => (
-              <button
-                type="button"
-                key={run.runId}
-                onClick={() => onSelectRun(run.runId)}
-                className={`flex w-full min-w-0 items-center justify-between gap-2 rounded border px-2 py-1.5 text-left ${
-                  selectedRun?.runId === run.runId
-                    ? 'border-[#3a2820] bg-[#17110f]'
-                    : 'border-[#202128] bg-[#0d0e11] hover:bg-[#111216]'
-                }`}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-mono text-[11px] text-[#d7d7dc]">{run.runId}</span>
-                  <span className="mt-0.5 block text-[11px] text-[#6f7078]">
-                    {run.status} · valid {run.counts.valid} · invalid {run.counts.invalid} · ingested {run.counts.ingested}
-                  </span>
-                </span>
-                <span className="shrink-0 text-[11px] text-[#6f7078]">{run.agents.length}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        {invalidOutputs.length > 0 ? (
-          <div className="mt-2 max-h-28 overflow-auto rounded border border-[#3a2222] bg-[#171010]">
-            {invalidOutputs.slice(0, 4).map((output) => (
-              <div key={`${output.path}:${output.line ?? 'file'}`} className="border-b border-[#2a1919] px-2 py-1.5 last:border-b-0">
-                <div className="truncate font-mono text-[11px] text-[#ffb3b5]">
-                  {output.path}{output.line ? `:${output.line}` : ''}
-                </div>
-                <div className="mt-0.5 text-[11px] leading-4 text-[#d6a0a2]">{output.error}</div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
+      ) : null}
     </div>
   )
 }
 
 function InboxRow({
   record,
+  attribution,
   selected,
   onSelect,
 }: {
   record: SwitchboardTaskRecord
+  attribution: { run: WatchtowerRun; agent: WatchtowerRunAgent } | null
   selected: boolean
   onSelect: () => void
 }) {
   const task = record.task
   const commentCount = task.comments.length
-  const labels = task.labels.slice(0, 3)
+  const labels = task.labels.slice(0, 2)
+  const provenanceLabel = attribution
+    ? `review · ${specialistShortLabel(attribution.agent)}`
+    : record.task.source.type !== 'manual'
+      ? sourceLabel(record)
+      : null
+  const descriptionPreview = task.description
+    ? task.description.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim()
+    : null
   return (
     <li>
       <button
         type="button"
         onClick={onSelect}
         aria-pressed={selected}
-        className={`flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left ${ROW_DIVIDER} ${
+        className={`relative flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left border-b border-[#13141a] transition-colors ${
           selected
-            ? 'bg-[#17181d] text-[#ececee]'
-            : 'hover:bg-[#111216] text-[#c8c8cf]'
+            ? 'bg-[#17181d] pl-[9px] text-[#ececee] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-[#d97757]'
+            : 'hover:bg-[#0e0f12] text-[#c8c8cf]'
         }`}
       >
-        <span
-          className={`shrink-0 font-mono text-[11px] ${selected ? 'text-[#ffd6c2]' : 'text-[#8a8a92]'}`}
-          style={{ minWidth: 56 }}
-        >
-          {shortIdentifier(record)}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium">{task.title}</span>
-          <span className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-[#6f7078]">
-            <span className={`shrink-0 ${priorityToneClass(task.priority)}`}>{priorityLabel(task.priority)}</span>
-            <span className="shrink-0">·</span>
-            <span className="truncate">{sourceLabel(record)}</span>
-            {labels.length > 0 ? (
-              <>
-                <span className="shrink-0">·</span>
-                <span className="truncate">{labels.join(', ')}</span>
-              </>
+        <span className="min-w-0 flex-1 space-y-0.5">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span
+              className={`shrink-0 font-mono tabular-nums text-[11px] ${selected ? 'text-[#ffd6c2]' : 'text-[#8a8a92]'}`}
+            >
+              {shortIdentifier(record)}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{task.title}</span>
+            {provenanceLabel ? (
+              <span className="shrink-0 rounded border border-[#2a2b31] bg-[#0d0e11] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em] text-[#9a9aa2]">
+                {provenanceLabel}
+              </span>
             ) : null}
           </span>
-        </span>
-        <span className="ml-2 shrink-0 text-right">
-          <span className="block text-[11px] text-[#6f7078]">{formatRelativeTime(task.createdAt)}</span>
-          {commentCount > 0 ? (
-            <span className="mt-0.5 block text-[11px] text-[#9a9aa2]">{commentCount} ◇</span>
+          {descriptionPreview ? (
+            <span className="block truncate text-[12px] leading-5 text-[#8a8a92]">{descriptionPreview}</span>
           ) : null}
+          <span className="flex min-w-0 items-center gap-2 text-[11px] text-[#6f7078]">
+            <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
+            {labels.length > 0 ? (
+              <span className="truncate">{labels.join(' · ')}</span>
+            ) : null}
+            {commentCount > 0 ? (
+              <span className="ml-auto flex items-center gap-1 text-[#9a9aa2]">
+                <CommentIcon className="h-3 w-3 shrink-0" />
+                <span className="tabular-nums">{commentCount}</span>
+              </span>
+            ) : null}
+            <span className={`shrink-0 tabular-nums ${commentCount > 0 ? '' : 'ml-auto'}`}>
+              {formatRelativeTime(task.createdAt)}
+            </span>
+          </span>
         </span>
       </button>
     </li>
@@ -858,11 +1028,11 @@ function DetailPane({
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#1f2025] px-5 py-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
-            <span className="font-mono text-[12px] text-[#ffd6c2]">{shortIdentifier(record)}</span>
+            <span className="font-mono tabular-nums text-[12px] text-[#ffd6c2]">{shortIdentifier(record)}</span>
             <span>·</span>
             <span>Inbox</span>
             <span>·</span>
-            <span>{formatRelativeTime(task.createdAt)}</span>
+            <span className="tabular-nums">{formatRelativeTime(task.createdAt)}</span>
           </div>
           {editing ? (
             <input
@@ -918,7 +1088,7 @@ function DetailPane({
                 disabled={busy}
                 className="h-7 rounded border border-[#3a2820] bg-[#2c1a18] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#3a2421] disabled:opacity-50"
               >
-                Promote to Board
+                Promote to Switchboard
               </button>
             </>
           )}
@@ -939,10 +1109,10 @@ function DetailPane({
             <input
               value={editForm.identifier}
               onChange={(event) => onEditFormChange({ ...editForm, identifier: event.target.value })}
-              className="block w-48 rounded border border-[#2a2b31] bg-[#0d0e11] px-2 py-1 font-mono text-[12px] text-[#ececee]"
+              className="block w-48 rounded border border-[#2a2b31] bg-[#0d0e11] px-2 py-1 font-mono tabular-nums text-[12px] text-[#ececee]"
             />
           ) : (
-            <span className="font-mono text-[12px] text-[#d7d7dc]">{task.identifier}</span>
+            <span className="font-mono tabular-nums text-[12px] text-[#d7d7dc]">{task.identifier}</span>
           )}
         </PropertyRow>
         <PropertyRow label="Priority">
@@ -962,7 +1132,10 @@ function DetailPane({
               <option value="3">Low</option>
             </select>
           ) : (
-            <span className={`text-[12px] ${priorityToneClass(task.priority)}`}>{priorityLabel(task.priority)}</span>
+            <span className="flex items-center gap-2 text-[12px] text-[#d7d7dc]">
+              <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
+              {priorityLabel(task.priority)}
+            </span>
           )}
         </PropertyRow>
         <PropertyRow label="Labels">
@@ -1063,7 +1236,7 @@ function CommentsSection({ record }: { record: SwitchboardTaskRecord }) {
                 <span className="text-[#6f7078]">·</span>
                 <span className="uppercase tracking-[0.06em] text-[#6f7078]">{comment.kind}</span>
                 <span className="text-[#6f7078]">·</span>
-                <span>{formatRelativeTime(comment.createdAt)}</span>
+                <span className="tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
               </div>
               <pre className="mt-1 whitespace-pre-wrap font-sans text-[13px] leading-6 text-[#d7d7dc]">{comment.body}</pre>
             </li>

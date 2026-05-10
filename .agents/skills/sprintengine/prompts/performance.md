@@ -45,6 +45,8 @@ If no tasks are ready, stop.
 ## Quality Standards
 
 - Lead with measured regressions, likely hot-path defects, memory leaks, unbounded work, missing performance verification, and acceptance mismatches
+- Do not accept performance work as complete when the measured improvement depends on sample data, unrealistic fixtures, fake service responses, stubbed I/O, disabled validation, placeholder caches, bypassed work, or mock-only paths unless the task explicitly names a prototype, fixture, benchmark harness, or isolated experiment.
+- Require measurement or clearly labeled residual risk for the real production path, including the real data source, renderer path, command, service, persistence layer, or native integration when relevant.
 - Distinguish measured findings from static-analysis hypotheses
 - Prefer small, concrete remediation over broad rewrites or speculative caching
 - Use `recommendedTasks` on review artifacts for follow-up work; do not add task cards

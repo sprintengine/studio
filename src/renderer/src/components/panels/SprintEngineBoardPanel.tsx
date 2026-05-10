@@ -305,7 +305,7 @@ function buildWorkerRespawnStartupPrompt(
 ): string {
   return [
     'Fetch the canonical Sprint Engine instructions from the Python tool.',
-    `You are assigned role: ${role}. Only claim and work Sprint Engine tasks whose role exactly matches ${role}. Keep picking up ready ${role} tasks with this same agent id until no ${role} task is ready, you are blocked, you need user input, or your context window is about 70% full. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
+    `You are assigned role: ${role}. Only claim and work Sprint Engine tasks whose role exactly matches ${role}. Keep polling for ready ${role} tasks with this same agent id: claim one task, complete it, publish evidence, mark it done, then poll again. Stop only when no ${role} task is ready, you are blocked, you need user input, or your context window is about 70% full. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
     'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
     [
       '```powershell',
@@ -1196,9 +1196,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               type="button"
               role="switch"
               aria-checked={autoEnabled}
-              aria-label={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
+              aria-label={autoEnabled ? 'Pause roster runner' : 'Start roster runner'}
               onClick={toggleAuto}
-              title={autoEnabled ? 'Pause sprintengine auto-run' : 'Start sprintengine auto-run'}
+              title={autoEnabled ? 'Pause roster runner' : 'Start roster runner'}
               className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors ${
                 autoEnabled
                   ? 'border-[#5c7cff]/55 bg-[#5c7cff]/14 text-[#d4ddff] hover:border-[#5c7cff]/75 hover:bg-[#5c7cff]/18'
@@ -1220,7 +1220,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
                   : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
               } disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#111216] disabled:hover:text-[#8a8a92]`}
-              title={autoEnabled ? 'Approve all artifacts' : 'Start sprintengine auto-run before approving all artifacts'}
+              title={autoEnabled ? 'Approve all artifacts' : 'Start the roster runner before approving all artifacts'}
             >
               <span
                 className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
@@ -1237,10 +1237,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               <span>Approve all artifacts</span>
             </button>
             <span id="artifact-auto-approval-disabled" className="sr-only">
-              SprintEngine auto-run must be enabled before artifacts can be approved automatically.
+              The roster runner must be enabled before artifacts can be approved automatically.
             </span>
             <label className="sr-only" htmlFor={`sprintengine-cli-permissions-${workspaceId}`}>
-              CLI permissions for sprintengine auto-run
+              CLI permissions for the Sprint Engine roster runner
             </label>
             <select
               id={`sprintengine-cli-permissions-${workspaceId}`}
@@ -1250,7 +1250,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               }
               title={
                 sprintEngineCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title
-                ?? 'CLI permissions for sprintengine auto-run'
+                ?? 'CLI permissions for the Sprint Engine roster runner'
               }
               className={`h-8 rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none transition-colors focus:ring-1 ${
                 cliPermissionPreset === 'bypass_all'
@@ -1544,7 +1544,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   ? Boolean(agents[task.ownerAgentId]?.cliStartRequested)
                   : false
                 const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
-                const statusLabel = boardColumn === 'ready' ? 'Ready' : taskStateLabel[task.status]
                 const dependencyLabel = task.dependsOn.length > 0
                   ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
                   : 'root'
@@ -1606,7 +1605,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                         }}
                       />
                     ) : null}
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
                           <span>{task.id}</span>
@@ -1630,21 +1629,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                         </div>
                         <div className="mt-1 text-sm font-semibold leading-5 text-[#ececee]">{task.title}</div>
                       </div>
-                      <span
-                        className={`shrink-0 text-[10px] font-bold uppercase tracking-[0.1em] ${
-                          task.status === 'needs_input'
-                            ? 'text-[#ffbf2f]'
-                            : boardColumn === 'ready'
-                              ? 'text-[#30d158]'
-                              : task.status === 'in_progress'
-                                ? 'text-[#ffd58a]'
-                                : task.status === 'done'
-                                  ? 'text-[#b9f7c8]'
-                                  : 'text-[#5a5a63]'
-                        }`}
-                      >
-                        {statusLabel}
-                      </span>
                     </div>
 
                     <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-[#5a5a63]">
@@ -2492,7 +2476,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   Architect Plan
                 </div>
                 <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  {planFilePath ?? '.multi-code/sprintengine/plan.md'}
+                  {planFilePath ?? '.multi-code/sprintengine/<team>/plan.md'}
                 </h3>
               </div>
               <div className="flex flex-wrap items-center gap-2">

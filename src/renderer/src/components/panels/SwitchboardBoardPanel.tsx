@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { CommentIcon, PriorityIcon, StatusIcon } from '../AppIcons'
 import {
   BOARD_STATUS_ORDER,
   formatRelativeTime,
   groupTasksByStatus,
   legalMoveTargets,
   priorityLabel,
-  priorityToneClass,
   shortIdentifier,
   sourceLabel,
   statusLabel,
@@ -23,6 +23,7 @@ import {
 } from '../../utils/switchboardRunner'
 import type {
   SwitchboardExecutionProviderKind,
+  SwitchboardExecutionStatus,
   SwitchboardFolderStatus,
   SwitchboardRunnerExecution,
   SwitchboardRunnerQueue,
@@ -64,6 +65,14 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     () => tasks.filter((record) => record.location.folderStatus !== 'inbox'),
     [tasks]
   )
+  const executionStatusByTaskId = useMemo(() => {
+    const map = new Map<string, SwitchboardExecutionStatus>()
+    const executions = runner.state?.activeExecutions ?? []
+    for (const execution of executions) {
+      if (execution.status) map.set(execution.taskId, execution.status)
+    }
+    return map
+  }, [runner.state])
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -71,9 +80,16 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
   const [commentBody, setCommentBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<Toast | null>(null)
+  const [dragSource, setDragSource] = useState<{ taskId: string; from: SwitchboardFolderStatus } | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ lane: SwitchboardTaskStatus; index: number } | null>(null)
+  const dragLegalTargets = useMemo(
+    () => (dragSource ? new Set<SwitchboardTaskStatus>(legalMoveTargets(dragSource.from)) : new Set<SwitchboardTaskStatus>()),
+    [dragSource]
+  )
 
   useEffect(() => {
     if (!toast) return
+    if (toast.tone === 'error') return
     const handle = window.setTimeout(() => setToast(null), 4000)
     return () => window.clearTimeout(handle)
   }, [toast])
@@ -189,10 +205,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
               style={{ background: ACCENT }}
               aria-hidden="true"
             />
-            <h2 className="truncate text-[12px] font-semibold uppercase tracking-[0.08em] text-[#ececee]">
-              Switchboard Board
-            </h2>
-            <span className="shrink-0 text-[11px] text-[#6f7078]">{boardTasks.length}</span>
+            <span className="shrink-0 text-[11px] text-[#6f7078]">{boardTasks.length} tasks</span>
             {switchboardRoot ? (
               <span className="ml-2 hidden truncate font-mono text-[11px] text-[#5a5a63] md:inline">
                 {switchboardRoot}
@@ -217,7 +230,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
           </div>
         </header>
 
-        <RunnerToolbar runner={runner} workspaceId={workspaceId} />
+        <RunnerToolbar runner={runner} workspaceId={workspaceId} onRefresh={refresh} onNotify={showToast} />
 
         {state.kind === 'error' ? <Banner tone="error" message={state.message} onRetry={refresh} /> : null}
         {problems.length > 0 ? (
@@ -227,32 +240,66 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
           />
         ) : null}
 
-        <div className="flex min-h-0 flex-1 overflow-x-auto">
+        <div className="flex min-h-0 flex-1 gap-1.5 overflow-x-auto px-1.5 py-2">
           {state.kind === 'loading' && boardTasks.length === 0 ? (
             <div className="flex h-full w-full items-center justify-center text-[12px] text-[#6f7078]">
               Loading board...
             </div>
           ) : (
-            BOARD_STATUS_ORDER.map((status) => (
-              <BoardLane
-                key={status}
-                status={status}
-                records={grouped[status] ?? []}
-                selectedId={selectedId}
-                onSelect={(id) => setSelectedId(id)}
-              />
-            ))
+            BOARD_STATUS_ORDER.map((status) => {
+              const isLegalDropTarget = Boolean(dragSource) && dragLegalTargets.has(status)
+              const isSourceLane = dragSource?.from === status
+              return (
+                <BoardLane
+                  key={status}
+                  status={status}
+                  records={grouped[status] ?? []}
+                  executionStatusByTaskId={executionStatusByTaskId}
+                  selectedId={selectedId}
+                  onSelect={(id) => setSelectedId(id)}
+                  dragActive={Boolean(dragSource)}
+                  isLegalDropTarget={isLegalDropTarget}
+                  isSourceLane={isSourceLane}
+                  dropIndex={dropTarget?.lane === status ? dropTarget.index : null}
+                  onDragOverLane={(index) => {
+                    if (!isLegalDropTarget) return
+                    setDropTarget((current) => {
+                      if (current?.lane === status && current.index === index) return current
+                      return { lane: status, index }
+                    })
+                  }}
+                  onDragLeaveLane={() => {
+                    setDropTarget((current) => (current?.lane === status ? null : current))
+                  }}
+                  onDropLane={() => {
+                    if (!dragSource || !isLegalDropTarget) return
+                    const record = tasks.find((task) => task.task.id === dragSource.taskId)
+                    if (record) void handleMove(record, status)
+                    setDragSource(null)
+                    setDropTarget(null)
+                  }}
+                  onCardDragStart={(record) => {
+                    setDragSource({ taskId: record.task.id, from: record.location.folderStatus })
+                  }}
+                  onCardDragEnd={() => {
+                    setDragSource(null)
+                    setDropTarget(null)
+                  }}
+                />
+              )
+            })
           )}
         </div>
       </section>
 
       <aside
-        className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[#1f2025]"
+        className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[#13141a]"
         aria-label="Selected task detail"
       >
         {selected ? (
           <BoardDetailPane
             record={selected}
+            executionStatus={executionStatusByTaskId.get(selected.task.id) ?? null}
             commentBody={commentBody}
             onCommentChange={setCommentBody}
             onAddComment={handleAddComment}
@@ -282,37 +329,102 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
 function BoardLane({
   status,
   records,
+  executionStatusByTaskId,
   selectedId,
   onSelect,
+  dragActive,
+  isLegalDropTarget,
+  isSourceLane,
+  dropIndex,
+  onDragOverLane,
+  onDragLeaveLane,
+  onDropLane,
+  onCardDragStart,
+  onCardDragEnd,
 }: {
-  status: SwitchboardFolderStatus
+  status: SwitchboardTaskStatus
   records: SwitchboardTaskRecord[]
+  executionStatusByTaskId: Map<string, SwitchboardExecutionStatus>
   selectedId: string | null
   onSelect: (id: string) => void
+  dragActive: boolean
+  isLegalDropTarget: boolean
+  isSourceLane: boolean
+  dropIndex: number | null
+  onDragOverLane: (index: number) => void
+  onDragLeaveLane: () => void
+  onDropLane: () => void
+  onCardDragStart: (record: SwitchboardTaskRecord) => void
+  onCardDragEnd: () => void
 }) {
+  const listRef = useRef<HTMLOListElement | null>(null)
+  const dimmed = dragActive && !isLegalDropTarget && !isSourceLane
+  const laneClass = [
+    'flex h-full w-[260px] shrink-0 flex-col rounded-md transition-colors',
+    isLegalDropTarget
+      ? 'bg-[#0c0d11] ring-1 ring-[#2a2350]'
+      : 'bg-[#0a0b0e]',
+    dimmed ? 'opacity-40' : '',
+  ].filter(Boolean).join(' ')
+  const computeDropIndex = (clientY: number): number => {
+    const list = listRef.current
+    if (!list) return 0
+    const cards = list.querySelectorAll('[data-card="true"]')
+    for (let i = 0; i < cards.length; i += 1) {
+      const rect = cards[i].getBoundingClientRect()
+      if (clientY < rect.top + rect.height / 2) return i
+    }
+    return cards.length
+  }
   return (
     <div
-      className="flex h-full w-[260px] shrink-0 flex-col border-r border-[#1f2025]"
+      className={laneClass}
       role="group"
       aria-label={`${statusLabel(status)} lane`}
+      onDragOver={(event) => {
+        if (!isLegalDropTarget) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        onDragOverLane(computeDropIndex(event.clientY))
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+        onDragLeaveLane()
+      }}
+      onDrop={(event) => {
+        if (!isLegalDropTarget) return
+        event.preventDefault()
+        onDropLane()
+      }}
     >
-      <div className="flex items-baseline justify-between gap-2 border-b border-[#1f2025] px-3 py-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2]">
-          {statusLabel(status)}
+      <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <StatusIcon status={status} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
+          <span className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2]">
+            {statusLabel(status)}
+          </span>
         </span>
-        <span className="text-[11px] text-[#6f7078]">{records.length}</span>
+        <span className="text-[11px] tabular-nums text-[#6f7078]">{records.length}</span>
       </div>
-      <ol className="flex-1 space-y-2 overflow-auto px-2 py-2">
+      <ol ref={listRef} className="flex-1 space-y-2 overflow-auto px-2 py-2">
         {records.length === 0 ? (
-          <li className="px-1 py-2 text-[11px] text-[#5a5a63]">Empty</li>
+          <li className="px-1 py-2 text-[11px] text-[#5a5a63]">
+            {dropIndex === 0 ? <DropIndicator /> : 'Empty'}
+          </li>
         ) : (
-          records.map((record) => (
-            <BoardCard
-              key={record.task.id}
-              record={record}
-              selected={selectedId === record.task.id}
-              onSelect={() => onSelect(record.task.id)}
-            />
+          records.map((record, index) => (
+            <Fragment key={record.task.id}>
+              {dropIndex === index ? <DropIndicator /> : null}
+              <BoardCard
+                record={record}
+                executionStatus={executionStatusByTaskId.get(record.task.id) ?? null}
+                selected={selectedId === record.task.id}
+                onSelect={() => onSelect(record.task.id)}
+                onDragStart={() => onCardDragStart(record)}
+                onDragEnd={onCardDragEnd}
+              />
+              {index === records.length - 1 && dropIndex === records.length ? <DropIndicator /> : null}
+            </Fragment>
           ))
         )}
       </ol>
@@ -322,55 +434,204 @@ function BoardLane({
 
 function BoardCard({
   record,
+  executionStatus,
   selected,
   onSelect,
+  onDragStart,
+  onDragEnd,
 }: {
   record: SwitchboardTaskRecord
+  executionStatus: SwitchboardExecutionStatus | null
   selected: boolean
   onSelect: () => void
+  onDragStart: () => void
+  onDragEnd: () => void
 }) {
   const task = record.task
   const labels = task.labels.slice(0, 2)
   const commentCount = task.comments.length
-  const activeExecution = task.execution.activeExecutionId
+  const hasActiveExecutionPointer = Boolean(task.execution.activeExecutionId)
+  const effectiveStatus: SwitchboardExecutionStatus | null = executionStatus
+    ?? (hasActiveExecutionPointer ? 'active' : null)
+  const [dragging, setDragging] = useState(false)
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLLIElement>) => {
+    if (event.target !== event.currentTarget) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onSelect()
+    }
+  }
+
   return (
-    <li>
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-pressed={selected}
-        className={`block w-full min-w-0 rounded-md border px-2.5 py-2 text-left transition-colors ${
-          selected
-            ? 'border-[#7c5cf2] bg-[#1a1530] text-[#ececee] shadow-[inset_0_-1px_0_rgba(124,92,242,0.5)]'
-            : 'border-[#24252b] bg-[#0d0e11] text-[#d7d7dc] hover:border-[#3a3b42] hover:bg-[#111216]'
-        }`}
-      >
-        <div className="flex items-baseline justify-between gap-2 text-[11px]">
-          <span className={`font-mono ${selected ? 'text-[#cdbcff]' : 'text-[#8a8a92]'}`}>
-            {shortIdentifier(record)}
+    <li
+      data-card="true"
+      draggable
+      tabIndex={0}
+      role="button"
+      aria-pressed={selected}
+      aria-label={`${task.title} (${statusLabel(record.location.folderStatus)})`}
+      onClick={onSelect}
+      onKeyDown={handleKeyDown}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', task.id)
+        setDragging(true)
+        onDragStart()
+      }}
+      onDragEnd={() => {
+        setDragging(false)
+        onDragEnd()
+      }}
+      className={`relative rounded-md border px-2.5 py-2 shadow-[0_1px_0_rgba(0,0,0,0.4)] transition-colors focus:outline-none focus:ring-1 focus:ring-[#7c5cf2] ${
+        dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab'
+      } ${
+        selected
+          ? 'border-[#16171c] border-l-[3px] border-l-[#7c5cf2] bg-[#100c1e] pl-[7px] text-[#ececee]'
+          : 'border-[#16171c] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#111216]'
+      }`}
+    >
+      <div className="flex items-baseline justify-between gap-2 text-[11px]">
+        <span className={`font-mono tabular-nums ${selected ? 'text-[#cdbcff]' : 'text-[#8a8a92]'}`}>
+          {shortIdentifier(record)}
+        </span>
+        <PriorityIcon
+          priority={task.priority}
+          className={`h-3.5 w-3.5 shrink-0 ${selected ? 'text-[#cdbcff]' : 'text-[#9a9aa2]'}`}
+        />
+      </div>
+      <div className="mt-1 line-clamp-2 text-[12.5px] font-medium leading-5">{task.title}</div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-[#6f7078]">
+        {labels.map((label) => (
+          <span key={label} className="rounded border border-[#2a2b31] bg-[#08090b] px-1.5 py-0.5 text-[#a8a8b0]">
+            {label}
           </span>
-          <span className={priorityToneClass(task.priority)}>{priorityLabel(task.priority)}</span>
+        ))}
+        {commentCount > 0 ? (
+          <span className="flex items-center gap-1 text-[#9a9aa2]">
+            <CommentIcon className="h-3 w-3 shrink-0" />
+            <span className="tabular-nums">{commentCount}</span>
+          </span>
+        ) : null}
+        {effectiveStatus ? (
+          <ExecutionStatusBadge status={effectiveStatus} title={executionTitle(record)} />
+        ) : null}
+        {record.warnings.length > 0 ? (
+          <span className="text-[#f2c45f]" title={record.warnings.join('; ')}>
+            ⚠
+          </span>
+        ) : null}
+      </div>
+    </li>
+  )
+}
+
+function DropIndicator() {
+  return (
+    <li aria-hidden="true" className="-my-1 list-none">
+      <div className="h-[2px] rounded-full bg-[#7c5cf2] shadow-[0_0_6px_rgba(124,92,242,0.6)]" />
+    </li>
+  )
+}
+
+const EXECUTION_STATUS_LABELS: Record<SwitchboardExecutionStatus, string> = {
+  active: 'exec',
+  abandoned: 'abandoned',
+  stale: 'stale',
+  missing: 'missing',
+  completed: 'completed',
+  stopped: 'stopped',
+}
+
+const EXECUTION_STATUS_TONES: Record<SwitchboardExecutionStatus, string> = {
+  active: 'border-[#1f3949] bg-[#0d1922] text-[#9fd8ff]',
+  abandoned: 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]',
+  stale: 'border-[#3a3426] bg-[#1d1714] text-[#f2c45f]',
+  missing: 'border-[#3a2222] bg-[#1c1414] text-[#ff9ea0]',
+  completed: 'border-[#234d27] bg-[#0f1d10] text-[#9be39e]',
+  stopped: 'border-[#4a2527] bg-[#1c1414] text-[#ffb3b5]',
+}
+
+function ExecutionStatusBadge({ status, title }: { status: SwitchboardExecutionStatus; title?: string }) {
+  return (
+    <span
+      title={title}
+      className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] ${EXECUTION_STATUS_TONES[status]}`}
+    >
+      {EXECUTION_STATUS_LABELS[status]}
+    </span>
+  )
+}
+
+const ATTEMPT_DOT_TONES: Record<SwitchboardExecutionStatus, string> = {
+  active: 'bg-[#9fd8ff]',
+  abandoned: 'bg-[#ffb3b5]',
+  stale: 'bg-[#f2c45f]',
+  missing: 'bg-[#ff9ea0]',
+  completed: 'bg-[#9be39e]',
+  stopped: 'bg-[#9a9aa2]',
+}
+
+function inferAttemptStatus(
+  attempt: { completedAt?: string | null },
+  isLatest: boolean,
+  liveStatus: SwitchboardExecutionStatus | null
+): SwitchboardExecutionStatus {
+  if (attempt.completedAt) return 'completed'
+  if (isLatest && liveStatus) return liveStatus
+  return 'abandoned'
+}
+
+function AttemptRow({
+  attempt,
+  status,
+}: {
+  attempt: {
+    id: string
+    agentId?: string | null
+    startedAt: string
+    completedAt?: string | null
+    summary?: string | null
+    worktreeBranch?: string | null
+    worktreeState?: string | null
+  }
+  status: SwitchboardExecutionStatus
+}) {
+  return (
+    <li className="grid grid-cols-[10px_1fr] items-start gap-3">
+      <span
+        aria-hidden="true"
+        className={`mt-1.5 h-2 w-2 rounded-full ${ATTEMPT_DOT_TONES[status]}`}
+      />
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex min-w-0 items-baseline justify-between gap-2">
+          <span className="min-w-0 truncate font-mono text-[12px] text-[#d7d7dc]">
+            {attempt.agentId ?? attempt.id}
+          </span>
+          <ExecutionStatusBadge status={status} />
         </div>
-        <div className="mt-1 line-clamp-2 text-[12.5px] font-medium leading-5">{task.title}</div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-[#6f7078]">
-          {labels.map((label) => (
-            <span key={label} className="rounded border border-[#2a2b31] bg-[#08090b] px-1.5 py-0.5 text-[#a8a8b0]">
-              {label}
-            </span>
-          ))}
-          {commentCount > 0 ? <span>{commentCount} ◇</span> : null}
-          {activeExecution ? (
-            <span title={executionTitle(record)} className="text-[#9fd8ff]">
-              Exec
-            </span>
-          ) : null}
-          {record.warnings.length > 0 ? (
-            <span className="text-[#f2c45f]" title={record.warnings.join('; ')}>
-              ⚠
-            </span>
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[#9a9aa2] tabular-nums">
+          <span>started {formatRelativeTime(attempt.startedAt)}</span>
+          {attempt.completedAt ? (
+            <>
+              <span className="text-[#5a5a63]">·</span>
+              <span>ended {formatRelativeTime(attempt.completedAt)}</span>
+            </>
           ) : null}
         </div>
-      </button>
+        {attempt.worktreeBranch || attempt.worktreeState ? (
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[#6f7078]">
+            {attempt.worktreeBranch ? (
+              <span className="font-mono text-[#a1a1aa]">{attempt.worktreeBranch}</span>
+            ) : null}
+            {attempt.worktreeBranch && attempt.worktreeState ? <span>·</span> : null}
+            {attempt.worktreeState ? <span>{attempt.worktreeState}</span> : null}
+          </div>
+        ) : null}
+        {attempt.summary ? (
+          <div className="text-[11.5px] leading-5 text-[#9a9aa2]">{attempt.summary}</div>
+        ) : null}
+      </div>
     </li>
   )
 }
@@ -386,6 +647,7 @@ function EmptyDetail() {
 
 function BoardDetailPane({
   record,
+  executionStatus,
   commentBody,
   onCommentChange,
   onAddComment,
@@ -393,6 +655,7 @@ function BoardDetailPane({
   busy,
 }: {
   record: SwitchboardTaskRecord
+  executionStatus: SwitchboardExecutionStatus | null
   commentBody: string
   onCommentChange: (next: string) => void
   onAddComment: () => void
@@ -405,11 +668,14 @@ function BoardDetailPane({
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-[#1f2025] px-5 py-4">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
-          <span className="font-mono text-[12px] text-[#cdbcff]">{shortIdentifier(record)}</span>
+          <span className="font-mono tabular-nums text-[12px] text-[#cdbcff]">{shortIdentifier(record)}</span>
           <span>·</span>
-          <span>{statusLabel(record.location.folderStatus)}</span>
+          <span className="flex items-center gap-1.5">
+            <StatusIcon status={record.location.folderStatus} className="h-3 w-3 text-[#9a9aa2]" />
+            {statusLabel(record.location.folderStatus)}
+          </span>
           <span>·</span>
-          <span>{formatRelativeTime(task.updatedAt)}</span>
+          <span className="tabular-nums">{formatRelativeTime(task.updatedAt)}</span>
         </div>
         <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[#ececee]">{task.title}</h3>
         {targets.length > 0 ? (
@@ -446,10 +712,16 @@ function BoardDetailPane({
           <span className="font-mono text-[12px] text-[#d7d7dc]">{task.identifier}</span>
         </PropertyRow>
         <PropertyRow label="Status">
-          <span className="text-[12px] text-[#d7d7dc]">{statusLabel(record.location.folderStatus)}</span>
+          <span className="flex items-center gap-2 text-[12px] text-[#d7d7dc]">
+            <StatusIcon status={record.location.folderStatus} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
+            {statusLabel(record.location.folderStatus)}
+          </span>
         </PropertyRow>
         <PropertyRow label="Priority">
-          <span className={`text-[12px] ${priorityToneClass(task.priority)}`}>{priorityLabel(task.priority)}</span>
+          <span className="flex items-center gap-2 text-[12px] text-[#d7d7dc]">
+            <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
+            {priorityLabel(task.priority)}
+          </span>
         </PropertyRow>
         <PropertyRow label="Labels">
           {task.labels.length > 0 ? (
@@ -479,13 +751,24 @@ function BoardDetailPane({
           <span className="text-[12px] text-[#9a9aa2]">{task.updatedAt}</span>
         </PropertyRow>
         <PropertyRow label="Execution">
-          {task.execution.activeExecutionId ? (
-            <span className="space-y-1 text-[12px] text-[#d7d7dc]">
-              <span className="block font-mono">{task.execution.activeExecutionId}</span>
-              <span className="block text-[#9a9aa2]">
-                {task.execution.activeProvider ?? 'unknown provider'}
-                {task.execution.activeSessionId ? ` · session ${task.execution.activeSessionId}` : ''}
+          {task.execution.activeExecutionId || executionStatus ? (
+            <span className="block space-y-1 text-[12px] text-[#d7d7dc]">
+              <span className="flex items-center gap-2">
+                {executionStatus ? (
+                  <ExecutionStatusBadge status={executionStatus} />
+                ) : task.execution.activeExecutionId ? (
+                  <ExecutionStatusBadge status="active" />
+                ) : null}
+                {task.execution.activeExecutionId ? (
+                  <span className="truncate font-mono text-[#d7d7dc]">{task.execution.activeExecutionId}</span>
+                ) : null}
               </span>
+              {task.execution.activeProvider || task.execution.activeSessionId ? (
+                <span className="block text-[#9a9aa2]">
+                  {task.execution.activeProvider ?? 'unknown provider'}
+                  {task.execution.activeSessionId ? ` · session ${task.execution.activeSessionId}` : ''}
+                </span>
+              ) : null}
             </span>
           ) : (
             <span className="text-[12px] text-[#6f7078]">None</span>
@@ -507,6 +790,26 @@ function BoardDetailPane({
           <PropertyRow label="Worktree state">
             <span className="text-[12px] text-[#d7d7dc]">{task.execution.worktreeState}</span>
           </PropertyRow>
+        ) : null}
+
+        {task.execution.attempts.length > 0 ? (
+          <Section title={`Attempts (${task.execution.attempts.length})`}>
+            <ol className="space-y-3">
+              {[...task.execution.attempts]
+                .reverse()
+                .map((attempt, indexFromLatest) => {
+                  const isLatest = indexFromLatest === 0
+                  const status = inferAttemptStatus(attempt, isLatest, executionStatus)
+                  return (
+                    <AttemptRow
+                      key={attempt.id}
+                      attempt={attempt}
+                      status={status}
+                    />
+                  )
+                })}
+            </ol>
+          </Section>
         ) : null}
 
         <Section title="Description">
@@ -536,7 +839,7 @@ function BoardDetailPane({
                     <span className="text-[#6f7078]">·</span>
                     <span className="uppercase tracking-[0.06em] text-[#6f7078]">{comment.kind}</span>
                     <span className="text-[#6f7078]">·</span>
-                    <span>{formatRelativeTime(comment.createdAt)}</span>
+                    <span className="tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
                   </div>
                   <pre className="mt-1 whitespace-pre-wrap font-sans text-[13px] leading-6 text-[#d7d7dc]">{comment.body}</pre>
                 </li>
@@ -768,9 +1071,13 @@ function settingsFromState(state: SwitchboardRunnerState | null): RunnerSettings
 function RunnerToolbar({
   runner,
   workspaceId,
+  onRefresh,
+  onNotify,
 }: {
   runner: SwitchboardRunner
   workspaceId: string
+  onRefresh: () => Promise<void> | void
+  onNotify: (tone: ToastTone, message: string) => void
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [draft, setDraft] = useState<RunnerSettings>(() => settingsFromState(runner.state))
@@ -794,6 +1101,34 @@ function RunnerToolbar({
     })
     if (ok) setSettingsOpen(false)
   }, [draft, runner, workspaceId])
+
+  const handleStopRunner = useCallback(async () => {
+    const confirmed = window.confirm('Stop the Switchboard runner for this workspace? Active executions are not stopped.')
+    if (!confirmed) return
+    const ok = await runner.stop()
+    if (ok) {
+      setSettingsOpen(false)
+      await onRefresh()
+      onNotify('success', 'Runner stopped.')
+    } else {
+      onNotify('error', 'Runner did not stop. Check the runner error message and try again.')
+    }
+  }, [onNotify, onRefresh, runner])
+
+  const handleStopExecution = useCallback(
+    async (execution: SwitchboardRunnerExecution) => {
+      const confirmed = window.confirm(`Stop execution ${execution.executionId}? The task will remain recoverable.`)
+      if (!confirmed) return
+      const ok = await runner.stopExecution(execution.executionId, 'Stopped from Switchboard board.')
+      if (ok) {
+        await onRefresh()
+        onNotify('success', 'Execution stopped.')
+      } else {
+        onNotify('error', 'Execution did not stop. Check the runner error message and try again.')
+      }
+    },
+    [onNotify, onRefresh, runner]
+  )
 
   const summaryQueues = runner.state ? runner.state.queues : draft.queues
   const queuesLabel =
@@ -857,6 +1192,17 @@ function RunnerToolbar({
               Tick
             </button>
           ) : null}
+          {isStarted ? (
+            <button
+              type="button"
+              onClick={() => void handleStopRunner()}
+              disabled={runner.busy}
+              className="h-7 rounded border border-[#4a2527] px-2.5 text-[11px] font-semibold text-[#ffb3b5] hover:bg-[#1c1414] disabled:opacity-50"
+              title="Stop the workspace runner backend"
+            >
+              Stop runner
+            </button>
+          ) : null}
           <button
             type="button"
             aria-pressed={settingsOpen}
@@ -898,7 +1244,13 @@ function RunnerToolbar({
         </div>
       ) : null}
       {activeExecutions.length > 0 ? (
-        <ExecutionsSection title="Active executions" executions={activeExecutions} tone="active" />
+        <ExecutionsSection
+          title="Active executions"
+          executions={activeExecutions}
+          tone="active"
+          busy={runner.busy}
+          onStopExecution={handleStopExecution}
+        />
       ) : null}
       {inactiveExecutions.length > 0 ? (
         <ExecutionsSection title="Other tracked executions" executions={inactiveExecutions} tone="inactive" />
@@ -935,10 +1287,14 @@ function ExecutionsSection({
   title,
   executions,
   tone,
+  busy = false,
+  onStopExecution,
 }: {
   title: string
   executions: SwitchboardRunnerExecution[]
   tone: 'active' | 'inactive'
+  busy?: boolean
+  onStopExecution?: (execution: SwitchboardRunnerExecution) => void
 }) {
   const includeLogsNote = tone === 'active'
   return (
@@ -964,6 +1320,16 @@ function ExecutionsSection({
               <span className="rounded border border-[#3a3426] bg-[#1d1714] px-1.5 py-0.5 text-[10.5px] text-[#f2c45f]">
                 {execution.status}
               </span>
+            ) : null}
+            {tone === 'active' && onStopExecution ? (
+              <button
+                type="button"
+                onClick={() => onStopExecution(execution)}
+                disabled={busy}
+                className="ml-auto h-6 rounded border border-[#4a2527] px-2 text-[10.5px] font-semibold text-[#ffb3b5] hover:bg-[#1c1414] disabled:opacity-50"
+              >
+                Stop
+              </button>
             ) : null}
           </li>
         ))}
@@ -1150,7 +1516,7 @@ function ToastBanner({ toast }: { toast: Toast }) {
         ? 'border-[#234d27] bg-[#0f1d10] text-[#9be39e]'
         : 'border-[#2a2b31] bg-[#111216] text-[#d7d7dc]'
   return (
-    <div className={`pointer-events-none absolute bottom-3 right-3 rounded border px-3 py-1.5 text-[12px] ${cls}`}>
+    <div className={`pointer-events-none absolute bottom-3 right-3 max-w-[520px] rounded border px-3 py-1.5 text-[12px] shadow-[0_12px_30px_rgba(0,0,0,0.35)] ${cls}`}>
       {toast.message}
     </div>
   )

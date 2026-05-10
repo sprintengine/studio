@@ -17,9 +17,9 @@ import type {
   SwitchboardRequeueTaskInput,
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
+  SwitchboardStopExecutionInput,
+  SwitchboardStopExecutionResult,
   SwitchboardUpdateTaskInput,
-  WatchtowerOutputIngestResult,
-  WatchtowerOutputValidationResult,
   WatchtowerRunAgentStatusInput,
   WatchtowerRunCreateInput,
   WatchtowerRunListResult,
@@ -42,14 +42,14 @@ type SwitchboardIpcDependencies = {
   startRunner(input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult>
   pauseRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   resumeRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
+  stopRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   tickRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   getRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult>
+  stopExecution(input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult>
   createWatchtowerRun(input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult>
   getWatchtowerRun(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult>
   updateWatchtowerRunAgentStatus(input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult>
   listWatchtowerRuns(workspaceRoot: string): Promise<WatchtowerRunListResult>
-  validateWatchtowerOutputs(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputValidationResult>
-  ingestWatchtowerOutputs(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputIngestResult>
   importGitHubIssues(workspaceRoot: string): Promise<SwitchboardImportResult>
   importJiraIssues(workspaceRoot: string): Promise<SwitchboardImportResult>
 }
@@ -118,12 +118,20 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
     return deps.resumeRunner(workspaceRoot)
   })
 
+  ipcMain.handle('switchboard:runner:stop', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
+    return deps.stopRunner(workspaceRoot)
+  })
+
   ipcMain.handle('switchboard:runner:tick', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
     return deps.tickRunner(workspaceRoot)
   })
 
   ipcMain.handle('switchboard:runner:state', async (_, workspaceRoot?: string): Promise<SwitchboardRunnerResult> => {
     return deps.getRunnerState(workspaceRoot)
+  })
+
+  ipcMain.handle('switchboard:execution:stop', async (_, input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> => {
+    return deps.stopExecution(input)
   })
 
   ipcMain.handle('switchboard:watchtower:create-run', async (_, input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> => {
@@ -147,20 +155,6 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
   ipcMain.handle('switchboard:watchtower:list-runs', async (_, workspaceRoot: string): Promise<WatchtowerRunListResult> => {
     return deps.listWatchtowerRuns(workspaceRoot)
   })
-
-  ipcMain.handle(
-    'switchboard:watchtower:validate-outputs',
-    async (_, input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputValidationResult> => {
-      return deps.validateWatchtowerOutputs(input)
-    }
-  )
-
-  ipcMain.handle(
-    'switchboard:watchtower:ingest-outputs',
-    async (_, input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputIngestResult> => {
-      return deps.ingestWatchtowerOutputs(input)
-    }
-  )
 
   ipcMain.handle('switchboard:import:github-issues', async (_, workspaceRoot: string): Promise<SwitchboardImportResult> => {
     return deps.importGitHubIssues(workspaceRoot)

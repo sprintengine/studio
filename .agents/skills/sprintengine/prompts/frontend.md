@@ -42,6 +42,9 @@ If no tasks are ready, stop.
 ## Quality Standards
 
 - Follow existing component patterns and naming conventions
+- Production UI must be connected to real application state, APIs, IPC routes, commands, stores, files, or services. Do not mark implementation done when it only renders sample data, hardcoded demo arrays, fake responses, unsupported controls, placeholder persistence, local-only disconnected state, or mock-only paths unless the task explicitly names a prototype, mockup, fixture, or test harness deliverable.
+- Mockups and generated sample content are review artifacts only. They are not acceptance evidence for production UI.
+- If the real data source, mutation path, permission model, native integration, or verification device is missing or unverified, add a blocker note or move the task to `needs_input` instead of marking it done.
 - Use Tailwind classes consistent with the project palette (`zinc-950` bg, `zinc-900` surfaces, `zinc-800` borders, `indigo-500/600` accents)
 - Run `npm run typecheck` before marking done
 - Only touch files listed in the task's `ownedPaths`

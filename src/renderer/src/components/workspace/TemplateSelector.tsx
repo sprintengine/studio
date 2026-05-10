@@ -274,6 +274,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
   const [sprintEngineRoleCliDefaults, setSprintEngineRoleCliDefaults] = useState<Required<SprintEngineRoleCliDefaults>>(
     initialSprintEngineRoleCliDefaults
   )
+  const [sprintEngineStartRunner, setSprintEngineStartRunner] = useState(true)
   const [existingTeams, setExistingTeams] = useState<ExistingTeam[]>([])
   const [selectedExistingTeam, setSelectedExistingTeam] = useState<ExistingTeam | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -485,6 +486,15 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     }))
   }
 
+  const setRoleCount = (role: SprintEngineRole, count: number) => {
+    const min = role === 'architect' ? 1 : 0
+    setSelectedExistingTeam(null)
+    setSprintEngineRoleCounts((current) => ({
+      ...current,
+      [role]: Math.max(min, Math.min(10, Math.floor(count))),
+    }))
+  }
+
   const handleCreate = async () => {
     if (!canCreate) return
 
@@ -549,6 +559,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
         sprintEngineState: loadedState,
         sprintEngineContext: context,
         sprintEngineRoleCliDefaults,
+        sprintEngineAutoState: {
+          enabled: sprintEngineStartRunner,
+          maxConcurrentAgents: Math.max(1, countSprintEngineAgents(loadedState.roleCounts)),
+        },
       })
       return
     }
@@ -572,6 +586,10 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
           sourceContent: futurePlanContent,
           roleCounts: sprintEngineRoleCounts,
           roleCliDefaults: sprintEngineRoleCliDefaults,
+          sprintEngineAutoState: {
+            enabled: sprintEngineStartRunner,
+            maxConcurrentAgents: Math.max(1, totalAgents),
+          },
           pathExists: window.api.pathExists,
         })
         onClose()
@@ -599,6 +617,12 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
       sprintEngineState,
       sprintEngineContext,
       sprintEngineRoleCliDefaults,
+      sprintEngineAutoState: mode === 'sprintengine'
+        ? {
+            enabled: sprintEngineStartRunner,
+            maxConcurrentAgents: Math.max(1, totalAgents),
+          }
+        : null,
     })
   }
 
@@ -1007,7 +1031,31 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                                 </span>
                               </span>
                             </span>
-                            <label className="shrink-0">
+                            <div className="flex shrink-0 items-center gap-2">
+                              <div className="flex h-8 items-center overflow-hidden rounded-md border border-[#303139] bg-[#111216]">
+                                <button
+                                  type="button"
+                                  aria-label={`Decrease ${sprintEngineRoleLabels[role]} count`}
+                                  disabled={selectedExistingTeam != null || (role === 'architect' ? sprintEngineRoleCounts[role] <= 1 : sprintEngineRoleCounts[role] <= 0)}
+                                  onClick={() => setRoleCount(role, sprintEngineRoleCounts[role] - 1)}
+                                  className="h-8 w-8 text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+                                >
+                                  -
+                                </button>
+                                <span className="min-w-7 text-center text-[12px] font-semibold text-[#ececee]">
+                                  {sprintEngineRoleCounts[role]}
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label={`Increase ${sprintEngineRoleLabels[role]} count`}
+                                  disabled={selectedExistingTeam != null || sprintEngineRoleCounts[role] >= 10}
+                                  onClick={() => setRoleCount(role, sprintEngineRoleCounts[role] + 1)}
+                                  className="h-8 w-8 text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            <label>
                               <span className="sr-only">{sprintEngineRoleLabels[role]} CLI</span>
                               <span className="relative block">
                                 <select
@@ -1035,10 +1083,25 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
                                 </svg>
                               </span>
                             </label>
+                            </div>
                           </div>
                           )
                         })}
                       </div>
+                      <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2">
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-[#ececee]">Start roster runner</span>
+                          <span className="mt-1 block text-[12px] leading-4 text-[#9a9aa2]">
+                            Launch selected Sprint Engine agents in the background when the workspace opens.
+                          </span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={sprintEngineStartRunner}
+                          onChange={(event) => setSprintEngineStartRunner(event.currentTarget.checked)}
+                          className="h-4 w-4 shrink-0 accent-[#5c7cff] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]"
+                        />
+                      </label>
                     </div>
 
                     <div className="rounded-lg border border-[#24252b] bg-[#0d0e11] p-3">

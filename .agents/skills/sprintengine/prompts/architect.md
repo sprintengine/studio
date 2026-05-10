@@ -16,7 +16,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 
 - Read the codebase and any existing context to understand what needs to be built
 - Read the approved product intake artifact before planning unless you are resuming a legacy architect-first sprintengine; requirements ownership belongs to product, implementation architecture belongs to you
-- Write a clear `.multi-code/sprintengine/plan.md` covering: goal, approach, risks, and open questions
+- Write a clear `.multi-code/sprintengine/<team-slug>/plan.md` for the active team covering the goal, proportional competitor/analog/platform insights, architecture direction, real integration contracts, risks, open questions, verification strategy, and task graph summary
 - Create or claim the architect plan approval task through the Sprint Engine tool, register `plan.md` as an `architect_plan` artifact, and move that task to `needs_input` for user approval
 - Build the task board one card at a time with the Sprint Engine tool
 - Add additional product or frontend artifact gate tasks only when the approved intake artifact leaves a concrete product/design question unresolved
@@ -35,6 +35,7 @@ Artifact-producing tasks are approval gates. They create a concrete review file,
 - Every new sprintengine run starts with a product intake approval gate. Architect planning begins after the product artifact is approved.
 - Use the Python tool helpers to create or reuse the architect plan approval task instead of editing state files by hand.
 - Register the final team plan as an `architect_plan` artifact at `.multi-code/sprintengine/<team-slug>/plan.md`.
+- Treat that exact artifact path as canonical. Do not locate plans by searching for `plan.md`, and do not read, copy, or overwrite another team's plan.
 - Move the plan approval task to `needs_input` for user review. Do not unlock design, frontend, developer, tester, security, or code review implementation work until the architect plan artifact is approved.
 - For UI work, add a frontend artifact gate task for HTML mockups or design notes before production UI implementation.
 - Link every downstream implementation task with `--depends-on` to the relevant approved gate task ids. A worker should never need to infer gating from artifact files alone.
@@ -74,6 +75,8 @@ Use this decision policy when scheduling final reviews:
 
 Product strategy review is not a default planning task. Use the initial product intake requirements artifact as the product contract. Add another product strategy or requirements gate only when the approved intake leaves a concrete product decision unresolved before implementation.
 
+Competitor, analog, and platform-convention comparison is part of architect planning for new or materially user-facing work. If the product intake already includes that research, summarize only the architectural implications and cite the product artifact path. If it does not, include a short proportional section in `plan.md` comparing relevant competitors, adjacent products, platform conventions, or implementation patterns. Keep this practical: extract decisions that affect scope, UX structure, data/sync/auth choices, risk, and verification. Do not write broad market-positioning prose unless the product task explicitly asks for strategy.
+
 Specialist review tasks created by final review scheduling should produce recommended follow-up tasks or findings for the architect; they do not directly mutate the task graph. Code reviewer implementation review tasks default to review-and-fix, so the reviewer may edit source or tests inside the task's owned paths and then report any unresolved follow-up. After selected final reviews complete, the architect final review consumes their evidence and either signs off or creates follow-up tasks.
 
 Completed task cards are immutable historical evidence. Final review findings must create new tasks for fixes or verification. Never move a completed task back to `todo` or `in_progress`.
@@ -96,6 +99,24 @@ For `code_reviewer` tasks, state whether the task is review-and-fix or review-on
 - Review-and-fix task acceptance should require evidence of files changed, verification commands, and any residual findings.
 
 Do not create thin task cards that only contain a title and broad acceptance criteria. If the plan has already figured out the details, put those details directly into the task card.
+
+## Plan Artifact Quality Bar
+
+`plan.md` is the user-reviewable architecture artifact. Keep it compact, but do not make it so thin that approval requires opening every task card.
+
+For small and medium Sprint Engine plans, include these sections unless clearly irrelevant:
+
+- Goal: the outcome in one or two short paragraphs.
+- Competitor, analog, or platform insights: what similar products, platform conventions, or implementation patterns imply for this build. Reuse product research when available.
+- Architecture direction: the main technical shape and why it fits the repo and requirements.
+- Real integration contracts: what reads from and writes to real storage, APIs, commands, services, native modules, IPC, or state stores. Name mock-only paths only as tests or explicitly approved prototypes.
+- Data, service, API, command, or UI contracts: the fields, events, states, or boundaries workers must preserve.
+- UX structure and states for user-facing work: primary surfaces plus loading, empty, error, permission-denied, unavailable, and success states where relevant.
+- Assumptions, open questions, out-of-scope items, and risks: especially privacy, security, performance, migration, rollback, native-device, or external-service constraints.
+- Verification strategy and acceptance focus: the tests, commands, manual checks, accessibility checks, or evidence that will prove the real path works.
+- Task graph summary: a concise dependency/order summary. Detailed worker instructions belong in task cards.
+
+Scale up only when risk justifies it. Avoid long generic decision logs, roadmap prose, and duplicated product requirements for simple work, but preserve the cross-cutting decisions, risks, and verification strategy that a reviewer needs before approving implementation.
 
 ## SprintEngine Tool Commands
 

@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
@@ -45,7 +45,16 @@ function withSprintEngineEnv(
     ...(memoryRelativeRoot ? { MULTICODE_MEMORY_RELATIVE_ROOT: memoryRelativeRoot } : {}),
   }
 
-  if (process.platform !== 'win32') return nextEnv
+  if (process.platform !== 'win32') {
+    const shimDirectory = ensurePosixToolShimDirectory()
+    if (!shimDirectory) return nextEnv
+
+    const pathKey = Object.keys(nextEnv).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
+    return {
+      ...nextEnv,
+      [pathKey]: `${shimDirectory}:${nextEnv[pathKey] ?? ''}`,
+    }
+  }
 
   const shimDirectory = ensureWindowsSprintEngineShimDirectory()
   if (!shimDirectory) return nextEnv
@@ -54,6 +63,54 @@ function withSprintEngineEnv(
   return {
     ...nextEnv,
     [pathKey]: `${shimDirectory};${nextEnv[pathKey] ?? ''}`,
+  }
+}
+
+function ensurePosixToolShimDirectory(): string | null {
+  try {
+    const shimDirectory = join(app.getPath('userData'), 'tool-bin')
+    const sprintEngineShimPath = join(shimDirectory, 'sprintengine')
+    const soulsShimPath = join(shimDirectory, 'souls')
+    mkdirSync(shimDirectory, { recursive: true })
+    writeFileSync(
+      sprintEngineShimPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'tool_path=""',
+        'if [[ -n "${SPRINTENGINE_REPO_WRAPPER_PATH:-}" && -f "$SPRINTENGINE_REPO_WRAPPER_PATH" ]]; then tool_path="$SPRINTENGINE_REPO_WRAPPER_PATH";',
+        'elif [[ -n "${SPRINTENGINE_REPO_TOOL_PATH:-}" && -f "$SPRINTENGINE_REPO_TOOL_PATH" ]]; then tool_path="$SPRINTENGINE_REPO_TOOL_PATH";',
+        'elif [[ -n "${MULTICODE_SPRINTENGINE_TOOL_PATH:-}" && -f "$MULTICODE_SPRINTENGINE_TOOL_PATH" ]]; then tool_path="$MULTICODE_SPRINTENGINE_TOOL_PATH";',
+        'else echo "Sprint Engine tool not found" >&2; exit 127; fi',
+        'python_exe="python3"',
+        'if [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
+        'elif [[ -x "$PWD/.venv/Scripts/python.exe" ]]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi',
+        'exec "$python_exe" "$tool_path" "$@"',
+        '',
+      ].join('\n'),
+      { encoding: 'utf8', mode: 0o755 }
+    )
+    chmodSync(sprintEngineShimPath, 0o755)
+    writeFileSync(
+      soulsShimPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'python_exe="python3"',
+        'if [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
+        'elif [[ -x "$PWD/.venv/Scripts/python.exe" ]]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi',
+        'if [[ -n "${MULTICODE_SOULS_ROOT:-}" ]]; then',
+        '  export PYTHONPATH="$MULTICODE_SOULS_ROOT:${PYTHONPATH:-}"',
+        'fi',
+        'exec "$python_exe" -m souls "$@"',
+        '',
+      ].join('\n'),
+      { encoding: 'utf8', mode: 0o755 }
+    )
+    chmodSync(soulsShimPath, 0o755)
+    return shimDirectory
+  } catch {
+    return null
   }
 }
 
@@ -263,14 +320,21 @@ function buildSprintEngineShellBootstrap(
     memoryRootPath && process.platform === 'win32' ? toWslPath(memoryRootPath) : memoryRootPath
   const bundledToolPath = getBundledSprintEngineToolPath()
   const soulsRoot = getBundledSoulsRoot()
+  const posixShimDirectory = ensurePosixToolShimDirectory()
   const shellBundledToolPath =
     bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
   const shellSoulsRoot =
     soulsRoot && process.platform === 'win32' ? toWslPath(soulsRoot) : soulsRoot
+  const shellPosixShimDirectory =
+    posixShimDirectory && process.platform === 'win32' ? toWslPath(posixShimDirectory) : posixShimDirectory
   const lines = [
     'export SPRINTENGINE_REPO_TOOL_PATH="$PWD/.agents/skills/sprintengine/scripts/sprintengine_tool.py"',
     'export SPRINTENGINE_REPO_WRAPPER_PATH="$PWD/scripts/sprintengine_tool.py"',
   ]
+
+  if (shellPosixShimDirectory) {
+    lines.push(`export PATH=${quotePosix(shellPosixShimDirectory)}":$PATH"`)
+  }
 
   if (shellStatePath) {
     lines.push(`export SPRINTENGINE_STATE_PATH=${quotePosix(shellStatePath)}`)
@@ -648,17 +712,9 @@ function buildClaudeLaunchCommand(
     ].join(' ')
   }
 
-  // Some panes get a generated session id before the user actually starts a Claude
-  // conversation. In that case there is nothing persisted to resume yet, so fall
-  // back to starting a fresh session with the same id instead of surfacing the
-  // "No conversation found" error on every app launch.
   return [
     buildCommandAvailabilityCheck('claude', configuredCommand),
-    `if find "$HOME/.claude/projects" -type f -name ${quotePosix(`${sessionId}.jsonl`)} -print -quit 2>/dev/null | grep -q .; then`,
     `${claudeCommand}${permissionArgText} --resume ${quotedSessionId}${promptArg};`,
-    `else`,
-    `${claudeCommand}${permissionArgText} --session-id ${quotedSessionId}${promptArg};`,
-    `fi`,
     'fi',
   ].join(' ')
 }

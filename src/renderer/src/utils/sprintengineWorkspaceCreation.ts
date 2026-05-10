@@ -2,6 +2,7 @@ import { createSprintEngineTemplate } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type {
   SprintEngineRoleCounts,
+  SprintEngineAutoState,
   SprintEngineRoleCliDefaults,
   SprintEngineWorkspaceContext,
   WorkspaceId,
@@ -37,6 +38,7 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   sourceContent: string
   roleCounts?: SprintEngineRoleCounts
   roleCliDefaults?: SprintEngineRoleCliDefaults
+  sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   pathExists?: (path: string) => boolean | Promise<boolean>
 }
 
@@ -85,6 +87,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   sourceContent,
   roleCounts = planSourcedSprintEngineRoleCounts,
   roleCliDefaults,
+  sprintEngineAutoState,
   pathExists,
 }: PlanSourcedSprintEngineWorkspaceArgs): Promise<PlanSourcedSprintEngineWorkspaceResult> {
   const trimmedRoot = rootPath.trim()
@@ -121,6 +124,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     sprintEngineState,
     sprintEngineContext,
     sprintEngineRoleCliDefaults: roleCliDefaults,
+    sprintEngineAutoState,
   })
 
   const startupPrompt = buildPlanFileSprintEngineHandoffPrompt({

@@ -38,6 +38,7 @@ RUNNER_EVENTS = {
     "pause",
     "resume",
     "run",
+    "stop",
     "tick",
     "claim",
     "launch",
@@ -49,6 +50,7 @@ RUNNER_EVENTS = {
     "execution_exit",
     "task_published",
     "task_abandoned",
+    "execution_stopped",
     "requeue",
     "worktree_created",
     "worktree_cleaned",
@@ -393,6 +395,17 @@ def runner_resume(workspace: Path) -> dict[str, Any]:
         return runner_public_payload(state)
 
 
+def runner_stop(workspace: Path) -> dict[str, Any]:
+    with locked_runner(workspace):
+        state = reconcile_runner_state(workspace, read_runner_state(workspace))
+        state["enabled"] = False
+        state["paused"] = True
+        state["lastError"] = None
+        state = write_runner_state(workspace, state)
+        append_runner_event(workspace, "stop")
+        return runner_public_payload(state)
+
+
 def runner_status(workspace: Path) -> dict[str, Any]:
     with locked_runner(workspace):
         return runner_public_payload(reconcile_runner_state(workspace, read_runner_state(workspace)))
@@ -478,7 +491,13 @@ def runner_command_for(state: dict[str, Any]) -> list[str] | None:
         return shlex.split(override)
     cli = str(state.get("cli") or "codex")
     resolved = shutil.which(cli)
-    return [resolved] if resolved else None
+    if not resolved:
+        return None
+    if cli == "codex":
+        return [resolved, "exec", "--dangerously-bypass-approvals-and-sandbox", "-"]
+    if cli == "claude":
+        return [resolved, "--print", "--permission-mode", "bypassPermissions"]
+    return [resolved]
 
 
 def validate_runner_capability(workspace: Path, state: dict[str, Any]) -> list[str]:
@@ -671,6 +690,9 @@ def reconcile_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, 
     reconciled: list[dict[str, Any]] = []
     for execution in state.get("activeExecutions", []):
         execution = reconcile_execution_worktree(workspace, execution)
+        if execution.get("status") in {"abandoned", "stopped"}:
+            reconciled.append(execution)
+            continue
         task_id = execution.get("taskId")
         located = tasks.get(task_id)
         if located and located.folder_status != execution.get("claimedStatus"):
@@ -917,6 +939,87 @@ def execution_status(workspace: Path, execution_id: str) -> dict[str, Any]:
     return {"ok": True, "execution": metadata}
 
 
+def execution_stop(workspace: Path, execution_id: str, *, reason: str | None = None) -> dict[str, Any]:
+    with locked_runner(workspace):
+        return execution_stop_unlocked(workspace, execution_id, reason=reason)
+
+
+def execution_stop_unlocked(workspace: Path, execution_id: str, *, reason: str | None = None) -> dict[str, Any]:
+    validate_execution_id(execution_id)
+    metadata = read_execution_metadata(workspace, execution_id)
+    if not metadata:
+        raise SwitchboardError("Switchboard execution was not found.")
+    if metadata.get("status") in {"completed", "abandoned", "stopped"}:
+        return {
+            "ok": True,
+            "executionId": execution_id,
+            "taskId": metadata.get("taskId"),
+            "status": metadata.get("status"),
+            "terminated": False,
+            "worktreeState": metadata.get("worktreeState"),
+        }
+    provider_ref = metadata.get("providerRef") if isinstance(metadata.get("providerRef"), dict) else {}
+    pid = provider_ref.get("pid")
+    was_running = process_is_running(pid)
+    if was_running:
+        terminate_process(pid)
+    stopped_at = now_iso()
+    stopped_reason = reason.strip() if isinstance(reason, str) and reason.strip() else "Stopped by user."
+    updates: dict[str, Any] = {
+        "status": "stopped",
+        "completedAt": stopped_at,
+        "error": stopped_reason,
+    }
+    if metadata.get("worktreePath") and metadata.get("worktreeState") == "active":
+        updates["worktreeState"] = "stopped"
+        updates["providerRef"] = {**provider_ref, "worktreeState": "stopped"}
+    stopped = {**metadata, **updates}
+    update_execution_metadata(workspace, metadata, updates)
+    mark_task_attempt_completed(workspace, stopped, stopped_at, None, summary=stopped_reason)
+    if stopped.get("worktreePath"):
+        update_task_worktree_state(workspace, stopped, str(stopped.get("worktreeState") or "stopped"))
+    runner_state = read_runner_state(workspace)
+    found = False
+    next_executions = []
+    for execution in runner_state.get("activeExecutions", []):
+        if isinstance(execution, dict) and execution.get("executionId") == execution_id:
+            next_executions.append({**execution, **updates})
+            found = True
+        else:
+            next_executions.append(execution)
+    if not found:
+        next_executions.append(
+            {
+                "executionId": execution_id,
+                "taskId": metadata.get("taskId"),
+                "role": metadata.get("role", ""),
+                "claimedFrom": metadata.get("claimedFrom", "ready"),
+                "claimedStatus": metadata.get("claimedStatus", "in_progress"),
+                "provider": metadata.get("provider", "local-process"),
+                "providerRef": provider_ref,
+                "startedAt": metadata.get("startedAt", stopped_at),
+                "lastSeenAt": metadata.get("lastSeenAt", stopped_at),
+                **updates,
+            }
+        )
+    runner_state["activeExecutions"] = next_executions
+    write_runner_state(workspace, runner_state)
+    append_runner_event(
+        workspace,
+        "execution_stopped",
+        message=stopped_reason,
+        data={"executionId": execution_id, "taskId": metadata.get("taskId"), "pid": pid, "terminated": was_running},
+    )
+    return {
+        "ok": True,
+        "executionId": execution_id,
+        "taskId": metadata.get("taskId"),
+        "status": "stopped",
+        "terminated": was_running,
+        "worktreeState": stopped.get("worktreeState"),
+    }
+
+
 def execution_logs(workspace: Path, execution_id: str, *, stream: str, tail: int = 200) -> dict[str, Any]:
     validate_execution_id(execution_id)
     if stream not in {"stdout", "stderr"}:
@@ -1053,7 +1156,14 @@ def update_execution_metadata(workspace: Path, execution: dict[str, Any], update
     atomic_write_json(execution_metadata_path(workspace, execution_id), metadata)
 
 
-def mark_task_attempt_completed(workspace: Path, execution: dict[str, Any], completed_at: str, exit_code: int | None) -> None:
+def mark_task_attempt_completed(
+    workspace: Path,
+    execution: dict[str, Any],
+    completed_at: str,
+    exit_code: int | None,
+    *,
+    summary: str | None = None,
+) -> None:
     task_id = execution.get("taskId")
     if not isinstance(task_id, str):
         return
@@ -1069,7 +1179,7 @@ def mark_task_attempt_completed(workspace: Path, execution: dict[str, Any], comp
                 {
                     **attempt,
                     "completedAt": completed_at,
-                    "summary": f"Process exited with code {exit_code}.",
+                    "summary": summary or f"Process exited with code {exit_code}.",
                     "worktreePath": execution.get("worktreePath", attempt.get("worktreePath")),
                     "worktreeBranch": execution.get("worktreeBranch", attempt.get("worktreeBranch")),
                     "worktreeState": execution.get("worktreeState", attempt.get("worktreeState")),

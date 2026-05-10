@@ -94,6 +94,18 @@ const SPECIALIST_KEYBOARD_SHORTCUTS: Record<string, SpecialistActionId> = {
   m: 'performance',
   p: 'architect',
 }
+const SPECIALIST_KEYBOARD_CODE_SHORTCUTS: Record<string, SpecialistActionId> = {
+  KeyF: 'frontend-design-review',
+  KeyM: 'performance',
+  KeyP: 'architect',
+}
+function shortcutLabel(shortcut: string): string {
+  if (window.api.platform !== 'darwin') return shortcut
+  return shortcut
+    .replace(/\bCtrl\b/g, 'Cmd')
+    .replace(/\bAlt\b/g, 'Option')
+}
+
 type WorkspacePanelComponent = 'explorer' | 'editor' | 'git' | 'memory-graph' | 'mobile-companion'
 type WorkspaceActivity = 'needs-input' | 'running' | 'idle'
 type SessionStatus = 'needs-input' | 'running'
@@ -163,7 +175,11 @@ function workspaceTabClass(mode: Workspace['mode'], active: boolean): string {
       : 'border-transparent text-[#9a9aa2] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
   }
 
-
+  if (mode === 'switchboard') {
+    return active
+      ? 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff] shadow-[inset_0_-2px_0_rgba(124,92,242,0.6)]'
+      : 'border-transparent text-[#cdbcff] hover:bg-[#7c5cf2]/10 hover:text-[#efe5ff]'
+  }
 
   return active
     ? 'border-[#2a2b31] bg-[#17181d] text-[#ececee]'
@@ -172,6 +188,7 @@ function workspaceTabClass(mode: Workspace['mode'], active: boolean): string {
 
 function workspaceTabIconClass(mode: Workspace['mode']): string {
   if (mode === 'sprintengine') return 'text-[#ffbf2f]'
+  if (mode === 'switchboard') return 'text-[#a78bfa]'
   return 'text-[#9a9aa2]'
 }
 
@@ -701,20 +718,33 @@ export default function WorkspaceManager() {
       const ctrl = event.ctrlKey || event.metaKey
       if (!ctrl) return
 
-      if (event.key === 'Tab') {
+      const mac = window.api.platform === 'darwin'
+      const macCycleLayoutTab = mac
+        && event.metaKey
+        && event.shiftKey
+        && (event.code === 'BracketRight' || event.code === 'BracketLeft')
+      if (event.key === 'Tab' || macCycleLayoutTab) {
         event.preventDefault()
         event.stopPropagation()
-        if (activeWorkspaceId) cycleActiveLayoutTab(activeWorkspaceId, event.shiftKey ? -1 : 1)
+        const direction = event.key === 'Tab'
+          ? (event.shiftKey ? -1 : 1)
+          : (event.code === 'BracketLeft' ? -1 : 1)
+        if (activeWorkspaceId) cycleActiveLayoutTab(activeWorkspaceId, direction)
         return
       }
 
-      if (event.code === 'Backquote') {
+      const macCycleWorkspace = mac
+        && event.metaKey
+        && event.altKey
+        && !event.shiftKey
+        && (event.code === 'ArrowRight' || event.code === 'ArrowLeft')
+      if (event.code === 'Backquote' || macCycleWorkspace) {
         event.preventDefault()
         event.stopPropagation()
         const nextWorkspaceId = getNextWorkspaceId(
           workspaces,
           activeWorkspaceId,
-          event.shiftKey ? -1 : 1
+          event.shiftKey || event.code === 'ArrowLeft' ? -1 : 1
         )
         if (nextWorkspaceId) {
           setShowTemplateSelector(false)
@@ -733,7 +763,7 @@ export default function WorkspaceManager() {
       const key = event.key.toLowerCase()
 
       if (event.altKey) {
-        const specialistId = SPECIALIST_KEYBOARD_SHORTCUTS[key]
+        const specialistId = SPECIALIST_KEYBOARD_CODE_SHORTCUTS[event.code] ?? SPECIALIST_KEYBOARD_SHORTCUTS[key]
         if (specialistId) {
           event.preventDefault()
           event.stopPropagation()
@@ -1310,7 +1340,7 @@ export default function WorkspaceManager() {
           <button
             onClick={openTemplateSelector}
             className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-[#8a8a92] transition-colors hover:bg-[#15161a] hover:text-[#d7d7dc]"
-            title="New workspace (Ctrl+T)"
+            title={`New workspace (${shortcutLabel('Ctrl+T')})`}
           >
             + New Workspace
           </button>
@@ -1525,7 +1555,7 @@ export default function WorkspaceManager() {
               onClick={addNewTerminal}
               disabled={!activeWorkspaceId}
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc] disabled:opacity-40 disabled:hover:bg-[#111216]"
-              title="Open terminal (Ctrl+Shift+')"
+              title={`Open terminal (${shortcutLabel("Ctrl+Shift+'")})`}
               aria-label="Open terminal"
             >
               <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1552,7 +1582,7 @@ export default function WorkspaceManager() {
                   title={
                     multiloopLaunchMenu
                       ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label} with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}`
-                      : `Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${selectedSpecialistAction.shortcut})` : ''}`
+                      : `Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${shortcutLabel(selectedSpecialistAction.shortcut)})` : ''}`
                   }
                   aria-label={
                     multiloopLaunchMenu
@@ -1784,7 +1814,7 @@ export default function WorkspaceManager() {
                               <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f]" />
                             ) : action.shortcut ? (
                               <kbd className="mt-2.5 shrink-0 rounded bg-[#111216] px-1.5 py-0.5 text-[10px] text-[#5a5a63]">
-                                {action.shortcut}
+                                {shortcutLabel(action.shortcut)}
                               </kbd>
                             ) : null}
                           </button>
@@ -1856,7 +1886,7 @@ export default function WorkspaceManager() {
                 ? 'border-[#303139] bg-[#17181d] text-[#ececee]'
                 : 'border-[#24252b] bg-[#111216] text-[#9a9aa2] hover:border-[#303139] hover:bg-[#17181d] hover:text-[#d7d7dc]'
             }`}
-            title="Settings (Ctrl+,)"
+            title={`Settings (${shortcutLabel('Ctrl+,')})`}
             aria-label="Settings"
             aria-pressed={showSettings}
           >

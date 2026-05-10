@@ -144,6 +144,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   const modelRef = useRef<Model | null>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const skipNextRenameCommitRef = useRef(false)
+  const hideTabWithoutCleanupRef = useRef(new Set<string>())
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
@@ -207,7 +208,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     if (!model) return
 
     model.visitNodes((node) => {
-      if (!(node instanceof TabNode) || node.getComponent() !== 'agent') return
+      if (!(node instanceof TabNode)) return
+
+      if (node.getComponent() === 'switchboard-board' && node.getName() === 'Board') {
+        model.doAction(Actions.renameTab(node.getId(), 'Switchboard'))
+        return
+      }
+
+      if (node.getComponent() !== 'agent') return
 
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
@@ -343,7 +351,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     (action: Action) => {
       if (action.type === Actions.DELETE_TAB) {
         const node = modelRef.current?.getNodeById(action.data.node)
-        if (node instanceof TabNode) cleanupNode(node)
+        const nodeId = node?.getId() ?? String(action.data.node ?? '')
+        if (hideTabWithoutCleanupRef.current.has(nodeId)) {
+          hideTabWithoutCleanupRef.current.delete(nodeId)
+        } else if (node instanceof TabNode) {
+          cleanupNode(node)
+        }
       }
 
       if (action.type === Actions.SELECT_TAB) {
@@ -407,6 +420,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     })
   }, [cleanupNode])
 
+  const hideTab = useCallback((node: TabNode) => {
+    hideTabWithoutCleanupRef.current.add(node.getId())
+    modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+  }, [])
+
   const showTabContextMenu = useCallback(async (event: React.MouseEvent, node: TabNode) => {
     event.preventDefault()
     event.stopPropagation()
@@ -417,13 +435,17 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       : []
 
     const command = await window.api.showContextMenu([
+      { id: 'hide-tab', label: 'Hide Tab', enabled: node.getComponent() === 'agent' },
       { id: 'close-other-tabs', label: 'Close Other Tabs', enabled: otherClosableTabs.length > 0 },
     ])
 
+    if (command === 'hide-tab') {
+      hideTab(node)
+    }
     if (command === 'close-other-tabs') {
       closeOtherTabsInSet(node)
     }
-  }, [closeOtherTabsInSet])
+  }, [closeOtherTabsInSet, hideTab])
 
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {

@@ -31,7 +31,6 @@ export function buildWatchtowerStartupPrompt(input: {
   workspaceRoot: string
 }): string {
   const specialist = getSpecialistAction(input.agent.specialistId)
-  const outputDirectory = relativePath(input.agent.outputDirectory, input.workspaceRoot)
   const reportPath = relativePath(input.agent.reportPath, input.workspaceRoot)
 
   return [
@@ -42,37 +41,46 @@ export function buildWatchtowerStartupPrompt(input: {
     `Run ID: ${input.run.runId}`,
     `Preset: ${input.run.preset}`,
     `Assigned sectors: ${input.agent.sectors.map(sectorLabel).join(', ')}`,
-    `Output directory: ${outputDirectory}`,
+    `Workspace root: ${input.workspaceRoot}`,
+    `Agent ID: ${input.agent.agentId}`,
     `Optional Markdown report: ${reportPath}`,
     '',
-    'Work read-only unless the user explicitly asks for fixes. Do not edit product code, Switchboard task files, inbox files, Lock files, runner state, or Watchtower run metadata.',
-    'Write proposed tasks as JSON or JSONL files in your assigned output directory. The task JSON output is the source of truth for ingestion; the Markdown report is optional context only.',
-    'Use project-root-relative paths in evidence. Include concrete files, symptoms, impact, and expected outcome.',
-    'Do not invent or set source.externalId. Watchtower derives source identity during ingestion. You may include localId only when it is stable within this run.',
+    'Work read-only unless the user explicitly asks for fixes. Do not edit product code, Switchboard task files, inbox files, Lock files, runner state, or Watchtower run metadata by hand.',
+    'For each concrete finding, create a Switchboard inbox task directly with the Switchboard CLI. Do not write proposed-task JSON, JSONL, or output files for later ingestion.',
+    'Before creating the first task, run `switchboard create --help` or `scripts/switchboard create --help` from the repository root to confirm the current schema.',
+    'Use project-root-relative paths in descriptions and evidence. Include concrete files, symptoms, impact, and expected outcome.',
     '',
-    '# Proposed Task JSON Contract',
+    '# Task Creation Contract',
     '',
-    'Each proposed task must be one JSON object with this shape:',
+    'Create one inbox task per finding. Prefer `switchboard` when it is on PATH; otherwise use `scripts/switchboard`.',
+    '',
+    '```bash',
+    `switchboard create --workspace ${JSON.stringify(input.workspaceRoot)} --inbox --input-json '<json-payload>'`,
+    '```',
+    '',
+    'Use this JSON payload shape:',
     '',
     '```json',
     JSON.stringify(
       {
         title: 'Short actionable task title',
-        description: 'Concrete context, evidence, and expected outcome.',
+        description: 'Concrete context, evidence, project-root-relative file paths, impact, and expected outcome.',
         priority: 1,
-        labels: ['security', 'backend'],
-        evidence: {
-          files: ['src/main/example.ts'],
-          summary: 'Why this task exists.',
+        labels: ['watchtower', 'security', 'backend'],
+        source: {
+          type: 'watchtower',
+          externalId: `${input.run.runId}:${input.agent.agentId}:<random-uuid>`,
+          externalKey: `${input.run.runId}:${input.agent.agentId}`,
+          externalUrl: null,
         },
-        localId: 'optional-agent-local-id',
       },
       null,
       2
     ),
     '```',
     '',
-    'For multiple proposals, prefer `proposed-tasks.jsonl` with one object per line. Individual `proposed-task-<localId>.json` files are also accepted.',
+    'The CLI generates the task UUID, validates the task shape, locks the inbox folder, and writes `.multi-code/switchboard/inbox/<uuid>.json` atomically.',
+    'If a task creation command fails, read stderr, correct the payload, and retry. Do not hand-write Switchboard task files.',
     '',
     '# Sector Checklist',
     '',

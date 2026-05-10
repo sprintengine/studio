@@ -47,7 +47,7 @@ const switchboardWatchtowerTab = () => ({
 })
 const switchboardBoardTab = () => ({
   type: 'tab',
-  name: 'Board',
+  name: 'Switchboard',
   component: 'switchboard-board',
 })
 

@@ -49,7 +49,6 @@ import {
   createSwitchboardTask,
   getWatchtowerRun,
   initializeSwitchboard,
-  ingestWatchtowerOutputs,
   listWatchtowerRuns,
   moveSwitchboardTask,
   promoteSwitchboardInboxTask,
@@ -61,10 +60,11 @@ import {
   pauseSwitchboardRunner,
   resumeSwitchboardRunner,
   startSwitchboardRunner,
+  stopSwitchboardExecution,
+  stopSwitchboardRunner,
   tickSwitchboardRunner,
   updateSwitchboardTask,
   updateWatchtowerRunAgentStatus,
-  validateWatchtowerOutputs,
 } from './switchboard-files'
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
@@ -153,14 +153,14 @@ registerSwitchboardIpc(ipcMain, {
   startRunner: startSwitchboardRunner,
   pauseRunner: pauseSwitchboardRunner,
   resumeRunner: resumeSwitchboardRunner,
+  stopRunner: stopSwitchboardRunner,
   tickRunner: tickSwitchboardRunner,
   getRunnerState: getSwitchboardRunnerState,
+  stopExecution: stopSwitchboardExecution,
   createWatchtowerRun,
   getWatchtowerRun,
   updateWatchtowerRunAgentStatus,
   listWatchtowerRuns,
-  validateWatchtowerOutputs,
-  ingestWatchtowerOutputs,
   importGitHubIssues: (workspaceRoot) => importGitHubIssuesIntoWatchtower({ workspaceRoot, tokenStore: githubTokenStore }),
   importJiraIssues: (workspaceRoot) => importJiraIssuesIntoWatchtower({ workspaceRoot }),
 })

@@ -18,9 +18,9 @@ import type {
   SwitchboardRequeueTaskInput,
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
+  SwitchboardStopExecutionInput,
+  SwitchboardStopExecutionResult,
   SwitchboardUpdateTaskInput,
-  WatchtowerOutputIngestResult,
-  WatchtowerOutputValidationResult,
   WatchtowerRunAgentStatusInput,
   WatchtowerRunCreateInput,
   WatchtowerRunListResult,
@@ -58,10 +58,14 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:runner:pause', workspaceRoot),
   resumeSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:resume', workspaceRoot),
+  stopSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
+    ipcRenderer.invoke('switchboard:runner:stop', workspaceRoot),
   tickSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:tick', workspaceRoot),
   getSwitchboardRunnerState: (workspaceRoot?: string): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:state', workspaceRoot),
+  stopSwitchboardExecution: (input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> =>
+    ipcRenderer.invoke('switchboard:execution:stop', input),
   createWatchtowerRun: (input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> =>
     ipcRenderer.invoke('switchboard:watchtower:create-run', input),
   getWatchtowerRun: (input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult> =>
@@ -70,10 +74,6 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:watchtower:update-agent-status', input),
   listWatchtowerRuns: (workspaceRoot: string): Promise<WatchtowerRunListResult> =>
     ipcRenderer.invoke('switchboard:watchtower:list-runs', workspaceRoot),
-  validateWatchtowerOutputs: (input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputValidationResult> =>
-    ipcRenderer.invoke('switchboard:watchtower:validate-outputs', input),
-  ingestWatchtowerOutputs: (input: { workspaceRoot: string; runId: string }): Promise<WatchtowerOutputIngestResult> =>
-    ipcRenderer.invoke('switchboard:watchtower:ingest-outputs', input),
   importGitHubIssuesToWatchtower: (workspaceRoot: string): Promise<SwitchboardImportResult> =>
     ipcRenderer.invoke('switchboard:import:github-issues', workspaceRoot),
   importJiraIssuesToWatchtower: (workspaceRoot: string): Promise<SwitchboardImportResult> =>
@@ -95,14 +95,14 @@ export const switchboardApi = {
   | 'startSwitchboardRunner'
   | 'pauseSwitchboardRunner'
   | 'resumeSwitchboardRunner'
+  | 'stopSwitchboardRunner'
   | 'tickSwitchboardRunner'
   | 'getSwitchboardRunnerState'
+  | 'stopSwitchboardExecution'
   | 'createWatchtowerRun'
   | 'getWatchtowerRun'
   | 'updateWatchtowerRunAgentStatus'
   | 'listWatchtowerRuns'
-  | 'validateWatchtowerOutputs'
-  | 'ingestWatchtowerOutputs'
   | 'importGitHubIssuesToWatchtower'
   | 'importJiraIssuesToWatchtower'
 >

@@ -44,6 +44,8 @@ If no tasks are ready, stop.
 
 - Input validation and sanitization
 - Authentication and authorization checks
+- Real enforcement evidence. Do not accept security work as complete when enforcement depends on sample data, fake policy responses, stubbed authn/authz checks, placeholder secrets, disabled checks, documentation-only behavior, or mock-only validation unless the task explicitly names a prototype, fixture, or test harness deliverable.
+- Evidence should exercise the real production enforcement path, permission boundary, IPC/API/CLI contract, service, storage, or native integration when it is part of the security claim.
 - Sensitive data exposure (keys, tokens, PII in logs/state)
 - Command injection, XSS, SQL injection (OWASP Top 10)
 - Dependency vulnerabilities (`npm audit`)

@@ -204,26 +204,6 @@ export type WatchtowerRunListResult =
   | { ok: true; runs: WatchtowerRun[]; problems?: Array<{ runId: string; path: string; message: string }> }
   | { ok: false; message: string }
 
-export type WatchtowerOutputValidationResult =
-  | {
-      ok: true
-      runId: string
-      valid: Array<{ path: string; line: number | null; externalId: string; proposal: Record<string, unknown> }>
-      invalid: Array<{ path: string; line: number | null; error: string; quarantine?: Record<string, unknown> | null }>
-    }
-  | { ok: false; message: string }
-
-export type WatchtowerOutputIngestResult =
-  | {
-      ok: true
-      runId: string
-      created: Array<{ path: string; line: number | null; externalId: string; taskId: string }>
-      skipped: Array<{ path: string; line: number | null; externalId: string; reason: string }>
-      invalid: Array<{ path: string; line: number | null; error: string; quarantine?: Record<string, unknown> | null }>
-      summary: { created: number; skipped: number; invalid: number }
-    }
-  | { ok: false; message: string }
-
 export type SwitchboardImportProvider = 'github' | 'jira'
 
 export type SwitchboardImportItem = {
@@ -344,9 +324,15 @@ export type SwitchboardRequeueTaskInput = {
   reason?: string
 }
 
+export type SwitchboardStopExecutionInput = {
+  workspaceRoot: string
+  executionId: string
+  reason?: string
+}
+
 export type SwitchboardRunnerQueue = 'ready' | 'testing' | 'review'
 export type SwitchboardExecutionProviderKind = 'local-process' | 'codex-app-server'
-export type SwitchboardExecutionStatus = 'active' | 'missing' | 'stale' | 'abandoned' | 'completed'
+export type SwitchboardExecutionStatus = 'active' | 'missing' | 'stale' | 'abandoned' | 'completed' | 'stopped'
 export type SwitchboardExecutionProviderRef = Record<string, string | number | boolean | null>
 
 export type SwitchboardRunnerStartInput = {
@@ -388,6 +374,17 @@ export type SwitchboardRunnerState = {
 
 export type SwitchboardRunnerResult =
   | SwitchboardRunnerState
+  | { ok: false; message: string }
+
+export type SwitchboardStopExecutionResult =
+  | {
+      ok: true
+      executionId: string
+      taskId?: string | null
+      status: SwitchboardExecutionStatus
+      terminated: boolean
+      worktreeState?: string | null
+    }
   | { ok: false; message: string }
 
 export const SWITCHBOARD_STATUS_LABELS: Record<SwitchboardFolderStatus, string> = {

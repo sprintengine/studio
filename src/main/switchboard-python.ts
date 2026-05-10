@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, unlinkSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import type {
   SwitchboardAddCommentInput,
@@ -20,10 +20,10 @@ import type {
   SwitchboardRequeueTaskInput,
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
+  SwitchboardStopExecutionInput,
+  SwitchboardStopExecutionResult,
   SwitchboardTaskRecord,
   SwitchboardUpdateTaskInput,
-  WatchtowerOutputIngestResult,
-  WatchtowerOutputValidationResult,
   WatchtowerRunCreateInput,
   WatchtowerRunAgentStatusInput,
   WatchtowerRunListResult,
@@ -154,19 +154,44 @@ function serverDescriptorPath(workspaceRoot: string): string {
   return join(resolve(workspaceRoot), '.multi-code', 'switchboard', 'runner', 'server.json')
 }
 
-function readServerDescriptor(workspaceRoot: string): { host: string; port: number; token: string } | null {
+type SwitchboardServerDescriptor = { host: string; port: number; token: string; pid?: number }
+
+function readServerDescriptor(workspaceRoot: string): SwitchboardServerDescriptor | null {
   try {
     const parsed = JSON.parse(readFileSync(serverDescriptorPath(workspaceRoot), 'utf-8')) as unknown
     if (!parsed || typeof parsed !== 'object') return null
-    const descriptor = parsed as { host?: unknown; port?: unknown; token?: unknown }
+    const descriptor = parsed as { host?: unknown; port?: unknown; token?: unknown; pid?: unknown }
     if (typeof descriptor.host !== 'string' || typeof descriptor.port !== 'number' || typeof descriptor.token !== 'string') return null
-    return { host: descriptor.host, port: descriptor.port, token: descriptor.token }
+    return {
+      host: descriptor.host,
+      port: descriptor.port,
+      token: descriptor.token,
+      pid: typeof descriptor.pid === 'number' ? descriptor.pid : undefined,
+    }
   } catch {
     return null
   }
 }
 
-async function backendHealthy(descriptor: { host: string; port: number; token: string }): Promise<boolean> {
+function removeServerDescriptor(workspaceRoot: string): void {
+  try {
+    unlinkSync(serverDescriptorPath(workspaceRoot))
+  } catch {
+    // The descriptor may already have been removed by the backend.
+  }
+}
+
+function terminateServerDescriptorProcess(workspaceRoot: string, descriptor: SwitchboardServerDescriptor | null): void {
+  if (!descriptor?.pid || descriptor.pid <= 0) return
+  try {
+    process.kill(descriptor.pid, 'SIGTERM')
+  } catch {
+    // The process may have exited between the failed request and fallback stop.
+  }
+  removeServerDescriptor(workspaceRoot)
+}
+
+async function backendHealthy(descriptor: SwitchboardServerDescriptor): Promise<boolean> {
   try {
     const response = await fetch(`http://${descriptor.host}:${descriptor.port}/health`, {
       headers: { Authorization: `Bearer ${descriptor.token}` },
@@ -179,7 +204,7 @@ async function backendHealthy(descriptor: { host: string; port: number; token: s
 
 async function ensureSwitchboardBackend(
   workspaceRoot: string
-): Promise<{ ok: true; descriptor: { host: string; port: number; token: string } } | { ok: false; message: string }> {
+): Promise<{ ok: true; descriptor: SwitchboardServerDescriptor } | { ok: false; message: string }> {
   const existing = readServerDescriptor(workspaceRoot)
   if (existing && (await backendHealthy(existing))) return { ok: true, descriptor: existing }
 
@@ -217,6 +242,34 @@ async function requestSwitchboardBackend(
       method: body ? 'POST' : 'GET',
       headers: {
         Authorization: `Bearer ${backend.descriptor.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    const payload = parseJsonPayload(await response.text())
+    if (!response.ok || payload.ok === false) {
+      return { ok: false, message: typeof payload.message === 'string' ? payload.message : 'Switchboard backend request failed.' }
+    }
+    return { ok: true, payload }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : 'Switchboard backend request failed.' }
+  }
+}
+
+async function requestExistingSwitchboardBackend(
+  workspaceRoot: string,
+  pathName: string,
+  body?: Record<string, unknown>
+): Promise<PythonCommandResult> {
+  const descriptor = readServerDescriptor(workspaceRoot)
+  if (!descriptor || !(await backendHealthy(descriptor))) {
+    return { ok: false, message: 'Switchboard backend is not running.' }
+  }
+  try {
+    const response = await fetch(`http://${descriptor.host}:${descriptor.port}${pathName}`, {
+      method: body ? 'POST' : 'GET',
+      headers: {
+        Authorization: `Bearer ${descriptor.token}`,
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -394,6 +447,16 @@ export async function resumeSwitchboardRunner(workspaceRoot: string): Promise<Sw
   return result.payload as SwitchboardRunnerResult
 }
 
+export async function stopSwitchboardRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult> {
+  const descriptor = readServerDescriptor(workspaceRoot)
+  const result = await requestExistingSwitchboardBackend(workspaceRoot, '/runner/stop', {})
+  if (result.ok) return result.payload as SwitchboardRunnerResult
+  const fallback = await runSwitchboardCore(['runner', 'stop', ...workspaceArgs(workspaceRoot)])
+  if (!fallback.ok) return { ok: false, message: fallback.message || 'Unable to stop Switchboard runner.' }
+  terminateServerDescriptorProcess(workspaceRoot, descriptor)
+  return fallback.payload as SwitchboardRunnerResult
+}
+
 export async function tickSwitchboardRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult> {
   const result = await requestSwitchboardBackend(workspaceRoot, '/runner/tick', {})
   if (!result.ok) return { ok: false, message: result.message || 'Unable to tick Switchboard runner.' }
@@ -402,9 +465,22 @@ export async function tickSwitchboardRunner(workspaceRoot: string): Promise<Swit
 
 export async function getSwitchboardRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'workspaceRoot is required.' }
-  const result = await requestSwitchboardBackend(workspaceRoot, '/runner/status', {})
-  if (!result.ok) return { ok: false, message: result.message || 'Unable to read Switchboard runner status.' }
-  return result.payload as SwitchboardRunnerResult
+  const result = await requestExistingSwitchboardBackend(workspaceRoot, '/runner/status', {})
+  if (result.ok) return result.payload as SwitchboardRunnerResult
+  const fallback = await runSwitchboardCore(['runner', 'status', ...workspaceArgs(workspaceRoot)])
+  if (!fallback.ok) return { ok: false, message: fallback.message || 'Unable to read Switchboard runner status.' }
+  return fallback.payload as SwitchboardRunnerResult
+}
+
+export async function stopSwitchboardExecution(input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> {
+  const body = input.reason?.trim() ? { reason: input.reason.trim() } : {}
+  const result = await requestExistingSwitchboardBackend(input.workspaceRoot, `/execution/${input.executionId}/stop`, body)
+  if (result.ok) return result.payload as SwitchboardStopExecutionResult
+  const args = ['execution', 'stop', ...workspaceArgs(input.workspaceRoot), input.executionId]
+  if (input.reason?.trim()) args.push('--reason', input.reason.trim())
+  const fallback = await runSwitchboardCore(args)
+  if (!fallback.ok) return { ok: false, message: fallback.message || 'Unable to stop Switchboard execution.' }
+  return fallback.payload as SwitchboardStopExecutionResult
 }
 
 export async function createWatchtowerRun(input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> {
@@ -440,22 +516,4 @@ export async function listWatchtowerRuns(workspaceRoot: string): Promise<Watchto
   const result = await runSwitchboardCore(['watchtower', 'run-list', ...workspaceArgs(workspaceRoot)])
   if (!result.ok) return { ok: false, message: result.message || 'Unable to list Watchtower runs.' }
   return result.payload as WatchtowerRunListResult
-}
-
-export async function validateWatchtowerOutputs(input: {
-  workspaceRoot: string
-  runId: string
-}): Promise<WatchtowerOutputValidationResult> {
-  const result = await runSwitchboardCore(['watchtower', 'outputs-validate', ...workspaceArgs(input.workspaceRoot), input.runId])
-  if (!result.ok) return { ok: false, message: result.message || 'Unable to validate Watchtower outputs.' }
-  return result.payload as WatchtowerOutputValidationResult
-}
-
-export async function ingestWatchtowerOutputs(input: {
-  workspaceRoot: string
-  runId: string
-}): Promise<WatchtowerOutputIngestResult> {
-  const result = await runSwitchboardCore(['watchtower', 'outputs-ingest', ...workspaceArgs(input.workspaceRoot), input.runId])
-  if (!result.ok) return { ok: false, message: result.message || 'Unable to ingest Watchtower outputs.' }
-  return result.payload as WatchtowerOutputIngestResult
 }

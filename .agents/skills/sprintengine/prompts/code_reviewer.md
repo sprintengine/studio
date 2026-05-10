@@ -49,6 +49,8 @@ If no tasks are ready, stop.
 ## Quality Standards
 
 - Lead with confirmed bugs, risks, regressions, missing verification, and acceptance mismatches
+- Treat mock/sample completion as a blocking acceptance mismatch. Product behavior is not done if it depends on sample data, hardcoded demo state, fake API responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or mock-only paths unless the task explicitly names a prototype, fixture, mockup, or test harness deliverable.
+- Require evidence through the real source of truth, mutation path, owned module, IPC/API/CLI contract, file, persistence layer, service, device, or external integration when those are part of the product behavior.
 - Prefer small, concrete remediation over broad rewrites
 - Use `recommendedTasks` on review artifacts for follow-up work that is unsafe, too broad, blocked, or outside the task's ownership; do not add task cards
 - In review-and-fix mode, fix clear issues directly instead of only reporting them

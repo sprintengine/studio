@@ -33,6 +33,7 @@ const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 const AUTO_RUN_ROLE_CONTINUATION_GRACE_MS = 30000
+const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60000
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
 const TERMINAL_IPC_TIMEOUT_MS = 3000
@@ -57,6 +58,10 @@ type RoleContinuationGrace = {
 type RunningContinuationCapacity = {
   capacityByRole: Map<SprintEngineRole, number>
   agentIds: Set<string>
+}
+
+type RoleContinuationMessage = {
+  sentAt: number
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -209,17 +214,6 @@ function normalizeComparablePath(path: string): string {
   return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
 }
 
-function slugifyAgentToken(value: string, fallback: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^[.-]+|[.-]+$/g, '')
-
-  return slug || fallback
-}
-
 async function publishArtifactApprovalWarning(
   workspace: Workspace,
   artifact: SprintEngineArtifact,
@@ -241,7 +235,7 @@ async function publishArtifactApprovalWarning(
       `Artifact status: ${artifact.status}`,
       `Artifact path: ${artifact.path || 'No file path recorded'}`,
       `Task: ${artifact.taskId || 'No task'}${task ? ` - ${task.title}` : ''}`,
-      'Auto-run remains enabled.',
+      'Roster runner remains enabled.',
       ...extraDetails,
     ].join('\n'),
     workspaceId: workspace.id,
@@ -476,10 +470,6 @@ async function sendApprovalToNextEligibleArtifactProducer(
   }
 }
 
-function buildAutoRunAgentId(role: SprintEngineRole, taskId: string): string {
-  return `${role}-${slugifyAgentToken(taskId, 'task')}`
-}
-
 function pickNextAutoRuns(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
@@ -573,9 +563,7 @@ function pickNextAutoRuns(
     if (candidates.length >= options.limit) break
     const ownerAgentId = task.ownerAgentId
     if (!ownerAgentId) continue
-    const agentId = options.runningAgentIds.has(ownerAgentId)
-      ? ownerAgentId
-      : buildAutoRunAgentId(task.role, task.id)
+    const agentId = ownerAgentId
     const rosterAgent = rosterById[agentId]
     addCandidate(task, agentId, workspace.agents[agentId]?.name ?? rosterAgent?.label ?? agentId)
   }
@@ -592,8 +580,9 @@ function pickNextAutoRuns(
 
   for (const task of recoverableNeedsInputTasks) {
     if (candidates.length >= options.limit) break
-    const agentId = buildAutoRunAgentId(task.role, task.id)
-    addCandidate(task, agentId, agentId)
+    const agentId = task.ownerAgentId ?? findReusableRoleAgent(task.role)
+    if (!agentId) continue
+    addCandidate(task, agentId, workspace.agents[agentId]?.name ?? rosterById[agentId]?.label ?? agentId)
   }
 
   const readyTasks = sprintEngineState.tasks.filter((task) =>
@@ -652,13 +641,17 @@ function pickNextAutoRuns(
     })
 
     const reusableAgentId = findReusableRoleAgent(task.role)
-    const agent = reusableAgentId
-      ? rosterById[reusableAgentId] ?? { id: reusableAgentId, label: reusableAgentId, role: task.role }
-      : {
-          id: buildAutoRunAgentId(task.role, task.id),
-          label: buildAutoRunAgentId(task.role, task.id),
-          role: task.role,
-        }
+    if (!reusableAgentId) {
+      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-task-waiting-for-roster-agent', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        taskId: task.id,
+        role: task.role,
+      })
+      continue
+    }
+
+    const agent = rosterById[reusableAgentId] ?? { id: reusableAgentId, label: reusableAgentId, role: task.role }
 
     addCandidate(task, agent.id, agent.label)
     logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-task-result', {
@@ -755,6 +748,87 @@ async function getRunningContinuationCapacityByRole(
   }
 
   return { capacityByRole, agentIds: countedAgentIds }
+}
+
+function bracketedTerminalPaste(text: string): string {
+  return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~\r`
+}
+
+function continuationMessageKey(workspace: Workspace, taskId: string, agentId: string): string {
+  return [
+    workspace.id,
+    workspace.sprintEngineContext?.statePath ?? '',
+    taskId,
+    agentId,
+  ].join(':')
+}
+
+function buildSprintEngineContinuationPrompt(task: SprintEngineTask, agentId: string): string {
+  return [
+    `Sprint Engine roster runner found a ready ${task.role} task for this idle terminal.`,
+    `Task: ${task.id} - ${task.title}`,
+    `Run \`sprintengine join --role ${task.role} --id ${agentId}\` to receive the current directive, then claim and work the next ready ${task.role} task with this same agent id. If no task is returned, report the blocker and stop.`,
+  ].join('\n')
+}
+
+async function sendContinuationPromptsToIdleAgents(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  continuationCapacity: RunningContinuationCapacity,
+  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
+): Promise<void> {
+  if (continuationCapacity.agentIds.size === 0) return
+
+  const readyTasks = sprintEngineState.tasks.filter((task) =>
+    getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
+    && !task.ownerAgentId
+  )
+  if (readyTasks.length === 0) return
+
+  const now = Date.now()
+  const readyTaskIds = new Set(readyTasks.map((task) => task.id))
+  sentContinuationMessages.current.forEach((_, key) => {
+    if (!key.startsWith(`${workspace.id}:`)) return
+    const keyParts = key.split(':')
+    const taskId = keyParts[keyParts.length - 2]
+    if (taskId && !readyTaskIds.has(taskId)) sentContinuationMessages.current.delete(key)
+  })
+
+  const claimedTaskIds = new Set<string>()
+  for (const agentId of continuationCapacity.agentIds) {
+    const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+    if (!runtimeAgent) continue
+
+    const task = readyTasks.find((candidate) =>
+      candidate.role === runtimeAgent.role && !claimedTaskIds.has(candidate.id)
+    )
+    if (!task) continue
+
+    const key = continuationMessageKey(workspace, task.id, agentId)
+    const previous = sentContinuationMessages.current.get(key)
+    if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) {
+      claimedTaskIds.add(task.id)
+      continue
+    }
+
+    const session = await findRunningAgentSession(workspace, agentId)
+    if (!session) continue
+
+    await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
+      buildSprintEngineContinuationPrompt(task, agentId)
+    ))
+    sentContinuationMessages.current.set(key, { sentAt: now })
+    claimedTaskIds.add(task.id)
+    revealAutoRunAgentTerminal(workspace.id, agentId, workspace.agents[agentId]?.name ?? agentId)
+    logPerfEvent('SprintEngineAutoRun', 'continuation-prompt-sent', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId,
+      role: runtimeAgent.role,
+      taskId: task.id,
+      sessionId: session.sessionId,
+    })
+  }
 }
 
 async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<void> {
@@ -863,7 +937,8 @@ async function spawnAutoRunCandidate(
   sprintEngineState: SprintEngineState,
   nextRun: AutoRunCandidate,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
-  inFlightSpawns: MutableRefObject<Set<string>>
+  inFlightSpawns: MutableRefObject<Set<string>>,
+  options: { trackPendingSpawn?: boolean } = {}
 ): Promise<'started' | 'failed' | 'skipped'> {
   const currentState = useWorkspaceStore.getState()
   const currentWorkspace = currentState.workspaces.find((candidate) => candidate.id === workspace.id)
@@ -901,7 +976,7 @@ async function spawnAutoRunCandidate(
       await publishDiagnostic({
         level: 'error',
         source: 'filesystem',
-        title: 'Auto-run stopped',
+        title: 'Roster runner stopped',
         message: `Workspace folder could not be found: ${workspaceFolderPath}`,
         details: [
           `Workspace: ${workspace.name}`,
@@ -916,12 +991,27 @@ async function spawnAutoRunCandidate(
       return 'failed'
     }
 
-    const latestAgent = useWorkspaceStore
-      .getState()
+    const latestStateBeforeSpawn = useWorkspaceStore.getState()
+    const latestAgent = latestStateBeforeSpawn
       .workspaces.find((candidate) => candidate.id === workspace.id)
       ?.agents[nextRun.agentId]
-    if (latestAgent?.cliStartRequested || latestAgent?.cliSessionId) {
-      return 'skipped'
+    if (latestAgent?.cliSessionId) {
+      const status = await window.api.terminalStatus(latestAgent.cliSessionId).catch(() => ({ running: false }))
+      if (status.running) return 'skipped'
+      latestStateBeforeSpawn.updateAgent(workspace.id, nextRun.agentId, {
+        cliSessionId: undefined,
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliResumeAvailable: (latestAgent.cli ?? 'codex') === 'codex' ? latestAgent.cliResumeAvailable ?? true : false,
+      })
+    } else if (latestAgent?.cliStartRequested) {
+      latestStateBeforeSpawn.updateAgent(workspace.id, nextRun.agentId, {
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliResumeAvailable: (latestAgent.cli ?? 'codex') === 'codex' ? latestAgent.cliResumeAvailable ?? true : false,
+      })
     }
 
     let executionCwd = workspaceFolderPath
@@ -964,7 +1054,7 @@ async function spawnAutoRunCandidate(
       memoryPrompt,
     ].filter(Boolean).join('\n\n')
 
-    addAutoRunPendingSpawn(workspace.id, pendingSpawn)
+    if (options.trackPendingSpawn !== false) addAutoRunPendingSpawn(workspace.id, pendingSpawn)
     currentState.updateAgent(workspace.id, nextRun.agentId, {
       name: nextRun.label,
       execution: {
@@ -1028,7 +1118,8 @@ async function spawnAutoRunCandidate(
       latestState.setSprintEngineAutoEnabled(workspace.id, false)
       setAutoRunPendingSpawns(workspace.id, [])
       latestState.updateAgent(workspace.id, nextRun.agentId, {
-        cliStartRequested: true,
+        cliSessionId: undefined,
+        cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
         cliResumeAvailable: false,
@@ -1064,12 +1155,60 @@ async function spawnAutoRunCandidate(
   }
 }
 
+async function startMissingRosterAgents(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  runningAgentIds: Set<string>,
+  cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  inFlightSpawns: MutableRefObject<Set<string>>
+): Promise<'started' | 'failed' | 'none'> {
+  if (!workspace.sprintEngineAutoState.enabled || !workspace.sprintEngineContext) return 'none'
+
+  const stateFileExists = await window.api.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
+  const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
+  let started = false
+
+  for (const agent of roster) {
+    if (!stateFileExists && agent.role !== 'architect') continue
+    if (runningAgentIds.has(agent.id)) continue
+    if (inFlightSpawns.current.has(`${workspace.id}:${agent.id}`)) continue
+
+    const currentAgent = workspace.agents[agent.id]
+    const status = currentAgent?.cliSessionId
+      ? await window.api.terminalStatus(currentAgent.cliSessionId).catch(() => ({ running: false }))
+      : { running: false }
+    if (status.running) continue
+
+    const result = await spawnAutoRunCandidate(
+      workspace,
+      sprintEngineState,
+      {
+        agentId: agent.id,
+        label: currentAgent?.name ?? agent.label,
+        role: agent.role,
+        taskId: `roster-${agent.id}`,
+      },
+      cliRuntimes,
+      inFlightSpawns,
+      { trackPendingSpawn: false }
+    )
+    if (result === 'failed') return 'failed'
+    if (result === 'started') {
+      started = true
+      runningAgentIds.add(agent.id)
+    }
+  }
+
+  return started ? 'started' : 'none'
+}
+
 async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   inFlightSpawns: MutableRefObject<Set<string>>,
   sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
+  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
@@ -1182,6 +1321,22 @@ async function superviseWorkspace(
     return
   }
 
+  const rosterStartResult = await startMissingRosterAgents(
+    workspace,
+    sprintEngineState,
+    runningAgentIds,
+    cliRuntimes,
+    inFlightSpawns
+  )
+  if (rosterStartResult === 'failed') return
+
+  await sendContinuationPromptsToIdleAgents(
+    workspace,
+    sprintEngineState,
+    continuationCapacity,
+    sentContinuationMessages
+  )
+
   if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
     useWorkspaceStore.getState().setSprintEngineAutoEnabled(workspace.id, false)
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
@@ -1194,18 +1349,14 @@ async function superviseWorkspace(
   }
 
   const occupiedAgentIds = new Set<string>([
-    ...runningAgentIds,
+    ...sprintEngineState.tasks
+      .filter((task) =>
+        (task.status === 'in_progress' || task.status === 'needs_input')
+        && Boolean(task.ownerAgentId)
+      )
+      .map((task) => task.ownerAgentId!),
     ...pendingSpawns.map((pending) => pending.agentId),
   ])
-  const readyRolesForSlotAccounting = new Set(
-    sprintEngineState.tasks
-      .filter((task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready')
-      .map((task) => task.role)
-  )
-  continuationCapacity.agentIds.forEach((agentId) => {
-    const role = sprintEngineState.sprintEngineAgents[agentId]?.role
-    if (role && readyRolesForSlotAccounting.has(role)) occupiedAgentIds.add(agentId)
-  })
   for (const spawnKey of inFlightSpawns.current) {
     if (!spawnKey.startsWith(`${workspace.id}:`)) continue
     occupiedAgentIds.add(spawnKey.slice(workspace.id.length + 1))
@@ -1249,12 +1400,12 @@ async function superviseWorkspace(
     await publishDiagnostic({
       level: 'warning',
       source: 'sprintengine',
-      title: 'Auto-run skipped this tick',
+      title: 'Roster runner skipped this tick',
       message: 'Could not choose the next sprintengine task to run.',
       details: [
         `Workspace: ${workspace.name}`,
         `Error: ${error instanceof Error ? error.message : String(error)}`,
-        'Auto-run remains enabled.',
+        'Roster runner remains enabled.',
       ].join('\n'),
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -1290,7 +1441,18 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
   await reconcileDuplicateAgentSessions(workspace)
 
   for (const agent of Object.values(workspace.agents)) {
-    if (!agent.cliStartRequested || !agent.cliHasLaunched || !agent.cliSessionId) continue
+    if (!agent.cliStartRequested) continue
+
+    if (!agent.cliSessionId) {
+      if (agent.kind !== 'sprintengine') continue
+      useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliResumeAvailable: (agent.cli ?? 'codex') === 'codex' ? agent.cliResumeAvailable ?? true : false,
+      })
+      continue
+    }
 
     const status = await window.api.terminalStatus(agent.cliSessionId)
     if (status.running) continue
@@ -1309,6 +1471,7 @@ export default function SprintEngineAutoRunSupervisor() {
   const inFlightSpawns = useRef(new Set<string>())
   const sentArtifactApprovalMessages = useRef(new Map<string, number>())
   const autoApprovalDiagnostics = useRef(new Map<string, number>())
+  const sentContinuationMessages = useRef(new Map<string, RoleContinuationMessage>())
   const continuationGraceByTask = useRef(new Map<string, RoleContinuationGrace>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
   const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
@@ -1381,6 +1544,7 @@ export default function SprintEngineAutoRunSupervisor() {
             inFlightSpawns,
             sentArtifactApprovalMessages,
             autoApprovalDiagnostics,
+            sentContinuationMessages,
             continuationGraceByTask,
             lastContentByWorkspace
           )

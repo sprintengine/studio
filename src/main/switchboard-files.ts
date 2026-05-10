@@ -7,7 +7,6 @@ export {
   getWatchtowerRun,
   initializeSwitchboard,
   importSwitchboardItem,
-  ingestWatchtowerOutputs,
   listWatchtowerRuns,
   moveSwitchboardTask,
   promoteSwitchboardInboxTask,
@@ -19,8 +18,9 @@ export {
   pauseSwitchboardRunner,
   resumeSwitchboardRunner,
   startSwitchboardRunner,
+  stopSwitchboardExecution,
+  stopSwitchboardRunner,
   tickSwitchboardRunner,
   updateSwitchboardTask,
   updateWatchtowerRunAgentStatus,
-  validateWatchtowerOutputs,
 } from './switchboard-python'

@@ -106,6 +106,8 @@ import type {
   SwitchboardRunnerResult as SharedSwitchboardRunnerResult,
   SwitchboardRunnerStartInput as SharedSwitchboardRunnerStartInput,
   SwitchboardRunnerState as SharedSwitchboardRunnerState,
+  SwitchboardStopExecutionInput as SharedSwitchboardStopExecutionInput,
+  SwitchboardStopExecutionResult as SharedSwitchboardStopExecutionResult,
   SwitchboardTask as SharedSwitchboardTask,
   SwitchboardTaskRecord as SharedSwitchboardTaskRecord,
   SwitchboardTaskStatus as SharedSwitchboardTaskStatus,
@@ -221,6 +223,8 @@ declare global {
   type SwitchboardRunnerState = SharedSwitchboardRunnerState
   type SwitchboardRunnerStartInput = SharedSwitchboardRunnerStartInput
   type SwitchboardRunnerResult = SharedSwitchboardRunnerResult
+  type SwitchboardStopExecutionInput = SharedSwitchboardStopExecutionInput
+  type SwitchboardStopExecutionResult = SharedSwitchboardStopExecutionResult
 
   interface Window {
     api: ElectronApi

@@ -136,7 +136,8 @@ def architect_worktree_preference_block(use_worktrees: bool) -> str:
 def worker_plan_worktree_block() -> str:
     return "\n".join([
         "## Execution Workspace Discipline",
-        "- Read `plan.md` before claiming work.",
+        "- Read only the active team's approved `architect_plan` artifact path from state.yaml before claiming work.",
+        "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
         "- Work in the current workspace directory used to launch this agent.",
         "- Do not create Sprint Engine worktrees.",
         "- Edit only task-owned paths and log evidence before marking your task done.",
@@ -161,7 +162,8 @@ def build_merge_start_prompt(state: Dict[str, Any], state_path: Path, actor_id: 
         "",
         "Hard rules:",
         "- Confirm the sprintengine run is complete before merging.",
-        "- Read `plan.md` and `sprintengine summary` before touching Git state.",
+        f"- Read the exact plan file `{plan_path}` and `sprintengine summary` before touching Git state.",
+        "- Do not use any other `plan.md` found elsewhere in the repo.",
         "- Verify the current branch is the intended source branch and `git status --short` is clean.",
         "- Verify the merge target branch and fetch or update only if the user has allowed network/remote operations.",
         "- Perform the merge to the requested target branch, resolving conflicts where reasonable.",
@@ -320,6 +322,41 @@ def local_venv_install_guidance() -> str:
     ])
 
 
+def production_reality_guidance() -> str:
+    return "\n".join([
+        "# Production Reality Gate",
+        (
+            "Sprint Engine work defaults to production implementation. Do not treat `MVP`, "
+            "`first pass`, `local`, or `works in UI` as permission to ship sample data, generated "
+            "demo entities, fake API responses, mocked transports, stubbed commands, placeholder "
+            "persistence, disconnected local-only UI state, or controls that only simulate success."
+        ),
+        (
+            "Mocks, fakes, fixtures, and generated sample data are allowed in tests, explicit "
+            "prototypes, design mockups, or temporary scaffolding only when the task names that "
+            "deliverable. They are not completion evidence for product behavior."
+        ),
+        (
+            "Before marking implementation or review work done, identify the real source of truth, "
+            "real mutation path, and real verification evidence for the user-visible behavior. "
+            "Evidence must exercise the owned application module, IPC/API/CLI contract, file, "
+            "database, service, command, device, or external integration that the product actually "
+            "depends on."
+        ),
+        (
+            "If the real dependency is unavailable, blocked, physically unverified, missing from "
+            "the codebase, or outside the current task, do not claim the product behavior is done. "
+            "Mark the task `needs_input` or record a blocker/follow-up, and make the remaining real "
+            "integration explicit."
+        ),
+        (
+            "Architect task cards and plan acceptance criteria must fail when the feature only "
+            "works through hardcoded samples, disconnected UI state, fake success paths, mocks, "
+            "stubs, or documentation of unverified limits."
+        ),
+    ])
+
+
 def compose_prompt(
     swarm_heading: str,
     swarm_prompt: str,
@@ -335,6 +372,8 @@ def compose_prompt(
             "---",
             local_venv_install_guidance(),
             "---",
+            production_reality_guidance(),
+            "---",
             "# Rule Priority",
             priority_text,
         ])
@@ -349,6 +388,8 @@ def compose_prompt(
         project_relative_path_guidance(),
         "---",
         local_venv_install_guidance(),
+        "---",
+        production_reality_guidance(),
         "---",
         "# Rule Priority",
         priority_text,
@@ -394,6 +435,17 @@ def artifact_registration_instruction(agent_id: str) -> str:
         "flag moves the linked task to `needs_input`; use it only when the artifact should wait for "
         "human approval. If a review artifact approves/passes the work with no findings, register "
         "the artifact, log evidence, and follow the completion rule below."
+    )
+
+
+def completion_reality_instruction() -> str:
+    return (
+        "Before any `done` status, verify that acceptance is met through real product paths, not "
+        "sample data, hardcoded demo state, fake responses, mocked transports, stubbed commands, "
+        "placeholder persistence, disconnected UI state, or documentation-only caveats. If the task "
+        "requires hardware, native integration, an external service, persisted state, or a real "
+        "cross-process contract, evidence must cover that real dependency or the task is not done. "
+        "Use `needs_input`, a blocker note, or a concrete follow-up when real verification cannot be completed. "
     )
 
 
@@ -1643,7 +1695,7 @@ def ensure_plan_approval_gate(
         plan_task = normalize_task({
             "id": task_id,
             "title": "Review architect plan artifact",
-            "description": "Architect-authored plan.md and task graph approval gate.",
+            "description": f"Architect-authored active team plan at {plan_path_value} and task graph approval gate. Use this exact path; do not read, copy, or overwrite another team's plan.md.",
             "role": "architect",
             "status": "in_progress" if start_active else "todo",
             "ownerAgentId": actor if start_active else None,
@@ -1651,6 +1703,7 @@ def ensure_plan_approval_gate(
             "ownedPaths": [plan_path_value],
             "acceptanceCriteria": [
                 "Architect plan describes the execution approach and task graph.",
+                f"Architect plan artifact is written at the active team path `{plan_path_value}`.",
                 "Plan is reviewed by the user and either approved to done or sent back for changes.",
             ],
             "implementationNotes": [],
@@ -1876,9 +1929,10 @@ def build_plan_review_prompt(
         "1. Read the full architect plan.",
         "2. Inspect the repository only as needed to validate the plan from your specialty.",
         "3. Evaluate whether the task graph, owned paths, dependencies, and acceptance criteria are sufficient.",
-        f"4. {action} at the exact project-relative review file path above.",
-        "5. Set `Verdict:` to one of: approve, needs_changes, blocked.",
-        "6. Keep feedback concrete and actionable for the architect.",
+        "4. Treat production integration as a plan requirement: flag any task that allows sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or documentation-only verification to satisfy product acceptance.",
+        f"5. {action} at the exact project-relative review file path above.",
+        "6. Set `Verdict:` to one of: approve, needs_changes, blocked.",
+        "7. Keep feedback concrete and actionable for the architect.",
         "",
         "Required markdown sections:",
         "- Summary",
@@ -1948,15 +2002,16 @@ def build_address_reviews_prompt(
         "Steps:",
         "1. Read the current plan and all specialist review feedback below.",
         "2. Decide which feedback to accept, adapt, or reject.",
-        "3. Update plan.md directly when the human-readable plan needs changes.",
-        "4. Update the task graph only with Sprint Engine plan commands:",
+        "3. Repair any plan or task acceptance criteria that would let sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or documentation-only verification count as completion.",
+        "4. Update the exact plan file shown above when the human-readable plan needs changes; do not search for or edit another plan.md.",
+        "5. Update the task graph only with Sprint Engine plan commands:",
         "   - Sprint Engine plan update-task",
         "   - Sprint Engine plan add-task",
         "   - Sprint Engine plan delete-task",
         "   - Sprint Engine plan add-dependency",
         "   - Sprint Engine plan remove-dependency",
-        "5. Do not start implementation work.",
-        "6. When done, tell the user which review items were accepted, adapted, or rejected.",
+        "6. Do not start implementation work.",
+        "7. When done, tell the user which review items were accepted, adapted, or rejected.",
         "",
         "# Current Plan",
         "",
@@ -2237,6 +2292,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"{role_boundary_instruction()}\n\n"
                 f"{worker_plan_worktree_block()}\n\n"
                 f"{artifact_registration_instruction(args.id)}\n\n"
+                f"{completion_reality_instruction()}"
                 f"{completion_instruction()}"
                 f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
                 f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
@@ -2256,6 +2312,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"{role_boundary_instruction()}\n\n"
             f"{worker_plan_worktree_block()}\n\n"
             f"{artifact_registration_instruction(args.id)}\n\n"
+            f"{completion_reality_instruction()}"
             f"{completion_instruction()}"
             f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
             f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
@@ -2295,24 +2352,27 @@ def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: 
         f"Backup created: {backup_path}",
         f"Existing task count: {task_count}",
         "",
-        "Keep this deliberately simple. This is an audit-only recovery pass, not a planning pass.",
-        "Your only job is to compare the existing tasks against the current codebase and update each existing task status/evidence through the Sprint Engine tool.",
+        "Keep this deliberately simple. This is an integrity recovery pass, not implementation work.",
+        "Your job is to compare the existing tasks against the current codebase and product goal, update truthful task status/evidence, and repair task/acceptance defects that would let fake product behavior count as done.",
         "",
         "Hard rules:",
         "- Do NOT run `sprintengine init`.",
-        "- Do NOT rewrite, replace, delete, or add tasks.",
-        "- Do NOT run `Sprint Engine plan delete-task`, `Sprint Engine plan add-task`, `Sprint Engine plan update-task`, `Sprint Engine plan add-dependency`, `Sprint Engine plan remove-dependency`, or any task-board replanning command.",
-        "- Do NOT edit plan.md or create a new plan.",
+        "- Do NOT rewrite the whole plan or start implementation.",
+        "- Do NOT delete existing tasks unless the user explicitly requested board surgery.",
+        "- You MAY use `Sprint Engine plan update-task`, `Sprint Engine plan add-task`, `Sprint Engine plan add-dependency`, or `Sprint Engine plan remove-dependency` only to repair completion gates, add missing real-integration/verification tasks, or make dependencies block fake completion.",
+        "- If a plan/task claims product completion through sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or documentation-only verification, correct the task graph or mark the affected task `needs_input` with a blocker.",
+        "- Do NOT create a new plan file.",
+        "- Do NOT inspect a different `plan.md` from another Sprint Engine team folder.",
         "- Do NOT clear the board because tasks look stale.",
-        "- Preserve task IDs, titles, descriptions, paths, dependencies, and acceptance criteria.",
-        "- Only change status, notes, and evidence for tasks that already exist in state.yaml.",
+        "- Preserve task IDs where possible. Prefer updating descriptions, acceptance criteria, dependencies, notes, and status over broad replacement.",
+        "- Only add tasks when the current graph has no task that can verify or implement the real product integration.",
         "",
         "Work through every existing task in state.yaml in order.",
         "",
         "For each task:",
         "1. Read the task title, description, owned paths, acceptance criteria, notes, and existing evidence.",
         "2. Inspect the current codebase for the relevant implementation.",
-        "3. Decide the real status: todo, in_progress, needs_input, or done.",
+        "3. Decide the real status: todo, in_progress, needs_input, or done. A task is not done if it only works with mocks, samples, stubs, fake responses, placeholder persistence, disconnected UI state, or unverified hardware/external integrations.",
         "4. Update only that task's status.",
         "5. If marking done or in_progress, append evidence with files checked, commands run, and a short result.",
         "6. If uncertain, mark needs_input or add a note. Do not guess.",
@@ -2323,12 +2383,15 @@ def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: 
         "- `sprintengine task log --help`",
         "- `sprintengine task note --help`",
         "",
-        "Allowed write commands are limited to:",
+        "Allowed write commands are:",
         "- `sprintengine task status`",
         "- `sprintengine task log`",
         "- `sprintengine task note`",
+        "- `Sprint Engine plan update-task` for tightening descriptions, paths, and acceptance criteria",
+        "- `Sprint Engine plan add-task` for missing real-integration or verification gates",
+        "- `Sprint Engine plan add-dependency` and `Sprint Engine plan remove-dependency` for dependency corrections",
         "",
-        "If a needed command is unavailable or fails, stop and explain the blocker instead of changing the plan shape.",
+        "If a needed command is unavailable or fails, stop and explain the blocker instead of editing state.yaml directly.",
     ])
 
 
@@ -3047,7 +3110,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=cmd_init)
 
     # recover
-    p = sub.add_parser("recover", help="Start audit-only recovery mode, backs up state and returns full prompt.")
+    p = sub.add_parser("recover", help="Start integrity recovery mode, backs up state and returns full prompt.")
     p.set_defaults(handler=cmd_recover)
 
     # roster

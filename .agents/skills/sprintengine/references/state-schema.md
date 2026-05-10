@@ -2,8 +2,6 @@
 
 The shared Sprint Engine coordination files are:
 
-- `.multi-code/sprintengine/plan.md`
-  - architect-authored low-level design and task plan
 - `.multi-code/sprintengine/<team-slug>/state.yaml`
   - machine-readable kanban board and run state
 - `.multi-code/sprintengine/<team-slug>/handover.md`
@@ -14,6 +12,8 @@ The shared Sprint Engine coordination files are:
   - specialist-authored markdown review of the current architect plan
 
 The Python tool is the preferred write path for `.multi-code/sprintengine/state.yaml`.
+
+Legacy root-level `.multi-code/sprintengine/plan.md` files are not canonical for named runs. Agents should use the active team's `architect_plan` artifact path from state instead.
 
 Use `sprintengine handover --name <team> --goal "..." --handover <path>` to create a named team bootstrap and canonical `handover.md`.
 Use `sprintengine handover --name <team> --goal "..." --handover-stdin` when an active planning agent should stream its full handover through the Python tool.
@@ -150,7 +150,8 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 - `handover.md` is incoming context from a previous planning agent. The product strategist and architect validate it before creating approved artifacts.
 - New sprintengine runs start with a product intake task and a `requirements` or `product_strategy` artifact. If no meaningful product discovery is needed, the artifact should say so and still record goal, non-goals, constraints, and acceptance expectations.
 - Architect planning starts after the product intake artifact is approved.
-- `plan.md` is architect-owned final execution context for workers and reviewers.
+- The active team's `architect_plan` artifact path is the canonical plan path, normally `.multi-code/sprintengine/<team-slug>/plan.md`.
+- `plan.md` is architect-owned final execution context for workers and reviewers only when it is under the active team folder. Agents must not find or choose plans by filename search.
 - Task cards should contain the relevant distilled plan context. Workers should not need to search `plan.md` to understand the concrete change assigned to them.
 - Board `Ready` is derived, not stored as a separate task status.
 - A task is ready when:
@@ -167,9 +168,9 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 - Performance review tasks should be scheduled only after relevant code review evidence exists and should run when the work touches startup, hot paths, rendering scale, polling, filesystem/search/git traversal, command loops, memory growth, bundle/runtime resource usage, or when code review/validation raises a performance concern. They produce direct review evidence or `performance_review` artifacts with measured evidence where practical, clearly labeled hypotheses where not, findings, and recommended follow-up tasks.
 - Workers should not rewrite the plan or change other workers' task cards.
 - Review artifact lifecycle mutations must go through `sprintengine artifact` commands.
-- `sprintengine init` creates or reuses a product intake approval task and artifact, plus a blocked architect plan approval task and `architect_plan` artifact for `plan.md`.
+- `sprintengine init` creates or reuses a product intake approval task and artifact, plus a blocked architect plan approval task and `architect_plan` artifact for the active team's `plan.md`.
 - Product intake tasks must move their artifact to `ready_for_review` and block architect planning until approved.
-- Architect plan tasks must register `plan.md` as an `architect_plan` artifact, move to `needs_input`, and block downstream work until approved.
+- Architect plan tasks must register the active team's `plan.md` as an `architect_plan` artifact, move to `needs_input`, and block downstream work until approved.
 - Product strategy and requirements gate tasks should register `product_strategy` or `requirements` artifacts, move to `needs_input`, and block dependent implementation until approved.
 - Frontend mockup/design gate tasks should register `html_mockup` or `design_notes` artifacts, move to `needs_input`, and block production UI implementation until approved.
 - Downstream implementation tasks should depend on the producing gate task ids, not only mention artifact paths in notes.
@@ -180,10 +181,10 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 
 ## Plan Review Flow
 
-1. Architect finishes a draft `plan.md` and task graph.
+1. Architect finishes a draft `plan.md` in the active team folder and task graph.
 2. Specialist runs `Sprint Engine plan start-review --role <role> --id <agent-id>`.
 3. Specialist writes or replaces `plan-reviews/<agent-id>.md` using the returned prompt.
 4. Architect runs `Sprint Engine plan address-reviews --actor architect`.
-5. Architect updates `plan.md` directly and updates task cards only through `Sprint Engine plan` commands.
+5. Architect updates the active team's `plan.md` directly and updates task cards only through `Sprint Engine plan` commands.
 
 Review files include the current plan fingerprint. If `plan.md` changes after a review, `Sprint Engine plan review-status` marks that review stale.

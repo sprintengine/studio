@@ -34,6 +34,9 @@ If no tasks are ready, stop. Do not wait — other roles may be completing depen
 ## Quality Standards
 
 - Run type checks and tests before marking a task done
+- Production work must use the real source of truth and mutation path. Do not mark done when the main behavior depends on sample data, generated demo entities, fake API responses, mocked transports, stubbed commands, placeholder persistence, disconnected local-only UI state, or mock-only paths unless the task explicitly names a prototype, fixture, mockup, or test harness deliverable.
+- Mocks, fakes, fixtures, and generated sample data are valid in tests and explicit prototypes only. They are not completion evidence for product behavior.
+- If a required real dependency, hardware path, service, persistence layer, IPC/API/CLI contract, or external integration is unavailable or unverified, add a blocker note or move the task to `needs_input` instead of marking it done.
 - Only touch files listed in the task's `ownedPaths`
 - Log every file you touched and every command you ran as evidence
 - Use only project-root-relative paths in `sprintengine task log --file`, notes, artifacts, and handoff text. Never use absolute or machine-specific paths.

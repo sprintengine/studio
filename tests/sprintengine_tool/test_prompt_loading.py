@@ -119,6 +119,11 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
             "# Project-Relative Paths",
             "Never use absolute or machine-specific paths",
             "pass only project-root-relative paths",
+            "# Production Reality Gate",
+            "Do not treat `MVP`",
+            "Mocks, fakes, fixtures, and generated sample data are allowed in tests",
+            "Before marking implementation or review work done, identify the real source of truth",
+            "Before any `done` status, verify that acceptance is met through real product paths",
             "# SprintEngine Local Python Environment",
             "you may install task-required Python packages into the repository-local virtual environment",
             ".venv\\Scripts\\python.exe -m pip install <package>",
@@ -192,7 +197,7 @@ def test_join_stops_when_only_other_role_tasks_are_ready(tmp_path) -> None:
     assert product_task["ownerAgentId"] is None
 
 
-def test_recover_returns_audit_only_prompt_and_backup_path(tmp_path) -> None:
+def test_recover_returns_integrity_prompt_and_backup_path(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "recover-prompt",
@@ -211,9 +216,11 @@ def test_recover_returns_audit_only_prompt_and_backup_path(tmp_path) -> None:
         payload["prompt"],
         [
             "You are the recovery architect for this sprintengine.",
-            "This is an audit-only recovery pass, not a planning pass.",
+            "This is an integrity recovery pass, not implementation work.",
             "Do NOT run `sprintengine init`.",
-            "Only change status, notes, and evidence for tasks that already exist in state.yaml.",
+            "repair task/acceptance defects that would let fake product behavior count as done",
+            "You MAY use `Sprint Engine plan update-task`, `Sprint Engine plan add-task`, `Sprint Engine plan add-dependency`, or `Sprint Engine plan remove-dependency`",
+            "A task is not done if it only works with mocks, samples, stubs, fake responses, placeholder persistence, disconnected UI state, or unverified hardware/external integrations.",
         ],
     )
 
@@ -313,7 +320,8 @@ def test_merge_start_returns_instruction_only_prompt(tmp_path) -> None:
         payload["prompt"],
         [
             "This command only returns instructions. It has not changed task cards and has not run Git.",
-            "Read `plan.md` and `sprintengine summary`",
+            "Read the exact plan file",
+            "Do not use any other `plan.md` found elsewhere in the repo.",
             "Do not push unless explicitly instructed by the user.",
         ],
     )

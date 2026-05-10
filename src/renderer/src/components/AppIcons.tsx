@@ -1,5 +1,6 @@
 import type { SpecialistIcon } from '../specialists/specialistActions'
 import type { SprintEngineRole, Workspace } from '../types/workspace'
+import type { SwitchboardFolderStatus } from '../../../shared/switchboard'
 import multiloopBlackHoleTabIcon from '../assets/brand/multiloop-black-hole-tab-icon.png'
 
 type IconProps = {
@@ -126,6 +127,233 @@ export function SprintEngineRoleIcon({ role, className }: IconProps & { role: Sp
     case 'performance':
       return <PerformanceIcon className={className} />
   }
+}
+
+const PRIORITY_LABELS: Record<'urgent' | 'high' | 'medium' | 'low' | 'none', string> = {
+  urgent: 'Urgent priority',
+  high: 'High priority',
+  medium: 'Medium priority',
+  low: 'Low priority',
+  none: 'No priority',
+}
+
+function priorityKey(priority: number | null | undefined): keyof typeof PRIORITY_LABELS {
+  if (priority === 0) return 'urgent'
+  if (priority === 1) return 'high'
+  if (priority === 2) return 'medium'
+  if (priority === 3) return 'low'
+  return 'none'
+}
+
+export function PriorityIcon({
+  priority,
+  className,
+}: IconProps & { priority: number | null | undefined }) {
+  const key = priorityKey(priority)
+  const label = PRIORITY_LABELS[key]
+
+  if (key === 'urgent') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="12" cy="12" r="7.5" fill="#ff787c" />
+        <rect x="11.25" y="7.25" width="1.5" height="6" rx="0.5" fill="#1a0e0f" />
+        <circle cx="12" cy="15.75" r="1" fill="#1a0e0f" />
+      </svg>
+    )
+  }
+
+  if (key === 'none') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <rect x="6.5" y="11.25" width="3" height="1.5" rx="0.5" fill="currentColor" opacity="0.32" />
+        <rect x="10.5" y="11.25" width="3" height="1.5" rx="0.5" fill="currentColor" opacity="0.32" />
+        <rect x="14.5" y="11.25" width="3" height="1.5" rx="0.5" fill="currentColor" opacity="0.32" />
+      </svg>
+    )
+  }
+
+  const litCount = key === 'high' ? 3 : key === 'medium' ? 2 : 1
+  const accentColor = key === 'high' ? '#f2c45f' : 'currentColor'
+
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+      <title>{label}</title>
+      <rect
+        x="6.5"
+        y="13"
+        width="3"
+        height="4.5"
+        rx="0.6"
+        fill={litCount >= 1 ? accentColor : 'currentColor'}
+        opacity={litCount >= 1 ? 1 : 0.3}
+      />
+      <rect
+        x="10.5"
+        y="9"
+        width="3"
+        height="8.5"
+        rx="0.6"
+        fill={litCount >= 2 ? accentColor : 'currentColor'}
+        opacity={litCount >= 2 ? 1 : 0.3}
+      />
+      <rect
+        x="14.5"
+        y="5"
+        width="3"
+        height="12.5"
+        rx="0.6"
+        fill={litCount >= 3 ? accentColor : 'currentColor'}
+        opacity={litCount >= 3 ? 1 : 0.3}
+      />
+    </svg>
+  )
+}
+
+export function CommentIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5 6.5C5 5.95 5.45 5.5 6 5.5H18C18.55 5.5 19 5.95 19 6.5V14.5C19 15.05 18.55 15.5 18 15.5H10.5L7 18.5V15.5H6C5.45 15.5 5 15.05 5 14.5V6.5Z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+const STATUS_LABELS: Record<SwitchboardFolderStatus, string> = {
+  inbox: 'Inbox',
+  planning: 'Planning',
+  todo: 'Todo',
+  ready: 'Ready',
+  in_progress: 'In progress',
+  testing: 'Testing',
+  testing_in_progress: 'Testing in progress',
+  review: 'Review',
+  review_in_progress: 'Review in progress',
+  done: 'Done',
+  canceled: 'Canceled',
+}
+
+export function StatusIcon({
+  status,
+  className,
+}: IconProps & { status: SwitchboardFolderStatus }) {
+  const label = STATUS_LABELS[status]
+
+  if (status === 'inbox') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <path
+          d="M5 8.5L12 13L19 8.5M5 8L5 16C5 16.55 5.45 17 6 17H18C18.55 17 19 16.55 19 16V8C19 7.45 18.55 7 18 7H6C5.45 7 5 7.45 5 8Z"
+          stroke="currentColor"
+          strokeWidth={iconStroke}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+
+  if (status === 'canceled') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="12" cy="12" r="6.4" stroke="currentColor" strokeWidth={iconStroke} opacity="0.7" />
+        <path d="M8.5 8.5L15.5 15.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" opacity="0.7" />
+      </svg>
+    )
+  }
+
+  if (status === 'done') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="12" cy="12" r="6.4" fill="#30d158" />
+        <path d="M9.25 12L11.25 14L14.75 10.25" stroke="#0f1d10" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+
+  if (status === 'planning') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle
+          cx="12"
+          cy="12"
+          r="6.4"
+          stroke="currentColor"
+          strokeWidth={iconStroke}
+          strokeDasharray="2 2"
+          opacity="0.85"
+        />
+      </svg>
+    )
+  }
+
+  if (status === 'todo') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="12" cy="12" r="6.4" stroke="currentColor" strokeWidth={iconStroke} />
+      </svg>
+    )
+  }
+
+  if (status === 'ready') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="12" cy="12" r="6.4" stroke="currentColor" strokeWidth={iconStroke} />
+        <circle cx="12" cy="12" r="2" fill="currentColor" />
+      </svg>
+    )
+  }
+
+  // Progress fills for the in_progress / testing / review family.
+  // 1/3 fill for in_progress, 2/3 for testing/review. _in_progress variants get a dashed ring.
+  const progressFill =
+    status === 'in_progress'
+      ? 0.33
+      : status === 'testing' || status === 'testing_in_progress'
+        ? 0.5
+        : 0.75
+  const dashed = status.endsWith('_in_progress')
+  const accent = '#7c5cf2'
+
+  // Render the fill as a clipped wedge (sweep angle = 360 * progressFill, starting from 12 o'clock).
+  const radius = 5.4
+  const cx = 12
+  const cy = 12
+  const sweep = progressFill
+  const angle = sweep * 2 * Math.PI
+  const endX = cx + radius * Math.sin(angle)
+  const endY = cy - radius * Math.cos(angle)
+  const largeArc = sweep > 0.5 ? 1 : 0
+  const wedgePath = sweep >= 1
+    ? null
+    : `M ${cx} ${cy} L ${cx} ${cy - radius} A ${radius} ${radius} 0 ${largeArc} 1 ${endX.toFixed(2)} ${endY.toFixed(2)} Z`
+
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+      <title>{label}</title>
+      <circle
+        cx={cx}
+        cy={cy}
+        r="6.4"
+        stroke={accent}
+        strokeWidth={iconStroke}
+        strokeDasharray={dashed ? '2 1.6' : undefined}
+      />
+      {wedgePath ? <path d={wedgePath} fill={accent} opacity="0.85" /> : <circle cx={cx} cy={cy} r={radius} fill={accent} opacity="0.85" />}
+    </svg>
+  )
 }
 
 function ArchitectureIcon({ className }: IconProps) {

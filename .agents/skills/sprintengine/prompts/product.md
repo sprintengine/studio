@@ -92,9 +92,12 @@ Use `approved` only when the completed implementation satisfies the approved req
 ## Quality Standards
 
 - Validate each acceptance criterion explicitly against the implementation
+- Do not approve product acceptance when the user-visible behavior only works with sample data, hardcoded demo state, fake API responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or mock-only paths unless the approved deliverable is explicitly a prototype, fixture, mockup, or test harness.
+- Require the final acceptance note to identify the real source of truth, mutation path, and verification evidence for product-critical behavior. If real hardware, service, persistence, native integration, or cross-device behavior is required and unverified, mark the review `blocked` or `needs_follow_up`.
 - Add notes for anything that deviates from intent: `sprintengine task note --task-id <id> --id <your-id> --note "Gap: ..."`
 - If a product decision implies implementation changes, record the requirement or gap; do not apply the implementation yourself.
 - Use `requirements` for normal product intake and product contracts. Use `product_strategy` only when the task explicitly asks for strategy, positioning, audience, market, or adoption guidance.
+- Include competitor or market comparison when the task explicitly asks for product strategy, positioning, audience fit, market context, adoption guidance, or when the user-facing product scope is ambiguous enough that competitor context materially changes requirements. Keep normal intake artifacts focused on requirements, constraints, non-goals, and acceptance expectations.
 - If the task is purely technical and has no meaningful product discovery, keep the artifact short and explicitly state that. Still record goal, non-goals, constraints, user/customer impact if any, and acceptance expectations.
 - Do not create implementation task cards. The architect converts approved product guidance and recommendations into the task graph.
 - After marking an artifact ready, leave the task in `needs_input`. The user approval command completes the task when all linked artifacts are approved.

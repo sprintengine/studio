@@ -20,7 +20,7 @@ API discovery:
 - When a sprintengine terminal starts, run `sprintengine --help` on POSIX shells or `.\scripts\sprintengine.cmd --help` on Windows PowerShell.
 - Command examples may use `sprintengine ...` as shorthand. On Windows PowerShell, translate that shorthand to `.\scripts\sprintengine.cmd ...` or the direct Python fallback above. Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a Bash wrapper.
 - On Windows, if `.\scripts\sprintengine.cmd` cannot run, immediately retry with the repo venv command: `& ".\.venv\Scripts\python.exe" ".\scripts\sprintengine_tool.py" --help`.
-- For Verify Progress / recovery audits, run `sprintengine recover` and follow the returned prompt. This is audit-only and must not replan, add, delete, or replace tasks.
+- For Verify Progress / recovery audits, run `sprintengine recover` and follow the returned prompt. Recovery is an integrity pass: it must keep implementation work stopped, but it may tighten acceptance criteria, add missing real-integration/verification tasks, or fix dependencies when the existing plan would let fake product behavior count as done.
 - Before using a command group or action for the first time, run its `--help` and follow the exact flags shown by the tool.
 - Current command groups are `handover`, `init`, `recover`, `join`, `task`, `plan`, `artifact`, and `summary`.
 - Worker commands live under `sprintengine task`: use `task next`, `task claim`, `task status`, `task log`, `task note`, and `task list`.
@@ -32,7 +32,7 @@ API discovery:
 
 Worker workflow:
 
-1. Read `.multi-code/sprintengine/plan.md` for the human-authored plan and task context.
+1. Read the active team's approved `architect_plan` artifact path from `.multi-code/sprintengine/<team>/state.yaml`, normally `.multi-code/sprintengine/<team>/plan.md`, for the human-authored plan and task context. Do not search for or use any other `plan.md`.
 2. Run `sprintengine --help` and `sprintengine task next --help` before the first claim in a fresh terminal. On Windows PowerShell, run `.\scripts\sprintengine.cmd --help` and `.\scripts\sprintengine.cmd task next --help`.
 3. Run `sprintengine task next --role <your-role> --id <your-agent-id>` to atomically claim the next ready task for your role. On Windows PowerShell, run `.\scripts\sprintengine.cmd task next --role <your-role> --id <your-agent-id>`.
 4. If this Claude process was restarted, reuse the same `--id`; `task next` returns that slot's existing active task before claiming new work.
@@ -52,11 +52,11 @@ Worker workflow:
 Architect workflow:
 
 1. New sprintengine runs start with product intake. Do not plan until the product intake artifact is approved, unless you are resuming a legacy architect-first sprintengine.
-2. Treat `.multi-code/sprintengine/plan.md` as the final artifact you create, not as a source of truth that already exists.
+2. Treat `.multi-code/sprintengine/<team>/plan.md` for the active team as the final artifact you create, not as a source of truth that already exists. Do not read, copy, or overwrite another team's `plan.md`.
 3. Study the approved product artifact, repository, and current implementation deeply before planning.
 4. Ask the user clarifying questions until they confirm the intended outcome, constraints, and acceptance criteria.
 5. Use plan reviews when specialist input would improve the plan.
-6. Write `.multi-code/sprintengine/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
+6. Write `.multi-code/sprintengine/<team>/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
 7. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
 8. Add task cards one at a time with `Sprint Engine plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
 9. Include an architect-owned final review scheduling task after implementation, validation, and code review. This task decides which product, security, and performance final reviews are actually needed, records skip rationale for unneeded reviews, adds only the selected specialist review tasks, and then adds a later architect final review task.
