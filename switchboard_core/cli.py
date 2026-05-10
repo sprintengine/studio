@@ -27,9 +27,12 @@ from .store import (
     requeue_task,
     runner_pause,
     runner_resume,
+    runner_run,
     runner_start,
     runner_status,
     runner_tick,
+    execution_logs,
+    execution_status,
     task_summary,
     update_task,
     switchboard_root,
@@ -271,6 +274,21 @@ def cmd_runner_tick(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runner_run(args: argparse.Namespace) -> int:
+    emit(runner_run(workspace_path(args), once=args.once))
+    return 0
+
+
+def cmd_execution_status(args: argparse.Namespace) -> int:
+    emit(execution_status(workspace_path(args), args.execution_id))
+    return 0
+
+
+def cmd_execution_logs(args: argparse.Namespace) -> int:
+    emit(execution_logs(workspace_path(args), args.execution_id, stream=args.stream, tail=args.tail))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="switchboard", description="Switchboard filesystem task CLI.")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -364,7 +382,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     runner_start_cmd = runner_subcommands.add_parser("start", help="Enable and start the persistent runner.")
     runner_start_cmd.add_argument("--workspace", required=True)
-    runner_start_cmd.add_argument("--provider", choices=("desktop-terminal", "headless-process", "codex-app-server"), default="desktop-terminal")
+    runner_start_cmd.add_argument("--provider", choices=("local-process", "codex-app-server"), default="local-process")
     runner_start_cmd.add_argument("--cli", choices=("codex", "claude"), default="codex")
     runner_start_cmd.add_argument("--queue", action="append", choices=CLAIMABLE_STATUSES)
     runner_start_cmd.add_argument("--max-concurrency", type=int, default=1)
@@ -385,6 +403,26 @@ def build_parser() -> argparse.ArgumentParser:
     runner_tick_cmd = runner_subcommands.add_parser("tick", help="Run one idempotent runner tick.")
     runner_tick_cmd.add_argument("--workspace", required=True)
     runner_tick_cmd.set_defaults(func=cmd_runner_tick)
+
+    runner_run_cmd = runner_subcommands.add_parser("run", help="Run the local Switchboard backend.")
+    runner_run_cmd.add_argument("--workspace", required=True)
+    runner_run_cmd.add_argument("--once", action="store_true", help=argparse.SUPPRESS)
+    runner_run_cmd.set_defaults(func=cmd_runner_run)
+
+    execution = subcommands.add_parser("execution", help="Inspect Switchboard executions.")
+    execution_subcommands = execution.add_subparsers(dest="execution_command", required=True)
+
+    execution_status_cmd = execution_subcommands.add_parser("status", help="Show execution metadata.")
+    execution_status_cmd.add_argument("--workspace", required=True)
+    execution_status_cmd.add_argument("execution_id")
+    execution_status_cmd.set_defaults(func=cmd_execution_status)
+
+    execution_logs_cmd = execution_subcommands.add_parser("logs", help="Show execution log tail.")
+    execution_logs_cmd.add_argument("--workspace", required=True)
+    execution_logs_cmd.add_argument("execution_id")
+    execution_logs_cmd.add_argument("--stream", choices=("stdout", "stderr"), required=True)
+    execution_logs_cmd.add_argument("--tail", type=int, default=200)
+    execution_logs_cmd.set_defaults(func=cmd_execution_logs)
 
     return parser
 

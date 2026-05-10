@@ -229,7 +229,7 @@ export type SwitchboardRequeueTaskInput = {
 }
 
 export type SwitchboardRunnerQueue = 'ready' | 'testing' | 'review'
-export type SwitchboardExecutionProviderKind = 'desktop-terminal' | 'headless-process' | 'codex-app-server'
+export type SwitchboardExecutionProviderKind = 'local-process' | 'codex-app-server'
 export type SwitchboardExecutionStatus = 'active' | 'missing' | 'stale' | 'abandoned' | 'completed'
 export type SwitchboardExecutionProviderRef = Record<string, string | number | boolean | null>
 
@@ -240,14 +240,6 @@ export type SwitchboardRunnerStartInput = {
   maxConcurrency?: number
   cli?: 'codex' | 'claude'
   provider?: SwitchboardExecutionProviderKind
-}
-
-export type SwitchboardRunnerTaskSession = {
-  taskId: string
-  queue: SwitchboardRunnerQueue
-  sessionId: string
-  agentId: string
-  startedAt: string
 }
 
 export type SwitchboardRunnerExecution = {
@@ -274,7 +266,6 @@ export type SwitchboardRunnerState = {
   maxConcurrency: number
   queues: SwitchboardRunnerQueue[]
   activeExecutions: SwitchboardRunnerExecution[]
-  activeSessions: SwitchboardRunnerTaskSession[]
   lastError: string | null
   updatedAt: string | null
 }

@@ -7,8 +7,13 @@ export {
   moveSwitchboardTask,
   promoteSwitchboardInboxTask,
   publishSwitchboardTask,
+  getSwitchboardRunnerState,
   readAllSwitchboardTasks,
   recoverSwitchboardLock,
   requeueSwitchboardTask,
+  pauseSwitchboardRunner,
+  resumeSwitchboardRunner,
+  startSwitchboardRunner,
+  tickSwitchboardRunner,
   updateSwitchboardTask,
 } from './switchboard-python'

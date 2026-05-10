@@ -5,6 +5,9 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.request
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -21,10 +24,11 @@ def switchboard_command(args: list[str]) -> list[str]:
     return [str(REPO_ROOT / "scripts" / "switchboard"), *args]
 
 
-def run_switchboard(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run_switchboard(args: list[str], *, check: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     completed = subprocess.run(
         switchboard_command(args),
         cwd=REPO_ROOT,
+        env={**os.environ, **(env or {})},
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -51,8 +55,8 @@ class SwitchboardCliTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
-    def run_cli(self, args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-        return run_switchboard(args, check=check)
+    def run_cli(self, args: list[str], *, check: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        return run_switchboard(args, check=check, env=env)
 
     def workspace_args(self) -> list[str]:
         return ["--workspace", str(self.workspace)]
@@ -93,6 +97,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertTrue((root / "watchtower-runs").is_dir())
         self.assertTrue((root / "runner").is_dir())
         self.assertTrue((root / "runner" / "events.jsonl").is_file())
+        self.assertTrue((root / "executions").is_dir())
 
     def test_create_list_show_and_comment_board_task(self) -> None:
         created = self.create_task(title="Board task")
@@ -414,7 +419,7 @@ class SwitchboardCliTests(unittest.TestCase):
                     "start",
                     *self.workspace_args(),
                     "--provider",
-                    "desktop-terminal",
+                    "local-process",
                     "--cli",
                     "claude",
                     "--queue",
@@ -427,7 +432,7 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertTrue(started["enabled"])
         self.assertFalse(started["paused"])
-        self.assertEqual(started["provider"], "desktop-terminal")
+        self.assertEqual(started["provider"], "local-process")
         self.assertEqual(started["cli"], "claude")
         self.assertEqual(started["queues"], ["ready"])
         state_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "state.json"
@@ -435,8 +440,9 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertTrue(state_path.is_file())
         self.assertTrue(events_path.is_file())
 
-        ticked = stdout_json(self.run_cli(["runner", "tick", *self.workspace_args()]))
-        self.assertIn("requires the Electron terminal/session manager", ticked["lastError"])
+        noop = f"{sys.executable} -c \"pass\""
+        ticked = stdout_json(self.run_cli(["runner", "tick", *self.workspace_args()], env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": noop}))
+        self.assertIsNone(ticked["lastError"])
         self.assertEqual(ticked["activeExecutions"], [])
 
         paused = stdout_json(self.run_cli(["runner", "pause", *self.workspace_args()]))
@@ -449,7 +455,331 @@ class SwitchboardCliTests(unittest.TestCase):
 
         events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         self.assertIn("start", [event["type"] for event in events])
-        self.assertIn("provider_error", [event["type"] for event in events])
+        self.assertIn("tick", [event["type"] for event in events])
+
+    def test_provider_capability_failure_does_not_claim(self) -> None:
+        task_id = self.create_task(title="Unsupported provider task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["runner", "start", *self.workspace_args(), "--provider", "codex-app-server", "--queue", "ready"])
+
+        ticked = stdout_json(self.run_cli(["runner", "tick", *self.workspace_args()]))
+
+        self.assertIn("codex-app-server execution provider is defined but not implemented yet", ticked["lastError"])
+        self.assertTrue(self.task_file("ready", task_id).is_file())
+        self.assertFalse(self.task_file("in_progress", task_id).exists())
+
+    def test_runner_tick_claims_and_launches_local_process_with_logs(self) -> None:
+        task_id = self.create_task(title="Runner local process task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        command = f"{sys.executable} -c \"import sys; print('runner stdout'); print(sys.stdin.read()[:80]); print('runner stderr', file=sys.stderr)\""
+
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        ticked = stdout_json(
+            self.run_cli(["runner", "tick", *self.workspace_args()], env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command})
+        )
+
+        self.assertEqual(ticked["provider"], "local-process")
+        self.assertEqual(len(ticked["activeExecutions"]), 1)
+        execution = ticked["activeExecutions"][0]
+        self.assertEqual(execution["taskId"], task_id)
+        provider_ref = execution["providerRef"]
+        root = self.workspace / ".multi-code" / "switchboard"
+        execution_dir = root / provider_ref["executionDir"]
+        self.assertTrue((execution_dir / "metadata.json").is_file())
+        self.assertTrue((execution_dir / "stdout.log").is_file())
+        self.assertTrue((execution_dir / "stderr.log").is_file())
+        claimed_task = json.loads(self.task_file("in_progress", task_id).read_text(encoding="utf-8"))
+        self.assertEqual(claimed_task["execution"]["activeExecutionId"], execution["executionId"])
+        self.assertEqual(claimed_task["execution"]["activeProvider"], "local-process")
+
+        execution_status = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution["executionId"]]))
+        self.assertEqual(execution_status["execution"]["executionId"], execution["executionId"])
+        stdout_tail = None
+        for _ in range(30):
+            stdout_tail = stdout_json(
+                self.run_cli(["execution", "logs", *self.workspace_args(), execution["executionId"], "--stream", "stdout", "--tail", "20"])
+            )
+            if any("runner stdout" in line for line in stdout_tail["lines"]):
+                break
+            time.sleep(0.1)
+        assert stdout_tail is not None
+        self.assertTrue(any("runner stdout" in line for line in stdout_tail["lines"]))
+        invalid = self.run_cli(["execution", "status", *self.workspace_args(), "../bad"], check=False)
+        self.assertNotEqual(invalid.returncode, 0)
+
+    def test_runner_run_writes_server_descriptor_and_serves_health(self) -> None:
+        self.run_cli(["init", *self.workspace_args()])
+        process = subprocess.Popen(
+            switchboard_command(["runner", "run", *self.workspace_args()]),
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            descriptor_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "server.json"
+            descriptor: dict[str, Any] | None = None
+            for _ in range(60):
+                if descriptor_path.exists():
+                    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+                    break
+                if process.poll() is not None:
+                    stderr = process.stderr.read() if process.stderr else ""
+                    self.fail(f"runner server exited early: {stderr}")
+                time.sleep(0.1)
+            self.assertIsNotNone(descriptor)
+            assert descriptor is not None
+            request = urllib.request.Request(
+                f"http://{descriptor['host']}:{descriptor['port']}/health",
+                headers={"Authorization": f"Bearer {descriptor['token']}"},
+            )
+            with urllib.request.urlopen(request, timeout=3) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["status"], "healthy")
+            self.assertEqual(payload["serverPid"], descriptor["pid"])
+            self.assertTrue(payload["supervisorRunning"])
+            unauthorized = urllib.request.Request(f"http://{descriptor['host']}:{descriptor['port']}/health")
+            with self.assertRaises(urllib.error.HTTPError) as raised:
+                urllib.request.urlopen(unauthorized, timeout=3)
+            self.assertEqual(raised.exception.code, 401)
+            raised.exception.close()
+
+            duplicate = subprocess.run(
+                switchboard_command(["runner", "run", *self.workspace_args()]),
+                cwd=REPO_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+            self.assertNotEqual(duplicate.returncode, 0)
+            self.assertIn("already appears", duplicate.stderr)
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            if process.stderr:
+                process.stderr.close()
+
+    def test_concurrent_runner_run_allows_only_one_backend(self) -> None:
+        self.run_cli(["init", *self.workspace_args()])
+        processes = [
+            subprocess.Popen(
+                switchboard_command(["runner", "run", *self.workspace_args()]),
+                cwd=REPO_ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(2)
+        ]
+        try:
+            descriptor_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "server.json"
+            for _ in range(60):
+                if descriptor_path.exists():
+                    break
+                time.sleep(0.1)
+            running = [process for process in processes if process.poll() is None]
+            exited = [process for process in processes if process.poll() is not None]
+            self.assertEqual(len(running), 1)
+            self.assertEqual(len(exited), 1)
+            stderr = exited[0].stderr.read() if exited[0].stderr else ""
+            self.assertIn("Switchboard backend", stderr)
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                if process.stderr:
+                    process.stderr.close()
+
+    def test_runner_run_can_restart_immediately_after_terminated_backend(self) -> None:
+        self.run_cli(["init", *self.workspace_args()])
+
+        def start_backend() -> subprocess.Popen[str]:
+            return subprocess.Popen(
+                switchboard_command(["runner", "run", *self.workspace_args()]),
+                cwd=REPO_ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        first = start_backend()
+        second: subprocess.Popen[str] | None = None
+        try:
+            descriptor_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "server.json"
+            for _ in range(60):
+                if descriptor_path.exists():
+                    break
+                time.sleep(0.1)
+            self.assertTrue(descriptor_path.exists())
+            first.terminate()
+            first.wait(timeout=3)
+
+            second = start_backend()
+            for _ in range(60):
+                if second.poll() is not None:
+                    stderr = second.stderr.read() if second.stderr else ""
+                    self.fail(f"runner backend failed to restart: {stderr}")
+                descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+                if descriptor.get("pid") == second.pid:
+                    break
+                time.sleep(0.1)
+            self.assertIsNone(second.poll())
+        finally:
+            for process in [first, second]:
+                if process is None:
+                    continue
+                if process.poll() is None:
+                    process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                if process.stderr:
+                    process.stderr.close()
+
+    def test_health_does_not_wait_for_runner_lock(self) -> None:
+        self.run_cli(["init", *self.workspace_args()])
+        process = subprocess.Popen(
+            switchboard_command(["runner", "run", *self.workspace_args()]),
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            descriptor_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "server.json"
+            descriptor: dict[str, Any] | None = None
+            for _ in range(60):
+                if descriptor_path.exists():
+                    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+                    break
+                time.sleep(0.1)
+            self.assertIsNotNone(descriptor)
+            assert descriptor is not None
+            lock_dir = self.workspace / ".multi-code" / "switchboard" / "runner" / ".runner.lock"
+            lock_dir.mkdir()
+            try:
+                request = urllib.request.Request(
+                    f"http://{descriptor['host']}:{descriptor['port']}/health",
+                    headers={"Authorization": f"Bearer {descriptor['token']}"},
+                )
+                start = time.monotonic()
+                with urllib.request.urlopen(request, timeout=2) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                self.assertLess(time.monotonic() - start, 1.0)
+                self.assertTrue(payload["ok"])
+            finally:
+                lock_dir.rmdir()
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            if process.stderr:
+                process.stderr.close()
+
+    def test_concurrent_runner_ticks_do_not_exceed_max_concurrency(self) -> None:
+        first = self.create_task(title="Concurrent runner task 1")["id"]
+        second = self.create_task(title="Concurrent runner task 2")["id"]
+        self.run_cli(["move", *self.workspace_args(), first, "--to", "ready"])
+        self.run_cli(["move", *self.workspace_args(), second, "--to", "ready"])
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        command = f"{sys.executable} -c \"import time; time.sleep(2)\""
+
+        def tick() -> subprocess.CompletedProcess[str]:
+            return self.run_cli(["runner", "tick", *self.workspace_args()], env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command}, check=False)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            completed = list(executor.map(lambda _idx: tick(), range(2)))
+
+        self.assertTrue(any(result.returncode == 0 for result in completed))
+        status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+        self.assertEqual(len(status["activeExecutions"]), 1)
+        in_progress = [path for path in [self.task_file("in_progress", first), self.task_file("in_progress", second)] if path.exists()]
+        self.assertEqual(len(in_progress), 1)
+
+    def test_runner_run_supervises_and_launches_without_manual_tick(self) -> None:
+        task_id = self.create_task(title="Supervisor task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        command = f"{sys.executable} -c \"import time; time.sleep(2)\""
+        process = subprocess.Popen(
+            switchboard_command(["runner", "run", *self.workspace_args()]),
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            env={**os.environ, "SWITCHBOARD_LOCAL_PROCESS_COMMAND": command, "SWITCHBOARD_RUNNER_INTERVAL_SECONDS": "0.1"},
+            text=True,
+        )
+        try:
+            for _ in range(50):
+                if self.task_file("in_progress", task_id).exists():
+                    break
+                if process.poll() is not None:
+                    stderr = process.stderr.read() if process.stderr else ""
+                    self.fail(f"runner server exited early: {stderr}")
+                time.sleep(0.1)
+            self.assertTrue(self.task_file("in_progress", task_id).is_file())
+            status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+            self.assertEqual(len(status["activeExecutions"]), 1)
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            if process.stderr:
+                process.stderr.close()
+
+    def test_runner_run_records_process_exit_as_abandoned(self) -> None:
+        task_id = self.create_task(title="Exit lifecycle task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        command = f"{sys.executable} -c \"import sys; sys.exit(7)\""
+        process = subprocess.Popen(
+            switchboard_command(["runner", "run", *self.workspace_args()]),
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            env={**os.environ, "SWITCHBOARD_LOCAL_PROCESS_COMMAND": command, "SWITCHBOARD_RUNNER_INTERVAL_SECONDS": "0.1"},
+            text=True,
+        )
+        try:
+            abandoned = None
+            for _ in range(60):
+                status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+                executions = status["activeExecutions"]
+                if executions and executions[0].get("status") == "abandoned":
+                    abandoned = executions[0]
+                    break
+                time.sleep(0.1)
+            self.assertIsNotNone(abandoned)
+            assert abandoned is not None
+            provider_ref = abandoned["providerRef"]
+            root = self.workspace / ".multi-code" / "switchboard"
+            metadata = json.loads((root / provider_ref["executionDir"] / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["status"], "abandoned")
+            self.assertEqual(metadata["exitCode"], 7)
+            self.assertTrue(self.task_file("in_progress", task_id).is_file())
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            if process.stderr:
+                process.stderr.close()
 
 
 if __name__ == "__main__":

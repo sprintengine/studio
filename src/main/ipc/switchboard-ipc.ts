@@ -1,4 +1,4 @@
-import type { IpcMain, WebContents } from 'electron'
+import type { IpcMain } from 'electron'
 import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
@@ -32,7 +32,7 @@ type SwitchboardIpcDependencies = {
   publishTask(input: SwitchboardPublishTaskInput): Promise<SwitchboardMutationResult>
   recoverLock(input: SwitchboardRecoverLockInput): Promise<SwitchboardRecoverLockResult>
   requeueTask(input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult>
-  startRunner(sender: WebContents, input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult>
+  startRunner(input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult>
   pauseRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   resumeRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   tickRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
@@ -91,8 +91,8 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
     return deps.requeueTask(input)
   })
 
-  ipcMain.handle('switchboard:runner:start', async (event, input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult> => {
-    return deps.startRunner(event.sender, input)
+  ipcMain.handle('switchboard:runner:start', async (_, input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult> => {
+    return deps.startRunner(input)
   })
 
   ipcMain.handle('switchboard:runner:pause', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
