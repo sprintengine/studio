@@ -50,6 +50,9 @@ RUNNER_EVENTS = {
     "task_published",
     "task_abandoned",
     "requeue",
+    "worktree_created",
+    "worktree_cleaned",
+    "worktree_missing",
 }
 UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -162,6 +165,7 @@ def init_workspace(workspace: Path) -> dict[str, Any]:
     runner = root / "runner"
     runner.mkdir(parents=True, exist_ok=True)
     (root / "executions").mkdir(parents=True, exist_ok=True)
+    (root / "worktrees").mkdir(parents=True, exist_ok=True)
     events = runner / "events.jsonl"
     if not events.exists():
         events.write_text("", encoding="utf-8")
@@ -424,6 +428,15 @@ def execution_dir(workspace: Path, execution_id: str) -> Path:
     return execution_root(workspace) / execution_id
 
 
+def worktree_root(workspace: Path) -> Path:
+    return switchboard_root(workspace) / "worktrees"
+
+
+def worktree_dir(workspace: Path, execution_id: str) -> Path:
+    validate_execution_id(execution_id)
+    return worktree_root(workspace) / execution_id
+
+
 def role_for_queue(queue: str) -> str:
     return {"ready": "developer", "testing": "tester", "review": "reviewer"}[queue]
 
@@ -436,22 +449,24 @@ def next_publish_for_queue(queue: str) -> str:
     return {"ready": "testing", "testing": "review", "review": "done"}[queue]
 
 
-def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_id: str) -> str:
+def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_id: str, run_workspace: Path | None = None) -> str:
     role = role_for_queue(queue)
+    workspace_for_agent = (run_workspace or workspace).expanduser().resolve()
     return "\n".join(
         [
             f"You are the Switchboard {role} agent for task {task_id}.",
             "",
-            f"Workspace: {workspace.expanduser().resolve()}",
+            f"Workspace: {workspace_for_agent}",
+            f"Switchboard root workspace: {workspace.expanduser().resolve()}",
             f"Execution ID: {execution_id}",
             f"Claimed queue: {queue}",
             "",
             "Rules:",
             "- Do not edit Switchboard task JSON files or Lock files directly.",
             "- Use the local Switchboard CLI for task activity.",
-            f"- Inspect the task with: scripts/switchboard show --workspace . {task_id}",
-            f"- Add progress notes with: scripts/switchboard comment --workspace . {task_id} --body \"...\" --author \"{role}\"",
-            f"- Publish only when required evidence is complete: scripts/switchboard publish --workspace . {task_id} --to {next_publish_for_queue(queue)}",
+            f"- Inspect the task with: scripts/switchboard show --workspace {workspace.expanduser().resolve()} {task_id}",
+            f"- Add progress notes with: scripts/switchboard comment --workspace {workspace.expanduser().resolve()} {task_id} --body \"...\" --author \"{role}\"",
+            f"- Publish only when required evidence is complete: scripts/switchboard publish --workspace {workspace.expanduser().resolve()} {task_id} --to {next_publish_for_queue(queue)}",
             "- If blocked or unable to proceed, add a comment and stop without moving the task.",
         ]
     )
@@ -487,6 +502,115 @@ def validate_runner_capability(workspace: Path, state: dict[str, Any]) -> list[s
     return errors
 
 
+def validate_worktree_capability(workspace: Path) -> list[str]:
+    errors: list[str] = []
+    workspace_root = workspace.expanduser().resolve()
+    if not shutil.which("git"):
+        errors.append("git executable was not found for Switchboard worktree allocation.")
+        return errors
+    completed = subprocess.run(
+        ["git", "-C", str(workspace_root), "rev-parse", "--is-inside-work-tree"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0 or completed.stdout.strip() != "true":
+        errors.append("workspace must be inside a git worktree for implementation worktree allocation.")
+    root = worktree_root(workspace)
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        probe = root / f".capability.{os.getpid()}.tmp"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        errors.append(f"worktree root is not writable: {exc}")
+    return errors
+
+
+def has_claim_candidate(workspace: Path, queue: str) -> bool:
+    tasks, _problems, _locks = read_all(workspace)
+    return any(located.folder_status == queue for located in tasks)
+
+
+def sanitized_branch_component(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-._")
+    return normalized or "task"
+
+
+def branch_for_execution(task_id: str, execution_id: str) -> str:
+    return f"switchboard/{sanitized_branch_component(task_id)[:12]}/{sanitized_branch_component(execution_id)[:18]}"
+
+
+def relative_to_switchboard_root(workspace: Path, path: Path) -> str:
+    return str(path.resolve().relative_to(switchboard_root(workspace).resolve()))
+
+
+def validate_worktree_path(workspace: Path, path: Path) -> Path:
+    root = worktree_root(workspace).resolve()
+    resolved = path.expanduser().resolve()
+    if not resolved.is_relative_to(root):
+        raise SwitchboardError("Switchboard worktree path is outside the approved worktree root.")
+    return resolved
+
+
+def create_execution_worktree(workspace: Path, task_id: str, execution_id: str) -> dict[str, str]:
+    errors = validate_worktree_capability(workspace)
+    if errors:
+        raise SwitchboardError(" ".join(errors))
+    target = worktree_dir(workspace, execution_id)
+    validate_worktree_path(workspace, target)
+    if target.exists():
+        raise SwitchboardError("Switchboard execution worktree already exists.")
+    branch = branch_for_execution(task_id, execution_id)
+    completed = subprocess.run(
+        ["git", "-C", str(workspace.expanduser().resolve()), "worktree", "add", "-b", branch, str(target), "HEAD"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise SwitchboardError(f"Could not create Switchboard worktree: {completed.stderr.strip() or completed.stdout.strip()}")
+    append_runner_event(
+        workspace,
+        "worktree_created",
+        data={"taskId": task_id, "executionId": execution_id, "worktreePath": str(target), "worktreeBranch": branch},
+    )
+    return {
+        "worktreePath": str(target),
+        "worktreeBranch": branch,
+        "worktreeState": "active",
+        "worktreeRelativePath": relative_to_switchboard_root(workspace, target),
+    }
+
+
+def remove_worktree_path(workspace: Path, path: Path, *, force: bool = False) -> None:
+    target = validate_worktree_path(workspace, path)
+    if not target.exists():
+        return
+    command = ["git", "-C", str(workspace.expanduser().resolve()), "worktree", "remove"]
+    if force:
+        command.append("--force")
+    command.append(str(target))
+    completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+    if completed.returncode != 0:
+        raise SwitchboardError(f"Could not remove Switchboard worktree: {completed.stderr.strip() or completed.stdout.strip()}")
+
+
+def worktree_is_dirty(path: Path) -> bool:
+    completed = subprocess.run(
+        ["git", "-C", str(path), "status", "--porcelain"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return True
+    return bool(completed.stdout.strip())
+
+
 def process_is_running(pid: Any) -> bool:
     if not isinstance(pid, int) or pid <= 0:
         return False
@@ -519,14 +643,44 @@ def active_execution_count(state: dict[str, Any]) -> int:
     return len([execution for execution in state.get("activeExecutions", []) if execution.get("status") == "active"])
 
 
+def reconcile_execution_worktree(workspace: Path, execution: dict[str, Any]) -> dict[str, Any]:
+    path_value = execution.get("worktreePath")
+    if not isinstance(path_value, str):
+        provider_ref = execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}
+        path_value = provider_ref.get("worktreePath") if isinstance(provider_ref.get("worktreePath"), str) else None
+    if not isinstance(path_value, str):
+        return execution
+    try:
+        path = validate_worktree_path(workspace, Path(path_value))
+    except SwitchboardError:
+        return {**execution, "worktreeState": "invalid"}
+    if execution.get("worktreeState") == "cleaned" and not path.exists():
+        return {**execution, "worktreePath": str(path), "worktreeState": "cleaned"}
+    next_state = "active" if path.exists() else "missing"
+    if next_state == "missing" and execution.get("worktreeState") != "missing":
+        append_runner_event(
+            workspace,
+            "worktree_missing",
+            data={"executionId": execution.get("executionId"), "taskId": execution.get("taskId"), "worktreePath": str(path)},
+        )
+    return {**execution, "worktreePath": str(path), "worktreeState": next_state}
+
+
 def reconcile_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
     tasks = {located.task["id"]: located for located in read_all(workspace)[0]}
     reconciled: list[dict[str, Any]] = []
     for execution in state.get("activeExecutions", []):
+        execution = reconcile_execution_worktree(workspace, execution)
         task_id = execution.get("taskId")
         located = tasks.get(task_id)
         if located and located.folder_status != execution.get("claimedStatus"):
-            update_execution_metadata(workspace, execution, {"status": "completed", "completedAt": now_iso()})
+            completed_at = now_iso()
+            completed = {**execution, "status": "completed", "completedAt": completed_at}
+            if completed.get("worktreePath") and completed.get("worktreeState") == "active":
+                completed["worktreeState"] = "completed"
+            update_execution_metadata(workspace, completed, {"status": "completed", "completedAt": completed_at})
+            if completed.get("worktreePath"):
+                update_task_worktree_state(workspace, completed, str(completed.get("worktreeState") or "completed"))
             append_runner_event(workspace, "task_published", data={"executionId": execution.get("executionId"), "taskId": task_id})
             continue
         provider_ref = execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}
@@ -541,6 +695,8 @@ def reconcile_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, 
         elif located:
             completed_at = now_iso()
             abandoned = {**execution, "status": "abandoned", "completedAt": completed_at, "exitCode": exit_code}
+            if abandoned.get("worktreePath") and abandoned.get("worktreeState") == "active":
+                abandoned["worktreeState"] = "abandoned"
             update_execution_metadata(
                 workspace,
                 abandoned,
@@ -570,6 +726,16 @@ def runner_claim_and_launch(workspace: Path, state: dict[str, Any]) -> bool:
         raise SwitchboardError("Runner command disappeared after capability check.")
 
     for queue in state["queues"]:
+        if not has_claim_candidate(workspace, queue):
+            continue
+        if queue == "ready":
+            worktree_errors = validate_worktree_capability(workspace)
+            if worktree_errors:
+                message = " ".join(worktree_errors)
+                state["lastError"] = message
+                write_runner_state(workspace, state)
+                append_runner_event(workspace, "provider_error", message=message, data={"provider": state["provider"], "queue": queue})
+                return False
         role = role_for_queue(queue)
         located = claim_task(workspace, from_status=queue, agent=f"switchboard-{role}")
         if located is None:
@@ -608,7 +774,15 @@ def start_local_process_execution(
     exit_path = current_dir / "exit.json"
     stdout_path.touch()
     stderr_path.touch()
-    prompt = build_runner_prompt(workspace=workspace, task_id=located.task["id"], queue=queue, execution_id=execution_id)
+    worktree: dict[str, str] | None = create_execution_worktree(workspace, located.task["id"], execution_id) if queue == "ready" else None
+    run_workspace = Path(worktree["worktreePath"]) if worktree else workspace.expanduser().resolve()
+    prompt = build_runner_prompt(
+        workspace=workspace,
+        task_id=located.task["id"],
+        queue=queue,
+        execution_id=execution_id,
+        run_workspace=run_workspace,
+    )
     prompt_path.write_text(prompt + "\n", encoding="utf-8")
     wrapper = (
         "import json, pathlib, subprocess, sys\n"
@@ -622,13 +796,21 @@ def start_local_process_execution(
         "exit_path.write_text(json.dumps({'exitCode': completed.returncode}), encoding='utf-8')\n"
         "sys.exit(completed.returncode)\n"
     )
-    process = subprocess.Popen(
-        [sys.executable, "-c", wrapper, json.dumps(command), str(prompt_path), str(stdout_path), str(stderr_path), str(exit_path)],
-        cwd=str(workspace.expanduser().resolve()),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=os.name != "nt",
-    )
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-c", wrapper, json.dumps(command), str(prompt_path), str(stdout_path), str(stderr_path), str(exit_path)],
+            cwd=str(run_workspace),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=os.name != "nt",
+        )
+    except Exception:
+        if worktree:
+            try:
+                remove_worktree_path(workspace, Path(worktree["worktreePath"]), force=True)
+            except SwitchboardError:
+                pass
+        raise
 
     provider_ref = {
         "pid": process.pid,
@@ -636,7 +818,10 @@ def start_local_process_execution(
         "stdoutLog": str(stdout_path.relative_to(switchboard_root(workspace))),
         "stderrLog": str(stderr_path.relative_to(switchboard_root(workspace))),
         "exitFile": str(exit_path.relative_to(switchboard_root(workspace))),
+        "cwd": str(run_workspace),
     }
+    if worktree:
+        provider_ref.update({key: worktree[key] for key in ("worktreePath", "worktreeBranch", "worktreeRelativePath", "worktreeState")})
     started_at = now_iso()
     execution = {
         "executionId": execution_id,
@@ -650,10 +835,13 @@ def start_local_process_execution(
         "lastSeenAt": started_at,
         "status": "active",
     }
+    if worktree:
+        execution.update(worktree)
     metadata = {
         "schemaVersion": 1,
         **execution,
         "command": command,
+        "cwd": str(run_workspace),
         "prompt": prompt,
         "promptFile": str(prompt_path.relative_to(switchboard_root(workspace))),
         "pid": process.pid,
@@ -666,10 +854,20 @@ def start_local_process_execution(
         link_runner_execution_to_task(workspace, located.task["id"], execution)
     except Exception as exc:
         terminate_process(process.pid)
+        if worktree:
+            try:
+                remove_worktree_path(workspace, Path(worktree["worktreePath"]), force=True)
+            except SwitchboardError:
+                pass
         update_execution_metadata(
             workspace,
             execution,
-            {"status": "launch_failed", "completedAt": now_iso(), "error": f"Task execution link failed: {exc}"},
+            {
+                "status": "launch_failed",
+                "completedAt": now_iso(),
+                "error": f"Task execution link failed: {exc}",
+                "worktreeState": "cleaned" if worktree else None,
+            },
         )
         raise
     return execution
@@ -739,6 +937,71 @@ def execution_logs(workspace: Path, execution_id: str, *, stream: str, tail: int
     return {"ok": True, "executionId": execution_id, "stream": stream, "lines": tail_log_lines(log_path, tail)}
 
 
+def execution_worktree_cleanup(workspace: Path, execution_id: str, *, force: bool = False) -> dict[str, Any]:
+    with locked_runner(workspace):
+        return execution_worktree_cleanup_unlocked(workspace, execution_id, force=force)
+
+
+def execution_worktree_cleanup_unlocked(workspace: Path, execution_id: str, *, force: bool = False) -> dict[str, Any]:
+    validate_execution_id(execution_id)
+    metadata = read_execution_metadata(workspace, execution_id)
+    if not metadata:
+        raise SwitchboardError("Switchboard execution was not found.")
+    provider_ref = metadata.get("providerRef") if isinstance(metadata.get("providerRef"), dict) else {}
+    if metadata.get("status") == "active" and process_is_running(provider_ref.get("pid")):
+        raise SwitchboardError("Switchboard execution is still active; stop or abandon it before cleaning its worktree.")
+    path_value = metadata.get("worktreePath")
+    if not isinstance(path_value, str):
+        path_value = provider_ref.get("worktreePath") if isinstance(provider_ref.get("worktreePath"), str) else None
+    if not isinstance(path_value, str):
+        raise SwitchboardError("Switchboard execution has no worktree.")
+    path = validate_worktree_path(workspace, Path(path_value))
+    existed = path.exists()
+    if existed and worktree_is_dirty(path) and not force:
+        raise SwitchboardError("Switchboard worktree has dirty or unmerged changes; pass --force to remove it.")
+    if existed:
+        remove_worktree_path(workspace, path, force=force)
+    cleaned_at = now_iso()
+    next_state = "cleaned" if existed else "missing"
+    update_execution_metadata(
+        workspace,
+        metadata,
+        {
+            "worktreeState": next_state,
+            "worktreeCleanedAt": cleaned_at if existed else None,
+            "providerRef": {**provider_ref, "worktreeState": next_state},
+        },
+    )
+    update_task_worktree_state(workspace, metadata, next_state)
+    runner_state = read_runner_state(workspace)
+    runner_state["activeExecutions"] = [
+        {
+            **execution,
+            "worktreeState": next_state,
+            "providerRef": {
+                **(execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}),
+                "worktreeState": next_state,
+            },
+        }
+        if isinstance(execution, dict) and execution.get("executionId") == execution_id
+        else execution
+        for execution in runner_state.get("activeExecutions", [])
+    ]
+    write_runner_state(workspace, runner_state)
+    append_runner_event(
+        workspace,
+        "worktree_cleaned" if existed else "worktree_missing",
+        data={"executionId": execution_id, "taskId": metadata.get("taskId"), "worktreePath": str(path), "forced": force},
+    )
+    return {
+        "ok": True,
+        "executionId": execution_id,
+        "worktreePath": str(path),
+        "state": next_state,
+        "forced": force,
+    }
+
+
 def tail_log_lines(path: Path, max_lines: int) -> list[str]:
     if not path.exists():
         return []
@@ -793,10 +1056,41 @@ def mark_task_attempt_completed(workspace: Path, execution: dict[str, Any], comp
     attempts = []
     for attempt in execution_state.get("attempts", []):
         if isinstance(attempt, dict) and attempt.get("id") == execution.get("executionId"):
-            attempts.append({**attempt, "completedAt": completed_at, "summary": f"Process exited with code {exit_code}."})
+            attempts.append(
+                {
+                    **attempt,
+                    "completedAt": completed_at,
+                    "summary": f"Process exited with code {exit_code}.",
+                    "worktreePath": execution.get("worktreePath", attempt.get("worktreePath")),
+                    "worktreeBranch": execution.get("worktreeBranch", attempt.get("worktreeBranch")),
+                    "worktreeState": execution.get("worktreeState", attempt.get("worktreeState")),
+                }
+            )
         else:
             attempts.append(attempt)
     update_task(workspace, task_id, {"execution": {**execution_state, "attempts": attempts}})
+
+
+def update_task_worktree_state(workspace: Path, execution: dict[str, Any], worktree_state: str) -> None:
+    task_id = execution.get("taskId")
+    execution_id = execution.get("executionId")
+    if not isinstance(task_id, str) or not isinstance(execution_id, str):
+        return
+    try:
+        located = find_task(workspace, task_id)
+    except SwitchboardError:
+        return
+    execution_state = dict(located.task.get("execution", {}))
+    attempts = []
+    for attempt in execution_state.get("attempts", []):
+        if isinstance(attempt, dict) and attempt.get("id") == execution_id:
+            attempts.append({**attempt, "worktreeState": worktree_state})
+        else:
+            attempts.append(attempt)
+    next_execution = {**execution_state, "attempts": attempts}
+    if execution_state.get("activeExecutionId") == execution_id or execution_state.get("worktreePath") == execution.get("worktreePath"):
+        next_execution["worktreeState"] = worktree_state
+    update_task(workspace, task_id, {"execution": next_execution})
 
 
 def link_runner_execution_to_task(workspace: Path, task_id: str, execution: dict[str, Any]) -> None:
@@ -809,14 +1103,25 @@ def link_runner_execution_to_task(workspace: Path, task_id: str, execution: dict
             "agentId": f"switchboard-{execution['role']}",
             "startedAt": execution["startedAt"],
             "summary": f"Started by Switchboard runner via {execution['provider']}.",
+            "worktreePath": execution.get("worktreePath"),
+            "worktreeBranch": execution.get("worktreeBranch"),
+            "worktreeState": execution.get("worktreeState"),
         }
     )
+    worktree_updates = {}
+    if execution.get("worktreePath"):
+        worktree_updates = {
+            "worktreePath": execution.get("worktreePath"),
+            "worktreeBranch": execution.get("worktreeBranch"),
+            "worktreeState": execution.get("worktreeState"),
+        }
     update_task(
         workspace,
         task_id,
         {
             "execution": {
                 **execution_state,
+                **worktree_updates,
                 "attempts": attempts,
                 "activeExecutionId": execution["executionId"],
                 "activeProvider": execution["provider"],
@@ -965,6 +1270,8 @@ def build_task(
         "execution": {
             "attempts": [],
             "worktreePath": None,
+            "worktreeBranch": None,
+            "worktreeState": None,
             "activeExecutionId": None,
             "activeProvider": None,
             "activeSessionId": None,
@@ -1021,6 +1328,10 @@ def validate_task_shape(payload: Any) -> list[str]:
             errors.append("execution.attempts must be an array.")
         if execution.get("worktreePath") is not None and not isinstance(execution.get("worktreePath"), str):
             errors.append("execution.worktreePath must be a string or null.")
+        if execution.get("worktreeBranch") is not None and not isinstance(execution.get("worktreeBranch"), str):
+            errors.append("execution.worktreeBranch must be a string or null.")
+        if execution.get("worktreeState") is not None and not isinstance(execution.get("worktreeState"), str):
+            errors.append("execution.worktreeState must be a string or null.")
         if execution.get("activeExecutionId") is not None and not isinstance(execution.get("activeExecutionId"), str):
             errors.append("execution.activeExecutionId must be a string or null.")
         if execution.get("activeProvider") is not None and execution.get("activeProvider") not in RUNNER_PROVIDERS:

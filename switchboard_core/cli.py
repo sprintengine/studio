@@ -33,6 +33,7 @@ from .store import (
     runner_tick,
     execution_logs,
     execution_status,
+    execution_worktree_cleanup,
     task_summary,
     update_task,
     switchboard_root,
@@ -289,6 +290,11 @@ def cmd_execution_logs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_execution_worktree_cleanup(args: argparse.Namespace) -> int:
+    emit(execution_worktree_cleanup(workspace_path(args), args.execution_id, force=args.force))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="switchboard", description="Switchboard filesystem task CLI.")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -423,6 +429,12 @@ def build_parser() -> argparse.ArgumentParser:
     execution_logs_cmd.add_argument("--stream", choices=("stdout", "stderr"), required=True)
     execution_logs_cmd.add_argument("--tail", type=int, default=200)
     execution_logs_cmd.set_defaults(func=cmd_execution_logs)
+
+    execution_cleanup_cmd = execution_subcommands.add_parser("cleanup-worktree", help="Remove an execution worktree.")
+    execution_cleanup_cmd.add_argument("--workspace", required=True)
+    execution_cleanup_cmd.add_argument("execution_id")
+    execution_cleanup_cmd.add_argument("--force", action="store_true")
+    execution_cleanup_cmd.set_defaults(func=cmd_execution_worktree_cleanup)
 
     return parser
 

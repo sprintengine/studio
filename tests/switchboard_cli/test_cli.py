@@ -61,6 +61,14 @@ class SwitchboardCliTests(unittest.TestCase):
     def workspace_args(self) -> list[str]:
         return ["--workspace", str(self.workspace)]
 
+    def init_git_repo(self) -> None:
+        subprocess.run(["git", "init"], cwd=self.workspace, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        subprocess.run(["git", "config", "user.email", "switchboard@example.test"], cwd=self.workspace, check=True)
+        subprocess.run(["git", "config", "user.name", "Switchboard Test"], cwd=self.workspace, check=True)
+        (self.workspace / "README.md").write_text("switchboard test workspace\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=self.workspace, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=self.workspace, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+
     def task_file(self, folder_status: str, task_id: str) -> Path:
         if folder_status == "inbox":
             return self.workspace / ".multi-code" / "switchboard" / "inbox" / f"{task_id}.json"
@@ -168,6 +176,12 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(claimed["nextFolder"], "in_progress")
         self.assertIn(claimed["id"], {first, second})
         self.assertEqual(claimed["record"]["task"]["claim"]["owner"], "developer-1")
+        execution = claimed["record"]["task"]["execution"]
+        self.assertIsNone(execution["worktreePath"])
+        self.assertIsNone(execution["worktreeBranch"])
+        self.assertIsNone(execution["worktreeState"])
+        self.assertIsNone(execution["activeExecutionId"])
+        self.assertIsNone(execution["activeProvider"])
         remaining = second if claimed["id"] == first else first
         self.assertTrue(self.task_file("in_progress", claimed["id"]).is_file())
         self.assertTrue(self.task_file("ready", remaining).is_file())
@@ -180,6 +194,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(payload["message"], "No eligible task.")
 
     def test_requeue_abandoned_in_progress_task(self) -> None:
+        self.init_git_repo()
         task_id = self.create_task(title="Requeue task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
         self.run_cli(["claim", *self.workspace_args(), "--from", "ready", "--agent", "developer-1"])
@@ -198,6 +213,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIn("Agent session stopped.", requeued["record"]["task"]["comments"][-1]["body"])
 
     def test_publish_rejects_missing_implementation_evidence(self) -> None:
+        self.init_git_repo()
         task_id = self.create_task(title="Publish validation task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
         self.run_cli(["claim", *self.workspace_args(), "--from", "ready", "--agent", "developer-1"])
@@ -206,10 +222,10 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertNotEqual(rejected.returncode, 0)
         message = stderr_json(rejected)["message"]
-        self.assertIn("at least one execution attempt", message)
         self.assertIn("evidence summary", message)
 
     def test_publish_to_testing_accepts_valid_implementation_evidence(self) -> None:
+        self.init_git_repo()
         task_id = self.create_task(title="Publish success task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
         self.run_cli(["claim", *self.workspace_args(), "--from", "ready", "--agent", "developer-1"])
@@ -243,6 +259,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertTrue(self.task_file("testing", task_id).is_file())
 
     def test_publish_to_testing_can_add_evidence_atomically(self) -> None:
+        self.init_git_repo()
         task_id = self.create_task(title="Atomic publish evidence task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
         self.run_cli(["claim", *self.workspace_args(), "--from", "ready", "--agent", "developer-1"])
@@ -291,6 +308,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(published["record"]["task"]["comments"][-2]["body"], "Evidence attached during publish.")
 
     def test_publish_rejects_wrong_target(self) -> None:
+        self.init_git_repo()
         task_id = self.create_task(title="Wrong publish target")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
         self.run_cli(["claim", *self.workspace_args(), "--from", "ready", "--agent", "developer-1"])
@@ -312,6 +330,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIn("Invalid task JSON", stderr_json(rejected)["message"])
 
     def test_concurrent_claim_attempts_claim_one_task_once(self) -> None:
+        self.init_git_repo()
         task_id = self.create_task(title="Concurrent claim task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
 
@@ -468,7 +487,22 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertTrue(self.task_file("ready", task_id).is_file())
         self.assertFalse(self.task_file("in_progress", task_id).exists())
 
+    def test_worktree_capability_failure_happens_before_claim(self) -> None:
+        task_id = self.create_task(title="Missing git worktree task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        command = f"{sys.executable} -c \"pass\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready"])
+
+        ticked = stdout_json(
+            self.run_cli(["runner", "tick", *self.workspace_args()], env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command})
+        )
+
+        self.assertIn("workspace must be inside a git worktree", ticked["lastError"])
+        self.assertTrue(self.task_file("ready", task_id).is_file())
+        self.assertFalse(self.task_file("in_progress", task_id).exists())
+
     def test_runner_tick_claims_and_launches_local_process_with_logs(self) -> None:
+        self.init_git_repo()
         task_id = self.create_task(title="Runner local process task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
         command = f"{sys.executable} -c \"import sys; print('runner stdout'); print(sys.stdin.read()[:80]); print('runner stderr', file=sys.stderr)\""
@@ -491,9 +525,14 @@ class SwitchboardCliTests(unittest.TestCase):
         claimed_task = json.loads(self.task_file("in_progress", task_id).read_text(encoding="utf-8"))
         self.assertEqual(claimed_task["execution"]["activeExecutionId"], execution["executionId"])
         self.assertEqual(claimed_task["execution"]["activeProvider"], "local-process")
+        self.assertTrue(Path(claimed_task["execution"]["worktreePath"]).is_dir())
+        self.assertEqual(claimed_task["execution"]["worktreeBranch"], execution["worktreeBranch"])
+        self.assertEqual(claimed_task["execution"]["worktreeState"], "active")
+        self.assertEqual(provider_ref["cwd"], claimed_task["execution"]["worktreePath"])
 
         execution_status = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution["executionId"]]))
         self.assertEqual(execution_status["execution"]["executionId"], execution["executionId"])
+        self.assertEqual(execution_status["execution"]["worktreePath"], claimed_task["execution"]["worktreePath"])
         stdout_tail = None
         for _ in range(30):
             stdout_tail = stdout_json(
@@ -506,6 +545,65 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertTrue(any("runner stdout" in line for line in stdout_tail["lines"]))
         invalid = self.run_cli(["execution", "status", *self.workspace_args(), "../bad"], check=False)
         self.assertNotEqual(invalid.returncode, 0)
+
+    def test_execution_worktree_cleanup_refuses_dirty_without_force(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Dirty cleanup task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        command = f"{sys.executable} -c \"import sys; sys.exit(7)\""
+
+        ticked = stdout_json(
+            self.run_cli(["runner", "tick", *self.workspace_args()], env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command})
+        )
+        execution = ticked["activeExecutions"][0]
+        worktree_path = Path(execution["worktreePath"])
+        for _ in range(30):
+            status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+            if status["activeExecutions"][0].get("status") == "abandoned":
+                break
+            time.sleep(0.1)
+        (worktree_path / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+
+        refused = self.run_cli(["execution", "cleanup-worktree", *self.workspace_args(), execution["executionId"]], check=False)
+
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("dirty or unmerged", refused.stderr)
+        self.assertTrue(worktree_path.exists())
+
+        cleaned = stdout_json(self.run_cli(["execution", "cleanup-worktree", *self.workspace_args(), execution["executionId"], "--force"]))
+
+        self.assertEqual(cleaned["state"], "cleaned")
+        self.assertFalse(worktree_path.exists())
+        metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution["executionId"]]))["execution"]
+        self.assertEqual(metadata["worktreeState"], "cleaned")
+
+    def test_runner_status_reconciles_missing_worktree_after_restart(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Missing worktree reconciliation task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        command = f"{sys.executable} -c \"import time; time.sleep(2)\""
+
+        ticked = stdout_json(
+            self.run_cli(["runner", "tick", *self.workspace_args()], env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command})
+        )
+        execution = ticked["activeExecutions"][0]
+        worktree_path = Path(execution["worktreePath"])
+        subprocess.run(
+            ["git", "-C", str(self.workspace), "worktree", "remove", "--force", str(worktree_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+
+        status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+
+        self.assertEqual(status["activeExecutions"][0]["executionId"], execution["executionId"])
+        self.assertEqual(status["activeExecutions"][0]["worktreeState"], "missing")
+        metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution["executionId"]]))["execution"]
+        self.assertEqual(metadata["worktreeState"], "missing")
 
     def test_runner_run_writes_server_descriptor_and_serves_health(self) -> None:
         self.run_cli(["init", *self.workspace_args()])
@@ -690,6 +788,7 @@ class SwitchboardCliTests(unittest.TestCase):
                 process.stderr.close()
 
     def test_concurrent_runner_ticks_do_not_exceed_max_concurrency(self) -> None:
+        self.init_git_repo()
         first = self.create_task(title="Concurrent runner task 1")["id"]
         second = self.create_task(title="Concurrent runner task 2")["id"]
         self.run_cli(["move", *self.workspace_args(), first, "--to", "ready"])
@@ -708,8 +807,11 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(len(status["activeExecutions"]), 1)
         in_progress = [path for path in [self.task_file("in_progress", first), self.task_file("in_progress", second)] if path.exists()]
         self.assertEqual(len(in_progress), 1)
+        worktrees = list((self.workspace / ".multi-code" / "switchboard" / "worktrees").iterdir())
+        self.assertEqual(len([path for path in worktrees if path.is_dir()]), 1)
 
     def test_runner_run_supervises_and_launches_without_manual_tick(self) -> None:
+        self.init_git_repo()
         task_id = self.create_task(title="Supervisor task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
         self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
@@ -733,6 +835,7 @@ class SwitchboardCliTests(unittest.TestCase):
             self.assertTrue(self.task_file("in_progress", task_id).is_file())
             status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
             self.assertEqual(len(status["activeExecutions"]), 1)
+            self.assertTrue(Path(status["activeExecutions"][0]["worktreePath"]).is_dir())
         finally:
             process.terminate()
             try:
@@ -743,6 +846,7 @@ class SwitchboardCliTests(unittest.TestCase):
                 process.stderr.close()
 
     def test_runner_run_records_process_exit_as_abandoned(self) -> None:
+        self.init_git_repo()
         task_id = self.create_task(title="Exit lifecycle task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
         self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
@@ -771,6 +875,8 @@ class SwitchboardCliTests(unittest.TestCase):
             metadata = json.loads((root / provider_ref["executionDir"] / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["status"], "abandoned")
             self.assertEqual(metadata["exitCode"], 7)
+            self.assertEqual(metadata["worktreeState"], "abandoned")
+            self.assertTrue(Path(metadata["worktreePath"]).is_dir())
             self.assertTrue(self.task_file("in_progress", task_id).is_file())
         finally:
             process.terminate()

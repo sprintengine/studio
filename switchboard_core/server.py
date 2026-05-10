@@ -23,6 +23,7 @@ from .store import (
     runner_run_loop,
     execution_logs,
     execution_status,
+    execution_worktree_cleanup,
     switchboard_root,
     SwitchboardError,
 )
@@ -197,8 +198,16 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
         if not self.authorized():
             self.respond({"ok": False, "message": "Unauthorized."}, status=401)
             return
+        parsed = urllib.parse.urlparse(self.path)
         payload = self.read_payload()
-        if self.path == "/runner/start":
+        if parsed.path.startswith("/execution/"):
+            parts = parsed.path.strip("/").split("/")
+            if len(parts) == 3 and parts[2] == "cleanup-worktree":
+                self.respond_or_error(lambda: execution_worktree_cleanup(self.server.workspace, parts[1], force=payload.get("force") is True))
+                return
+            self.respond({"ok": False, "message": "Not found."}, status=404)
+            return
+        if parsed.path == "/runner/start":
             self.respond(
                 runner_start(
                     self.server.workspace,
@@ -209,16 +218,16 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
                 )
             )
             return
-        if self.path == "/runner/pause":
+        if parsed.path == "/runner/pause":
             self.respond(runner_pause(self.server.workspace))
             return
-        if self.path == "/runner/resume":
+        if parsed.path == "/runner/resume":
             self.respond(runner_resume(self.server.workspace))
             return
-        if self.path == "/runner/tick":
+        if parsed.path == "/runner/tick":
             self.respond(runner_tick(self.server.workspace))
             return
-        if self.path == "/runner/status":
+        if parsed.path == "/runner/status":
             self.respond(runner_status(self.server.workspace))
             return
         self.respond({"ok": False, "message": "Not found."}, status=404)

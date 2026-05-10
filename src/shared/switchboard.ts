@@ -53,11 +53,16 @@ export type SwitchboardExecutionAttempt = {
   startedAt: string
   completedAt?: string | null
   summary?: string | null
+  worktreePath?: string | null
+  worktreeBranch?: string | null
+  worktreeState?: string | null
 }
 
 export type SwitchboardExecution = {
   attempts: SwitchboardExecutionAttempt[]
   worktreePath: string | null
+  worktreeBranch?: string | null
+  worktreeState?: string | null
   activeExecutionId?: string | null
   activeProvider?: SwitchboardExecutionProviderKind | null
   activeSessionId: string | null
@@ -368,6 +373,12 @@ export function validateSwitchboardTaskShape(task: unknown): string[] {
     if (!Array.isArray(record.execution.attempts)) errors.push('execution.attempts must be an array.')
     if (record.execution.worktreePath !== null && typeof record.execution.worktreePath !== 'string') {
       errors.push('execution.worktreePath must be a string or null.')
+    }
+    if (record.execution.worktreeBranch !== undefined && record.execution.worktreeBranch !== null && typeof record.execution.worktreeBranch !== 'string') {
+      errors.push('execution.worktreeBranch must be a string or null.')
+    }
+    if (record.execution.worktreeState !== undefined && record.execution.worktreeState !== null && typeof record.execution.worktreeState !== 'string') {
+      errors.push('execution.worktreeState must be a string or null.')
     }
     if (record.execution.activeSessionId !== null && typeof record.execution.activeSessionId !== 'string') {
       errors.push('execution.activeSessionId must be a string or null.')
