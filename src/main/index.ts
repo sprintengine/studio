@@ -39,6 +39,7 @@ import {
   MobileBridge,
 } from './mobile/bridge'
 import { MobileSprintEngineSnapshotService } from './mobile/sprintengine/snapshot'
+import type { WatchtowerRunListResult } from '../shared/switchboard'
 import { importGitHubIssuesIntoWatchtower } from './switchboard-github'
 import { importJiraIssuesIntoWatchtower } from './switchboard-jira'
 import {
@@ -77,7 +78,33 @@ const terminalRuntime = createTerminalRuntime({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
   logMainPerfEvent,
+  reportWatchtowerAgentStatus: ({ workspaceRoot, runId, agentId, status }) => {
+    void updateWatchtowerRunAgentStatus({ workspaceRoot, runId, agentId, status }).catch(() => {
+      // Persistence failures are surfaced on next reconciled list-runs read.
+    })
+  },
 })
+
+async function listWatchtowerRunsReconciled(workspaceRoot: string): Promise<WatchtowerRunListResult> {
+  const result = await listWatchtowerRuns(workspaceRoot)
+  if (!result.ok) return result
+  const stale: Array<{ runId: string; agentId: string }> = []
+  for (const run of result.runs) {
+    for (const agent of run.agents) {
+      if (agent.status !== 'running') continue
+      if (terminalRuntime.hasLiveWatchtowerSession(workspaceRoot, run.runId, agent.agentId)) continue
+      stale.push({ runId: run.runId, agentId: agent.agentId })
+    }
+  }
+  if (stale.length === 0) return result
+  await Promise.all(stale.map((entry) => updateWatchtowerRunAgentStatus({
+    workspaceRoot,
+    runId: entry.runId,
+    agentId: entry.agentId,
+    status: 'failed',
+  }).catch(() => null)))
+  return listWatchtowerRuns(workspaceRoot)
+}
 const mobileSnapshotService = new MobileSprintEngineSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
 const builtinSkillManager = createBuiltinSkillManager()
@@ -135,6 +162,7 @@ registerSprintEngineIpc(ipcMain, {
   initializeSprintEngineState: sprintEngineArtifacts.initializeSprintEngineState,
   updateTask: sprintEngineArtifacts.updateTask,
   createTask: sprintEngineArtifacts.createTask,
+  commentTask: sprintEngineArtifacts.commentTask,
 })
 
 registerSwitchboardIpc(ipcMain, {
@@ -160,7 +188,7 @@ registerSwitchboardIpc(ipcMain, {
   createWatchtowerRun,
   getWatchtowerRun,
   updateWatchtowerRunAgentStatus,
-  listWatchtowerRuns,
+  listWatchtowerRuns: listWatchtowerRunsReconciled,
   importGitHubIssues: (workspaceRoot) => importGitHubIssuesIntoWatchtower({ workspaceRoot, tokenStore: githubTokenStore }),
   importJiraIssues: (workspaceRoot) => importJiraIssuesIntoWatchtower({ workspaceRoot }),
 })

@@ -42,6 +42,7 @@ from sprintengine_core.tool import (
     cmd_task_log,
     cmd_task_next,
     cmd_task_note,
+    cmd_task_comment,
     cmd_task_ready,
     cmd_task_status,
     load_state,
@@ -146,6 +147,7 @@ class SprintEngineMcpServer:
             "sprintengine.task.ready": cmd_task_ready,
             "sprintengine.task.log": cmd_task_log,
             "sprintengine.task.note": cmd_task_note,
+            "sprintengine.task.comment": cmd_task_comment,
             "sprintengine.task.list": cmd_task_list,
             "sprintengine.plan.add_task": cmd_plan_add_task,
             "sprintengine.plan.update_task": cmd_plan_update_task,
@@ -209,6 +211,8 @@ class SprintEngineMcpServer:
             )
         elif tool_name == "sprintengine.task.note":
             base.update(task_id=payload["taskId"], id=payload["id"], note=payload["note"])
+        elif tool_name == "sprintengine.task.comment":
+            base.update(task_id=payload["taskId"], id=payload["id"], body=payload["body"], source=payload.get("source") or "user")
         elif tool_name == "sprintengine.task.list":
             base["role"] = payload.get("role")
         elif tool_name == "sprintengine.plan.add_task":

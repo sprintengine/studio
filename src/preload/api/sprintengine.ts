@@ -3,6 +3,7 @@ import type {
   ElectronApi,
   SprintEngineArtifactCommandResult,
   SprintEngineStateInitializeInput,
+  SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
@@ -46,6 +47,10 @@ export const sprintEngineApi = {
     input: SprintEngineTaskCreateInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:create', input),
+  commentSprintEngineTask: (
+    input: SprintEngineTaskCommentInput
+  ): Promise<SprintEngineArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:task:comment', input),
 } satisfies Pick<
   ElectronApi,
   | 'openSprintEngineArtifact'
@@ -56,4 +61,5 @@ export const sprintEngineApi = {
   | 'initializeSprintEngineState'
   | 'updateSprintEngineTask'
   | 'createSprintEngineTask'
+  | 'commentSprintEngineTask'
 >

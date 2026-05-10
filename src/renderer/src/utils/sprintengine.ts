@@ -29,6 +29,7 @@ import type {
   SprintEngineTaskSourceSyncStatus,
   SprintEngineTaskSourceType,
   SprintEngineTaskTriage,
+  SprintEngineTaskComment,
   SprintEngineState,
   SprintEngineTask,
   SprintEngineTaskStatus,
@@ -229,6 +230,24 @@ function percentOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100
     ? value
     : undefined
+}
+
+function normalizeSprintEngineTaskComments(input: unknown): SprintEngineTaskComment[] {
+  if (!Array.isArray(input)) return []
+  return input.flatMap((comment, index): SprintEngineTaskComment[] => {
+    if (!comment || typeof comment !== 'object') return []
+    const record = comment as Record<string, unknown>
+    const body = stringOrNull(record.body)?.trim()
+    if (!body) return []
+    const source = record.source === 'agent' || record.source === 'system' ? record.source : 'user'
+    return [{
+      id: stringOrNull(record.id) ?? `comment-${index + 1}`,
+      actor: stringOrNull(record.actor) ?? 'user',
+      source,
+      body,
+      createdAt: stringOrNull(record.createdAt) ?? '',
+    }]
+  })
 }
 
 function isFeedbackIssueCategory(value: unknown): value is SprintEngineTaskFeedbackIssueCategory {
@@ -847,6 +866,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ...(feedback ? { feedback } : {}),
       ...(triage ? { triage } : {}),
       notes: Array.isArray(task.notes) ? task.notes : [],
+      comments: normalizeSprintEngineTaskComments(task.comments),
       startedAt: task.startedAt ?? null,
       completedAt: task.completedAt ?? null,
     }

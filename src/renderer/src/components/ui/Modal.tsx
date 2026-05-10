@@ -15,8 +15,16 @@ export function Modal({ open, onClose, labelledBy, width = 560, children, contai
   useEffect(() => {
     if (!open) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    ref.current?.focus()
-    return () => previous?.focus()
+    const handle = window.requestAnimationFrame(() => {
+      const node = ref.current
+      if (!node) return
+      if (node.contains(document.activeElement)) return
+      node.focus()
+    })
+    return () => {
+      window.cancelAnimationFrame(handle)
+      previous?.focus()
+    }
   }, [open])
 
   useEffect(() => {
@@ -118,14 +126,24 @@ export function Field({ label, hint, children }: FieldProps) {
 
 type ButtonVariant = 'primary' | 'ghost' | 'danger'
 
+export type ModalAccent = 'brand' | 'violet' | 'copper' | 'gold'
+
 type ModalButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant
+  accent?: ModalAccent
 }
 
-export function ModalButton({ variant = 'ghost', className, ...rest }: ModalButtonProps) {
+const accentPrimaryStyles: Record<ModalAccent, string> = {
+  brand: 'bg-[#5c7cff] text-[#08090b] hover:bg-[#6e8eff] disabled:hover:bg-[#5c7cff]',
+  violet: 'bg-[#7c5cf2] text-[#08090b] hover:bg-[#9075ff] disabled:hover:bg-[#7c5cf2]',
+  copper: 'bg-[#d97757] text-[#08090b] hover:bg-[#e0876b] disabled:hover:bg-[#d97757]',
+  gold: 'bg-[#ffbf2f] text-[#08090b] hover:bg-[#ffcb55] disabled:hover:bg-[#ffbf2f]',
+}
+
+export function ModalButton({ variant = 'ghost', accent = 'brand', className, ...rest }: ModalButtonProps) {
   const base = 'rounded-md px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 disabled:cursor-not-allowed disabled:opacity-45'
   const styles: Record<ButtonVariant, string> = {
-    primary: 'bg-[#5c7cff] text-[#08090b] hover:bg-[#6e8eff] disabled:hover:bg-[#5c7cff]',
+    primary: accentPrimaryStyles[accent],
     ghost: 'text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]',
     danger: 'bg-[#ff5a5f] text-[#08090b] hover:bg-[#ff787c]',
   }

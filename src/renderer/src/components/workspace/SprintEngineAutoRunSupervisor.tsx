@@ -19,14 +19,11 @@ import {
   sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
 import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
-import {
-  ensureAgentTabInLayoutModel,
-  focusOrAddAgentTab,
-} from '../../utils/modelRegistry'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
+import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 
 const AUTO_RUN_POLL_MS = 2000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
@@ -110,24 +107,6 @@ async function listTerminalSessionsForAutoRun(
       message: error instanceof Error ? error.message : String(error),
     })
     return []
-  }
-}
-
-function revealAutoRunAgentTerminal(workspaceId: string, agentId: string, label: string): void {
-  if (focusOrAddAgentTab(workspaceId, agentId, label)) return
-
-  const state = useWorkspaceStore.getState()
-  const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
-  if (!workspace) return
-
-  try {
-    state.updateLayout(
-      workspaceId,
-      ensureAgentTabInLayoutModel(workspace.layoutModel, agentId, label)
-    )
-  } catch {
-    // The running session remains available in the session manager if the
-    // serialized layout cannot be adjusted before the workspace mounts.
   }
 }
 
@@ -343,7 +322,6 @@ async function findRunningAgentSession(
     cli: runningSession.cli ?? agent?.cli ?? 'codex',
     kind: 'sprintengine',
   })
-  revealAutoRunAgentTerminal(workspace.id, agentId, agent?.name ?? agentId)
   return runningSession
 }
 
@@ -767,7 +745,7 @@ function buildSprintEngineContinuationPrompt(task: SprintEngineTask, agentId: st
   return [
     `Sprint Engine roster runner found a ready ${task.role} task for this idle terminal.`,
     `Task: ${task.id} - ${task.title}`,
-    `Run \`sprintengine join --role ${task.role} --id ${agentId}\` to receive the current directive, then claim and work the next ready ${task.role} task with this same agent id. If no task is returned, report the blocker and stop.`,
+    `Run \`sprintengine join --role ${task.role} --id ${agentId}\` to receive the current directive, then claim and work the next ready ${task.role} task with this same agent id. If no task is returned, wait briefly and keep polling while this Sprint Engine roster session remains active.`,
   ].join('\n')
 }
 
@@ -819,7 +797,6 @@ async function sendContinuationPromptsToIdleAgents(
     ))
     sentContinuationMessages.current.set(key, { sentAt: now })
     claimedTaskIds.add(task.id)
-    revealAutoRunAgentTerminal(workspace.id, agentId, workspace.agents[agentId]?.name ?? agentId)
     logPerfEvent('SprintEngineAutoRun', 'continuation-prompt-sent', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -1017,10 +994,15 @@ async function spawnAutoRunCandidate(
     let executionCwd = workspaceFolderPath
     let executionMode: 'current_workspace' | 'worktree' = 'current_workspace'
 
-    const memoryRelativeRoot = workspace.memory.relativeRoot
+    const memoryConfig = resolveProjectKnowledgeConfig(
+      workspaceFolderPath,
+      useWorkspaceStore.getState().appSettings.projectKnowledgeRoots,
+      workspace.memory.relativeRoot
+    )
+    const memoryRelativeRoot = memoryConfig?.relativeRoot ?? null
     const memoryStatus = memoryRelativeRoot
       ? await window.api.memoryResolveRoot({
-        workspaceRoot: workspaceFolderPath,
+        workspaceRoot: memoryConfig?.projectRoot ?? workspaceFolderPath,
         relativeRoot: memoryRelativeRoot,
       }).catch((): MemoryRootStatus => ({
         ok: false,
@@ -1039,8 +1021,8 @@ async function spawnAutoRunCandidate(
         ].join(' ')
         : `Knowledge Graph is configured at ${memoryRelativeRoot}, but the folder is currently missing or inaccessible. Do not guess another knowledge folder.`
       : null
-    const startupPrompt = [
-      prependAgentIdentifier(
+    const storedStartupPrompt = latestAgent?.cliStartupPrompt?.trim()
+    const generatedStartupPrompt = prependAgentIdentifier(
       buildSprintEngineStartupPrompt(nextRun.role, nextRun.agentId, sprintEngineState.goal, {
         executionCwd,
         workspaceRoot: workspaceFolderPath,
@@ -1050,7 +1032,9 @@ async function spawnAutoRunCandidate(
       }),
       nextRun.label,
       sprintEngineRoleLabels[nextRun.role]
-      ),
+    )
+    const startupPrompt = [
+      storedStartupPrompt || generatedStartupPrompt,
       memoryPrompt,
     ].filter(Boolean).join('\n\n')
 
@@ -1067,8 +1051,10 @@ async function spawnAutoRunCandidate(
       cliHasLaunched: true,
       cliOnboardingPromptSent: true,
       cliResumeAvailable: selectedCli === 'codex',
+      cliLastExitCode: undefined,
+      cliLastExitedAt: undefined,
       cli: selectedCli,
-      cliStartupPrompt: undefined,
+      cliStartupPrompt: storedStartupPrompt ? latestAgent?.cliStartupPrompt : undefined,
       kind: 'sprintengine',
     })
 
@@ -1144,11 +1130,12 @@ async function spawnAutoRunCandidate(
         taskId: nextRun.taskId,
         sessionId,
       })
-      revealAutoRunAgentTerminal(workspace.id, nextRun.agentId, nextRun.label)
       return 'failed'
     }
 
-    revealAutoRunAgentTerminal(workspace.id, nextRun.agentId, nextRun.label)
+    currentState.updateAgent(workspace.id, nextRun.agentId, {
+      cliStartupPrompt: undefined,
+    })
     return 'started'
   } finally {
     inFlightSpawns.current.delete(spawnKey)
@@ -1169,7 +1156,14 @@ async function startMissingRosterAgents(
   let started = false
 
   for (const agent of roster) {
-    if (!stateFileExists && agent.role !== 'architect') continue
+    if (!stateFileExists) {
+      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-before-state', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: agent.id,
+        role: agent.role,
+      })
+    }
     if (runningAgentIds.has(agent.id)) continue
     if (inFlightSpawns.current.has(`${workspace.id}:${agent.id}`)) continue
 
@@ -1462,6 +1456,8 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
       cliStartRequested: false,
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
+      cliLastExitCode: null,
+      cliLastExitedAt: Date.now(),
       cliResumeAvailable: (agent.cli ?? 'codex') === 'codex' ? agent.cliResumeAvailable ?? true : false,
     })
   }

@@ -444,13 +444,24 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   }, [folderMissing, folderPath, savedFolderPath, sprintEngineContext?.statePath])
 
   const runtimeAgents = useMemo(
-    () => roster.map((agent) => ({
-      agentId: agent.id,
-      role: sprintEngineState?.sprintEngineAgents[agent.id]?.role ?? agent.role,
-      status: sprintEngineState?.sprintEngineAgents[agent.id]?.status ?? 'idle',
-      currentTaskId: sprintEngineState?.sprintEngineAgents[agent.id]?.currentTaskId ?? null,
-    })),
-    [roster, sprintEngineState?.sprintEngineAgents]
+    () => roster.map((agent) => {
+      const runtime = sprintEngineState?.sprintEngineAgents[agent.id]
+      const localAgent = agents[agent.id]
+      const localExited = Boolean(
+        localAgent?.kind === 'sprintengine'
+        && localAgent.cliLastExitedAt
+        && !localAgent.cliStartRequested
+        && !localAgent.cliHasLaunched
+      )
+
+      return {
+        agentId: agent.id,
+        role: runtime?.role ?? agent.role,
+        status: localExited ? 'exited' : runtime?.status ?? 'idle',
+        currentTaskId: runtime?.currentTaskId ?? null,
+      }
+    }),
+    [agents, roster, sprintEngineState?.sprintEngineAgents]
   )
 
   const runtimeAgentById = useMemo(
@@ -507,6 +518,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
       cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
       cliResumeAvailable: shouldStartFresh ? false : current?.cliResumeAvailable ?? false,
+      cliLastExitCode: undefined,
+      cliLastExitedAt: undefined,
       cli: selectedCli,
       cliStartupPrompt: startupPrompt,
     })
@@ -2025,6 +2038,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     emptyLabel="No implementation notes recorded."
                   />
                   <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
+                  <SectionList
+                    title="Comments"
+                    items={selectedTask.comments.map((comment) => `${comment.actor}: ${comment.body}`)}
+                    emptyLabel="No comments recorded."
+                  />
 
                   <SprintEngineArtifactList
                     artifacts={selectedTaskArtifacts}
@@ -2591,6 +2609,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               </div>
 
               <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
+              <SectionList
+                title="Comments"
+                items={selectedTask.comments.map((comment) => `${comment.actor}: ${comment.body}`)}
+                emptyLabel="No comments recorded."
+              />
 
               <SprintEngineArtifactList
                 artifacts={selectedTaskArtifacts}
@@ -4086,17 +4109,19 @@ function taskGraphEndEdgeStyle(
 function statusColor(status: string): string {
   switch (status) {
     case 'running':
-      return '#38bdf8'
+      return '#ffa600'
     case 'needs_input':
       return '#ffbf2f'
     case 'planning':
-      return '#fbbf24'
+      return '#9a9aa2'
     case 'complete':
-      return '#34d399'
+      return '#30d158'
+    case 'exited':
+      return '#5a5a63'
     case 'error':
-      return '#ef4444'
+      return '#ff5a5f'
     default:
-      return '#71717a'
+      return '#5a5a63'
   }
 }
 
@@ -4828,15 +4853,17 @@ function hexToRgba(hex: string, alpha: number): string {
 function runtimeTone(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-[#5c7cff]/12 text-[#b8ccff]'
+      return 'bg-[#ffa600]/14 text-[#ffd58a]'
     case 'needs_input':
       return 'bg-[#ffbf2f]/14 text-[#ffe0a3]'
     case 'planning':
-      return 'bg-[#ffa600]/14 text-[#ffd58a]'
+      return 'bg-[#1a1b20] text-[#9a9aa2]'
     case 'complete':
       return 'bg-[#30d158]/12 text-[#d4ffdc]'
+    case 'exited':
+      return 'bg-[#5a5a63]/24 text-[#9a9aa2]'
     case 'error':
-      return 'bg-[#ff1a3d]/14 text-[#ffb3bf]'
+      return 'bg-[#ff5a5f]/14 text-[#ffb3b5]'
     default:
       return 'bg-[#1a1b20] text-[#9a9aa2]'
   }
@@ -4852,6 +4879,8 @@ function runtimeStatusLabel(status: string): string {
       return 'Planning'
     case 'complete':
       return 'Complete'
+    case 'exited':
+      return 'Exited'
     case 'error':
       return 'Error'
     default:

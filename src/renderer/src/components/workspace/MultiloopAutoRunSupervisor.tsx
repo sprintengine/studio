@@ -22,6 +22,7 @@ import {
   selectMultiloopAutoRunCandidates,
   type MultiloopAutoRunCandidate,
 } from '../../utils/multiloopAutoRun'
+import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 
 const AUTO_RUN_POLL_MS = 2000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
@@ -343,10 +344,15 @@ async function spawnMultiloopAutoRunCandidate(
       multiloopRole: candidate.kind === 'sprintengine-task' ? undefined : candidate.role,
     })
 
-    const memoryRelativeRoot = workspace.memory.relativeRoot
+    const memoryConfig = resolveProjectKnowledgeConfig(
+      workspace.folderPath,
+      useWorkspaceStore.getState().appSettings.projectKnowledgeRoots,
+      workspace.memory.relativeRoot
+    )
+    const memoryRelativeRoot = memoryConfig?.relativeRoot ?? null
     const memoryStatus = memoryRelativeRoot
       ? await window.api.memoryResolveRoot({
-        workspaceRoot: workspace.folderPath,
+        workspaceRoot: memoryConfig?.projectRoot ?? workspace.folderPath,
         relativeRoot: memoryRelativeRoot,
       }).catch((): MemoryRootStatus => ({
         ok: false,

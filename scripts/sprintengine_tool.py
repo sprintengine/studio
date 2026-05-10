@@ -184,6 +184,8 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
         }
     if action == "note":
         return "sprintengine.task.note", {**base, "taskId": args.task_id, "id": args.id, "note": args.note}
+    if action == "comment":
+        return "sprintengine.task.comment", {**base, "taskId": args.task_id, "id": args.id, "body": args.body, "source": args.source}
     if action == "list":
         return "sprintengine.task.list", {**base, "role": args.role}
     raise SystemExit(f"MCP backend does not support task action: {action}")

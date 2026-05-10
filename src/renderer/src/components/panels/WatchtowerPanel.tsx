@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
   WATCHTOWER_REVIEW_PRESETS,
   getWatchtowerReviewSector,
@@ -315,6 +316,8 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             workspaceId,
             agentId: reviewAgent.agentId,
             cliPermissionPreset: 'bypass_all',
+            watchtowerRunId: created.run.runId,
+            watchtowerWorkspaceRoot: folderPath,
           }
         ).catch((error): TerminalSpawnResult => ({
           ok: false,
@@ -330,12 +333,6 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             cliOnboardingPromptSent: false,
             cliResumeAvailable: false,
           })
-          await window.api.updateWatchtowerRunAgentStatus({
-            workspaceRoot: folderPath,
-            runId: created.run.runId,
-            agentId: reviewAgent.agentId,
-            status: 'failed',
-          })
           showToast('error', `${specialist.shortLabel} was not started: ${spawnResult.message}`)
           continue
         }
@@ -346,14 +343,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           cliResumeAvailable: true,
           cliStartupPrompt: undefined,
         })
-        const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
-          const status = code === 0 ? 'completed' : 'failed'
-          void window.api.updateWatchtowerRunAgentStatus({
-            workspaceRoot: folderPath,
-            runId: created.run.runId,
-            agentId: reviewAgent.agentId,
-            status,
-          })
+        const disposeExit = window.api.onTerminalExit(sessionId, () => {
           updateAgent(workspaceId, reviewAgent.agentId, {
             cliStartRequested: false,
             cliHasLaunched: false,
@@ -1308,56 +1298,38 @@ function CreateInboxDialog({
   onSubmit: () => void
   busy: boolean
 }) {
+  const inputClass = 'block w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#d97757]/70'
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="absolute inset-0 z-40 flex items-center justify-center bg-[#08090b]/80"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose()
-      }}
-    >
-      <div className="w-[min(540px,92vw)] rounded-md border border-[#2a2b31] bg-[#0d0e11] p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#ffe2d4]">New inbox task</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="h-7 rounded border border-[#2a2b31] px-2 text-[11px] text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee]"
-          >
-            Close
-          </button>
-        </div>
-        <label className="block">
-          <span className="text-[11px] uppercase tracking-[0.08em] text-[#8a8a92]">Title</span>
+    <Modal open onClose={onClose} contained labelledBy="watchtower-create-title" width={540}>
+      <ModalHeader title="New inbox task" titleId="watchtower-create-title" onClose={onClose} />
+      <ModalBody className="space-y-3">
+        <Field label="Title">
           <input
             value={draft.title}
             onChange={(event) => onChange({ ...draft, title: event.target.value })}
             placeholder="Short triage title"
-            className="mt-1 block w-full rounded border border-[#2a2b31] bg-[#08090b] p-2 text-[13px] text-[#ececee] outline-none focus:border-[#ececee]/40"
+            className={inputClass}
             autoFocus
           />
-        </label>
-        <label className="mt-3 block">
-          <span className="text-[11px] uppercase tracking-[0.08em] text-[#8a8a92]">Description</span>
+        </Field>
+        <Field label="Description">
           <textarea
             value={draft.description}
             onChange={(event) => onChange({ ...draft, description: event.target.value })}
             rows={4}
             placeholder="What did you observe? What should the next reader know?"
-            className="mt-1 block w-full rounded border border-[#2a2b31] bg-[#08090b] p-2 text-[13px] leading-6 text-[#ececee] outline-none focus:border-[#ececee]/40"
+            className={`${inputClass} resize-y leading-6`}
           />
-        </label>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="text-[11px] uppercase tracking-[0.08em] text-[#8a8a92]">Priority</span>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Priority">
             <select
               value={draft.priority == null ? '' : String(draft.priority)}
               onChange={(event) => {
                 const v = event.target.value
                 onChange({ ...draft, priority: v === '' ? null : Number(v) })
               }}
-              className="mt-1 h-9 w-full rounded border border-[#2a2b31] bg-[#08090b] px-2 text-[13px] text-[#ececee]"
+              className={`${inputClass} h-9 py-0`}
             >
               <option value="">No priority</option>
               <option value="0">Urgent</option>
@@ -1365,45 +1337,37 @@ function CreateInboxDialog({
               <option value="2">Medium</option>
               <option value="3">Low</option>
             </select>
-          </label>
-          <label className="block">
-            <span className="text-[11px] uppercase tracking-[0.08em] text-[#8a8a92]">Identifier</span>
+          </Field>
+          <Field label="Identifier">
             <input
               value={draft.identifier}
               onChange={(event) => onChange({ ...draft, identifier: event.target.value })}
               placeholder="WT-7"
-              className="mt-1 h-9 w-full rounded border border-[#2a2b31] bg-[#08090b] px-2 text-[13px] text-[#ececee]"
+              className={`${inputClass} h-9 py-0`}
             />
-          </label>
+          </Field>
         </div>
-        <label className="mt-3 block">
-          <span className="text-[11px] uppercase tracking-[0.08em] text-[#8a8a92]">Labels (comma separated)</span>
+        <Field label="Labels (comma separated)">
           <input
             value={draft.labels}
             onChange={(event) => onChange({ ...draft, labels: event.target.value })}
             placeholder="bug, auth"
-            className="mt-1 h-9 w-full rounded border border-[#2a2b31] bg-[#08090b] px-2 text-[13px] text-[#ececee]"
+            className={`${inputClass} h-9 py-0`}
           />
-        </label>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="h-8 rounded border border-[#2a2b31] px-3 text-[12px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={busy || !draft.title.trim()}
-            className="h-8 rounded border border-[#3a2820] bg-[#2c1a18] px-3 text-[12px] font-semibold text-[#ffe2d4] hover:bg-[#3a2421] disabled:opacity-50"
-          >
-            Create in inbox
-          </button>
-        </div>
-      </div>
-    </div>
+        </Field>
+      </ModalBody>
+      <ModalFooter>
+        <ModalButton onClick={onClose}>Cancel</ModalButton>
+        <ModalButton
+          variant="primary"
+          accent="copper"
+          onClick={onSubmit}
+          disabled={busy || !draft.title.trim()}
+        >
+          Create in inbox
+        </ModalButton>
+      </ModalFooter>
+    </Modal>
   )
 }
 

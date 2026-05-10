@@ -2597,6 +2597,30 @@ def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_task_comment(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        body = str(args.body or "").strip()
+        if not body:
+            raise SystemExit("Task comment body cannot be empty.")
+        actor = args.id or "user"
+        comments = task.setdefault("comments", [])
+        if not isinstance(comments, list):
+            comments = []
+            task["comments"] = comments
+        comment = {
+            "id": f"C{len(comments) + 1}",
+            "actor": actor,
+            "source": args.source,
+            "body": body,
+            "createdAt": now_iso(),
+        }
+        comments.append(comment)
+        event = append_event(state, "task_comment_added", actor, f"{actor} commented on {args.task_id}.")
+        return {"ok": True, "task": task, "comment": comment, "event": event}
+    return with_locked_state(args.state, run)
+
+
 def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_role_in_roster(state, args.role)
@@ -3174,6 +3198,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", required=True, help="Agent id.")
     p.add_argument("--note", required=True)
     p.set_defaults(handler=cmd_task_note)
+
+    p = task_sub.add_parser("comment", help="Add a user-facing comment to a task.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--id", default="user", help="Actor id.")
+    p.add_argument("--body", required=True)
+    p.add_argument("--source", default="user", choices=["user", "agent", "system"])
+    p.set_defaults(handler=cmd_task_comment)
 
     p = task_sub.add_parser("list", help="List ready tasks for a role.")
     p.add_argument("--role", choices=sorted(VALID_ROLES))

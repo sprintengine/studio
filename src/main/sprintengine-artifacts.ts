@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'pat
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineStateInitializeInput,
+  SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
   SprintEngineTaskMutationRole,
   SprintEngineTaskUpdateInput,
@@ -420,6 +421,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult>
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
+  commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
 } {
   return {
     async openArtifact(payload) {
@@ -662,6 +664,47 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           ok: true,
           data: {
             action: 'create-task',
+            actor: actor.id,
+            taskId,
+            stateContent,
+            tool: toolResult.response.result,
+          },
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async commentTask(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const taskId = resolveSprintEngineTaskId(payload?.taskId)
+        const actor = await requireSprintEngineMcpAuthority(deps)
+        const body = resolveRequiredString(payload?.body, 'Task comment')
+        const toolResult = await runSprintEngineMcpTool(
+          state,
+          'sprintengine.task.comment',
+          { statePath: state.statePath, taskId, id: actor.id, body, source: 'user' },
+          actor
+        )
+        if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
+          const message = toolResult.response && !toolResult.response.ok
+            ? toolResult.response.error?.message
+            : undefined
+          return {
+            ok: false,
+            message: message ?? (toolResult.stderr.trim() || 'The sprintengine MCP command failed.'),
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+
+        const stateContent = await readFile(state.statePath, 'utf8')
+        return {
+          ok: true,
+          data: {
+            action: 'comment-task',
             actor: actor.id,
             taskId,
             stateContent,

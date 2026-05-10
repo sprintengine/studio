@@ -41,6 +41,9 @@ export type TerminalSession = {
   lastInputAt: number | null
   pendingResize?: TerminalSize
   startupScriptPath?: string
+  watchtowerRunId?: string
+  watchtowerWorkspaceRoot?: string
+  watchtowerStatusReported?: boolean
 }
 
 const TERMINAL_REPLAY_BUFFER_LIMIT = 512 * 1024

@@ -19,6 +19,20 @@ function sectorInstructions(sectors: WatchtowerReviewSectorId[]): string[] {
   })
 }
 
+function brandContextInstructions(sectors: WatchtowerReviewSectorId[]): string[] {
+  if (!sectors.includes('brand_alignment')) return []
+
+  return [
+    '',
+    '# Brand Alignment Context',
+    '',
+    'Before creating brand-alignment findings, inspect the repo-local knowledge graph for brand guidance. Start with `knowledge/brand/BRAND.md`, then check `knowledge/brand/panel-design-system.md`, `knowledge/brand/workspace-themes.md`, and `knowledge/multicode/watchtower.md` when present.',
+    'If no brand guideline exists in the knowledge graph for this workspace, infer the current brand from implemented panels and adjacent UI surfaces instead of inventing a new direction.',
+    'For UI and brand review, sweep the full application surface you can reach from the codebase: panels, modal/dialog flows, forms, empty/loading/error/disabled states, navigation, command surfaces, copy tone, color usage, spacing, typography, icons, and responsive behavior.',
+    'Findings must cite the violated brand guideline path when one exists. When using inferred brand instead, say which existing panels or UI files established the pattern.',
+  ]
+}
+
 export function buildWatchtowerStartupPrompt(input: {
   run: WatchtowerRun
   agent: {
@@ -85,5 +99,6 @@ export function buildWatchtowerStartupPrompt(input: {
     '# Sector Checklist',
     '',
     ...sectorInstructions(input.agent.sectors).map((line) => `- ${line}`),
+    ...brandContextInstructions(input.agent.sectors),
   ].join('\n')
 }

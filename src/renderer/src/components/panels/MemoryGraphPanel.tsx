@@ -8,6 +8,7 @@ import {
   MemoryGraphLegend,
   MemoryGraphTooltip,
 } from '../memory/MemoryGraphHud'
+import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 
 type CursorPoint = { x: number; y: number }
 
@@ -15,7 +16,21 @@ const PANEL_BG = 'rgba(10, 10, 30, 0.85)'
 const PANEL_BORDER = '1px solid rgba(255, 255, 255, 0.08)'
 
 export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string }) {
-  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const workspaceFolderPath = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.folderPath
+  )
+  const workspaceMemoryRelativeRoot = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.memory.relativeRoot
+  )
+  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots)
+  const knowledgeConfig = useMemo(
+    () => resolveProjectKnowledgeConfig(
+      workspaceFolderPath,
+      projectKnowledgeRoots,
+      workspaceMemoryRelativeRoot
+    ),
+    [workspaceFolderPath, projectKnowledgeRoots, workspaceMemoryRelativeRoot]
+  )
 
   const [indexResult, setIndexResult] = useState<MemoryGraphIndexResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -37,8 +52,8 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
     setLoading(true)
     try {
       const result = await window.api.memoryIndex({
-        workspaceRoot: workspace?.folderPath ?? null,
-        relativeRoot: workspace?.memory.relativeRoot ?? null,
+        workspaceRoot: knowledgeConfig?.projectRoot ?? null,
+        relativeRoot: knowledgeConfig?.relativeRoot ?? null,
       })
       setIndexResult(result)
       setSelectedId(null)
@@ -47,7 +62,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
     } finally {
       setLoading(false)
     }
-  }, [workspace?.folderPath, workspace?.memory.relativeRoot])
+  }, [knowledgeConfig?.projectRoot, knowledgeConfig?.relativeRoot])
 
   useEffect(() => {
     void loadGraph()
@@ -56,8 +71,8 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
   // Subscribe to live activity events and synapse snapshots. The watcher is
   // started here lazily — opening the panel implies you want to see activity.
   useEffect(() => {
-    const workspaceRoot = workspace?.folderPath
-    const memoryRoot = workspace?.memory.relativeRoot
+    const workspaceRoot = knowledgeConfig?.projectRoot
+    const memoryRoot = knowledgeConfig?.relativeRoot
     if (!workspaceRoot || !memoryRoot) {
       setActivitySynapses([])
       setActivityStatus(null)
@@ -130,7 +145,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       offStatus()
       offSynapses()
     }
-  }, [workspace?.folderPath, workspace?.memory.relativeRoot])
+  }, [knowledgeConfig?.projectRoot, knowledgeConfig?.relativeRoot])
 
   const allNodes = indexResult?.ok ? indexResult.nodes : []
   const allEdges = indexResult?.ok ? indexResult.edges : []
@@ -159,13 +174,13 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
     async (node: MemoryGraphNode) => {
       setPreview(null)
       const result = await window.api.memoryReadPreview({
-        workspaceRoot: workspace?.folderPath ?? null,
-        relativeRoot: workspace?.memory.relativeRoot ?? null,
+        workspaceRoot: knowledgeConfig?.projectRoot ?? null,
+        relativeRoot: knowledgeConfig?.relativeRoot ?? null,
         relativePath: node.relativePath,
       })
       setPreview(result)
     },
-    [workspace?.folderPath, workspace?.memory.relativeRoot]
+    [knowledgeConfig?.projectRoot, knowledgeConfig?.relativeRoot]
   )
 
   const openNode = useCallback(
@@ -200,7 +215,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
 
   const selectedNode = selectedId ? allNodes.find((n) => n.id === selectedId) ?? null : null
   const showCanvas =
-    !!workspace?.memory.relativeRoot && !loading && indexResult?.ok && allNodes.length > 0
+    !!knowledgeConfig?.relativeRoot && !loading && indexResult?.ok && allNodes.length > 0
 
   return (
     <div
@@ -255,11 +270,11 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       </div>
 
       <div className="relative flex min-h-0 flex-1">
-        {!workspace?.memory.relativeRoot ? (
+        {!knowledgeConfig?.relativeRoot ? (
           <MemoryNotice
             tone="info"
             title="Knowledge Graph is not configured"
-            message="Set a workspace-relative knowledge path in Settings → Knowledge to render the graph. Multicode never guesses a folder for you."
+            message="Set a project-relative knowledge path in Settings → Knowledge to render the graph. Multicode never guesses a folder for you."
           />
         ) : loading ? (
           <LoadingOverlay />

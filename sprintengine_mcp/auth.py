@@ -18,6 +18,7 @@ AUDITED_TOOLS = {
     "sprintengine.task.ready",
     "sprintengine.task.log",
     "sprintengine.task.note",
+    "sprintengine.task.comment",
     "sprintengine.plan.add_task",
     "sprintengine.plan.update_task",
     "sprintengine.plan.delete_task",

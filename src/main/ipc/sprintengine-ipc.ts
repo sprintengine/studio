@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron'
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineStateInitializeInput,
+  SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
@@ -36,6 +37,7 @@ type SprintEngineIpcDependencies = {
   initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult>
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
+  commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
 }
 
 export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
@@ -69,5 +71,9 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:task:create', async (_, payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.createTask(payload)
+  })
+
+  ipcMain.handle('sprintengine:task:comment', async (_, payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.commentTask(payload)
   })
 }

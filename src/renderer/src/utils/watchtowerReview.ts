@@ -12,6 +12,7 @@ export type WatchtowerReviewSector = {
 
 export type WatchtowerReviewPresetId =
   | 'lean_code_review'
+  | 'ui_brand_alignment_review'
   | 'performance_focused_review'
   | 'security_deep_review'
   | 'full_product_review'
@@ -30,7 +31,7 @@ export const WATCHTOWER_REVIEW_SECTORS: WatchtowerReviewSector[] = [
   { id: 'architecture_quality', label: 'Architecture', reportFile: 'architecture-quality.md', description: 'Boundaries, state ownership, data flow, dependency direction, and migration safety.' },
   { id: 'frontend_design', label: 'Frontend Design', reportFile: 'frontend-design.md', description: 'Layout, hierarchy, interaction states, responsiveness, and visual polish.' },
   { id: 'cross_platform', label: 'Cross Platform', reportFile: 'cross-platform.md', description: 'Windows, macOS, Linux, shell, path, packaging, and WSL assumptions.' },
-  { id: 'brand_alignment', label: 'Brand Alignment', reportFile: 'brand-alignment.md', description: 'Multicode tone, product naming, dark-native command-center aesthetic, copy, and palette discipline.' },
+  { id: 'brand_alignment', label: 'Brand Alignment', reportFile: 'brand-alignment.md', description: 'Knowledge-graph brand guidance, UI surfaces, modals, panels, product naming, copy, palette discipline, and consistency with adjacent product surfaces.' },
   { id: 'security', label: 'Security', reportFile: 'security.md', description: 'Trust boundaries, command execution, filesystem access, IPC, auth, secrets, and unsafe defaults.' },
   { id: 'performance', label: 'Performance', reportFile: 'performance.md', description: 'Startup, render churn, terminal scaling, scans, memory growth, bundle size, and polling.' },
   { id: 'qa_testing', label: 'QA Testing', reportFile: 'qa-testing.md', description: 'Coverage, release readiness, fixtures, edge cases, and regression risk.' },
@@ -64,6 +65,16 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
       'code-review': ['code_review', 'ai_slop'],
       'qa-test': ['qa_testing'],
       performance: ['performance'],
+    },
+  },
+  {
+    id: 'ui_brand_alignment_review',
+    label: 'UI & Brand Alignment',
+    description: 'Focused sweep of panels, modals, UI states, copy, and visual treatment against the knowledge-graph brand guidance.',
+    agents: {
+      'frontend-design-review': ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
+      'product-strategist': ['brand_alignment', 'product_strategy'],
+      'code-review': ['ai_slop'],
     },
   },
   {

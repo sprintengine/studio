@@ -91,6 +91,19 @@ function activeRowClass(mode: Workspace['mode']): string {
   return 'border-l-[3px] border-l-[#a8a8b2] bg-[#181a20] text-[#ffffff] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]'
 }
 
+// Collapsed rail uses a centered row with no left border so the icon stays
+// optically centered. The active marker is a deep-fill bg + colored ring
+// + outer halo in the mode accent.
+function collapsedActiveRowClass(mode: Workspace['mode']): string {
+  if (mode === 'sprintengine')
+    return 'bg-[#1a1408] text-[#ffe7b3] shadow-[inset_0_0_0_1px_rgba(255,191,47,0.32),0_0_18px_-2px_rgba(255,191,47,0.45)]'
+  if (mode === 'switchboard')
+    return 'bg-[#150f2c] text-[#efe5ff] shadow-[inset_0_0_0_1px_rgba(124,92,242,0.42),0_0_18px_-2px_rgba(124,92,242,0.55)]'
+  if (mode === 'multiloop')
+    return 'bg-[#15203c] text-[#dfe6ff] shadow-[inset_0_0_0_1px_rgba(92,124,255,0.40),0_0_18px_-2px_rgba(92,124,255,0.50)]'
+  return 'bg-[#181a20] text-[#ffffff] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]'
+}
+
 function activityTone(activity: Activity): 'running' | 'needs-input' | null {
   if (activity === 'needs-input') return 'needs-input'
   if (activity === 'running') return 'running'
@@ -391,13 +404,17 @@ export default function WorkspaceSidebar({
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
         title={sidebarCollapsed ? `${workspace.name}${workspace.folderPath ? ` · ${folderDisplayName(workspace.folderPath)}` : ''}` : undefined}
-        className={`group relative mx-1.5 my-[1px] flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md border-l-[3px] border-l-transparent pl-[19px] pr-2 text-[13px] transition-colors ${
+        className={`group relative mx-1.5 my-[1px] flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md text-[13px] transition-colors ${
+          sidebarCollapsed
+            ? 'justify-center px-0'
+            : 'border-l-[3px] border-l-transparent pl-[19px] pr-2'
+        } ${
           active
-            ? activeRowClass(workspace.mode)
+            ? sidebarCollapsed
+              ? collapsedActiveRowClass(workspace.mode)
+              : activeRowClass(workspace.mode)
             : 'text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee]'
-        } ${folderMissing ? 'opacity-70' : ''} ${
-          sidebarCollapsed ? 'justify-center pl-0 pr-0' : ''
-        }`}
+        } ${folderMissing ? 'opacity-70' : ''}`}
         role="treeitem"
         aria-current={active ? 'true' : undefined}
       >

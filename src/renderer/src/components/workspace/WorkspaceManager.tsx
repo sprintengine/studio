@@ -35,6 +35,7 @@ import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprint
 import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
 import { sprintEngineRoleAccent } from '../../utils/sprintengine'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
+import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
 import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
 import MultiloopAutoRunSupervisor from './MultiloopAutoRunSupervisor'
@@ -367,7 +368,7 @@ export default function WorkspaceManager() {
   const viewMenuRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
   const accountRef = useRef<HTMLDivElement>(null)
-  const handoffDialogRef = useRef<HTMLDivElement>(null)
+  const handoffInputRef = useRef<HTMLInputElement>(null)
   const terminalSessionsSignatureRef = useRef('')
   const workspaceLayoutUnloadTimersRef = useRef<Record<string, number>>({})
   const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
@@ -623,17 +624,8 @@ export default function WorkspaceManager() {
 
   useEffect(() => {
     if (!handoffOpen) return
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setHandoffOpen(false)
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    window.setTimeout(() => {
-      const input = handoffDialogRef.current?.querySelector('input')
-      if (input instanceof HTMLInputElement) input.select()
-    }, 0)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    const handle = window.setTimeout(() => handoffInputRef.current?.select(), 0)
+    return () => window.clearTimeout(handle)
   }, [handoffOpen])
 
   useEffect(() => {
@@ -1960,65 +1952,54 @@ export default function WorkspaceManager() {
       </div>
       </div>
 
-      {handoffOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
-          <div
-            ref={handoffDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="handoff-title"
-            className="w-full max-w-sm rounded-md border border-[#303139] bg-[#0d0e11] shadow-[0_18px_60px_rgba(0,0,0,0.5)]"
+      <Modal
+        open={handoffOpen}
+        onClose={() => setHandoffOpen(false)}
+        labelledBy="handoff-title"
+        width={420}
+      >
+        <ModalHeader
+          title="Handoff to SprintEngine"
+          titleId="handoff-title"
+          onClose={() => setHandoffOpen(false)}
+        />
+        <ModalBody className="space-y-3">
+          <Field label="Team name">
+            <input
+              ref={handoffInputRef}
+              value={handoffTeamName}
+              onChange={(event) => {
+                setHandoffTeamName(event.target.value)
+                setHandoffError(null)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void confirmHandoff()
+              }}
+              autoFocus
+              className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#ffbf2f]/70"
+              placeholder="sprintengine-improvements"
+            />
+          </Field>
+          {handoffError ? (
+            <div className="border-l-2 border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+              {handoffError}
+            </div>
+          ) : null}
+        </ModalBody>
+        <ModalFooter>
+          <ModalButton onClick={() => setHandoffOpen(false)}>Cancel</ModalButton>
+          <ModalButton
+            variant="primary"
+            accent="gold"
+            onClick={() => void confirmHandoff()}
+            disabled={!handoffTeamName.trim()}
+            className="inline-flex items-center gap-2"
           >
-            <div className="border-b border-[#1f2025] px-4 py-3">
-              <div id="handoff-title" className="text-sm font-semibold text-[#ececee]">
-                Handoff To SprintEngine
-              </div>
-            </div>
-            <div className="space-y-3 px-4 py-4">
-              <label className="block">
-                <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Team Name
-                </span>
-                <input
-                  value={handoffTeamName}
-                  onChange={(event) => {
-                    setHandoffTeamName(event.target.value)
-                    setHandoffError(null)
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') void confirmHandoff()
-                  }}
-                  className="h-9 w-full rounded bg-[#111216] px-2.5 text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#ffbf2f]/45"
-                  placeholder="sprintengine-improvements"
-                />
-              </label>
-              {handoffError ? (
-                <div className="border-l border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
-                  {handoffError}
-                </div>
-              ) : null}
-            </div>
-            <div className="flex items-center justify-end gap-2 border-t border-[#1f2025] px-4 py-3">
-              <button
-                type="button"
-                onClick={() => setHandoffOpen(false)}
-                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void confirmHandoff()}
-                disabled={!handoffTeamName.trim()}
-                className="inline-flex items-center gap-2 rounded-md bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/18 disabled:opacity-45 disabled:hover:bg-[#ffbf2f]/12"
-              >
-                <WorkspaceTypeIcon mode="sprintengine" className="h-4 w-4" />
-                Handoff
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+            <WorkspaceTypeIcon mode="sprintengine" className="h-4 w-4" />
+            Handoff
+          </ModalButton>
+        </ModalFooter>
+      </Modal>
 
       {showPalette && (
         <CommandPalette

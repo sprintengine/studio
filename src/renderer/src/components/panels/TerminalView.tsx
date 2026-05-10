@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -13,6 +13,7 @@ import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
+import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 
 interface Props {
   workspaceId: string
@@ -118,8 +119,20 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
   const sprintEngineContext = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext ?? null
   )
-  const memoryRelativeRoot = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.memory.relativeRoot ?? null
+  const workspaceFolderPath = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.folderPath
+  )
+  const workspaceMemoryRelativeRoot = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.memory.relativeRoot
+  )
+  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots)
+  const memoryConfig = useMemo(
+    () => resolveProjectKnowledgeConfig(
+      workspaceFolderPath,
+      projectKnowledgeRoots,
+      workspaceMemoryRelativeRoot
+    ),
+    [workspaceFolderPath, projectKnowledgeRoots, workspaceMemoryRelativeRoot]
   )
   const cliPermissionPreset = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
@@ -284,48 +297,18 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         })
       }
       if (currentSessionId !== sessionId) return
-      if (agent?.watchtowerRunId && (folderReadyPath || savedFolderPath)) {
-        void (async () => {
-          try {
-            const result = await window.api.updateWatchtowerRunAgentStatus({
-              workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
-              runId: agent.watchtowerRunId ?? '',
-              agentId,
-              status: code === 0 ? 'completed' : 'failed',
-            })
-            if (!result.ok) throw new Error(result.message)
-          } catch (error) {
-            publishDiagnosticSync({
-              level: 'error',
-              source: 'terminal',
-              title: 'Watchtower run status update failed',
-              message: error instanceof Error ? error.message : 'Could not update Watchtower run status.',
-              workspaceId,
-              workspaceName,
-              agentId,
-              sessionId,
-            })
-          }
-        })()
-      }
       updateAgent(workspaceId, agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
+        cliLastExitCode: code,
+        cliLastExitedAt: Date.now(),
       })
     })
 
     const disposeError = window.api.onTerminalError(sessionId, (message) => {
       term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
       reportedTerminalFailure = true
-      if (agent?.watchtowerRunId && (folderReadyPath || savedFolderPath)) {
-        void window.api.updateWatchtowerRunAgentStatus({
-          workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
-          runId: agent.watchtowerRunId,
-          agentId,
-          status: 'failed',
-        })
-      }
       publishDiagnosticSync({
         level: 'error',
         source: 'terminal',
@@ -404,7 +387,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
         sprintEngineStatePath ? `Sprint Engine state: ${sprintEngineStatePath}` : null,
       ].filter(Boolean).join('\n')
-      const memoryContext = await resolveMemoryLaunchContext(folderReadyPath ?? null, memoryRelativeRoot)
+      const memoryContext = await resolveMemoryLaunchContext(
+        memoryConfig?.projectRoot ?? folderReadyPath ?? null,
+        memoryConfig?.relativeRoot ?? null
+      )
       if (disposed) return
       const launchInitialPrompt = shouldResumeCli
         ? undefined
@@ -431,6 +417,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           cliPermissionPreset,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
+          watchtowerRunId: agent?.watchtowerRunId,
+          watchtowerWorkspaceRoot: agent?.watchtowerRunId
+            ? folderReadyPath ?? savedFolderPath ?? undefined
+            : undefined,
         } as TerminalSpawnMetadata & {
           executionMode: AgentExecutionMode
           worktreeId?: string
@@ -455,14 +445,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           cliHasLaunched: false,
           cliOnboardingPromptSent: false,
         })
-        if (agent?.watchtowerRunId && (folderReadyPath || savedFolderPath)) {
-          void window.api.updateWatchtowerRunAgentStatus({
-            workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
-            runId: agent.watchtowerRunId,
-            agentId,
-            status: 'failed',
-          })
-        }
         if (!reportedTerminalFailure) {
           reportedTerminalFailure = true
           publishDiagnosticSync({
@@ -537,7 +519,8 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     workspaceName,
     savedFolderPath,
     sprintEngineContext?.statePath,
-    memoryRelativeRoot,
+    memoryConfig?.projectRoot,
+    memoryConfig?.relativeRoot,
     storedExecutionWorktreePath,
     updateAgent,
   ])

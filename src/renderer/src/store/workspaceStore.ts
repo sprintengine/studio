@@ -64,6 +64,7 @@ import {
   removeEditorBuffersForPath,
   setEditorBuffer,
 } from '../utils/editorBuffers'
+import { normalizeProjectRootKey } from '../utils/projectKnowledge'
 
 const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
@@ -99,6 +100,7 @@ interface WorkspaceStore {
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSearchExcludes: (patterns: string[]) => void
+  setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   addWorkspace: (
     template: LayoutTemplate,
@@ -201,9 +203,33 @@ const defaultAppSettings = (): AppSettings => ({
   lastSelectedMultiloopRole: 'coordinator',
   lastAgentSpawnPermissionPreset: 'default',
   searchExcludes: [],
+  projectKnowledgeRoots: {},
   recentWorkspaceFolders: [],
   usageTelemetry: defaultUsageTelemetrySettings(),
 })
+
+function normalizeProjectKnowledgeRoots(
+  roots: unknown,
+  workspaces: Workspace[]
+): Record<string, string | null> {
+  const normalized: Record<string, string | null> = {}
+
+  if (roots && typeof roots === 'object') {
+    for (const [projectRoot, relativeRoot] of Object.entries(roots as Record<string, unknown>)) {
+      const key = normalizeProjectRootKey(projectRoot)
+      const root = normalizeMemoryRelativeRoot(relativeRoot)
+      if (key && root) normalized[key] = root
+    }
+  }
+
+  for (const workspace of workspaces) {
+    const projectRoot = normalizeProjectRootKey(workspace.folderPath)
+    const relativeRoot = normalizeMemoryRelativeRoot(workspace.memory?.relativeRoot)
+    if (projectRoot && relativeRoot && !normalized[projectRoot]) normalized[projectRoot] = relativeRoot
+  }
+
+  return normalized
+}
 
 function normalizeAppSettings(settings: Partial<AppSettings> | undefined, workspaces: Workspace[]): AppSettings {
   const defaults = defaultAppSettings()
@@ -218,6 +244,7 @@ function normalizeAppSettings(settings: Partial<AppSettings> | undefined, worksp
     lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
+    projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
     recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
       settings?.recentWorkspaceFolders,
       workspaces.map((ws) => ws.folderPath)
@@ -1030,6 +1057,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.appSettings.searchExcludes = normalizeSearchExcludes(patterns)
         }),
 
+      setProjectKnowledgeRoot: (projectRoot, relativeRoot) =>
+        set((state) => {
+          const key = normalizeProjectRootKey(projectRoot)
+          if (!key) return
+          const normalizedRoot = normalizeMemoryRelativeRoot(relativeRoot)
+          state.appSettings.projectKnowledgeRoots = normalizeProjectKnowledgeRoots(
+            state.appSettings.projectKnowledgeRoots,
+            state.workspaces
+          )
+          if (normalizedRoot) {
+            state.appSettings.projectKnowledgeRoots[key] = normalizedRoot
+          } else {
+            delete state.appSettings.projectKnowledgeRoots[key]
+          }
+        }),
+
       setUsageTelemetrySettings: (update) =>
         set((state) => {
           state.appSettings.usageTelemetry = normalizeUsageTelemetrySettings({
@@ -1669,7 +1712,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 38,
+      version: 39,
       // Migrate older persisted state that lacks editorState / folderPath / sprintEngineState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Partial<WorkspaceMigrationState> | undefined
@@ -2030,6 +2073,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...ws,
             memory: normalizeWorkspaceMemoryConfig(ws.memory),
           }))
+        }
+        if (version < 39) {
+          const current = migrationState
+          current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
         }
         return state as never
       },

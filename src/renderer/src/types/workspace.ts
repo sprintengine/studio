@@ -90,6 +90,14 @@ export type SprintEngineTaskEvidence = {
   results: string[]
 }
 
+export type SprintEngineTaskComment = {
+  id: string
+  actor: string
+  source: 'user' | 'agent' | 'system'
+  body: string
+  createdAt: string
+}
+
 export type SprintEngineTaskFeedbackScores = {
   directiveClarityPct?: number
   taskClarityPct?: number
@@ -496,6 +504,7 @@ export type SprintEngineTask = {
   feedback?: SprintEngineTaskFeedback
   triage?: SprintEngineTaskTriage
   notes: string[]
+  comments: SprintEngineTaskComment[]
   startedAt: string | null
   completedAt: string | null
 }
@@ -640,6 +649,7 @@ export type AppSettings = {
   lastSelectedMultiloopRole: MultiloopRole
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   searchExcludes: string[]
+  projectKnowledgeRoots: Record<string, string | null>
   recentWorkspaceFolders: string[]
   usageTelemetry: UsageTelemetrySettings
 }
@@ -690,6 +700,8 @@ export type AgentState = {
   cliHasLaunched?: boolean
   cliOnboardingPromptSent?: boolean
   cliResumeAvailable?: boolean
+  cliLastExitCode?: number | null
+  cliLastExitedAt?: number | null
   cli?: AgentCli
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   cliStartupPrompt?: string

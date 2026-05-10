@@ -240,6 +240,8 @@ export type TerminalSpawnMetadata = {
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   memoryRootPath?: string
   memoryRelativeRoot?: string
+  watchtowerRunId?: string
+  watchtowerWorkspaceRoot?: string
 }
 
 export type TerminalSessionSnapshot = {
@@ -552,6 +554,12 @@ export type SprintEngineTaskCreateInput = {
   implementationNotes?: string[]
   notes?: string[]
   manualDispatch?: boolean
+}
+
+export type SprintEngineTaskCommentInput = {
+  statePath: string
+  taskId: string
+  body: string
 }
 
 export type SprintEngineStateInitializeInput = {
@@ -930,6 +938,7 @@ export type ElectronApi = {
   initializeSprintEngineState: (input: SprintEngineStateInitializeInput) => Promise<SprintEngineArtifactCommandResult>
   updateSprintEngineTask: (input: SprintEngineTaskUpdateInput) => Promise<SprintEngineArtifactCommandResult>
   createSprintEngineTask: (input: SprintEngineTaskCreateInput) => Promise<SprintEngineArtifactCommandResult>
+  commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>
   createSwitchboardTask: (input: SwitchboardCreateTaskInput) => Promise<SwitchboardMutationResult>

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli } from '../../types/workspace'
+import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
+import { WorkspacePanel } from '../ui/WorkspacePanel'
 
 interface Props {
   onClose: () => void
@@ -82,14 +84,21 @@ export default function SettingsPanel({
   )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
+  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? {})
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
+  const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
-  const setWorkspaceMemoryRelativeRoot = useWorkspaceStore((s) => s.setWorkspaceMemoryRelativeRoot)
+  const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
+    activeWorkspace?.folderPath,
+    projectKnowledgeRoots,
+    activeWorkspace?.memory.relativeRoot
+  )
+  const activeProjectRoot = activeKnowledgeConfig?.projectRoot ?? activeWorkspace?.folderPath ?? null
   const isWindows = window.api.platform === 'win32'
   const [searchExcludesDraft, setSearchExcludesDraft] = useState(() => searchExcludes.join('\n'))
-  const [memoryDraft, setMemoryDraft] = useState(() => activeWorkspace?.memory.relativeRoot ?? '')
+  const [memoryDraft, setMemoryDraft] = useState(() => activeKnowledgeConfig?.relativeRoot ?? '')
   const [memoryStatus, setMemoryStatus] = useState<MemoryRootStatus | null>(null)
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [updateActionPending, setUpdateActionPending] = useState(false)
@@ -104,7 +113,6 @@ export default function SettingsPanel({
   const [memorySkillPending, setMemorySkillPending] = useState(false)
   const [memorySkillMessage, setMemorySkillMessage] = useState<string | null>(null)
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>('updates')
-  const panelRef = useRef<HTMLDivElement>(null)
   const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
     updates: null,
     github: null,
@@ -117,10 +125,10 @@ export default function SettingsPanel({
   const lastUpdateRequestIdRef = useRef<number | null>(null)
 
   const commitMemoryDraft = useCallback((value: string) => {
-    if (!activeWorkspaceId) return
+    if (!activeProjectRoot) return
     const trimmed = value.trim().replace(/\\/g, '/').replace(/\/+$/u, '')
-    setWorkspaceMemoryRelativeRoot(activeWorkspaceId, trimmed || null)
-  }, [activeWorkspaceId, setWorkspaceMemoryRelativeRoot])
+    setProjectKnowledgeRoot(activeProjectRoot, trimmed || null)
+  }, [activeProjectRoot, setProjectKnowledgeRoot])
 
   const closeSettings = useCallback(() => {
     setSearchExcludes(parseSearchExcludeText(searchExcludesDraft))
@@ -129,34 +137,30 @@ export default function SettingsPanel({
   }, [commitMemoryDraft, memoryDraft, onClose, searchExcludesDraft, setSearchExcludes])
 
   useEffect(() => {
-    panelRef.current?.focus()
-  }, [])
-
-  useEffect(() => {
     setSearchExcludesDraft(searchExcludes.join('\n'))
   }, [searchExcludes])
 
   useEffect(() => {
-    setMemoryDraft(activeWorkspace?.memory.relativeRoot ?? '')
-  }, [activeWorkspace?.id, activeWorkspace?.memory.relativeRoot])
+    setMemoryDraft(activeKnowledgeConfig?.relativeRoot ?? '')
+  }, [activeKnowledgeConfig?.projectRoot, activeKnowledgeConfig?.relativeRoot, activeWorkspace?.id])
 
   useEffect(() => {
     let cancelled = false
     setActivityMessage(null)
     setMemorySkillMessage(null)
-    if (!activeWorkspace?.folderPath) {
+    if (!activeProjectRoot) {
       setActivityInstalled(false)
       setMemorySkillStatus(null)
       return
     }
     void window.api
-      .memoryActivityIsInstalled({ workspaceRoot: activeWorkspace.folderPath })
+      .memoryActivityIsInstalled({ workspaceRoot: activeProjectRoot })
       .then((installed) => {
         if (!cancelled) setActivityInstalled(installed)
       })
     void window.api
       .builtinSkillStatus({
-        workspaceRoot: activeWorkspace.folderPath,
+        workspaceRoot: activeProjectRoot,
         skillId: 'workspace-knowledge',
       })
       .then((status) => {
@@ -165,15 +169,15 @@ export default function SettingsPanel({
     return () => {
       cancelled = true
     }
-  }, [activeWorkspace?.folderPath])
+  }, [activeProjectRoot])
 
   const installWorkspaceMemorySkill = useCallback(async () => {
-    if (!activeWorkspace?.folderPath) return
+    if (!activeProjectRoot) return
     setMemorySkillPending(true)
     setMemorySkillMessage(null)
     try {
       const result = await window.api.builtinSkillInstall({
-        workspaceRoot: activeWorkspace.folderPath,
+        workspaceRoot: activeProjectRoot,
         skillId: 'workspace-knowledge',
       })
       if (result.ok) {
@@ -181,7 +185,7 @@ export default function SettingsPanel({
           ? 'Workspace Knowledge skill updated.'
           : 'Workspace Knowledge skill installed.')
         setMemorySkillStatus(await window.api.builtinSkillStatus({
-          workspaceRoot: activeWorkspace.folderPath,
+          workspaceRoot: activeProjectRoot,
           skillId: 'workspace-knowledge',
         }))
       } else {
@@ -192,12 +196,12 @@ export default function SettingsPanel({
     } finally {
       setMemorySkillPending(false)
     }
-  }, [activeWorkspace?.folderPath])
+  }, [activeProjectRoot])
 
   const toggleActivityTracking = useCallback(
     async (next: boolean) => {
-      if (!activeWorkspace?.folderPath) return
-      const memoryRoot = activeWorkspace.memory.relativeRoot
+      if (!activeProjectRoot) return
+      const memoryRoot = activeKnowledgeConfig?.relativeRoot ?? null
       if (next && !memoryRoot) {
         setActivityMessage('Configure a knowledge folder before enabling activity tracking.')
         return
@@ -218,7 +222,7 @@ export default function SettingsPanel({
       try {
         if (next) {
           const result = await window.api.memoryActivityInstall({
-            workspaceRoot: activeWorkspace.folderPath,
+            workspaceRoot: activeProjectRoot,
             memoryRelativeRoot: memoryRoot,
           })
           if (result.ok) {
@@ -228,7 +232,7 @@ export default function SettingsPanel({
           }
         } else {
           const result = await window.api.memoryActivityUninstall({
-            workspaceRoot: activeWorkspace.folderPath,
+            workspaceRoot: activeProjectRoot,
           })
           if (result.ok) {
             setActivityInstalled(false)
@@ -244,7 +248,7 @@ export default function SettingsPanel({
         setActivityPending(false)
       }
     },
-    [activeWorkspace?.folderPath, activeWorkspace?.memory.relativeRoot]
+    [activeKnowledgeConfig?.relativeRoot, activeProjectRoot]
   )
 
   useEffect(() => {
@@ -364,7 +368,7 @@ export default function SettingsPanel({
 
     const timer = window.setTimeout(() => {
       void window.api.memoryResolveRoot({
-        workspaceRoot: activeWorkspace?.folderPath ?? null,
+        workspaceRoot: activeProjectRoot,
         relativeRoot,
       }).then((status) => {
         if (!cancelled) setMemoryStatus(status)
@@ -384,13 +388,13 @@ export default function SettingsPanel({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [activeWorkspace?.folderPath, activeWorkspaceId, memoryDraft])
+  }, [activeProjectRoot, activeWorkspaceId, memoryDraft])
 
   const chooseMemoryFolder = async () => {
-    if (!activeWorkspace?.folderPath || !activeWorkspaceId) return
+    if (!activeProjectRoot || !activeWorkspaceId) return
     const dir = await window.api.openDir()
     if (!dir) return
-    const relativePath = relativePathBetween(activeWorkspace.folderPath, dir)
+    const relativePath = relativePathBetween(activeProjectRoot, dir)
     if (!relativePath || relativePath === '.') {
       setMemoryStatus({
         ok: false,
@@ -401,7 +405,7 @@ export default function SettingsPanel({
       return
     }
     setMemoryDraft(relativePath)
-    setWorkspaceMemoryRelativeRoot(activeWorkspaceId, relativePath)
+    setProjectKnowledgeRoot(activeProjectRoot, relativePath)
   }
 
   const nextUpdateAction: UpdateAction = updateState?.downloaded
@@ -434,62 +438,42 @@ export default function SettingsPanel({
   }, [])
 
   return (
-    <section
-      ref={panelRef}
-      aria-labelledby="settings-panel-title"
-      tabIndex={-1}
-      className="flex h-full min-h-0 flex-col bg-[#08090b] outline-none"
-    >
-      <div className="flex shrink-0 items-center justify-between border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
-        <div className="min-w-0">
-          <h2 id="settings-panel-title" className="text-[15px] font-semibold tracking-tight text-[#ececee]">Settings</h2>
-          <p className="mt-0.5 text-[12px] leading-5 text-[#8a8a92]">Configure local CLIs, workspace paths, updates, and telemetry.</p>
-        </div>
-        <button
-          type="button"
-          onClick={closeSettings}
-          aria-label="Close settings"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+    <WorkspacePanel
+      title="Settings"
+      subtitle="Configure local CLIs, workspace paths, updates, and telemetry."
+      titleId="settings-panel-title"
+      onClose={closeSettings}
+      closeLabel="Close settings"
+      sidebar={
+        <div
+          role="tablist"
+          aria-label="Settings categories"
+          aria-orientation="vertical"
+          className="grid grid-cols-2 gap-1 md:grid-cols-1"
         >
-          <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-        </button>
+          {settingsTabs.map((tab, index) => (
+            <SettingsTabButton
+              key={tab.id}
+              ref={(node) => {
+                tabRefs.current[tab.id] = node
+              }}
+              tab={tab}
+              active={activeSettingsTab === tab.id}
+              onClick={() => selectSettingsTab(tab.id)}
+              onKeyDown={(event) => onSettingsTabKeyDown(event, index)}
+            />
+          ))}
+        </div>
+      }
+    >
+      <div className="mb-4 border-b border-[#24252b] pb-3">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+          {activeTab.label}
+        </div>
+        <h3 className="mt-1 text-[18px] font-semibold tracking-tight text-[#ececee]">
+          {activeTab.description}
+        </h3>
       </div>
-
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <aside className="shrink-0 border-b border-[#1f2025] bg-[#0a0b0e] p-1.5 md:w-48 md:border-b-0 md:border-r">
-          <div
-            role="tablist"
-            aria-label="Settings categories"
-            aria-orientation="vertical"
-            className="grid grid-cols-2 gap-1 md:grid-cols-1"
-          >
-            {settingsTabs.map((tab, index) => (
-              <SettingsTabButton
-                key={tab.id}
-                ref={(node) => {
-                  tabRefs.current[tab.id] = node
-                }}
-                tab={tab}
-                active={activeSettingsTab === tab.id}
-                onClick={() => selectSettingsTab(tab.id)}
-                onKeyDown={(event) => onSettingsTabKeyDown(event, index)}
-              />
-            ))}
-          </div>
-        </aside>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="w-full max-w-[760px] px-4 py-5">
-            <div className="mb-4 border-b border-[#24252b] pb-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                {activeTab.label}
-              </div>
-              <h3 className="mt-1 text-[18px] font-semibold tracking-tight text-[#ececee]">
-                {activeTab.description}
-              </h3>
-            </div>
 
         {activeSettingsTab === 'updates' ? (
         <div
@@ -749,7 +733,7 @@ export default function SettingsPanel({
               <button
                 type="button"
                 onClick={() => void chooseMemoryFolder()}
-                disabled={!activeWorkspace?.folderPath}
+                disabled={!activeProjectRoot}
                 className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
               >
                 Choose
@@ -768,8 +752,8 @@ export default function SettingsPanel({
               ? `Ready: ${memoryStatus.relativeRoot}`
               : memoryStatus
                 ? `${memoryStatus.message} Do not guess another folder.`
-                : activeWorkspace?.folderPath
-                  ? 'Set a relative path from the workspace folder. Leave empty to disable the Knowledge Graph for this workspace.'
+                : activeProjectRoot
+                  ? 'Set a relative path from the project folder. Workspaces under this project inherit the Knowledge Graph.'
                   : 'Open a workspace folder before configuring the Knowledge Graph.'}
           </div>
 
@@ -781,8 +765,8 @@ export default function SettingsPanel({
                 </div>
                 <div className="mt-1 text-[12px] leading-5 text-[#9a9aa2]">
                   {formatBuiltinSkillStatus(memorySkillStatus)}
-                  {activeWorkspace?.memory.relativeRoot
-                    ? ` Agents will use the configured knowledge folder: ${activeWorkspace.memory.relativeRoot}.`
+                  {activeKnowledgeConfig?.relativeRoot
+                    ? ` Agents will use the configured knowledge folder: ${activeKnowledgeConfig.relativeRoot}.`
                     : ' Configure a knowledge folder so agents know which graph to read and update.'}
                 </div>
               </div>
@@ -791,7 +775,7 @@ export default function SettingsPanel({
                 onClick={() => void installWorkspaceMemorySkill()}
                 disabled={
                   memorySkillPending
-                  || !activeWorkspace?.folderPath
+                  || !activeProjectRoot
                   || memorySkillStatus?.status === 'installed'
                   || memorySkillStatus?.status === 'modified'
                   || memorySkillStatus?.status === 'local'
@@ -811,7 +795,7 @@ export default function SettingsPanel({
               label="Activity tracking (Claude Code)"
               description="Record which knowledge files Claude touches in this workspace and animate the graph as files are read. Adds a workspace-local hook to .claude/settings.local.json. Only files under the knowledge folder are recorded."
               enabled={activityInstalled}
-              disabled={activityPending || !activeWorkspace?.folderPath || !activeWorkspace?.memory.relativeRoot}
+              disabled={activityPending || !activeProjectRoot || !activeKnowledgeConfig?.relativeRoot}
               onChange={(next) => void toggleActivityTracking(next)}
             />
             {activityMessage ? (
@@ -890,10 +874,7 @@ export default function SettingsPanel({
             Done
           </button>
         </div>
-          </div>
-        </div>
-      </div>
-    </section>
+    </WorkspacePanel>
   )
 }
 
