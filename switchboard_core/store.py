@@ -950,6 +950,15 @@ def execution_worktree_cleanup_unlocked(workspace: Path, execution_id: str, *, f
     provider_ref = metadata.get("providerRef") if isinstance(metadata.get("providerRef"), dict) else {}
     if metadata.get("status") == "active" and process_is_running(provider_ref.get("pid")):
         raise SwitchboardError("Switchboard execution is still active; stop or abandon it before cleaning its worktree.")
+    task_id = metadata.get("taskId")
+    if not isinstance(task_id, str):
+        raise SwitchboardError("Switchboard execution has no owning task.")
+    try:
+        located = find_task(workspace, task_id)
+    except SwitchboardError as exc:
+        raise SwitchboardError("Switchboard execution owning task was not found.") from exc
+    if located.folder_status not in {"done", "canceled"}:
+        raise SwitchboardError("Switchboard worktree cleanup is only allowed for done or canceled tasks.")
     path_value = metadata.get("worktreePath")
     if not isinstance(path_value, str):
         path_value = provider_ref.get("worktreePath") if isinstance(provider_ref.get("worktreePath"), str) else None

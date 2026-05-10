@@ -563,6 +563,12 @@ class SwitchboardCliTests(unittest.TestCase):
             if status["activeExecutions"][0].get("status") == "abandoned":
                 break
             time.sleep(0.1)
+
+        refused_active_task = self.run_cli(["execution", "cleanup-worktree", *self.workspace_args(), execution["executionId"], "--force"], check=False)
+
+        self.assertNotEqual(refused_active_task.returncode, 0)
+        self.assertIn("only allowed for done or canceled tasks", refused_active_task.stderr)
+        self.run_cli(["cancel", *self.workspace_args(), task_id, "--reason", "Cleanup abandoned execution."])
         (worktree_path / "dirty.txt").write_text("dirty\n", encoding="utf-8")
 
         refused = self.run_cli(["execution", "cleanup-worktree", *self.workspace_args(), execution["executionId"]], check=False)
