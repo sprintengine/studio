@@ -15,6 +15,8 @@ import type {
   SwitchboardRecoverLockInput,
   SwitchboardRecoverLockResult,
   SwitchboardRequeueTaskInput,
+  SwitchboardRunnerResult,
+  SwitchboardRunnerStartInput,
   SwitchboardUpdateTaskInput,
 } from '../../shared/switchboard'
 
@@ -43,6 +45,12 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:recover-lock', input),
   requeueSwitchboardTask: (input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult> =>
     ipcRenderer.invoke('switchboard:requeue-task', input),
+  startSwitchboardRunner: (input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult> =>
+    ipcRenderer.invoke('switchboard:runner:start', input),
+  pauseSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
+    ipcRenderer.invoke('switchboard:runner:pause', workspaceRoot),
+  getSwitchboardRunnerState: (workspaceRoot?: string): Promise<SwitchboardRunnerResult> =>
+    ipcRenderer.invoke('switchboard:runner:state', workspaceRoot),
 } satisfies Pick<
   ElectronApi,
   | 'initializeSwitchboard'
@@ -57,4 +65,7 @@ export const switchboardApi = {
   | 'publishSwitchboardTask'
   | 'recoverSwitchboardLock'
   | 'requeueSwitchboardTask'
+  | 'startSwitchboardRunner'
+  | 'pauseSwitchboardRunner'
+  | 'getSwitchboardRunnerState'
 >

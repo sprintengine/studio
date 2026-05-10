@@ -13,6 +13,8 @@ import type {
   SwitchboardRecoverLockInput,
   SwitchboardRecoverLockResult,
   SwitchboardRequeueTaskInput,
+  SwitchboardRunnerResult,
+  SwitchboardRunnerStartInput,
   SwitchboardUpdateTaskInput,
 } from './switchboard'
 
@@ -993,6 +995,9 @@ export type ElectronApi = {
   publishSwitchboardTask: (input: SwitchboardPublishTaskInput) => Promise<SwitchboardMutationResult>
   recoverSwitchboardLock: (input: SwitchboardRecoverLockInput) => Promise<SwitchboardRecoverLockResult>
   requeueSwitchboardTask: (input: SwitchboardRequeueTaskInput) => Promise<SwitchboardMutationResult>
+  startSwitchboardRunner: (input: SwitchboardRunnerStartInput) => Promise<SwitchboardRunnerResult>
+  pauseSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
+  getSwitchboardRunnerState: (workspaceRoot?: string) => Promise<SwitchboardRunnerResult>
   initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
   terminalSpawn: (
     sessionId: string,

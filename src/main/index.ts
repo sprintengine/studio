@@ -53,6 +53,7 @@ import {
   requeueSwitchboardTask,
   updateSwitchboardTask,
 } from './switchboard-files'
+import { createSwitchboardRunner } from './switchboard-runner'
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
@@ -64,6 +65,11 @@ const terminalRuntime = createTerminalRuntime({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
   logMainPerfEvent,
+})
+const switchboardRunner = createSwitchboardRunner({
+  claimTask: claimSwitchboardTask,
+  spawnTerminal: terminalRuntime.ipcHandlers.spawnTerminal,
+  listTerminals: terminalRuntime.ipcHandlers.listTerminals,
 })
 const mobileSnapshotService = new MobileSwarmSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
@@ -137,6 +143,9 @@ registerSwitchboardIpc(ipcMain, {
   publishTask: publishSwitchboardTask,
   recoverLock: recoverSwitchboardLock,
   requeueTask: requeueSwitchboardTask,
+  startRunner: switchboardRunner.start,
+  pauseRunner: switchboardRunner.pause,
+  getRunnerState: switchboardRunner.getState,
 })
 
 // ── File system IPC handlers ──────────────────────────────────────────────────

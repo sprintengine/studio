@@ -1,4 +1,4 @@
-import type { IpcMain } from 'electron'
+import type { IpcMain, WebContents } from 'electron'
 import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
@@ -14,6 +14,8 @@ import type {
   SwitchboardRecoverLockInput,
   SwitchboardRecoverLockResult,
   SwitchboardRequeueTaskInput,
+  SwitchboardRunnerResult,
+  SwitchboardRunnerStartInput,
   SwitchboardUpdateTaskInput,
 } from '../../shared/switchboard'
 
@@ -30,6 +32,9 @@ type SwitchboardIpcDependencies = {
   publishTask(input: SwitchboardPublishTaskInput): Promise<SwitchboardMutationResult>
   recoverLock(input: SwitchboardRecoverLockInput): Promise<SwitchboardRecoverLockResult>
   requeueTask(input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult>
+  startRunner(sender: WebContents, input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult>
+  pauseRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
+  getRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult>
 }
 
 export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDependencies): void {
@@ -82,5 +87,17 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
 
   ipcMain.handle('switchboard:requeue-task', async (_, input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult> => {
     return deps.requeueTask(input)
+  })
+
+  ipcMain.handle('switchboard:runner:start', async (event, input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult> => {
+    return deps.startRunner(event.sender, input)
+  })
+
+  ipcMain.handle('switchboard:runner:pause', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
+    return deps.pauseRunner(workspaceRoot)
+  })
+
+  ipcMain.handle('switchboard:runner:state', async (_, workspaceRoot?: string): Promise<SwitchboardRunnerResult> => {
+    return deps.getRunnerState(workspaceRoot)
   })
 }

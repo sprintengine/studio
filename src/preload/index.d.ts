@@ -104,6 +104,11 @@ import type {
   SwitchboardRecoverLockInput as SharedSwitchboardRecoverLockInput,
   SwitchboardRecoverLockResult as SharedSwitchboardRecoverLockResult,
   SwitchboardRequeueTaskInput as SharedSwitchboardRequeueTaskInput,
+  SwitchboardRunnerQueue as SharedSwitchboardRunnerQueue,
+  SwitchboardRunnerResult as SharedSwitchboardRunnerResult,
+  SwitchboardRunnerStartInput as SharedSwitchboardRunnerStartInput,
+  SwitchboardRunnerState as SharedSwitchboardRunnerState,
+  SwitchboardRunnerTaskSession as SharedSwitchboardRunnerTaskSession,
   SwitchboardTask as SharedSwitchboardTask,
   SwitchboardTaskRecord as SharedSwitchboardTaskRecord,
   SwitchboardTaskStatus as SharedSwitchboardTaskStatus,
@@ -217,6 +222,11 @@ declare global {
   type SwitchboardRecoverLockInput = SharedSwitchboardRecoverLockInput
   type SwitchboardRecoverLockResult = SharedSwitchboardRecoverLockResult
   type SwitchboardRequeueTaskInput = SharedSwitchboardRequeueTaskInput
+  type SwitchboardRunnerQueue = SharedSwitchboardRunnerQueue
+  type SwitchboardRunnerTaskSession = SharedSwitchboardRunnerTaskSession
+  type SwitchboardRunnerState = SharedSwitchboardRunnerState
+  type SwitchboardRunnerStartInput = SharedSwitchboardRunnerStartInput
+  type SwitchboardRunnerResult = SharedSwitchboardRunnerResult
 
   interface Window {
     api: ElectronApi

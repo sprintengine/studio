@@ -225,6 +225,40 @@ export type SwitchboardRequeueTaskInput = {
   reason?: string
 }
 
+export type SwitchboardRunnerQueue = 'ready' | 'testing' | 'review'
+
+export type SwitchboardRunnerStartInput = {
+  workspaceRoot: string
+  workspaceId?: string
+  queues?: SwitchboardRunnerQueue[]
+  maxConcurrency?: number
+  cli?: 'codex' | 'claude'
+}
+
+export type SwitchboardRunnerTaskSession = {
+  taskId: string
+  queue: SwitchboardRunnerQueue
+  sessionId: string
+  agentId: string
+  startedAt: string
+}
+
+export type SwitchboardRunnerState = {
+  ok: true
+  workspaceRoot: string | null
+  running: boolean
+  paused: boolean
+  maxConcurrency: number
+  queues: SwitchboardRunnerQueue[]
+  activeSessions: SwitchboardRunnerTaskSession[]
+  lastError: string | null
+  updatedAt: string | null
+}
+
+export type SwitchboardRunnerResult =
+  | SwitchboardRunnerState
+  | { ok: false; message: string }
+
 export const SWITCHBOARD_STATUS_LABELS: Record<SwitchboardFolderStatus, string> = {
   inbox: 'Inbox',
   planning: 'Planning',
