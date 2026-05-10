@@ -52,6 +52,8 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
     const targetRoot = workspaceRoot ?? null
     const isStale = () => activeRootRef.current !== targetRoot
 
+    if (inFlightRef.current) return
+
     if (!targetRoot) {
       setState({ kind: 'idle' })
       setTasks([])
@@ -108,7 +110,6 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
     void refresh()
     if (!workspaceRoot) return
     const handle = window.setInterval(() => {
-      if (inFlightRef.current) return
       void refresh()
     }, TASK_POLL_INTERVAL_MS)
     return () => window.clearInterval(handle)
