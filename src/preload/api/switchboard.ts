@@ -49,6 +49,10 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:runner:start', input),
   pauseSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:pause', workspaceRoot),
+  resumeSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
+    ipcRenderer.invoke('switchboard:runner:resume', workspaceRoot),
+  tickSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
+    ipcRenderer.invoke('switchboard:runner:tick', workspaceRoot),
   getSwitchboardRunnerState: (workspaceRoot?: string): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:state', workspaceRoot),
 } satisfies Pick<
@@ -67,5 +71,7 @@ export const switchboardApi = {
   | 'requeueSwitchboardTask'
   | 'startSwitchboardRunner'
   | 'pauseSwitchboardRunner'
+  | 'resumeSwitchboardRunner'
+  | 'tickSwitchboardRunner'
   | 'getSwitchboardRunnerState'
 >

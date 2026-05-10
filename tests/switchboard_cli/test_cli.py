@@ -91,6 +91,8 @@ class SwitchboardCliTests(unittest.TestCase):
             self.assertEqual(json.loads((folder / "Lock").read_text(encoding="utf-8")), {"locked": False})
         self.assertTrue((root / "artifacts").is_dir())
         self.assertTrue((root / "watchtower-runs").is_dir())
+        self.assertTrue((root / "runner").is_dir())
+        self.assertTrue((root / "runner" / "events.jsonl").is_file())
 
     def test_create_list_show_and_comment_board_task(self) -> None:
         created = self.create_task(title="Board task")
@@ -394,6 +396,51 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(len(locations), 1)
         task = json.loads(locations[0].read_text(encoding="utf-8"))
         self.assertEqual(task["id"], task_id)
+
+    def test_runner_start_status_pause_resume_and_cli_tick_are_durable(self) -> None:
+        started = stdout_json(
+            self.run_cli(
+                [
+                    "runner",
+                    "start",
+                    *self.workspace_args(),
+                    "--provider",
+                    "desktop-terminal",
+                    "--cli",
+                    "claude",
+                    "--queue",
+                    "ready",
+                    "--max-concurrency",
+                    "1",
+                ]
+            )
+        )
+
+        self.assertTrue(started["enabled"])
+        self.assertFalse(started["paused"])
+        self.assertEqual(started["provider"], "desktop-terminal")
+        self.assertEqual(started["cli"], "claude")
+        self.assertEqual(started["queues"], ["ready"])
+        state_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "state.json"
+        events_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "events.jsonl"
+        self.assertTrue(state_path.is_file())
+        self.assertTrue(events_path.is_file())
+
+        ticked = stdout_json(self.run_cli(["runner", "tick", *self.workspace_args()]))
+        self.assertIn("requires the Electron terminal/session manager", ticked["lastError"])
+        self.assertEqual(ticked["activeExecutions"], [])
+
+        paused = stdout_json(self.run_cli(["runner", "pause", *self.workspace_args()]))
+        self.assertTrue(paused["paused"])
+        resumed = stdout_json(self.run_cli(["runner", "resume", *self.workspace_args()]))
+        self.assertFalse(resumed["paused"])
+        status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+        self.assertTrue(status["enabled"])
+        self.assertFalse(status["paused"])
+
+        events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        self.assertIn("start", [event["type"] for event in events])
+        self.assertIn("provider_error", [event["type"] for event in events])
 
 
 if __name__ == "__main__":

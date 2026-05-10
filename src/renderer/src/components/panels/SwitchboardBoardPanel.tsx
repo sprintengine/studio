@@ -316,6 +316,7 @@ function BoardCard({
   const task = record.task
   const labels = task.labels.slice(0, 2)
   const commentCount = task.comments.length
+  const activeExecution = task.execution.activeExecutionId
   return (
     <li>
       <button
@@ -342,6 +343,11 @@ function BoardCard({
             </span>
           ))}
           {commentCount > 0 ? <span>{commentCount} ◇</span> : null}
+          {activeExecution ? (
+            <span title={executionTitle(record)} className="text-[#9fd8ff]">
+              Exec
+            </span>
+          ) : null}
           {record.warnings.length > 0 ? (
             <span className="text-[#f2c45f]" title={record.warnings.join('; ')}>
               ⚠
@@ -456,6 +462,19 @@ function BoardDetailPane({
         <PropertyRow label="Updated">
           <span className="text-[12px] text-[#9a9aa2]">{task.updatedAt}</span>
         </PropertyRow>
+        <PropertyRow label="Execution">
+          {task.execution.activeExecutionId ? (
+            <span className="space-y-1 text-[12px] text-[#d7d7dc]">
+              <span className="block font-mono">{task.execution.activeExecutionId}</span>
+              <span className="block text-[#9a9aa2]">
+                {task.execution.activeProvider ?? 'unknown provider'}
+                {task.execution.activeSessionId ? ` · session ${task.execution.activeSessionId}` : ''}
+              </span>
+            </span>
+          ) : (
+            <span className="text-[12px] text-[#6f7078]">None</span>
+          )}
+        </PropertyRow>
 
         <Section title="Description">
           {task.description.trim() ? (
@@ -566,6 +585,15 @@ function EvidenceList({ label, items }: { label: string; items: string[] }) {
       </div>
     </div>
   )
+}
+
+function executionTitle(record: SwitchboardTaskRecord): string {
+  const execution = record.task.execution
+  return [
+    execution.activeExecutionId ? `Execution ${execution.activeExecutionId}` : null,
+    execution.activeProvider ? `Provider ${execution.activeProvider}` : null,
+    execution.activeSessionId ? `Session ${execution.activeSessionId}` : null,
+  ].filter(Boolean).join(' · ')
 }
 
 function CreateTaskDialog({

@@ -58,7 +58,10 @@ export type SwitchboardExecutionAttempt = {
 export type SwitchboardExecution = {
   attempts: SwitchboardExecutionAttempt[]
   worktreePath: string | null
+  activeExecutionId?: string | null
+  activeProvider?: SwitchboardExecutionProviderKind | null
   activeSessionId: string | null
+  providerRef?: SwitchboardExecutionProviderRef | null
 }
 
 export type SwitchboardEvidence = {
@@ -226,6 +229,9 @@ export type SwitchboardRequeueTaskInput = {
 }
 
 export type SwitchboardRunnerQueue = 'ready' | 'testing' | 'review'
+export type SwitchboardExecutionProviderKind = 'desktop-terminal' | 'headless-process' | 'codex-app-server'
+export type SwitchboardExecutionStatus = 'active' | 'missing' | 'stale' | 'abandoned' | 'completed'
+export type SwitchboardExecutionProviderRef = Record<string, string | number | boolean | null>
 
 export type SwitchboardRunnerStartInput = {
   workspaceRoot: string
@@ -233,6 +239,7 @@ export type SwitchboardRunnerStartInput = {
   queues?: SwitchboardRunnerQueue[]
   maxConcurrency?: number
   cli?: 'codex' | 'claude'
+  provider?: SwitchboardExecutionProviderKind
 }
 
 export type SwitchboardRunnerTaskSession = {
@@ -243,13 +250,30 @@ export type SwitchboardRunnerTaskSession = {
   startedAt: string
 }
 
+export type SwitchboardRunnerExecution = {
+  executionId: string
+  taskId: string
+  role: string
+  claimedFrom: SwitchboardRunnerQueue
+  claimedStatus: 'in_progress' | 'testing_in_progress' | 'review_in_progress'
+  provider: SwitchboardExecutionProviderKind
+  providerRef: SwitchboardExecutionProviderRef
+  startedAt: string
+  lastSeenAt: string
+  status?: SwitchboardExecutionStatus
+}
+
 export type SwitchboardRunnerState = {
   ok: true
   workspaceRoot: string | null
+  enabled: boolean
   running: boolean
   paused: boolean
+  provider: SwitchboardExecutionProviderKind
+  cli: 'codex' | 'claude'
   maxConcurrency: number
   queues: SwitchboardRunnerQueue[]
+  activeExecutions: SwitchboardRunnerExecution[]
   activeSessions: SwitchboardRunnerTaskSession[]
   lastError: string | null
   updatedAt: string | null

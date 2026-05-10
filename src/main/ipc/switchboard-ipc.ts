@@ -34,6 +34,8 @@ type SwitchboardIpcDependencies = {
   requeueTask(input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult>
   startRunner(sender: WebContents, input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult>
   pauseRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
+  resumeRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
+  tickRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   getRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult>
 }
 
@@ -95,6 +97,14 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
 
   ipcMain.handle('switchboard:runner:pause', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
     return deps.pauseRunner(workspaceRoot)
+  })
+
+  ipcMain.handle('switchboard:runner:resume', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
+    return deps.resumeRunner(workspaceRoot)
+  })
+
+  ipcMain.handle('switchboard:runner:tick', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
+    return deps.tickRunner(workspaceRoot)
   })
 
   ipcMain.handle('switchboard:runner:state', async (_, workspaceRoot?: string): Promise<SwitchboardRunnerResult> => {

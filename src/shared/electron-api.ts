@@ -997,6 +997,8 @@ export type ElectronApi = {
   requeueSwitchboardTask: (input: SwitchboardRequeueTaskInput) => Promise<SwitchboardMutationResult>
   startSwitchboardRunner: (input: SwitchboardRunnerStartInput) => Promise<SwitchboardRunnerResult>
   pauseSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
+  resumeSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
+  tickSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
   getSwitchboardRunnerState: (workspaceRoot?: string) => Promise<SwitchboardRunnerResult>
   initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
   terminalSpawn: (

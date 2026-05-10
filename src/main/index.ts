@@ -1,4 +1,5 @@
 import { shell, ipcMain } from 'electron'
+import type { WebContents } from 'electron'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
@@ -54,6 +55,10 @@ import {
   updateSwitchboardTask,
 } from './switchboard-files'
 import { createSwitchboardRunner } from './switchboard-runner'
+import {
+  createDesktopTerminalExecutionProvider,
+  createUnavailableExecutionProvider,
+} from './switchboard-execution-provider'
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
@@ -66,10 +71,22 @@ const terminalRuntime = createTerminalRuntime({
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
   logMainPerfEvent,
 })
+let switchboardRunnerSender: WebContents | null = null
 const switchboardRunner = createSwitchboardRunner({
   claimTask: claimSwitchboardTask,
-  spawnTerminal: terminalRuntime.ipcHandlers.spawnTerminal,
-  listTerminals: terminalRuntime.ipcHandlers.listTerminals,
+  updateTask: updateSwitchboardTask,
+  requeueTask: requeueSwitchboardTask,
+  readAll: readAllSwitchboardTasks,
+  providers: {
+    'desktop-terminal': createDesktopTerminalExecutionProvider({
+      sender: () => switchboardRunnerSender,
+      spawnTerminal: terminalRuntime.ipcHandlers.spawnTerminal,
+      listTerminals: terminalRuntime.ipcHandlers.listTerminals,
+      killTerminal: terminalRuntime.ipcHandlers.killTerminal,
+    }),
+    'headless-process': createUnavailableExecutionProvider('headless-process'),
+    'codex-app-server': createUnavailableExecutionProvider('codex-app-server'),
+  },
 })
 const mobileSnapshotService = new MobileSwarmSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
@@ -143,8 +160,14 @@ registerSwitchboardIpc(ipcMain, {
   publishTask: publishSwitchboardTask,
   recoverLock: recoverSwitchboardLock,
   requeueTask: requeueSwitchboardTask,
-  startRunner: switchboardRunner.start,
+  startRunner: (sender, input) => {
+    switchboardRunnerSender = sender
+    switchboardRunner.setSender(sender)
+    return switchboardRunner.start(sender, input)
+  },
   pauseRunner: switchboardRunner.pause,
+  resumeRunner: switchboardRunner.resume,
+  tickRunner: switchboardRunner.tick,
   getRunnerState: switchboardRunner.getState,
 })
 

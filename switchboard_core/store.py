@@ -26,6 +26,23 @@ TASK_STATUSES = (
 FOLDER_STATUSES = ("inbox", *TASK_STATUSES)
 CLAIMABLE_STATUSES = ("ready", "testing", "review")
 PUBLISH_TARGETS = ("testing", "review", "done")
+RUNNER_PROVIDERS = ("desktop-terminal", "headless-process", "codex-app-server")
+RUNNER_EVENTS = {
+    "start",
+    "pause",
+    "resume",
+    "tick",
+    "claim",
+    "launch",
+    "provider_error",
+    "provider_execution_untracked",
+    "execution_missing",
+    "execution_stale",
+    "execution_link_failed",
+    "task_published",
+    "task_abandoned",
+    "requeue",
+}
 UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
@@ -132,6 +149,11 @@ def init_workspace(workspace: Path) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
     (root / "artifacts").mkdir(parents=True, exist_ok=True)
     (root / "watchtower-runs").mkdir(parents=True, exist_ok=True)
+    runner = root / "runner"
+    runner.mkdir(parents=True, exist_ok=True)
+    events = runner / "events.jsonl"
+    if not events.exists():
+        events.write_text("", encoding="utf-8")
     folders: list[str] = []
     for status in FOLDER_STATUSES:
         current = folder_path(workspace, status)
@@ -146,6 +168,213 @@ def init_workspace(workspace: Path) -> dict[str, Any]:
         "switchboardRoot": str(root),
         "folders": folders,
     }
+
+
+def runner_dir(workspace: Path) -> Path:
+    return switchboard_root(workspace) / "runner"
+
+
+def runner_state_path(workspace: Path) -> Path:
+    return runner_dir(workspace) / "state.json"
+
+
+def runner_events_path(workspace: Path) -> Path:
+    return runner_dir(workspace) / "events.jsonl"
+
+
+def normalize_runner_queues(queues: list[str] | None) -> list[str]:
+    selected = queues if queues else list(CLAIMABLE_STATUSES)
+    normalized: list[str] = []
+    for queue in selected:
+        if queue in CLAIMABLE_STATUSES and queue not in normalized:
+            normalized.append(queue)
+    return normalized or list(CLAIMABLE_STATUSES)
+
+
+def normalize_runner_concurrency(value: Any) -> int:
+    if not isinstance(value, int):
+        return 1
+    return max(1, min(8, value))
+
+
+def default_runner_state(workspace: Path) -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "enabled": False,
+        "paused": True,
+        "workspaceRoot": str(workspace.expanduser().resolve()),
+        "provider": "desktop-terminal",
+        "cli": "codex",
+        "queues": list(CLAIMABLE_STATUSES),
+        "maxConcurrency": 1,
+        "activeExecutions": [],
+        "lastError": None,
+        "updatedAt": now_iso(),
+    }
+
+
+def normalize_runner_state(workspace: Path, payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return default_runner_state(workspace)
+    state = default_runner_state(workspace)
+    state["enabled"] = payload.get("enabled") is True
+    state["paused"] = payload.get("paused") is not False
+    state["workspaceRoot"] = str(Path(payload.get("workspaceRoot") or workspace).expanduser().resolve())
+    state["provider"] = payload.get("provider") if payload.get("provider") in RUNNER_PROVIDERS else "desktop-terminal"
+    state["cli"] = payload.get("cli") if payload.get("cli") in {"codex", "claude"} else "codex"
+    state["queues"] = normalize_runner_queues(payload.get("queues") if isinstance(payload.get("queues"), list) else None)
+    state["maxConcurrency"] = normalize_runner_concurrency(payload.get("maxConcurrency"))
+    state["activeExecutions"] = [
+        execution
+        for execution in payload.get("activeExecutions", [])
+        if isinstance(execution, dict)
+        and isinstance(execution.get("executionId"), str)
+        and isinstance(execution.get("taskId"), str)
+    ] if isinstance(payload.get("activeExecutions"), list) else []
+    state["lastError"] = payload.get("lastError") if isinstance(payload.get("lastError"), str) else None
+    state["updatedAt"] = payload.get("updatedAt") if isinstance(payload.get("updatedAt"), str) else now_iso()
+    return state
+
+
+def read_runner_state(workspace: Path) -> dict[str, Any]:
+    init_workspace(workspace)
+    path = runner_state_path(workspace)
+    if not path.exists():
+        return default_runner_state(workspace)
+    try:
+        return normalize_runner_state(workspace, json.loads(path.read_text(encoding="utf-8")))
+    except json.JSONDecodeError as exc:
+        raise SwitchboardError(f"Invalid Switchboard runner state JSON: {exc.msg}") from exc
+
+
+def write_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
+    init_workspace(workspace)
+    state = normalize_runner_state(workspace, {**state, "updatedAt": now_iso()})
+    atomic_write_json(runner_state_path(workspace), state)
+    return state
+
+
+def append_runner_event(workspace: Path, event_type: str, *, message: str | None = None, data: dict[str, Any] | None = None) -> None:
+    init_workspace(workspace)
+    if event_type not in RUNNER_EVENTS:
+        raise SwitchboardError(f"Invalid runner event type: {event_type}")
+    event: dict[str, Any] = {
+        "type": event_type,
+        "workspaceRoot": str(workspace.expanduser().resolve()),
+        "at": now_iso(),
+    }
+    if message:
+        event["message"] = message
+    if data:
+        event["data"] = data
+    with runner_events_path(workspace).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event) + "\n")
+
+
+def runner_public_payload(state: dict[str, Any]) -> dict[str, Any]:
+    active_sessions = []
+    for execution in state.get("activeExecutions", []):
+        provider_ref = execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}
+        if execution.get("provider") == "desktop-terminal" and isinstance(provider_ref.get("sessionId"), str):
+            active_sessions.append(
+                {
+                    "taskId": execution.get("taskId"),
+                    "queue": execution.get("claimedFrom"),
+                    "sessionId": provider_ref["sessionId"],
+                    "agentId": f"switchboard-{execution.get('role', 'agent')}",
+                    "startedAt": execution.get("startedAt"),
+                }
+            )
+    return {
+        "ok": True,
+        "workspaceRoot": state.get("workspaceRoot"),
+        "enabled": state.get("enabled") is True,
+        "running": state.get("enabled") is True and state.get("paused") is False,
+        "paused": state.get("paused") is not False,
+        "provider": state.get("provider", "desktop-terminal"),
+        "cli": state.get("cli", "codex"),
+        "maxConcurrency": state.get("maxConcurrency", 1),
+        "queues": state.get("queues", list(CLAIMABLE_STATUSES)),
+        "activeExecutions": state.get("activeExecutions", []),
+        "activeSessions": active_sessions,
+        "lastError": state.get("lastError"),
+        "updatedAt": state.get("updatedAt"),
+    }
+
+
+def runner_start(
+    workspace: Path,
+    *,
+    provider: str = "desktop-terminal",
+    cli: str = "codex",
+    queues: list[str] | None = None,
+    max_concurrency: int = 1,
+) -> dict[str, Any]:
+    if provider not in RUNNER_PROVIDERS:
+        raise SwitchboardError(f"Invalid runner provider: {provider}")
+    if cli not in {"codex", "claude"}:
+        raise SwitchboardError(f"Invalid runner cli: {cli}")
+    state = read_runner_state(workspace)
+    state.update(
+        {
+            "enabled": True,
+            "paused": False,
+            "provider": provider,
+            "cli": cli,
+            "queues": normalize_runner_queues(queues),
+            "maxConcurrency": normalize_runner_concurrency(max_concurrency),
+            "lastError": None,
+        }
+    )
+    state = write_runner_state(workspace, state)
+    append_runner_event(
+        workspace,
+        "start",
+        data={"provider": provider, "cli": cli, "queues": state["queues"], "maxConcurrency": state["maxConcurrency"]},
+    )
+    return runner_public_payload(state)
+
+
+def runner_pause(workspace: Path) -> dict[str, Any]:
+    state = read_runner_state(workspace)
+    state["enabled"] = True
+    state["paused"] = True
+    state = write_runner_state(workspace, state)
+    append_runner_event(workspace, "pause")
+    return runner_public_payload(state)
+
+
+def runner_resume(workspace: Path) -> dict[str, Any]:
+    state = read_runner_state(workspace)
+    state["enabled"] = True
+    state["paused"] = False
+    state = write_runner_state(workspace, state)
+    append_runner_event(workspace, "resume")
+    return runner_public_payload(state)
+
+
+def runner_status(workspace: Path) -> dict[str, Any]:
+    return runner_public_payload(read_runner_state(workspace))
+
+
+def runner_tick(workspace: Path) -> dict[str, Any]:
+    state = read_runner_state(workspace)
+    if not state["enabled"] or state["paused"]:
+        append_runner_event(workspace, "tick", data={"skipped": "paused" if state["paused"] else "disabled"})
+        return runner_public_payload(write_runner_state(workspace, state))
+    if state["provider"] == "desktop-terminal":
+        message = "desktop-terminal runner tick requires the Electron terminal/session manager; no task was claimed."
+        state["lastError"] = message
+        state = write_runner_state(workspace, state)
+        append_runner_event(workspace, "provider_error", message=message, data={"provider": state["provider"]})
+        append_runner_event(workspace, "tick", data={"claimed": 0})
+        return runner_public_payload(state)
+    message = f"{state['provider']} execution provider is defined but not implemented yet."
+    state["lastError"] = message
+    state = write_runner_state(workspace, state)
+    append_runner_event(workspace, "provider_error", message=message, data={"provider": state["provider"]})
+    append_runner_event(workspace, "tick", data={"claimed": 0})
+    return runner_public_payload(state)
 
 
 def lock_status_for(workspace: Path, status: str) -> LockStatus:
@@ -261,6 +490,8 @@ def build_task(
         "execution": {
             "attempts": [],
             "worktreePath": None,
+            "activeExecutionId": None,
+            "activeProvider": None,
             "activeSessionId": None,
         },
         "evidence": {
@@ -315,8 +546,14 @@ def validate_task_shape(payload: Any) -> list[str]:
             errors.append("execution.attempts must be an array.")
         if execution.get("worktreePath") is not None and not isinstance(execution.get("worktreePath"), str):
             errors.append("execution.worktreePath must be a string or null.")
+        if execution.get("activeExecutionId") is not None and not isinstance(execution.get("activeExecutionId"), str):
+            errors.append("execution.activeExecutionId must be a string or null.")
+        if execution.get("activeProvider") is not None and execution.get("activeProvider") not in RUNNER_PROVIDERS:
+            errors.append("execution.activeProvider must be a valid provider or null.")
         if execution.get("activeSessionId") is not None and not isinstance(execution.get("activeSessionId"), str):
             errors.append("execution.activeSessionId must be a string or null.")
+        if execution.get("providerRef") is not None and not isinstance(execution.get("providerRef"), dict):
+            errors.append("execution.providerRef must be an object or null.")
     evidence = payload.get("evidence")
     if not isinstance(evidence, dict):
         errors.append("evidence must be an object.")

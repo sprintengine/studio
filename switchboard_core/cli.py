@@ -25,6 +25,11 @@ from .store import (
     record_for_output,
     recover_lock,
     requeue_task,
+    runner_pause,
+    runner_resume,
+    runner_start,
+    runner_status,
+    runner_tick,
     task_summary,
     update_task,
     switchboard_root,
@@ -233,6 +238,39 @@ def cmd_requeue(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runner_start(args: argparse.Namespace) -> int:
+    emit(
+        runner_start(
+            workspace_path(args),
+            provider=args.provider,
+            cli=args.cli,
+            queues=args.queue,
+            max_concurrency=args.max_concurrency,
+        )
+    )
+    return 0
+
+
+def cmd_runner_pause(args: argparse.Namespace) -> int:
+    emit(runner_pause(workspace_path(args)))
+    return 0
+
+
+def cmd_runner_resume(args: argparse.Namespace) -> int:
+    emit(runner_resume(workspace_path(args)))
+    return 0
+
+
+def cmd_runner_status(args: argparse.Namespace) -> int:
+    emit(runner_status(workspace_path(args)))
+    return 0
+
+
+def cmd_runner_tick(args: argparse.Namespace) -> int:
+    emit(runner_tick(workspace_path(args)))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="switchboard", description="Switchboard filesystem task CLI.")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -320,6 +358,33 @@ def build_parser() -> argparse.ArgumentParser:
     requeue.add_argument("task_id", metavar="uuid")
     requeue.add_argument("--reason")
     requeue.set_defaults(func=cmd_requeue)
+
+    runner = subcommands.add_parser("runner", help="Manage the persistent Switchboard runner.")
+    runner_subcommands = runner.add_subparsers(dest="runner_command", required=True)
+
+    runner_start_cmd = runner_subcommands.add_parser("start", help="Enable and start the persistent runner.")
+    runner_start_cmd.add_argument("--workspace", required=True)
+    runner_start_cmd.add_argument("--provider", choices=("desktop-terminal", "headless-process", "codex-app-server"), default="desktop-terminal")
+    runner_start_cmd.add_argument("--cli", choices=("codex", "claude"), default="codex")
+    runner_start_cmd.add_argument("--queue", action="append", choices=CLAIMABLE_STATUSES)
+    runner_start_cmd.add_argument("--max-concurrency", type=int, default=1)
+    runner_start_cmd.set_defaults(func=cmd_runner_start)
+
+    runner_pause_cmd = runner_subcommands.add_parser("pause", help="Pause new runner claims.")
+    runner_pause_cmd.add_argument("--workspace", required=True)
+    runner_pause_cmd.set_defaults(func=cmd_runner_pause)
+
+    runner_resume_cmd = runner_subcommands.add_parser("resume", help="Resume runner claims.")
+    runner_resume_cmd.add_argument("--workspace", required=True)
+    runner_resume_cmd.set_defaults(func=cmd_runner_resume)
+
+    runner_status_cmd = runner_subcommands.add_parser("status", help="Show runner state.")
+    runner_status_cmd.add_argument("--workspace", required=True)
+    runner_status_cmd.set_defaults(func=cmd_runner_status)
+
+    runner_tick_cmd = runner_subcommands.add_parser("tick", help="Run one idempotent runner tick.")
+    runner_tick_cmd.add_argument("--workspace", required=True)
+    runner_tick_cmd.set_defaults(func=cmd_runner_tick)
 
     return parser
 
