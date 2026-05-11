@@ -5,6 +5,7 @@ import type {
   CliRuntimeSettings,
   SprintEngineArtifact,
   SprintEngineAutoPendingSpawn,
+  SprintEngineAutoState,
   SprintEngineRole,
   SprintEngineState,
   SprintEngineTask,
@@ -59,6 +60,19 @@ type RunningContinuationCapacity = {
 
 type RoleContinuationMessage = {
   sentAt: number
+}
+
+const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
+  enabled: false,
+  autoApproveArtifacts: false,
+  keepDoneAgentTerminals: false,
+  cliPermissionPreset: 'default',
+  maxConcurrentAgents: 3,
+  pendingSpawns: [],
+}
+
+function getSprintEngineAutoState(workspace: Workspace | null | undefined): SprintEngineAutoState {
+  return workspace?.sprintEngineAutoState ?? DEFAULT_AUTO_STATE
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -331,7 +345,8 @@ async function sendApprovalToNextEligibleArtifactProducer(
   sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>
 ): Promise<'sent' | 'failed' | 'none'> {
-  if (!workspace.sprintEngineAutoState.enabled || !workspace.sprintEngineAutoState.autoApproveArtifacts || !workspace.sprintEngineContext) {
+  const autoState = getSprintEngineAutoState(workspace)
+  if (!autoState.enabled || !autoState.autoApproveArtifacts || !workspace.sprintEngineContext) {
     return 'none'
   }
 
@@ -859,7 +874,7 @@ function setAutoRunPendingSpawns(workspaceId: string, pendingSpawns: SprintEngin
 function addAutoRunPendingSpawn(workspaceId: string, pending: SprintEngineAutoPendingSpawn): void {
   const state = useWorkspaceStore.getState()
   const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
-  const current = workspace?.sprintEngineAutoState.pendingSpawns ?? []
+  const current = getSprintEngineAutoState(workspace).pendingSpawns
   state.setSprintEngineAutoPendingSpawns(workspaceId, [
     ...current.filter((candidate) =>
       candidate.taskId !== pending.taskId && candidate.agentId !== pending.agentId
@@ -872,7 +887,7 @@ async function reconcileAutoRunPendingSpawns(
   workspace: Workspace,
   sprintEngineState: SprintEngineState
 ): Promise<SprintEngineAutoPendingSpawn[]> {
-  const pendingSpawns = workspace.sprintEngineAutoState.pendingSpawns
+  const pendingSpawns = getSprintEngineAutoState(workspace).pendingSpawns
   if (pendingSpawns.length === 0) return []
 
   const activePendingSpawns: SprintEngineAutoPendingSpawn[] = []
@@ -1063,7 +1078,7 @@ async function spawnAutoRunCandidate(
       workspaceId: workspace.id,
       agentId: nextRun.agentId,
       executionMode,
-      cliPermissionPreset: workspace.sprintEngineAutoState.cliPermissionPreset,
+      cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
     } as TerminalSpawnMetadata & {
@@ -1118,7 +1133,7 @@ async function spawnAutoRunCandidate(
         details: [
           `Workspace: ${workspace.name}`,
           `CLI: ${selectedCli}`,
-          `CLI permissions: ${workspace.sprintEngineAutoState.cliPermissionPreset}`,
+          `CLI permissions: ${getSprintEngineAutoState(workspace).cliPermissionPreset}`,
           `Task: ${nextRun.taskId}`,
           `Session: ${sessionId}`,
           `Cwd: ${executionCwd}`,
@@ -1149,7 +1164,7 @@ async function startMissingRosterAgents(
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   inFlightSpawns: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'none'> {
-  if (!workspace.sprintEngineAutoState.enabled || !workspace.sprintEngineContext) return 'none'
+  if (!getSprintEngineAutoState(workspace).enabled || !workspace.sprintEngineContext) return 'none'
 
   const stateFileExists = await window.api.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
@@ -1168,6 +1183,21 @@ async function startMissingRosterAgents(
     if (inFlightSpawns.current.has(`${workspace.id}:${agent.id}`)) continue
 
     const currentAgent = workspace.agents[agent.id]
+    if (
+      currentAgent?.kind === 'sprintengine'
+      && currentAgent.cliLastExitedAt
+      && !currentAgent.cliStartRequested
+      && !currentAgent.cliHasLaunched
+    ) {
+      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-exited', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: agent.id,
+        role: agent.role,
+        lastExitedAt: currentAgent.cliLastExitedAt,
+      })
+      continue
+    }
     const status = currentAgent?.cliSessionId
       ? await window.api.terminalStatus(currentAgent.cliSessionId).catch(() => ({ running: false }))
       : { running: false }
@@ -1208,17 +1238,18 @@ async function superviseWorkspace(
 ): Promise<void> {
   const superviseStartedAt = performance.now()
   let sprintEngineState = workspace.sprintEngineState
-  if (!workspace.sprintEngineAutoState.enabled || !workspace.folderPath || !sprintEngineState || !workspace.sprintEngineContext) return
+  const autoState = getSprintEngineAutoState(workspace)
+  if (!autoState.enabled || !workspace.folderPath || !sprintEngineState || !workspace.sprintEngineContext) return
 
   logPerfEvent('SprintEngineAutoRun', 'supervise-start', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
     taskCount: sprintEngineState.tasks.length,
     agentCount: Object.keys(sprintEngineState.sprintEngineAgents).length,
-    autoApproveArtifacts: workspace.sprintEngineAutoState.autoApproveArtifacts,
+    autoApproveArtifacts: autoState.autoApproveArtifacts,
   })
 
-  if (workspace.sprintEngineAutoState.enabled && workspace.sprintEngineAutoState.autoApproveArtifacts) {
+  if (autoState.enabled && autoState.autoApproveArtifacts) {
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
       workspace,
       sprintEngineState,
@@ -1260,7 +1291,7 @@ async function superviseWorkspace(
   logPerfEvent('SprintEngineAutoRun', 'reconcile-pending-start', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
-    pendingSpawnCount: workspace.sprintEngineAutoState.pendingSpawns.length,
+    pendingSpawnCount: autoState.pendingSpawns.length,
   })
   const pendingSpawns = await reconcileAutoRunPendingSpawns(workspace, sprintEngineState)
   logPerfEvent('SprintEngineAutoRun', 'reconcile-pending-end', {
@@ -1355,7 +1386,7 @@ async function superviseWorkspace(
     if (!spawnKey.startsWith(`${workspace.id}:`)) continue
     occupiedAgentIds.add(spawnKey.slice(workspace.id.length + 1))
   }
-  const maxConcurrentAgents = Math.max(1, Math.min(10, workspace.sprintEngineAutoState.maxConcurrentAgents ?? 3))
+  const maxConcurrentAgents = Math.max(1, Math.min(10, autoState.maxConcurrentAgents ?? 3))
   const availableSlots = maxConcurrentAgents - occupiedAgentIds.size
   logPerfEvent('SprintEngineAutoRun', 'slots', {
     workspaceId: workspace.id,
@@ -1419,7 +1450,7 @@ async function superviseWorkspace(
   })
   for (const nextRun of nextRuns) {
     const latestWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
-    if (!latestWorkspace?.sprintEngineAutoState.enabled) return
+    if (!latestWorkspace || !getSprintEngineAutoState(latestWorkspace).enabled) return
     const spawnResult = await spawnAutoRunCandidate(
       latestWorkspace,
       sprintEngineState,
@@ -1491,7 +1522,7 @@ export default function SprintEngineAutoRunSupervisor() {
         const { workspaces, appSettings, activeWorkspaceId } = useWorkspaceStore.getState()
         const now = Date.now()
         const autoWorkspaces = workspaces.filter((workspace) =>
-          workspace.sprintEngineAutoState.enabled
+          getSprintEngineAutoState(workspace).enabled
         ).filter((workspace) => {
           if (workspace.id === activeWorkspaceId) return true
 
@@ -1512,8 +1543,8 @@ export default function SprintEngineAutoRunSupervisor() {
           autoWorkspaces: autoWorkspaces.map((workspace) => ({
             id: workspace.id,
             name: workspace.name,
-            enabled: workspace.sprintEngineAutoState.enabled,
-            keepDoneAgentTerminals: workspace.sprintEngineAutoState.keepDoneAgentTerminals,
+            enabled: getSprintEngineAutoState(workspace).enabled,
+            keepDoneAgentTerminals: getSprintEngineAutoState(workspace).keepDoneAgentTerminals,
           })),
         })
 

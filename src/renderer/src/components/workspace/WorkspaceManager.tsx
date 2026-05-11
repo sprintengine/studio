@@ -34,6 +34,7 @@ import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
 import { sprintEngineRoleAccent } from '../../utils/sprintengine'
+import { getHighlightSwatch } from '../../utils/highlight'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
@@ -1341,14 +1342,49 @@ export default function WorkspaceManager() {
         onSetSidebarCollapsed={setSidebarCollapsed}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2">
+      <div
+        className="flex shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2 transition-colors"
+        style={
+          activeWorkspace?.highlight?.color
+            ? (() => {
+                const tint = getHighlightSwatch(activeWorkspace.highlight.color).ringRgba(0.05)
+                return {
+                  // Layer the tint over the topbar's #0b0c0f base via a flat
+                  // gradient so we don't replace the bg color.
+                  backgroundImage: `linear-gradient(${tint}, ${tint})`,
+                  borderBottomColor: getHighlightSwatch(activeWorkspace.highlight.color).ringRgba(0.18),
+                }
+              })()
+            : undefined
+        }
+      >
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           {activeWorkspace ? (
             <>
-              <WorkspaceTypeIcon
-                mode={activeWorkspace.mode}
-                className={`h-3.5 w-3.5 shrink-0 ${workspaceTabIconClass(activeWorkspace.mode)}`}
-              />
+              <span
+                className={`shrink-0 ${activeWorkspace.highlight?.color ? '' : workspaceTabIconClass(activeWorkspace.mode)}`}
+                style={{
+                  color: activeWorkspace.highlight?.color
+                    ? getHighlightSwatch(activeWorkspace.highlight.color).hex
+                    : undefined,
+                }}
+              >
+                <WorkspaceTypeIcon
+                  mode={activeWorkspace.mode}
+                  className="h-3.5 w-3.5"
+                />
+              </span>
+              {activeWorkspace.highlight?.starred ? (
+                <svg
+                  className="h-3 w-3 shrink-0 text-[#ffbf2f] drop-shadow-[0_0_4px_rgba(255,191,47,0.6)]"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  aria-label="Starred workspace"
+                >
+                  <title>Starred workspace</title>
+                  <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
+                </svg>
+              ) : null}
               <span className="min-w-0 truncate text-[13px] font-semibold text-[#ececee]">
                 {activeWorkspace.name}
               </span>

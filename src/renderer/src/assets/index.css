@@ -297,6 +297,80 @@ samp,
   box-shadow: inset 0 0 0 1px rgba(255, 191, 47, 0.18);
 }
 
+/* Terminal tab highlight colors. Applied via flexlayout className when the
+   user picks a color from the tab right-click → Color submenu. The same
+   palette as workspace highlight colors (utils/highlight.ts). */
+.flexlayout__tab_button.tab-highlight-red {
+  border-color: rgba(255, 90, 95, 0.40);
+  background: rgba(255, 90, 95, 0.10);
+  color: #ffd5d6;
+}
+.flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected {
+  background: rgba(255, 90, 95, 0.20);
+  border-color: rgba(255, 90, 95, 0.60);
+  box-shadow: inset 0 -2px 0 #ff5a5f;
+}
+.flexlayout__tab_button.tab-highlight-orange {
+  border-color: rgba(255, 140, 66, 0.40);
+  background: rgba(255, 140, 66, 0.10);
+  color: #ffd9b8;
+}
+.flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected {
+  background: rgba(255, 140, 66, 0.20);
+  border-color: rgba(255, 140, 66, 0.60);
+  box-shadow: inset 0 -2px 0 #ff8c42;
+}
+.flexlayout__tab_button.tab-highlight-amber {
+  border-color: rgba(255, 191, 47, 0.40);
+  background: rgba(255, 191, 47, 0.10);
+  color: #ffe7b3;
+}
+.flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected {
+  background: rgba(255, 191, 47, 0.18);
+  border-color: rgba(255, 191, 47, 0.60);
+  box-shadow: inset 0 -2px 0 #ffbf2f;
+}
+.flexlayout__tab_button.tab-highlight-green {
+  border-color: rgba(48, 209, 88, 0.40);
+  background: rgba(48, 209, 88, 0.10);
+  color: #bdfbd0;
+}
+.flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected {
+  background: rgba(48, 209, 88, 0.18);
+  border-color: rgba(48, 209, 88, 0.60);
+  box-shadow: inset 0 -2px 0 #30d158;
+}
+.flexlayout__tab_button.tab-highlight-blue {
+  border-color: rgba(92, 124, 255, 0.45);
+  background: rgba(92, 124, 255, 0.10);
+  color: #dfe6ff;
+}
+.flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected {
+  background: rgba(92, 124, 255, 0.20);
+  border-color: rgba(92, 124, 255, 0.65);
+  box-shadow: inset 0 -2px 0 #5c7cff;
+}
+.flexlayout__tab_button.tab-highlight-purple {
+  border-color: rgba(167, 139, 250, 0.45);
+  background: rgba(167, 139, 250, 0.10);
+  color: #efe5ff;
+}
+.flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected {
+  background: rgba(167, 139, 250, 0.20);
+  border-color: rgba(167, 139, 250, 0.65);
+  box-shadow: inset 0 -2px 0 #a78bfa;
+}
+.flexlayout__tab_button.tab-highlight-pink {
+  border-color: rgba(255, 126, 179, 0.45);
+  background: rgba(255, 126, 179, 0.10);
+  color: #ffd6e5;
+}
+.flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected {
+  background: rgba(255, 126, 179, 0.20);
+  border-color: rgba(255, 126, 179, 0.65);
+  box-shadow: inset 0 -2px 0 #ff7eb3;
+}
+
 .flexlayout__tab_button_content {
   font-size: 12px;
 }

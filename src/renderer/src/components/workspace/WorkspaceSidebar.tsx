@@ -2,7 +2,17 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StatusDot, WorkspaceTypeIcon } from '../AppIcons'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { Workspace, WorkspaceId } from '../../types/workspace'
+import type {
+  HighlightColor,
+  Workspace,
+  WorkspaceId,
+} from '../../types/workspace'
+import {
+  HIGHLIGHT_COLORS,
+  getHighlightSwatch,
+  hasHighlightOverride,
+  isStarred,
+} from '../../utils/highlight'
 
 type Activity = 'running' | 'needs-input' | 'idle'
 
@@ -74,34 +84,99 @@ function buildFolderGroups(workspaces: Workspace[]): FolderGroup[] {
   return groupOrder.map((key) => groups.get(key)!)
 }
 
-function modeAccentClass(mode: Workspace['mode']): string {
-  if (mode === 'sprintengine') return 'text-[#ffbf2f]'
-  if (mode === 'switchboard') return 'text-[#a78bfa]'
-  if (mode === 'multiloop') return 'text-[#5c7cff]'
-  return 'text-[#9a9aa2]'
+type RowAccent = {
+  border: string
+  bg: string
+  text: string
+  shadow: string
+  collapsedShadow: string
+  chip: string
+  glyph: string
 }
 
-function activeRowClass(mode: Workspace['mode']): string {
-  if (mode === 'sprintengine')
-    return 'border-l-[3px] border-l-[#ffbf2f] bg-[#1a1408] text-[#ffe7b3] shadow-[inset_0_0_0_1px_rgba(255,191,47,0.18),0_0_24px_-4px_rgba(255,191,47,0.40)]'
-  if (mode === 'switchboard')
-    return 'border-l-[3px] border-l-[#7c5cf2] bg-[#150f2c] text-[#efe5ff] shadow-[inset_0_0_0_1px_rgba(124,92,242,0.28),0_0_24px_-4px_rgba(124,92,242,0.50)]'
-  if (mode === 'multiloop')
-    return 'border-l-[3px] border-l-[#5c7cff] bg-[#15203c] text-[#dfe6ff] shadow-[inset_0_0_0_1px_rgba(92,124,255,0.25),0_0_24px_-4px_rgba(92,124,255,0.45)]'
-  return 'border-l-[3px] border-l-[#a8a8b2] bg-[#181a20] text-[#ffffff] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]'
+const modeAccents: Record<Workspace['mode'], RowAccent> = {
+  sprintengine: {
+    border: 'border-l-[#ffbf2f]',
+    bg: 'bg-[#1a1408]',
+    text: 'text-[#ffe7b3]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.18),0_0_24px_-4px_rgba(255,191,47,0.40)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.20),0_0_10px_-3px_rgba(255,191,47,0.22)]',
+    chip: 'bg-[#ffbf2f]/15',
+    glyph: 'text-[#ffbf2f]',
+  },
+  switchboard: {
+    border: 'border-l-[#7c5cf2]',
+    bg: 'bg-[#150f2c]',
+    text: 'text-[#efe5ff]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(124,92,242,0.28),0_0_24px_-4px_rgba(124,92,242,0.50)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(124,92,242,0.26),0_0_10px_-3px_rgba(124,92,242,0.28)]',
+    chip: 'bg-[#7c5cf2]/18',
+    glyph: 'text-[#a78bfa]',
+  },
+  multiloop: {
+    border: 'border-l-[#5c7cff]',
+    bg: 'bg-[#15203c]',
+    text: 'text-[#dfe6ff]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.25),0_0_24px_-4px_rgba(92,124,255,0.45)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.24),0_0_10px_-3px_rgba(92,124,255,0.26)]',
+    chip: 'bg-[#5c7cff]/18',
+    glyph: 'text-[#5c7cff]',
+  },
+  standard: {
+    border: 'border-l-[#a8a8b2]',
+    bg: 'bg-[#181a20]',
+    text: 'text-[#ffffff]',
+    shadow: 'shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_rgba(255,255,255,0.10)]',
+    chip: 'bg-[#9a9aa2]/12',
+    glyph: 'text-[#9a9aa2]',
+  },
 }
 
-// Collapsed rail uses a centered row with no left border so the icon stays
-// optically centered. The active marker is a deep-fill bg + colored ring
-// + outer halo in the mode accent.
-function collapsedActiveRowClass(mode: Workspace['mode']): string {
-  if (mode === 'sprintengine')
-    return 'bg-[#1a1408] text-[#ffe7b3] shadow-[inset_0_0_0_1px_rgba(255,191,47,0.32),0_0_18px_-2px_rgba(255,191,47,0.45)]'
-  if (mode === 'switchboard')
-    return 'bg-[#150f2c] text-[#efe5ff] shadow-[inset_0_0_0_1px_rgba(124,92,242,0.42),0_0_18px_-2px_rgba(124,92,242,0.55)]'
-  if (mode === 'multiloop')
-    return 'bg-[#15203c] text-[#dfe6ff] shadow-[inset_0_0_0_1px_rgba(92,124,255,0.40),0_0_18px_-2px_rgba(92,124,255,0.50)]'
-  return 'bg-[#181a20] text-[#ffffff] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]'
+// Effective accent for a workspace row. When the workspace has a highlight
+// color, it overrides the mode accent everywhere except the icon glyph
+// shape (which still tells the user which mode the workspace is in).
+function rowAccent(workspace: Workspace): RowAccent {
+  const highlight = workspace.highlight?.color
+  if (highlight) {
+    const swatch = getHighlightSwatch(highlight)
+    return {
+      border: swatch.border,
+      bg: swatch.bg,
+      text: swatch.text,
+      shadow: swatch.shadow,
+      collapsedShadow: swatch.collapsedShadow,
+      chip: swatch.chip,
+      glyph: `text-[${swatch.hex}]`,
+    }
+  }
+  return modeAccents[workspace.mode] ?? modeAccents.standard
+}
+
+function activeRowClass(workspace: Workspace): string {
+  const accent = rowAccent(workspace)
+  return `border-l-[3px] ${accent.border} ${accent.bg} ${accent.text} ${accent.shadow}`
+}
+
+function collapsedActiveRowClass(workspace: Workspace): string {
+  const accent = rowAccent(workspace)
+  return `${accent.bg} ${accent.text} ${accent.collapsedShadow}`
+}
+
+// Class fragment applied to inactive rows that have a highlight color set,
+// so the user spots their starred/highlighted workspaces in the list at a
+// glance even when not active. Uses just the colored left border — no bg,
+// no halo — so the row stays scannable.
+function inactiveHighlightClass(workspace: Workspace): string {
+  if (!hasHighlightOverride(workspace.highlight)) return ''
+  const swatch = getHighlightSwatch(workspace.highlight!.color!)
+  return `border-l-[3px] ${swatch.border}`
 }
 
 function activityTone(activity: Activity): 'running' | 'needs-input' | null {
@@ -177,8 +252,11 @@ export default function WorkspaceSidebar({
 }: WorkspaceSidebarProps) {
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const reorderWorkspaces = useWorkspaceStore((s) => s.reorderWorkspaces)
+  const setWorkspaceHighlight = useWorkspaceStore((s) => s.setWorkspaceHighlight)
+  const clearWorkspaceHighlight = useWorkspaceStore((s) => s.clearWorkspaceHighlight)
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
+  const [starredCollapsed, setStarredCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
@@ -201,6 +279,11 @@ export default function WorkspaceSidebar({
   >(null)
 
   const groups = useMemo(() => buildFolderGroups(workspaces), [workspaces])
+
+  const starredWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => isStarred(workspace.highlight)),
+    [workspaces]
+  )
 
   const workspaceById = useMemo(() => {
     const map = new Map<WorkspaceId, Workspace>()
@@ -367,11 +450,14 @@ export default function WorkspaceSidebar({
     setDropIndicator(null)
   }
 
-  const renderWorkspaceRow = (workspace: Workspace, fKey: string) => {
+  const renderWorkspaceRow = (workspace: Workspace, fKey: string, options?: { keyPrefix?: string }) => {
     const active = workspace.id === activeWorkspaceId
     const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
     const tone = activityTone(activity)
     const folderMissing = workspace.folderMissing === true
+    const starred = isStarred(workspace.highlight)
+    const highlighted = hasHighlightOverride(workspace.highlight)
+    const accent = rowAccent(workspace)
     const dropMark =
       dropIndicator?.kind === 'workspace' && dropIndicator.targetId === workspace.id
         ? dropIndicator.position
@@ -379,7 +465,7 @@ export default function WorkspaceSidebar({
 
     return (
       <div
-        key={workspace.id}
+        key={`${options?.keyPrefix ?? ''}${workspace.id}`}
         draggable={!renamingId}
         onDragStart={(event) => handleRowDragStart(event, workspace, fKey)}
         onDragOver={(event) => handleRowDragOver(event, workspace, fKey)}
@@ -411,9 +497,11 @@ export default function WorkspaceSidebar({
         } ${
           active
             ? sidebarCollapsed
-              ? collapsedActiveRowClass(workspace.mode)
-              : activeRowClass(workspace.mode)
-            : 'text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee]'
+              ? collapsedActiveRowClass(workspace)
+              : activeRowClass(workspace)
+            : highlighted && !sidebarCollapsed
+              ? `${inactiveHighlightClass(workspace)} text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee]`
+              : 'text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee]'
         } ${folderMissing ? 'opacity-70' : ''}`}
         role="treeitem"
         aria-current={active ? 'true' : undefined}
@@ -427,20 +515,12 @@ export default function WorkspaceSidebar({
 
         <span
           className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-md transition-colors ${
-            active
-              ? workspace.mode === 'sprintengine'
-                ? 'bg-[#ffbf2f]/15'
-                : workspace.mode === 'switchboard'
-                  ? 'bg-[#7c5cf2]/18'
-                  : workspace.mode === 'multiloop'
-                    ? 'bg-[#5c7cff]/18'
-                    : 'bg-[#9a9aa2]/12'
-              : ''
+            active || highlighted ? accent.chip : ''
           }`}
         >
           <WorkspaceTypeIcon
             mode={workspace.mode}
-            className={`h-4 w-4 ${modeAccentClass(workspace.mode)}`}
+            className={`h-4 w-4 ${accent.glyph}`}
           />
         </span>
 
@@ -462,9 +542,20 @@ export default function WorkspaceSidebar({
               />
             ) : (
               <span
-                className={`min-w-0 flex-1 truncate ${folderMissing ? 'line-through decoration-[rgba(255,255,255,0.2)]' : ''}`}
+                className={`flex min-w-0 flex-1 items-center gap-1.5 truncate ${folderMissing ? 'line-through decoration-[rgba(255,255,255,0.2)]' : ''}`}
               >
-                {workspace.name}
+                {starred ? (
+                  <svg
+                    className="h-3 w-3 shrink-0 text-[#ffbf2f] drop-shadow-[0_0_4px_rgba(255,191,47,0.6)]"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    aria-label="Starred"
+                  >
+                    <title>Starred</title>
+                    <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
+                  </svg>
+                ) : null}
+                <span className="min-w-0 truncate">{workspace.name}</span>
               </span>
             )}
 
@@ -531,6 +622,22 @@ export default function WorkspaceSidebar({
             aria-hidden="true"
           />
         ) : null}
+
+        {sidebarCollapsed && starred ? (
+          <span
+            className="absolute right-0.5 bottom-0.5 text-[8px] leading-none text-[#ffbf2f] drop-shadow-[0_0_3px_rgba(255,191,47,0.65)]"
+            aria-hidden="true"
+          >
+            ★
+          </span>
+        ) : null}
+
+        {sidebarCollapsed && highlighted && !active ? (
+          <span
+            className={`absolute inset-y-1 left-0 w-[2px] rounded-r ${getHighlightSwatch(workspace.highlight!.color!).border.replace('border-l-', 'bg-')}`}
+            aria-hidden="true"
+          />
+        ) : null}
       </div>
     )
   }
@@ -588,8 +695,57 @@ export default function WorkspaceSidebar({
 
       {/* Tree */}
       <nav className="mt-1 flex-1 overflow-y-auto pb-2" role="tree">
+        {starredWorkspaces.length > 0 && sidebarCollapsed ? (
+          <section className="relative" aria-label="Starred workspaces">
+            {starredWorkspaces.map((workspace) =>
+              renderWorkspaceRow(workspace, folderKey(workspace.folderPath), { keyPrefix: 'starred-' })
+            )}
+            <div aria-hidden="true" className="mx-2 my-1.5 h-px bg-[#1f2025]" />
+          </section>
+        ) : null}
+        {starredWorkspaces.length > 0 && !sidebarCollapsed ? (
+          <section className="relative pt-1" aria-label="Starred workspaces">
+            <header
+              onClick={() =>
+                setStarredCollapsed((prev) => !prev)
+              }
+              className="group/folder relative flex h-[26px] cursor-pointer select-none items-center gap-1.5 px-2 text-[#9a9aa2] hover:text-[#d7d7dc]"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                className={`h-3 w-3 shrink-0 text-[#5a5a63] transition-transform ${
+                  starredCollapsed ? '-rotate-90' : ''
+                }`}
+              >
+                <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <svg
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                className="h-3.5 w-3.5 shrink-0 text-[#ffbf2f] drop-shadow-[0_0_4px_rgba(255,191,47,0.55)]"
+                aria-hidden="true"
+              >
+                <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
+              </svg>
+              <span className="min-w-0 flex-1 truncate text-[12px] font-semibold tracking-[0.02em]">
+                Starred
+              </span>
+              <span className="text-[10px] tabular-nums text-[#5a5a63]">{starredWorkspaces.length}</span>
+            </header>
+            {!starredCollapsed
+              ? starredWorkspaces.map((workspace) =>
+                  renderWorkspaceRow(workspace, folderKey(workspace.folderPath), { keyPrefix: 'starred-' })
+                )
+              : null}
+          </section>
+        ) : null}
         {groups.map((group) => {
           const collapsed = collapsedFolders[group.key] === true
+          const visibleWorkspaces = sidebarCollapsed
+            ? group.workspaces.filter((workspace) => !isStarred(workspace.highlight))
+            : group.workspaces
+          if (sidebarCollapsed && visibleWorkspaces.length === 0) return null
           const dropMark =
             dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key
               ? dropIndicator.position
@@ -674,7 +830,7 @@ export default function WorkspaceSidebar({
               )}
               {(!collapsed || sidebarCollapsed) && (
                 <div className={sidebarCollapsed ? 'border-b border-[#15161a] pb-1.5 last:border-b-0' : ''}>
-                  {group.workspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+                  {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
                 </div>
               )}
             </section>
@@ -691,16 +847,53 @@ export default function WorkspaceSidebar({
           onClose={() => setContextMenu(null)}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
-            setContextMenu(null)
-            if (!workspace) return
-            if (action === 'open') onSelectWorkspace(workspace.id)
-            if (action === 'rename') startRename(workspace)
-            if (action === 'reveal' && workspace.folderPath) onRevealFolder(workspace.folderPath)
-            if (action === 'close') handleClose(workspace.id)
+            if (!workspace) {
+              setContextMenu(null)
+              return
+            }
+            if (action === 'open') {
+              onSelectWorkspace(workspace.id)
+              setContextMenu(null)
+              return
+            }
+            if (action === 'rename') {
+              startRename(workspace)
+              setContextMenu(null)
+              return
+            }
+            if (action === 'reveal' && workspace.folderPath) {
+              onRevealFolder(workspace.folderPath)
+              setContextMenu(null)
+              return
+            }
+            if (action === 'close') {
+              handleClose(workspace.id)
+              setContextMenu(null)
+              return
+            }
             if (action === 'delete') {
               setDeleteTypedName('')
               setConfirmDelete(workspace.id)
+              setContextMenu(null)
+              return
             }
+            if (action === 'toggle-star') {
+              setWorkspaceHighlight(workspace.id, {
+                starred: !isStarred(workspace.highlight),
+              })
+              return
+            }
+            if (action === 'clear-color') {
+              if (isStarred(workspace.highlight)) {
+                setWorkspaceHighlight(workspace.id, { color: null })
+              } else {
+                clearWorkspaceHighlight(workspace.id)
+              }
+              return
+            }
+          }}
+          onPickColor={(color) => {
+            setWorkspaceHighlight(contextMenu.workspaceId, { color })
           }}
         />
       ) : null}
@@ -868,7 +1061,7 @@ export default function WorkspaceSidebar({
   )
 }
 
-type ContextMenuAction = 'open' | 'rename' | 'reveal' | 'close' | 'delete'
+type ContextMenuAction = 'open' | 'rename' | 'reveal' | 'close' | 'delete' | 'toggle-star' | 'clear-color'
 
 function ContextMenu({
   x,
@@ -876,12 +1069,14 @@ function ContextMenu({
   workspace,
   onClose,
   onSelect,
+  onPickColor,
 }: {
   x: number
   y: number
   workspace: Workspace | null
   onClose: () => void
   onSelect: (action: ContextMenuAction) => void
+  onPickColor: (color: HighlightColor) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -895,6 +1090,8 @@ function ContextMenu({
   if (!workspace) return null
   const showDelete = workspaceHasOnDiskState(workspace)
   const folderPathExists = Boolean(workspace.folderPath) && !workspace.folderMissing
+  const starred = isStarred(workspace.highlight)
+  const currentColor = workspace.highlight?.color ?? null
 
   return (
     <div
@@ -902,13 +1099,71 @@ function ContextMenu({
       data-sidebar-menu="true"
       role="menu"
       style={{ position: 'fixed', left: x, top: y, zIndex: 60 }}
-      className="min-w-[220px] rounded-md border border-[#303139] bg-[#0d0e11] p-1 text-[13px] text-[#d7d7dc] shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
+      className="min-w-[240px] rounded-md border border-[#303139] bg-[#0d0e11] p-1 text-[13px] text-[#d7d7dc] shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
     >
       <MenuItem onClick={() => onSelect('open')}>Open</MenuItem>
       <MenuItem onClick={() => onSelect('rename')} shortcut="F2">
         Rename
       </MenuItem>
       {folderPathExists ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
+      <MenuDivider />
+      <button
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={starred}
+        onClick={() => onSelect('toggle-star')}
+        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          fill={starred ? 'currentColor' : 'none'}
+          stroke="currentColor"
+          strokeWidth="1.4"
+          className={`h-3.5 w-3.5 shrink-0 ${starred ? 'text-[#ffbf2f]' : 'text-[#5a5a63]'}`}
+        >
+          <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" strokeLinejoin="round" />
+        </svg>
+        <span className="min-w-0 flex-1 truncate">{starred ? 'Unstar' : 'Star'}</span>
+      </button>
+      <div className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
+        Highlight color
+      </div>
+      <div className="flex items-center gap-1 px-2 pb-1.5">
+        <button
+          type="button"
+          onClick={() => onSelect('clear-color')}
+          aria-label="Clear color"
+          title="Clear color"
+          className={`flex h-5 w-5 items-center justify-center rounded-full border border-[#303139] text-[#5a5a63] transition-colors hover:border-[#5a5a63] hover:text-[#d7d7dc] ${
+            currentColor === null ? 'ring-1 ring-[#d7d7dc]' : ''
+          }`}
+        >
+          <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3">
+            <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+        {HIGHLIGHT_COLORS.map((color) => {
+          const swatch = getHighlightSwatch(color)
+          const selected = currentColor === color
+          return (
+            <button
+              key={color}
+              type="button"
+              onClick={() => onPickColor(color)}
+              aria-label={`Highlight ${swatch.label}`}
+              title={swatch.label}
+              className={`h-5 w-5 rounded-full transition-transform hover:scale-110 ${
+                selected ? 'ring-2 ring-offset-1 ring-offset-[#0d0e11]' : ''
+              }`}
+              style={{
+                backgroundColor: swatch.hex,
+                boxShadow: selected ? `0 0 8px ${swatch.ringRgba(0.6)}` : undefined,
+                ['--tw-ring-color' as never]: swatch.hex,
+              }}
+            />
+          )
+        })}
+      </div>
       <MenuDivider />
       <MenuItem onClick={() => onSelect('close')}>Close workspace</MenuItem>
       {showDelete ? (

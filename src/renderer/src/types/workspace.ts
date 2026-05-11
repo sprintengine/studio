@@ -4,6 +4,13 @@ export type WorkspaceId = string
 export type AgentId = string
 export type WorkspaceMode = 'standard' | 'sprintengine' | 'switchboard' | 'multiloop'
 
+export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
+
+export type WorkspaceHighlight = {
+  starred: boolean
+  color: HighlightColor | null
+}
+
 export type PreviewSlot = {
   x: number
   y: number
@@ -757,5 +764,6 @@ export type Workspace = {
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
   sprintEngineAutoState: SprintEngineAutoState
   multiloopAutoState: MultiloopAutoState
+  highlight?: WorkspaceHighlight
   createdAt: number
 }

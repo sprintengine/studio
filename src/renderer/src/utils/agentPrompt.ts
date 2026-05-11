@@ -78,6 +78,9 @@ export function buildSprintEngineStartupPrompt(
     'Fetch the canonical Sprint Engine instructions from the Python tool.',
     context.length > 0 ? context.join('\n') : null,
     `You are assigned role: ${role}. Only claim and work Sprint Engine tasks whose role exactly matches ${role}. Keep polling for ready ${role} tasks with this same agent id: claim one task, complete it, publish evidence, mark it done, then poll again. If no ${role} task is ready, wait briefly and rerun the Sprint Engine join/task-next flow instead of exiting while this Sprint Engine roster session remains active. Stop only when auto mode is paused, you are blocked, you need user input, the terminal is being shut down, or your context window is about 70% full. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
+    commandMode === 'join' && options.sprintEngineStatePath
+      ? `If the shared Sprint Engine state file does not exist yet or the join command reports that state is missing, wait briefly and retry the same join command. Do not create a different state file and do not stop just because the architect has not initialized the run yet.`
+      : null,
     [
       'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
       '```powershell',

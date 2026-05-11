@@ -107,11 +107,18 @@ function maybeReportWatchtowerExit(session: TerminalSession, exitCode: number): 
   if (!session.watchtowerRunId || !session.watchtowerWorkspaceRoot || !session.agentId) return
   if (session.watchtowerStatusReported) return
   session.watchtowerStatusReported = true
+  // isDisposed is set by disposeTerminal before it calls kill(), so a non-zero
+  // exit at that point reflects an intentional teardown, not a real failure.
+  const status: WatchtowerAgentStatusReport['status'] = session.isDisposed
+    ? 'canceled'
+    : exitCode === 0
+      ? 'completed'
+      : 'failed'
   reportWatchtowerAgentStatus({
     workspaceRoot: session.watchtowerWorkspaceRoot,
     runId: session.watchtowerRunId,
     agentId: session.agentId,
-    status: exitCode === 0 ? 'completed' : 'failed',
+    status,
   })
 }
 

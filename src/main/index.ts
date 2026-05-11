@@ -85,11 +85,18 @@ const terminalRuntime = createTerminalRuntime({
   },
 })
 
+// Skip reconciling agents in runs created within this window so a freshly
+// `run-create`d run isn't marked failed before its terminals finish spawning.
+const WATCHTOWER_RECONCILE_GRACE_MS = 10_000
+
 async function listWatchtowerRunsReconciled(workspaceRoot: string): Promise<WatchtowerRunListResult> {
   const result = await listWatchtowerRuns(workspaceRoot)
   if (!result.ok) return result
+  const now = Date.now()
   const stale: Array<{ runId: string; agentId: string }> = []
   for (const run of result.runs) {
+    const createdAtMs = Date.parse(run.createdAt)
+    if (Number.isFinite(createdAtMs) && now - createdAtMs < WATCHTOWER_RECONCILE_GRACE_MS) continue
     for (const agent of run.agents) {
       if (agent.status !== 'running') continue
       if (terminalRuntime.hasLiveWatchtowerSession(workspaceRoot, run.runId, agent.agentId)) continue

@@ -364,6 +364,18 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     recheckFolder,
   } = useWorkspaceFolderStatus(workspaceId)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [previewedArtifact, setPreviewedArtifact] = useState<{
+    id: string
+    path: string
+    name: string
+    content: string
+  } | null>(null)
+  // Switching tasks clears the artifact preview so the aside returns to
+  // task detail. Opening an artifact does not change selectedTaskId, so
+  // this only fires on a real navigation.
+  useEffect(() => {
+    setPreviewedArtifact(null)
+  }, [selectedTaskId])
   const [activeView, setActiveView] = useState<SprintEngineView>('project')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
@@ -881,13 +893,16 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     setArtifactAction(artifact.id, { kind: 'open', status: 'pending', message: 'Opening...' })
     try {
       const openedArtifact = await readArtifactForEditor(statePath, artifact)
-      openFile(workspaceId, openedArtifact.path, openedArtifact.name, openedArtifact.content)
-      setSelectedTaskId(null)
-      focusOrAddFileTab(workspaceId, openedArtifact.path, openedArtifact.name)
+      setPreviewedArtifact({
+        id: artifact.id,
+        path: openedArtifact.path,
+        name: openedArtifact.name,
+        content: openedArtifact.content,
+      })
       setArtifactAction(artifact.id, {
         kind: 'open',
         status: 'success',
-        message: 'Opened in editor.',
+        message: 'Opened in preview.',
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to open artifact.'
@@ -901,6 +916,16 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         message,
       })
     }
+  }
+
+  // Pop the previewed artifact out into a real flexlayout file-editor tab.
+  // Useful when the user wants the full editor experience (split view, code
+  // language features) instead of the inline preview.
+  const popOutPreviewedArtifact = () => {
+    if (!previewedArtifact) return
+    openFile(workspaceId, previewedArtifact.path, previewedArtifact.name, previewedArtifact.content)
+    focusOrAddFileTab(workspaceId, previewedArtifact.path, previewedArtifact.name)
+    setPreviewedArtifact(null)
   }
 
   const resolveArtifactProducerAgentId = (artifact: SprintEngineArtifact): string | null => {
@@ -1662,7 +1687,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             {sprintEngineState.tasks.length > 0 ? boardColumns.map((column) => (
               <section
                 key={column.key}
-                className="flex h-full w-[260px] shrink-0 flex-col rounded-md bg-[#0a0b0e]"
+                className="flex h-full min-w-[260px] flex-1 flex-col rounded-md bg-[#0a0b0e]"
                 aria-label={`${column.label} lane`}
               >
                 <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
@@ -1898,10 +1923,16 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
           </div>
 
           <aside
-            className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[#13141a]"
+            className="flex w-[42%] min-w-[320px] max-w-[560px] flex-col border-l border-[#13141a]"
             aria-label="Selected Sprint Engine task detail"
           >
-            {selectedTask ? (
+            {previewedArtifact ? (
+              <SprintEngineArtifactPreview
+                artifact={previewedArtifact}
+                onBack={() => setPreviewedArtifact(null)}
+                onPopOut={popOutPreviewedArtifact}
+              />
+            ) : selectedTask ? (
               <div className="flex h-full min-h-0 flex-col">
                 <header className="border-b border-[#1f2025] px-5 py-4">
                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
@@ -4130,6 +4161,60 @@ function MetaItem({ label, value }: { label: string; value: string }) {
     <div className="min-w-0">
       <div className="text-[10px] uppercase tracking-[0.14em] text-[#5a5a63]">{label}</div>
       <div className="mt-1 font-medium text-[#ececee] [overflow-wrap:anywhere]">{value}</div>
+    </div>
+  )
+}
+
+function SprintEngineArtifactPreview({
+  artifact,
+  onBack,
+  onPopOut,
+}: {
+  artifact: { id: string; path: string; name: string; content: string }
+  onBack: () => void
+  onPopOut: () => void
+}) {
+  const isMarkdown = artifact.path.toLowerCase().endsWith('.md')
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[#1f2025] px-5 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[12px] font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+            aria-label="Back to task detail"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+              <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Back
+          </button>
+          <span className="min-w-0 truncate text-[13px] font-semibold text-[#ececee]" title={artifact.path}>
+            {artifact.name}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onPopOut}
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+          title="Open in editor tab"
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+            <path d="M9 3H13V7M13 3L7.5 8.5M6 4H4C3.45 4 3 4.45 3 5V12C3 12.55 3.45 13 4 13H11C11.55 13 12 12.55 12 12V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Open in editor
+        </button>
+      </header>
+      <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[#d7d7dc]">
+        {isMarkdown ? (
+          <div className="markdown-body">{renderMarkdown(artifact.content)}</div>
+        ) : (
+          <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[#d7d7dc]">
+            {artifact.content}
+          </pre>
+        )}
+      </div>
     </div>
   )
 }

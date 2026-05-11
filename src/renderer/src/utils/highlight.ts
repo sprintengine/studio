@@ -1,0 +1,155 @@
+import type { HighlightColor, WorkspaceHighlight } from '../types/workspace'
+
+export const HIGHLIGHT_COLORS: HighlightColor[] = [
+  'red',
+  'orange',
+  'amber',
+  'green',
+  'blue',
+  'purple',
+  'pink',
+]
+
+type HighlightSwatch = {
+  color: HighlightColor
+  label: string
+  hex: string
+  // Tailwind class fragments for the sidebar row's lit treatment.
+  // Mirrors the panel-design-system Tier-2 selection pattern but with
+  // the highlight color in place of the module accent.
+  border: string // border-l-[color]
+  bg: string // bg-[deep-fill]
+  text: string // text color for active row label
+  shadow: string // composed inset ring + outer halo (expanded sidebar)
+  collapsedShadow: string // tighter, dimmer halo for the icon rail
+  chip: string // bg tint for the icon backplate when active
+  // Shorter helpers used outside the sidebar.
+  ringRgba: (alpha: number) => string
+}
+
+const swatches: Record<HighlightColor, HighlightSwatch> = {
+  red: {
+    color: 'red',
+    label: 'Red',
+    hex: '#ff5a5f',
+    border: 'border-l-[#ff5a5f]',
+    bg: 'bg-[#1a0a0c]',
+    text: 'text-[#ffd5d6]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.22),0_0_24px_-4px_rgba(255,90,95,0.45)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.18),0_0_10px_-3px_rgba(255,90,95,0.22)]',
+    chip: 'bg-[#ff5a5f]/15',
+    ringRgba: (a) => `rgba(255, 90, 95, ${a})`,
+  },
+  orange: {
+    color: 'orange',
+    label: 'Orange',
+    hex: '#ff8c42',
+    border: 'border-l-[#ff8c42]',
+    bg: 'bg-[#1a0e07]',
+    text: 'text-[#ffd9b8]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.22),0_0_24px_-4px_rgba(255,140,66,0.42)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.18),0_0_10px_-3px_rgba(255,140,66,0.20)]',
+    chip: 'bg-[#ff8c42]/15',
+    ringRgba: (a) => `rgba(255, 140, 66, ${a})`,
+  },
+  amber: {
+    color: 'amber',
+    label: 'Amber',
+    hex: '#ffbf2f',
+    border: 'border-l-[#ffbf2f]',
+    bg: 'bg-[#1a1408]',
+    text: 'text-[#ffe7b3]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.20),0_0_24px_-4px_rgba(255,191,47,0.42)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.18),0_0_10px_-3px_rgba(255,191,47,0.20)]',
+    chip: 'bg-[#ffbf2f]/15',
+    ringRgba: (a) => `rgba(255, 191, 47, ${a})`,
+  },
+  green: {
+    color: 'green',
+    label: 'Green',
+    hex: '#30d158',
+    border: 'border-l-[#30d158]',
+    bg: 'bg-[#0a1a0e]',
+    text: 'text-[#bdfbd0]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.22),0_0_24px_-4px_rgba(48,209,88,0.40)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.18),0_0_10px_-3px_rgba(48,209,88,0.20)]',
+    chip: 'bg-[#30d158]/15',
+    ringRgba: (a) => `rgba(48, 209, 88, ${a})`,
+  },
+  blue: {
+    color: 'blue',
+    label: 'Blue',
+    hex: '#5c7cff',
+    border: 'border-l-[#5c7cff]',
+    bg: 'bg-[#15203c]',
+    text: 'text-[#dfe6ff]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.25),0_0_24px_-4px_rgba(92,124,255,0.45)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.20),0_0_10px_-3px_rgba(92,124,255,0.22)]',
+    chip: 'bg-[#5c7cff]/18',
+    ringRgba: (a) => `rgba(92, 124, 255, ${a})`,
+  },
+  purple: {
+    color: 'purple',
+    label: 'Purple',
+    hex: '#a78bfa',
+    border: 'border-l-[#a78bfa]',
+    bg: 'bg-[#150f2c]',
+    text: 'text-[#efe5ff]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.28),0_0_24px_-4px_rgba(167,139,250,0.48)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.22),0_0_10px_-3px_rgba(167,139,250,0.24)]',
+    chip: 'bg-[#a78bfa]/18',
+    ringRgba: (a) => `rgba(167, 139, 250, ${a})`,
+  },
+  pink: {
+    color: 'pink',
+    label: 'Pink',
+    hex: '#ff7eb3',
+    border: 'border-l-[#ff7eb3]',
+    bg: 'bg-[#1a0c14]',
+    text: 'text-[#ffd6e5]',
+    shadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.25),0_0_24px_-4px_rgba(255,126,179,0.45)]',
+    collapsedShadow:
+      'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.20),0_0_10px_-3px_rgba(255,126,179,0.22)]',
+    chip: 'bg-[#ff7eb3]/15',
+    ringRgba: (a) => `rgba(255, 126, 179, ${a})`,
+  },
+}
+
+export function getHighlightSwatch(color: HighlightColor): HighlightSwatch {
+  return swatches[color]
+}
+
+export function highlightHex(color: HighlightColor): string {
+  return swatches[color].hex
+}
+
+export function isStarred(highlight: WorkspaceHighlight | undefined | null): boolean {
+  return highlight?.starred === true
+}
+
+export function getHighlightColor(
+  highlight: WorkspaceHighlight | undefined | null
+): HighlightColor | null {
+  return highlight?.color ?? null
+}
+
+// True when the highlight should override the workspace's mode-accent
+// treatment (sidebar row, breadcrumb icon).
+export function hasHighlightOverride(
+  highlight: WorkspaceHighlight | undefined | null
+): boolean {
+  return getHighlightColor(highlight) !== null
+}

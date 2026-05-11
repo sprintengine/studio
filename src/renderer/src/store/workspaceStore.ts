@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid'
 import type {
   Workspace,
   WorkspaceId,
+  WorkspaceMode,
   LayoutTemplate,
   AgentState,
   AgentId,
@@ -33,6 +34,7 @@ import type {
   WorktreeEntry,
   WorkspaceMemoryConfig,
   MemoryGraphSettings,
+  WorkspaceHighlight,
 } from '../types/workspace'
 import {
   DEFAULT_GRAPH_SETTINGS,
@@ -93,6 +95,8 @@ interface WorkspaceStore {
   setSidebarCollapsed: (collapsed: boolean) => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   forgetFolder: (folderPath: string) => void
+  setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
+  clearWorkspaceHighlight: (id: WorkspaceId) => void
   setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setLastSelectedCli: (cli: AgentCli) => void
@@ -408,6 +412,24 @@ function normalizeWorkspaceMemoryConfig(
     relativeRoot: normalizeMemoryRelativeRoot(input?.relativeRoot),
     graphSettings: normalizeGraphSettings(input?.graphSettings),
   }
+}
+
+function normalizeWorkspaceMode(
+  input: unknown,
+  sprintEngineState?: SprintEngineState | null,
+  multiloopState?: MultiloopState | null
+): WorkspaceMode {
+  if (multiloopState) return 'multiloop'
+  if (sprintEngineState) return 'sprintengine'
+  if (
+    input === 'standard'
+    || input === 'sprintengine'
+    || input === 'switchboard'
+    || input === 'multiloop'
+  ) {
+    return input
+  }
+  return 'standard'
 }
 
 function normalizeWorktreeEntry(input: Partial<WorktreeEntry> | null | undefined): WorktreeEntry | null {
@@ -995,6 +1017,23 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state.workspaces = next
         }),
 
+      setWorkspaceHighlight: (id, highlight) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === id)
+          if (!ws) return
+          const current: WorkspaceHighlight = ws.highlight ?? { starred: false, color: null }
+          ws.highlight = {
+            starred: highlight.starred ?? current.starred,
+            color: highlight.color === undefined ? current.color : highlight.color,
+          }
+        }),
+
+      clearWorkspaceHighlight: (id) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === id)
+          if (ws) ws.highlight = undefined
+        }),
+
       forgetFolder: (folderPath) =>
         set((state) => {
           if (!folderPath) return
@@ -1070,6 +1109,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             state.appSettings.projectKnowledgeRoots[key] = normalizedRoot
           } else {
             delete state.appSettings.projectKnowledgeRoots[key]
+          }
+          for (const workspace of state.workspaces) {
+            if (normalizeProjectRootKey(workspace.folderPath) !== key) continue
+            workspace.memory = {
+              relativeRoot: null,
+              graphSettings: normalizeGraphSettings(workspace.memory?.graphSettings),
+            }
           }
         }),
 
@@ -1712,7 +1758,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 39,
+      version: 40,
       // Migrate older persisted state that lacks editorState / folderPath / sprintEngineState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Partial<WorkspaceMigrationState> | undefined
@@ -2078,6 +2124,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const current = migrationState
           current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
         }
+        if (version < 40) {
+          mapMigrationWorkspaces(migrationState, (ws) => {
+            const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
+            const multiloopState = ws.multiloopState ?? null
+            return {
+              ...ws,
+              mode: normalizeWorkspaceMode(ws.mode, sprintEngineState, multiloopState),
+              sprintEngineState,
+              multiloopState,
+              sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
+              multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
+            }
+          })
+        }
         return state as never
       },
       partialize: (s) => ({
@@ -2085,7 +2145,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         sidebarCollapsed: s.sidebarCollapsed,
         workspaces: s.workspaces.map((ws) => ({
           ...ws,
+          mode: normalizeWorkspaceMode(ws.mode, ws.sprintEngineState, ws.multiloopState),
           memory: normalizeWorkspaceMemoryConfig(ws.memory),
+          sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
+          multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
           agents: Object.fromEntries(
             Object.entries(ws.agents).map(([id, a]) => {
               const shouldKeepStartupPrompt =

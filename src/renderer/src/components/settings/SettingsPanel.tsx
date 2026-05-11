@@ -23,7 +23,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
   { id: 'file-search', label: 'File Search', description: 'Index exclude patterns' },
-  { id: 'knowledge-graph', label: 'Knowledge Graph', description: 'Workspace knowledge' },
+  { id: 'knowledge-graph', label: 'Knowledge Graph', description: 'Project knowledge' },
   { id: 'telemetry', label: 'Telemetry', description: 'Usage and diagnostics' },
 ]
 
@@ -210,7 +210,7 @@ export default function SettingsPanel({
         const confirmed = window.confirm(
           'Enable knowledge activity tracking?\n\n'
           + 'Multicode will:\n'
-          + ' • Add a hook to .claude/settings.local.json (workspace-only)\n'
+          + ' • Add a hook to .claude/settings.local.json in the project folder\n'
           + ' • Copy a hook script to .multicode/hooks/\n'
           + ' • Record knowledge file touches to .multicode/knowledge-trace/\n\n'
           + 'Only files under your knowledge folder are recorded. Add .multicode/ to .gitignore.'
@@ -361,7 +361,7 @@ export default function SettingsPanel({
         ok: false,
         status: 'invalid-relative-path',
         relativeRoot: null,
-        message: 'Knowledge path must be relative to the workspace folder.',
+        message: 'Knowledge path must be relative to the project folder.',
       })
       return
     }
@@ -400,7 +400,7 @@ export default function SettingsPanel({
         ok: false,
         status: 'invalid-relative-path',
         relativeRoot: null,
-        message: 'Choose a folder that can be expressed relative to the workspace folder.',
+        message: 'Choose a folder that can be expressed relative to the project folder.',
       })
       return
     }
@@ -793,7 +793,7 @@ export default function SettingsPanel({
 
             <SettingToggle
               label="Activity tracking (Claude Code)"
-              description="Record which knowledge files Claude touches in this workspace and animate the graph as files are read. Adds a workspace-local hook to .claude/settings.local.json. Only files under the knowledge folder are recorded."
+              description="Record which knowledge files Claude touches in this project and animate the graph as files are read. Adds a project-local hook to .claude/settings.local.json. Only files under the knowledge folder are recorded."
               enabled={activityInstalled}
               disabled={activityPending || !activeProjectRoot || !activeKnowledgeConfig?.relativeRoot}
               onChange={(next) => void toggleActivityTracking(next)}

@@ -12,10 +12,11 @@ import {
 import 'flexlayout-react/style/dark.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentState, FuturePlanWorkspaceSource, SprintEngineRole, SprintEngineRuntimeAgentStatus } from '../../types/workspace'
+import type { AgentState, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { sprintEngineRoleAccent } from '../../utils/sprintengine'
+import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import MulticodeBlackHoleSpinner from '../brand/MulticodeBlackHoleSpinner'
 import AgentPanel from '../panels/AgentPanel'
@@ -265,7 +266,23 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         filePath?: string
         repoRoot?: string
         checkForUpdatesRequestId?: number
+        highlightColor?: HighlightColor
       } | undefined
+
+      const wrapWithHighlight = (children: React.ReactNode): React.ReactNode => {
+        if (component !== 'terminal' || !config?.highlightColor) return children
+        const swatch = getHighlightSwatch(config.highlightColor)
+        return (
+          <div
+            className="relative h-full w-full"
+            style={{
+              boxShadow: `inset 0 0 0 2px ${swatch.hex}, inset 0 0 24px -8px ${swatch.ringRgba(0.55)}`,
+            }}
+          >
+            {children}
+          </div>
+        )
+      }
 
       switch (component) {
         case 'agent':
@@ -298,12 +315,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             ))
             : <div className="h-full bg-[#08090b]" />
         case 'terminal':
-          return timedPanel('PlainTerminalPanel', (
+          return wrapWithHighlight(timedPanel('PlainTerminalPanel', (
             <PlainTerminalPanel
               workspaceId={workspaceId}
               terminalId={config?.terminalId ?? node.getId()}
             />
-          ))
+          )))
         case 'sprintengine':
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} />)
         case 'sprintengine-project':
@@ -461,16 +478,70 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       ? parent.getChildren().filter((child) => child instanceof TabNode && child.getId() !== node.getId() && child.isEnableClose())
       : []
 
-    const command = await window.api.showContextMenu([
+    const isTerminal = node.getComponent() === 'terminal'
+    const config = node.getConfig() as { highlightColor?: HighlightColor } | undefined
+    const currentColor = config?.highlightColor ?? null
+
+    const colorSubmenu = HIGHLIGHT_COLORS.map((color) => ({
+      id: `color:${color}`,
+      label: getHighlightSwatch(color).label,
+      type: 'checkbox' as const,
+      checked: currentColor === color,
+    }))
+
+    const items = [
       { id: 'hide-tab', label: 'Hide Tab', enabled: node.getComponent() === 'agent' },
       { id: 'close-other-tabs', label: 'Close Other Tabs', enabled: otherClosableTabs.length > 0 },
-    ])
+      ...(isTerminal
+        ? [
+            { type: 'separator' as const },
+            {
+              label: 'Color',
+              enabled: true,
+              submenu: [
+                ...colorSubmenu,
+                { type: 'separator' as const },
+                { id: 'color:none', label: 'Clear color', enabled: currentColor !== null },
+              ],
+            },
+          ]
+        : []),
+    ]
+
+    const command = await window.api.showContextMenu(items)
 
     if (command === 'hide-tab') {
       hideTab(node)
     }
     if (command === 'close-other-tabs') {
       closeOtherTabsInSet(node)
+    }
+    if (command?.startsWith('color:')) {
+      const value = command.slice('color:'.length)
+      const nextColor =
+        value === 'none'
+          ? undefined
+          : (HIGHLIGHT_COLORS as readonly string[]).includes(value)
+            ? (value as HighlightColor)
+            : undefined
+      const nextConfig = { ...(node.getConfig() ?? {}), highlightColor: nextColor }
+
+      // Preserve any existing non-highlight class names on the tab while we
+      // replace the tab-highlight-* class. Other classes here include
+      // `agent-tab-role-*` and `agent-tab-needs-input`.
+      const existingClassName = node.getClassName() ?? ''
+      const baseClassNames = existingClassName
+        .split(/\s+/u)
+        .filter((cls) => cls && !cls.startsWith('tab-highlight-'))
+      if (nextColor) baseClassNames.push(`tab-highlight-${nextColor}`)
+      const nextClassName = baseClassNames.join(' ').trim() || undefined
+
+      modelRef.current?.doAction(
+        Actions.updateNodeAttributes(node.getId(), {
+          config: nextConfig,
+          className: nextClassName,
+        })
+      )
     }
   }, [closeOtherTabsInSet, hideTab])
 
@@ -534,7 +605,23 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
 
       if (node.getComponent() !== 'agent') {
         const componentId = node.getComponent()
-        if (componentId === 'watchtower-panel' || componentId === 'switchboard-board') {
+        if (componentId === 'terminal') {
+          const config = node.getConfig() as { highlightColor?: HighlightColor } | undefined
+          if (config?.highlightColor) {
+            const swatch = getHighlightSwatch(config.highlightColor)
+            renderValues.leading = (
+              <span
+                className="h-3 w-3 shrink-0 rounded-full"
+                style={{
+                  backgroundColor: swatch.hex,
+                  boxShadow: `0 0 6px ${swatch.ringRgba(0.65)}`,
+                }}
+                aria-label={`${swatch.label} terminal`}
+                title={`${swatch.label} terminal`}
+              />
+            )
+          }
+        } else if (componentId === 'watchtower-panel' || componentId === 'switchboard-board') {
           const isWatchtower = componentId === 'watchtower-panel'
           renderValues.leading = (
             <span
@@ -629,6 +716,13 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     [commitRename, renameValue, renamingTabId, showTabContextMenu, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.sprintEngineState]
   )
 
+  const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {
+    if (!(node instanceof TabNode)) return
+    event.preventDefault()
+    event.stopPropagation()
+    void showTabContextMenu(event, node)
+  }, [showTabContextMenu])
+
   return (
     <div className="relative h-full" onMouseDownCapture={handleMouseDownCapture}>
       <Layout
@@ -636,6 +730,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         factory={factory}
         onAction={handleAction}
         onAuxMouseClick={handleAuxMouseClick}
+        onContextMenu={handleContextMenu}
         onRenderTab={renderTab}
         onModelChange={(model) => {
           updateLayout(workspaceId, model.toJson())
