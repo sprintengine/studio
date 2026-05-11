@@ -299,7 +299,7 @@ type PlanReaderState = {
   mode: 'preview' | 'source'
 }
 
-type SprintEngineView = 'project' | 'map' | 'task-graph' | 'kanban'
+type SprintEngineView = 'project' | 'task-graph' | 'kanban'
 
 type SpawnDialogState = {
   agentId: string
@@ -1426,7 +1426,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               <div className="ml-1 flex flex-wrap items-center gap-1">
                 {([
                   { id: 'project' as const, label: 'Project' },
-                  { id: 'map' as const, label: 'Map' },
                   { id: 'task-graph' as const, label: 'Task Graph' },
                   { id: 'kanban' as const, label: 'Kanban' },
                 ]).map((view) => (
@@ -1623,9 +1622,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
           doneCount={doneCount}
           activeCount={activeCount}
           needsInputCount={needsInputCount}
-          readyTasks={readyTasks}
           reviewArtifacts={reviewArtifacts}
           artifactActions={artifactActions}
+          selectedAgentId={resolvedSelectedAgentId}
           onSelectAgent={(agentId) => {
             if (agents[agentId]?.cliStartRequested) {
               openAgentTerminal(agentId)
@@ -1635,23 +1634,15 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
           }}
           onSelectTask={setSelectedTaskId}
           onAddMember={openAddMemberDialog}
+          onAddRole={(role) => {
+            setAddMemberRole(role)
+            setActionMenuOpen(false)
+            setAddMemberOpen(true)
+          }}
           onReadPlan={() => void loadPlanReader()}
           onOpenArtifact={(artifact) => void openArtifact(artifact)}
           onApproveArtifact={(artifact) => void approveArtifact(artifact)}
           onRequestArtifactChanges={requestArtifactChanges}
-        />
-      ) : null}
-
-      {effectiveView === 'map' ? (
-        <SprintEngineMapView
-          workspaceId={workspaceId}
-          sprintEngineState={sprintEngineState}
-          roster={roster}
-          rosterById={rosterById}
-          runtimeAgents={runtimeAgents}
-          runPhase={runPhase}
-          selectedAgentId={resolvedSelectedAgentId}
-          onSelectAgent={openSpawnDialog}
         />
       ) : null}
 
@@ -2982,12 +2973,13 @@ function SprintEngineProjectView({
   doneCount,
   activeCount,
   needsInputCount,
-  readyTasks,
   reviewArtifacts,
   artifactActions,
+  selectedAgentId,
   onSelectAgent,
   onSelectTask,
   onAddMember,
+  onAddRole,
   onReadPlan,
   onOpenArtifact,
   onApproveArtifact,
@@ -3001,12 +2993,13 @@ function SprintEngineProjectView({
   doneCount: number
   activeCount: number
   needsInputCount: number
-  readyTasks: SprintEngineTask[]
   reviewArtifacts: SprintEngineArtifact[]
   artifactActions: Record<string, ArtifactActionState>
+  selectedAgentId: string | null
   onSelectAgent: (agentId: string) => void
   onSelectTask: (taskId: string) => void
   onAddMember: () => void
+  onAddRole: (role: SprintEngineRole) => void
   onReadPlan: () => void
   onOpenArtifact: (artifact: SprintEngineArtifact) => void
   onApproveArtifact: (artifact: SprintEngineArtifact) => void
@@ -3016,35 +3009,18 @@ function SprintEngineProjectView({
   const fullGoal = formatSprintEngineGoal(sprintEngineState.goal)
   const goalPreview = formatSprintEngineGoalPreview(sprintEngineState.goal)
   const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 260
-  const tasksByRole = useMemo(() => {
-    const counts: Record<SprintEngineRole, { open: number; ready: number }> = {
-      architect: { open: 0, ready: 0 },
-      product: { open: 0, ready: 0 },
-      developer: { open: 0, ready: 0 },
-      frontend: { open: 0, ready: 0 },
-      code_reviewer: { open: 0, ready: 0 },
-      performance: { open: 0, ready: 0 },
-      tester: { open: 0, ready: 0 },
-      security: { open: 0, ready: 0 },
+  const [isRoleDropTarget, setIsRoleDropTarget] = useState(false)
+  const mapPositions = useMemo(() => buildMapPositions(roster), [roster])
+  const totalTasks = sprintEngineState.tasks.length
+  const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
+  const dispatchRoleSpawn = (role: SprintEngineRole) => {
+    const existing = roster.find((agent) => agent.role === role)
+    if (existing) {
+      onSelectAgent(existing.id)
+    } else {
+      onAddRole(role)
     }
-
-    sprintEngineState.tasks.forEach((task) => {
-      if (task.status !== 'done') counts[task.role].open += 1
-      if (readyTasks.some((readyTask) => readyTask.id === task.id)) counts[task.role].ready += 1
-    })
-
-    return counts
-  }, [readyTasks, sprintEngineState.tasks])
-
-  const currentTaskByAgentId = useMemo(() => {
-    const tasksById = Object.fromEntries(sprintEngineState.tasks.map((task) => [task.id, task]))
-    return Object.fromEntries(
-      runtimeAgents.map((agent) => [
-        agent.agentId,
-        agent.currentTaskId ? tasksById[agent.currentTaskId] ?? null : null,
-      ])
-    )
-  }, [runtimeAgents, sprintEngineState.tasks])
+  }
   const tasksById = useMemo(
     () => Object.fromEntries(sprintEngineState.tasks.map((task) => [task.id, task])),
     [sprintEngineState.tasks]
@@ -3059,353 +3035,288 @@ function SprintEngineProjectView({
   ), [reviewArtifacts, sprintEngineState.tasks])
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-[#08090b] p-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <section className="bg-[#0d0e11] px-4 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Project Brief
-              </div>
-              <h2 className="mt-1 truncate text-lg font-semibold text-[#ececee]">
-                {sprintEngineState.name}
-              </h2>
-            </div>
-            <button
-              onClick={onReadPlan}
-              className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-            >
-              Read Plan
-            </button>
-          </div>
-
-          <div className="mt-4 space-y-5">
-            <div className="grid gap-x-6 gap-y-3 border-y border-[#1f2025] py-4 sm:grid-cols-4">
-              <MetaItem label="Phase" value={runPhase} />
-              <MetaItem label="Tasks" value={String(sprintEngineState.tasks.length)} />
-              <MetaItem label="Done" value={`${doneCount}/${sprintEngineState.tasks.length}`} />
-              <MetaItem label="Active" value={`${activeCount} running, ${needsInputCount} waiting`} />
-            </div>
-
+    <div className="min-h-0 flex-1 overflow-auto bg-[#08090b]">
+      <header className="border-b border-[#1f2025] bg-[#0d0e11] px-6 py-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <span className="inline-flex items-center rounded-full bg-[#5c7cff]/14 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[#d4ddff]">
+              {runPhase}
+            </span>
+            <h2 className="mt-2 truncate text-[22px] font-semibold leading-tight text-[#ececee]">
+              {sprintEngineState.name}
+            </h2>
             <button
               type="button"
               onClick={() => {
                 if (canExpandGoal) setGoalExpanded((current) => !current)
               }}
               aria-expanded={goalExpanded}
-              className={`block w-full border-l-2 border-[#303139] pl-3 text-left transition-colors ${
-                canExpandGoal ? 'hover:border-[#5c7cff]' : ''
+              className={`mt-2 block w-full max-w-3xl text-left text-sm leading-6 text-[#9a9aa2] transition-colors ${
+                canExpandGoal ? 'cursor-pointer hover:text-[#d7d7dc]' : 'cursor-default'
               }`}
             >
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Goal
-                </div>
-                {canExpandGoal ? (
-                  <svg
-                    className={`h-4 w-4 shrink-0 text-[#5a5a63] transition-transform ${goalExpanded ? 'rotate-180' : ''}`}
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : null}
-              </div>
-              <div className={`mt-2 whitespace-pre-wrap text-sm leading-6 text-[#d7d7dc] ${
-                goalExpanded ? 'max-h-72 overflow-y-auto pr-2' : 'line-clamp-4'
-              }`}>
+              <span className={`whitespace-pre-wrap ${goalExpanded ? 'block max-h-72 overflow-y-auto pr-2' : 'block line-clamp-2'}`}>
                 {goalExpanded ? fullGoal : goalPreview}
-              </div>
+              </span>
+              {canExpandGoal ? (
+                <span className="mt-1 inline-block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
+                  {goalExpanded ? 'Show less' : 'Show more'}
+                </span>
+              ) : null}
             </button>
-
-            <SprintEngineArtifactList
-              artifacts={reviewArtifacts}
-              tasksById={tasksById}
-              actions={artifactActions}
-              emptyLabel="No review artifacts are registered for this sprintengine run."
-              onSelectTask={onSelectTask}
-              onOpenArtifact={onOpenArtifact}
-              onApproveArtifact={onApproveArtifact}
-              onRequestArtifactChanges={onRequestArtifactChanges}
-            />
-
-            {blockedByArtifacts.length > 0 ? (
-              <div>
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Blocked By Review
-                </div>
-                <div className="divide-y divide-[#1f2025] border-y border-[#1f2025]">
-                  {blockedByArtifacts.map(({ task, blockers }) => (
-                    <button
-                      key={task.id}
-                      onClick={() => onSelectTask(task.id)}
-                      className="block w-full px-1 py-3 text-left transition-colors hover:bg-[#111216]"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-[#ececee]">
-                          {task.id}: {task.title}
-                        </span>
-                        <span className="text-[11px] font-semibold text-[#ffe0a3]">
-                          Waiting on {formatArtifactBlockerSummary(blockers)}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
           </div>
-        </section>
+          <button
+            onClick={onReadPlan}
+            className="shrink-0 rounded-md border border-[#1f2025] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee]"
+          >
+            Read Plan
+          </button>
+        </div>
 
-        <section className="bg-[#0d0e11] px-4 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Team
+        <div className="mt-5">
+          <div className="flex items-center gap-3">
+            <div
+              className="relative h-1 flex-1 overflow-hidden rounded-full bg-[#1f2025]"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={totalTasks}
+              aria-valuenow={doneCount}
+              aria-label={`${doneCount} of ${totalTasks} tasks done`}
+            >
+              <div
+                className="h-full rounded-full bg-[#30d158]/85 transition-[width]"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-[12px] tabular-nums text-[#9a9aa2]">
+              <span className="font-semibold text-[#d7d7dc]">{doneCount}</span>
+              <span className="text-[#5a5a63]"> / {totalTasks}</span>
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-[#6f7480]">
+            <span>
+              <span className="font-semibold text-[#d7d7dc]">{activeCount}</span> running
+            </span>
+            {needsInputCount > 0 ? (
+              <span className="text-[#ffe0a3]">
+                <span className="font-semibold">{needsInputCount}</span> needs input
+              </span>
+            ) : (
+              <span>
+                <span className="font-semibold text-[#d7d7dc]">0</span> needs input
+              </span>
+            )}
+            <span>
+              <span className="font-semibold text-[#d7d7dc]">{roster.length}</span> on roster
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="min-w-0 space-y-7">
+          <section>
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2]">
+                Review Queue
+              </h3>
+              <span className="text-[11px] text-[#5a5a63]">
+                {reviewArtifacts.length === 0
+                  ? 'Nothing waiting'
+                  : `${reviewArtifacts.length} ${reviewArtifacts.length === 1 ? 'artifact' : 'artifacts'}`}
+              </span>
+            </div>
+            <div className="mt-3">
+              <SprintEngineArtifactList
+                artifacts={reviewArtifacts}
+                tasksById={tasksById}
+                actions={artifactActions}
+                emptyLabel="No artifacts are awaiting review."
+                onSelectTask={onSelectTask}
+                onOpenArtifact={onOpenArtifact}
+                onApproveArtifact={onApproveArtifact}
+                onRequestArtifactChanges={onRequestArtifactChanges}
+              />
+            </div>
+          </section>
+
+          {blockedByArtifacts.length > 0 ? (
+            <section>
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffe0a3]">
+                  Blocked by Review
+                </h3>
+                <span className="text-[11px] text-[#5a5a63]">
+                  {blockedByArtifacts.length} {blockedByArtifacts.length === 1 ? 'task' : 'tasks'}
+                </span>
               </div>
-              <div className="mt-1 text-sm font-semibold text-[#ececee]">
-                Specialist Roster
+              <div className="mt-3 divide-y divide-[#1f2025] border-y border-[#1f2025]">
+                {blockedByArtifacts.map(({ task, blockers }) => (
+                  <button
+                    key={task.id}
+                    onClick={() => onSelectTask(task.id)}
+                    className="block w-full px-1 py-3 text-left transition-colors hover:bg-[#111216]"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-[#ececee]">
+                        {task.id}: {task.title}
+                      </span>
+                      <span className="text-[11px] font-semibold text-[#ffe0a3]">
+                        Waiting on {formatArtifactBlockerSummary(blockers)}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        <aside className="flex min-w-0 flex-col gap-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <div>
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2]">
+                Roster
+              </h3>
+              <div className="mt-1 text-[11px] text-[#5a5a63]">
+                Drag a role onto the map to spawn
               </div>
             </div>
             <button
               onClick={onAddMember}
-              className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              className="rounded-md px-2.5 py-1 text-[12px] font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
             >
               More Roles
             </button>
           </div>
 
-          <div className="mt-4 divide-y divide-[#1f2025] border-y border-[#1f2025]">
-            {roster.map((agent) => {
-              const runtime = runtimeAgents.find((candidate) => candidate.agentId === agent.id)
-              const isLaunched = Boolean(agents[agent.id]?.cliStartRequested)
-              const counts = tasksByRole[agent.role]
-              const currentTask = currentTaskByAgentId[agent.id]
-              const activeTaskLabel = currentTask ? `${currentTask.id}: ${currentTask.title}` : 'No active task'
-
+          <div className="grid grid-cols-2 gap-1.5">
+            {addableRoles.map((role) => {
+              const existing = roster.find((agent) => agent.role === role)
+              const isLaunched = existing ? Boolean(agents[existing.id]?.cliStartRequested) : false
+              const subtitle = existing
+                ? (isLaunched ? 'Open terminal' : 'Drag to spawn')
+                : 'Drag to add'
               return (
-                <div
-                  key={agent.id}
-                  className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+                <button
+                  key={role}
+                  type="button"
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData('text/sprintengine-role', role)
+                    event.dataTransfer.effectAllowed = 'copy'
+                  }}
+                  onClick={() => dispatchRoleSpawn(role)}
+                  title={`${sprintEngineRoleLabels[role]} — ${subtitle}`}
+                  className={`flex items-center gap-2 rounded-md border bg-transparent px-2 py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 ${
+                    existing
+                      ? 'border-[#1f2025] hover:border-[#303139] hover:bg-[#111216]'
+                      : 'border-dashed border-[#303139] hover:border-[#5c7cff]/45 hover:bg-[#111216]'
+                  }`}
+                  style={{ cursor: 'grab' }}
                 >
                   <span
-                    className="flex h-9 w-9 items-center justify-center rounded-full border bg-[#111216] text-[11px] font-bold text-[#ececee]"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
                     style={{
-                      borderColor: sprintEngineRoleAccent[agent.role],
+                      backgroundColor: hexToRgba(sprintEngineRoleAccent[role], existing ? 0.18 : 0.08),
+                      color: sprintEngineRoleAccent[role],
                     }}
                   >
-                    {agent.label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}
+                    <SprintEngineRoleIcon role={role} className="h-4 w-4" />
                   </span>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold leading-5 text-[#ececee]">{agent.label}</div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-[#5a5a63]">
-                      <span>{runtimeStatusLabel(runtime?.status ?? 'idle')}</span>
-                      <span>{counts.open} open</span>
-                      <span>{counts.ready} ready</span>
-                    </div>
-                    <div className="mt-1 truncate text-[12px] text-[#9a9aa2]">
-                      {activeTaskLabel}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => onSelectAgent(agent.id)}
-                    className={`col-span-2 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors sm:col-span-1 ${
-                      isLaunched
-                        ? 'text-[#d4ffdc] hover:bg-[#30d158]/12'
-                        : 'text-[#d4ddff] hover:bg-[#5c7cff]/12'
-                    }`}
-                  >
-                    {isLaunched ? 'Open Terminal' : `Spawn ${sprintEngineRoleLabels[agent.role]}`}
-                  </button>
-                </div>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12px] font-semibold text-[#ececee]">
+                      {sprintEngineRoleLabels[role]}
+                    </span>
+                    <span className="block truncate text-[10px] text-[#6f7480]">
+                      {subtitle}
+                    </span>
+                  </span>
+                </button>
               )
             })}
           </div>
-        </section>
-      </div>
-    </div>
-  )
-}
 
-function SprintEngineMapView({
-  sprintEngineState,
-  roster,
-  rosterById,
-  runtimeAgents,
-  runPhase,
-  selectedAgentId,
-  onSelectAgent,
-}: {
-  workspaceId: string
-  sprintEngineState: SprintEngineState
-  roster: RosterItem[]
-  rosterById: Record<string, RosterItem | undefined>
-  runtimeAgents: RuntimeAgentView[]
-  runPhase: string
-  selectedAgentId: string | null
-  onSelectAgent: (agentId: string) => void
-}) {
-  const selectedAgent = selectedAgentId ? rosterById[selectedAgentId] : undefined
-  const selectedRuntime = selectedAgentId
-    ? runtimeAgents.find((agent) => agent.agentId === selectedAgentId)
-    : undefined
-  const selectedTask = selectedRuntime?.currentTaskId
-    ? sprintEngineState.tasks.find((task) => task.id === selectedRuntime.currentTaskId)
-    : null
-  const positions = buildMapPositions(roster)
-  const doneCount = sprintEngineState.tasks.filter((task) => task.status === 'done').length
-  const activeCount = runtimeAgents.filter((agent) => agent.status === 'running').length
-  const needsInputCount = runtimeAgents.filter((agent) => agent.status === 'needs_input').length
-  const mapCanvasRef = useRef<HTMLDivElement | null>(null)
-
-  const updateMapCursor = (event: React.PointerEvent<HTMLDivElement>) => {
-    const el = mapCanvasRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    el.style.setProperty('--sprintengine-cursor-x', `${event.clientX - rect.left}px`)
-    el.style.setProperty('--sprintengine-cursor-y', `${event.clientY - rect.top}px`)
-    el.style.setProperty('--sprintengine-cursor-opacity', '1')
-  }
-
-  const clearMapCursor = () => {
-    mapCanvasRef.current?.style.setProperty('--sprintengine-cursor-opacity', '0')
-  }
-
-  return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden bg-[#08090b] lg:grid-cols-[minmax(0,1fr)_340px]">
-      <div
-        ref={mapCanvasRef}
-        onPointerEnter={updateMapCursor}
-        onPointerMove={updateMapCursor}
-        onPointerLeave={clearMapCursor}
-        className="relative min-h-[460px] overflow-hidden"
-        style={{
-          backgroundImage:
-            'radial-gradient(circle, rgba(255,255,255,0.12) 0, rgba(255,255,255,0.12) 1px, transparent 1px)',
-          backgroundColor: '#08090b',
-          backgroundSize: '24px 24px',
-        }}
-      >
-        <div
-          className="pointer-events-none absolute inset-0 transition-opacity duration-150"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle, rgba(255,255,255,0.38) 0, rgba(255,255,255,0.38) 1px, transparent 1px)',
-            backgroundSize: '24px 24px',
-            maskImage:
-              'radial-gradient(circle at var(--sprintengine-cursor-x, 50%) var(--sprintengine-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
-            opacity: 'var(--sprintengine-cursor-opacity, 0)',
-            WebkitMaskImage:
-              'radial-gradient(circle at var(--sprintengine-cursor-x, 50%) var(--sprintengine-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
-          }}
-        />
-        <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-          {positions
-            .filter((node) => node.agent.role !== 'architect')
-            .map((node) => (
-              <line
-                key={node.agent.id}
-                x1="50"
-                y1="38"
-                x2={node.x}
-                y2={node.y}
-                stroke={sprintEngineRoleAccent[node.agent.role]}
-                strokeWidth="0.18"
-                strokeDasharray="1.2 1.8"
-                opacity="0.42"
-              />
-            ))}
-        </svg>
-
-        {positions.map((node) => {
-          const runtime = runtimeAgents.find((agent) => agent.agentId === node.agent.id)
-          const selected = node.agent.id === selectedAgentId
-          const task = runtime?.currentTaskId
-            ? sprintEngineState.tasks.find((candidate) => candidate.id === runtime.currentTaskId)
-            : null
-
-          return (
-            <button
-              key={node.agent.id}
-              onClick={() => onSelectAgent(node.agent.id)}
-              className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2 text-center transition-transform hover:scale-[1.02] ${
-                selected ? 'z-10 scale-[1.03]' : 'z-0'
-              }`}
-              style={{ left: `${node.x}%`, top: `${node.y}%` }}
-            >
-              <span
-                className="relative flex h-16 w-16 items-center justify-center rounded-full border bg-[#111216] text-base font-semibold text-[#ececee]"
-                style={{
-                  borderColor: selected ? sprintEngineRoleAccent[node.agent.role] : '#303139',
-                  color: '#9a9aa2',
-                  boxShadow: selected ? `0 0 0 3px ${hexToRgba(sprintEngineRoleAccent[node.agent.role], 0.16)}` : undefined,
-                }}
-              >
-                <SprintEngineRoleIcon role={node.agent.role} className="h-7 w-7" />
-                <span
-                  className="absolute -right-1 top-3 h-3 w-3 rounded-full border border-[#08090b]"
-                  style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
-                />
-              </span>
-              <span className="max-w-[150px] truncate text-sm font-semibold text-[#ececee]">{node.agent.label}</span>
-              <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${runtimeTone(runtime?.status ?? 'idle')}`}>
-                {runtimeStatusLabel(runtime?.status ?? 'idle')}
-              </span>
-              {task ? (
-                <span className="max-w-[180px] truncate text-[10px] text-[#9a9aa2]">
-                  {task.id}: {task.title}
-                </span>
-              ) : null}
-            </button>
-          )
-        })}
-      </div>
-
-      <aside className="border-t border-[#1f2025] bg-[#0d0e11] p-4 lg:border-l lg:border-t-0">
-        <div className="mb-5">
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">SprintEngine State</div>
-          <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-            <MetaItem label="Phase" value={runPhase} />
-            <MetaItem label="Board" value={`${sprintEngineState.tasks.length} tasks`} />
-            <MetaItem label="Tasks" value={`${doneCount}/${sprintEngineState.tasks.length} done`} />
-            <MetaItem label="Agents" value={`${activeCount} run, ${needsInputCount} wait`} />
-          </div>
-        </div>
-        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">Selected Specialist</div>
-        {selectedAgent ? (
-          <div className="mt-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <span
-                className="flex h-14 w-14 items-center justify-center rounded-full border bg-[#111216] text-base font-semibold text-[#ececee]"
-                style={{
-                  borderColor: sprintEngineRoleAccent[selectedAgent.role],
-                  color: '#9a9aa2',
-                }}
-              >
-                <SprintEngineRoleIcon role={selectedAgent.role} className="h-7 w-7" />
-              </span>
-              <div className="min-w-0">
-                <div className="truncate text-lg font-semibold text-[#ececee]">{selectedAgent.label}</div>
-                <div className="mt-1 text-sm text-[#9a9aa2]">{sprintEngineRoleLabels[selectedAgent.role]}</div>
-              </div>
-            </div>
-
-            <MetaItem label="Status" value={runtimeStatusLabel(selectedRuntime?.status ?? 'idle')} />
-            <MetaItem label="Current Task" value={selectedTask ? `${selectedTask.id} - ${selectedTask.title}` : 'No active task'} />
-
-            {selectedAgent.role === 'product' ? (
-              <div className="border-l border-pink-300/35 pl-3 text-sm leading-6 text-pink-100">
-                Product guides market fit, competitor context, audience needs, workflow risk, and prioritization before the plan hardens.
+          <div
+            className={`relative min-h-[360px] flex-1 overflow-hidden rounded-md border transition-colors ${
+              isRoleDropTarget ? 'border-[#5c7cff]/55 bg-[#5c7cff]/4' : 'border-[#1f2025]'
+            }`}
+            style={{
+              backgroundImage:
+                'radial-gradient(circle, rgba(255,255,255,0.10) 0, rgba(255,255,255,0.10) 1px, transparent 1px)',
+              backgroundColor: isRoleDropTarget ? '#0e1330' : '#08090b',
+              backgroundSize: '20px 20px',
+            }}
+            onDragOver={(event) => {
+              if (!Array.from(event.dataTransfer.types).includes('text/sprintengine-role')) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'copy'
+              setIsRoleDropTarget(true)
+            }}
+            onDragLeave={() => setIsRoleDropTarget(false)}
+            onDrop={(event) => {
+              event.preventDefault()
+              setIsRoleDropTarget(false)
+              const role = event.dataTransfer.getData('text/sprintengine-role')
+              if (role && (addableRoles as readonly string[]).includes(role)) {
+                dispatchRoleSpawn(role as SprintEngineRole)
+              }
+            }}
+            aria-label="Roster map"
+          >
+            {roster.length === 0 ? (
+              <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-[#6f7480]">
+                Drag a role from the palette to start the team.
               </div>
             ) : null}
+            {mapPositions.map((node) => {
+              const runtime = runtimeAgents.find((agent) => agent.agentId === node.agent.id)
+              const selected = node.agent.id === selectedAgentId
+              const task = runtime?.currentTaskId
+                ? sprintEngineState.tasks.find((candidate) => candidate.id === runtime.currentTaskId)
+                : null
+              const launched = Boolean(agents[node.agent.id]?.cliStartRequested)
+              return (
+                <button
+                  key={node.agent.id}
+                  type="button"
+                  onClick={() => onSelectAgent(node.agent.id)}
+                  title={launched ? `Open ${node.agent.label}` : `Spawn ${node.agent.label}`}
+                  className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 text-center transition-transform hover:scale-[1.03] ${
+                    selected ? 'z-10 scale-[1.03]' : 'z-0'
+                  }`}
+                  style={{ left: `${node.x}%`, top: `${node.y}%` }}
+                >
+                  <span
+                    className="relative flex h-12 w-12 items-center justify-center rounded-full border bg-[#111216]"
+                    style={{
+                      borderColor: selected ? sprintEngineRoleAccent[node.agent.role] : '#303139',
+                      color: '#9a9aa2',
+                      boxShadow: selected
+                        ? `0 0 0 3px ${hexToRgba(sprintEngineRoleAccent[node.agent.role], 0.16)}`
+                        : undefined,
+                    }}
+                  >
+                    <SprintEngineRoleIcon role={node.agent.role} className="h-5 w-5" />
+                    <span
+                      className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-[#0d0e11]"
+                      style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
+                    />
+                  </span>
+                  <span className="max-w-[120px] truncate text-[11px] font-semibold text-[#ececee]">
+                    {node.agent.label}
+                  </span>
+                  {task ? (
+                    <span className="max-w-[140px] truncate text-[10px] text-[#9a9aa2]">
+                      {task.id}
+                    </span>
+                  ) : null}
+                </button>
+              )
+            })}
           </div>
-        ) : (
-          <div className="mt-4 border-l border-[#303139] pl-3 text-sm leading-6 text-[#5a5a63]">
-            Select a specialist on the map.
-          </div>
-        )}
-      </aside>
+        </aside>
+      </div>
     </div>
   )
 }
@@ -4933,25 +4844,6 @@ function hexToRgba(hex: string, alpha: number): string {
   const green = parseInt(value.slice(2, 4), 16)
   const blue = parseInt(value.slice(4, 6), 16)
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`
-}
-
-function runtimeTone(status: string): string {
-  switch (status) {
-    case 'running':
-      return 'bg-[#ffa600]/14 text-[#ffd58a]'
-    case 'needs_input':
-      return 'bg-[#ffbf2f]/14 text-[#ffe0a3]'
-    case 'planning':
-      return 'bg-[#1a1b20] text-[#9a9aa2]'
-    case 'complete':
-      return 'bg-[#30d158]/12 text-[#d4ffdc]'
-    case 'exited':
-      return 'bg-[#5a5a63]/24 text-[#9a9aa2]'
-    case 'error':
-      return 'bg-[#ff5a5f]/14 text-[#ffb3b5]'
-    default:
-      return 'bg-[#1a1b20] text-[#9a9aa2]'
-  }
 }
 
 function runtimeStatusLabel(status: string): string {

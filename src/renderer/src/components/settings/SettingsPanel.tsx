@@ -3,6 +3,8 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli } from '../../types/workspace'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
+import MobileSettingsTab from './MobileSettingsTab'
+import { MetaCell, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 interface Props {
   onClose: () => void
@@ -10,20 +12,26 @@ interface Props {
   checkForUpdatesRequestId?: number
 }
 
-type MetaTone = 'positive' | 'muted'
-
 type UpdateAction = 'check' | 'download' | 'restart'
 
 type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
 
-type SettingsTabId = 'updates' | 'github' | 'agents' | 'file-search' | 'knowledge-graph' | 'telemetry'
+type SettingsTabId =
+  | 'updates'
+  | 'github'
+  | 'agents'
+  | 'file-search'
+  | 'knowledge-graph'
+  | 'mobile'
+  | 'telemetry'
 
 const settingsTabs: Array<{ id: SettingsTabId; label: string; description: string }> = [
-  { id: 'updates', label: 'Updates', description: 'Version and release checks' },
+  { id: 'updates', label: 'Updates', description: 'Version and release channel' },
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
   { id: 'file-search', label: 'File Search', description: 'Index exclude patterns' },
   { id: 'knowledge-graph', label: 'Knowledge Graph', description: 'Project knowledge' },
+  { id: 'mobile', label: 'Mobile', description: 'Phone pairing and relay' },
   { id: 'telemetry', label: 'Telemetry', description: 'Usage and diagnostics' },
 ]
 
@@ -119,6 +127,7 @@ export default function SettingsPanel({
     agents: null,
     'file-search': null,
     'knowledge-graph': null,
+    mobile: null,
     telemetry: null,
   })
   const autoCheckStartedRef = useRef(false)
@@ -482,14 +491,9 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-updates"
           className="space-y-4"
         >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Application Updates
-              </div>
-              <div className="mt-1 text-sm font-semibold text-[#ececee]">
-                Multicode {updateState?.version ?? '...'}
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 text-sm font-semibold text-[#ececee]">
+              Multicode {updateState?.version ?? '...'}
             </div>
             <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${updateChannelClass(updateState?.channel)}`}>
               {formatUpdateChannel(updateState?.channel)}
@@ -550,14 +554,9 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-github"
           className="space-y-4"
         >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                GitHub Issues
-              </div>
-              <div className="mt-1 text-sm font-semibold text-[#ececee]">
-                GitHub access token
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 text-sm font-semibold text-[#ececee]">
+              GitHub access token
             </div>
             <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${githubTokenStatusClass(githubTokenStatus)}`}>
               {formatGitHubTokenStatus(githubTokenStatus)}
@@ -616,9 +615,6 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-agents"
           className="space-y-4"
         >
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-            Agent CLIs
-          </div>
           {([
             ['codex', 'Codex command'],
             ['claude', 'Claude command'],
@@ -660,17 +656,9 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-file-search"
           className="space-y-4"
         >
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-              File Search
-            </div>
-            <div className="mt-1 text-sm font-semibold text-[#ececee]">
-              Additional exclude patterns
-            </div>
-          </div>
           <label className="block">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-              Excludes
+              Additional exclude patterns
             </span>
             <textarea
               value={searchExcludesDraft}
@@ -696,17 +684,12 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-knowledge-graph"
           className="space-y-4"
         >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Workspace Knowledge
-              </div>
-              <div className="mt-1 text-sm font-semibold text-[#ececee]">
-                Markdown knowledge graph
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 text-sm font-semibold text-[#ececee]">
+              Markdown knowledge graph
             </div>
             {activeWorkspace ? (
-              <div className="max-w-[260px] truncate text-[11px] text-[#9a9aa2]">
+              <div className="max-w-[260px] truncate rounded-md border border-[#303139] bg-[#0d0e11] px-2.5 py-1 text-[11px] font-semibold text-[#b8ccff]">
                 {activeWorkspace.name}
               </div>
             ) : null}
@@ -807,6 +790,8 @@ export default function SettingsPanel({
         </div>
         ) : null}
 
+        {activeSettingsTab === 'mobile' ? <MobileSettingsTab /> : null}
+
         {activeSettingsTab === 'telemetry' ? (
         <div
           role="tabpanel"
@@ -814,16 +799,15 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-telemetry"
           className="space-y-4"
         >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Usage Telemetry
-              </div>
-              <div className="mt-1 text-sm font-semibold text-[#ececee]">
-                SprintEngine usage data and diagnostics
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 text-sm font-semibold text-[#ececee]">
+              SprintEngine usage data and diagnostics
             </div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
+            <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
+              import.meta.env.DEV
+                ? 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#ffe0a3]'
+                : 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2]'
+            }`}>
               {import.meta.env.DEV ? 'Development build' : 'Production build'}
             </div>
           </div>
@@ -931,77 +915,6 @@ function UpdateActionButton({
   )
 }
 
-function SettingToggle({
-  label,
-  description,
-  enabled,
-  onChange,
-  disabled,
-}: {
-  label: string
-  description?: string
-  enabled: boolean
-  onChange: (next: boolean) => void
-  disabled?: boolean
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-[#ececee]">{label}</div>
-        {description ? (
-          <div className="mt-1 text-[12px] leading-5 text-[#5a5a63]">{description}</div>
-        ) : null}
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={enabled}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!enabled)}
-        className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 disabled:opacity-45 ${
-          enabled ? 'bg-[#5c7cff]' : 'bg-[#303139]'
-        }`}
-      >
-        <span
-          aria-hidden="true"
-          className={`pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-transform ${
-            enabled ? 'translate-x-4 bg-[#08090b]' : 'translate-x-0 bg-[#d7d7dc]'
-          }`}
-        />
-      </button>
-    </div>
-  )
-}
-
-function MetaCell({
-  label,
-  value,
-  tone,
-}: {
-  label: string
-  value: string
-  tone?: MetaTone
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] uppercase tracking-[0.14em] text-[#5a5a63]">{label}</div>
-      <div className={`mt-1 truncate font-medium ${metaToneClass(tone)}`}>{value}</div>
-    </div>
-  )
-}
-
-function metaToneClass(tone?: MetaTone): string {
-  switch (tone) {
-    case 'positive':
-      return 'text-[#b9f7c8]'
-    case 'muted':
-      return 'text-[#9a9aa2]'
-    default:
-      return 'text-[#ececee]'
-  }
-}
-
 function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null): string {
   if (!status) return 'Skill status has not been checked.'
   if (!status.ok) return status.message
@@ -1096,12 +1009,3 @@ function formatUpdateStatus(state: AppUpdateState | null): string {
   }
 }
 
-function formatNullableDate(value: string | null | undefined): string {
-  return value ? formatDate(value) : 'None'
-}
-
-function formatDate(value: string): string {
-  const time = Date.parse(value)
-  if (Number.isNaN(time)) return value
-  return new Date(time).toLocaleString()
-}

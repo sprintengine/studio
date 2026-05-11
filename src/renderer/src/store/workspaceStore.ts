@@ -770,7 +770,6 @@ const sprintEngineTabsLayoutModel = (
         weight: options?.includeAgentTabs === false ? 100 : 58,
         children: [
           { type: 'tab', name: 'Project', component: 'sprintengine-project' },
-          { type: 'tab', name: 'SprintEngine Map', component: 'sprintengine-map' },
           { type: 'tab', name: 'Task Graph', component: 'sprintengine-task-graph' },
           { type: 'tab', name: 'Kanban', component: 'sprintengine-kanban' },
         ],

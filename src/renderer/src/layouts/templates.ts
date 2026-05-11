@@ -20,11 +20,6 @@ const sprintEngineProjectTab = () => ({
   name: 'Project',
   component: 'sprintengine-project',
 })
-const sprintEngineMapTab = () => ({
-  type: 'tab',
-  name: 'SprintEngine Map',
-  component: 'sprintengine-map',
-})
 const sprintEngineTaskGraphTab = () => ({
   type: 'tab',
   name: 'Task Graph',
@@ -55,12 +50,11 @@ export function createSprintEngineTemplate(_config: SprintEngineMockConfig): Lay
   return {
     id: 'sprintengine-mode',
     name: 'SprintEngine Mode',
-    description: 'Project brief, map, task graph, and Kanban.',
+    description: 'Project dashboard with roster map, task graph, and Kanban.',
     previewSlots: [
-      editor('Brief', 4, 4, 168, 22),
-      editor('Map', 4, 30, 168, 22),
-      editor('Graph', 4, 56, 168, 22),
-      editor('Kanban', 4, 82, 168, 24),
+      editor('Project', 4, 4, 168, 34),
+      editor('Graph', 4, 42, 168, 32),
+      editor('Kanban', 4, 78, 168, 28),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -73,7 +67,6 @@ export function createSprintEngineTemplate(_config: SprintEngineMockConfig): Lay
             weight: 100,
             children: [
               sprintEngineProjectTab(),
-              sprintEngineMapTab(),
               sprintEngineTaskGraphTab(),
               sprintEngineKanbanTab(),
             ],

@@ -38,7 +38,6 @@ const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPan
 const WatchtowerPanel = React.lazy(() => import('../panels/WatchtowerPanel'))
 const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoardPanel'))
 const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
-const MobileCompanionPanel = React.lazy(() => import('../panels/MobileCompanionPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const AGENT_TAB_ROLE_CLASS_PREFIX = 'agent-tab-role-'
 const loadedPanelComponents = new Set<string>()
@@ -324,9 +323,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         case 'sprintengine':
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} />)
         case 'sprintengine-project':
-          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="project" />)
         case 'sprintengine-map':
-          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="map" />)
+          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="project" />)
         case 'sprintengine-task-graph':
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="task-graph" />)
         case 'sprintengine-kanban':
@@ -342,8 +340,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('SwitchboardBoardPanel', <SwitchboardBoardPanel workspaceId={workspaceId} />)
         case 'memory-graph':
           return timedPanel('MemoryGraphPanel', <MemoryGraphPanel workspaceId={workspaceId} />)
-        case 'mobile-companion':
-          return timedPanel('MobileCompanionPanel', <MobileCompanionPanel />)
         case 'settings':
           return (
             <SettingsPanel
