@@ -7,7 +7,6 @@ import shlex
 import shutil
 import signal
 import subprocess
-import sys
 import time
 import uuid
 from contextlib import contextmanager
@@ -15,6 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+from .runtime import start_local_process_agent_execution as runtime_start_local_process_agent_execution
 
 
 TASK_STATUSES = (
@@ -916,79 +917,26 @@ def start_local_process_agent_execution(
     provider_ref_metadata: dict[str, Any] | None = None,
     cleanup_path: Path | None = None,
 ) -> dict[str, Any]:
-    current_dir = execution_dir(workspace, execution_id)
-    current_dir.mkdir(parents=True, exist_ok=False)
-    stdout_path = current_dir / "stdout.log"
-    stderr_path = current_dir / "stderr.log"
-    prompt_path = current_dir / "prompt.txt"
-    exit_path = current_dir / "exit.json"
-    stdout_path.touch()
-    stderr_path.touch()
-    prompt_path.write_text(prompt + "\n", encoding="utf-8")
-    wrapper = (
-        "import json, pathlib, subprocess, sys\n"
-        "command=json.loads(sys.argv[1])\n"
-        "prompt=pathlib.Path(sys.argv[2]).read_text(encoding='utf-8')\n"
-        "stdout_path=pathlib.Path(sys.argv[3])\n"
-        "stderr_path=pathlib.Path(sys.argv[4])\n"
-        "exit_path=pathlib.Path(sys.argv[5])\n"
-        "with stdout_path.open('ab') as stdout, stderr_path.open('ab') as stderr:\n"
-        "    completed=subprocess.run(command, input=prompt, text=True, stdout=stdout, stderr=stderr)\n"
-        "exit_path.write_text(json.dumps({'exitCode': completed.returncode}), encoding='utf-8')\n"
-        "sys.exit(completed.returncode)\n"
-    )
-    try:
-        process = subprocess.Popen(
-            [sys.executable, "-c", wrapper, json.dumps(command), str(prompt_path), str(stdout_path), str(stderr_path), str(exit_path)],
-            cwd=str(run_workspace),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=os.name != "nt",
-        )
-    except Exception:
-        if cleanup_path:
-            try:
-                remove_worktree_path(workspace, cleanup_path, force=True)
-            except SwitchboardError:
-                pass
-        raise
+    def cleanup(path: Path) -> None:
+        try:
+            remove_worktree_path(workspace, path, force=True)
+        except SwitchboardError:
+            pass
 
-    provider_ref = {
-        "pid": process.pid,
-        "executionDir": str(current_dir.relative_to(switchboard_root(workspace))),
-        "stdoutLog": str(stdout_path.relative_to(switchboard_root(workspace))),
-        "stderrLog": str(stderr_path.relative_to(switchboard_root(workspace))),
-        "exitFile": str(exit_path.relative_to(switchboard_root(workspace))),
-        "cwd": str(run_workspace),
-    }
-    if provider_ref_metadata:
-        provider_ref.update(provider_ref_metadata)
-    started_at = now_iso()
-    execution = {
-        "executionId": execution_id,
-        "kind": kind,
-        "role": role,
-        "provider": "local-process",
-        "providerRef": provider_ref,
-        "startedAt": started_at,
-        "lastSeenAt": started_at,
-        "status": "active",
-        **(metadata or {}),
-    }
-    metadata = {
-        "schemaVersion": 1,
-        **execution,
-        "command": command,
-        "cwd": str(run_workspace),
-        "prompt": prompt,
-        "promptFile": str(prompt_path.relative_to(switchboard_root(workspace))),
-        "pid": process.pid,
-        "exitCode": None,
-        "completedAt": None,
-        "error": None,
-    }
-    atomic_write_json(current_dir / "metadata.json", metadata)
-    return execution
+    return runtime_start_local_process_agent_execution(
+        switchboard_root=switchboard_root(workspace),
+        command=command,
+        execution_id=execution_id,
+        kind=kind,
+        role=role,
+        prompt=prompt,
+        run_workspace=run_workspace,
+        metadata=metadata,
+        provider_ref_metadata=provider_ref_metadata,
+        cleanup_path=cleanup_path,
+        cleanup_on_launch_error=cleanup if cleanup_path else None,
+        started_at=now_iso(),
+    )
 
 
 def terminate_process(pid: Any, *, timeout_seconds: float = 3.0) -> dict[str, Any]:

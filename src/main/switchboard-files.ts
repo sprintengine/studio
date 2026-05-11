@@ -2,7 +2,6 @@ export {
   addSwitchboardComment,
   cancelSwitchboardTask,
   claimSwitchboardTask,
-  createWatchtowerRun,
   createSwitchboardTask,
   getWatchtowerRun,
   initializeSwitchboard,
@@ -24,5 +23,4 @@ export {
   stopSwitchboardRunner,
   tickSwitchboardRunner,
   updateSwitchboardTask,
-  updateWatchtowerRunAgentStatus,
 } from './switchboard-python'

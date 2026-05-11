@@ -21,8 +21,6 @@ import type {
   SwitchboardStopExecutionInput,
   SwitchboardStopExecutionResult,
   SwitchboardUpdateTaskInput,
-  WatchtowerRunAgentStatusInput,
-  WatchtowerRunCreateInput,
   WatchtowerRunListResult,
   WatchtowerRunResult,
   WatchtowerStartReviewInput,
@@ -68,16 +66,12 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:runner:state', workspaceRoot),
   stopSwitchboardExecution: (input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> =>
     ipcRenderer.invoke('switchboard:execution:stop', input),
-  createWatchtowerRun: (input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> =>
-    ipcRenderer.invoke('switchboard:watchtower:create-run', input),
   startWatchtowerReview: (input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> =>
     ipcRenderer.invoke('switchboard:watchtower:start-review', input),
   startWatchtowerTriage: (input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult> =>
     ipcRenderer.invoke('switchboard:watchtower:start-triage', input),
   getWatchtowerRun: (input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult> =>
     ipcRenderer.invoke('switchboard:watchtower:get-run', input),
-  updateWatchtowerRunAgentStatus: (input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult> =>
-    ipcRenderer.invoke('switchboard:watchtower:update-agent-status', input),
   listWatchtowerRuns: (workspaceRoot: string): Promise<WatchtowerRunListResult> =>
     ipcRenderer.invoke('switchboard:watchtower:list-runs', workspaceRoot),
   importGitHubIssuesToWatchtower: (workspaceRoot: string): Promise<SwitchboardImportResult> =>
@@ -105,11 +99,9 @@ export const switchboardApi = {
   | 'tickSwitchboardRunner'
   | 'getSwitchboardRunnerState'
   | 'stopSwitchboardExecution'
-  | 'createWatchtowerRun'
   | 'startWatchtowerReview'
   | 'startWatchtowerTriage'
   | 'getWatchtowerRun'
-  | 'updateWatchtowerRunAgentStatus'
   | 'listWatchtowerRuns'
   | 'importGitHubIssuesToWatchtower'
   | 'importJiraIssuesToWatchtower'

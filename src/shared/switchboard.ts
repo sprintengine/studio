@@ -185,13 +185,6 @@ export type WatchtowerRun = {
   counts: WatchtowerRunCounts
 }
 
-export type WatchtowerRunCreateInput = {
-  workspaceRoot: string
-  preset: string
-  status?: WatchtowerRunStatus
-  agents?: WatchtowerRunAgent[]
-}
-
 export type WatchtowerStartReviewInput = {
   workspaceRoot: string
   preset: string
@@ -206,13 +199,6 @@ export type WatchtowerStartTriageInput = {
 export type WatchtowerRunResult =
   | { ok: true; run: WatchtowerRun }
   | { ok: false; message: string }
-
-export type WatchtowerRunAgentStatusInput = {
-  workspaceRoot: string
-  runId: string
-  agentId: string
-  status: WatchtowerRunStatus
-}
 
 export type WatchtowerRunListResult =
   | { ok: true; runs: WatchtowerRun[]; problems?: Array<{ runId: string; path: string; message: string }> }

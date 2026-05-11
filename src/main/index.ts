@@ -45,7 +45,6 @@ import {
   addSwitchboardComment,
   cancelSwitchboardTask,
   claimSwitchboardTask,
-  createWatchtowerRun,
   createSwitchboardTask,
   getWatchtowerRun,
   initializeSwitchboard,
@@ -66,7 +65,6 @@ import {
   stopSwitchboardRunner,
   tickSwitchboardRunner,
   updateSwitchboardTask,
-  updateWatchtowerRunAgentStatus,
 } from './switchboard-files'
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
@@ -160,11 +158,9 @@ registerSwitchboardIpc(ipcMain, {
   tickRunner: tickSwitchboardRunner,
   getRunnerState: getSwitchboardRunnerState,
   stopExecution: stopSwitchboardExecution,
-  createWatchtowerRun,
   startWatchtowerReview,
   startWatchtowerTriage,
   getWatchtowerRun,
-  updateWatchtowerRunAgentStatus,
   listWatchtowerRuns,
   importGitHubIssues: (workspaceRoot) => importGitHubIssuesIntoWatchtower({ workspaceRoot, tokenStore: githubTokenStore }),
   importJiraIssues: (workspaceRoot) => importJiraIssuesIntoWatchtower({ workspaceRoot }),

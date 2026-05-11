@@ -20,8 +20,6 @@ import type {
   SwitchboardStopExecutionInput,
   SwitchboardStopExecutionResult,
   SwitchboardUpdateTaskInput,
-  WatchtowerRunAgentStatusInput,
-  WatchtowerRunCreateInput,
   WatchtowerRunListResult,
   WatchtowerRunResult,
   WatchtowerStartReviewInput,
@@ -48,11 +46,9 @@ type SwitchboardIpcDependencies = {
   tickRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   getRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult>
   stopExecution(input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult>
-  createWatchtowerRun(input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult>
   startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult>
   startWatchtowerTriage(input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult>
   getWatchtowerRun(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult>
-  updateWatchtowerRunAgentStatus(input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult>
   listWatchtowerRuns(workspaceRoot: string): Promise<WatchtowerRunListResult>
   importGitHubIssues(workspaceRoot: string): Promise<SwitchboardImportResult>
   importJiraIssues(workspaceRoot: string): Promise<SwitchboardImportResult>
@@ -138,10 +134,6 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
     return deps.stopExecution(input)
   })
 
-  ipcMain.handle('switchboard:watchtower:create-run', async (_, input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> => {
-    return deps.createWatchtowerRun(input)
-  })
-
   ipcMain.handle('switchboard:watchtower:start-review', async (_, input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> => {
     return deps.startWatchtowerReview(input)
   })
@@ -154,13 +146,6 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
     'switchboard:watchtower:get-run',
     async (_, input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult> => {
       return deps.getWatchtowerRun(input)
-    }
-  )
-
-  ipcMain.handle(
-    'switchboard:watchtower:update-agent-status',
-    async (_, input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult> => {
-      return deps.updateWatchtowerRunAgentStatus(input)
     }
   )
 

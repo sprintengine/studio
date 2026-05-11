@@ -19,8 +19,6 @@ import type {
   SwitchboardStopExecutionInput,
   SwitchboardStopExecutionResult,
   SwitchboardUpdateTaskInput,
-  WatchtowerRunAgentStatusInput,
-  WatchtowerRunCreateInput,
   WatchtowerRunListResult,
   WatchtowerRunResult,
   WatchtowerStartReviewInput,
@@ -960,11 +958,9 @@ export type ElectronApi = {
   tickSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
   getSwitchboardRunnerState: (workspaceRoot?: string) => Promise<SwitchboardRunnerResult>
   stopSwitchboardExecution: (input: SwitchboardStopExecutionInput) => Promise<SwitchboardStopExecutionResult>
-  createWatchtowerRun: (input: WatchtowerRunCreateInput) => Promise<WatchtowerRunResult>
   startWatchtowerReview: (input: WatchtowerStartReviewInput) => Promise<WatchtowerRunResult>
   startWatchtowerTriage: (input: WatchtowerStartTriageInput) => Promise<WatchtowerRunResult>
   getWatchtowerRun: (input: { workspaceRoot: string; runId: string }) => Promise<WatchtowerRunResult>
-  updateWatchtowerRunAgentStatus: (input: WatchtowerRunAgentStatusInput) => Promise<WatchtowerRunResult>
   listWatchtowerRuns: (workspaceRoot: string) => Promise<WatchtowerRunListResult>
   importGitHubIssuesToWatchtower: (workspaceRoot: string) => Promise<SwitchboardImportResult>
   importJiraIssuesToWatchtower: (workspaceRoot: string) => Promise<SwitchboardImportResult>

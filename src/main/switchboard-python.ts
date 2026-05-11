@@ -24,8 +24,6 @@ import type {
   SwitchboardStopExecutionResult,
   SwitchboardTaskRecord,
   SwitchboardUpdateTaskInput,
-  WatchtowerRunCreateInput,
-  WatchtowerRunAgentStatusInput,
   WatchtowerRunListResult,
   WatchtowerRunResult,
   WatchtowerStartReviewInput,
@@ -504,15 +502,6 @@ export async function stopSwitchboardExecution(input: SwitchboardStopExecutionIn
   return fallback.payload as SwitchboardStopExecutionResult
 }
 
-export async function createWatchtowerRun(input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> {
-  const args = ['watchtower', 'run-create', ...workspaceArgs(input.workspaceRoot), '--preset', input.preset]
-  if (input.status) args.push('--status', input.status)
-  if (input.agents) args.push('--agents-json', JSON.stringify(input.agents))
-  const result = await runSwitchboardCore(args)
-  if (!result.ok) return { ok: false, message: result.message || 'Unable to create Watchtower run.' }
-  return result.payload as WatchtowerRunResult
-}
-
 export async function startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> {
   const result = await requestSwitchboardBackendReplacingNotFound(input.workspaceRoot, '/watchtower/start-review', {
     preset: input.preset,
@@ -532,20 +521,6 @@ export async function startWatchtowerTriage(input: WatchtowerStartTriageInput): 
 export async function getWatchtowerRun(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult> {
   const result = await runSwitchboardCore(['watchtower', 'run-status', ...workspaceArgs(input.workspaceRoot), input.runId])
   if (!result.ok) return { ok: false, message: result.message || 'Unable to read Watchtower run.' }
-  return result.payload as WatchtowerRunResult
-}
-
-export async function updateWatchtowerRunAgentStatus(input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult> {
-  const result = await runSwitchboardCore([
-    'watchtower',
-    'run-agent-status',
-    ...workspaceArgs(input.workspaceRoot),
-    input.runId,
-    input.agentId,
-    '--status',
-    input.status,
-  ])
-  if (!result.ok) return { ok: false, message: result.message || 'Unable to update Watchtower agent status.' }
   return result.payload as WatchtowerRunResult
 }
 
