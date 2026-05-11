@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu } from 'electron'
 import { resolve } from 'path'
 import { createAppMenu } from './app-menu'
 import { createMainWindow } from './window-factory'
+import { stopAllKnownBackendRunners } from './backend-session-bridge'
 import type { MulticodeUpdateService } from './update-service'
 
 type RegisterAppLifecycleOptions = {
@@ -65,10 +66,28 @@ export function registerAppLifecycle({
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('before-quit', () => {
+  let isShuttingDown = false
+  app.on('before-quit', (event) => {
+    if (isShuttingDown) return
+    if (KNOWN_BACKEND_DEADLINE_MS <= 0) {
+      mobileBridge.shutdown()
+      return
+    }
+    event.preventDefault()
+    isShuttingDown = true
     mobileBridge.shutdown()
+    const settle = (): void => {
+      app.exit(0)
+    }
+    const timeout = setTimeout(settle, KNOWN_BACKEND_DEADLINE_MS)
+    void stopAllKnownBackendRunners(3).finally(() => {
+      clearTimeout(timeout)
+      settle()
+    })
   })
 }
+
+const KNOWN_BACKEND_DEADLINE_MS = 5_000
 
 function registerMulticodeProtocol(): void {
   if (process.defaultApp) {

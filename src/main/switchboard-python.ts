@@ -161,6 +161,12 @@ function serverDescriptorPath(workspaceRoot: string): string {
 type SwitchboardServerDescriptor = { host: string; port: number; token: string; pid?: number }
 const SWITCHBOARD_SERVER_API_VERSION = 2
 
+export function readSwitchboardServerDescriptor(workspaceRoot: string): SwitchboardServerDescriptor | null {
+  return readServerDescriptor(workspaceRoot)
+}
+
+export type { SwitchboardServerDescriptor }
+
 function readServerDescriptor(workspaceRoot: string): SwitchboardServerDescriptor | null {
   try {
     const parsed = JSON.parse(readFileSync(serverDescriptorPath(workspaceRoot), 'utf-8')) as unknown

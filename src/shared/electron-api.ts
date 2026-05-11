@@ -995,4 +995,55 @@ export type ElectronApi = {
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
   onAppMenuCommand: (cb: (command: string) => void) => () => void
+  listBackendSessions: (workspaceRoot: string) => Promise<BackendSessionListResult>
+  attachBackendSession: (args: {
+    workspaceRoot: string
+    executionId: string
+    instanceKey: string
+  }) => Promise<BackendSessionAttachResult>
+  detachBackendSession: (instanceKey: string) => Promise<void>
+  writeBackendSession: (args: {
+    workspaceRoot: string
+    executionId: string
+    data: string
+  }) => Promise<{ ok: boolean; message?: string }>
+  resizeBackendSession: (args: {
+    workspaceRoot: string
+    executionId: string
+    cols: number
+    rows: number
+  }) => Promise<{ ok: boolean; message?: string }>
+  signalBackendSession: (args: {
+    workspaceRoot: string
+    executionId: string
+    signal: 'TERM' | 'INT' | 'KILL' | 'HUP' | 'QUIT'
+  }) => Promise<{ ok: boolean; message?: string }>
+  onBackendSessionReplay: (instanceKey: string, cb: (payload: { data: string }) => void) => () => void
+  onBackendSessionData: (instanceKey: string, cb: (payload: { data: string }) => void) => () => void
+  onBackendSessionExit: (
+    instanceKey: string,
+    cb: (payload: { exitCode: number | null; exitedAt?: string | null; reason?: string }) => void,
+  ) => () => void
+  onBackendSessionError: (instanceKey: string, cb: (payload: { message: string }) => void) => () => void
 }
+
+export type BackendSessionListEntry = {
+  executionId: string
+  role: string
+  kind: string
+  cols: number
+  rows: number
+  startedAt: string
+  exitedAt: string | null
+  exitCode: number | null
+  status: 'active' | 'exited'
+  pid: number
+}
+
+export type BackendSessionListResult =
+  | { ok: true; sessions: BackendSessionListEntry[] }
+  | { ok: false; message: string }
+
+export type BackendSessionAttachResult =
+  | { ok: true; instanceKey: string }
+  | { ok: false; message: string }

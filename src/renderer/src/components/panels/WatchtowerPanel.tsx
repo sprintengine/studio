@@ -613,6 +613,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           statuses={feedback.statuses}
           onDismissStatus={feedback.dismiss}
           workspaceRoot={folderPath}
+          workspaceId={workspaceId}
         />
 
         <FetchExternalSection
@@ -851,6 +852,7 @@ function RunReviewSection({
   statuses,
   onDismissStatus,
   workspaceRoot,
+  workspaceId,
 }: {
   preset: WatchtowerReviewPresetId
   onPresetChange: (next: WatchtowerReviewPresetId) => void
@@ -866,6 +868,7 @@ function RunReviewSection({
   statuses: ActionStatusMap
   onDismissStatus: (key: string) => void
   workspaceRoot: string | null
+  workspaceId: string
 }) {
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null)
   const selectedPreset = WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
@@ -970,6 +973,18 @@ function RunReviewSection({
               const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
               const canShowLogs = Boolean(agent.executionId && workspaceRoot)
               const isExpanded = canShowLogs && expandedAgentId === agent.agentId
+              const canAttach = Boolean(agent.executionId && workspaceRoot && agent.status === 'running')
+              const handleAttach = (): void => {
+                if (!canAttach || !agent.executionId || !workspaceRoot) return
+                void import('../../utils/modelRegistry').then(({ focusOrAddBackendSessionTab }) => {
+                  focusOrAddBackendSessionTab(workspaceId, {
+                    executionId: agent.executionId!,
+                    workspaceRoot,
+                    title: `${specialistShortLabel(agent)} · live`,
+                    role: specialistShortLabel(agent),
+                  })
+                })
+              }
               return (
                 <li key={agent.agentId}>
                   <div
@@ -979,6 +994,17 @@ function RunReviewSection({
                     <div className="flex min-w-0 items-center justify-between gap-2">
                       <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
                       <div className="flex shrink-0 items-center gap-1.5">
+                        {canAttach ? (
+                          <button
+                            type="button"
+                            onClick={handleAttach}
+                            className="interactive inline-flex h-5 items-center gap-1 rounded border border-emerald-700/50 bg-emerald-900/10 px-1.5 text-[10.5px] font-medium text-emerald-200 hover:bg-emerald-900/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/60"
+                            title="Open live terminal"
+                          >
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                            Live
+                          </button>
+                        ) : null}
                         {canShowLogs ? (
                           <button
                             type="button"

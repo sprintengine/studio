@@ -2,6 +2,7 @@ import { contextBridge } from 'electron'
 import type { ElectronApi } from '../shared/electron-api'
 import { appMenuApi } from './api/app-menu'
 import { authApi } from './api/auth'
+import { backendSessionApi } from './api/backend-session'
 import { builtinSkillsApi } from './api/builtinSkills'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
@@ -31,6 +32,7 @@ const api = {
   ...switchboardApi,
   ...multiloopApi,
   ...terminalApi,
+  ...backendSessionApi,
   ...updateApi,
   ...appMenuApi,
 } satisfies ElectronApi

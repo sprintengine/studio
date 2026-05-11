@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
+import queue as _queue
 import secrets
+import signal
 import threading
 import urllib.parse
 import urllib.request
@@ -10,6 +13,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import pty_session
+from .pty_session import get_registry
 from .store import (
     atomic_write_json,
     now_iso,
@@ -34,6 +39,16 @@ from .watchtower_runner import start_watchtower_review, start_watchtower_triage
 SERVER_LOCK_STALE_SECONDS = 5 * 60
 SERVER_API_VERSION = 2
 
+SSE_KEEPALIVE_SECONDS = 15.0
+
+SIGNAL_MAP = {
+    "TERM": signal.SIGTERM,
+    "INT": signal.SIGINT,
+    "KILL": signal.SIGKILL,
+    "HUP": signal.SIGHUP,
+    "QUIT": signal.SIGQUIT,
+}
+
 
 class SwitchboardServer(ThreadingHTTPServer):
     def __init__(
@@ -56,6 +71,7 @@ def serve(workspace: Path) -> dict[str, Any]:
     root = switchboard_root(workspace)
     server_path = root / "runner" / "server.json"
     server_lock = acquire_server_lock(root)
+    pty_session.enable_pty_mode()
 
     try:
         stale_descriptor = read_descriptor(server_path)
@@ -179,11 +195,19 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path != "/health" and not parsed.path.startswith("/execution/"):
+        if (
+            parsed.path != "/health"
+            and not parsed.path.startswith("/execution/")
+            and parsed.path != "/sessions"
+        ):
             self.respond({"ok": False, "message": "Not found."}, status=404)
             return
         if not self.authorized():
             self.respond({"ok": False, "message": "Unauthorized."}, status=401)
+            return
+        if parsed.path == "/sessions":
+            sessions = [s.snapshot() for s in get_registry().all_sessions()]
+            self.respond({"ok": True, "sessions": sessions})
             return
         if parsed.path.startswith("/execution/"):
             parts = parsed.path.strip("/").split("/")
@@ -199,6 +223,9 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     tail = 200
                 self.respond_or_error(lambda: execution_logs(self.server.workspace, parts[1], stream=stream, tail=tail))
+                return
+            if len(parts) == 3 and parts[2] == "stream":
+                self.handle_session_stream(parts[1])
                 return
             self.respond({"ok": False, "message": "Not found."}, status=404)
             return
@@ -228,6 +255,15 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[2] == "stop":
                 self.respond_or_error(lambda: execution_stop(self.server.workspace, parts[1], reason=payload.get("reason") if isinstance(payload.get("reason"), str) else None))
                 return
+            if len(parts) == 3 and parts[2] == "write":
+                self.respond(self.handle_session_write(parts[1], payload))
+                return
+            if len(parts) == 3 and parts[2] == "resize":
+                self.respond(self.handle_session_resize(parts[1], payload))
+                return
+            if len(parts) == 3 and parts[2] == "signal":
+                self.respond(self.handle_session_signal(parts[1], payload))
+                return
             self.respond({"ok": False, "message": "Not found."}, status=404)
             return
         if parsed.path == "/runner/start":
@@ -248,10 +284,18 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             self.respond(runner_resume(self.server.workspace))
             return
         if parsed.path == "/runner/stop":
-            payload = runner_stop(self.server.workspace)
-            self.respond(payload)
+            response = runner_stop(self.server.workspace)
+            self.respond(response)
             self.server.stop_event.set()
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            grace = payload.get("graceSeconds") if isinstance(payload.get("graceSeconds"), (int, float)) else 3.0
+
+            def _shutdown() -> None:
+                try:
+                    get_registry().shutdown_all(grace_seconds=float(grace))
+                finally:
+                    self.server.shutdown()
+
+            threading.Thread(target=_shutdown, daemon=True).start()
             return
         if parsed.path == "/runner/tick":
             self.respond(runner_tick(self.server.workspace))
@@ -299,3 +343,107 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             self.respond(fn())
         except Exception as exc:
             self.respond({"ok": False, "message": str(exc)}, status=400)
+
+    def handle_session_write(self, execution_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        session = get_registry().get(execution_id)
+        if not session:
+            return {"ok": False, "message": "Session not found."}
+        data = payload.get("data")
+        if not isinstance(data, str):
+            return {"ok": False, "message": "Missing base64 'data'."}
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except Exception as exc:
+            return {"ok": False, "message": f"Invalid base64: {exc}"}
+        session.write(raw)
+        return {"ok": True}
+
+    def handle_session_resize(self, execution_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        session = get_registry().get(execution_id)
+        if not session:
+            return {"ok": False, "message": "Session not found."}
+        cols = payload.get("cols")
+        rows = payload.get("rows")
+        if not isinstance(cols, int) or not isinstance(rows, int) or cols <= 0 or rows <= 0:
+            return {"ok": False, "message": "Positive integer cols and rows are required."}
+        session.resize(cols, rows)
+        return {"ok": True}
+
+    def handle_session_signal(self, execution_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        session = get_registry().get(execution_id)
+        if not session:
+            return {"ok": False, "message": "Session not found."}
+        name = payload.get("signal", "TERM")
+        if not isinstance(name, str):
+            return {"ok": False, "message": "Invalid signal."}
+        sig = SIGNAL_MAP.get(name.upper())
+        if sig is None:
+            return {"ok": False, "message": f"Unknown signal: {name}"}
+        session.send_signal(int(sig))
+        return {"ok": True}
+
+    def handle_session_stream(self, execution_id: str) -> None:
+        session = get_registry().get(execution_id)
+        if not session:
+            self.respond({"ok": False, "message": "Session not found."}, status=404)
+            return
+
+        events: _queue.Queue[tuple[str, bytes | None]] = _queue.Queue()
+
+        def on_event(name: str, data: bytes | None) -> None:
+            events.put((name, data))
+
+        replay, already_closed, unsubscribe = session.attach(on_event)
+
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+        except OSError:
+            unsubscribe()
+            return
+
+        try:
+            if replay:
+                if not self._sse_write("replay", base64.b64encode(replay).decode("ascii")):
+                    return
+            if already_closed:
+                self._sse_write(
+                    "exit",
+                    json.dumps({"exitCode": session.exit_code, "exitedAt": session.exited_at}),
+                )
+                return
+
+            while True:
+                try:
+                    name, data = events.get(timeout=SSE_KEEPALIVE_SECONDS)
+                except _queue.Empty:
+                    try:
+                        self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                    except OSError:
+                        return
+                    continue
+                if name == "data" and data is not None:
+                    if not self._sse_write("data", base64.b64encode(data).decode("ascii")):
+                        return
+                elif name == "exit":
+                    self._sse_write(
+                        "exit",
+                        json.dumps({"exitCode": session.exit_code, "exitedAt": session.exited_at}),
+                    )
+                    return
+        finally:
+            unsubscribe()
+
+    def _sse_write(self, event_name: str, data_str: str) -> bool:
+        body = f"event: {event_name}\ndata: {data_str}\n\n".encode("utf-8")
+        try:
+            self.wfile.write(body)
+            self.wfile.flush()
+            return True
+        except OSError:
+            return False
