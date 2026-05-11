@@ -40,6 +40,7 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
 const WatchtowerPanel = React.lazy(() => import('../panels/WatchtowerPanel'))
 const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoardPanel'))
+const BackendSessionView = React.lazy(() => import('../panels/BackendSessionView'))
 const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const AGENT_TAB_ROLE_CLASS_PREFIX = 'agent-tab-role-'
@@ -270,6 +271,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         checkForUpdatesRequestId?: number
         initialTab?: string
         highlightColor?: HighlightColor
+        executionId?: string
+        workspaceRoot?: string
+        role?: string
+        title?: string
       } | undefined
 
       const wrapWithHighlight = (children: React.ReactNode): React.ReactNode => {
@@ -342,6 +347,18 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('WatchtowerPanel', <WatchtowerPanel workspaceId={workspaceId} />)
         case 'switchboard-board':
           return timedPanel('SwitchboardBoardPanel', <SwitchboardBoardPanel workspaceId={workspaceId} />)
+        case 'backend-session':
+          return config?.executionId && config.workspaceRoot
+            ? timedPanel(
+                'BackendSessionView',
+                <BackendSessionView
+                  workspaceRoot={config.workspaceRoot}
+                  executionId={config.executionId}
+                  role={config.role}
+                  title={config.title}
+                />
+              )
+            : <div className="h-full bg-[#08090b]" />
         case 'memory-graph':
           return timedPanel('MemoryGraphPanel', <MemoryGraphPanel workspaceId={workspaceId} />)
         case 'settings':

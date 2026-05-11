@@ -37,6 +37,7 @@ import {
   sourceLabel,
   useSwitchboardData,
 } from '../../utils/switchboardBoard'
+import { useSwitchboardRunner } from '../../utils/switchboardRunner'
 import { filterInboxTasks } from '../../utils/watchtower'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { ExecutionLogsView } from './ExecutionLogsView'
@@ -209,6 +210,16 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
+  const runner = useSwitchboardRunner(folderPath)
+
+  const attachableExecutionIds = useMemo(() => {
+    const set = new Set<string>()
+    const executions = runner.state?.activeExecutions ?? []
+    for (const execution of executions) {
+      if (execution.providerRef?.attachable === true) set.add(execution.executionId)
+    }
+    return set
+  }, [runner.state])
 
   const inbox = useMemo(() => filterInboxTasks(tasks), [tasks])
   const [runs, setRuns] = useState<WatchtowerRun[]>([])
@@ -613,6 +624,8 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           statuses={feedback.statuses}
           onDismissStatus={feedback.dismiss}
           workspaceRoot={folderPath}
+          workspaceId={workspaceId}
+          attachableExecutionIds={attachableExecutionIds}
         />
 
         <FetchExternalSection
@@ -851,6 +864,8 @@ function RunReviewSection({
   statuses,
   onDismissStatus,
   workspaceRoot,
+  workspaceId,
+  attachableExecutionIds,
 }: {
   preset: WatchtowerReviewPresetId
   onPresetChange: (next: WatchtowerReviewPresetId) => void
@@ -866,6 +881,8 @@ function RunReviewSection({
   statuses: ActionStatusMap
   onDismissStatus: (key: string) => void
   workspaceRoot: string | null
+  workspaceId: string
+  attachableExecutionIds: Set<string>
 }) {
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null)
   const selectedPreset = WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
@@ -970,6 +987,24 @@ function RunReviewSection({
               const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
               const canShowLogs = Boolean(agent.executionId && workspaceRoot)
               const isExpanded = canShowLogs && expandedAgentId === agent.agentId
+              const canAttach = Boolean(
+                agent.executionId &&
+                workspaceRoot &&
+                agent.status === 'running' &&
+                agent.executionId &&
+                attachableExecutionIds.has(agent.executionId),
+              )
+              const handleAttach = (): void => {
+                if (!canAttach || !agent.executionId || !workspaceRoot) return
+                void import('../../utils/modelRegistry').then(({ focusOrAddBackendSessionTab }) => {
+                  focusOrAddBackendSessionTab(workspaceId, {
+                    executionId: agent.executionId!,
+                    workspaceRoot,
+                    title: `${specialistShortLabel(agent)} · live`,
+                    role: specialistShortLabel(agent),
+                  })
+                })
+              }
               return (
                 <li key={agent.agentId}>
                   <div
@@ -979,6 +1014,17 @@ function RunReviewSection({
                     <div className="flex min-w-0 items-center justify-between gap-2">
                       <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
                       <div className="flex shrink-0 items-center gap-1.5">
+                        {canAttach ? (
+                          <button
+                            type="button"
+                            onClick={handleAttach}
+                            className="interactive inline-flex h-5 items-center gap-1 rounded border border-[#3a2820] bg-[#241513] px-1.5 text-[10.5px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
+                            title="Open live terminal"
+                          >
+                            <span className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse" style={{ background: '#f2c45f' }} />
+                            Live
+                          </button>
+                        ) : null}
                         {canShowLogs ? (
                           <button
                             type="button"

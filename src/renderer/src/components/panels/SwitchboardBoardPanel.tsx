@@ -100,6 +100,17 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     return map
   }, [runner.state])
 
+  const activeExecutionByTaskId = useMemo(() => {
+    const map = new Map<string, SwitchboardRunnerExecution>()
+    const executions = runner.state?.activeExecutions ?? []
+    for (const execution of executions) {
+      if (!execution.status || execution.status === 'active') {
+        map.set(execution.taskId, execution)
+      }
+    }
+    return map
+  }, [runner.state])
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [draft, setDraft] = useState<DraftTask>(emptyDraft)
@@ -450,8 +461,10 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         {selected ? (
           <BoardDetailPane
             record={selected}
+            workspaceId={workspaceId}
             workspaceRoot={folderPath}
             executionStatus={executionStatusByTaskId.get(selected.task.id) ?? null}
+            activeExecution={activeExecutionByTaskId.get(selected.task.id) ?? null}
             attentionInfo={deriveAttentionInfo(
               selected,
               executionStatusByTaskId.get(selected.task.id) ?? null
@@ -887,8 +900,10 @@ function EmptyDetail() {
 
 function BoardDetailPane({
   record,
+  workspaceId,
   workspaceRoot,
   executionStatus,
+  activeExecution,
   attentionInfo,
   commentBody,
   onCommentChange,
@@ -904,8 +919,10 @@ function BoardDetailPane({
   onDismissCommentStatus,
 }: {
   record: SwitchboardTaskRecord
+  workspaceId: string
   workspaceRoot: string | null
   executionStatus: SwitchboardExecutionStatus | null
+  activeExecution: SwitchboardRunnerExecution | null
   attentionInfo: SwitchboardAttentionInfo | null
   commentBody: string
   onCommentChange: (next: string) => void
@@ -922,6 +939,21 @@ function BoardDetailPane({
 }) {
   const task = record.task
   const targets = legalMoveTargets(record.location.folderStatus)
+  const attachable =
+    Boolean(activeExecution) &&
+    Boolean(workspaceRoot) &&
+    activeExecution?.providerRef?.attachable === true
+  const handleViewLive = (): void => {
+    if (!attachable || !activeExecution || !workspaceRoot) return
+    void import('../../utils/modelRegistry').then(({ focusOrAddBackendSessionTab }) => {
+      focusOrAddBackendSessionTab(workspaceId, {
+        executionId: activeExecution.executionId,
+        workspaceRoot,
+        title: `${task.title} · live`,
+        role: activeExecution.role,
+      })
+    })
+  }
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-[#1f2025] px-5 py-4">
@@ -941,6 +973,18 @@ function BoardDetailPane({
           />
         </div>
         <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[#ececee]">{task.title}</h3>
+        {attachable ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={handleViewLive}
+              className="interactive inline-flex h-7 items-center gap-1.5 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60"
+            >
+              <span className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse" style={{ background: '#f2c45f' }} />
+              View live
+            </button>
+          </div>
+        ) : null}
         {targets.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Move task">
             {targets.map((target) => (
