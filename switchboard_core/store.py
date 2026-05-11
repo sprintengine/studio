@@ -277,16 +277,30 @@ def normalize_runner_state(workspace: Path, payload: Any) -> dict[str, Any]:
     state["cli"] = payload.get("cli") if payload.get("cli") in {"codex", "claude"} else "codex"
     state["queues"] = normalize_runner_queues(payload.get("queues") if isinstance(payload.get("queues"), list) else None)
     state["maxConcurrency"] = normalize_runner_concurrency(payload.get("maxConcurrency"))
-    state["activeExecutions"] = [
-        execution
-        for execution in payload.get("activeExecutions", [])
-        if isinstance(execution, dict)
-        and isinstance(execution.get("executionId"), str)
-        and isinstance(execution.get("taskId"), str)
-    ] if isinstance(payload.get("activeExecutions"), list) else []
+    state["activeExecutions"] = normalize_runner_executions(payload.get("activeExecutions"))
     state["lastError"] = payload.get("lastError") if isinstance(payload.get("lastError"), str) else None
     state["updatedAt"] = payload.get("updatedAt") if isinstance(payload.get("updatedAt"), str) else now_iso()
     return state
+
+
+def normalize_runner_execution(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or not isinstance(value.get("executionId"), str):
+        return None
+    kind = value.get("kind") if isinstance(value.get("kind"), str) else "switchboard_task"
+    if kind == "switchboard_task" and not isinstance(value.get("taskId"), str):
+        return None
+    return {**value, "kind": kind}
+
+
+def normalize_runner_executions(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    executions: list[dict[str, Any]] = []
+    for item in value:
+        normalized = normalize_runner_execution(item)
+        if normalized is not None:
+            executions.append(normalized)
+    return executions
 
 
 def read_runner_state(workspace: Path) -> dict[str, Any]:
@@ -423,6 +437,11 @@ def runner_tick_unlocked(workspace: Path) -> dict[str, Any]:
         return runner_public_payload(write_runner_state(workspace, state))
 
     while active_execution_count(state) < state["maxConcurrency"]:
+        from .watchtower_runner import launch_pending_watchtower_executions_unlocked
+
+        state = launch_pending_watchtower_executions_unlocked(workspace, state)
+        if active_execution_count(state) >= state["maxConcurrency"]:
+            break
         launched = runner_claim_and_launch(workspace, state)
         if not launched:
             break
@@ -689,6 +708,12 @@ def reconcile_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, 
     tasks = {located.task["id"]: located for located in read_all(workspace)[0]}
     reconciled: list[dict[str, Any]] = []
     for execution in state.get("activeExecutions", []):
+        kind = execution.get("kind", "switchboard_task")
+        if kind in {"watchtower_review", "watchtower_triage"}:
+            reconciled_execution = reconcile_watchtower_execution(workspace, execution)
+            if reconciled_execution.get("status") in {"active", "stopped"}:
+                reconciled.append(reconciled_execution)
+            continue
         execution = reconcile_execution_worktree(workspace, execution)
         if execution.get("status") in {"abandoned", "stopped"}:
             reconciled.append(execution)
@@ -733,6 +758,46 @@ def reconcile_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, 
             )
     state["activeExecutions"] = reconciled
     return write_runner_state(workspace, state)
+
+
+def reconcile_watchtower_execution(workspace: Path, execution: dict[str, Any]) -> dict[str, Any]:
+    from .watchtower import update_watchtower_agent
+
+    provider_ref = execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}
+    exit_code = read_recorded_exit_code(workspace, execution)
+    if exit_code is None:
+        exit_code = reap_process_exit(provider_ref.get("pid"))
+    running = exit_code is None and process_is_running(provider_ref.get("pid"))
+    if running:
+        active = {**execution, "status": "active", "lastSeenAt": now_iso()}
+        update_execution_metadata(workspace, active, {"status": "active", "lastSeenAt": active["lastSeenAt"]})
+        return active
+
+    completed_at = now_iso()
+    status = "completed" if exit_code == 0 else "abandoned"
+    error = None if exit_code == 0 else f"Process exited with code {exit_code}."
+    completed = {**execution, "status": status, "completedAt": completed_at, "exitCode": exit_code, "error": error}
+    update_execution_metadata(
+        workspace,
+        completed,
+        {"status": status, "completedAt": completed_at, "exitCode": exit_code, "error": error},
+    )
+    run_id = execution.get("watchtowerRunId")
+    agent_id = execution.get("watchtowerAgentId")
+    if isinstance(run_id, str) and isinstance(agent_id, str):
+        update_watchtower_agent(
+            workspace,
+            run_id,
+            agent_id,
+            status="completed" if exit_code == 0 else "failed",
+            error_message=error,
+        )
+    append_runner_event(
+        workspace,
+        "execution_exit",
+        data={"executionId": execution.get("executionId"), "kind": execution.get("kind"), "exitCode": exit_code},
+    )
+    return completed
 
 
 def runner_claim_and_launch(workspace: Path, state: dict[str, Any]) -> bool:
@@ -788,14 +853,6 @@ def start_local_process_execution(
     command: list[str],
     execution_id: str,
 ) -> dict[str, Any]:
-    current_dir = execution_dir(workspace, execution_id)
-    current_dir.mkdir(parents=True, exist_ok=False)
-    stdout_path = current_dir / "stdout.log"
-    stderr_path = current_dir / "stderr.log"
-    prompt_path = current_dir / "prompt.txt"
-    exit_path = current_dir / "exit.json"
-    stdout_path.touch()
-    stderr_path.touch()
     worktree: dict[str, str] | None = create_execution_worktree(workspace, located.task["id"], execution_id) if queue == "ready" else None
     run_workspace = Path(worktree["worktreePath"]) if worktree else workspace.expanduser().resolve()
     prompt = build_runner_prompt(
@@ -805,6 +862,68 @@ def start_local_process_execution(
         execution_id=execution_id,
         run_workspace=run_workspace,
     )
+    role = role_for_queue(queue)
+    execution = start_local_process_agent_execution(
+        workspace=workspace,
+        command=command,
+        execution_id=execution_id,
+        kind="switchboard_task",
+        role=role,
+        prompt=prompt,
+        run_workspace=run_workspace,
+        metadata={
+            "taskId": located.task["id"],
+            "claimedFrom": queue,
+            "claimedStatus": claimed_status_for_queue(queue),
+            **(worktree or {}),
+        },
+        provider_ref_metadata=worktree,
+        cleanup_path=Path(worktree["worktreePath"]) if worktree else None,
+    )
+    try:
+        link_runner_execution_to_task(workspace, located.task["id"], execution)
+    except Exception as exc:
+        terminate_process(execution.get("providerRef", {}).get("pid"))
+        if worktree:
+            try:
+                remove_worktree_path(workspace, Path(worktree["worktreePath"]), force=True)
+            except SwitchboardError:
+                pass
+        update_execution_metadata(
+            workspace,
+            execution,
+            {
+                "status": "launch_failed",
+                "completedAt": now_iso(),
+                "error": f"Task execution link failed: {exc}",
+                "worktreeState": "cleaned" if worktree else None,
+            },
+        )
+        raise
+    return execution
+
+
+def start_local_process_agent_execution(
+    *,
+    workspace: Path,
+    command: list[str],
+    execution_id: str,
+    kind: str,
+    role: str,
+    prompt: str,
+    run_workspace: Path,
+    metadata: dict[str, Any] | None = None,
+    provider_ref_metadata: dict[str, Any] | None = None,
+    cleanup_path: Path | None = None,
+) -> dict[str, Any]:
+    current_dir = execution_dir(workspace, execution_id)
+    current_dir.mkdir(parents=True, exist_ok=False)
+    stdout_path = current_dir / "stdout.log"
+    stderr_path = current_dir / "stderr.log"
+    prompt_path = current_dir / "prompt.txt"
+    exit_path = current_dir / "exit.json"
+    stdout_path.touch()
+    stderr_path.touch()
     prompt_path.write_text(prompt + "\n", encoding="utf-8")
     wrapper = (
         "import json, pathlib, subprocess, sys\n"
@@ -827,9 +946,9 @@ def start_local_process_execution(
             start_new_session=os.name != "nt",
         )
     except Exception:
-        if worktree:
+        if cleanup_path:
             try:
-                remove_worktree_path(workspace, Path(worktree["worktreePath"]), force=True)
+                remove_worktree_path(workspace, cleanup_path, force=True)
             except SwitchboardError:
                 pass
         raise
@@ -842,23 +961,20 @@ def start_local_process_execution(
         "exitFile": str(exit_path.relative_to(switchboard_root(workspace))),
         "cwd": str(run_workspace),
     }
-    if worktree:
-        provider_ref.update({key: worktree[key] for key in ("worktreePath", "worktreeBranch", "worktreeRelativePath", "worktreeState")})
+    if provider_ref_metadata:
+        provider_ref.update(provider_ref_metadata)
     started_at = now_iso()
     execution = {
         "executionId": execution_id,
-        "taskId": located.task["id"],
-        "role": role_for_queue(queue),
-        "claimedFrom": queue,
-        "claimedStatus": claimed_status_for_queue(queue),
+        "kind": kind,
+        "role": role,
         "provider": "local-process",
         "providerRef": provider_ref,
         "startedAt": started_at,
         "lastSeenAt": started_at,
         "status": "active",
+        **(metadata or {}),
     }
-    if worktree:
-        execution.update(worktree)
     metadata = {
         "schemaVersion": 1,
         **execution,
@@ -872,26 +988,6 @@ def start_local_process_execution(
         "error": None,
     }
     atomic_write_json(current_dir / "metadata.json", metadata)
-    try:
-        link_runner_execution_to_task(workspace, located.task["id"], execution)
-    except Exception as exc:
-        terminate_process(process.pid)
-        if worktree:
-            try:
-                remove_worktree_path(workspace, Path(worktree["worktreePath"]), force=True)
-            except SwitchboardError:
-                pass
-        update_execution_metadata(
-            workspace,
-            execution,
-            {
-                "status": "launch_failed",
-                "completedAt": now_iso(),
-                "error": f"Task execution link failed: {exc}",
-                "worktreeState": "cleaned" if worktree else None,
-            },
-        )
-        raise
     return execution
 
 
@@ -1009,10 +1105,18 @@ def execution_stop_unlocked(workspace: Path, execution_id: str, *, reason: str |
         updates["providerRef"] = {**provider_ref, "worktreeState": "stopped"}
     stopped = {**metadata, **updates}
     update_execution_metadata(workspace, metadata, updates)
-    mark_task_attempt_completed(workspace, stopped, stopped_at, None, summary=stopped_reason)
-    if stopped.get("worktreePath"):
-        update_task_worktree_state(workspace, stopped, str(stopped.get("worktreeState") or "stopped"))
-    clear_task_active_execution_if_matches(workspace, stopped)
+    if stopped.get("kind") in {"watchtower_review", "watchtower_triage"}:
+        from .watchtower import update_watchtower_agent
+
+        run_id = stopped.get("watchtowerRunId")
+        agent_id = stopped.get("watchtowerAgentId")
+        if isinstance(run_id, str) and isinstance(agent_id, str):
+            update_watchtower_agent(workspace, run_id, agent_id, status="canceled", error_message=stopped_reason)
+    else:
+        mark_task_attempt_completed(workspace, stopped, stopped_at, None, summary=stopped_reason)
+        if stopped.get("worktreePath"):
+            update_task_worktree_state(workspace, stopped, str(stopped.get("worktreeState") or "stopped"))
+        clear_task_active_execution_if_matches(workspace, stopped)
     runner_state = read_runner_state(workspace)
     found = False
     next_executions = []

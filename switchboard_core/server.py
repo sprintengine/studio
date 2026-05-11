@@ -29,6 +29,7 @@ from .store import (
     switchboard_root,
     SwitchboardError,
 )
+from .watchtower_runner import start_watchtower_review, start_watchtower_triage
 
 SERVER_LOCK_STALE_SECONDS = 5 * 60
 
@@ -250,6 +251,21 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/runner/status":
             self.respond(runner_status(self.server.workspace))
+            return
+        if parsed.path == "/watchtower/start-review":
+            preset = payload.get("preset")
+            self.respond_or_error(lambda: start_watchtower_review(self.server.workspace, preset=preset if isinstance(preset, str) else "lean_code_review"))
+            return
+        if parsed.path == "/watchtower/start-triage":
+            scope = payload.get("scope")
+            task_id = payload.get("taskId")
+            self.respond_or_error(
+                lambda: start_watchtower_triage(
+                    self.server.workspace,
+                    scope=scope if isinstance(scope, str) else "all",
+                    task_id=task_id if isinstance(task_id, str) else None,
+                )
+            )
             return
         self.respond({"ok": False, "message": "Not found."}, status=404)
 

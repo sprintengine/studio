@@ -68,15 +68,27 @@ def normalize_watchtower_agent(value: Any) -> dict[str, Any] | None:
     status = value.get("status")
     output_dir = value.get("outputDir")
     report_path = value.get("reportPath")
+    execution_id = value.get("executionId")
+    error_message = value.get("errorMessage")
+    task_ids = value.get("taskIds")
     if not isinstance(agent_id, str) or not agent_id.strip():
         return None
-    return {
+    normalized = {
         "agentId": agent_id.strip(),
         "specialistId": specialist_id.strip() if isinstance(specialist_id, str) and specialist_id.strip() else None,
         "status": status if status in WATCHTOWER_RUN_STATUSES else "pending",
         "outputDir": output_dir.strip() if isinstance(output_dir, str) and output_dir.strip() else f"outputs/{agent_id.strip()}",
         "reportPath": report_path.strip() if isinstance(report_path, str) and report_path.strip() else None,
     }
+    if isinstance(execution_id, str) and execution_id.strip():
+        normalized["executionId"] = execution_id.strip()
+    if isinstance(error_message, str) and error_message.strip():
+        normalized["errorMessage"] = error_message.strip()
+    if isinstance(task_ids, list):
+        normalized_task_ids = [task_id for task_id in task_ids if isinstance(task_id, str) and task_id.strip()]
+        if normalized_task_ids:
+            normalized["taskIds"] = normalized_task_ids
+    return normalized
 
 
 def ensure_watchtower_run_agent_paths(workspace: Path, run: dict[str, Any]) -> None:
@@ -212,16 +224,34 @@ def update_watchtower_run(
     return write_watchtower_run(workspace, run)
 
 
-def update_watchtower_agent_status(workspace: Path, run_id: str, agent_id: str, status: str) -> dict[str, Any]:
+def update_watchtower_agent(
+    workspace: Path,
+    run_id: str,
+    agent_id: str,
+    *,
+    status: str | None = None,
+    execution_id: str | None = None,
+    error_message: str | None = None,
+) -> dict[str, Any]:
     if status not in WATCHTOWER_RUN_STATUSES:
-        raise SwitchboardError("Watchtower agent status is invalid.")
+        if status is not None:
+            raise SwitchboardError("Watchtower agent status is invalid.")
     run = read_watchtower_run(workspace, run_id)
     matched = False
     agents: list[dict[str, Any]] = []
     for agent in run["agents"]:
         if agent.get("agentId") == agent_id:
             matched = True
-            agents.append({**agent, "status": status})
+            next_agent = dict(agent)
+            if status is not None:
+                next_agent["status"] = status
+            if execution_id is not None:
+                next_agent["executionId"] = execution_id
+            if error_message is not None:
+                next_agent["errorMessage"] = error_message.strip() or None
+            elif status in {"pending", "running", "completed"}:
+                next_agent["errorMessage"] = None
+            agents.append(next_agent)
         else:
             agents.append(agent)
     if not matched:
@@ -230,13 +260,22 @@ def update_watchtower_agent_status(workspace: Path, run_id: str, agent_id: str, 
     if any(agent.get("status") == "failed" for agent in agents):
         run["status"] = "failed"
         run["completedAt"] = now_iso()
+    elif any(agent.get("status") == "canceled" for agent in agents):
+        run["status"] = "canceled"
+        run["completedAt"] = now_iso()
     elif agents and all(agent.get("status") == "completed" for agent in agents):
         run["status"] = "completed"
         run["completedAt"] = now_iso()
-    elif any(agent.get("status") == "running" for agent in agents):
+    elif any(agent.get("status") == "running" for agent in agents) or any(agent.get("status") == "pending" for agent in agents):
         run["status"] = "running"
         run["completedAt"] = None
     return write_watchtower_run(workspace, run)
+
+
+def update_watchtower_agent_status(workspace: Path, run_id: str, agent_id: str, status: str) -> dict[str, Any]:
+    if status not in WATCHTOWER_RUN_STATUSES:
+        raise SwitchboardError("Watchtower agent status is invalid.")
+    return update_watchtower_agent(workspace, run_id, agent_id, status=status)
 
 
 def list_watchtower_runs_with_problems(workspace: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

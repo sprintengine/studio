@@ -57,6 +57,7 @@ from .watchtower import (
     WATCHTOWER_RUN_STATUSES,
     update_watchtower_agent_status,
 )
+from .watchtower_runner import start_watchtower_review, start_watchtower_triage
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -451,6 +452,16 @@ def cmd_watchtower_run_agent_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_watchtower_start_review(args: argparse.Namespace) -> int:
+    emit(start_watchtower_review(workspace_path(args), preset=args.preset))
+    return 0
+
+
+def cmd_watchtower_start_triage(args: argparse.Namespace) -> int:
+    emit(start_watchtower_triage(workspace_path(args), scope=args.scope, task_id=args.task_id))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="switchboard", description="Switchboard filesystem task CLI.")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -664,6 +675,17 @@ Watchtower agents should create findings directly in the inbox:
     watchtower_run_agent_status.add_argument("agent_id")
     watchtower_run_agent_status.add_argument("--status", required=True, choices=WATCHTOWER_RUN_STATUSES)
     watchtower_run_agent_status.set_defaults(func=cmd_watchtower_run_agent_status)
+
+    watchtower_start_review = watchtower_subcommands.add_parser("start-review", help="Start a runtime-owned Watchtower review run.")
+    watchtower_start_review.add_argument("--workspace", required=True)
+    watchtower_start_review.add_argument("--preset", required=True)
+    watchtower_start_review.set_defaults(func=cmd_watchtower_start_review)
+
+    watchtower_start_triage = watchtower_subcommands.add_parser("start-triage", help="Start a runtime-owned Watchtower inbox triage run.")
+    watchtower_start_triage.add_argument("--workspace", required=True)
+    watchtower_start_triage.add_argument("--scope", choices=("all", "selected"), default="all")
+    watchtower_start_triage.add_argument("--task-id")
+    watchtower_start_triage.set_defaults(func=cmd_watchtower_start_triage)
 
     return parser
 

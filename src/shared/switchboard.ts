@@ -162,6 +162,9 @@ export type WatchtowerRunAgent = {
   status: WatchtowerRunStatus
   outputDir: string
   reportPath: string | null
+  executionId?: string | null
+  errorMessage?: string | null
+  taskIds?: string[]
 }
 
 export type WatchtowerRunCounts = {

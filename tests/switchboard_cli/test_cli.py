@@ -317,6 +317,76 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(task["labels"], ["watchtower", "backend"])
         self.assertEqual(task["source"], payload["source"])
 
+    def test_watchtower_start_review_launches_runtime_execution(self) -> None:
+        command = f"{sys.executable} -c \"import sys; data=sys.stdin.read(); print('watchtower runtime'); print(data[:120])\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+
+        started = stdout_json(
+            self.run_cli(
+                ["watchtower", "start-review", *self.workspace_args(), "--preset", "lean_code_review"],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            )
+        )
+
+        self.assertTrue(started["ok"])
+        run = started["run"]
+        self.assertEqual(run["status"], "running")
+        self.assertEqual(run["preset"], "lean_code_review")
+        running_agents = [agent for agent in run["agents"] if agent["status"] == "running"]
+        pending_agents = [agent for agent in run["agents"] if agent["status"] == "pending"]
+        self.assertEqual(len(running_agents), 1)
+        self.assertGreaterEqual(len(pending_agents), 1)
+        execution_id = running_agents[0]["executionId"]
+        execution = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution_id]))["execution"]
+        self.assertEqual(execution["kind"], "watchtower_review")
+        self.assertEqual(execution["watchtowerRunId"], run["runId"])
+        self.assertEqual(execution["watchtowerAgentId"], running_agents[0]["agentId"])
+        self.assertNotIn("taskId", execution)
+        self.assertFalse((self.workspace / ".multi-code" / "switchboard" / "worktrees" / execution_id).exists())
+
+        for _ in range(30):
+            status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+            latest = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run["runId"]]))["run"]
+            if latest["agents"][0]["status"] == "completed":
+                break
+            time.sleep(0.1)
+        latest = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run["runId"]]))["run"]
+        self.assertEqual(latest["agents"][0]["status"], "completed")
+
+    def test_watchtower_start_review_requires_running_runner(self) -> None:
+        rejected = self.run_cli(
+            ["watchtower", "start-review", *self.workspace_args(), "--preset", "lean_code_review"],
+            env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": f"{sys.executable} -c \"pass\""},
+            check=False,
+        )
+
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("paused or disabled", stderr_json(rejected)["message"])
+
+    def test_watchtower_start_triage_launches_architect_runtime_execution(self) -> None:
+        created = self.create_task(inbox=True, title="Triage candidate")
+        task_id = created["id"]
+        command = f"{sys.executable} -c \"import sys; data=sys.stdin.read(); print('triage runtime'); print(data[:160])\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+
+        started = stdout_json(
+            self.run_cli(
+                ["watchtower", "start-triage", *self.workspace_args(), "--scope", "selected", "--task-id", task_id],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            )
+        )
+
+        self.assertTrue(started["ok"])
+        run = started["run"]
+        self.assertEqual(run["preset"], "inbox_triage")
+        agent = run["agents"][0]
+        self.assertEqual(agent["specialistId"], "architect")
+        self.assertEqual(agent["status"], "running")
+        self.assertEqual(agent["taskIds"], [task_id])
+        execution = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), agent["executionId"]]))["execution"]
+        self.assertEqual(execution["kind"], "watchtower_triage")
+        self.assertEqual(execution["watchtowerRunId"], run["runId"])
+
     def test_create_list_show_and_comment_board_task(self) -> None:
         created = self.create_task(title="Board task")
         task_id = created["id"]
