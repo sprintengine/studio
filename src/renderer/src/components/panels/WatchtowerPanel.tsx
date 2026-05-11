@@ -24,7 +24,7 @@ import {
   useSwitchboardData,
 } from '../../utils/switchboardBoard'
 import { filterInboxTasks } from '../../utils/watchtower'
-import { focusOrAddAgentTab } from '../../utils/modelRegistry'
+import { publishDiagnosticSync } from '../../utils/diagnostics'
 
 const PANEL_BG = 'bg-[#08090b]'
 const SECTION_DIVIDER = 'border-t border-[#1f2025]'
@@ -44,6 +44,8 @@ type Toast = {
   tone: ToastTone
   message: string
 }
+
+type WatchtowerStartKind = 'review' | 'triage'
 
 type DraftTask = {
   title: string
@@ -115,6 +117,13 @@ function parseTriageImportance(comment: SwitchboardComment | null): TriageImport
   return match ? match[1].toLowerCase() as TriageImportance : null
 }
 
+function watchtowerStartErrorMessage(message: string): string {
+  if (message.toLowerCase().includes('runner is paused or disabled')) {
+    return 'Watchtower uses the Switchboard runner. Start or resume the runner from the Switchboard board, then try again.'
+  }
+  return message
+}
+
 function triageImportanceDotClass(importance: TriageImportance): string {
   if (importance === 'critical') return 'bg-[#ff787c]'
   if (importance === 'high') return 'bg-[#ffbf2f]'
@@ -143,6 +152,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
   useEffect(() => {
     if (!toast) return
+    if (toast.tone === 'error') return
     const handle = window.setTimeout(() => setToast(null), 4000)
     return () => window.clearTimeout(handle)
   }, [toast])
@@ -180,6 +190,20 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const showToast = useCallback((tone: ToastTone, message: string) => {
     setToast({ tone, message })
   }, [])
+
+  const notifyStartFailure = useCallback((kind: WatchtowerStartKind, message: string) => {
+    const userMessage = watchtowerStartErrorMessage(message)
+    showToast('error', userMessage)
+    publishDiagnosticSync({
+      level: 'error',
+      source: 'workspace',
+      title: kind === 'review' ? 'Watchtower review did not start' : 'Watchtower triage did not start',
+      message: userMessage,
+      details: message === userMessage ? undefined : message,
+      workspaceId,
+      workspaceName: workspace?.name,
+    })
+  }, [showToast, workspace?.name, workspaceId])
 
   const refreshRuns = useCallback(async () => {
     if (!folderPath) {
@@ -219,31 +243,6 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     await Promise.all([refresh(), refreshRuns()])
   }, [refresh, refreshRuns])
 
-  const handleOpenRunAgent = useCallback(async (agent: WatchtowerRunAgent) => {
-    const label = specialistShortLabel(agent)
-    if (agent.executionId) {
-      showToast('info', `${label} is runtime-owned. Execution ${agent.executionId} is not attached to a terminal session.`)
-      return
-    }
-    const sessionId = workspace?.agents[agent.agentId]?.cliSessionId
-    if (!sessionId) {
-      showToast('info', `${label} does not have an attached terminal session.`)
-      return
-    }
-
-    const status = await window.api.terminalStatus(sessionId).catch(() => ({ running: false }))
-    if (!status.running) {
-      showToast('info', `${label} terminal is closed. Start a new review to run it again.`)
-      await refreshRuns()
-      return
-    }
-
-    const opened = focusOrAddAgentTab(workspaceId, agent.agentId, label)
-    if (!opened) {
-      showToast('error', 'Unable to open the agent terminal for this workspace.')
-    }
-  }, [refreshRuns, showToast, workspace?.agents, workspaceId])
-
   const selectedPreset = useMemo(
     () => WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0],
     [preset]
@@ -263,16 +262,18 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         preset,
       })
       if (!started.ok) {
-        showToast('error', started.message)
+        notifyStartFailure('review', started.message)
         return
       }
       setSelectedRunId(started.run.runId)
       await refreshRuns()
       showToast('success', 'Watchtower review started.')
+    } catch (caught) {
+      notifyStartFailure('review', caught instanceof Error ? caught.message : 'Watchtower review did not start.')
     } finally {
       setBusy(false)
     }
-  }, [folderPath, preset, refreshRuns, selectedPreset.agents, showToast])
+  }, [folderPath, notifyStartFailure, preset, refreshRuns, selectedPreset.agents, showToast])
 
   const handleStartTriage = useCallback(async (scope: 'all' | 'selected') => {
     if (!folderPath) return
@@ -290,16 +291,18 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         taskId: scope === 'selected' ? scopedTasks[0]?.task.id : undefined,
       })
       if (!started.ok) {
-        showToast('error', started.message)
+        notifyStartFailure('triage', started.message)
         return
       }
       setSelectedRunId(started.run.runId)
       await refreshRuns()
       showToast('success', scope === 'selected' ? 'Architect triage started for this task.' : 'Architect inbox triage started.')
+    } catch (caught) {
+      notifyStartFailure('triage', caught instanceof Error ? caught.message : 'Watchtower triage did not start.')
     } finally {
       setBusy(false)
     }
-  }, [folderPath, inbox, refreshRuns, selected, showToast])
+  }, [folderPath, inbox, notifyStartFailure, refreshRuns, selected, showToast])
 
   const handleImportGitHub = useCallback(async () => {
     if (!folderPath) return
@@ -527,7 +530,6 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           selectedRun={selectedRun}
           selectedRunAgentCounts={selectedRunAgentCounts}
           onSelectRun={setSelectedRunId}
-          onOpenRunAgent={handleOpenRunAgent}
           onStartTriage={() => void handleStartTriage('all')}
           onStartReview={handleStartReview}
           triageDisabled={busy || inbox.length === 0}
@@ -671,11 +673,16 @@ function specialistShortLabel(agent: WatchtowerRunAgent): string {
   }
 }
 
+function shortExecutionId(executionId: string): string {
+  return executionId.startsWith('exec_') ? `exec_${executionId.slice(-8)}` : executionId
+}
+
 function agentPillState(agent: WatchtowerRunAgent, addedCount: number): { label: string; tone: 'running' | 'done' | 'idle' | 'failed' } {
   switch (agent.status) {
     case 'running':
-    case 'pending':
       return { label: addedCount > 0 ? `reviewing… ${addedCount} added` : 'reviewing…', tone: 'running' }
+    case 'pending':
+      return { label: 'queued', tone: 'idle' }
     case 'completed':
       return { label: addedCount === 0 ? 'no findings' : `${addedCount} added`, tone: 'done' }
     case 'failed':
@@ -701,7 +708,6 @@ function RunReviewSection({
   selectedRun,
   selectedRunAgentCounts,
   onSelectRun,
-  onOpenRunAgent,
   onStartTriage,
   onStartReview,
   triageDisabled,
@@ -713,7 +719,6 @@ function RunReviewSection({
   selectedRun: WatchtowerRun | null
   selectedRunAgentCounts: Map<string, number>
   onSelectRun: (runId: string) => void
-  onOpenRunAgent: (agent: WatchtowerRunAgent) => void | Promise<void>
   onStartTriage: () => void
   onStartReview: () => void
   triageDisabled: boolean
@@ -735,7 +740,7 @@ function RunReviewSection({
             disabled={triageDisabled}
             className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
           >
-            Triage inbox
+            {busy ? 'Starting...' : 'Triage inbox'}
           </button>
           <button
             type="button"
@@ -743,7 +748,7 @@ function RunReviewSection({
             disabled={busy || presetAgents.length === 0}
             className="h-7 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] disabled:opacity-50"
           >
-            Start
+            {busy ? 'Starting...' : 'Start'}
           </button>
         </div>
       </div>
@@ -776,7 +781,7 @@ function RunReviewSection({
         <div className="mt-3 border-t border-[#1f2025] pt-3">
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">
-              {selectedRun.status === 'running' || selectedRun.agents.some((agent) => agent.status === 'running')
+              {selectedRun.status === 'running'
                 ? 'Active review'
                 : 'Last review'}
             </div>
@@ -799,21 +804,31 @@ function RunReviewSection({
             {selectedRun.agents.map((agent) => {
               const added = selectedRunAgentCounts.get(agent.agentId) ?? 0
               const pill = agentPillState(agent, added)
+              const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
               return (
                 <li
                   key={agent.agentId}
                 >
-                  <button
-                    type="button"
-                    onClick={() => void onOpenRunAgent(agent)}
-                    className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5 text-left hover:border-[#303139] hover:bg-[#111216] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/45"
-                    title={`Open ${specialistShortLabel(agent)} terminal`}
+                  <div
+                    className="grid min-w-0 gap-1 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5"
+                    title={agent.executionId ?? undefined}
                   >
-                    <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
-                    <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] ${PILL_TONE_CLASSES[pill.tone]}`}>
-                      {pill.label}
-                    </span>
-                  </button>
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
+                      <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] ${PILL_TONE_CLASSES[pill.tone]}`}>
+                        {pill.label}
+                      </span>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2 text-[11px] text-[#6f7078]">
+                      <span className="shrink-0">Runtime</span>
+                      <span className="min-w-0 truncate font-mono">{executionLabel}</span>
+                    </div>
+                    {agent.errorMessage ? (
+                      <div className="max-h-8 overflow-hidden text-[11px] leading-4 text-[#ffb3b5]">
+                        {agent.errorMessage}
+                      </div>
+                    ) : null}
+                  </div>
                 </li>
               )
             })}
@@ -1412,7 +1427,7 @@ function ToastBanner({ toast }: { toast: Toast }) {
         ? 'border-[#234d27] bg-[#0f1d10] text-[#9be39e]'
         : 'border-[#2a2b31] bg-[#111216] text-[#d7d7dc]'
   return (
-    <div className={`pointer-events-none absolute bottom-3 right-3 rounded border px-3 py-1.5 text-[12px] ${cls}`}>
+    <div className={`pointer-events-none absolute bottom-3 right-3 max-w-[420px] rounded border px-3 py-1.5 text-[12px] leading-5 ${cls}`}>
       {toast.message}
     </div>
   )

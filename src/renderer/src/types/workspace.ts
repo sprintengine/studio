@@ -714,7 +714,6 @@ export type AgentState = {
   cliStartupPrompt?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId
-  watchtowerRunId?: string
   multiloopRole?: MultiloopRole
 }
 

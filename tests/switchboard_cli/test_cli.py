@@ -387,6 +387,40 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(execution["kind"], "watchtower_triage")
         self.assertEqual(execution["watchtowerRunId"], run["runId"])
 
+    def test_watchtower_triage_failure_persists_agent_error(self) -> None:
+        created = self.create_task(inbox=True, title="Failing triage candidate")
+        task_id = created["id"]
+        command = f"{sys.executable} -c \"import sys; sys.exit(7)\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+
+        started = stdout_json(
+            self.run_cli(
+                ["watchtower", "start-triage", *self.workspace_args(), "--scope", "selected", "--task-id", task_id],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            )
+        )
+        run = started["run"]
+        agent = run["agents"][0]
+
+        for _ in range(30):
+            self.run_cli(["runner", "status", *self.workspace_args()])
+            latest = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run["runId"]]))["run"]
+            if latest["agents"][0]["status"] == "failed":
+                break
+            time.sleep(0.1)
+
+        latest = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run["runId"]]))["run"]
+        failed_agent = latest["agents"][0]
+        self.assertEqual(latest["status"], "failed")
+        self.assertEqual(failed_agent["status"], "failed")
+        self.assertEqual(failed_agent["executionId"], agent["executionId"])
+        self.assertIn("Process exited with code 7", failed_agent["errorMessage"])
+
+        execution = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), agent["executionId"]]))["execution"]
+        self.assertEqual(execution["kind"], "watchtower_triage")
+        self.assertEqual(execution["status"], "abandoned")
+        self.assertEqual(execution["exitCode"], 7)
+
     def test_create_list_show_and_comment_board_task(self) -> None:
         created = self.create_task(title="Board task")
         task_id = created["id"]
@@ -1046,6 +1080,7 @@ class SwitchboardCliTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["status"], "healthy")
+            self.assertEqual(payload["apiVersion"], 2)
             self.assertEqual(payload["serverPid"], descriptor["pid"])
             self.assertTrue(payload["supervisorRunning"])
             unauthorized = urllib.request.Request(f"http://{descriptor['host']}:{descriptor['port']}/health")
@@ -1270,6 +1305,7 @@ class SwitchboardCliTests(unittest.TestCase):
                     payload = json.loads(response.read().decode("utf-8"))
                 self.assertLess(time.monotonic() - start, 1.0)
                 self.assertTrue(payload["ok"])
+                self.assertEqual(payload["apiVersion"], 2)
             finally:
                 lock_dir.rmdir()
         finally:

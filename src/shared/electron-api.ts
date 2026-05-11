@@ -244,8 +244,6 @@ export type TerminalSpawnMetadata = {
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   memoryRootPath?: string
   memoryRelativeRoot?: string
-  watchtowerRunId?: string
-  watchtowerWorkspaceRoot?: string
 }
 
 export type TerminalSessionSnapshot = {

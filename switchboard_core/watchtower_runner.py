@@ -134,11 +134,14 @@ def launch_pending_watchtower_executions_unlocked(
 ) -> dict[str, Any]:
     capability_errors = validate_runner_capability(workspace, state)
     if capability_errors:
-        state["lastError"] = " ".join(capability_errors)
+        message = " ".join(capability_errors)
+        state["lastError"] = message
+        fail_pending_watchtower_agents(workspace, message)
         return write_runner_state(workspace, state)
     command = runner_command_for(state)
     if not command:
         state["lastError"] = f"Runner CLI executable was not found: {state.get('cli', 'codex')}"
+        fail_pending_watchtower_agents(workspace, state["lastError"])
         return write_runner_state(workspace, state)
     while active_execution_count(state) < state.get("maxConcurrency", 1):
         pending = next_pending_watchtower_agent(workspace)
@@ -167,6 +170,21 @@ def launch_pending_watchtower_executions_unlocked(
         )
         state = write_runner_state(workspace, state)
     return write_runner_state(workspace, state)
+
+
+def fail_pending_watchtower_agents(workspace: Path, message: str) -> None:
+    for run in list_watchtower_runs(workspace):
+        if run.get("status") not in {"pending", "running"}:
+            continue
+        for agent in run.get("agents", []):
+            if agent.get("status") == "pending":
+                update_watchtower_agent(
+                    workspace,
+                    str(run["runId"]),
+                    str(agent["agentId"]),
+                    status="failed",
+                    error_message=message,
+                )
 
 
 def next_pending_watchtower_agent(workspace: Path) -> tuple[dict[str, Any], dict[str, Any]] | None:

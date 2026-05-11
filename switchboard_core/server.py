@@ -32,6 +32,7 @@ from .store import (
 from .watchtower_runner import start_watchtower_review, start_watchtower_triage
 
 SERVER_LOCK_STALE_SECONDS = 5 * 60
+SERVER_API_VERSION = 2
 
 
 class SwitchboardServer(ThreadingHTTPServer):
@@ -160,8 +161,13 @@ def descriptor_server_healthy(descriptor: dict[str, Any]) -> bool:
     request = urllib.request.Request(f"http://{host}:{port}/health", headers={"Authorization": f"Bearer {token}"})
     try:
         with urllib.request.urlopen(request, timeout=1) as response:
-            return response.status == 200
+            if response.status != 200:
+                return False
+            payload = json.loads(response.read().decode("utf-8"))
+            return isinstance(payload, dict) and payload.get("apiVersion") == SERVER_API_VERSION
     except OSError:
+        return False
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return False
 
 
@@ -200,6 +206,7 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             {
                 "ok": True,
                 "status": "healthy",
+                "apiVersion": SERVER_API_VERSION,
                 "serverPid": os.getpid(),
                 "startedAt": self.server.started_at,
                 "supervisorRunning": not self.server.stop_event.is_set(),

@@ -257,13 +257,15 @@ def update_watchtower_agent(
     if not matched:
         raise SwitchboardError("Watchtower run agent was not found.")
     run["agents"] = agents
-    if any(agent.get("status") == "failed" for agent in agents):
+    terminal_statuses = {"completed", "failed", "canceled"}
+    all_terminal = bool(agents) and all(agent.get("status") in terminal_statuses for agent in agents)
+    if all_terminal and any(agent.get("status") == "failed" for agent in agents):
         run["status"] = "failed"
         run["completedAt"] = now_iso()
-    elif any(agent.get("status") == "canceled" for agent in agents):
+    elif all_terminal and any(agent.get("status") == "canceled" for agent in agents):
         run["status"] = "canceled"
         run["completedAt"] = now_iso()
-    elif agents and all(agent.get("status") == "completed" for agent in agents):
+    elif all_terminal and all(agent.get("status") == "completed" for agent in agents):
         run["status"] = "completed"
         run["completedAt"] = now_iso()
     elif any(agent.get("status") == "running" for agent in agents) or any(agent.get("status") == "pending" for agent in agents):

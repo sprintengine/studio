@@ -27,18 +27,10 @@ import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
 
-export type WatchtowerAgentStatusReport = {
-  workspaceRoot: string
-  runId: string
-  agentId: string
-  status: 'completed' | 'failed' | 'canceled'
-}
-
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
   requireAuthenticatedUser(message: string): void
   logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void
-  reportWatchtowerAgentStatus?(report: WatchtowerAgentStatusReport): void
 }
 
 type TerminalIpcHandlers = {
@@ -53,7 +45,6 @@ type TerminalIpcHandlers = {
 type TerminalRuntime = {
   commandService: MobileSprintEngineCommandService
   ipcHandlers: TerminalIpcHandlers
-  hasLiveWatchtowerSession(workspaceRoot: string, runId: string, agentId: string): boolean
 }
 
 let requireAuthenticatedUser = (_message: string): void => {}
@@ -61,15 +52,12 @@ let terminalDiagnostics = createTerminalDiagnostics({
   enabled: false,
   logMainPerfEvent: () => {},
 })
-let reportWatchtowerAgentStatus: (report: WatchtowerAgentStatusReport) => void = () => {}
-
 export function createTerminalRuntime(options: TerminalRuntimeOptions): TerminalRuntime {
   requireAuthenticatedUser = options.requireAuthenticatedUser
   terminalDiagnostics = createTerminalDiagnostics({
     enabled: options.diagnosticsEnabled,
     logMainPerfEvent: options.logMainPerfEvent,
   })
-  reportWatchtowerAgentStatus = options.reportWatchtowerAgentStatus ?? (() => {})
 
   return {
     commandService: createMobileCommandService(),
@@ -90,36 +78,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       },
       killTerminal: disposeTerminal,
     },
-    hasLiveWatchtowerSession(workspaceRoot, runId, agentId) {
-      for (const session of terminals.values()) {
-        if (session.hasExited || session.isDisposed) continue
-        if (session.watchtowerRunId !== runId) continue
-        if (session.agentId !== agentId) continue
-        if (session.watchtowerWorkspaceRoot && session.watchtowerWorkspaceRoot !== workspaceRoot) continue
-        return true
-      }
-      return false
-    },
   }
-}
-
-function maybeReportWatchtowerExit(session: TerminalSession, exitCode: number): void {
-  if (!session.watchtowerRunId || !session.watchtowerWorkspaceRoot || !session.agentId) return
-  if (session.watchtowerStatusReported) return
-  session.watchtowerStatusReported = true
-  // isDisposed is set by disposeTerminal before it calls kill(), so a non-zero
-  // exit at that point reflects an intentional teardown, not a real failure.
-  const status: WatchtowerAgentStatusReport['status'] = session.isDisposed
-    ? 'canceled'
-    : exitCode === 0
-      ? 'completed'
-      : 'failed'
-  reportWatchtowerAgentStatus({
-    workspaceRoot: session.watchtowerWorkspaceRoot,
-    runId: session.watchtowerRunId,
-    agentId: session.agentId,
-    status,
-  })
 }
 
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
@@ -249,7 +208,6 @@ function attachTerminalSession(
       terminals.delete(sessionId)
       broadcastTerminalSessionsChanged()
     }
-    maybeReportWatchtowerExit(terminalSession, event.exitCode)
     if (!terminalSession.isDisposed) {
       sendTerminalEvent(terminalSession.sender, `terminal:exit:${sessionId}`, event.exitCode)
     }
@@ -377,8 +335,6 @@ async function spawnTerminalFromIpc(
     cliPermissionPreset = 'default',
     memoryRootPath,
     memoryRelativeRoot,
-    watchtowerRunId,
-    watchtowerWorkspaceRoot,
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
@@ -391,8 +347,6 @@ async function spawnTerminalFromIpc(
       existingSession.executionMode = executionMode ?? existingSession.executionMode
       existingSession.worktreeId = worktreeId ?? existingSession.worktreeId
       existingSession.worktreePath = worktreePath ?? existingSession.worktreePath
-      existingSession.watchtowerRunId = watchtowerRunId ?? existingSession.watchtowerRunId
-      existingSession.watchtowerWorkspaceRoot = watchtowerWorkspaceRoot ?? existingSession.watchtowerWorkspaceRoot
       safeResizeTerminal(sessionId, cols, rows)
       const replay = materializeTerminalReplay(existingSession)
       if (replay) {
@@ -474,8 +428,6 @@ async function spawnTerminalFromIpc(
         lastOutputAt: null,
         lastInputAt: null,
         startupScriptPath,
-        watchtowerRunId,
-        watchtowerWorkspaceRoot,
       }
 
       attachTerminalSession(sessionId, terminalSession, initialInput)
@@ -485,14 +437,6 @@ async function spawnTerminalFromIpc(
       const message = getTerminalErrorMessage(error)
       sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
       sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
-      if (watchtowerRunId && watchtowerWorkspaceRoot && agentId) {
-        reportWatchtowerAgentStatus({
-          workspaceRoot: watchtowerWorkspaceRoot,
-          runId: watchtowerRunId,
-          agentId,
-          status: 'failed',
-        })
-      }
       return {
         ok: false,
         sessionId,

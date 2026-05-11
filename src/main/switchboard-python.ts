@@ -157,6 +157,7 @@ function serverDescriptorPath(workspaceRoot: string): string {
 }
 
 type SwitchboardServerDescriptor = { host: string; port: number; token: string; pid?: number }
+const SWITCHBOARD_SERVER_API_VERSION = 2
 
 function readServerDescriptor(workspaceRoot: string): SwitchboardServerDescriptor | null {
   try {
@@ -198,7 +199,9 @@ async function backendHealthy(descriptor: SwitchboardServerDescriptor): Promise<
     const response = await fetch(`http://${descriptor.host}:${descriptor.port}/health`, {
       headers: { Authorization: `Bearer ${descriptor.token}` },
     })
-    return response.ok
+    if (!response.ok) return false
+    const payload = parseJsonPayload(await response.text())
+    return payload.apiVersion === SWITCHBOARD_SERVER_API_VERSION
   } catch {
     return false
   }
@@ -256,6 +259,19 @@ async function requestSwitchboardBackend(
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : 'Switchboard backend request failed.' }
   }
+}
+
+async function requestSwitchboardBackendReplacingNotFound(
+  workspaceRoot: string,
+  pathName: string,
+  body?: Record<string, unknown>
+): Promise<PythonCommandResult> {
+  const first = await requestSwitchboardBackend(workspaceRoot, pathName, body)
+  if (first.ok || first.message.toLowerCase() !== 'not found.') return first
+
+  const descriptor = readServerDescriptor(workspaceRoot)
+  terminateServerDescriptorProcess(workspaceRoot, descriptor)
+  return requestSwitchboardBackend(workspaceRoot, pathName, body)
 }
 
 async function requestExistingSwitchboardBackend(
@@ -498,7 +514,7 @@ export async function createWatchtowerRun(input: WatchtowerRunCreateInput): Prom
 }
 
 export async function startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> {
-  const result = await requestSwitchboardBackend(input.workspaceRoot, '/watchtower/start-review', {
+  const result = await requestSwitchboardBackendReplacingNotFound(input.workspaceRoot, '/watchtower/start-review', {
     preset: input.preset,
   })
   if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower review.' }
@@ -508,7 +524,7 @@ export async function startWatchtowerReview(input: WatchtowerStartReviewInput): 
 export async function startWatchtowerTriage(input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult> {
   const body: Record<string, unknown> = { scope: input.scope }
   if (input.taskId?.trim()) body.taskId = input.taskId.trim()
-  const result = await requestSwitchboardBackend(input.workspaceRoot, '/watchtower/start-triage', body)
+  const result = await requestSwitchboardBackendReplacingNotFound(input.workspaceRoot, '/watchtower/start-triage', body)
   if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower triage.' }
   return result.payload as WatchtowerRunResult
 }

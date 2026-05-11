@@ -30,8 +30,6 @@ export type TerminalSpawnPayload = {
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   memoryRootPath?: string
   memoryRelativeRoot?: string
-  watchtowerRunId?: string
-  watchtowerWorkspaceRoot?: string
 }
 
 type TerminalIpcDependencies = {

@@ -39,7 +39,6 @@ import {
   MobileBridge,
 } from './mobile/bridge'
 import { MobileSprintEngineSnapshotService } from './mobile/sprintengine/snapshot'
-import type { WatchtowerRunListResult } from '../shared/switchboard'
 import { importGitHubIssuesIntoWatchtower } from './switchboard-github'
 import { importJiraIssuesIntoWatchtower } from './switchboard-jira'
 import {
@@ -80,41 +79,7 @@ const terminalRuntime = createTerminalRuntime({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
   logMainPerfEvent,
-  reportWatchtowerAgentStatus: ({ workspaceRoot, runId, agentId, status }) => {
-    void updateWatchtowerRunAgentStatus({ workspaceRoot, runId, agentId, status }).catch(() => {
-      // Persistence failures are surfaced on next reconciled list-runs read.
-    })
-  },
 })
-
-// Skip reconciling agents in runs created within this window so a freshly
-// `run-create`d run isn't marked failed before its terminals finish spawning.
-const WATCHTOWER_RECONCILE_GRACE_MS = 10_000
-
-async function listWatchtowerRunsReconciled(workspaceRoot: string): Promise<WatchtowerRunListResult> {
-  const result = await listWatchtowerRuns(workspaceRoot)
-  if (!result.ok) return result
-  const now = Date.now()
-  const stale: Array<{ runId: string; agentId: string }> = []
-  for (const run of result.runs) {
-    const createdAtMs = Date.parse(run.createdAt)
-    if (Number.isFinite(createdAtMs) && now - createdAtMs < WATCHTOWER_RECONCILE_GRACE_MS) continue
-    for (const agent of run.agents) {
-      if (agent.status !== 'running') continue
-      if (agent.executionId) continue
-      if (terminalRuntime.hasLiveWatchtowerSession(workspaceRoot, run.runId, agent.agentId)) continue
-      stale.push({ runId: run.runId, agentId: agent.agentId })
-    }
-  }
-  if (stale.length === 0) return result
-  await Promise.all(stale.map((entry) => updateWatchtowerRunAgentStatus({
-    workspaceRoot,
-    runId: entry.runId,
-    agentId: entry.agentId,
-    status: 'failed',
-  }).catch(() => null)))
-  return listWatchtowerRuns(workspaceRoot)
-}
 const mobileSnapshotService = new MobileSprintEngineSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
 const builtinSkillManager = createBuiltinSkillManager()
@@ -200,7 +165,7 @@ registerSwitchboardIpc(ipcMain, {
   startWatchtowerTriage,
   getWatchtowerRun,
   updateWatchtowerRunAgentStatus,
-  listWatchtowerRuns: listWatchtowerRunsReconciled,
+  listWatchtowerRuns,
   importGitHubIssues: (workspaceRoot) => importGitHubIssuesIntoWatchtower({ workspaceRoot, tokenStore: githubTokenStore }),
   importJiraIssues: (workspaceRoot) => importJiraIssuesIntoWatchtower({ workspaceRoot }),
 })

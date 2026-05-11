@@ -417,10 +417,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           cliPermissionPreset,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
-          watchtowerRunId: agent?.watchtowerRunId,
-          watchtowerWorkspaceRoot: agent?.watchtowerRunId
-            ? folderReadyPath ?? savedFolderPath ?? undefined
-            : undefined,
         } as TerminalSpawnMetadata & {
           executionMode: AgentExecutionMode
           worktreeId?: string
@@ -508,7 +504,6 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     agent?.kind,
     agent?.name,
     agent?.specialistId,
-    agent?.watchtowerRunId,
     agent?.execution.mode,
     agent?.execution.worktreeId,
     agent?.execution.cwd,
