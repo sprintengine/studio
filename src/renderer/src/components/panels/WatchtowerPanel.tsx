@@ -72,18 +72,18 @@ function findTaskAttribution(
   runs: WatchtowerRun[]
 ): { run: WatchtowerRun; agent: WatchtowerRunAgent } | null {
   if (record.task.source.type !== 'watchtower') return null
-  const externalKey = record.task.source.externalKey ?? null
-  const externalId = record.task.source.externalId ?? null
+  const identities = [
+    record.task.source.externalKey ?? null,
+    record.task.source.externalId ?? null,
+  ].filter((value): value is string => Boolean(value))
   for (const run of runs) {
-    if (externalKey?.startsWith(`${run.runId}:`)) {
-      const remainder = externalKey.slice(run.runId.length + 1)
-      const agent = run.agents.find((candidate) => remainder.startsWith(`${candidate.agentId}:`)
-        || remainder.startsWith(`${sanitizeIdentityPart(candidate.agentId)}:`))
-      if (agent) return { run, agent }
-    }
-    if (externalId?.startsWith(`${run.runId}_`)) {
-      const remainder = externalId.slice(run.runId.length + 1)
-      const agent = run.agents.find((candidate) => remainder.startsWith(`${sanitizeIdentityPart(candidate.agentId)}_`))
+    for (const identity of identities) {
+      if (!identity.startsWith(`${run.runId}:`)) continue
+      const remainder = identity.slice(run.runId.length + 1)
+      const agent = run.agents.find((candidate) => {
+        const agentIds = [candidate.agentId, sanitizeIdentityPart(candidate.agentId)]
+        return agentIds.some((agentId) => remainder === agentId || remainder.startsWith(`${agentId}:`))
+      })
       if (agent) return { run, agent }
     }
   }

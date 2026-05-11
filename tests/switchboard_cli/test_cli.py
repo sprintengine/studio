@@ -363,6 +363,29 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("paused or disabled", stderr_json(rejected)["message"])
 
+    def test_watchtower_start_triage_rejects_while_review_is_active(self) -> None:
+        created = self.create_task(inbox=True, title="Triage candidate")
+        command = f"{sys.executable} -c \"import time; time.sleep(2)\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+
+        started = stdout_json(
+            self.run_cli(
+                ["watchtower", "start-review", *self.workspace_args(), "--preset", "lean_code_review"],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            )
+        )
+        execution_id = next(agent["executionId"] for agent in started["run"]["agents"] if agent["status"] == "running")
+
+        rejected = self.run_cli(
+            ["watchtower", "start-triage", *self.workspace_args(), "--scope", "selected", "--task-id", created["id"]],
+            env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            check=False,
+        )
+
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("still running", stderr_json(rejected)["message"])
+        self.run_cli(["execution", "stop", *self.workspace_args(), execution_id, "--reason", "test cleanup"], check=False)
+
     def test_watchtower_start_triage_launches_architect_runtime_execution(self) -> None:
         created = self.create_task(inbox=True, title="Triage candidate")
         task_id = created["id"]

@@ -24,6 +24,7 @@ import type {
   SprintEngineRoleCliDefaults,
   AgentCli,
   AppSettings,
+  LearningSettings,
   UsageTelemetrySettings,
   CliRuntimeSettings,
   AgentKind,
@@ -112,6 +113,10 @@ interface WorkspaceStore {
   setSearchExcludes: (patterns: string[]) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
+  setLearningShowTipsOnStartup: (enabled: boolean) => void
+  markLearningTipSeen: (tipId: string) => void
+  markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
+  resetLearningProgress: () => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: {
@@ -211,6 +216,50 @@ interface WorkspaceStore {
   ) => void
 }
 
+const defaultLearningSettings = (): LearningSettings => ({
+  showTipsOnStartup: true,
+  lastShownTipId: null,
+  seenTipIds: [],
+  completedLessonIds: [],
+})
+
+function normalizeLearningStringList(value: unknown, max = 200): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    const trimmed = entry.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+function normalizeLearningSettings(input: unknown): LearningSettings {
+  const defaults = defaultLearningSettings()
+  if (!input || typeof input !== 'object') return defaults
+  const candidate = input as Partial<LearningSettings>
+  return {
+    showTipsOnStartup:
+      typeof candidate.showTipsOnStartup === 'boolean'
+        ? candidate.showTipsOnStartup
+        : defaults.showTipsOnStartup,
+    lastShownTipId:
+      typeof candidate.lastShownTipId === 'string' && candidate.lastShownTipId.trim()
+        ? candidate.lastShownTipId.trim()
+        : null,
+    seenTipIds: normalizeLearningStringList(candidate.seenTipIds),
+    completedLessonIds: normalizeLearningStringList(candidate.completedLessonIds),
+    dismissedVersion:
+      typeof candidate.dismissedVersion === 'string' && candidate.dismissedVersion.trim()
+        ? candidate.dismissedVersion.trim()
+        : undefined,
+  }
+}
+
 const defaultAppSettings = (): AppSettings => ({
   cliRuntimes: {
     codex: { command: 'codex', useWsl: false },
@@ -227,6 +276,7 @@ const defaultAppSettings = (): AppSettings => ({
   projectKnowledgeRoots: {},
   recentWorkspaceFolders: [],
   usageTelemetry: defaultUsageTelemetrySettings(),
+  learning: defaultLearningSettings(),
 })
 
 function normalizeProjectKnowledgeRoots(
@@ -271,6 +321,7 @@ function normalizeAppSettings(settings: Partial<AppSettings> | undefined, worksp
       workspaces.map((ws) => ws.folderPath)
     ),
     usageTelemetry: normalizeUsageTelemetrySettings(settings?.usageTelemetry),
+    learning: normalizeLearningSettings(settings?.learning),
   }
 }
 
@@ -1060,6 +1111,47 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           })
         }),
 
+      setLearningShowTipsOnStartup: (enabled) =>
+        set((state) => {
+          state.appSettings.learning ??= defaultLearningSettings()
+          state.appSettings.learning.showTipsOnStartup = enabled
+        }),
+
+      markLearningTipSeen: (tipId) =>
+        set((state) => {
+          const id = tipId?.trim()
+          if (!id) return
+          state.appSettings.learning ??= defaultLearningSettings()
+          const learning = state.appSettings.learning
+          if (!learning.seenTipIds.includes(id)) {
+            learning.seenTipIds = [...learning.seenTipIds, id]
+          }
+          learning.lastShownTipId = id
+        }),
+
+      markLearningLessonCompleted: (lessonId, completed = true) =>
+        set((state) => {
+          const id = lessonId?.trim()
+          if (!id) return
+          state.appSettings.learning ??= defaultLearningSettings()
+          const learning = state.appSettings.learning
+          const already = learning.completedLessonIds.includes(id)
+          if (completed && !already) {
+            learning.completedLessonIds = [...learning.completedLessonIds, id]
+          } else if (!completed && already) {
+            learning.completedLessonIds = learning.completedLessonIds.filter((entry) => entry !== id)
+          }
+        }),
+
+      resetLearningProgress: () =>
+        set((state) => {
+          const current = state.appSettings.learning ?? defaultLearningSettings()
+          state.appSettings.learning = {
+            ...defaultLearningSettings(),
+            showTipsOnStartup: current.showTipsOnStartup,
+          }
+        }),
+
       addWorkspace: (template, options) => {
         let id = nanoid()
 
@@ -1750,7 +1842,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 40,
+      version: 41,
       // Migrate older persisted state that lacks editorState / folderPath / sprintEngineState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Partial<WorkspaceMigrationState> | undefined
@@ -2129,6 +2221,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
             }
           })
+        }
+        if (version < 41) {
+          const current = migrationState
+          current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
         }
         return state as never
       },

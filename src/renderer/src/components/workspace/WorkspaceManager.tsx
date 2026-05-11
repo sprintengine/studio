@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid'
 import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import CommandPalette from '../CommandPalette'
+import { TipStartupModal } from '../learn/TipStartupModal'
 import SettingsPanel from '../settings/SettingsPanel'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -37,7 +38,7 @@ import { sprintEngineRoleAccent } from '../../utils/sprintengine'
 import { getHighlightSwatch } from '../../utils/highlight'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
-import TemplateSelector, { type TemplateSelectorInitialState } from './TemplateSelector'
+import NewWorkspacePanel, { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
 import MultiloopAutoRunSupervisor from './MultiloopAutoRunSupervisor'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
@@ -335,10 +336,15 @@ export default function WorkspaceManager() {
   const multiloopLaunchMenu = activeWorkspace?.mode === 'multiloop'
   const proAccount = hasActiveProPlan(authState)
 
-  const [showTemplateSelector, setShowTemplateSelector] = useState(false)
-  const [templateSelectorInitialState, setTemplateSelectorInitialState] = useState<TemplateSelectorInitialState | null>(null)
+  const [showNewWorkspacePanel, setShowNewWorkspacePanel] = useState(false)
+  const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [checkForUpdatesOnSettingsOpen, setCheckForUpdatesOnSettingsOpen] = useState(false)
+  const [initialSettingsTab, setInitialSettingsTab] = useState<string | null>(null)
+  const [tipModalOpen, setTipModalOpen] = useState(false)
+  const tipModalDecidedRef = useRef(false)
+  const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
+  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? {})
   const [showPalette, setShowPalette] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   const [agentCliDropdownOpen, setAgentCliDropdownOpen] = useState(false)
@@ -371,7 +377,7 @@ export default function WorkspaceManager() {
   const handoffInputRef = useRef<HTMLInputElement>(null)
   const terminalSessionsSignatureRef = useRef('')
   const workspaceLayoutUnloadTimersRef = useRef<Record<string, number>>({})
-  const workspaceActionsEnabled = activeWorkspace && !showTemplateSelector
+  const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
   const sessions = getSessionItems(workspaces, terminalSessions)
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
   const settingsOpen = showSettings || Boolean(activeWorkspaceId && hasComponentTab(activeWorkspaceId, 'settings'))
@@ -379,16 +385,16 @@ export default function WorkspaceManager() {
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === activeWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
 
-  const openTemplateSelector = () => {
-    setTemplateSelectorInitialState(null)
-    setShowTemplateSelector(true)
+  const openNewWorkspacePanel = () => {
+    setNewWorkspacePanelInitialState(null)
+    setShowNewWorkspacePanel(true)
     setShowSettings(false)
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setHandoffOpen(false)
   }
 
-  const openSettings = useCallback((checkForUpdates = false) => {
+  const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     if (activeWorkspaceId) {
       const model = getModel(activeWorkspaceId)
       if (model) {
@@ -399,22 +405,26 @@ export default function WorkspaceManager() {
         })
 
         if (settingsTabId) {
-          if (checkForUpdates) {
-            model.doAction(Actions.updateNodeAttributes(settingsTabId, {
-              config: { checkForUpdatesRequestId: Date.now() },
-            }))
+          const nextConfig: Record<string, unknown> = {}
+          if (checkForUpdates) nextConfig.checkForUpdatesRequestId = Date.now()
+          if (targetTab) nextConfig.initialTab = targetTab
+          if (Object.keys(nextConfig).length > 0) {
+            model.doAction(Actions.updateNodeAttributes(settingsTabId, { config: nextConfig }))
           }
           model.doAction(Actions.selectTab(settingsTabId))
         } else {
           const targetTabset = model.getActiveTabset() ?? firstTabset(model)
           if (targetTabset) {
+            const config: Record<string, unknown> = {}
+            if (checkForUpdates) config.checkForUpdatesRequestId = Date.now()
+            if (targetTab) config.initialTab = targetTab
             model.doAction(
               Actions.addNode(
                 {
                   type: 'tab',
                   name: 'Settings',
                   component: 'settings',
-                  config: checkForUpdates ? { checkForUpdatesRequestId: Date.now() } : {},
+                  config,
                 },
                 targetTabset.getId(),
                 DockLocation.CENTER,
@@ -428,8 +438,9 @@ export default function WorkspaceManager() {
     }
 
     setCheckForUpdatesOnSettingsOpen(checkForUpdates)
+    setInitialSettingsTab(targetTab)
     setShowSettings(!activeWorkspaceId)
-    setShowTemplateSelector(false)
+    setShowNewWorkspacePanel(false)
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setViewMenuOpen(false)
@@ -438,13 +449,17 @@ export default function WorkspaceManager() {
     setHandoffOpen(false)
   }, [activeWorkspaceId])
 
+  const openLearnCenter = useCallback(() => {
+    openSettings(false, 'learn')
+  }, [openSettings])
+
   const openFuturePlanWorkspace = (source: FuturePlanWorkspaceSource) => {
-    setTemplateSelectorInitialState({
+    setNewWorkspacePanelInitialState({
       mode: 'sprintengine',
       folderPath: source.folderPath,
       futurePlanSource: source,
     })
-    setShowTemplateSelector(true)
+    setShowNewWorkspacePanel(true)
     setShowSettings(false)
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
@@ -467,6 +482,23 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (!specialistMenuOpen) setAgentCliDropdownOpen(false)
   }, [specialistMenuOpen])
+
+  useEffect(() => {
+    if (tipModalDecidedRef.current) return
+    tipModalDecidedRef.current = true
+    if (!showTipsOnStartup) return
+    setTipModalOpen(true)
+  }, [showTipsOnStartup])
+
+  const learningContext = useMemo(() => ({
+    activeWorkspace,
+    hasAnyTerminal: terminalSessions.length > 0,
+    hasKnowledgeRoot:
+      Boolean(
+        activeWorkspace?.memory?.relativeRoot
+        || (activeWorkspace?.folderPath && projectKnowledgeRoots[activeWorkspace.folderPath])
+      ),
+  }), [activeWorkspace, projectKnowledgeRoots, terminalSessions.length])
 
   useEffect(() => {
     setAgentSpawnPermissionPresetState(lastAgentSpawnPermissionPreset)
@@ -523,7 +555,7 @@ export default function WorkspaceManager() {
   }, [mobileWorkspaceRootKey])
 
   useEffect(() => {
-    if (workspaces.length === 0) setShowTemplateSelector(true)
+    if (workspaces.length === 0) setShowNewWorkspacePanel(true)
   }, [workspaces.length])
 
   useEffect(() => {
@@ -748,7 +780,7 @@ export default function WorkspaceManager() {
           event.shiftKey || event.code === 'ArrowLeft' ? -1 : 1
         )
         if (nextWorkspaceId) {
-          setShowTemplateSelector(false)
+          setShowNewWorkspacePanel(false)
           setActiveWorkspace(nextWorkspaceId)
         }
         return
@@ -777,7 +809,7 @@ export default function WorkspaceManager() {
 
       if (key === 't') {
         event.preventDefault()
-        openTemplateSelector()
+        openNewWorkspacePanel()
       }
       if (key === 'b') {
         event.preventDefault()
@@ -789,9 +821,9 @@ export default function WorkspaceManager() {
         closeWorkspaceById(activeWorkspaceId)
         return
       }
-      if (key === 'w' && showTemplateSelector) {
+      if (key === 'w' && showNewWorkspacePanel) {
         event.preventDefault()
-        if (workspaces.length > 0) setShowTemplateSelector(false)
+        if (workspaces.length > 0) setShowNewWorkspacePanel(false)
       } else if (key === 'w' && activeWorkspaceId) {
         event.preventDefault()
         closeActiveLayoutTab(activeWorkspaceId)
@@ -800,7 +832,7 @@ export default function WorkspaceManager() {
       const n = parseInt(event.key)
       if (n >= 1 && n <= 9 && workspaces[n - 1]) {
         event.preventDefault()
-        setShowTemplateSelector(false)
+        setShowNewWorkspacePanel(false)
         setActiveWorkspace(workspaces[n - 1].id)
       }
     }
@@ -810,7 +842,7 @@ export default function WorkspaceManager() {
   }, [
     workspaces,
     activeWorkspaceId,
-    showTemplateSelector,
+    showNewWorkspacePanel,
     lastSelectedCli,
     removeWorkspace,
     setActiveWorkspace,
@@ -870,8 +902,8 @@ export default function WorkspaceManager() {
     mode?: Workspace['mode']
   }) => {
     addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAutoState, mode })
-    setShowTemplateSelector(false)
-    setTemplateSelectorInitialState(null)
+    setShowNewWorkspacePanel(false)
+    setNewWorkspacePanelInitialState(null)
   }
 
   const deleteWorkspaceWithState = useCallback(
@@ -936,7 +968,7 @@ export default function WorkspaceManager() {
     specialistId: SpecialistActionId = lastSelectedSpecialist,
     requestedName = ''
   ) => {
-    if (showTemplateSelector || !activeWorkspaceId) return
+    if (showNewWorkspacePanel || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
     if (!model) return
 
@@ -982,7 +1014,7 @@ export default function WorkspaceManager() {
     role: MultiloopRole = lastSelectedMultiloopRole,
     requestedName = ''
   ) => {
-    if (showTemplateSelector || !activeWorkspaceId) return
+    if (showNewWorkspacePanel || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
     if (!model) return
 
@@ -1054,7 +1086,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewCliAgent = (cli: AgentCli, label: string) => {
-    if (showTemplateSelector || !activeWorkspaceId) return
+    if (showNewWorkspacePanel || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
     if (!model) return
 
@@ -1093,7 +1125,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewTerminal = () => {
-    if (showTemplateSelector || !activeWorkspaceId) return
+    if (showNewWorkspacePanel || !activeWorkspaceId) return
     const model = getModel(activeWorkspaceId)
     if (!model) return
 
@@ -1234,7 +1266,7 @@ export default function WorkspaceManager() {
       })
     }
 
-    setShowTemplateSelector(false)
+    setShowNewWorkspacePanel(false)
     setActiveWorkspace(item.workspace.id)
     setSessionsOpen(false)
 
@@ -1321,13 +1353,13 @@ export default function WorkspaceManager() {
         sidebarCollapsed={sidebarCollapsed}
         activityByWorkspaceId={activityByWorkspaceId}
         onSelectWorkspace={(id) => {
-          setShowTemplateSelector(false)
+          setShowNewWorkspacePanel(false)
           setActiveWorkspace(id)
         }}
         onCloseWorkspace={closeWorkspaceById}
         onDeleteWorkspaceWithState={deleteWorkspaceWithState}
         onForgetFolder={handleForgetFolder}
-        onNewWorkspace={openTemplateSelector}
+        onNewWorkspace={openNewWorkspacePanel}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
       />
@@ -1927,25 +1959,28 @@ export default function WorkspaceManager() {
         {showSettings ? (
           <SettingsPanel
             checkForUpdatesOnOpen={checkForUpdatesOnSettingsOpen}
+            initialTab={initialSettingsTab}
+            onOpenSettingsTab={(tabId) => openSettings(false, tabId)}
             onClose={() => {
               setShowSettings(false)
               setCheckForUpdatesOnSettingsOpen(false)
-              if (workspaces.length === 0) setShowTemplateSelector(true)
+              setInitialSettingsTab(null)
+              if (workspaces.length === 0) setShowNewWorkspacePanel(true)
             }}
           />
-        ) : showTemplateSelector ? (
-          <TemplateSelector
+        ) : showNewWorkspacePanel ? (
+          <NewWorkspacePanel
             onCreate={handleCreate}
             onClose={() => {
-              setShowTemplateSelector(false)
-              setTemplateSelectorInitialState(null)
+              setShowNewWorkspacePanel(false)
+              setNewWorkspacePanelInitialState(null)
             }}
             allowClose={workspaces.length > 0}
-            initialState={templateSelectorInitialState}
+            initialState={newWorkspacePanelInitialState}
           />
         ) : (
           <>
-            {workspaces.length === 0 && <EmptyState onNew={openTemplateSelector} />}
+            {workspaces.length === 0 && <EmptyState onNew={openNewWorkspacePanel} />}
             {renderedWorkspaceIds.map((workspaceId) => {
               const active = workspaceId === activeWorkspaceId
               return (
@@ -2017,10 +2052,24 @@ export default function WorkspaceManager() {
       {showPalette && (
         <CommandPalette
           onClose={() => setShowPalette(false)}
-          onNewWorkspace={openTemplateSelector}
+          onNewWorkspace={openNewWorkspacePanel}
           onSpawnSpecialist={handleSelectSpecialist}
         />
       )}
+
+      <TipStartupModal
+        open={tipModalOpen}
+        context={learningContext}
+        onClose={() => setTipModalOpen(false)}
+        onOpenLearnCenter={() => {
+          setTipModalOpen(false)
+          openLearnCenter()
+        }}
+        onSettingsTab={(tabId) => {
+          setTipModalOpen(false)
+          openSettings(false, tabId)
+        }}
+      />
     </div>
   )
 }

@@ -268,6 +268,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         filePath?: string
         repoRoot?: string
         checkForUpdatesRequestId?: number
+        initialTab?: string
         highlightColor?: HighlightColor
       } | undefined
 
@@ -347,6 +348,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return (
             <SettingsPanel
               checkForUpdatesRequestId={config?.checkForUpdatesRequestId}
+              initialTab={config?.initialTab ?? null}
+              onOpenSettingsTab={(tabId) => {
+                modelRef.current?.doAction(
+                  Actions.updateNodeAttributes(node.getId(), { config: { initialTab: tabId } })
+                )
+              }}
               onClose={() => {
                 modelRef.current?.doAction(Actions.deleteTab(node.getId()))
               }}

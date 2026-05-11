@@ -649,6 +649,14 @@ export type UsageTelemetrySettings = {
   exportDiagnostics: boolean
 }
 
+export type LearningSettings = {
+  showTipsOnStartup: boolean
+  lastShownTipId: string | null
+  seenTipIds: string[]
+  completedLessonIds: string[]
+  dismissedVersion?: string
+}
+
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   lastSelectedCli: AgentCli
@@ -659,6 +667,7 @@ export type AppSettings = {
   projectKnowledgeRoots: Record<string, string | null>
   recentWorkspaceFolders: string[]
   usageTelemetry: UsageTelemetrySettings
+  learning: LearningSettings
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'

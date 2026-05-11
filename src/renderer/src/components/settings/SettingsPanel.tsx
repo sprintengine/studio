@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli } from '../../types/workspace'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
+import LearnCenter from '../learn/LearnCenter'
 import MobileSettingsTab from './MobileSettingsTab'
 import { MetaCell, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
@@ -10,6 +11,8 @@ interface Props {
   onClose: () => void
   checkForUpdatesOnOpen?: boolean
   checkForUpdatesRequestId?: number
+  initialTab?: string | null
+  onOpenSettingsTab?: (tabId: string) => void
 }
 
 type UpdateAction = 'check' | 'download' | 'restart'
@@ -22,6 +25,7 @@ type SettingsTabId =
   | 'agents'
   | 'file-search'
   | 'knowledge-graph'
+  | 'learn'
   | 'mobile'
   | 'telemetry'
 
@@ -31,9 +35,23 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
   { id: 'file-search', label: 'File Search', description: 'Index exclude patterns' },
   { id: 'knowledge-graph', label: 'Knowledge Graph', description: 'Project knowledge' },
+  { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
   { id: 'mobile', label: 'Mobile', description: 'Phone pairing and relay' },
   { id: 'telemetry', label: 'Telemetry', description: 'Usage and diagnostics' },
 ]
+
+function isSettingsTabId(value: unknown): value is SettingsTabId {
+  return (
+    value === 'updates'
+    || value === 'github'
+    || value === 'agents'
+    || value === 'file-search'
+    || value === 'knowledge-graph'
+    || value === 'learn'
+    || value === 'mobile'
+    || value === 'telemetry'
+  )
+}
 
 function parseSearchExcludeText(value: string): string[] {
   return value
@@ -85,6 +103,8 @@ export default function SettingsPanel({
   onClose,
   checkForUpdatesOnOpen = false,
   checkForUpdatesRequestId,
+  initialTab = null,
+  onOpenSettingsTab,
 }: Props) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeWorkspace = useWorkspaceStore((s) =>
@@ -120,13 +140,23 @@ export default function SettingsPanel({
   const [memorySkillStatus, setMemorySkillStatus] = useState<BuiltinSkillStatus | null>(null)
   const [memorySkillPending, setMemorySkillPending] = useState(false)
   const [memorySkillMessage, setMemorySkillMessage] = useState<string | null>(null)
-  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>('updates')
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>(
+    isSettingsTabId(initialTab) ? initialTab : 'updates'
+  )
+
+  useEffect(() => {
+    if (isSettingsTabId(initialTab)) {
+      setActiveSettingsTab(initialTab)
+      window.requestAnimationFrame(() => tabRefs.current[initialTab]?.focus())
+    }
+  }, [initialTab])
   const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
     updates: null,
     github: null,
     agents: null,
     'file-search': null,
     'knowledge-graph': null,
+    learn: null,
     mobile: null,
     telemetry: null,
   })
@@ -788,6 +818,16 @@ export default function SettingsPanel({
             ) : null}
           </div>
         </div>
+        ) : null}
+
+        {activeSettingsTab === 'learn' ? (
+          <div
+            role="tabpanel"
+            id="settings-panel-learn"
+            aria-labelledby="settings-tab-learn"
+          >
+            <LearnCenter onSettingsTab={onOpenSettingsTab} />
+          </div>
         ) : null}
 
         {activeSettingsTab === 'mobile' ? <MobileSettingsTab /> : null}

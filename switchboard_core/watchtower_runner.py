@@ -78,6 +78,12 @@ def start_watchtower_triage(workspace: Path, *, scope: str = "all", task_id: str
     with locked_runner(workspace):
         state = read_runner_state(workspace)
         ensure_runner_can_launch_watchtower(workspace, state)
+        active_review = active_watchtower_review_run(workspace)
+        if active_review is not None:
+            raise SwitchboardError(
+                f"Watchtower review {active_review['runId']} is still running. "
+                "Wait for review agents to finish before starting architect triage."
+            )
         scoped = triage_scope_records(workspace, scope=scope, task_id=task_id)
         if not scoped:
             raise SwitchboardError("There are no Watchtower inbox tasks to triage.")
@@ -103,6 +109,17 @@ def triage_scope_records(workspace: Path, *, scope: str, task_id: str | None) ->
             raise SwitchboardError("Watchtower selected triage requires a task id.")
         return [record for record in inbox if record["task"]["id"] == task_id]
     raise SwitchboardError("Watchtower triage scope must be all or selected.")
+
+
+def active_watchtower_review_run(workspace: Path) -> dict[str, Any] | None:
+    for run in list_watchtower_runs(workspace):
+        if run.get("preset") == "inbox_triage":
+            continue
+        if run.get("status") in {"pending", "running"}:
+            return run
+        if any(agent.get("status") in {"pending", "running"} for agent in run.get("agents", [])):
+            return run
+    return None
 
 
 def triage_records_for_agent(workspace: Path, agent: dict[str, Any]) -> list[dict[str, Any]]:
@@ -188,7 +205,7 @@ def fail_pending_watchtower_agents(workspace: Path, message: str) -> None:
 
 
 def next_pending_watchtower_agent(workspace: Path) -> tuple[dict[str, Any], dict[str, Any]] | None:
-    for run in list_watchtower_runs(workspace):
+    for run in sorted(list_watchtower_runs(workspace), key=lambda current: str(current.get("createdAt") or "")):
         if run.get("status") not in {"pending", "running"}:
             continue
         for agent in run.get("agents", []):
