@@ -1,3 +1,9 @@
+// Z-index ladder for the renderer. Use these tiers, not arbitrary values:
+//   z-10 — in-canvas HUD, tooltips, in-card raise, editor overlays
+//   z-20 — docked inspector panes (Task Detail, Memory Preview)
+//   z-30 — panel-internal popovers and action menus (CLI picker, board overflow)
+//   z-40 — app-shell popovers and dropdowns (notifications, account menu)
+//   z-50 — modals and the command palette (always above everything else)
 import React, { useEffect, useRef } from 'react'
 
 type ModalProps = {

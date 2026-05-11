@@ -2056,7 +2056,7 @@ function NotificationsPopover({
   return (
     <div
       role="menu"
-      className="absolute right-0 top-9 z-50 w-[440px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
+      className="absolute right-0 top-9 z-40 w-[440px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
     >
       <div className="flex h-10 items-center justify-between border-b border-[#1f2025] px-3">
         <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#8a8a92]">
@@ -2186,7 +2186,7 @@ function SessionsPopover({
   return (
     <div
       role="menu"
-      className="absolute right-0 top-9 z-50 w-[420px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
+      className="absolute right-0 top-9 z-40 w-[420px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
     >
       <div className="flex h-9 items-center justify-between border-b border-[#1f2025] px-2.5">
         <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#8a8a92]">
@@ -2493,7 +2493,7 @@ function AccountPopover({
   return (
     <div
       role="menu"
-      className="absolute right-0 top-9 z-50 w-72 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+      className="absolute right-0 top-9 z-40 w-72 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
     >
       <div className="space-y-2">
         <div className="flex items-start justify-between gap-3">

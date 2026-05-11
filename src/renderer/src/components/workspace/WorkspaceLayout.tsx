@@ -23,6 +23,8 @@ import MulticodeBlackHoleSpinner from '../brand/MulticodeBlackHoleSpinner'
 import AgentPanel from '../panels/AgentPanel'
 import FileExplorer from '../panels/FileExplorer'
 import SettingsPanel from '../settings/SettingsPanel'
+import SprintEngineRunSummaryPanel from '../panels/SprintEngineRunSummaryPanel'
+import SprintEnginePlanReaderPanel from '../panels/SprintEnginePlanReaderPanel'
 
 interface Props {
   workspaceId: string
@@ -345,6 +347,24 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return (
             <SettingsPanel
               checkForUpdatesRequestId={config?.checkForUpdatesRequestId}
+              onClose={() => {
+                modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+              }}
+            />
+          )
+        case 'sprintengine-run-summary':
+          return (
+            <SprintEngineRunSummaryPanel
+              workspaceId={workspaceId}
+              onClose={() => {
+                modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+              }}
+            />
+          )
+        case 'sprintengine-plan-reader':
+          return (
+            <SprintEnginePlanReaderPanel
+              workspaceId={workspaceId}
               onClose={() => {
                 modelRef.current?.doAction(Actions.deleteTab(node.getId()))
               }}

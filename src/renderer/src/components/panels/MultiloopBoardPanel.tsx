@@ -1658,7 +1658,7 @@ function RunSettingsPopover({
           role="menu"
           tabIndex={-1}
           onKeyDown={popover.onKeyDown}
-          className="absolute right-0 top-11 z-40 w-72 rounded-[8px] border border-[#26272f] bg-[#0d0e12] p-3 shadow-[0_24px_64px_-20px_rgba(0,0,0,0.85)]"
+          className="absolute right-0 top-11 z-30 w-72 rounded-[8px] border border-[#26272f] bg-[#0d0e12] p-3 shadow-[0_24px_64px_-20px_rgba(0,0,0,0.85)]"
         >
           <label className="flex items-center justify-between gap-3 text-sm text-[#ececee]">
             <span>Autonomous loop</span>
@@ -1725,7 +1725,7 @@ function MoreTerminalsPopover({
           role="menu"
           tabIndex={-1}
           onKeyDown={popover.onKeyDown}
-          className="absolute right-0 top-11 z-40 w-80 rounded-[8px] border border-[#26272f] bg-[#0d0e12] p-2 shadow-[0_24px_64px_-20px_rgba(0,0,0,0.85)]"
+          className="absolute right-0 top-11 z-30 w-80 rounded-[8px] border border-[#26272f] bg-[#0d0e12] p-2 shadow-[0_24px_64px_-20px_rgba(0,0,0,0.85)]"
         >
           {groups.map((group) => (
             <div key={group.label} className="py-1">

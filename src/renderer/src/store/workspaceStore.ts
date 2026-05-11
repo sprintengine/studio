@@ -73,6 +73,11 @@ const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 const MAX_RECENT_WORKSPACE_FOLDERS = 12
 
+function workspaceFolderKey(value: string | null | undefined): string | null {
+  const normalized = normalizeProjectRootKey(value)
+  return normalized ? normalized.toLowerCase() : null
+}
+
 function migrateLegacyWorkspaceStorageKey(): void {
   try {
     if (typeof window === 'undefined') return
@@ -839,99 +844,16 @@ function ensureMultiloopLayoutModel(model: IJsonModel | null | undefined): IJson
 
 function isLegacySprintEngineLayout(model: IJsonModel): boolean {
   const serialized = JSON.stringify(model)
-  if (serialized.includes('"component":"sprintengine"') && !serialized.includes('"component":"sprintengine-map"')) return true
+  if (serialized.includes('"component":"sprintengine"') && !serialized.includes('"component":"sprintengine-project"')) return true
   if (serialized.includes('"component":"sprintengine-terminals"')) return true
 
   return false
 }
 
-type LayoutTreeNode = {
-  type?: string
-  component?: string
-  name?: string
-  children?: LayoutTreeNode[]
-  [key: string]: unknown
-}
-
-function addTaskGraphTabToSprintEngineLayout(model: IJsonModel): IJsonModel {
-  const serialized = JSON.stringify(model)
-  if (serialized.includes('"component":"sprintengine-task-graph"')) return model
-
-  const nextModel = JSON.parse(serialized) as IJsonModel & { layout?: LayoutTreeNode }
-  let inserted = false
-
-  const visit = (node: LayoutTreeNode | undefined) => {
-    if (!node || inserted) return
-
-    const children = node.children
-    if (node.type === 'tabset' && Array.isArray(children)) {
-      const mapIndex = children.findIndex((child) => child.component === 'sprintengine-map')
-      const kanbanIndex = children.findIndex((child) => child.component === 'sprintengine-kanban')
-      if (mapIndex >= 0 || kanbanIndex >= 0) {
-        const insertIndex = mapIndex >= 0 ? mapIndex + 1 : kanbanIndex
-        children.splice(insertIndex, 0, {
-          type: 'tab',
-          name: 'Task Graph',
-          component: 'sprintengine-task-graph',
-        })
-        inserted = true
-        return
-      }
-    }
-
-    children?.forEach(visit)
-  }
-
-  visit(nextModel.layout)
-  return inserted ? nextModel : model
-}
-
-function addProjectTabToSprintEngineLayout(model: IJsonModel): IJsonModel {
-  const serialized = JSON.stringify(model)
-  if (serialized.includes('"component":"sprintengine-project"')) return model
-
-  const nextModel = JSON.parse(serialized) as IJsonModel & { layout?: LayoutTreeNode }
-  let inserted = false
-
-  const visit = (node: LayoutTreeNode | undefined) => {
-    if (!node || inserted) return
-
-    const children = node.children
-    if (node.type === 'tabset' && Array.isArray(children)) {
-      const mapIndex = children.findIndex((child) => child.component === 'sprintengine-map')
-      const taskGraphIndex = children.findIndex((child) => child.component === 'sprintengine-task-graph')
-      const kanbanIndex = children.findIndex((child) => child.component === 'sprintengine-kanban')
-      const firstSprintEngineViewIndex = [mapIndex, taskGraphIndex, kanbanIndex]
-        .filter((index) => index >= 0)
-        .sort((a, b) => a - b)[0]
-
-      if (firstSprintEngineViewIndex !== undefined) {
-        children.splice(firstSprintEngineViewIndex, 0, {
-          type: 'tab',
-          name: 'Project',
-          component: 'sprintengine-project',
-        })
-        inserted = true
-        return
-      }
-    }
-
-    children?.forEach(visit)
-  }
-
-  visit(nextModel.layout)
-  return inserted ? nextModel : model
-}
-
 function migrateSprintEngineLayout(ws: Workspace): Workspace {
   if (ws.mode !== 'sprintengine' && !ws.sprintEngineState) return ws
 
-  if (!isLegacySprintEngineLayout(ws.layoutModel)) {
-    return {
-      ...ws,
-      layoutModel: addProjectTabToSprintEngineLayout(addTaskGraphTabToSprintEngineLayout(ws.layoutModel)),
-    }
-  }
+  if (!isLegacySprintEngineLayout(ws.layoutModel)) return ws
 
   return {
     ...ws,
@@ -1139,7 +1061,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }),
 
       addWorkspace: (template, options) => {
-        const id = nanoid()
+        let id = nanoid()
 
         set((state) => {
           const folderPath = options?.folderPath ?? null
@@ -1148,6 +1070,25 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const isSwitchboard = explicitMode === 'switchboard' || template.id === 'switchboard-mode'
           const isSprintEngine = !isSwitchboard && (template.id === 'sprintengine-mode' || Boolean(options?.sprintEngineState))
           const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
+          const switchboardFolderKey = isSwitchboard ? workspaceFolderKey(folderPath) : null
+          const existingSwitchboard = switchboardFolderKey
+            ? state.workspaces.find((workspace) =>
+              workspace.mode === 'switchboard'
+              && workspaceFolderKey(workspace.folderPath) === switchboardFolderKey
+            )
+            : null
+          if (existingSwitchboard) {
+            if (folderPath) {
+              state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
+                [folderPath],
+                state.appSettings.recentWorkspaceFolders
+              )
+            }
+            id = existingSwitchboard.id
+            existingSwitchboard.folderMissing = false
+            state.activeWorkspaceId = existingSwitchboard.id
+            return
+          }
           const sprintEngineState = isSprintEngine
             ? normalizeSprintEngineState(options?.sprintEngineState)
               ?? createInitialSprintEngineState({

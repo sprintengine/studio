@@ -2,6 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { Modal, ModalBody, ModalButton, ModalFooter } from '../ui/Modal'
+import { focusOrAddComponentTab } from '../../utils/modelRegistry'
+import {
+  buildRunSummary,
+  feedbackFindingAreaLabels,
+  feedbackFindingKindLabels,
+  feedbackFindingSeverityLabels,
+  feedbackFindingStatusLabels,
+  feedbackIssueCategoryLabels,
+  feedbackIssueSeverityLabels,
+  feedbackIssueStatusLabels,
+  feedbackScoreLabels,
+  formatSprintEngineGoal,
+} from '../../utils/sprintengineRunSummary'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type {
   AgentCli,
@@ -36,8 +49,6 @@ import {
 import { renderMarkdown } from '../../utils/markdown'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
-  getSprintEnginePlanFilePath,
-  getSprintEngineRootDirectoryPath,
   parseSprintEngineStateFile,
 } from '../../utils/sprintengineStateFile'
 import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
@@ -292,14 +303,6 @@ type SyncState = {
 }
 
 
-type PlanReaderState = {
-  open: boolean
-  status: 'idle' | 'loading' | 'ready' | 'error'
-  content: string
-  error: string | null
-  mode: 'preview' | 'source'
-}
-
 type SprintEngineView = 'project' | 'task-graph' | 'kanban'
 
 type SpawnDialogState = {
@@ -385,17 +388,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addMemberRole, setAddMemberRole] = useState<SprintEngineRole>('developer')
-  const [showRunSummary, setShowRunSummary] = useState(false)
   const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
   const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
   const [taskReadyActions, setTaskReadyActions] = useState<Record<string, TaskReadyActionState>>({})
-  const [planReader, setPlanReader] = useState<PlanReaderState>({
-    open: false,
-    status: 'idle',
-    content: '',
-    error: null,
-    mode: 'preview',
-  })
   const [syncState, setSyncState] = useState<SyncState>({
     status: 'idle',
     message: 'Waiting for a Sprint Engine workspace folder.',
@@ -748,9 +743,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const allTasksDone = sprintEngineState.tasks.length > 0 && doneCount === sprintEngineState.tasks.length
   const runSummary = buildRunSummary(sprintEngineState.tasks)
   const architectAgentId = roster.find((agent) => agent.role === 'architect')?.id ?? null
-  const planFilePath = folderPath && sprintEngineContext
-    ? getSprintEnginePlanFilePath(folderPath, sprintEngineContext.teamSlug)
-    : null
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
   const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'performance', 'tester', 'security']
   const roleTaskLaunches = workerRoles.flatMap((role) => {
@@ -1103,6 +1095,58 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     : false
   const selectedTaskArtifacts = selectedTask ? artifactsByTaskId[selectedTask.id] ?? [] : []
   const selectedTaskArtifactBlockers = selectedTask ? artifactBlockersByTaskId[selectedTask.id] ?? [] : []
+  const inspectorSelectedAgent = selectedAgentId
+    ? roster.find((entry) => entry.id === selectedAgentId) ?? null
+    : null
+  const inspectorSelection: SprintEngineInspectorSelection | null = previewedArtifact
+    ? { kind: 'artifact', artifact: previewedArtifact }
+    : selectedTask
+      ? { kind: 'task', task: selectedTask }
+      : inspectorSelectedAgent
+        ? { kind: 'agent', agent: inspectorSelectedAgent }
+        : null
+  const closeInspector = () => {
+    setSelectedTaskId(null)
+    setSelectedAgentId(null)
+    setPreviewedArtifact(null)
+  }
+  const renderInspectorAside = () => inspectorSelection ? (
+    <aside
+      className="flex w-[42%] min-w-[320px] max-w-[560px] flex-col border-l border-[#13141a]"
+      aria-label="Sprint Engine inspector"
+    >
+      <SprintEngineInspectorPanel
+        selection={inspectorSelection}
+        sprintEngineState={sprintEngineState}
+        agents={agents}
+        runtimeAgents={runtimeAgents}
+        tasksById={tasksById}
+        selectedTaskBoardColumn={selectedTaskBoardColumn}
+        selectedTaskStatusLabel={selectedTaskStatusLabel}
+        selectedTaskOwnerLabel={selectedTaskOwnerLabel}
+        selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
+        selectedTaskCanMarkReady={selectedTaskCanMarkReady}
+        selectedTaskCanSpawnWorker={selectedTaskCanSpawnWorker}
+        selectedTaskCanManageWorker={selectedTaskCanManageWorker}
+        selectedTaskOwnerCliRunning={selectedTaskOwnerCliRunning}
+        selectedTaskArtifacts={selectedTaskArtifacts}
+        selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
+        taskReadyActions={taskReadyActions}
+        artifactActions={artifactActions}
+        onClose={closeInspector}
+        onSelectTask={setSelectedTaskId}
+        onMarkTaskReady={markTaskReady}
+        onOpenReadyTaskWorker={openReadyTaskWorker}
+        onOpenArtifact={openArtifact}
+        onApproveArtifact={approveArtifact}
+        onRequestArtifactChanges={requestArtifactChanges}
+        onBackFromArtifact={() => setPreviewedArtifact(null)}
+        onPopOutArtifact={popOutPreviewedArtifact}
+        onSpawnAgent={openSpawnDialog}
+        onOpenAgentTerminal={openAgentTerminal}
+      />
+    </aside>
+  ) : null
   const activateView = (view: SprintEngineView) => {
     if (fixedView) return
     setActiveView(view)
@@ -1240,73 +1284,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     }
 
     openReadySpawnDialogForRole(task.role)
-  }
-
-  const loadPlanReader = async () => {
-    if (!sprintEngineState || !folderPath || !sprintEngineContext) {
-      setPlanReader((current) => ({
-        ...current,
-        open: true,
-        status: 'error',
-        error: !folderPath
-          ? 'Choose a workspace folder before reading the Sprint Engine plan.'
-          : 'This Sprint Engine workspace is missing its selected team context.',
-      }))
-      return
-    }
-
-    const sprintEngineRootDirectory = getSprintEngineRootDirectoryPath(folderPath)
-    const sprintEngineDirectory = sprintEngineContext.teamDirectoryPath
-    const nextPlanFilePath = getSprintEnginePlanFilePath(folderPath, sprintEngineContext.teamSlug)
-    setPlanReader((current) => ({
-      ...current,
-      open: true,
-      status: 'loading',
-      error: null,
-    }))
-
-    try {
-      await window.api.ensureDir(folderPath, 'sprintengine')
-      await window.api.ensureDir(sprintEngineRootDirectory, sprintEngineContext.teamSlug)
-
-      let content = ''
-      try {
-        content = await window.api.readfile(nextPlanFilePath)
-      } catch {
-        content = ''
-      }
-
-      setPlanReader((current) => ({
-        ...current,
-        open: true,
-        status: 'ready',
-        content,
-        error: null,
-      }))
-    } catch (error) {
-      setPlanReader((current) => ({
-        ...current,
-        open: true,
-        status: 'error',
-        content: '',
-        error: error instanceof Error ? error.message : `Failed to load plan from ${sprintEngineDirectory}.`,
-      }))
-    }
-  }
-
-  const openPlanInEditor = async () => {
-    if (!planFilePath) return
-    let content = planReader.content
-    if (!content) {
-      try {
-        content = await window.api.readfile(planFilePath)
-      } catch {
-        content = ''
-      }
-    }
-    openFile(workspaceId, planFilePath, 'plan.md', content)
-    focusOrAddFileTab(workspaceId, planFilePath, 'plan.md')
-    setPlanReader((current) => ({ ...current, open: false }))
   }
 
   const openRecoveryDialog = () => {
@@ -1614,7 +1591,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => setShowRunSummary(true)}
+                onClick={() => focusOrAddComponentTab(workspaceId, 'sprintengine-run-summary', 'Run Summary')}
                 className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d4ffdc] transition-colors hover:bg-[#30d158]/12"
               >
                 View Run Summary
@@ -1628,46 +1605,46 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       {folderStatusBanner}
 
       {effectiveView === 'project' ? (
-        <SprintEngineProjectView
-          sprintEngineState={sprintEngineState}
-          roster={roster}
-          runtimeAgents={runtimeAgents}
-          agents={agents}
-          runPhase={runPhase}
-          doneCount={doneCount}
-          activeCount={activeCount}
-          needsInputCount={needsInputCount}
-          reviewArtifacts={reviewArtifacts}
-          artifactActions={artifactActions}
-          selectedAgentId={resolvedSelectedAgentId}
-          onSelectAgent={(agentId) => {
-            if (agents[agentId]?.cliStartRequested) {
-              openAgentTerminal(agentId)
-            } else {
-              openSpawnDialog(agentId)
-            }
-          }}
-          onSelectTask={setSelectedTaskId}
-          onAddMember={openAddMemberDialog}
-          onAddRole={(role) => {
-            setAddMemberRole(role)
-            setActionMenuOpen(false)
-            setAddMemberOpen(true)
-          }}
-          onReadPlan={() => void loadPlanReader()}
-          onOpenArtifact={(artifact) => void openArtifact(artifact)}
-          onApproveArtifact={(artifact) => void approveArtifact(artifact)}
-          onRequestArtifactChanges={requestArtifactChanges}
-        />
+        <div className="flex min-h-0 flex-1">
+          <SprintEngineProjectView
+            sprintEngineState={sprintEngineState}
+            roster={roster}
+            runtimeAgents={runtimeAgents}
+            agents={agents}
+            runPhase={runPhase}
+            doneCount={doneCount}
+            activeCount={activeCount}
+            needsInputCount={needsInputCount}
+            reviewArtifacts={reviewArtifacts}
+            artifactActions={artifactActions}
+            selectedAgentId={resolvedSelectedAgentId}
+            onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
+            onSelectTask={setSelectedTaskId}
+            onAddMember={openAddMemberDialog}
+            onAddRole={(role) => {
+              setAddMemberRole(role)
+              setActionMenuOpen(false)
+              setAddMemberOpen(true)
+            }}
+            onReadPlan={() => focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan')}
+            onOpenArtifact={(artifact) => void openArtifact(artifact)}
+            onApproveArtifact={(artifact) => void approveArtifact(artifact)}
+            onRequestArtifactChanges={requestArtifactChanges}
+          />
+          {renderInspectorAside()}
+        </div>
       ) : null}
 
       {effectiveView === 'task-graph' ? (
-        <SprintEngineTaskGraphView
-          sprintEngineState={sprintEngineState}
-          rosterById={rosterById}
-          selectedTaskId={selectedTaskId}
-          onSelectTask={setSelectedTaskId}
-        />
+        <div className="flex min-h-0 flex-1">
+          <SprintEngineTaskGraphView
+            sprintEngineState={sprintEngineState}
+            rosterById={rosterById}
+            selectedTaskId={selectedTaskId}
+            onSelectTask={setSelectedTaskId}
+          />
+          {renderInspectorAside()}
+        </div>
       ) : null}
 
       {effectiveView === 'kanban' ? (
@@ -1677,6 +1654,31 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
           onKeyDown={handleKanbanKeyDown}
           aria-label="Sprint Engine kanban"
         >
+          <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[#1f2025] bg-[#0d0e11] px-6 py-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2]">
+                Kanban
+              </h3>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#6f7480]">
+                <span>
+                  <span className="font-semibold text-[#d7d7dc]">{sprintEngineState.tasks.length}</span> task{sprintEngineState.tasks.length === 1 ? '' : 's'}
+                </span>
+                {boardColumns.map((column) => {
+                  if (column.cards.length === 0) return null
+                  const tone = kanbanColumnTone(column.key)
+                  return (
+                    <span key={column.key} className={tone.text}>
+                      <span className="font-semibold">{column.cards.length}</span> {column.label.toLowerCase()}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="text-[11px] text-[#5a5a63]">
+              Use <kbd className="rounded border border-[#1f2025] bg-[#0d0e11] px-1 py-0.5 text-[10px] font-mono text-[#9a9aa2]">↑↓←→</kbd> to move between cards
+            </div>
+          </header>
           <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-1.5 py-2">
             {sprintEngineState.tasks.length === 0 ? (
               <div className="flex h-full min-h-[320px] w-full items-center justify-center p-6 text-center">
@@ -1690,23 +1692,30 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 </div>
               </div>
             ) : null}
-            {sprintEngineState.tasks.length > 0 ? boardColumns.map((column) => (
+            {sprintEngineState.tasks.length > 0 ? boardColumns.map((column) => {
+              const tone = kanbanColumnTone(column.key)
+              return (
               <section
                 key={column.key}
                 className="flex h-full min-w-[260px] flex-1 flex-col rounded-md bg-[#0a0b0e]"
                 aria-label={`${column.label} lane`}
               >
-                <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
+                <div className="flex items-center justify-between gap-2 border-b border-[#16171c] px-3 pb-2 pt-2.5">
                   <span className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="h-1.5 w-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: tone.dot }}
+                    />
                     <SprintEngineTaskStatusIcon
                       column={column.key}
-                      className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]"
+                      className={`h-3.5 w-3.5 shrink-0 ${tone.icon}`}
                     />
-                    <span className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2]">
+                    <span className={`truncate text-[11px] font-semibold uppercase tracking-[0.08em] ${tone.text}`}>
                       {column.label}
                     </span>
                   </span>
-                  <span className="shrink-0 text-[11px] tabular-nums text-[#6f7078]">
+                  <span className="shrink-0 rounded-full bg-[#08090b] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[#9a9aa2]">
                     {column.cards.length}
                   </span>
                 </div>
@@ -1887,7 +1896,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                                 event.stopPropagation()
                                 openReadyTaskWorker(task)
                               }}
-                              className="rounded px-2 py-1 text-[11px] font-semibold text-[#8a8a92] opacity-0 transition-colors hover:bg-[#17181d] hover:text-[#ececee] group-hover:opacity-100 group-focus:opacity-100"
+                              className="rounded bg-[#5c7cff]/10 px-2 py-1 text-[11px] font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 hover:text-[#ececee]"
                             >
                               {actionLabel}
                             </button>
@@ -1919,214 +1928,18 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   })}
 
                   {column.cards.length === 0 ? (
-                    <div className="px-1 py-2 text-[11px] leading-5 text-[#5a5a63]">
+                    <div className="m-1 rounded-md border border-dashed border-[#1f2025] px-2 py-3 text-[11px] leading-5 text-[#5a5a63]">
                       {emptyKanbanColumnLabel(column.key)}
                     </div>
                   ) : null}
                 </KanbanCardList>
               </section>
-            )) : null}
+              )
+            }) : null}
+          </div>
           </div>
 
-          <aside
-            className="flex w-[42%] min-w-[320px] max-w-[560px] flex-col border-l border-[#13141a]"
-            aria-label="Selected Sprint Engine task detail"
-          >
-            {previewedArtifact ? (
-              <SprintEngineArtifactPreview
-                artifact={previewedArtifact}
-                onBack={() => setPreviewedArtifact(null)}
-                onPopOut={popOutPreviewedArtifact}
-              />
-            ) : selectedTask ? (
-              <div className="flex h-full min-h-0 flex-col">
-                <header className="border-b border-[#1f2025] px-5 py-4">
-                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
-                    <span className="font-mono tabular-nums text-[12px] text-[#f0d47a]">{selectedTask.id}</span>
-                    <span>·</span>
-                    <span className="flex items-center gap-1.5">
-                      <SprintEngineTaskStatusIcon
-                        column={selectedTaskBoardColumn ?? 'todo'}
-                        className="h-3 w-3 text-[#9a9aa2]"
-                      />
-                      {selectedTaskStatusLabel}
-                    </span>
-                    <span>·</span>
-                    <span>{sprintEngineRoleLabels[selectedTask.role]}</span>
-                  </div>
-                  <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[#ececee]">
-                    {selectedTask.title}
-                  </h3>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {selectedTaskCanMarkReady ? (
-                      <button
-                        type="button"
-                        disabled={taskReadyActions[selectedTask.id]?.status === 'pending'}
-                        onClick={() => void markTaskReady(selectedTask)}
-                        className="h-7 rounded border border-[#4a3812] bg-[#221a0b] px-2.5 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#2b210e] disabled:cursor-wait disabled:opacity-60"
-                      >
-                        Move To Ready
-                      </button>
-                    ) : null}
-                    {selectedTaskCanSpawnWorker || (selectedTask.ownerAgentId && selectedTaskCanManageWorker) ? (
-                      <button
-                        type="button"
-                        onClick={() => openReadyTaskWorker(selectedTask)}
-                        className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] transition-colors hover:bg-[#111216] hover:text-[#ececee]"
-                      >
-                        {selectedTask.ownerAgentId
-                          ? selectedTaskOwnerCliRunning ? 'Open Terminal' : 'Respawn'
-                          : `Spawn ${sprintEngineRoleLabels[selectedTask.role]}`}
-                      </button>
-                    ) : null}
-                  </div>
-                </header>
-
-                <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[#d7d7dc]">
-                  <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
-                    <MetaItem label="Source" value={formatTaskSourceLabel(selectedTask)} />
-                    <MetaItem label="Owner" value={selectedTaskOwnerLabel} />
-                    <MetaItem label="Dependencies" value={selectedTask.dependsOn.join(', ') || 'None'} />
-                    <MetaItem
-                      label={selectedTask.completedAt ? 'Completed' : 'Started'}
-                      value={formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt)}
-                    />
-                  </div>
-
-                  {selectedTask.source?.type === 'github' ? (
-                    <div className="border-l border-[#303139] pl-3">
-                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                        GitHub Issue
-                      </div>
-                      <div className="mt-1 truncate text-sm text-[#d7d7dc]">
-                        {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
-                        {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
-                      </div>
-                      {formatTaskSyncStatusLabel(selectedTask) ? (
-                        <div className="mt-2 text-[12px] leading-5 text-[#ffe0a3]">
-                          {formatTaskSyncStatusDescription(selectedTask)}
-                        </div>
-                      ) : null}
-                      {selectedTask.source.externalUrl ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
-                          }}
-                          className="mt-2 rounded px-2 py-1 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#221a0b]"
-                        >
-                          Open Issue
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  {selectedTaskNeedsInputNote ? (
-                    <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
-                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
-                        Needs Input
-                      </div>
-                      <div className="mt-2 leading-6">{selectedTaskNeedsInputNote}</div>
-                      <div className="mt-2 text-[12px] text-[#ffe0a3]/75">
-                        Respond in the worker CLI to unblock this task.
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {selectedTaskArtifactBlockers.length > 0 ? (
-                    <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
-                  ) : null}
-
-                  {selectedTask.triage ? (
-                    <div className="border-l border-[#d6a536]/70 pl-3 text-sm text-[#f0d47a]">
-                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#f0d47a]">
-                        Architect Triage
-                      </div>
-                      <div className="mt-2 leading-6">{selectedTask.triage.summary}</div>
-                    </div>
-                  ) : null}
-
-                  {taskReadyActions[selectedTask.id]?.message ? (
-                    <div className={`border-l pl-3 text-[12px] leading-5 ${
-                      taskReadyActions[selectedTask.id]?.status === 'error'
-                        ? 'border-[#ff787c]/70 text-[#ffb3b5]'
-                        : 'border-[#303139] text-[#9a9aa2]'
-                    }`}>
-                      {taskReadyActions[selectedTask.id]?.message}
-                    </div>
-                  ) : null}
-
-                  <div>
-                    <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                      Description
-                    </div>
-                    <div>{selectedTask.description || 'No description recorded.'}</div>
-                  </div>
-
-                  <SectionList
-                    title="Acceptance Criteria"
-                    items={selectedTask.acceptanceCriteria}
-                    emptyLabel="No acceptance criteria recorded."
-                  />
-                  <SectionList title="Owned Paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
-                  <SectionList
-                    title="Implementation Notes"
-                    items={selectedTask.implementationNotes}
-                    emptyLabel="No implementation notes recorded."
-                  />
-                  <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
-                  <SectionList
-                    title="Comments"
-                    items={selectedTask.comments.map((comment) => `${comment.actor}: ${comment.body}`)}
-                    emptyLabel="No comments recorded."
-                  />
-
-                  <SprintEngineArtifactList
-                    artifacts={selectedTaskArtifacts}
-                    tasksById={tasksById}
-                    actions={artifactActions}
-                    emptyLabel="No review artifacts are attached to this task."
-                    onSelectTask={(taskId) => setSelectedTaskId(taskId)}
-                    onOpenArtifact={(artifact) => void openArtifact(artifact)}
-                    onApproveArtifact={(artifact) => void approveArtifact(artifact)}
-                    onRequestArtifactChanges={requestArtifactChanges}
-                  />
-
-                  <div>
-                    <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                      Evidence Summary
-                    </div>
-                    <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>
-                  </div>
-
-                  {selectedTask.feedback ? <AgentFeedback feedback={selectedTask.feedback} /> : null}
-
-                  <SectionList
-                    title="Commands Run"
-                    items={selectedTask.evidence.commandsRan}
-                    emptyLabel="No commands recorded."
-                  />
-                  <SectionList
-                    title="Results"
-                    items={selectedTask.evidence.results}
-                    emptyLabel="No test or validation results recorded."
-                  />
-                  <SectionList
-                    title="Touched Files"
-                    items={selectedTask.evidence.touchedFiles}
-                    emptyLabel="No touched files recorded."
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[#6f7078]">
-                <div className="text-[12px] uppercase tracking-[0.08em] text-[#5a5a63]">Detail</div>
-                <div className="text-[13px] text-[#8a8a92]">
-                  Select a task to inspect execution details, artifacts, and evidence.
-                </div>
-              </div>
-            )}
-          </aside>
+          {renderInspectorAside()}
         </div>
       ) : null}
 
@@ -2455,363 +2268,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         </Modal>
       ) : null}
 
-      {selectedTask && effectiveView !== 'kanban' ? (
-        <aside
-          role="complementary"
-          aria-label="Task detail"
-          className="absolute inset-y-0 right-0 z-20 flex w-[min(560px,90%)] flex-col border-l border-[#1f2025] bg-[#0d0e11] shadow-[-16px_0_40px_rgba(0,0,0,0.45)]"
-        >
-            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-              <div className="min-w-0">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Task Detail
-                </div>
-                <h3 className="text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
-                  {selectedTask.title}
-                </h3>
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#5a5a63]">
-                  <span className="font-mono tabular-nums">{selectedTask.id}</span>
-                  <span>{sprintEngineRoleLabels[selectedTask.role]}</span>
-                  <span className="font-semibold text-[#d7d7dc]">{selectedTaskStatusLabel}</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedTaskId(null)}
-                aria-label="Close task detail"
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-              >
-                <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
-              <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 sm:grid-cols-2">
-                <MetaItem label="Source" value={formatTaskSourceLabel(selectedTask)} />
-                <MetaItem label="Status" value={selectedTaskStatusLabel} />
-                <MetaItem label="Owner" value={selectedTaskOwnerLabel} />
-                <MetaItem label="Dependencies" value={selectedTask.dependsOn.join(', ') || 'None'} />
-                <MetaItem
-                  label={selectedTask.completedAt ? 'Completed' : 'Started'}
-                  value={formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt)}
-                />
-              </div>
-
-              {selectedTask.source?.type === 'github' ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2025] pb-5">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                      GitHub Issue
-                    </div>
-                    <div className="mt-1 truncate text-sm text-[#d7d7dc]">
-                      {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
-                      {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
-                    </div>
-                    {formatTaskSyncStatusLabel(selectedTask) ? (
-                      <div className="mt-2 max-w-xl text-[12px] leading-5 text-[#ffe0a3]">
-                        {formatTaskSyncStatusDescription(selectedTask)}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {selectedTask.source.externalUrl ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
-                        }}
-                        className="rounded-md px-3 py-2 text-sm font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/10"
-                      >
-                        Open Issue
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {selectedTaskNeedsInputNote ? (
-                <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
-                    Needs Input
-                  </div>
-                  <div className="mt-2 leading-6">
-                    {selectedTaskNeedsInputNote}
-                  </div>
-                  <div className="mt-2 text-[12px] text-[#ffe0a3]/75">
-                    Respond in the worker CLI to unblock this task.
-                  </div>
-                </div>
-              ) : null}
-
-              {selectedTaskArtifactBlockers.length > 0 ? (
-                <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
-              ) : null}
-
-              {selectedTask.triage ? (
-                <div className="border-l border-[#5c7cff]/70 pl-3 text-sm text-[#d4ddff]">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8fa2ff]">
-                    Architect Triage
-                  </div>
-                  <div className="mt-2 leading-6">{selectedTask.triage.summary}</div>
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-                    <span className="rounded bg-[#17181d] px-1.5 py-0.5">
-                      Risk {selectedTask.triage.riskRating}
-                    </span>
-                    {selectedTask.triage.suggestedRole ? (
-                      <span className="rounded bg-[#17181d] px-1.5 py-0.5">
-                        {sprintEngineRoleLabels[selectedTask.triage.suggestedRole]}
-                      </span>
-                    ) : null}
-                    <span className="rounded bg-[#17181d] px-1.5 py-0.5">
-                      {selectedTask.triage.readyRecommendation ? 'Ready recommended' : 'Needs refinement'}
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-
-              {selectedTaskCanMarkReady ? (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
-                      Ready Gate
-                    </div>
-                    <div className="mt-1 text-sm text-[#ececee]">
-                      Approve this task for workers after triage.
-                    </div>
-                    {taskReadyActions[selectedTask.id]?.message ? (
-                      <div className={`mt-1 text-[12px] ${
-                        taskReadyActions[selectedTask.id]?.status === 'error' ? 'text-[#ff8a8a]' : 'text-[#9a9aa2]'
-                      }`}>
-                        {taskReadyActions[selectedTask.id]?.message}
-                      </div>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    disabled={taskReadyActions[selectedTask.id]?.status === 'pending'}
-                    onClick={() => void markTaskReady(selectedTask)}
-                    className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    Move To Ready
-                  </button>
-                </div>
-              ) : null}
-
-              {selectedTask.ownerAgentId && selectedTaskCanManageWorker ? (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                      Worker CLI
-                    </div>
-                    <div className="mt-1 text-sm text-[#d7d7dc]">
-                      {selectedTaskOwnerCliRunning
-                        ? `Jump straight to ${rosterById[selectedTask.ownerAgentId]?.label ?? selectedTask.ownerAgentId} to continue or answer questions there.`
-                        : `Respawn ${rosterById[selectedTask.ownerAgentId]?.label ?? selectedTask.ownerAgentId} to continue this assigned task.`}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      openReadyTaskWorker(selectedTask)
-                      setSelectedTaskId(null)
-                    }}
-                    className="rounded-md px-4 py-2 text-sm font-semibold text-[#ececee] transition-colors hover:bg-[#17181d]"
-                  >
-                    {selectedTaskOwnerCliRunning ? 'Open Terminal' : 'Respawn'}
-                  </button>
-                </div>
-              ) : null}
-
-              {selectedTaskCanSpawnWorker ? (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
-                      Ready To Claim
-                    </div>
-                    <div className="mt-1 text-sm text-[#ececee]">
-                      Start a {sprintEngineRoleLabels[selectedTask.role]} for this ready task.
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      openReadyTaskWorker(selectedTask)
-                      setSelectedTaskId(null)
-                    }}
-                    className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff]"
-                  >
-                    Spawn {sprintEngineRoleLabels[selectedTask.role]}
-                  </button>
-                </div>
-              ) : null}
-
-              <div>
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Description
-                </div>
-                <div className="text-[#d7d7dc]">
-                  {selectedTask.description || 'No description recorded.'}
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <SectionList title="Owned Paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
-                <SectionList
-                  title="Acceptance Criteria"
-                  items={selectedTask.acceptanceCriteria}
-                  emptyLabel="No acceptance criteria recorded."
-                />
-                <SectionList
-                  title="Implementation Notes"
-                  items={selectedTask.implementationNotes}
-                  emptyLabel="No implementation notes recorded."
-                />
-              </div>
-
-              <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
-              <SectionList
-                title="Comments"
-                items={selectedTask.comments.map((comment) => `${comment.actor}: ${comment.body}`)}
-                emptyLabel="No comments recorded."
-              />
-
-              <SprintEngineArtifactList
-                artifacts={selectedTaskArtifacts}
-                tasksById={tasksById}
-                actions={artifactActions}
-                emptyLabel="No review artifacts are attached to this task."
-                onSelectTask={(taskId) => setSelectedTaskId(taskId)}
-                onOpenArtifact={(artifact) => void openArtifact(artifact)}
-                onApproveArtifact={(artifact) => void approveArtifact(artifact)}
-                onRequestArtifactChanges={requestArtifactChanges}
-              />
-
-              <div>
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Evidence Summary
-                </div>
-                <div className="text-[#d7d7dc]">
-                  {selectedTask.evidence.summary || 'No completion summary recorded yet.'}
-                </div>
-              </div>
-
-              {selectedTask.feedback ? (
-                <AgentFeedback feedback={selectedTask.feedback} />
-              ) : null}
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <SectionList
-                  title="Commands Run"
-                  items={selectedTask.evidence.commandsRan}
-                  emptyLabel="No commands recorded."
-                />
-                <SectionList
-                  title="Results"
-                  items={selectedTask.evidence.results}
-                  emptyLabel="No test or validation results recorded."
-                />
-              </div>
-
-              <SectionList
-                title="Touched Files"
-                items={selectedTask.evidence.touchedFiles}
-                emptyLabel="No touched files recorded."
-              />
-            </div>
-        </aside>
-      ) : null}
-
-      {showRunSummary ? (
-        <Modal
-          open
-          contained
-          width={980}
-          labelledBy="run-summary-dialog-title"
-          onClose={() => setShowRunSummary(false)}
-        >
-          <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-            <div>
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Run Summary
-              </div>
-              <h3 id="run-summary-dialog-title" className="text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
-                {formatSprintEngineGoal(sprintEngineState.goal)}
-              </h3>
-              <p className="mt-2 text-[13px] leading-6 text-[#9a9aa2]">
-                Final evidence collected from completed sprintengine task cards.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowRunSummary(false)}
-              aria-label="Close"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-
-          <ModalBody className="space-y-5 text-[13px] leading-6 text-[#d7d7dc]">
-              <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 sm:grid-cols-2 md:grid-cols-4">
-                <MetaItem label="Tasks Done" value={`${runSummary.completedTasks}/${runSummary.totalTasks}`} />
-                <MetaItem label="Files Touched" value={String(runSummary.touchedFiles.length)} />
-                <MetaItem label="Commands" value={String(runSummary.commandsRan.length)} />
-                <MetaItem label="Results" value={String(runSummary.results.length)} />
-              </div>
-
-              <SectionList
-                title="Completed Tasks"
-                items={runSummary.taskSummaries}
-                emptyLabel="No completed tasks recorded."
-              />
-              <SectionList
-                title="Agent Feedback"
-                items={runSummary.feedbackSummaries}
-                emptyLabel="No agent feedback recorded."
-              />
-              <SectionList
-                title="Prompt Improvement Signals"
-                items={runSummary.promptImprovementSignals}
-                emptyLabel="No prompt improvement signals recorded."
-              />
-              <SectionList
-                title="Role Findings"
-                items={runSummary.findingSummaries}
-                emptyLabel="No role findings recorded."
-              />
-              <SectionList
-                title="Touched Files"
-                items={runSummary.touchedFiles}
-                emptyLabel="No touched files recorded."
-              />
-              <SectionList
-                title="Commands Run"
-                items={runSummary.commandsRan}
-                emptyLabel="No commands recorded."
-              />
-              <SectionList
-                title="Validation Results"
-                items={runSummary.results}
-                emptyLabel="No validation results recorded."
-              />
-              <SectionList
-                title="Remaining Questions"
-                items={runSummary.openQuestions}
-                emptyLabel="No open questions remain."
-              />
-
-              <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
-                Next step: manually test the uncommitted changes in the workspace before committing or reverting.
-              </div>
-          </ModalBody>
-
-          <ModalFooter>
-            <ModalButton onClick={() => setShowRunSummary(false)}>Close</ModalButton>
-          </ModalFooter>
-        </Modal>
-      ) : null}
 
       {addMemberOpen ? (
         <Modal
@@ -2903,102 +2359,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         </Modal>
       ) : null}
 
-      {planReader.open ? (
-        <Modal
-          open
-          contained
-          width={1040}
-          labelledBy="plan-reader-dialog-title"
-          onClose={() => setPlanReader((current) => ({ ...current, open: false }))}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-            <div className="min-w-0 flex-1">
-              <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                Architect Plan
-              </div>
-              <h3 id="plan-reader-dialog-title" className="truncate text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
-                {planFilePath ?? '.multi-code/sprintengine/<team>/plan.md'}
-              </h3>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setPlanReader((current) => ({
-                    ...current,
-                    mode: current.mode === 'preview' ? 'source' : 'preview',
-                  }))
-                }
-                className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-              >
-                {planReader.mode === 'preview' ? 'Source' : 'Preview'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void loadPlanReader()}
-                className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-              >
-                Refresh
-              </button>
-              {architectAgentId ? (
-                <button
-                  type="button"
-                  onClick={() => openAgentTerminal(architectAgentId)}
-                  className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-                >
-                  Open Architect
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setPlanReader((current) => ({ ...current, open: false }))}
-                aria-label="Close"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-              >
-                <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <ModalBody className="min-h-0 flex-1 overflow-y-auto">
-              {planReader.status === 'loading' ? (
-                <div className="px-1 py-2 text-sm text-[#9a9aa2]">
-                  Loading plan...
-                </div>
-              ) : null}
-              {planReader.status === 'error' ? (
-                <div className="border-l border-[#ff1a3d]/60 pl-3 text-sm leading-6 text-[#ffb3bf]">
-                  {planReader.error ?? 'Failed to load plan.'}
-                </div>
-              ) : null}
-              {planReader.status === 'ready' && planReader.mode === 'preview' ? (
-                <div className="mx-auto max-w-4xl">
-                  {planReader.content
-                    ? renderMarkdown(planReader.content)
-                    : (
-                      <div className="border-l border-[#303139] pl-3 text-sm leading-6 text-[#9a9aa2]">
-                        No architect plan has been written yet.
-                      </div>
-                  )}
-                </div>
-              ) : null}
-              {planReader.status === 'ready' && planReader.mode === 'source' ? (
-                <pre className="min-h-[420px] overflow-x-auto rounded-md border border-[#24252b] bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]">
-                  <code>{planReader.content}</code>
-                </pre>
-              ) : null}
-          </ModalBody>
-
-          <ModalFooter>
-            {planFilePath ? (
-              <ModalButton onClick={() => void openPlanInEditor()}>Open in Editor</ModalButton>
-            ) : null}
-            <ModalButton onClick={() => setPlanReader((current) => ({ ...current, open: false }))}>Done</ModalButton>
-          </ModalFooter>
-        </Modal>
-      ) : null}
     </div>
   )
 }
@@ -3014,6 +2374,775 @@ type RuntimeAgentView = {
   role: SprintEngineRole
   status: string
   currentTaskId: string | null
+}
+
+type SprintEngineInspectorSelection =
+  | { kind: 'task'; task: SprintEngineTask }
+  | { kind: 'agent'; agent: RosterItem }
+  | {
+      kind: 'artifact'
+      artifact: { id: string; path: string; name: string; content: string }
+    }
+
+function SprintEngineInspectorPanel({
+  selection,
+  sprintEngineState,
+  agents,
+  runtimeAgents,
+  tasksById,
+  selectedTaskBoardColumn,
+  selectedTaskStatusLabel,
+  selectedTaskOwnerLabel,
+  selectedTaskNeedsInputNote,
+  selectedTaskCanMarkReady,
+  selectedTaskCanSpawnWorker,
+  selectedTaskCanManageWorker,
+  selectedTaskOwnerCliRunning,
+  selectedTaskArtifacts,
+  selectedTaskArtifactBlockers,
+  taskReadyActions,
+  artifactActions,
+  onClose,
+  onSelectTask,
+  onMarkTaskReady,
+  onOpenReadyTaskWorker,
+  onOpenArtifact,
+  onApproveArtifact,
+  onRequestArtifactChanges,
+  onBackFromArtifact,
+  onPopOutArtifact,
+  onSpawnAgent,
+  onOpenAgentTerminal,
+}: {
+  selection: SprintEngineInspectorSelection
+  sprintEngineState: SprintEngineState
+  agents: Record<string, AgentState>
+  runtimeAgents: RuntimeAgentView[]
+  tasksById: Record<string, SprintEngineTask>
+  selectedTaskBoardColumn: SprintEngineTaskBoardColumn | null
+  selectedTaskStatusLabel: string
+  selectedTaskOwnerLabel: string
+  selectedTaskNeedsInputNote: string | null
+  selectedTaskCanMarkReady: boolean
+  selectedTaskCanSpawnWorker: boolean
+  selectedTaskCanManageWorker: boolean
+  selectedTaskOwnerCliRunning: boolean
+  selectedTaskArtifacts: SprintEngineArtifact[]
+  selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
+  taskReadyActions: Record<string, TaskReadyActionState>
+  artifactActions: Record<string, ArtifactActionState>
+  onClose: () => void
+  onSelectTask: (taskId: string) => void
+  onMarkTaskReady: (task: SprintEngineTask) => void | Promise<void>
+  onOpenReadyTaskWorker: (task: SprintEngineTask) => void
+  onOpenArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
+  onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
+  onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+  onBackFromArtifact: () => void
+  onPopOutArtifact: () => void
+  onSpawnAgent: (agentId: string) => void
+  onOpenAgentTerminal: (agentId: string) => void
+}) {
+  if (selection.kind === 'artifact') {
+    return (
+      <SprintEngineArtifactPreview
+        artifact={selection.artifact}
+        onBack={onBackFromArtifact}
+        onPopOut={onPopOutArtifact}
+      />
+    )
+  }
+
+  if (selection.kind === 'agent') {
+    const agent = selection.agent
+    const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id) ?? null
+    const launched = Boolean(agents[agent.id]?.cliStartRequested)
+    const currentTask = runtime?.currentTaskId
+      ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
+      : null
+    const tasksOwnedByAgent = sprintEngineState.tasks.filter(
+      (task) => task.ownerAgentId === agent.id
+    )
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <header className="border-b border-[#1f2025] px-5 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
+                <span
+                  className="flex h-6 w-6 items-center justify-center rounded-full"
+                  style={{
+                    backgroundColor: hexToRgba(sprintEngineRoleAccent[agent.role], 0.18),
+                    color: sprintEngineRoleAccent[agent.role],
+                  }}
+                >
+                  <SprintEngineRoleIcon role={agent.role} className="h-3.5 w-3.5" />
+                </span>
+                <span>{sprintEngineRoleLabels[agent.role]}</span>
+                <span>·</span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
+                  />
+                  {runtime?.status ?? (launched ? 'running' : 'idle')}
+                </span>
+              </div>
+              <h3 className="mt-2 truncate text-[18px] font-semibold leading-7 text-[#ececee]">
+                {agent.label}
+              </h3>
+              <div className="mt-1 font-mono text-[11px] text-[#5a5a63]">{agent.id}</div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close agent detail"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {launched ? (
+              <button
+                type="button"
+                onClick={() => onOpenAgentTerminal(agent.id)}
+                className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] transition-colors hover:bg-[#111216] hover:text-[#ececee]"
+              >
+                Open Terminal
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onSpawnAgent(agent.id)}
+                className="h-7 rounded border border-[#3a4d8a] bg-[#19204a] px-2.5 text-[11px] font-semibold text-[#d4ddff] transition-colors hover:bg-[#222b5c]"
+              >
+                Spawn {sprintEngineRoleLabels[agent.role]}
+              </button>
+            )}
+          </div>
+        </header>
+
+        <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[#d7d7dc]">
+          <div>
+            <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+              Currently Working On
+            </div>
+            {currentTask ? (
+              <button
+                type="button"
+                onClick={() => onSelectTask(currentTask.id)}
+                className="block w-full rounded-md border border-[#1f2025] px-3 py-2 text-left transition-colors hover:border-[#303139] hover:bg-[#111216]"
+              >
+                <div className="font-mono text-[11px] text-[#f0d47a]">{currentTask.id}</div>
+                <div className="mt-1 truncate text-sm font-semibold text-[#ececee]">
+                  {currentTask.title}
+                </div>
+              </button>
+            ) : (
+              <div className="text-[#6f7480]">No active task assignment.</div>
+            )}
+          </div>
+
+          <div>
+            <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+              Assigned Tasks ({tasksOwnedByAgent.length})
+            </div>
+            {tasksOwnedByAgent.length === 0 ? (
+              <div className="text-[#6f7480]">No tasks assigned.</div>
+            ) : (
+              <ul className="divide-y divide-[#1f2025] border-y border-[#1f2025]">
+                {tasksOwnedByAgent.map((task) => (
+                  <li key={task.id}>
+                    <button
+                      type="button"
+                      onClick={() => onSelectTask(task.id)}
+                      className="block w-full px-1 py-2.5 text-left transition-colors hover:bg-[#111216]"
+                    >
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="font-mono text-[#f0d47a]">{task.id}</span>
+                        <span className="text-[#6f7480]">{task.status}</span>
+                      </div>
+                      <div className="mt-0.5 truncate text-sm text-[#ececee]">{task.title}</div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Task mode (default branch).
+  const selectedTask = selection.task
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="border-b border-[#1f2025] px-5 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
+              <span className="font-mono tabular-nums text-[12px] text-[#f0d47a]">{selectedTask.id}</span>
+              <span>·</span>
+              <span className="flex items-center gap-1.5">
+                <SprintEngineTaskStatusIcon
+                  column={selectedTaskBoardColumn ?? 'todo'}
+                  className="h-3 w-3 text-[#9a9aa2]"
+                />
+                {selectedTaskStatusLabel}
+              </span>
+              <span>·</span>
+              <span>{sprintEngineRoleLabels[selectedTask.role]}</span>
+            </div>
+            <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[#ececee]">
+              {selectedTask.title}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close task detail"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {selectedTaskCanMarkReady ? (
+            <button
+              type="button"
+              disabled={taskReadyActions[selectedTask.id]?.status === 'pending'}
+              onClick={() => void onMarkTaskReady(selectedTask)}
+              className="h-7 rounded border border-[#4a3812] bg-[#221a0b] px-2.5 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#2b210e] disabled:cursor-wait disabled:opacity-60"
+            >
+              Move To Ready
+            </button>
+          ) : null}
+          {selectedTaskCanSpawnWorker || (selectedTask.ownerAgentId && selectedTaskCanManageWorker) ? (
+            <button
+              type="button"
+              onClick={() => onOpenReadyTaskWorker(selectedTask)}
+              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] transition-colors hover:bg-[#111216] hover:text-[#ececee]"
+            >
+              {selectedTask.ownerAgentId
+                ? selectedTaskOwnerCliRunning ? 'Open Terminal' : 'Respawn'
+                : `Spawn ${sprintEngineRoleLabels[selectedTask.role]}`}
+            </button>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[#d7d7dc]">
+        <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+          <MetaItem label="Source" value={formatTaskSourceLabel(selectedTask)} />
+          <MetaItem label="Owner" value={selectedTaskOwnerLabel} />
+          <MetaItem label="Dependencies" value={selectedTask.dependsOn.join(', ') || 'None'} />
+          <MetaItem
+            label={selectedTask.completedAt ? 'Completed' : 'Started'}
+            value={formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt)}
+          />
+        </div>
+
+        {selectedTask.source?.type === 'github' ? (
+          <div className="border-l border-[#303139] pl-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+              GitHub Issue
+            </div>
+            <div className="mt-1 truncate text-sm text-[#d7d7dc]">
+              {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
+              {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
+            </div>
+            {formatTaskSyncStatusLabel(selectedTask) ? (
+              <div className="mt-2 text-[12px] leading-5 text-[#ffe0a3]">
+                {formatTaskSyncStatusDescription(selectedTask)}
+              </div>
+            ) : null}
+            {selectedTask.source.externalUrl ? (
+              <button
+                type="button"
+                onClick={() => {
+                  window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
+                }}
+                className="mt-2 rounded px-2 py-1 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#221a0b]"
+              >
+                Open Issue
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {selectedTaskNeedsInputNote ? (
+          <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffbf2f]">
+              Needs Input
+            </div>
+            <div className="mt-2 leading-6">{selectedTaskNeedsInputNote}</div>
+            <div className="mt-2 text-[12px] text-[#ffe0a3]/75">
+              Respond in the worker CLI to unblock this task.
+            </div>
+          </div>
+        ) : null}
+
+        {selectedTaskArtifactBlockers.length > 0 ? (
+          <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
+        ) : null}
+
+        {selectedTask.triage ? (
+          <div className="border-l border-[#d6a536]/70 pl-3 text-sm text-[#f0d47a]">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#f0d47a]">
+              Architect Triage
+            </div>
+            <div className="mt-2 leading-6">{selectedTask.triage.summary}</div>
+          </div>
+        ) : null}
+
+        {taskReadyActions[selectedTask.id]?.message ? (
+          <div className={`border-l pl-3 text-[12px] leading-5 ${
+            taskReadyActions[selectedTask.id]?.status === 'error'
+              ? 'border-[#ff787c]/70 text-[#ffb3b5]'
+              : 'border-[#303139] text-[#9a9aa2]'
+          }`}>
+            {taskReadyActions[selectedTask.id]?.message}
+          </div>
+        ) : null}
+
+        <div>
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+            Description
+          </div>
+          <div>{selectedTask.description || 'No description recorded.'}</div>
+        </div>
+
+        <SectionList
+          title="Acceptance Criteria"
+          items={selectedTask.acceptanceCriteria}
+          emptyLabel="No acceptance criteria recorded."
+        />
+        <SectionList title="Owned Paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
+        <SectionList
+          title="Implementation Notes"
+          items={selectedTask.implementationNotes}
+          emptyLabel="No implementation notes recorded."
+        />
+        <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
+        <SectionList
+          title="Comments"
+          items={selectedTask.comments.map((comment) => `${comment.actor}: ${comment.body}`)}
+          emptyLabel="No comments recorded."
+        />
+
+        <SprintEngineArtifactList
+          artifacts={selectedTaskArtifacts}
+          tasksById={tasksById}
+          actions={artifactActions}
+          emptyLabel="No review artifacts are attached to this task."
+          onSelectTask={onSelectTask}
+          onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
+          onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
+          onRequestArtifactChanges={onRequestArtifactChanges}
+        />
+
+        <div>
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+            Evidence Summary
+          </div>
+          <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>
+        </div>
+
+        {selectedTask.feedback ? <AgentFeedback feedback={selectedTask.feedback} /> : null}
+
+        <SectionList
+          title="Commands Run"
+          items={selectedTask.evidence.commandsRan}
+          emptyLabel="No commands recorded."
+        />
+        <SectionList
+          title="Results"
+          items={selectedTask.evidence.results}
+          emptyLabel="No test or validation results recorded."
+        />
+        <SectionList
+          title="Touched Files"
+          items={selectedTask.evidence.touchedFiles}
+          emptyLabel="No touched files recorded."
+        />
+      </div>
+    </div>
+  )
+}
+
+const ROSTER_WORLD_WIDTH = 260
+const ROSTER_WORLD_HEIGHT = 200
+const ROSTER_MIN_ZOOM = 0.35
+const ROSTER_MAX_ZOOM = 3
+
+function RosterCanvas({
+  roster,
+  runtimeAgents,
+  sprintEngineState,
+  selectedAgentId,
+  addableRoles,
+  onSelectAgent,
+  onAddRole,
+}: {
+  roster: RosterItem[]
+  runtimeAgents: RuntimeAgentView[]
+  sprintEngineState: SprintEngineState
+  selectedAgentId: string | null
+  addableRoles: readonly SprintEngineRole[]
+  onSelectAgent: (agentId: string) => void
+  onAddRole: (role: SprintEngineRole) => void
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const positionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const pendingSpawnPositionRef = useRef<{ x: number; y: number } | null>(null)
+  const cameraRef = useRef<{ x: number; y: number; zoom: number }>({ x: 0, y: 0, zoom: 1 })
+  const dragStateRef = useRef<
+    | { kind: 'pan'; startClientX: number; startClientY: number; cameraStart: { x: number; y: number }; moved: boolean }
+    | { kind: 'node'; agentId: string; offsetWorldX: number; offsetWorldY: number; moved: boolean }
+    | null
+  >(null)
+  const [isRoleDropTarget, setIsRoleDropTarget] = useState(false)
+  const [renderTick, setRenderTick] = useState(0)
+  const bump = useCallback(() => setRenderTick((tick) => tick + 1), [])
+
+  // Seed positions for newly-arrived agents using the existing ellipse layout,
+  // mapped from percentages (0-100) into a fixed world rect. If a drop
+  // position was captured just before this agent arrived, use that instead so
+  // palette drops land where the user actually dropped.
+  useEffect(() => {
+    const positions = positionsRef.current
+    let changed = false
+    const ellipse = buildMapPositions(roster)
+    for (const node of ellipse) {
+      if (positions.has(node.agent.id)) continue
+      let worldX: number
+      let worldY: number
+      if (pendingSpawnPositionRef.current) {
+        worldX = pendingSpawnPositionRef.current.x
+        worldY = pendingSpawnPositionRef.current.y
+        pendingSpawnPositionRef.current = null
+      } else {
+        worldX = (node.x / 100 - 0.5) * ROSTER_WORLD_WIDTH
+        worldY = (node.y / 100 - 0.5) * ROSTER_WORLD_HEIGHT
+      }
+      positions.set(node.agent.id, { x: worldX, y: worldY })
+      changed = true
+    }
+    for (const id of Array.from(positions.keys())) {
+      if (!roster.find((agent) => agent.id === id)) {
+        positions.delete(id)
+        changed = true
+      }
+    }
+    if (changed) bump()
+  }, [roster, bump])
+
+  const screenToWorld = useCallback((clientX: number, clientY: number) => {
+    const container = containerRef.current
+    if (!container) return { x: 0, y: 0 }
+    const rect = container.getBoundingClientRect()
+    const camera = cameraRef.current
+    const mx = clientX - rect.left
+    const my = clientY - rect.top
+    return {
+      x: (mx - rect.width / 2 - camera.x) / camera.zoom,
+      y: (my - rect.height / 2 - camera.y) / camera.zoom,
+    }
+  }, [])
+
+  // Wheel zoom — zoom toward the cursor, mirroring the knowledge graph math.
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      if (event.deltaY === 0) return
+      const camera = cameraRef.current
+      const rect = container.getBoundingClientRect()
+      const mx = event.clientX - rect.left
+      const my = event.clientY - rect.top
+      const wx = (mx - rect.width / 2 - camera.x) / camera.zoom
+      const wy = (my - rect.height / 2 - camera.y) / camera.zoom
+      const normalized = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY
+      const factor = Math.exp(-Math.max(-120, Math.min(120, normalized)) * 0.0035)
+      const nextZoom = Math.max(ROSTER_MIN_ZOOM, Math.min(ROSTER_MAX_ZOOM, camera.zoom * factor))
+      if (nextZoom === camera.zoom) return
+      cameraRef.current = {
+        zoom: nextZoom,
+        x: mx - rect.width / 2 - wx * nextZoom,
+        y: my - rect.height / 2 - wy * nextZoom,
+      }
+      bump()
+    }
+    container.addEventListener('wheel', onWheel, { passive: false })
+    return () => container.removeEventListener('wheel', onWheel)
+  }, [bump])
+
+  const onPointerDownBackground = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    dragStateRef.current = {
+      kind: 'pan',
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      cameraStart: { x: cameraRef.current.x, y: cameraRef.current.y },
+      moved: false,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const onPointerDownAgent = (event: React.PointerEvent<HTMLButtonElement>, agentId: string) => {
+    if (event.button !== 0) return
+    event.stopPropagation()
+    const world = screenToWorld(event.clientX, event.clientY)
+    const pos = positionsRef.current.get(agentId)
+    if (!pos) return
+    dragStateRef.current = {
+      kind: 'node',
+      agentId,
+      offsetWorldX: world.x - pos.x,
+      offsetWorldY: world.y - pos.y,
+      moved: false,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const onPointerMove = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = dragStateRef.current
+    if (!drag) return
+    if (drag.kind === 'pan') {
+      const dx = event.clientX - drag.startClientX
+      const dy = event.clientY - drag.startClientY
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true
+      cameraRef.current = {
+        zoom: cameraRef.current.zoom,
+        x: drag.cameraStart.x + dx,
+        y: drag.cameraStart.y + dy,
+      }
+      bump()
+      return
+    }
+    const world = screenToWorld(event.clientX, event.clientY)
+    positionsRef.current.set(drag.agentId, {
+      x: world.x - drag.offsetWorldX,
+      y: world.y - drag.offsetWorldY,
+    })
+    drag.moved = true
+    bump()
+  }
+
+  const onPointerUp = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = dragStateRef.current
+    dragStateRef.current = null
+    if (!drag) return
+    if (drag.kind === 'node' && !drag.moved) {
+      onSelectAgent(drag.agentId)
+    }
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // ignore — pointer wasn't captured on this element
+    }
+  }
+
+  const onZoomIn = () => {
+    const camera = cameraRef.current
+    const nextZoom = Math.min(ROSTER_MAX_ZOOM, camera.zoom * 1.2)
+    if (nextZoom === camera.zoom) return
+    cameraRef.current = { ...camera, zoom: nextZoom }
+    bump()
+  }
+
+  const onZoomOut = () => {
+    const camera = cameraRef.current
+    const nextZoom = Math.max(ROSTER_MIN_ZOOM, camera.zoom / 1.2)
+    if (nextZoom === camera.zoom) return
+    cameraRef.current = { ...camera, zoom: nextZoom }
+    bump()
+  }
+
+  const onResetView = () => {
+    const container = containerRef.current
+    const positions = positionsRef.current
+    if (positions.size === 0 || !container) {
+      cameraRef.current = { x: 0, y: 0, zoom: 1 }
+      bump()
+      return
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const pos of positions.values()) {
+      if (pos.x < minX) minX = pos.x
+      if (pos.y < minY) minY = pos.y
+      if (pos.x > maxX) maxX = pos.x
+      if (pos.y > maxY) maxY = pos.y
+    }
+    const rect = container.getBoundingClientRect()
+    const padding = 80
+    const dx = Math.max(1, maxX - minX)
+    const dy = Math.max(1, maxY - minY)
+    const zoom = Math.max(
+      ROSTER_MIN_ZOOM,
+      Math.min(ROSTER_MAX_ZOOM, Math.min((rect.width - padding * 2) / dx, (rect.height - padding * 2) / dy))
+    )
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
+    cameraRef.current = { zoom, x: -cx * zoom, y: -cy * zoom }
+    bump()
+  }
+
+  const camera = cameraRef.current
+  // Reading renderTick keeps React aware the value is consumed even though
+  // the actual visual state lives in refs.
+  void renderTick
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative min-h-[360px] flex-1 overflow-hidden rounded-md border transition-colors ${
+        isRoleDropTarget ? 'border-[#5c7cff]/55 bg-[#5c7cff]/4' : 'border-[#1f2025]'
+      }`}
+      style={{
+        backgroundImage:
+          'radial-gradient(circle, rgba(255,255,255,0.10) 0, rgba(255,255,255,0.10) 1px, transparent 1px)',
+        backgroundColor: isRoleDropTarget ? '#0e1330' : '#08090b',
+        backgroundSize: '20px 20px',
+        cursor: dragStateRef.current?.kind === 'pan' ? 'grabbing' : 'default',
+      }}
+      onPointerDown={onPointerDownBackground}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onDragOver={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes('text/sprintengine-role')) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+        setIsRoleDropTarget(true)
+      }}
+      onDragLeave={() => setIsRoleDropTarget(false)}
+      onDrop={(event) => {
+        event.preventDefault()
+        setIsRoleDropTarget(false)
+        const role = event.dataTransfer.getData('text/sprintengine-role')
+        if (!role || !(addableRoles as readonly string[]).includes(role)) return
+        const existing = roster.find((agent) => agent.role === role)
+        if (!existing) {
+          // Stash the drop position in world coords; the seed effect will
+          // place the first newly-arrived agent here.
+          pendingSpawnPositionRef.current = screenToWorld(event.clientX, event.clientY)
+        }
+        onAddRole(role as SprintEngineRole)
+      }}
+      aria-label="Roster map"
+    >
+      {roster.length === 0 ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-[#6f7480]">
+          Drag a role from the palette to start the team.
+        </div>
+      ) : null}
+
+      <div
+        className="absolute left-1/2 top-1/2"
+        style={{
+          transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
+          transformOrigin: '0 0',
+        }}
+      >
+        {roster.map((agent) => {
+          const pos = positionsRef.current.get(agent.id)
+          if (!pos) return null
+          const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id)
+          const selected = agent.id === selectedAgentId
+          const task = runtime?.currentTaskId
+            ? sprintEngineState.tasks.find((candidate) => candidate.id === runtime.currentTaskId)
+            : null
+          return (
+            <button
+              key={agent.id}
+              type="button"
+              onPointerDown={(event) => onPointerDownAgent(event, agent.id)}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+              title={`${agent.label} — drag to move, click to inspect`}
+              className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 text-center transition-transform ${
+                selected ? 'z-10' : 'z-0'
+              }`}
+              style={{
+                left: pos.x,
+                top: pos.y,
+                cursor: dragStateRef.current?.kind === 'node' && dragStateRef.current.agentId === agent.id ? 'grabbing' : 'grab',
+              }}
+            >
+              <span
+                className="relative flex h-12 w-12 items-center justify-center rounded-full border bg-[#111216]"
+                style={{
+                  borderColor: selected ? sprintEngineRoleAccent[agent.role] : '#303139',
+                  color: '#9a9aa2',
+                  boxShadow: selected
+                    ? `0 0 0 3px ${hexToRgba(sprintEngineRoleAccent[agent.role], 0.16)}`
+                    : undefined,
+                }}
+              >
+                <SprintEngineRoleIcon role={agent.role} className="h-5 w-5" />
+                <span
+                  className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-[#0d0e11]"
+                  style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
+                />
+              </span>
+              <span className="max-w-[120px] truncate text-[11px] font-semibold text-[#ececee]">
+                {agent.label}
+              </span>
+              {task ? (
+                <span className="max-w-[140px] truncate text-[10px] text-[#9a9aa2]">
+                  {task.id}
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Zoom controls */}
+      <div className="absolute right-2 top-2 flex flex-col gap-1 rounded-md border border-[#1f2025] bg-[#0d0e11]/85 p-1 backdrop-blur-sm">
+        <button
+          type="button"
+          onClick={onZoomIn}
+          aria-label="Zoom in"
+          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+        >
+          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M6 1.5V10.5M1.5 6H10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={onZoomOut}
+          aria-label="Zoom out"
+          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+        >
+          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M1.5 6H10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={onResetView}
+          aria-label="Reset view"
+          title="Fit to agents"
+          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+        >
+          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2 4.5V2.5C2 2.22 2.22 2 2.5 2H4.5M9.5 7.5V9.5C9.5 9.78 9.28 10 9 10H7M7 2H9C9.28 2 9.5 2.22 9.5 2.5V4.5M4.5 10H2.5C2.22 10 2 9.78 2 9.5V7.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function SprintEngineProjectView({
@@ -3061,8 +3190,6 @@ function SprintEngineProjectView({
   const fullGoal = formatSprintEngineGoal(sprintEngineState.goal)
   const goalPreview = formatSprintEngineGoalPreview(sprintEngineState.goal)
   const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 260
-  const [isRoleDropTarget, setIsRoleDropTarget] = useState(false)
-  const mapPositions = useMemo(() => buildMapPositions(roster), [roster])
   const totalTasks = sprintEngineState.tasks.length
   const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
   const dispatchRoleSpawn = (role: SprintEngineRole) => {
@@ -3289,84 +3416,22 @@ function SprintEngineProjectView({
             })}
           </div>
 
-          <div
-            className={`relative min-h-[360px] flex-1 overflow-hidden rounded-md border transition-colors ${
-              isRoleDropTarget ? 'border-[#5c7cff]/55 bg-[#5c7cff]/4' : 'border-[#1f2025]'
-            }`}
-            style={{
-              backgroundImage:
-                'radial-gradient(circle, rgba(255,255,255,0.10) 0, rgba(255,255,255,0.10) 1px, transparent 1px)',
-              backgroundColor: isRoleDropTarget ? '#0e1330' : '#08090b',
-              backgroundSize: '20px 20px',
-            }}
-            onDragOver={(event) => {
-              if (!Array.from(event.dataTransfer.types).includes('text/sprintengine-role')) return
-              event.preventDefault()
-              event.dataTransfer.dropEffect = 'copy'
-              setIsRoleDropTarget(true)
-            }}
-            onDragLeave={() => setIsRoleDropTarget(false)}
-            onDrop={(event) => {
-              event.preventDefault()
-              setIsRoleDropTarget(false)
-              const role = event.dataTransfer.getData('text/sprintengine-role')
-              if (role && (addableRoles as readonly string[]).includes(role)) {
-                dispatchRoleSpawn(role as SprintEngineRole)
+          <RosterCanvas
+            roster={roster}
+            runtimeAgents={runtimeAgents}
+            sprintEngineState={sprintEngineState}
+            selectedAgentId={selectedAgentId}
+            addableRoles={addableRoles}
+            onSelectAgent={onSelectAgent}
+            onAddRole={(role) => {
+              const existing = roster.find((agent) => agent.role === role)
+              if (existing) {
+                onSelectAgent(existing.id)
+              } else {
+                onAddRole(role)
               }
             }}
-            aria-label="Roster map"
-          >
-            {roster.length === 0 ? (
-              <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-[#6f7480]">
-                Drag a role from the palette to start the team.
-              </div>
-            ) : null}
-            {mapPositions.map((node) => {
-              const runtime = runtimeAgents.find((agent) => agent.agentId === node.agent.id)
-              const selected = node.agent.id === selectedAgentId
-              const task = runtime?.currentTaskId
-                ? sprintEngineState.tasks.find((candidate) => candidate.id === runtime.currentTaskId)
-                : null
-              const launched = Boolean(agents[node.agent.id]?.cliStartRequested)
-              return (
-                <button
-                  key={node.agent.id}
-                  type="button"
-                  onClick={() => onSelectAgent(node.agent.id)}
-                  title={launched ? `Open ${node.agent.label}` : `Spawn ${node.agent.label}`}
-                  className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 text-center transition-transform hover:scale-[1.03] ${
-                    selected ? 'z-10 scale-[1.03]' : 'z-0'
-                  }`}
-                  style={{ left: `${node.x}%`, top: `${node.y}%` }}
-                >
-                  <span
-                    className="relative flex h-12 w-12 items-center justify-center rounded-full border bg-[#111216]"
-                    style={{
-                      borderColor: selected ? sprintEngineRoleAccent[node.agent.role] : '#303139',
-                      color: '#9a9aa2',
-                      boxShadow: selected
-                        ? `0 0 0 3px ${hexToRgba(sprintEngineRoleAccent[node.agent.role], 0.16)}`
-                        : undefined,
-                    }}
-                  >
-                    <SprintEngineRoleIcon role={node.agent.role} className="h-5 w-5" />
-                    <span
-                      className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-[#0d0e11]"
-                      style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
-                    />
-                  </span>
-                  <span className="max-w-[120px] truncate text-[11px] font-semibold text-[#ececee]">
-                    {node.agent.label}
-                  </span>
-                  {task ? (
-                    <span className="max-w-[140px] truncate text-[10px] text-[#9a9aa2]">
-                      {task.id}
-                    </span>
-                  ) : null}
-                </button>
-              )
-            })}
-          </div>
+          />
         </aside>
       </div>
     </div>
@@ -3505,9 +3570,132 @@ function SprintEngineTaskGraphView({
   ].filter(Boolean).join(' · ')
 
   const [legendOpen, setLegendOpen] = useState(true)
+  const [minimapOpen, setMinimapOpen] = useState(true)
+  const [viewportState, setViewportState] = useState({
+    scrollLeft: 0,
+    scrollTop: 0,
+    clientWidth: 0,
+    clientHeight: 0,
+  })
+
+  useEffect(() => {
+    const scrollEl = graphScrollRef.current
+    if (!scrollEl) return
+
+    let frame: number | null = null
+    const updateViewport = () => {
+      if (frame !== null) return
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        setViewportState({
+          scrollLeft: scrollEl.scrollLeft,
+          scrollTop: scrollEl.scrollTop,
+          clientWidth: scrollEl.clientWidth,
+          clientHeight: scrollEl.clientHeight,
+        })
+      })
+    }
+
+    updateViewport()
+    scrollEl.addEventListener('scroll', updateViewport, { passive: true })
+    const resizeObserver = new ResizeObserver(updateViewport)
+    resizeObserver.observe(scrollEl)
+
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame)
+      scrollEl.removeEventListener('scroll', updateViewport)
+      resizeObserver.disconnect()
+    }
+  }, [graph.canvasWidth, graph.canvasHeight])
+
+  const MINIMAP_MAX_WIDTH = 168
+  const MINIMAP_MAX_HEIGHT = 112
+  const minimapScale = graph.canvasWidth > 0 && graph.canvasHeight > 0
+    ? Math.min(MINIMAP_MAX_WIDTH / graph.canvasWidth, MINIMAP_MAX_HEIGHT / graph.canvasHeight)
+    : 1
+  const minimapInnerWidth = Math.max(1, graph.canvasWidth * minimapScale)
+  const minimapInnerHeight = Math.max(1, graph.canvasHeight * minimapScale)
+  const viewportGraphLeft = viewportState.scrollLeft / graphZoom
+  const viewportGraphTop = viewportState.scrollTop / graphZoom
+  const viewportGraphWidth = viewportState.clientWidth / graphZoom
+  const viewportGraphHeight = viewportState.clientHeight / graphZoom
+  const minimapViewportRect = {
+    x: Math.max(0, viewportGraphLeft * minimapScale),
+    y: Math.max(0, viewportGraphTop * minimapScale),
+    width: Math.max(4, Math.min(minimapInnerWidth, viewportGraphWidth * minimapScale)),
+    height: Math.max(4, Math.min(minimapInnerHeight, viewportGraphHeight * minimapScale)),
+  }
+
+  const panFromMinimap = (clientX: number, clientY: number, element: HTMLElement) => {
+    const scrollEl = graphScrollRef.current
+    if (!scrollEl || minimapScale <= 0) return
+    const rect = element.getBoundingClientRect()
+    const graphX = (clientX - rect.left) / minimapScale
+    const graphY = (clientY - rect.top) / minimapScale
+    scrollEl.scrollTo({
+      left: Math.max(0, graphX * graphZoom - scrollEl.clientWidth / 2),
+      top: Math.max(0, graphY * graphZoom - scrollEl.clientHeight / 2),
+    })
+  }
+
+  const handleGraphKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (isEditableTarget(event.target)) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+
+      const isArrow = event.key === 'ArrowUp' || event.key === 'ArrowDown'
+        || event.key === 'ArrowLeft' || event.key === 'ArrowRight'
+      if (!isArrow) return
+
+      const firstTaskNode = graph.nodes.find((node) => node.type === 'task')
+      const currentId = selectedTaskId ?? focusTaskId ?? firstTaskNode?.id ?? null
+      if (!currentId) return
+
+      event.preventDefault()
+      const goBack = event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+      let nextId: string | null = null
+      if (goBack) {
+        const predecessor = graph.edges.find((edge) => edge.toId === currentId)
+        if (predecessor) nextId = predecessor.fromId
+      } else {
+        const successor = graph.edges.find(
+          (edge) => edge.fromId === currentId && edge.toId !== 'end-product'
+        )
+        if (successor) nextId = successor.toId
+      }
+
+      if (!nextId) {
+        // No neighbor in that direction; if nothing is selected yet, seed selection.
+        if (!selectedTaskId) {
+          onSelectTask(currentId)
+        }
+        return
+      }
+
+      onSelectTask(nextId)
+
+      const scrollEl = graphScrollRef.current
+      const nextNode = graph.nodesById[nextId]
+      if (scrollEl && nextNode) {
+        scrollEl.scrollTo({
+          left: Math.max(0, nextNode.x * graphZoom - scrollEl.clientWidth / 2),
+          top: Math.max(0, nextNode.y * graphZoom - scrollEl.clientHeight / 2),
+          behavior: 'smooth',
+        })
+        const button = scrollEl.querySelector<HTMLButtonElement>(
+          `[data-task-graph-node="${nextId}"]`
+        )
+        button?.focus()
+      }
+    },
+    [focusTaskId, graph, graphZoom, onSelectTask, selectedTaskId]
+  )
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#08090b]">
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#08090b] focus:outline-none"
+      onKeyDown={handleGraphKeyDown}
+    >
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[#1f2025] bg-[#0d0e11] px-6 py-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2]">
@@ -3730,6 +3918,7 @@ function SprintEngineTaskGraphView({
                 return (
                   <button
                     key={node.id}
+                    data-task-graph-node={task.id}
                     onClick={() => onSelectTask(task.id)}
                     aria-pressed={isSelected}
                     className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/45 ${
@@ -3837,6 +4026,89 @@ function SprintEngineTaskGraphView({
                 <div className="mt-3 border-t border-[#1f2025] pt-2 text-[10px] leading-5 text-[#6f7480]">
                   <div>Left bar &middot; role accent</div>
                   <div>Edge color &middot; dependency state (green when complete)</div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {taskCount > 0 ? (
+        <div className="pointer-events-none absolute bottom-3 right-3 z-30">
+          <div className="pointer-events-auto inline-flex flex-col items-end">
+            <button
+              type="button"
+              onClick={() => setMinimapOpen((open) => !open)}
+              aria-expanded={minimapOpen}
+              className="flex items-center gap-1.5 rounded-md border border-[#1f2025] bg-[#0d0e11]/92 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2] backdrop-blur transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
+            >
+              Minimap
+              <svg
+                className={`h-3 w-3 transition-transform ${minimapOpen ? 'rotate-180' : ''}`}
+                viewBox="0 0 12 12"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {minimapOpen ? (
+              <div className="mt-1 rounded-md border border-[#1f2025] bg-[#0d0e11]/94 p-2 backdrop-blur shadow-[0_18px_45px_rgba(0,0,0,0.32)]">
+                <div
+                  className="relative cursor-crosshair overflow-hidden rounded bg-[#08090b]"
+                  style={{ width: minimapInnerWidth, height: minimapInnerHeight }}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return
+                    const element = event.currentTarget
+                    element.setPointerCapture(event.pointerId)
+                    panFromMinimap(event.clientX, event.clientY, element)
+                  }}
+                  onPointerMove={(event) => {
+                    if (event.buttons !== 1) return
+                    panFromMinimap(event.clientX, event.clientY, event.currentTarget)
+                  }}
+                  role="img"
+                  aria-label="Task graph minimap"
+                >
+                  {graph.nodes.map((node) => {
+                    if (node.type === 'end') {
+                      return (
+                        <div
+                          key={`mini-${node.id}`}
+                          className="pointer-events-none absolute rounded-sm"
+                          style={{
+                            left: (node.x - node.width / 2) * minimapScale,
+                            top: (node.y - node.height / 2) * minimapScale,
+                            width: Math.max(3, node.width * minimapScale),
+                            height: Math.max(3, node.height * minimapScale),
+                            backgroundColor: hexToRgba('#30d158', 0.7),
+                          }}
+                        />
+                      )
+                    }
+                    return (
+                      <div
+                        key={`mini-${node.id}`}
+                        className="pointer-events-none absolute rounded-sm"
+                        style={{
+                          left: (node.x - node.width / 2) * minimapScale,
+                          top: (node.y - node.height / 2) * minimapScale,
+                          width: Math.max(3, node.width * minimapScale),
+                          height: Math.max(3, node.height * minimapScale),
+                          backgroundColor: hexToRgba(sprintEngineRoleAccent[node.task.role], 0.55),
+                        }}
+                      />
+                    )
+                  })}
+                  <div
+                    className="pointer-events-none absolute rounded-sm border border-[#5c7cff]/75 bg-[#5c7cff]/14"
+                    style={{
+                      left: minimapViewportRect.x,
+                      top: minimapViewportRect.y,
+                      width: minimapViewportRect.width,
+                      height: minimapViewportRect.height,
+                    }}
+                  />
                 </div>
               </div>
             ) : null}
@@ -4322,92 +4594,6 @@ function SectionList({
       )}
     </div>
   )
-}
-
-const feedbackScoreLabels: Array<{ key: keyof SprintEngineTaskFeedback['scores']; label: string }> = [
-  { key: 'directiveClarityPct', label: 'Directive clarity' },
-  { key: 'taskClarityPct', label: 'Task clarity' },
-  { key: 'acceptanceCriteriaClarityPct', label: 'Acceptance clarity' },
-  { key: 'sprintEngineToolEffectivenessPct', label: 'Sprint Engine tool' },
-  { key: 'promptOptimizationPct', label: 'Prompt fit' },
-  { key: 'contextFitPct', label: 'Context fit' },
-  { key: 'hallucinationRiskPct', label: 'Hallucination risk' },
-  { key: 'roleFitPct', label: 'Role fit' },
-  { key: 'autonomyPct', label: 'Autonomy' },
-  { key: 'confidencePct', label: 'Confidence' },
-]
-
-const feedbackIssueCategoryLabels: Record<SprintEngineTaskFeedbackIssue['category'], string> = {
-  system_prompt: 'System Prompt',
-  role_prompt: 'Role Prompt',
-  task_card: 'Task Card',
-  acceptance_criteria: 'Acceptance Criteria',
-  context: 'Context',
-  tooling: 'Tooling',
-  coordination: 'Coordination',
-  validation: 'Validation',
-  permissions: 'Permissions',
-  ui: 'UI',
-  other: 'Other',
-}
-
-const feedbackIssueSeverityLabels: Record<SprintEngineTaskFeedbackIssue['severity'], string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-}
-
-const feedbackIssueStatusLabels: Record<NonNullable<SprintEngineTaskFeedbackIssue['status']>, string> = {
-  new: 'New',
-  reviewed: 'Reviewed',
-  applied: 'Applied',
-  rejected: 'Rejected',
-  deferred: 'Deferred',
-}
-
-const feedbackFindingKindLabels: Record<SprintEngineTaskFeedbackFinding['kind'], string> = {
-  code_bug: 'Code Bug',
-  security_issue: 'Security Issue',
-  product_requirement_violation: 'Requirement Violation',
-  test_gap: 'Test Gap',
-  accessibility_issue: 'Accessibility Issue',
-  performance_issue: 'Performance Issue',
-  reliability_issue: 'Reliability Issue',
-  documentation_gap: 'Documentation Gap',
-  other: 'Other',
-}
-
-const feedbackFindingSeverityLabels: Record<SprintEngineTaskFeedbackFinding['severity'], string> = {
-  critical: 'Critical',
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
-}
-
-const feedbackFindingAreaLabels: Record<SprintEngineTaskFeedbackFinding['area'], string> = {
-  frontend: 'Frontend',
-  backend: 'Backend',
-  database: 'Database',
-  networking: 'Networking',
-  auth: 'Auth',
-  security: 'Security',
-  filesystem: 'Filesystem',
-  cli: 'CLI',
-  ipc: 'IPC',
-  mobile: 'Mobile',
-  testing: 'Testing',
-  performance: 'Performance',
-  docs: 'Docs',
-  product: 'Product',
-  other: 'Other',
-}
-
-const feedbackFindingStatusLabels: Record<NonNullable<SprintEngineTaskFeedbackFinding['status']>, string> = {
-  open: 'Open',
-  accepted: 'Accepted',
-  fixed: 'Fixed',
-  rejected: 'Rejected',
-  deferred: 'Deferred',
 }
 
 function AgentFeedback({ feedback }: { feedback: SprintEngineTaskFeedback }) {
@@ -4987,6 +5173,21 @@ function taskGraphNodeStyle(
   }
 }
 
+function kanbanColumnTone(column: SprintEngineTaskBoardColumn): { dot: string; text: string; icon: string } {
+  switch (column) {
+    case 'ready':
+      return { dot: '#30d158', text: 'text-[#b9f7c8]', icon: 'text-[#b9f7c8]' }
+    case 'in_progress':
+      return { dot: '#ffa600', text: 'text-[#ffd58a]', icon: 'text-[#ffd58a]' }
+    case 'needs_input':
+      return { dot: '#ffbf2f', text: 'text-[#ffe0a3]', icon: 'text-[#ffe0a3]' }
+    case 'done':
+      return { dot: '#30d158', text: 'text-[#d4ffdc]', icon: 'text-[#d4ffdc]' }
+    default:
+      return { dot: '#5a5a63', text: 'text-[#9a9aa2]', icon: 'text-[#9a9aa2]' }
+  }
+}
+
 function taskGraphStatusTone(taskStatus: SprintEngineTaskStatus, boardColumn: SprintEngineTaskBoardColumn): string {
   if (boardColumn === 'ready') return 'text-[#b9f7c8]'
 
@@ -5053,15 +5254,6 @@ function getRunPhase(sprintEngineState: SprintEngineState, runtimeAgents: Runtim
   return 'Planning'
 }
 
-function formatSprintEngineGoal(goal: string): string {
-  const trimmed = goal.trim()
-  if (!trimmed || trimmed.toLowerCase() === 'launch Sprint Engine mode') {
-    return 'Untitled sprintengine run'
-  }
-
-  return trimmed
-}
-
 function formatSprintEngineGoalPreview(goal: string): string {
   const formatted = formatSprintEngineGoal(goal)
   if (formatted === 'Untitled sprintengine run') return formatted
@@ -5116,149 +5308,3 @@ function buildRosterRevisionPrompt(role: SprintEngineRole, agentId: string, team
   ].join('\n')
 }
 
-function buildRunSummary(tasks: SprintEngineTask[]) {
-  const completed = tasks.filter((task) => task.status === 'done')
-  const touchedFiles = uniqueStrings(completed.flatMap((task) => task.evidence.touchedFiles))
-  const commandsRan = uniqueStrings(completed.flatMap((task) => task.evidence.commandsRan))
-  const results = completed.flatMap((task) =>
-    task.evidence.results.map((result) => `${task.id}: ${result}`)
-  )
-  const taskSummaries = completed.map((task) => {
-    const summary = task.evidence.summary.trim() || 'No completion summary recorded.'
-    return `${task.id} - ${task.title}: ${summary}`
-  })
-  const feedbackSummaries = buildFeedbackSummary(completed)
-  const promptImprovementSignals = buildFeedbackIssueSummary(completed)
-  const findingSummaries = buildFeedbackFindingSummary(completed)
-  const openQuestions = tasks.flatMap((task) =>
-    task.notes.map((note) => `${task.id}: ${note}`)
-  )
-
-  return {
-    totalTasks: tasks.length,
-    completedTasks: completed.length,
-    touchedFiles,
-    commandsRan,
-    results,
-    taskSummaries,
-    feedbackSummaries,
-    promptImprovementSignals,
-    findingSummaries,
-    openQuestions,
-  }
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
-}
-
-function buildFeedbackSummary(tasks: SprintEngineTask[]): string[] {
-  const feedbackTasks = tasks.filter((task) => task.feedback)
-  if (feedbackTasks.length === 0) return []
-
-  return feedbackScoreLabels.flatMap((metric) => {
-    const values = feedbackTasks.flatMap((task) => {
-      const value = task.feedback?.scores[metric.key]
-      return typeof value === 'number' ? [value] : []
-    })
-    if (values.length === 0) return []
-    const average = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
-    return [`${metric.label}: ${average}% avg across ${values.length} task${values.length === 1 ? '' : 's'}`]
-  })
-}
-
-function buildFeedbackIssueSummary(tasks: SprintEngineTask[]): string[] {
-  return tasks.flatMap((task) =>
-    (task.feedback?.issues ?? []).map((issue) => {
-      const parts = [
-        `${task.id}: ${feedbackIssueSeverityLabels[issue.severity]} ${feedbackIssueCategoryLabels[issue.category]}`,
-        issue.target ? `target ${issue.target}` : null,
-        issue.title,
-        issue.suggestedPromptChange ? `Prompt: ${issue.suggestedPromptChange}` : null,
-        issue.suggestedProcessChange ? `Process: ${issue.suggestedProcessChange}` : null,
-      ].filter(Boolean)
-      return parts.join(' - ')
-    })
-  )
-}
-
-function buildFeedbackFindingSummary(tasks: SprintEngineTask[]): string[] {
-  const findings = tasks.flatMap((task) =>
-    (task.feedback?.findings ?? []).map((finding) => ({ task, finding }))
-  )
-  if (findings.length === 0) return []
-  const findingRows = findings.map(({ finding }) => finding)
-
-  const total = findings.length
-  const severitySummary = summarizeFindingCounts(
-    findingRows,
-    ['critical', 'high', 'medium', 'low'],
-    (finding) => finding.severity,
-    feedbackFindingSeverityLabels
-  )
-  const kindSummary = summarizeFindingCounts(
-    findingRows,
-    [
-      'code_bug',
-      'security_issue',
-      'product_requirement_violation',
-      'test_gap',
-      'accessibility_issue',
-      'performance_issue',
-      'reliability_issue',
-      'documentation_gap',
-      'other',
-    ],
-    (finding) => finding.kind,
-    feedbackFindingKindLabels
-  )
-  const areaSummary = summarizeFindingCounts(
-    findingRows,
-    [
-      'frontend',
-      'backend',
-      'database',
-      'networking',
-      'auth',
-      'security',
-      'filesystem',
-      'cli',
-      'ipc',
-      'mobile',
-      'testing',
-      'docs',
-      'product',
-      'other',
-    ],
-    (finding) => finding.area,
-    feedbackFindingAreaLabels
-  )
-  const details = findings.map(({ task, finding }) =>
-    `${task.id}: ${feedbackFindingSeverityLabels[finding.severity]} ${feedbackFindingKindLabels[finding.kind]} in ${feedbackFindingAreaLabels[finding.area]} - ${finding.title}`
-  )
-
-  return [
-    `${total} finding${total === 1 ? '' : 's'} reported`,
-    ...(severitySummary ? [`By severity: ${severitySummary}`] : []),
-    ...(kindSummary ? [`By type: ${kindSummary}`] : []),
-    ...(areaSummary ? [`By area: ${areaSummary}`] : []),
-    ...details,
-  ]
-}
-
-function summarizeFindingCounts<T extends string>(
-  findings: SprintEngineTaskFeedbackFinding[],
-  order: readonly T[],
-  getValue: (finding: SprintEngineTaskFeedbackFinding) => T,
-  labels: Record<T, string>
-): string {
-  const counts = new Map<T, number>()
-  for (const finding of findings) {
-    const value = getValue(finding)
-    counts.set(value, (counts.get(value) ?? 0) + 1)
-  }
-  return order.flatMap((key) => {
-    const count = counts.get(key) ?? 0
-    return count > 0 ? [`${labels[key]} ${count}`] : []
-  }).join(', ')
-}
