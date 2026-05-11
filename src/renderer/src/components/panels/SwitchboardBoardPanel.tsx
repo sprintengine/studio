@@ -12,7 +12,10 @@ import {
   type ActionTone,
 } from '../ui/ActionFeedback'
 import {
+  attentionReasonDescription,
+  attentionReasonLabel,
   BOARD_STATUS_ORDER,
+  deriveAttentionInfo,
   formatRelativeTime,
   groupTasksByStatus,
   legalMoveTargets,
@@ -21,6 +24,7 @@ import {
   sourceLabel,
   statusLabel,
   useSwitchboardData,
+  type SwitchboardAttentionInfo,
 } from '../../utils/switchboardBoard'
 import {
   providerLabel,
@@ -50,6 +54,7 @@ type PendingKey =
   | 'move'
   | 'addComment'
   | 'refresh'
+  | 'retry'
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -173,6 +178,27 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         setRecentlyMovedId(record.task.id)
         await refresh()
         feedback.notify('detail', 'success', `Moved to ${statusLabel(to)}.`)
+      })
+    },
+    [feedback, folderPath, refresh, runAction]
+  )
+
+  const handleRetry = useCallback(
+    async (record: SwitchboardTaskRecord) => {
+      if (!folderPath) return
+      await runAction('retry', async () => {
+        const result = await window.api.requeueSwitchboardTask({
+          workspaceRoot: folderPath,
+          id: record.task.id,
+          reason: 'retry-from-attention-surface',
+        })
+        if (!result.ok) {
+          feedback.notify('detail', 'error', result.message)
+          return
+        }
+        setRecentlyMovedId(record.task.id)
+        await refresh()
+        feedback.notify('detail', 'success', 'Requeued for another attempt.')
       })
     },
     [feedback, folderPath, refresh, runAction]
@@ -426,12 +452,18 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
             record={selected}
             workspaceRoot={folderPath}
             executionStatus={executionStatusByTaskId.get(selected.task.id) ?? null}
+            attentionInfo={deriveAttentionInfo(
+              selected,
+              executionStatusByTaskId.get(selected.task.id) ?? null
+            )}
             commentBody={commentBody}
             onCommentChange={setCommentBody}
             onAddComment={handleAddComment}
             onMove={(to) => void handleMove(selected, to)}
+            onRetry={() => void handleRetry(selected)}
             isMoving={isPending('move')}
             isCommenting={isPending('addComment')}
+            isRetrying={isPending('retry')}
             detailStatus={feedback.statuses.detail ?? null}
             commentStatus={feedback.statuses.comment ?? null}
             onDismissDetailStatus={() => feedback.dismiss('detail')}
@@ -586,8 +618,10 @@ function BoardCard({
   const labels = task.labels.slice(0, 2)
   const commentCount = task.comments.length
   const hasActiveExecutionPointer = Boolean(task.execution.activeExecutionId)
-  const effectiveStatus: SwitchboardExecutionStatus | null = executionStatus
-    ?? (hasActiveExecutionPointer ? 'active' : null)
+  const attentionInfo = deriveAttentionInfo(record, executionStatus)
+  const effectiveStatus: SwitchboardExecutionStatus | null = attentionInfo
+    ? null
+    : executionStatus ?? (hasActiveExecutionPointer ? 'active' : null)
   const [dragging, setDragging] = useState(false)
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLLIElement>) => {
@@ -651,6 +685,9 @@ function BoardCard({
         ) : null}
         {effectiveStatus ? (
           <ExecutionStatusBadge status={effectiveStatus} title={executionTitle(record)} />
+        ) : null}
+        {attentionInfo ? (
+          <AttentionBadge info={attentionInfo} />
         ) : null}
         {record.warnings.length > 0 ? (
           <span className="text-[#f2c45f]" title={record.warnings.join('; ')}>
@@ -723,6 +760,58 @@ function ExecutionStatusBadge({ status, title }: { status: SwitchboardExecutionS
     >
       {EXECUTION_STATUS_LABELS[status]}
     </span>
+  )
+}
+
+function AttentionBadge({ info }: { info: SwitchboardAttentionInfo }) {
+  const title = `${attentionReasonLabel(info.reason)} · ${attentionReasonDescription(info.reason)}`
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center gap-1 rounded border border-[#3a2222] bg-[#1c1414] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#ffb3b5]"
+    >
+      <span aria-hidden="true" className="status-dot-pulse h-1.5 w-1.5 rounded-full bg-[#ffb3b5]" />
+      Needs attention
+    </span>
+  )
+}
+
+function AttentionCallout({
+  info,
+  onRetry,
+  isRetrying,
+}: {
+  info: SwitchboardAttentionInfo
+  onRetry: () => void
+  isRetrying: boolean
+}) {
+  const attemptsLabel = info.attempts === 1 ? '1 attempt' : `${info.attempts} attempts`
+  return (
+    <div className="border-b border-[#3a2222] bg-[#1c1414] px-5 py-3 text-[12px] text-[#ffd0d2]">
+      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#ffb3b5]">
+        <span aria-hidden="true" className="status-dot-pulse h-1.5 w-1.5 rounded-full bg-[#ffb3b5]" />
+        Needs attention
+        <span className="text-[#a06c6e]">·</span>
+        <span className="normal-case tracking-normal text-[#d7d7dc]">{attentionReasonLabel(info.reason)}</span>
+        <span className="ml-auto text-[#a06c6e] tabular-nums">
+          {attemptsLabel}
+          {info.lastAttemptAt ? ` · ${formatRelativeTime(info.lastAttemptAt)}` : ''}
+        </span>
+      </div>
+      <p className="mt-1.5 max-w-[60ch] text-[12.5px] leading-5 text-[#ffd0d2]">
+        {attentionReasonDescription(info.reason)}
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={isRetrying}
+          className="interactive inline-flex h-7 items-center gap-1 rounded border border-[#3a2222] bg-[#231818] px-2.5 text-[11px] font-medium text-[#ffd0d2] hover:bg-[#2c1c1c] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-50"
+        >
+          {isRetrying ? 'Retrying…' : 'Retry now'}
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -812,12 +901,15 @@ function BoardDetailPane({
   record,
   workspaceRoot,
   executionStatus,
+  attentionInfo,
   commentBody,
   onCommentChange,
   onAddComment,
   onMove,
+  onRetry,
   isMoving,
   isCommenting,
+  isRetrying,
   detailStatus,
   commentStatus,
   onDismissDetailStatus,
@@ -826,12 +918,15 @@ function BoardDetailPane({
   record: SwitchboardTaskRecord
   workspaceRoot: string | null
   executionStatus: SwitchboardExecutionStatus | null
+  attentionInfo: SwitchboardAttentionInfo | null
   commentBody: string
   onCommentChange: (next: string) => void
   onAddComment: () => void
   onMove: (to: SwitchboardTaskStatus) => void
+  onRetry: () => void
   isMoving: boolean
   isCommenting: boolean
+  isRetrying: boolean
   detailStatus: ActionStatus | null
   commentStatus: ActionStatus | null
   onDismissDetailStatus: () => void
@@ -892,6 +987,14 @@ function BoardDetailPane({
             <div key={idx}>{warning}</div>
           ))}
         </div>
+      ) : null}
+
+      {attentionInfo ? (
+        <AttentionCallout
+          info={attentionInfo}
+          onRetry={onRetry}
+          isRetrying={isRetrying}
+        />
       ) : null}
 
       <div className="flex-1 overflow-auto px-5 py-4">

@@ -88,6 +88,27 @@ samp,
   }
 }
 
+@keyframes status-dot-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.85);
+  }
+}
+
+.status-dot-pulse {
+  animation: status-dot-pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot-pulse {
+    animation: none;
+  }
+}
+
 .interactive {
   transition-property: background-color, border-color, color, transform, box-shadow, opacity;
   transition-duration: 120ms;

@@ -5,12 +5,12 @@ import os
 import secrets
 import threading
 import urllib.parse
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 from .store import (
+    acquire_runner_process_lock,
     atomic_write_json,
     now_iso,
     read_runner_state,
@@ -27,11 +27,9 @@ from .store import (
     execution_status,
     execution_worktree_cleanup,
     switchboard_root,
-    SwitchboardError,
 )
 from .watchtower_runner import start_watchtower_review, start_watchtower_triage
 
-SERVER_LOCK_STALE_SECONDS = 5 * 60
 SERVER_API_VERSION = 2
 
 
@@ -55,12 +53,16 @@ class SwitchboardServer(ThreadingHTTPServer):
 def serve(workspace: Path) -> dict[str, Any]:
     root = switchboard_root(workspace)
     server_path = root / "runner" / "server.json"
-    server_lock = acquire_server_lock(root)
+    runner_lock = acquire_runner_process_lock(workspace)
 
     try:
-        stale_descriptor = read_descriptor(server_path)
-        if stale_descriptor and descriptor_server_healthy(stale_descriptor):
-            raise SwitchboardError("Switchboard backend already appears to be running for this workspace.")
+        # We hold the singleton; any leftover descriptor is from a crashed
+        # process. Clear it so clients don't try to attach to a dead server.
+        if read_descriptor(server_path) is not None:
+            try:
+                server_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
         token = secrets.token_urlsafe(24)
         started_at = now_iso()
@@ -86,40 +88,7 @@ def serve(workspace: Path) -> dict[str, Any]:
             remove_descriptor_if_current(server_path, os.getpid())
         return {"ok": True, "server": descriptor}
     finally:
-        release_server_lock(server_lock)
-
-
-def acquire_server_lock(root: Path) -> Path:
-    lock_dir = root / "runner" / ".server.lock"
-    lock_dir.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        lock_dir.mkdir()
-    except FileExistsError as exc:
-        try:
-            metadata = read_descriptor(lock_dir / "metadata.json") or {}
-            age = __import__("time").time() - lock_dir.stat().st_mtime
-        except OSError:
-            metadata = {}
-            age = 0
-        has_pid = isinstance(metadata.get("pid"), int) and metadata.get("pid") > 0
-        if descriptor_process_alive(metadata) or (not has_pid and age <= SERVER_LOCK_STALE_SECONDS):
-            raise SwitchboardError("Switchboard backend already appears to be starting or running for this workspace.") from exc
-        try:
-            (lock_dir / "metadata.json").unlink(missing_ok=True)
-            lock_dir.rmdir()
-            lock_dir.mkdir()
-        except OSError as stale_exc:
-            raise SwitchboardError("Switchboard backend startup lock is held by another process.") from stale_exc
-    atomic_write_json(lock_dir / "metadata.json", {"pid": os.getpid(), "startedAt": now_iso()})
-    return lock_dir
-
-
-def release_server_lock(lock_dir: Path) -> None:
-    try:
-        (lock_dir / "metadata.json").unlink(missing_ok=True)
-        lock_dir.rmdir()
-    except OSError:
-        pass
+        runner_lock.release()
 
 
 def read_descriptor(path: Path) -> dict[str, Any] | None:
@@ -137,38 +106,6 @@ def remove_descriptor_if_current(path: Path, pid: int) -> None:
             path.unlink(missing_ok=True)
         except OSError:
             pass
-
-
-def descriptor_process_alive(descriptor: dict[str, Any]) -> bool:
-    pid = descriptor.get("pid")
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
-def descriptor_server_healthy(descriptor: dict[str, Any]) -> bool:
-    if not descriptor_process_alive(descriptor):
-        return False
-    host = descriptor.get("host")
-    port = descriptor.get("port")
-    token = descriptor.get("token")
-    if not isinstance(host, str) or not isinstance(port, int) or not isinstance(token, str):
-        return False
-    request = urllib.request.Request(f"http://{host}:{port}/health", headers={"Authorization": f"Bearer {token}"})
-    try:
-        with urllib.request.urlopen(request, timeout=1) as response:
-            if response.status != 200:
-                return False
-            payload = json.loads(response.read().decode("utf-8"))
-            return isinstance(payload, dict) and payload.get("apiVersion") == SERVER_API_VERSION
-    except OSError:
-        return False
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return False
 
 
 class SwitchboardRequestHandler(BaseHTTPRequestHandler):
