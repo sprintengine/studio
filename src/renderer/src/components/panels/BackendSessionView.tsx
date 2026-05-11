@@ -13,6 +13,13 @@ interface Props {
 
 const CONNECT_TIMEOUT_MS = 8_000
 
+const STATUS_TONE: Record<'connecting' | 'attached' | 'exited' | 'error', { dot: string; label: string; pulse: boolean }> = {
+  connecting: { dot: '#f2c45f', label: 'text-[#f2c45f]', pulse: true },
+  attached: { dot: '#f2c45f', label: 'text-[#f2c45f]', pulse: true },
+  exited: { dot: '#71717a', label: 'text-[#71717a]', pulse: false },
+  error: { dot: '#ff787c', label: 'text-[#ff787c]', pulse: false },
+}
+
 function base64ToBytes(b64: string): Uint8Array {
   try {
     const binary = atob(b64)
@@ -180,31 +187,44 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
     void navigator.clipboard?.writeText(text).catch(() => undefined)
   }
 
+  const tone = STATUS_TONE[status]
+  const statusLabel =
+    status === 'attached'
+      ? 'LIVE'
+      : status === 'connecting'
+        ? 'CONNECTING…'
+        : statusDetail
+          ? statusDetail.toUpperCase()
+          : status.toUpperCase()
+
   return (
-    <div className="flex h-full flex-col bg-[#09090b]">
-      <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-3 py-1.5 text-xs text-zinc-400">
-        <div className="flex items-center gap-2 overflow-hidden">
-          <span className="truncate font-medium text-zinc-200">{title ?? executionId}</span>
-          {role && <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-300">{role}</span>}
+    <div className="flex h-full flex-col bg-[#08090b]">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] px-3 py-1.5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-2 w-2 shrink-0 items-center justify-center" aria-hidden="true">
+            <span
+              className={`block h-1.5 w-1.5 rounded-full ${tone.pulse ? 'status-dot-pulse' : ''}`}
+              style={{ background: tone.dot }}
+            />
+          </span>
+          <span className="truncate text-[12px] font-semibold text-[#ececee]">{title ?? executionId}</span>
+          {role && (
+            <span className="shrink-0 rounded border border-[#16171c] bg-[#0d0e11] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#9a9aa2]">
+              {role}
+            </span>
+          )}
           <span
-            className={
-              status === 'attached'
-                ? 'text-emerald-400'
-                : status === 'exited'
-                  ? 'text-zinc-500'
-                  : status === 'error'
-                    ? 'text-rose-400'
-                    : 'text-amber-400'
-            }
+            className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] tabular-nums ${tone.label}`}
+            title={statusDetail || statusLabel}
           >
-            {status === 'attached' ? 'live' : status === 'connecting' ? 'connecting…' : statusDetail || status}
+            {statusLabel}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={copyScrollback}
-            className="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-200 hover:bg-zinc-800"
+            className="interactive rounded border border-[#2a2b31] px-2 py-0.5 text-[10.5px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/60"
             title="Copy scrollback to clipboard"
           >
             Copy
@@ -212,7 +232,7 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
           <button
             type="button"
             onClick={() => sendSignal('INT')}
-            className="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+            className="interactive rounded border border-[#2a2b31] px-2 py-0.5 text-[10.5px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/60 disabled:opacity-40"
             disabled={status !== 'attached'}
             title="Send Ctrl-C (SIGINT)"
           >
@@ -221,7 +241,7 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
           <button
             type="button"
             onClick={() => sendSignal('TERM')}
-            className="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+            className="interactive rounded border border-[#3a3426] bg-[#1d1714] px-2 py-0.5 text-[10.5px] font-semibold text-[#f2c45f] hover:bg-[#241c17] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#f2c45f]/60 disabled:opacity-40"
             disabled={status !== 'attached'}
             title="Send SIGTERM"
           >
@@ -230,7 +250,7 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
           <button
             type="button"
             onClick={() => sendSignal('KILL')}
-            className="rounded border border-rose-900/40 px-2 py-0.5 text-[11px] text-rose-300 hover:bg-rose-900/30 disabled:opacity-40"
+            className="interactive rounded border border-[#3a2222] bg-[#1c1414] px-2 py-0.5 text-[10.5px] font-semibold text-[#ffb3b5] hover:bg-[#241818] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-40"
             disabled={status !== 'attached'}
             title="Send SIGKILL"
           >
@@ -238,7 +258,17 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
           </button>
         </div>
       </div>
-      <div ref={containerRef} className="min-h-0 flex-1" />
+      <div className="relative min-h-0 flex-1">
+        <div ref={containerRef} className="absolute inset-0" />
+        {status === 'connecting' && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="flex items-center gap-2 rounded border border-[#1f2025] bg-[#0d0e11]/85 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2]">
+              <span className="block h-1.5 w-1.5 rounded-full status-dot-pulse" style={{ background: '#f2c45f' }} />
+              connecting…
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
