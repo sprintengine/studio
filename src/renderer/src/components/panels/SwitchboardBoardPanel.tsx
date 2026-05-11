@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { ArrowRightIcon, CommentIcon, PlusIcon, PriorityIcon, StatusIcon } from '../AppIcons'
+import { ArrowRightIcon, CommentIcon, PlusIcon, PriorityIcon, StatusDot, StatusIcon } from '../AppIcons'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { ExecutionLogsView } from './ExecutionLogsView'
@@ -619,9 +619,8 @@ function BoardCard({
   const commentCount = task.comments.length
   const hasActiveExecutionPointer = Boolean(task.execution.activeExecutionId)
   const attentionInfo = deriveAttentionInfo(record, executionStatus)
-  const effectiveStatus: SwitchboardExecutionStatus | null = attentionInfo
-    ? null
-    : executionStatus ?? (hasActiveExecutionPointer ? 'active' : null)
+  const effectiveStatus: SwitchboardExecutionStatus | null =
+    executionStatus ?? (hasActiveExecutionPointer && !attentionInfo ? 'active' : null)
   const [dragging, setDragging] = useState(false)
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLLIElement>) => {
@@ -683,11 +682,14 @@ function BoardCard({
             <span className="tabular-nums">{commentCount}</span>
           </span>
         ) : null}
+        {attentionInfo ? (
+          <StatusDot
+            tone="needs-input"
+            label={`Needs your input · ${attentionReasonLabel(attentionInfo.reason)}`}
+          />
+        ) : null}
         {effectiveStatus ? (
           <ExecutionStatusBadge status={effectiveStatus} title={executionTitle(record)} />
-        ) : null}
-        {attentionInfo ? (
-          <AttentionBadge info={attentionInfo} />
         ) : null}
         {record.warnings.length > 0 ? (
           <span className="text-[#f2c45f]" title={record.warnings.join('; ')}>
@@ -763,20 +765,7 @@ function ExecutionStatusBadge({ status, title }: { status: SwitchboardExecutionS
   )
 }
 
-function AttentionBadge({ info }: { info: SwitchboardAttentionInfo }) {
-  const title = `${attentionReasonLabel(info.reason)} · ${attentionReasonDescription(info.reason)}`
-  return (
-    <span
-      title={title}
-      className="inline-flex items-center gap-1 rounded border border-[#3a2222] bg-[#1c1414] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#ffb3b5]"
-    >
-      <span aria-hidden="true" className="status-dot-pulse h-1.5 w-1.5 rounded-full bg-[#ffb3b5]" />
-      Needs attention
-    </span>
-  )
-}
-
-function AttentionCallout({
+function AttentionStrip({
   info,
   onRetry,
   isRetrying,
@@ -787,30 +776,29 @@ function AttentionCallout({
 }) {
   const attemptsLabel = info.attempts === 1 ? '1 attempt' : `${info.attempts} attempts`
   return (
-    <div className="border-b border-[#3a2222] bg-[#1c1414] px-5 py-3 text-[12px] text-[#ffd0d2]">
-      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#ffb3b5]">
-        <span aria-hidden="true" className="status-dot-pulse h-1.5 w-1.5 rounded-full bg-[#ffb3b5]" />
-        Needs attention
-        <span className="text-[#a06c6e]">·</span>
-        <span className="normal-case tracking-normal text-[#d7d7dc]">{attentionReasonLabel(info.reason)}</span>
-        <span className="ml-auto text-[#a06c6e] tabular-nums">
-          {attemptsLabel}
+    <div
+      role="status"
+      className="flex items-center gap-3 border-b border-[#1f2025] bg-[#1d1714] px-5 py-2 text-[11.5px] leading-5 text-[#f2c45f]"
+    >
+      <StatusDot tone="needs-input" label="Needs your input" />
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="font-semibold uppercase tracking-[0.08em] text-[#ffd58a]">Needs your input</span>
+        <span className="text-[#9a8456]">·</span>
+        <span className="text-[#f2c45f]">{attentionReasonLabel(info.reason)}</span>
+        <span className="text-[#9a8456] tabular-nums">
+          · {attemptsLabel}
           {info.lastAttemptAt ? ` · ${formatRelativeTime(info.lastAttemptAt)}` : ''}
         </span>
       </div>
-      <p className="mt-1.5 max-w-[60ch] text-[12.5px] leading-5 text-[#ffd0d2]">
-        {attentionReasonDescription(info.reason)}
-      </p>
-      <div className="mt-2 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onRetry}
-          disabled={isRetrying}
-          className="interactive inline-flex h-7 items-center gap-1 rounded border border-[#3a2222] bg-[#231818] px-2.5 text-[11px] font-medium text-[#ffd0d2] hover:bg-[#2c1c1c] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-50"
-        >
-          {isRetrying ? 'Retrying…' : 'Retry now'}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={isRetrying}
+        title={attentionReasonDescription(info.reason)}
+        className="interactive inline-flex h-6 shrink-0 items-center rounded border border-[#3a3426] bg-[#221a10] px-2 text-[11px] font-medium text-[#ffe0a3] hover:bg-[#2a210f] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ffbf2f]/60 disabled:opacity-50"
+      >
+        {isRetrying ? 'Retrying…' : 'Retry now'}
+      </button>
     </div>
   )
 }
@@ -990,7 +978,7 @@ function BoardDetailPane({
       ) : null}
 
       {attentionInfo ? (
-        <AttentionCallout
+        <AttentionStrip
           info={attentionInfo}
           onRetry={onRetry}
           isRetrying={isRetrying}
