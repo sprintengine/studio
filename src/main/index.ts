@@ -61,6 +61,8 @@ import {
   pauseSwitchboardRunner,
   resumeSwitchboardRunner,
   startSwitchboardRunner,
+  startWatchtowerReview,
+  startWatchtowerTriage,
   stopSwitchboardExecution,
   stopSwitchboardRunner,
   tickSwitchboardRunner,
@@ -99,6 +101,7 @@ async function listWatchtowerRunsReconciled(workspaceRoot: string): Promise<Watc
     if (Number.isFinite(createdAtMs) && now - createdAtMs < WATCHTOWER_RECONCILE_GRACE_MS) continue
     for (const agent of run.agents) {
       if (agent.status !== 'running') continue
+      if (agent.executionId) continue
       if (terminalRuntime.hasLiveWatchtowerSession(workspaceRoot, run.runId, agent.agentId)) continue
       stale.push({ runId: run.runId, agentId: agent.agentId })
     }
@@ -193,6 +196,8 @@ registerSwitchboardIpc(ipcMain, {
   getRunnerState: getSwitchboardRunnerState,
   stopExecution: stopSwitchboardExecution,
   createWatchtowerRun,
+  startWatchtowerReview,
+  startWatchtowerTriage,
   getWatchtowerRun,
   updateWatchtowerRunAgentStatus,
   listWatchtowerRuns: listWatchtowerRunsReconciled,

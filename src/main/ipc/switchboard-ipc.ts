@@ -24,6 +24,8 @@ import type {
   WatchtowerRunCreateInput,
   WatchtowerRunListResult,
   WatchtowerRunResult,
+  WatchtowerStartReviewInput,
+  WatchtowerStartTriageInput,
 } from '../../shared/switchboard'
 
 type SwitchboardIpcDependencies = {
@@ -47,6 +49,8 @@ type SwitchboardIpcDependencies = {
   getRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult>
   stopExecution(input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult>
   createWatchtowerRun(input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult>
+  startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult>
+  startWatchtowerTriage(input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult>
   getWatchtowerRun(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult>
   updateWatchtowerRunAgentStatus(input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult>
   listWatchtowerRuns(workspaceRoot: string): Promise<WatchtowerRunListResult>
@@ -136,6 +140,14 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
 
   ipcMain.handle('switchboard:watchtower:create-run', async (_, input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> => {
     return deps.createWatchtowerRun(input)
+  })
+
+  ipcMain.handle('switchboard:watchtower:start-review', async (_, input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> => {
+    return deps.startWatchtowerReview(input)
+  })
+
+  ipcMain.handle('switchboard:watchtower:start-triage', async (_, input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult> => {
+    return deps.startWatchtowerTriage(input)
   })
 
   ipcMain.handle(

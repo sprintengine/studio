@@ -25,6 +25,8 @@ import type {
   WatchtowerRunCreateInput,
   WatchtowerRunListResult,
   WatchtowerRunResult,
+  WatchtowerStartReviewInput,
+  WatchtowerStartTriageInput,
 } from '../../shared/switchboard'
 
 export const switchboardApi = {
@@ -68,6 +70,10 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:execution:stop', input),
   createWatchtowerRun: (input: WatchtowerRunCreateInput): Promise<WatchtowerRunResult> =>
     ipcRenderer.invoke('switchboard:watchtower:create-run', input),
+  startWatchtowerReview: (input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> =>
+    ipcRenderer.invoke('switchboard:watchtower:start-review', input),
+  startWatchtowerTriage: (input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult> =>
+    ipcRenderer.invoke('switchboard:watchtower:start-triage', input),
   getWatchtowerRun: (input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult> =>
     ipcRenderer.invoke('switchboard:watchtower:get-run', input),
   updateWatchtowerRunAgentStatus: (input: WatchtowerRunAgentStatusInput): Promise<WatchtowerRunResult> =>
@@ -100,6 +106,8 @@ export const switchboardApi = {
   | 'getSwitchboardRunnerState'
   | 'stopSwitchboardExecution'
   | 'createWatchtowerRun'
+  | 'startWatchtowerReview'
+  | 'startWatchtowerTriage'
   | 'getWatchtowerRun'
   | 'updateWatchtowerRunAgentStatus'
   | 'listWatchtowerRuns'

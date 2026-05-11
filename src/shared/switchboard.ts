@@ -192,6 +192,17 @@ export type WatchtowerRunCreateInput = {
   agents?: WatchtowerRunAgent[]
 }
 
+export type WatchtowerStartReviewInput = {
+  workspaceRoot: string
+  preset: string
+}
+
+export type WatchtowerStartTriageInput = {
+  workspaceRoot: string
+  scope: 'all' | 'selected'
+  taskId?: string | null
+}
+
 export type WatchtowerRunResult =
   | { ok: true; run: WatchtowerRun }
   | { ok: false; message: string }

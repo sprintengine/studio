@@ -28,6 +28,8 @@ import type {
   WatchtowerRunAgentStatusInput,
   WatchtowerRunListResult,
   WatchtowerRunResult,
+  WatchtowerStartReviewInput,
+  WatchtowerStartTriageInput,
 } from '../shared/switchboard'
 
 type PythonCommandResult =
@@ -492,6 +494,22 @@ export async function createWatchtowerRun(input: WatchtowerRunCreateInput): Prom
   if (input.agents) args.push('--agents-json', JSON.stringify(input.agents))
   const result = await runSwitchboardCore(args)
   if (!result.ok) return { ok: false, message: result.message || 'Unable to create Watchtower run.' }
+  return result.payload as WatchtowerRunResult
+}
+
+export async function startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> {
+  const result = await requestSwitchboardBackend(input.workspaceRoot, '/watchtower/start-review', {
+    preset: input.preset,
+  })
+  if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower review.' }
+  return result.payload as WatchtowerRunResult
+}
+
+export async function startWatchtowerTriage(input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult> {
+  const body: Record<string, unknown> = { scope: input.scope }
+  if (input.taskId?.trim()) body.taskId = input.taskId.trim()
+  const result = await requestSwitchboardBackend(input.workspaceRoot, '/watchtower/start-triage', body)
+  if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower triage.' }
   return result.payload as WatchtowerRunResult
 }
 

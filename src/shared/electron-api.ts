@@ -23,6 +23,8 @@ import type {
   WatchtowerRunCreateInput,
   WatchtowerRunListResult,
   WatchtowerRunResult,
+  WatchtowerStartReviewInput,
+  WatchtowerStartTriageInput,
 } from './switchboard'
 
 export type SaveDialogOptions = {
@@ -961,6 +963,8 @@ export type ElectronApi = {
   getSwitchboardRunnerState: (workspaceRoot?: string) => Promise<SwitchboardRunnerResult>
   stopSwitchboardExecution: (input: SwitchboardStopExecutionInput) => Promise<SwitchboardStopExecutionResult>
   createWatchtowerRun: (input: WatchtowerRunCreateInput) => Promise<WatchtowerRunResult>
+  startWatchtowerReview: (input: WatchtowerStartReviewInput) => Promise<WatchtowerRunResult>
+  startWatchtowerTriage: (input: WatchtowerStartTriageInput) => Promise<WatchtowerRunResult>
   getWatchtowerRun: (input: { workspaceRoot: string; runId: string }) => Promise<WatchtowerRunResult>
   updateWatchtowerRunAgentStatus: (input: WatchtowerRunAgentStatusInput) => Promise<WatchtowerRunResult>
   listWatchtowerRuns: (workspaceRoot: string) => Promise<WatchtowerRunListResult>

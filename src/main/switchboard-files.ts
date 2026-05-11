@@ -18,6 +18,8 @@ export {
   pauseSwitchboardRunner,
   resumeSwitchboardRunner,
   startSwitchboardRunner,
+  startWatchtowerReview,
+  startWatchtowerTriage,
   stopSwitchboardExecution,
   stopSwitchboardRunner,
   tickSwitchboardRunner,

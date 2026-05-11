@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
@@ -6,11 +6,8 @@ import {
   getWatchtowerReviewSector,
   type WatchtowerReviewPresetId,
 } from '../../utils/watchtowerReview'
-import { buildWatchtowerStartupPrompt } from '../../utils/watchtowerPrompt'
-import { buildWatchtowerTriagePrompt } from '../../utils/watchtowerTriagePrompt'
 import { getSpecialistAction } from '../../specialists/specialistActions'
-import { prependAgentIdentifier } from '../../utils/agentPrompt'
-import type { AgentState, SpecialistActionId, WatchtowerReviewSectorId } from '../../types/workspace'
+import type { SpecialistActionId } from '../../types/workspace'
 import type {
   SwitchboardComment,
   SwitchboardTaskRecord,
@@ -64,15 +61,6 @@ const emptyDraft: DraftTask = {
   identifier: '',
 }
 
-function pathSeparatorFor(path: string): string {
-  return path.includes('\\') && !path.includes('/') ? '\\' : '/'
-}
-
-function joinPath(parent: string, child: string): string {
-  const separator = pathSeparatorFor(parent)
-  return `${parent}${parent.endsWith(separator) ? '' : separator}${child}`
-}
-
 function sanitizeIdentityPart(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^[-._]+|[-._]+$/gu, '') || 'item'
 }
@@ -111,14 +99,6 @@ function countTasksPerAgent(run: WatchtowerRun, tasks: SwitchboardTaskRecord[]):
   return counts
 }
 
-type SelectedWatchtowerAgent = {
-  agentId: string
-  specialistId: SpecialistActionId
-  sectors: WatchtowerReviewSectorId[]
-  outputDirectory: string
-  reportPath: string
-}
-
 type TriageImportance = 'critical' | 'high' | 'medium' | 'low' | null
 
 function latestTriageComment(record: SwitchboardTaskRecord): SwitchboardComment | null {
@@ -143,8 +123,6 @@ function triageImportanceDotClass(importance: TriageImportance): string {
 
 export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
-  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
-  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh, switchboardRoot } = useSwitchboardData(folderPath)
 
@@ -162,20 +140,12 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<Toast | null>(null)
   const [fetchOpen, setFetchOpen] = useState(false)
-  const backgroundExitDisposers = useRef<Array<() => void>>([])
 
   useEffect(() => {
     if (!toast) return
     const handle = window.setTimeout(() => setToast(null), 4000)
     return () => window.clearTimeout(handle)
   }, [toast])
-
-  useEffect(() => {
-    return () => {
-      backgroundExitDisposers.current.forEach((dispose) => dispose())
-      backgroundExitDisposers.current = []
-    }
-  }, [])
 
   useEffect(() => {
     if (selectedId && !inbox.some((record) => record.task.id === selectedId)) {
@@ -251,6 +221,10 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
   const handleOpenRunAgent = useCallback(async (agent: WatchtowerRunAgent) => {
     const label = specialistShortLabel(agent)
+    if (agent.executionId) {
+      showToast('info', `${label} is runtime-owned. Execution ${agent.executionId} is not attached to a terminal session.`)
+      return
+    }
     const sessionId = workspace?.agents[agent.agentId]?.cliSessionId
     if (!sessionId) {
       showToast('info', `${label} does not have an attached terminal session.`)
@@ -277,135 +251,28 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
   const handleStartReview = useCallback(async () => {
     if (!folderPath) return
-    const runNonce = crypto.randomUUID().slice(0, 8)
-    const agents = Object.entries(selectedPreset.agents)
-      .map(([specialistId, sectors]) => ({
-        specialistId: specialistId as SpecialistActionId,
-        sectors: (sectors ?? []) as WatchtowerReviewSectorId[],
-      }))
-      .filter((agent) => agent.sectors.length > 0)
-    if (agents.length === 0) {
+    const hasAgents = Object.values(selectedPreset.agents).some((sectors) => (sectors ?? []).length > 0)
+    if (!hasAgents) {
       showToast('error', 'Select a preset with at least one review agent.')
       return
     }
     setBusy(true)
     try {
-      const runAgents: WatchtowerRunAgent[] = agents.map((agent) => {
-        const agentId = `watchtower-${runNonce}-${agent.specialistId}`
-        return {
-          agentId,
-          specialistId: agent.specialistId,
-          status: 'running',
-          outputDir: `outputs/${agentId}`,
-          reportPath: `reports/${agentId}.md`,
-        }
-      })
-      const created = await window.api.createWatchtowerRun({
+      const started = await window.api.startWatchtowerReview({
         workspaceRoot: folderPath,
         preset,
-        status: 'running',
-        agents: runAgents,
       })
-      if (!created.ok) {
-        showToast('error', created.message)
+      if (!started.ok) {
+        showToast('error', started.message)
         return
       }
-      const root = switchboardRoot ?? joinPath(joinPath(folderPath, '.multi-code'), 'switchboard')
-      const runRoot = joinPath(joinPath(root, 'watchtower-runs'), created.run.runId)
-      const selectedAgents: SelectedWatchtowerAgent[] = agents.map((agent) => {
-        const agentId = `watchtower-${runNonce}-${agent.specialistId}`
-        return {
-          agentId,
-          specialistId: agent.specialistId,
-          sectors: agent.sectors,
-          outputDirectory: joinPath(joinPath(runRoot, 'outputs'), agentId),
-          reportPath: joinPath(joinPath(runRoot, 'reports'), `${agentId}.md`),
-        }
-      })
-      for (const reviewAgent of selectedAgents) {
-        const specialist = getSpecialistAction(reviewAgent.specialistId)
-        const prompt = buildWatchtowerStartupPrompt({
-          run: created.run,
-          agent: reviewAgent,
-          workspaceRoot: folderPath,
-        })
-        const sessionId = crypto.randomUUID()
-        const startupPrompt = prependAgentIdentifier(prompt, specialist.shortLabel, specialist.shortLabel)
-        const agentPatch: Partial<AgentState> = {
-          name: specialist.shortLabel,
-          kind: 'watchtower',
-          specialistId: reviewAgent.specialistId,
-          cli: 'codex',
-          cliPermissionPreset: 'bypass_all',
-          cliStartupPrompt: startupPrompt,
-          watchtowerRunId: created.run.runId,
-          cliStartRequested: true,
-          cliOnboardingPromptSent: false,
-          cliHasLaunched: false,
-          cliResumeAvailable: false,
-          cliSessionId: sessionId,
-        }
-        updateAgent(workspaceId, reviewAgent.agentId, agentPatch)
-        const spawnResult = await window.api.terminalSpawn(
-          sessionId,
-          100,
-          30,
-          folderPath,
-          false,
-          undefined,
-          'codex',
-          startupPrompt,
-          cliRuntimes,
-          false,
-          {
-            kind: 'agent',
-            workspaceId,
-            agentId: reviewAgent.agentId,
-            cliPermissionPreset: 'bypass_all',
-            watchtowerRunId: created.run.runId,
-            watchtowerWorkspaceRoot: folderPath,
-          }
-        ).catch((error): TerminalSpawnResult => ({
-          ok: false,
-          sessionId,
-          message: error instanceof Error ? error.message : 'Failed to start terminal.',
-          exitCode: 1,
-        }))
-
-        if (!spawnResult.ok) {
-          updateAgent(workspaceId, reviewAgent.agentId, {
-            cliStartRequested: false,
-            cliHasLaunched: false,
-            cliOnboardingPromptSent: false,
-            cliResumeAvailable: false,
-          })
-          showToast('error', `${specialist.shortLabel} was not started: ${spawnResult.message}`)
-          continue
-        }
-
-        updateAgent(workspaceId, reviewAgent.agentId, {
-          cliHasLaunched: true,
-          cliOnboardingPromptSent: true,
-          cliResumeAvailable: true,
-          cliStartupPrompt: undefined,
-        })
-        const disposeExit = window.api.onTerminalExit(sessionId, () => {
-          updateAgent(workspaceId, reviewAgent.agentId, {
-            cliStartRequested: false,
-            cliHasLaunched: false,
-            cliOnboardingPromptSent: false,
-          })
-          void refreshRuns()
-        })
-        backgroundExitDisposers.current.push(disposeExit)
-      }
-      setSelectedRunId(created.run.runId)
+      setSelectedRunId(started.run.runId)
       await refreshRuns()
       showToast('success', 'Watchtower review started.')
     } finally {
       setBusy(false)
     }
-  }, [cliRuntimes, folderPath, preset, refreshRuns, selectedPreset.agents, showToast, switchboardRoot, updateAgent, workspaceId])
+  }, [folderPath, preset, refreshRuns, selectedPreset.agents, showToast])
 
   const handleStartTriage = useCallback(async (scope: 'all' | 'selected') => {
     if (!folderPath) return
@@ -417,124 +284,22 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
     setBusy(true)
     try {
-      const runNonce = crypto.randomUUID().slice(0, 8)
-      const agentId = `watchtower-triage-${runNonce}-architect`
-      const runAgents: WatchtowerRunAgent[] = [{
-        agentId,
-        specialistId: 'architect',
-        status: 'running',
-        outputDir: `outputs/${agentId}`,
-        reportPath: `reports/${agentId}.md`,
-      }]
-      const created = await window.api.createWatchtowerRun({
+      const started = await window.api.startWatchtowerTriage({
         workspaceRoot: folderPath,
-        preset: 'inbox_triage',
-        status: 'running',
-        agents: runAgents,
+        scope: scope === 'selected' ? 'selected' : 'all',
+        taskId: scope === 'selected' ? scopedTasks[0]?.task.id : undefined,
       })
-      if (!created.ok) {
-        showToast('error', created.message)
+      if (!started.ok) {
+        showToast('error', started.message)
         return
       }
-
-      const architect = getSpecialistAction('architect')
-      const prompt = buildWatchtowerTriagePrompt({
-        run: created.run,
-        workspaceRoot: folderPath,
-        tasks: scopedTasks,
-        scopeLabel: scope === 'selected' ? `selected inbox task ${scopedTasks[0].task.identifier}` : `${scopedTasks.length} inbox tasks`,
-      })
-      const sessionId = crypto.randomUUID()
-      const startupPrompt = prependAgentIdentifier(prompt, architect.shortLabel, architect.shortLabel)
-      const agentPatch: Partial<AgentState> = {
-        name: architect.shortLabel,
-        kind: 'watchtower',
-        specialistId: 'architect',
-        cli: 'codex',
-        cliPermissionPreset: 'bypass_all',
-        cliStartupPrompt: startupPrompt,
-        watchtowerRunId: created.run.runId,
-        cliStartRequested: true,
-        cliOnboardingPromptSent: false,
-        cliHasLaunched: false,
-        cliResumeAvailable: false,
-        cliSessionId: sessionId,
-      }
-      updateAgent(workspaceId, agentId, agentPatch)
-
-      const spawnResult = await window.api.terminalSpawn(
-        sessionId,
-        100,
-        30,
-        folderPath,
-        false,
-        undefined,
-        'codex',
-        startupPrompt,
-        cliRuntimes,
-        false,
-        {
-          kind: 'agent',
-          workspaceId,
-          agentId,
-          cliPermissionPreset: 'bypass_all',
-          watchtowerRunId: created.run.runId,
-          watchtowerWorkspaceRoot: folderPath,
-        }
-      ).catch((error): TerminalSpawnResult => ({
-        ok: false,
-        sessionId,
-        message: error instanceof Error ? error.message : 'Failed to start terminal.',
-        exitCode: 1,
-      }))
-
-      if (!spawnResult.ok) {
-        updateAgent(workspaceId, agentId, {
-          cliStartRequested: false,
-          cliHasLaunched: false,
-          cliOnboardingPromptSent: false,
-          cliResumeAvailable: false,
-        })
-        await window.api.updateWatchtowerRunAgentStatus({
-          workspaceRoot: folderPath,
-          runId: created.run.runId,
-          agentId,
-          status: 'failed',
-        }).catch(() => null)
-        showToast('error', `Architect was not started: ${spawnResult.message}`)
-        return
-      }
-
-      updateAgent(workspaceId, agentId, {
-        cliHasLaunched: true,
-        cliOnboardingPromptSent: true,
-        cliResumeAvailable: true,
-        cliStartupPrompt: undefined,
-      })
-      const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
-        updateAgent(workspaceId, agentId, {
-          cliStartRequested: false,
-          cliHasLaunched: false,
-          cliOnboardingPromptSent: false,
-        })
-        void window.api.updateWatchtowerRunAgentStatus({
-          workspaceRoot: folderPath,
-          runId: created.run.runId,
-          agentId,
-          status: code === 0 ? 'completed' : 'failed',
-        }).finally(() => {
-          void refreshRuns()
-          void refresh()
-        })
-      })
-      backgroundExitDisposers.current.push(disposeExit)
-      setSelectedRunId(created.run.runId)
+      setSelectedRunId(started.run.runId)
       await refreshRuns()
       showToast('success', scope === 'selected' ? 'Architect triage started for this task.' : 'Architect inbox triage started.')
     } finally {
       setBusy(false)
     }
-  }, [cliRuntimes, folderPath, inbox, refresh, refreshRuns, selected, showToast, updateAgent, workspaceId])
+  }, [folderPath, inbox, refreshRuns, selected, showToast])
 
   const handleImportGitHub = useCallback(async () => {
     if (!folderPath) return
