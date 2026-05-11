@@ -20,6 +20,10 @@ import type {
   SwitchboardRequeueTaskInput,
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
+  SwitchboardExecutionLogsInput,
+  SwitchboardExecutionLogsResult,
+  SwitchboardExecutionStatusInput,
+  SwitchboardExecutionStatusResult,
   SwitchboardStopExecutionInput,
   SwitchboardStopExecutionResult,
   SwitchboardTaskRecord,
@@ -500,6 +504,55 @@ export async function stopSwitchboardExecution(input: SwitchboardStopExecutionIn
   const fallback = await runSwitchboardCore(args)
   if (!fallback.ok) return { ok: false, message: fallback.message || 'Unable to stop Switchboard execution.' }
   return fallback.payload as SwitchboardStopExecutionResult
+}
+
+export async function getSwitchboardExecutionStatus(
+  input: SwitchboardExecutionStatusInput,
+): Promise<SwitchboardExecutionStatusResult> {
+  if (!input.workspaceRoot?.trim()) return { ok: false, message: 'workspaceRoot is required.' }
+  if (!input.executionId?.trim()) return { ok: false, message: 'executionId is required.' }
+  const path = `/execution/${encodeURIComponent(input.executionId)}/status`
+  const result = await requestExistingSwitchboardBackend(input.workspaceRoot, path)
+  if (result.ok) return result.payload as SwitchboardExecutionStatusResult
+  const fallback = await runSwitchboardCore([
+    'execution',
+    'status',
+    ...workspaceArgs(input.workspaceRoot),
+    input.executionId,
+  ])
+  if (!fallback.ok) {
+    return { ok: false, message: fallback.message || 'Unable to read Switchboard execution status.' }
+  }
+  return fallback.payload as SwitchboardExecutionStatusResult
+}
+
+export async function getSwitchboardExecutionLogs(
+  input: SwitchboardExecutionLogsInput,
+): Promise<SwitchboardExecutionLogsResult> {
+  if (!input.workspaceRoot?.trim()) return { ok: false, message: 'workspaceRoot is required.' }
+  if (!input.executionId?.trim()) return { ok: false, message: 'executionId is required.' }
+  if (input.stream !== 'stdout' && input.stream !== 'stderr') {
+    return { ok: false, message: 'stream must be stdout or stderr.' }
+  }
+  const tail = Number.isFinite(input.tail) ? Math.max(1, Math.min(5000, Math.floor(input.tail as number))) : 200
+  const query = new URLSearchParams({ stream: input.stream, tail: String(tail) }).toString()
+  const path = `/execution/${encodeURIComponent(input.executionId)}/logs?${query}`
+  const result = await requestExistingSwitchboardBackend(input.workspaceRoot, path)
+  if (result.ok) return result.payload as SwitchboardExecutionLogsResult
+  const fallback = await runSwitchboardCore([
+    'execution',
+    'logs',
+    ...workspaceArgs(input.workspaceRoot),
+    input.executionId,
+    '--stream',
+    input.stream,
+    '--tail',
+    String(tail),
+  ])
+  if (!fallback.ok) {
+    return { ok: false, message: fallback.message || 'Unable to read Switchboard execution logs.' }
+  }
+  return fallback.payload as SwitchboardExecutionLogsResult
 }
 
 export async function startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> {

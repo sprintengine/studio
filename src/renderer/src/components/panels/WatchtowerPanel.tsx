@@ -39,6 +39,7 @@ import {
 } from '../../utils/switchboardBoard'
 import { filterInboxTasks } from '../../utils/watchtower'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { ExecutionLogsView } from './ExecutionLogsView'
 
 const PANEL_BG = 'bg-[#08090b]'
 const SECTION_DIVIDER = 'border-t border-[#1f2025]'
@@ -611,6 +612,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           isStartingTriage={isPending('startTriageAll')}
           statuses={feedback.statuses}
           onDismissStatus={feedback.dismiss}
+          workspaceRoot={folderPath}
         />
 
         <FetchExternalSection

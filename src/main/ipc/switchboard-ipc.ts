@@ -5,6 +5,10 @@ import type {
   SwitchboardClaimTaskInput,
   SwitchboardClaimTaskResult,
   SwitchboardCreateTaskInput,
+  SwitchboardExecutionLogsInput,
+  SwitchboardExecutionLogsResult,
+  SwitchboardExecutionStatusInput,
+  SwitchboardExecutionStatusResult,
   SwitchboardInitApiResult,
   SwitchboardImportResult,
   SwitchboardMoveTaskInput,
@@ -46,6 +50,8 @@ type SwitchboardIpcDependencies = {
   tickRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   getRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult>
   stopExecution(input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult>
+  getExecutionStatus(input: SwitchboardExecutionStatusInput): Promise<SwitchboardExecutionStatusResult>
+  getExecutionLogs(input: SwitchboardExecutionLogsInput): Promise<SwitchboardExecutionLogsResult>
   startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult>
   startWatchtowerTriage(input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult>
   getWatchtowerRun(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult>
@@ -133,6 +139,20 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
   ipcMain.handle('switchboard:execution:stop', async (_, input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> => {
     return deps.stopExecution(input)
   })
+
+  ipcMain.handle(
+    'switchboard:execution:status',
+    async (_, input: SwitchboardExecutionStatusInput): Promise<SwitchboardExecutionStatusResult> => {
+      return deps.getExecutionStatus(input)
+    },
+  )
+
+  ipcMain.handle(
+    'switchboard:execution:logs',
+    async (_, input: SwitchboardExecutionLogsInput): Promise<SwitchboardExecutionLogsResult> => {
+      return deps.getExecutionLogs(input)
+    },
+  )
 
   ipcMain.handle('switchboard:watchtower:start-review', async (_, input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> => {
     return deps.startWatchtowerReview(input)

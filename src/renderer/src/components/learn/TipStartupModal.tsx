@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
+import { Modal, ModalButton } from '../ui/Modal'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { LEARNING_CATEGORY_LABELS } from '../../content/learning/types'
 import type { LearningAction, LearningItem } from '../../content/learning/types'
@@ -28,7 +28,7 @@ export function TipStartupModal({
   const initialSelection = useMemo(
     () =>
       pickStartupTip(context, learning?.seenTipIds ?? [], learning?.lastShownTipId ?? null),
-    // Only recompute when the modal opens — we want a stable rotation while the user is reading.
+    // Stable rotation while the modal is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open]
   )
@@ -57,6 +57,21 @@ export function TipStartupModal({
     if (rotation.length === 0) return
     setPosition((p) => (p + 1) % rotation.length)
   }, [rotation.length])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        handlePrevious()
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        handleNext()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, handlePrevious, handleNext])
 
   const handleAction = useCallback(
     (action: LearningAction | undefined) => {
@@ -88,49 +103,115 @@ export function TipStartupModal({
 
   const categoryLabel = LEARNING_CATEGORY_LABELS[currentTip.category]
   const canNavigate = rotation.length > 1
+  const showTipsOnStartup = learning?.showTipsOnStartup ?? true
+
+  // Single primary action. If the tip names its own action, use that. Otherwise,
+  // offer Learn Center as the one forward path so the modal never has two
+  // buttons saying the same thing.
+  const primary: { label: string; onClick: () => void } = currentTip.action
+    ? { label: currentTip.action.label, onClick: () => handleAction(currentTip.action) }
+    : { label: 'Open Learn Center', onClick: () => { onClose(); onOpenLearnCenter() } }
 
   return (
-    <Modal open={open} onClose={onClose} labelledBy="tip-startup-title" width={520}>
-      <ModalHeader
-        title={currentTip.title}
-        titleId="tip-startup-title"
-        subtitle={`${categoryLabel} · Tip ${position + 1} of ${rotation.length}`}
-        onClose={onClose}
-      />
-      <ModalBody className="space-y-3">
-        <p className="text-[13px] leading-5 text-[#d7d7dc]">{currentTip.summary}</p>
+    <Modal open={open} onClose={onClose} labelledBy="tip-startup-title" width={480}>
+      <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#5c7cff]" aria-hidden="true" />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8a9cff]">
+              Tip
+            </span>
+            <span aria-hidden="true" className="text-[#303139]">·</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9a9aa2]">
+              {categoryLabel}
+            </span>
+          </div>
+          <h2
+            id="tip-startup-title"
+            className="mt-2 text-[16px] font-semibold leading-snug tracking-tight text-[#ececee]"
+          >
+            {currentTip.title}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded-md px-2 py-1 text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+        >
+          <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="px-5 pb-5 space-y-2.5">
+        <p className="text-[13px] leading-[1.55] text-[#d7d7dc]">{currentTip.summary}</p>
         {currentTip.body ? (
-          <p className="text-[12px] leading-5 text-[#9a9aa2]">{currentTip.body}</p>
+          <p className="text-[12px] leading-[1.6] text-[#9a9aa2]">{currentTip.body}</p>
         ) : null}
-        <label className="mt-2 flex items-center gap-2 text-[12px] text-[#9a9aa2]">
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-[rgba(255,255,255,0.06)] px-5 py-3">
+        <label className="flex items-center gap-2 text-[11px] text-[#7a7a82] hover:text-[#9a9aa2] transition-colors">
           <input
             type="checkbox"
-            checked={learning?.showTipsOnStartup ?? true}
+            checked={showTipsOnStartup}
             onChange={(event) => setLearningShowTipsOnStartup(event.target.checked)}
-            className="h-3.5 w-3.5 rounded border-[#303139] bg-[#0d0e11] text-[#5c7cff] focus:ring-1 focus:ring-[#5c7cff]/60"
+            className="h-3 w-3 rounded border-[#303139] bg-[#0d0e11] text-[#5c7cff] focus:ring-1 focus:ring-[#5c7cff]/60"
           />
-          Show tips on startup
+          Show on startup
         </label>
-      </ModalBody>
-      <ModalFooter>
-        <ModalButton onClick={handlePrevious} disabled={!canNavigate}>
-          Previous
-        </ModalButton>
-        <ModalButton onClick={handleNext} disabled={!canNavigate}>
-          Next
-        </ModalButton>
-        <div className="flex-1" />
-        <ModalButton onClick={onOpenLearnCenter}>Open Learn Center</ModalButton>
-        {currentTip.action ? (
-          <ModalButton variant="primary" onClick={() => handleAction(currentTip.action)}>
-            {currentTip.action.label}
+
+        <div className="flex items-center gap-2">
+          {canNavigate ? (
+            <div className="flex items-center gap-1 pr-1">
+              <TipPagerButton
+                direction="prev"
+                onClick={handlePrevious}
+                label="Previous tip"
+              />
+              <span className="min-w-[34px] text-center text-[11px] tabular-nums text-[#9a9aa2]">
+                {position + 1}<span className="mx-0.5 text-[#3a3b42]">/</span>{rotation.length}
+              </span>
+              <TipPagerButton
+                direction="next"
+                onClick={handleNext}
+                label="Next tip"
+              />
+            </div>
+          ) : null}
+          <ModalButton variant="primary" onClick={primary.onClick}>
+            {primary.label}
           </ModalButton>
-        ) : (
-          <ModalButton variant="primary" onClick={onClose}>
-            Got it
-          </ModalButton>
-        )}
-      </ModalFooter>
+        </div>
+      </div>
     </Modal>
+  )
+}
+
+type TipPagerButtonProps = {
+  direction: 'prev' | 'next'
+  onClick: () => void
+  label: string
+}
+
+function TipPagerButton({ direction, onClick, label }: TipPagerButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="flex h-7 w-7 items-center justify-center rounded-md text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+    >
+      <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        {direction === 'prev' ? (
+          <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        ) : (
+          <path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        )}
+      </svg>
+    </button>
   )
 }

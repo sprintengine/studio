@@ -3,6 +3,8 @@ export {
   cancelSwitchboardTask,
   claimSwitchboardTask,
   createSwitchboardTask,
+  getSwitchboardExecutionLogs,
+  getSwitchboardExecutionStatus,
   getWatchtowerRun,
   initializeSwitchboard,
   importSwitchboardItem,

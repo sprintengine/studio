@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ArrowRightIcon, CommentIcon, PlusIcon, PriorityIcon, StatusIcon } from '../AppIcons'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
+import { ExecutionLogsView } from './ExecutionLogsView'
 import {
   ActionStatusChip,
   useActionFeedback,
@@ -423,6 +424,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         {selected ? (
           <BoardDetailPane
             record={selected}
+            workspaceRoot={folderPath}
             executionStatus={executionStatusByTaskId.get(selected.task.id) ?? null}
             commentBody={commentBody}
             onCommentChange={setCommentBody}
@@ -808,6 +810,7 @@ function EmptyDetail() {
 
 function BoardDetailPane({
   record,
+  workspaceRoot,
   executionStatus,
   commentBody,
   onCommentChange,
@@ -821,6 +824,7 @@ function BoardDetailPane({
   onDismissCommentStatus,
 }: {
   record: SwitchboardTaskRecord
+  workspaceRoot: string | null
   executionStatus: SwitchboardExecutionStatus | null
   commentBody: string
   onCommentChange: (next: string) => void
@@ -973,6 +977,16 @@ function BoardDetailPane({
           <PropertyRow label="Worktree state">
             <span className="text-[12px] text-[#d7d7dc]">{task.execution.worktreeState}</span>
           </PropertyRow>
+        ) : null}
+
+        {task.execution.activeExecutionId && workspaceRoot ? (
+          <Section title="Logs">
+            <ExecutionLogsView
+              workspaceRoot={workspaceRoot}
+              executionId={task.execution.activeExecutionId}
+              accent="violet"
+            />
+          </Section>
         ) : null}
 
         {task.execution.attempts.length > 0 ? (

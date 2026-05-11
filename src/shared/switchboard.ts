@@ -387,6 +387,56 @@ export type SwitchboardStopExecutionResult =
     }
   | { ok: false; message: string }
 
+export type SwitchboardExecutionStream = 'stdout' | 'stderr'
+
+export const SWITCHBOARD_EXECUTION_LOG_DEFAULT_TAIL = 200
+export const SWITCHBOARD_EXECUTION_LOG_MAX_TAIL = 5000
+
+export type SwitchboardExecutionMetadata = {
+  executionId: string
+  taskId?: string | null
+  role?: string | null
+  kind?: string | null
+  provider?: SwitchboardExecutionProviderKind
+  providerRef?: SwitchboardExecutionProviderRef
+  startedAt?: string | null
+  lastSeenAt?: string | null
+  completedAt?: string | null
+  status?: SwitchboardExecutionStatus
+  exitCode?: number | null
+  error?: string | null
+  worktreePath?: string | null
+  worktreeBranch?: string | null
+  worktreeState?: string | null
+  watchtowerRunId?: string | null
+  watchtowerAgentId?: string | null
+}
+
+export type SwitchboardExecutionStatusInput = {
+  workspaceRoot: string
+  executionId: string
+}
+
+export type SwitchboardExecutionStatusResult =
+  | { ok: true; execution: SwitchboardExecutionMetadata }
+  | { ok: false; message: string }
+
+export type SwitchboardExecutionLogsInput = {
+  workspaceRoot: string
+  executionId: string
+  stream: SwitchboardExecutionStream
+  tail?: number
+}
+
+export type SwitchboardExecutionLogsResult =
+  | {
+      ok: true
+      executionId: string
+      stream: SwitchboardExecutionStream
+      lines: string[]
+    }
+  | { ok: false; message: string }
+
 export const SWITCHBOARD_STATUS_LABELS: Record<SwitchboardFolderStatus, string> = {
   inbox: 'Inbox',
   planning: 'Planning',

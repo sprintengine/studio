@@ -6,6 +6,10 @@ import type {
   SwitchboardClaimTaskInput,
   SwitchboardClaimTaskResult,
   SwitchboardCreateTaskInput,
+  SwitchboardExecutionLogsInput,
+  SwitchboardExecutionLogsResult,
+  SwitchboardExecutionStatusInput,
+  SwitchboardExecutionStatusResult,
   SwitchboardInitApiResult,
   SwitchboardImportResult,
   SwitchboardMoveTaskInput,
@@ -66,6 +70,10 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:runner:state', workspaceRoot),
   stopSwitchboardExecution: (input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> =>
     ipcRenderer.invoke('switchboard:execution:stop', input),
+  getSwitchboardExecutionStatus: (input: SwitchboardExecutionStatusInput): Promise<SwitchboardExecutionStatusResult> =>
+    ipcRenderer.invoke('switchboard:execution:status', input),
+  getSwitchboardExecutionLogs: (input: SwitchboardExecutionLogsInput): Promise<SwitchboardExecutionLogsResult> =>
+    ipcRenderer.invoke('switchboard:execution:logs', input),
   startWatchtowerReview: (input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> =>
     ipcRenderer.invoke('switchboard:watchtower:start-review', input),
   startWatchtowerTriage: (input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult> =>
@@ -99,6 +107,8 @@ export const switchboardApi = {
   | 'tickSwitchboardRunner'
   | 'getSwitchboardRunnerState'
   | 'stopSwitchboardExecution'
+  | 'getSwitchboardExecutionStatus'
+  | 'getSwitchboardExecutionLogs'
   | 'startWatchtowerReview'
   | 'startWatchtowerTriage'
   | 'getWatchtowerRun'
