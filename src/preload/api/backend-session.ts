@@ -2,6 +2,7 @@ import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   BackendSessionAttachResult,
   BackendSessionListResult,
+  BackendSessionSignal,
   ElectronApi,
 } from '../../shared/electron-api'
 
@@ -29,7 +30,7 @@ export const backendSessionApi = {
   signalBackendSession: (args: {
     workspaceRoot: string
     executionId: string
-    signal: 'TERM' | 'INT' | 'KILL' | 'HUP' | 'QUIT'
+    signal: BackendSessionSignal
   }): Promise<{ ok: boolean; message?: string }> => ipcRenderer.invoke('backend-session:signal', args),
   onBackendSessionReplay: (instanceKey: string, cb: (payload: { data: string }) => void): (() => void) => {
     const ch = `backend-session:replay:${instanceKey}`

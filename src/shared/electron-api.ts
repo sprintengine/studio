@@ -1016,7 +1016,7 @@ export type ElectronApi = {
   signalBackendSession: (args: {
     workspaceRoot: string
     executionId: string
-    signal: 'TERM' | 'INT' | 'KILL' | 'HUP' | 'QUIT'
+    signal: BackendSessionSignal
   }) => Promise<{ ok: boolean; message?: string }>
   onBackendSessionReplay: (instanceKey: string, cb: (payload: { data: string }) => void) => () => void
   onBackendSessionData: (instanceKey: string, cb: (payload: { data: string }) => void) => () => void
@@ -1047,3 +1047,5 @@ export type BackendSessionListResult =
 export type BackendSessionAttachResult =
   | { ok: true; instanceKey: string }
   | { ok: false; message: string }
+
+export type BackendSessionSignal = 'TERM' | 'INT' | 'KILL' | 'HUP' | 'QUIT'

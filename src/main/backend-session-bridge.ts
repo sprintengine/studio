@@ -3,6 +3,7 @@ import type { IncomingMessage } from 'http'
 import { ipcMain, type IpcMain, type WebContents } from 'electron'
 
 import { readSwitchboardServerDescriptor, type SwitchboardServerDescriptor } from './switchboard-python'
+import type { BackendSessionSignal } from '../shared/electron-api'
 
 type AttachInstance = {
   instanceKey: string
@@ -16,8 +17,16 @@ type AttachInstance = {
 const INSTANCES = new Map<string, AttachInstance>()
 const KNOWN_WORKSPACE_ROOTS = new Set<string>()
 
-function rememberWorkspace(workspaceRoot: string): void {
+export function rememberBackendWorkspace(workspaceRoot: string): void {
   if (workspaceRoot) KNOWN_WORKSPACE_ROOTS.add(workspaceRoot)
+}
+
+export function knownBackendWorkspaces(): string[] {
+  return Array.from(KNOWN_WORKSPACE_ROOTS)
+}
+
+function rememberWorkspace(workspaceRoot: string): void {
+  rememberBackendWorkspace(workspaceRoot)
 }
 
 export type BackendSessionAttachResult =
@@ -123,7 +132,7 @@ export async function resizeBackendSession(
 export async function signalBackendSession(
   workspaceRoot: string,
   executionId: string,
-  signal: 'TERM' | 'INT' | 'KILL' | 'HUP' | 'QUIT',
+  signal: BackendSessionSignal,
 ): Promise<{ ok: boolean; message?: string }> {
   const descriptor = descriptorFor(workspaceRoot)
   if (!descriptor) return { ok: false, message: 'Switchboard backend is not running.' }
@@ -324,7 +333,7 @@ export function registerBackendSessionIpc(ipc: IpcMain = ipcMain): void {
     'backend-session:signal',
     async (
       _,
-      args: { workspaceRoot: string; executionId: string; signal: 'TERM' | 'INT' | 'KILL' | 'HUP' | 'QUIT' },
+      args: { workspaceRoot: string; executionId: string; signal: BackendSessionSignal },
     ): Promise<{ ok: boolean; message?: string }> => signalBackendSession(args.workspaceRoot, args.executionId, args.signal),
   )
 

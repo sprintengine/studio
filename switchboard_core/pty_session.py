@@ -20,6 +20,8 @@ Subscriber = Callable[[str, bytes | None], None]
 
 RING_LIMIT_BYTES = 512 * 1024
 PTY_READ_CHUNK = 4096
+LOG_FLUSH_BYTES = 64 * 1024
+LOG_FLUSH_INTERVAL_SECONDS = 1.0
 
 
 class PtySession:
@@ -57,6 +59,8 @@ class PtySession:
         self._stdout_log_path = stdout_log_path
         self._exit_file_path = exit_file_path
         self._log_handle = stdout_log_path.open("ab")
+        self._log_unflushed_bytes = 0
+        self._log_last_flush_at = time.monotonic()
 
         self._lock = threading.Lock()
         self._ring: deque[bytes] = deque()
@@ -181,7 +185,10 @@ class PtySession:
         with self._lock:
             if self._closed:
                 return
-        sig = signal.SIGKILL if force else signal.SIGTERM
+        if force:
+            sig = getattr(signal, "SIGKILL", signal.SIGTERM)
+        else:
+            sig = signal.SIGTERM
         try:
             self.process.kill(sig)
         except (OSError, ValueError):
@@ -209,7 +216,15 @@ class PtySession:
     def _handle_chunk(self, chunk: bytes) -> None:
         try:
             self._log_handle.write(chunk)
-            self._log_handle.flush()
+            self._log_unflushed_bytes += len(chunk)
+            now = time.monotonic()
+            if (
+                self._log_unflushed_bytes >= LOG_FLUSH_BYTES
+                or (now - self._log_last_flush_at) >= LOG_FLUSH_INTERVAL_SECONDS
+            ):
+                self._log_handle.flush()
+                self._log_unflushed_bytes = 0
+                self._log_last_flush_at = now
         except OSError:
             pass
         with self._lock:
@@ -244,6 +259,10 @@ class PtySession:
             self.exit_code = exit_code
             self.exited_at = exited_at
             subscribers = list(self._subscribers)
+        try:
+            self._log_handle.flush()
+        except OSError:
+            pass
         try:
             self._log_handle.close()
         except OSError:

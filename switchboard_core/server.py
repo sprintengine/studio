@@ -16,6 +16,7 @@ from typing import Any
 from . import pty_session
 from .pty_session import get_registry
 from .store import (
+    append_runner_event,
     atomic_write_json,
     now_iso,
     read_runner_state,
@@ -41,13 +42,11 @@ SERVER_API_VERSION = 2
 
 SSE_KEEPALIVE_SECONDS = 15.0
 
-SIGNAL_MAP = {
-    "TERM": signal.SIGTERM,
-    "INT": signal.SIGINT,
-    "KILL": signal.SIGKILL,
-    "HUP": signal.SIGHUP,
-    "QUIT": signal.SIGQUIT,
-}
+SIGNAL_MAP: dict[str, int] = {}
+for _sig_name in ("TERM", "INT", "KILL", "HUP", "QUIT"):
+    _resolved = getattr(signal, f"SIG{_sig_name}", None)
+    if _resolved is not None:
+        SIGNAL_MAP[_sig_name] = int(_resolved)
 
 
 class SwitchboardServer(ThreadingHTTPServer):
@@ -72,6 +71,15 @@ def serve(workspace: Path) -> dict[str, Any]:
     server_path = root / "runner" / "server.json"
     server_lock = acquire_server_lock(root)
     pty_session.enable_pty_mode()
+    if not pty_session.pty_mode_enabled():
+        append_runner_event(
+            workspace,
+            "warning",
+            message=(
+                "Live attach is disabled: ptyprocess is not installed. "
+                "Run `.venv/bin/pip install -r requirements.txt` to enable it."
+            ),
+        )
 
     try:
         stale_descriptor = read_descriptor(server_path)

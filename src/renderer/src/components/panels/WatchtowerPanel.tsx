@@ -37,6 +37,7 @@ import {
   sourceLabel,
   useSwitchboardData,
 } from '../../utils/switchboardBoard'
+import { useSwitchboardRunner } from '../../utils/switchboardRunner'
 import { filterInboxTasks } from '../../utils/watchtower'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { ExecutionLogsView } from './ExecutionLogsView'
@@ -209,6 +210,16 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
+  const runner = useSwitchboardRunner(folderPath)
+
+  const attachableExecutionIds = useMemo(() => {
+    const set = new Set<string>()
+    const executions = runner.state?.activeExecutions ?? []
+    for (const execution of executions) {
+      if (execution.providerRef?.attachable === true) set.add(execution.executionId)
+    }
+    return set
+  }, [runner.state])
 
   const inbox = useMemo(() => filterInboxTasks(tasks), [tasks])
   const [runs, setRuns] = useState<WatchtowerRun[]>([])
@@ -614,6 +625,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           onDismissStatus={feedback.dismiss}
           workspaceRoot={folderPath}
           workspaceId={workspaceId}
+          attachableExecutionIds={attachableExecutionIds}
         />
 
         <FetchExternalSection
@@ -853,6 +865,7 @@ function RunReviewSection({
   onDismissStatus,
   workspaceRoot,
   workspaceId,
+  attachableExecutionIds,
 }: {
   preset: WatchtowerReviewPresetId
   onPresetChange: (next: WatchtowerReviewPresetId) => void
@@ -869,6 +882,7 @@ function RunReviewSection({
   onDismissStatus: (key: string) => void
   workspaceRoot: string | null
   workspaceId: string
+  attachableExecutionIds: Set<string>
 }) {
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null)
   const selectedPreset = WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
@@ -973,7 +987,13 @@ function RunReviewSection({
               const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
               const canShowLogs = Boolean(agent.executionId && workspaceRoot)
               const isExpanded = canShowLogs && expandedAgentId === agent.agentId
-              const canAttach = Boolean(agent.executionId && workspaceRoot && agent.status === 'running')
+              const canAttach = Boolean(
+                agent.executionId &&
+                workspaceRoot &&
+                agent.status === 'running' &&
+                agent.executionId &&
+                attachableExecutionIds.has(agent.executionId),
+              )
               const handleAttach = (): void => {
                 if (!canAttach || !agent.executionId || !workspaceRoot) return
                 void import('../../utils/modelRegistry').then(({ focusOrAddBackendSessionTab }) => {

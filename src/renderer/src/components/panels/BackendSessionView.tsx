@@ -11,14 +11,16 @@ interface Props {
   title?: string
 }
 
-function decodeBase64ToString(b64: string): string {
+const CONNECT_TIMEOUT_MS = 8_000
+
+function base64ToBytes(b64: string): Uint8Array {
   try {
     const binary = atob(b64)
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
-    return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+    return bytes
   } catch {
-    return ''
+    return new Uint8Array(0)
   }
 }
 
@@ -31,6 +33,7 @@ function encodeStringToBase64(input: string): string {
 
 export default function BackendSessionView({ workspaceRoot, executionId, role, title }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | null>(null)
   const instanceKeyRef = useRef<string>(`backend-${executionId}-${crypto.randomUUID()}`)
   const [status, setStatus] = useState<'connecting' | 'attached' | 'exited' | 'error'>('connecting')
   const [statusDetail, setStatusDetail] = useState<string>('')
@@ -47,6 +50,7 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
       cursorBlink: true,
       scrollback: 5000,
     })
+    termRef.current = term
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
     term.open(container)
@@ -59,16 +63,17 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
     term.focus()
 
     const outputQueue = createXtermOutputQueue(term, { recordWrite: () => undefined })
+    const utf8Decoder = new TextDecoder('utf-8', { fatal: false })
 
     let disposed = false
 
     const disposeReplay = window.api.onBackendSessionReplay(instanceKey, (payload) => {
-      const text = decodeBase64ToString(payload.data)
+      const text = utf8Decoder.decode(base64ToBytes(payload.data), { stream: true })
       if (text) outputQueue.enqueue(text)
     })
 
     const disposeData = window.api.onBackendSessionData(instanceKey, (payload) => {
-      const text = decodeBase64ToString(payload.data)
+      const text = utf8Decoder.decode(base64ToBytes(payload.data), { stream: true })
       if (text) outputQueue.enqueue(text)
     })
 
@@ -102,10 +107,22 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
     })
     resizeObserver.observe(container)
 
+    const connectTimeout = setTimeout(() => {
+      if (disposed) return
+      setStatus((current) => {
+        if (current !== 'connecting') return current
+        const message = 'Timed out waiting for backend session.'
+        setStatusDetail(message)
+        term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
+        return 'error'
+      })
+    }, CONNECT_TIMEOUT_MS)
+
     void window.api
       .attachBackendSession({ workspaceRoot, executionId, instanceKey })
       .then((result) => {
         if (disposed) return
+        clearTimeout(connectTimeout)
         if (!result.ok) {
           setStatus('error')
           setStatusDetail(result.message)
@@ -122,6 +139,7 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
       })
       .catch((error: unknown) => {
         if (disposed) return
+        clearTimeout(connectTimeout)
         const message = error instanceof Error ? error.message : 'Failed to attach.'
         setStatus('error')
         setStatusDetail(message)
@@ -130,6 +148,7 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
 
     return () => {
       disposed = true
+      clearTimeout(connectTimeout)
       disposeReplay()
       disposeData()
       disposeExit()
@@ -138,12 +157,27 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
       onResizeDisposable.dispose()
       resizeObserver.disconnect()
       void window.api.detachBackendSession(instanceKey)
+      termRef.current = null
       term.dispose()
     }
   }, [workspaceRoot, executionId])
 
   const sendSignal = (signal: 'INT' | 'TERM' | 'KILL'): void => {
     void window.api.signalBackendSession({ workspaceRoot, executionId, signal })
+  }
+
+  const copyScrollback = (): void => {
+    const term = termRef.current
+    if (!term) return
+    const selection = term.getSelection()
+    let text = selection
+    if (!text) {
+      term.selectAll()
+      text = term.getSelection()
+      term.clearSelection()
+    }
+    if (!text) return
+    void navigator.clipboard?.writeText(text).catch(() => undefined)
   }
 
   return (
@@ -167,6 +201,14 @@ export default function BackendSessionView({ workspaceRoot, executionId, role, t
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={copyScrollback}
+            className="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-200 hover:bg-zinc-800"
+            title="Copy scrollback to clipboard"
+          >
+            Copy
+          </button>
           <button
             type="button"
             onClick={() => sendSignal('INT')}
