@@ -34,8 +34,8 @@ electron.vite.config.*.mjs
 .claude/*.lock
 .grok/settings.json
 
-# Switchboard runner runtime state
-.multi-code/switchboard/runner/
+# Switchboard runtime state
+.multi-code/switchboard/
 
 # Editor directories and files
 .idea
