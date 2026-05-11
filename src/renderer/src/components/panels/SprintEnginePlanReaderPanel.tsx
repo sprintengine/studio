@@ -101,14 +101,14 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
       <button
         type="button"
         onClick={() => setMode((current) => (current === 'preview' ? 'source' : 'preview'))}
-        className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+        className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
       >
         {mode === 'preview' ? 'Source' : 'Preview'}
       </button>
       <button
         type="button"
         onClick={() => void loadPlan()}
-        className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+        className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
       >
         Refresh
       </button>
@@ -116,7 +116,7 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
         <button
           type="button"
           onClick={() => void openInEditor()}
-          className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+          className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
         >
           Open in editor
         </button>

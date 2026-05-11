@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
+  ActionStatusChip,
+  useActionFeedback,
+  usePendingActions,
+  type ActionStatus,
+  type ActionStatusMap,
+} from '../ui/ActionFeedback'
+import {
   WATCHTOWER_REVIEW_PRESETS,
   getWatchtowerReviewSector,
   type WatchtowerReviewPresetId,
@@ -15,7 +22,14 @@ import type {
   WatchtowerRun,
   WatchtowerRunAgent,
 } from '../../../../shared/switchboard'
-import { CommentIcon, PriorityIcon, SpecialistActionIcon } from '../AppIcons'
+import {
+  ChevronDownIcon,
+  CommentIcon,
+  MinusIcon,
+  PlusIcon,
+  PriorityIcon,
+  SpecialistActionIcon,
+} from '../AppIcons'
 import {
   formatRelativeTime,
   priorityLabel,
@@ -29,6 +43,26 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 const PANEL_BG = 'bg-[#08090b]'
 const SECTION_DIVIDER = 'border-t border-[#1f2025]'
 const ACCENT = '#d97757'
+const ARCHITECT_AUTHOR_ID = 'watchtower-architect'
+
+type FeedbackKey =
+  | 'runReview'
+  | 'inboxList'
+  | 'fetchExternal'
+  | 'detail'
+  | 'comment'
+type PendingKey =
+  | 'startReview'
+  | 'startTriageAll'
+  | 'startTriageSelected'
+  | 'importGitHub'
+  | 'importJira'
+  | 'refresh'
+  | 'create'
+  | 'edit'
+  | 'promote'
+  | 'cancelTask'
+  | 'addComment'
 
 function isEditableInboxTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -36,13 +70,6 @@ function isEditableInboxTarget(target: EventTarget | null): boolean {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
   if (target.isContentEditable) return true
   return false
-}
-
-type ToastTone = 'info' | 'success' | 'error'
-
-type Toast = {
-  tone: ToastTone
-  message: string
 }
 
 type WatchtowerStartKind = 'review' | 'triage'
@@ -90,13 +117,60 @@ function findTaskAttribution(
   return null
 }
 
-function countTasksPerAgent(run: WatchtowerRun, tasks: SwitchboardTaskRecord[]): Map<string, number> {
-  const counts = new Map<string, number>()
-  for (const agent of run.agents) counts.set(agent.agentId, 0)
+function isTriageRun(run: WatchtowerRun): boolean {
+  return run.preset === 'inbox_triage'
+}
+
+export type AgentTaskOutcome = {
+  /**
+   * For review runs: number of new inbox tasks created by the agent.
+   * For triage runs: number of triage comments authored by the architect on scoped tasks.
+   */
+  count: number
+  /**
+   * For triage runs: total scoped tasks the agent was asked to triage.
+   * For review runs: undefined.
+   */
+  total?: number
+}
+
+function countAgentOutcomes(
+  run: WatchtowerRun,
+  tasks: SwitchboardTaskRecord[]
+): Map<string, AgentTaskOutcome> {
+  const counts = new Map<string, AgentTaskOutcome>()
+  const triage = isTriageRun(run)
+  for (const agent of run.agents) {
+    counts.set(agent.agentId, { count: 0, total: triage ? (agent.taskIds?.length ?? 0) : undefined })
+  }
+  if (triage) {
+    const taskById = new Map(tasks.map((record) => [record.task.id, record]))
+    const runStart = Date.parse(run.createdAt)
+    for (const agent of run.agents) {
+      const scoped = agent.taskIds ?? []
+      let triaged = 0
+      for (const taskId of scoped) {
+        const record = taskById.get(taskId)
+        if (!record) continue
+        const hasTriage = record.task.comments.some((comment) => {
+          if (comment.kind !== 'triage') return false
+          if (comment.author.type !== 'agent') return false
+          if (comment.author.id !== ARCHITECT_AUTHOR_ID) return false
+          if (!Number.isFinite(runStart)) return true
+          const at = Date.parse(comment.createdAt)
+          return Number.isFinite(at) ? at >= runStart : true
+        })
+        if (hasTriage) triaged += 1
+      }
+      counts.set(agent.agentId, { count: triaged, total: scoped.length })
+    }
+    return counts
+  }
   for (const record of tasks) {
     const attribution = findTaskAttribution(record, [run])
     if (!attribution) continue
-    counts.set(attribution.agent.agentId, (counts.get(attribution.agent.agentId) ?? 0) + 1)
+    const current = counts.get(attribution.agent.agentId) ?? { count: 0 }
+    counts.set(attribution.agent.agentId, { count: current.count + 1, total: current.total })
   }
   return counts
 }
@@ -133,7 +207,7 @@ function triageImportanceDotClass(importance: TriageImportance): string {
 export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const folderPath = workspace?.folderPath ?? null
-  const { state, tasks, problems, refresh, switchboardRoot } = useSwitchboardData(folderPath)
+  const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
 
   const inbox = useMemo(() => filterInboxTasks(tasks), [tasks])
   const [runs, setRuns] = useState<WatchtowerRun[]>([])
@@ -146,16 +220,9 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState<DraftTask>(emptyDraft)
   const [commentBody, setCommentBody] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [toast, setToast] = useState<Toast | null>(null)
   const [fetchOpen, setFetchOpen] = useState(false)
-
-  useEffect(() => {
-    if (!toast) return
-    if (toast.tone === 'error') return
-    const handle = window.setTimeout(() => setToast(null), 4000)
-    return () => window.clearTimeout(handle)
-  }, [toast])
+  const { isPending, run: runAction } = usePendingActions<PendingKey>()
+  const feedback = useActionFeedback()
 
   useEffect(() => {
     if (selectedId && !inbox.some((record) => record.task.id === selectedId)) {
@@ -174,8 +241,8 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     () => runs.find((run) => run.runId === selectedRunId) ?? runs[0] ?? null,
     [runs, selectedRunId]
   )
-  const selectedRunAgentCounts = useMemo(
-    () => (selectedRun ? countTasksPerAgent(selectedRun, tasks) : new Map<string, number>()),
+  const selectedRunAgentOutcomes = useMemo(
+    () => (selectedRun ? countAgentOutcomes(selectedRun, tasks) : new Map<string, AgentTaskOutcome>()),
     [selectedRun, tasks]
   )
   const inboxAttribution = useMemo(() => {
@@ -187,23 +254,22 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     return map
   }, [inbox, runs])
 
-  const showToast = useCallback((tone: ToastTone, message: string) => {
-    setToast({ tone, message })
-  }, [])
-
-  const notifyStartFailure = useCallback((kind: WatchtowerStartKind, message: string) => {
-    const userMessage = watchtowerStartErrorMessage(message)
-    showToast('error', userMessage)
-    publishDiagnosticSync({
-      level: 'error',
-      source: 'workspace',
-      title: kind === 'review' ? 'Watchtower review did not start' : 'Watchtower triage did not start',
-      message: userMessage,
-      details: message === userMessage ? undefined : message,
-      workspaceId,
-      workspaceName: workspace?.name,
-    })
-  }, [showToast, workspace?.name, workspaceId])
+  const notifyStartFailure = useCallback(
+    (kind: WatchtowerStartKind, message: string) => {
+      const userMessage = watchtowerStartErrorMessage(message)
+      feedback.notify('runReview', 'error', userMessage)
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'workspace',
+        title: kind === 'review' ? 'Watchtower review did not start' : 'Watchtower triage did not start',
+        message: userMessage,
+        details: message === userMessage ? undefined : message,
+        workspaceId,
+        workspaceName: workspace?.name,
+      })
+    },
+    [feedback, workspace?.name, workspaceId]
+  )
 
   const refreshRuns = useCallback(async () => {
     if (!folderPath) {
@@ -212,14 +278,14 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     }
     const result = await window.api.listWatchtowerRuns(folderPath)
     if (!result.ok) {
-      showToast('error', result.message)
+      feedback.notify('runReview', 'error', result.message)
       return
     }
     setRuns(result.runs)
     setSelectedRunId((current) => current && result.runs.some((run) => run.runId === current)
       ? current
       : result.runs[0]?.runId ?? null)
-  }, [folderPath, showToast])
+  }, [folderPath, feedback])
 
   useEffect(() => {
     void refreshRuns()
@@ -240,8 +306,10 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   }, [hasActiveRun, refreshRuns])
 
   const handleRefreshAll = useCallback(async () => {
-    await Promise.all([refresh(), refreshRuns()])
-  }, [refresh, refreshRuns])
+    await runAction('refresh', async () => {
+      await Promise.all([refresh(), refreshRuns()])
+    })
+  }, [refresh, refreshRuns, runAction])
 
   const selectedPreset = useMemo(
     () => WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0],
@@ -252,94 +320,113 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     if (!folderPath) return
     const hasAgents = Object.values(selectedPreset.agents).some((sectors) => (sectors ?? []).length > 0)
     if (!hasAgents) {
-      showToast('error', 'Select a preset with at least one review agent.')
+      feedback.notify('runReview', 'error', 'Select a preset with at least one review agent.')
       return
     }
-    setBusy(true)
-    try {
-      const started = await window.api.startWatchtowerReview({
-        workspaceRoot: folderPath,
-        preset,
-      })
-      if (!started.ok) {
-        notifyStartFailure('review', started.message)
+    await runAction('startReview', async () => {
+      try {
+        const started = await window.api.startWatchtowerReview({
+          workspaceRoot: folderPath,
+          preset,
+        })
+        if (!started.ok) {
+          notifyStartFailure('review', started.message)
+          return
+        }
+        setSelectedRunId(started.run.runId)
+        await refreshRuns()
+        feedback.notify('runReview', 'success', 'Review started.')
+      } catch (caught) {
+        notifyStartFailure('review', caught instanceof Error ? caught.message : 'Watchtower review did not start.')
+      }
+    })
+  }, [feedback, folderPath, notifyStartFailure, preset, refreshRuns, runAction, selectedPreset.agents])
+
+  const handleStartTriage = useCallback(
+    async (scope: 'all' | 'selected') => {
+      if (!folderPath) return
+      const scopedTasks = scope === 'selected' ? (selected ? [selected] : []) : inbox
+      const feedbackKey: FeedbackKey = scope === 'selected' ? 'detail' : 'runReview'
+      if (scopedTasks.length === 0) {
+        feedback.notify(
+          feedbackKey,
+          'info',
+          scope === 'selected' ? 'Select an inbox task to triage.' : 'No inbox tasks to triage.'
+        )
         return
       }
-      setSelectedRunId(started.run.runId)
-      await refreshRuns()
-      showToast('success', 'Watchtower review started.')
-    } catch (caught) {
-      notifyStartFailure('review', caught instanceof Error ? caught.message : 'Watchtower review did not start.')
-    } finally {
-      setBusy(false)
-    }
-  }, [folderPath, notifyStartFailure, preset, refreshRuns, selectedPreset.agents, showToast])
 
-  const handleStartTriage = useCallback(async (scope: 'all' | 'selected') => {
-    if (!folderPath) return
-    const scopedTasks = scope === 'selected' ? (selected ? [selected] : []) : inbox
-    if (scopedTasks.length === 0) {
-      showToast('info', scope === 'selected' ? 'Select an inbox task to triage.' : 'There are no inbox tasks to triage.')
-      return
-    }
-
-    setBusy(true)
-    try {
-      const started = await window.api.startWatchtowerTriage({
-        workspaceRoot: folderPath,
-        scope: scope === 'selected' ? 'selected' : 'all',
-        taskId: scope === 'selected' ? scopedTasks[0]?.task.id : undefined,
+      const pendingKey: PendingKey = scope === 'selected' ? 'startTriageSelected' : 'startTriageAll'
+      await runAction(pendingKey, async () => {
+        try {
+          const started = await window.api.startWatchtowerTriage({
+            workspaceRoot: folderPath,
+            scope: scope === 'selected' ? 'selected' : 'all',
+            taskId: scope === 'selected' ? scopedTasks[0]?.task.id : undefined,
+          })
+          if (!started.ok) {
+            notifyStartFailure('triage', started.message)
+            return
+          }
+          setSelectedRunId(started.run.runId)
+          await refreshRuns()
+          feedback.notify(
+            feedbackKey,
+            'success',
+            scope === 'selected'
+              ? 'Architect triage started for this task.'
+              : `Architect triaging ${scopedTasks.length} item${scopedTasks.length === 1 ? '' : 's'}.`
+          )
+        } catch (caught) {
+          notifyStartFailure(
+            'triage',
+            caught instanceof Error ? caught.message : 'Watchtower triage did not start.'
+          )
+        }
       })
-      if (!started.ok) {
-        notifyStartFailure('triage', started.message)
-        return
-      }
-      setSelectedRunId(started.run.runId)
-      await refreshRuns()
-      showToast('success', scope === 'selected' ? 'Architect triage started for this task.' : 'Architect inbox triage started.')
-    } catch (caught) {
-      notifyStartFailure('triage', caught instanceof Error ? caught.message : 'Watchtower triage did not start.')
-    } finally {
-      setBusy(false)
-    }
-  }, [folderPath, inbox, notifyStartFailure, refreshRuns, selected, showToast])
+    },
+    [feedback, folderPath, inbox, notifyStartFailure, refreshRuns, runAction, selected]
+  )
 
   const handleImportGitHub = useCallback(async () => {
     if (!folderPath) return
-    setBusy(true)
-    try {
+    await runAction('importGitHub', async () => {
       const result = await window.api.importGitHubIssuesToWatchtower(folderPath)
       setImportResult(result)
       if (!result.ok) {
-        showToast(result.unavailable ? 'info' : 'error', result.message)
+        feedback.notify('fetchExternal', result.unavailable ? 'info' : 'error', result.message)
         return
       }
       await refresh()
-      showToast('success', `GitHub import: ${result.summary.created} created, ${result.summary.skipped} skipped.`)
-    } finally {
-      setBusy(false)
-    }
-  }, [folderPath, refresh, showToast])
+      feedback.notify(
+        'fetchExternal',
+        'success',
+        `GitHub: ${result.summary.created} created, ${result.summary.skipped} skipped.`
+      )
+    })
+  }, [feedback, folderPath, refresh, runAction])
 
   const handleImportJira = useCallback(async () => {
     if (!folderPath) return
-    setBusy(true)
-    try {
+    await runAction('importJira', async () => {
       const result = await window.api.importJiraIssuesToWatchtower(folderPath)
       setImportResult(result)
-      showToast(result.ok ? 'success' : result.unavailable ? 'info' : 'error', result.ok
-        ? `Jira import: ${result.summary.created} created, ${result.summary.skipped} skipped.`
-        : result.message)
-      if (result.ok) await refresh()
-    } finally {
-      setBusy(false)
-    }
-  }, [folderPath, refresh, showToast])
+      if (result.ok) {
+        await refresh()
+        feedback.notify(
+          'fetchExternal',
+          'success',
+          `Jira: ${result.summary.created} created, ${result.summary.skipped} skipped.`
+        )
+      } else {
+        feedback.notify('fetchExternal', result.unavailable ? 'info' : 'error', result.message)
+      }
+    })
+  }, [feedback, folderPath, refresh, runAction])
 
   const handleCreate = useCallback(async () => {
     if (!folderPath || !draft.title.trim()) return
-    setBusy(true)
-    try {
+    await runAction('create', async () => {
       const labels = draft.labels.split(',').map((label) => label.trim()).filter(Boolean)
       const result = await window.api.createSwitchboardTask({
         workspaceRoot: folderPath,
@@ -352,61 +439,52 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         source: { type: 'watchtower' },
       })
       if (!result.ok) {
-        showToast('error', result.message)
+        feedback.notify('inboxList', 'error', result.message)
         return
       }
       setSelectedId(result.record.task.id)
       setDraft(emptyDraft)
       setCreateOpen(false)
       await refresh()
-      showToast('success', 'Task added to inbox.')
-    } finally {
-      setBusy(false)
-    }
-  }, [draft, folderPath, refresh, showToast])
+      feedback.notify('inboxList', 'success', 'Task added to inbox.')
+    })
+  }, [draft, feedback, folderPath, refresh, runAction])
 
   const handlePromote = useCallback(async () => {
     if (!folderPath || !selected) return
-    setBusy(true)
-    try {
+    await runAction('promote', async () => {
       const result = await window.api.promoteSwitchboardInboxTask({
         workspaceRoot: folderPath,
         id: selected.task.id,
       })
       if (!result.ok) {
-        showToast('error', result.message)
+        feedback.notify('detail', 'error', result.message)
         return
       }
       await refresh()
-      showToast('success', 'Promoted to Switchboard todo.')
-    } finally {
-      setBusy(false)
-    }
-  }, [folderPath, refresh, selected, showToast])
+      feedback.notify('detail', 'success', 'Promoted to Switchboard todo.')
+    })
+  }, [feedback, folderPath, refresh, runAction, selected])
 
   const handleCancel = useCallback(async () => {
     if (!folderPath || !selected) return
-    setBusy(true)
-    try {
+    await runAction('cancelTask', async () => {
       const result = await window.api.cancelSwitchboardTask({
         workspaceRoot: folderPath,
         id: selected.task.id,
       })
       if (!result.ok) {
-        showToast('error', result.message)
+        feedback.notify('detail', 'error', result.message)
         return
       }
       await refresh()
-      showToast('info', 'Task canceled.')
-    } finally {
-      setBusy(false)
-    }
-  }, [folderPath, refresh, selected, showToast])
+      feedback.notify('detail', 'info', 'Task canceled.')
+    })
+  }, [feedback, folderPath, refresh, runAction, selected])
 
   const handleAddComment = useCallback(async () => {
     if (!folderPath || !selected || !commentBody.trim()) return
-    setBusy(true)
-    try {
+    await runAction('addComment', async () => {
       const result = await window.api.addSwitchboardComment({
         workspaceRoot: folderPath,
         id: selected.task.id,
@@ -415,15 +493,14 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         kind: 'comment',
       })
       if (!result.ok) {
-        showToast('error', result.message)
+        feedback.notify('comment', 'error', result.message)
         return
       }
       setCommentBody('')
       await refresh()
-    } finally {
-      setBusy(false)
-    }
-  }, [commentBody, folderPath, refresh, selected, showToast])
+      feedback.notify('comment', 'success', 'Comment added.')
+    })
+  }, [commentBody, feedback, folderPath, refresh, runAction, selected])
 
   const handleInboxKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {
@@ -477,8 +554,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
   const handleEditSave = useCallback(async () => {
     if (!folderPath || !selected) return
-    setBusy(true)
-    try {
+    await runAction('edit', async () => {
       const labels = editForm.labels.split(',').map((label) => label.trim()).filter(Boolean)
       const result = await window.api.updateSwitchboardTask({
         workspaceRoot: folderPath,
@@ -492,16 +568,14 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         },
       })
       if (!result.ok) {
-        showToast('error', result.message)
+        feedback.notify('detail', 'error', result.message)
         return
       }
       setEditing(false)
       await refresh()
-      showToast('success', 'Task updated.')
-    } finally {
-      setBusy(false)
-    }
-  }, [editForm, folderPath, refresh, selected, showToast])
+      feedback.notify('detail', 'success', 'Task updated.')
+    })
+  }, [editForm, feedback, folderPath, refresh, runAction, selected])
 
   if (!workspace) {
     return <div className={`h-full ${PANEL_BG} p-4 text-sm text-[#8a8a92]`}>Workspace not found.</div>
@@ -528,12 +602,15 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           onPresetChange={setPreset}
           runs={runs}
           selectedRun={selectedRun}
-          selectedRunAgentCounts={selectedRunAgentCounts}
+          selectedRunAgentOutcomes={selectedRunAgentOutcomes}
           onSelectRun={setSelectedRunId}
           onStartTriage={() => void handleStartTriage('all')}
           onStartReview={handleStartReview}
-          triageDisabled={busy || inbox.length === 0}
-          busy={busy}
+          triageDisabled={inbox.length === 0}
+          isStartingReview={isPending('startReview')}
+          isStartingTriage={isPending('startTriageAll')}
+          statuses={feedback.statuses}
+          onDismissStatus={feedback.dismiss}
         />
 
         <FetchExternalSection
@@ -542,7 +619,10 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           importResult={importResult}
           onImportGitHub={handleImportGitHub}
           onImportJira={handleImportJira}
-          busy={busy}
+          isImportingGitHub={isPending('importGitHub')}
+          isImportingJira={isPending('importJira')}
+          status={feedback.statuses.fetchExternal ?? null}
+          onDismissStatus={() => feedback.dismiss('fetchExternal')}
         />
 
         <header className="flex items-center justify-between gap-3 border-b border-t border-[#1f2025] bg-[#0b0c0f] px-3 py-2.5">
@@ -556,23 +636,30 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
               Inbox
             </h2>
             <span className="shrink-0 tabular-nums text-[11px] text-[#6f7078]">{inbox.length}</span>
+            <ActionStatusChip
+              status={feedback.statuses.inboxList ?? null}
+              onDismiss={feedback.statuses.inboxList?.tone === 'error' ? () => feedback.dismiss('inboxList') : undefined}
+              className="ml-1"
+            />
           </div>
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => void handleRefreshAll()}
-              disabled={busy}
-              className="h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee]"
-              aria-label="Refresh inbox"
+              disabled={isPending('refresh')}
+              className="interactive h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+              aria-label="Refresh inbox and runs"
+              title="Refresh inbox and runs"
             >
-              Refresh
+              {isPending('refresh') ? 'Refreshing…' : 'Refresh'}
             </button>
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="h-7 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18]"
+              className="interactive inline-flex h-7 items-center gap-1 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
             >
-              + New
+              <PlusIcon className="h-3 w-3" />
+              New
             </button>
           </div>
         </header>
@@ -589,7 +676,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
         <ol className="flex-1 overflow-auto" aria-label="Inbox tasks">
           {state.kind === 'loading' && inbox.length === 0 ? (
-            <li className="px-3 py-3 text-[12px] text-[#6f7078]">Loading inbox...</li>
+            <InboxSkeleton />
           ) : inbox.length === 0 ? (
             <li className="px-3 py-6 text-[12px] leading-5 text-[#6f7078]">
               {inboxEmptyMessage(state.kind, runs)}
@@ -627,10 +714,18 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             commentBody={commentBody}
             onCommentChange={setCommentBody}
             onAddComment={handleAddComment}
-            busy={busy}
+            isEditing={isPending('edit')}
+            isPromoting={isPending('promote')}
+            isCanceling={isPending('cancelTask')}
+            isTriaging={isPending('startTriageSelected')}
+            isCommenting={isPending('addComment')}
+            detailStatus={feedback.statuses.detail ?? null}
+            commentStatus={feedback.statuses.comment ?? null}
+            onDismissDetailStatus={() => feedback.dismiss('detail')}
+            onDismissCommentStatus={() => feedback.dismiss('comment')}
           />
         ) : (
-          <EmptyDetail switchboardRoot={switchboardRoot} />
+          <EmptyDetail />
         )}
       </section>
 
@@ -640,11 +735,9 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           onChange={setDraft}
           onClose={() => setCreateOpen(false)}
           onSubmit={handleCreate}
-          busy={busy}
+          busy={isPending('create')}
         />
       ) : null}
-
-      {toast ? <ToastBanner toast={toast} /> : null}
     </div>
   )
 }
@@ -654,13 +747,19 @@ function inboxEmptyMessage(stateKind: 'idle' | 'loading' | 'ready' | 'error', ru
   if (runs.length === 0) return 'Inbox empty. Run a review or fetch issues.'
   const activeRun = runs.find((run) => run.status === 'running' || run.status === 'pending'
     || run.agents.some((agent) => agent.status === 'running' || agent.status === 'pending'))
-  if (activeRun) return 'Reviewers running. Tasks land here as each one finds something.'
+  if (activeRun) {
+    return isTriageRun(activeRun)
+      ? 'Architect triaging. Tasks stay here until you promote or cancel them.'
+      : 'Reviewers running. Tasks land here as each one finds something.'
+  }
   const lastRun = runs[0]
   const failedAgents = lastRun?.agents.filter((agent) => agent.status === 'failed') ?? []
-  if (failedAgents.length > 0) {
+  if (lastRun && failedAgents.length > 0) {
+    const verb = isTriageRun(lastRun) ? 'triage' : 'review'
     const names = failedAgents.map((agent) => specialistShortLabel(agent)).join(', ')
-    return `Last review: ${names} failed. See the run row above for details.`
+    return `Last ${verb}: ${names} failed. See the run row above for details.`
   }
+  if (lastRun && isTriageRun(lastRun)) return 'Last triage finished. Run a review or fetch issues to add new work.'
   return 'Last review found nothing actionable. Run another review or fetch issues.'
 }
 
@@ -677,14 +776,42 @@ function shortExecutionId(executionId: string): string {
   return executionId.startsWith('exec_') ? `exec_${executionId.slice(-8)}` : executionId
 }
 
-function agentPillState(agent: WatchtowerRunAgent, addedCount: number): { label: string; tone: 'running' | 'done' | 'idle' | 'failed' } {
+function agentPillState(
+  agent: WatchtowerRunAgent,
+  outcome: AgentTaskOutcome,
+  triage: boolean
+): { label: string; tone: 'running' | 'done' | 'idle' | 'failed' } {
+  const { count, total } = outcome
+  if (triage) {
+    const scope = total ?? agent.taskIds?.length ?? 0
+    switch (agent.status) {
+      case 'running':
+        return {
+          label: scope > 0 ? `triaging… ${count}/${scope}` : 'triaging…',
+          tone: 'running',
+        }
+      case 'pending':
+        return { label: 'queued', tone: 'idle' }
+      case 'completed':
+        if (scope === 0) return { label: 'nothing to triage', tone: 'idle' }
+        if (count === 0) return { label: `0 of ${scope} triaged`, tone: 'failed' }
+        if (count < scope) return { label: `triaged ${count} of ${scope}`, tone: 'done' }
+        return { label: `triaged ${count} item${count === 1 ? '' : 's'}`, tone: 'done' }
+      case 'failed':
+        return { label: scope > 0 ? `failed after ${count}/${scope}` : 'failed', tone: 'failed' }
+      case 'canceled':
+        return { label: 'canceled', tone: 'idle' }
+      default:
+        return { label: agent.status, tone: 'idle' }
+    }
+  }
   switch (agent.status) {
     case 'running':
-      return { label: addedCount > 0 ? `reviewing… ${addedCount} added` : 'reviewing…', tone: 'running' }
+      return { label: count > 0 ? `reviewing… ${count} added` : 'reviewing…', tone: 'running' }
     case 'pending':
       return { label: 'queued', tone: 'idle' }
     case 'completed':
-      return { label: addedCount === 0 ? 'no findings' : `${addedCount} added`, tone: 'done' }
+      return { label: count === 0 ? 'no findings' : `${count} added`, tone: 'done' }
     case 'failed':
       return { label: 'failed', tone: 'failed' }
     case 'canceled':
@@ -701,54 +828,81 @@ const PILL_TONE_CLASSES: Record<'running' | 'done' | 'idle' | 'failed', string> 
   failed: 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]',
 }
 
+function runHistoryLabel(run: WatchtowerRun, index: number): string {
+  const verb = isTriageRun(run) ? 'Triage' : 'Review'
+  const when = formatRelativeTime(run.createdAt)
+  return `${verb} ${index + 1} · ${when}`
+}
+
 function RunReviewSection({
   preset,
   onPresetChange,
   runs,
   selectedRun,
-  selectedRunAgentCounts,
+  selectedRunAgentOutcomes,
   onSelectRun,
   onStartTriage,
   onStartReview,
   triageDisabled,
-  busy,
+  isStartingReview,
+  isStartingTriage,
+  statuses,
+  onDismissStatus,
 }: {
   preset: WatchtowerReviewPresetId
   onPresetChange: (next: WatchtowerReviewPresetId) => void
   runs: WatchtowerRun[]
   selectedRun: WatchtowerRun | null
-  selectedRunAgentCounts: Map<string, number>
+  selectedRunAgentOutcomes: Map<string, AgentTaskOutcome>
   onSelectRun: (runId: string) => void
   onStartTriage: () => void
   onStartReview: () => void
   triageDisabled: boolean
-  busy: boolean
+  isStartingReview: boolean
+  isStartingTriage: boolean
+  statuses: ActionStatusMap
+  onDismissStatus: (key: string) => void
 }) {
   const selectedPreset = WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
   const presetAgents = Object.entries(selectedPreset.agents)
+  const runStatus = statuses.runReview ?? null
+  const triageRun = selectedRun ? isTriageRun(selectedRun) : false
   return (
     <div className="border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Run a review</div>
-          <div className="mt-1 truncate text-[12px] text-[#c8c8cf]">{selectedPreset.description}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ background: ACCENT }}
+            aria-hidden="true"
+          />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#ececee]">
+            Run a review
+          </span>
+          <ActionStatusChip
+            status={runStatus}
+            onDismiss={runStatus?.tone === 'error' ? () => onDismissStatus('runReview') : undefined}
+            className="ml-1"
+          />
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={onStartTriage}
-            disabled={triageDisabled}
-            className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+            disabled={triageDisabled || isStartingTriage}
+            className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
+            title="Run architect triage on every inbox task"
           >
-            {busy ? 'Starting...' : 'Triage inbox'}
+            {isStartingTriage ? 'Starting…' : 'Triage inbox'}
           </button>
           <button
             type="button"
             onClick={onStartReview}
-            disabled={busy || presetAgents.length === 0}
-            className="h-7 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] disabled:opacity-50"
+            disabled={isStartingReview || presetAgents.length === 0}
+            className="interactive h-7 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
+            title="Start a review using the selected preset"
           >
-            {busy ? 'Starting...' : 'Start'}
+            {isStartingReview ? 'Starting…' : 'Start'}
           </button>
         </div>
       </div>
@@ -756,7 +910,7 @@ function RunReviewSection({
         <select
           value={preset}
           onChange={(event) => onPresetChange(event.target.value as WatchtowerReviewPresetId)}
-          className="h-8 rounded border border-[#2a2b31] bg-[#0d0e11] px-2 text-[12px] text-[#ececee]"
+          className="h-8 rounded border border-[#2a2b31] bg-[#0d0e11] px-2 text-[12px] text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
           aria-label="Review preset"
         >
           {WATCHTOWER_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => (
@@ -781,47 +935,49 @@ function RunReviewSection({
         <div className="mt-3 border-t border-[#1f2025] pt-3">
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">
-              {selectedRun.status === 'running'
-                ? 'Active review'
-                : 'Last review'}
+              {selectedRun.status === 'running' || selectedRun.status === 'pending'
+                ? triageRun ? 'Active triage' : 'Active review'
+                : triageRun ? 'Last triage' : 'Last review'}
             </div>
             {runs.length > 1 ? (
-              <select
-                value={selectedRun.runId}
-                onChange={(event) => onSelectRun(event.target.value)}
-                className="h-6 max-w-[180px] truncate rounded border border-[#2a2b31] bg-[#0d0e11] px-1.5 font-mono text-[11px] text-[#c8c8cf]"
-                aria-label="Switch run"
-              >
-                {runs.slice(0, 8).map((run) => (
-                  <option key={run.runId} value={run.runId}>
-                    {run.runId}
-                  </option>
-                ))}
-              </select>
+              <label className="relative inline-flex items-center">
+                <span className="sr-only">Switch run</span>
+                <select
+                  value={selectedRun.runId}
+                  onChange={(event) => onSelectRun(event.target.value)}
+                  className="interactive h-6 max-w-[200px] truncate rounded border border-[#2a2b31] bg-[#0d0e11] py-0 pl-2 pr-6 text-[11px] tabular-nums text-[#c8c8cf] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
+                  aria-label="Switch run"
+                >
+                  {runs.slice(0, 8).map((run, index) => (
+                    <option key={run.runId} value={run.runId}>
+                      {runHistoryLabel(run, index)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDownIcon className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[#6f7078]" />
+              </label>
             ) : null}
           </div>
           <ul className="mt-2 space-y-1">
             {selectedRun.agents.map((agent) => {
-              const added = selectedRunAgentCounts.get(agent.agentId) ?? 0
-              const pill = agentPillState(agent, added)
+              const outcome = selectedRunAgentOutcomes.get(agent.agentId) ?? { count: 0 }
+              const pill = agentPillState(agent, outcome, triageRun)
               const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
               return (
-                <li
-                  key={agent.agentId}
-                >
+                <li key={agent.agentId}>
                   <div
                     className="grid min-w-0 gap-1 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5"
                     title={agent.executionId ?? undefined}
                   >
                     <div className="flex min-w-0 items-center justify-between gap-2">
                       <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
-                      <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] ${PILL_TONE_CLASSES[pill.tone]}`}>
+                      <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] transition-colors ${PILL_TONE_CLASSES[pill.tone]}`}>
                         {pill.label}
                       </span>
                     </div>
                     <div className="flex min-w-0 items-center gap-2 text-[11px] text-[#6f7078]">
                       <span className="shrink-0">Runtime</span>
-                      <span className="min-w-0 truncate font-mono">{executionLabel}</span>
+                      <span className="min-w-0 truncate font-mono tabular-nums">{executionLabel}</span>
                     </div>
                     {agent.errorMessage ? (
                       <div className="max-h-8 overflow-hidden text-[11px] leading-4 text-[#ffb3b5]">
@@ -849,14 +1005,20 @@ function FetchExternalSection({
   importResult,
   onImportGitHub,
   onImportJira,
-  busy,
+  isImportingGitHub,
+  isImportingJira,
+  status,
+  onDismissStatus,
 }: {
   open: boolean
   onToggle: () => void
   importResult: SwitchboardImportResult | null
   onImportGitHub: () => void
   onImportJira: () => void
-  busy: boolean
+  isImportingGitHub: boolean
+  isImportingJira: boolean
+  status: ActionStatus | null
+  onDismissStatus: () => void
 }) {
   return (
     <div className="border-b border-[#1f2025] bg-[#0b0c0f]">
@@ -864,36 +1026,49 @@ function FetchExternalSection({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#0e0f12]"
+        className="interactive flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#0e0f12]"
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Fetch external</span>
-        <span className="text-[11px] text-[#6f7078]">{open ? '−' : '+'}</span>
+        <span className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Fetch external</span>
+          {!open && status ? (
+            <ActionStatusChip
+              status={status}
+              onDismiss={status.tone === 'error' ? onDismissStatus : undefined}
+            />
+          ) : null}
+        </span>
+        {open ? <MinusIcon className="h-3 w-3 text-[#6f7078]" /> : <PlusIcon className="h-3 w-3 text-[#6f7078]" />}
       </button>
       {open ? (
         <div className="px-3 pb-3">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={onImportGitHub}
-              disabled={busy}
-              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#c8c8cf] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+              disabled={isImportingGitHub}
+              className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#c8c8cf] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
             >
-              Fetch GitHub
+              {isImportingGitHub ? 'Fetching…' : 'Fetch GitHub'}
             </button>
             <button
               type="button"
               onClick={onImportJira}
-              disabled={busy}
-              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#c8c8cf] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+              disabled={isImportingJira}
+              className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#c8c8cf] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
             >
-              Fetch Jira
+              {isImportingJira ? 'Fetching…' : 'Fetch Jira'}
             </button>
+            <ActionStatusChip
+              status={status}
+              onDismiss={status?.tone === 'error' ? onDismissStatus : undefined}
+              className="ml-1"
+            />
           </div>
           {importResult ? (
             <div className="mt-2 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5 text-[11px] text-[#8a8a92]">
               {importResult.ok ? (
                 <>
-                  <div>
+                  <div className="tabular-nums">
                     {importResult.provider}: created {importResult.summary.created}, updated {importResult.summary.updated}, skipped {importResult.summary.skipped}, errors {importResult.summary.errors}
                   </div>
                   {importResult.items.length > 0 ? (
@@ -953,13 +1128,16 @@ function InboxRow({
   const descriptionPreview = task.description
     ? task.description.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim()
     : null
+  const triageLabel = triageImportance
+    ? `Triaged · ${triageImportance.charAt(0).toUpperCase()}${triageImportance.slice(1)}`
+    : triageComment ? 'Triaged' : null
   return (
     <li>
       <button
         type="button"
         onClick={onSelect}
         aria-pressed={selected}
-        className={`relative flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left border-b border-[#13141a] transition-colors ${
+        className={`interactive relative flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left border-b border-[#13141a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/60 focus-visible:ring-inset ${
           selected
             ? 'bg-[#17181d] pl-[9px] text-[#ececee] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-[#d97757]'
             : 'hover:bg-[#0e0f12] text-[#c8c8cf]'
@@ -967,9 +1145,7 @@ function InboxRow({
       >
         <span className="min-w-0 flex-1 space-y-0.5">
           <span className="flex min-w-0 items-baseline gap-2">
-            <span
-              className={`shrink-0 font-mono tabular-nums text-[11px] ${selected ? 'text-[#ffd6c2]' : 'text-[#8a8a92]'}`}
-            >
+            <span className="shrink-0 font-mono tabular-nums text-[11px] text-[#8a8a92]">
               {shortIdentifier(record)}
             </span>
             <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{task.title}</span>
@@ -993,13 +1169,13 @@ function InboxRow({
                 <span className="tabular-nums">{commentCount}</span>
               </span>
             ) : null}
-            {triageComment ? (
+            {triageLabel ? (
               <span className="flex shrink-0 items-center gap-1 rounded border border-[#2a2b31] bg-[#0d0e11] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[#9a9aa2]">
                 <span className={`h-1.5 w-1.5 rounded-full ${triageImportanceDotClass(triageImportance)}`} aria-hidden="true" />
-                Triaged
+                {triageLabel}
               </span>
             ) : null}
-            <span className={`shrink-0 tabular-nums ${commentCount > 0 ? '' : 'ml-auto'}`}>
+            <span className={`shrink-0 tabular-nums ${commentCount > 0 || triageLabel ? '' : 'ml-auto'}`}>
               {formatRelativeTime(task.createdAt)}
             </span>
           </span>
@@ -1009,14 +1185,34 @@ function InboxRow({
   )
 }
 
-function EmptyDetail({ switchboardRoot }: { switchboardRoot: string | null }) {
+function InboxSkeleton() {
+  return (
+    <li aria-busy="true" aria-label="Loading inbox">
+      <ul className="space-y-0">
+        {Array.from({ length: 5 }).map((_, idx) => (
+          <li key={idx} className="border-b border-[#13141a] px-3 py-2.5">
+            <div className="flex items-baseline gap-2">
+              <div className="skeleton-shimmer h-2.5 w-12 rounded bg-[#13141a]" />
+              <div className="skeleton-shimmer h-3 flex-1 rounded bg-[#13141a]" />
+              <div className="skeleton-shimmer h-2.5 w-10 rounded bg-[#13141a]" />
+            </div>
+            <div className="skeleton-shimmer mt-1.5 h-2.5 w-[70%] rounded bg-[#13141a]" />
+            <div className="mt-1.5 flex items-center gap-2">
+              <div className="skeleton-shimmer h-2.5 w-14 rounded bg-[#13141a]" />
+              <div className="skeleton-shimmer ml-auto h-2.5 w-10 rounded bg-[#13141a]" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </li>
+  )
+}
+
+function EmptyDetail() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-[#6f7078]">
       <div className="text-[12px] uppercase tracking-[0.08em] text-[#5a5a63]">Triage</div>
       <div className="text-[13px] text-[#8a8a92]">Select an inbox task to inspect, edit, comment, or promote.</div>
-      {switchboardRoot ? (
-        <div className="font-mono text-[11px] text-[#5a5a63]">{switchboardRoot}</div>
-      ) : null}
     </div>
   )
 }
@@ -1035,7 +1231,15 @@ function DetailPane({
   commentBody,
   onCommentChange,
   onAddComment,
-  busy,
+  isEditing,
+  isPromoting,
+  isCanceling,
+  isTriaging,
+  isCommenting,
+  detailStatus,
+  commentStatus,
+  onDismissDetailStatus,
+  onDismissCommentStatus,
 }: {
   record: SwitchboardTaskRecord
   editing: boolean
@@ -1050,17 +1254,26 @@ function DetailPane({
   commentBody: string
   onCommentChange: (next: string) => void
   onAddComment: () => void
-  busy: boolean
+  isEditing: boolean
+  isPromoting: boolean
+  isCanceling: boolean
+  isTriaging: boolean
+  isCommenting: boolean
+  detailStatus: ActionStatus | null
+  commentStatus: ActionStatus | null
+  onDismissDetailStatus: () => void
+  onDismissCommentStatus: () => void
 }) {
   const task = record.task
   const triageComment = latestTriageComment(record)
   const triageImportance = parseTriageImportance(triageComment)
+  const anyDetailMutation = isEditing || isPromoting || isCanceling || isTriaging
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#1f2025] px-5 py-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
-            <span className="font-mono tabular-nums text-[12px] text-[#ffd6c2]">{shortIdentifier(record)}</span>
+            <span className="font-mono tabular-nums text-[12px] text-[#9a9aa2]">{shortIdentifier(record)}</span>
             <span>·</span>
             <span>Inbox</span>
             <span>·</span>
@@ -1076,24 +1289,28 @@ function DetailPane({
             <h3 className="mt-2 truncate text-[18px] font-semibold text-[#ececee]">{task.title}</h3>
           )}
         </div>
-        <div className="flex shrink-0 flex-wrap gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          <ActionStatusChip
+            status={detailStatus}
+            onDismiss={detailStatus?.tone === 'error' ? onDismissDetailStatus : undefined}
+          />
           {editing ? (
             <>
               <button
                 type="button"
                 onClick={onCancelEdit}
-                disabled={busy}
-                className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+                disabled={isEditing}
+                className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={onSaveEdit}
-                disabled={busy}
-                className="h-7 rounded border border-[#ececee] bg-[#ececee] px-2.5 text-[11px] font-semibold text-[#08090b] disabled:opacity-50"
+                disabled={isEditing}
+                className="interactive h-7 rounded border border-[#ececee] bg-[#ececee] px-2.5 text-[11px] font-semibold text-[#08090b] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ececee]/60 disabled:opacity-50"
               >
-                Save
+                {isEditing ? 'Saving…' : 'Save'}
               </button>
             </>
           ) : (
@@ -1101,34 +1318,35 @@ function DetailPane({
               <button
                 type="button"
                 onClick={onStartEdit}
-                disabled={busy}
-                className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+                disabled={anyDetailMutation}
+                className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
               >
                 Edit
               </button>
               <button
                 type="button"
                 onClick={onCancelTask}
-                disabled={busy}
-                className="h-7 rounded border border-[#3a2222] px-2.5 text-[11px] font-medium text-[#ffb3b5] hover:bg-[#1c1414] disabled:opacity-50"
+                disabled={anyDetailMutation}
+                className="interactive h-7 rounded border border-[#3a2222] px-2.5 text-[11px] font-medium text-[#ffb3b5] hover:bg-[#1c1414] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-50"
               >
-                Cancel task
+                {isCanceling ? 'Canceling…' : 'Cancel task'}
               </button>
               <button
                 type="button"
                 onClick={onTriageTask}
-                disabled={busy}
-                className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+                disabled={anyDetailMutation}
+                className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
+                title="Run architect triage on this task"
               >
-                Triage task
+                {isTriaging ? 'Starting…' : 'Triage task'}
               </button>
               <button
                 type="button"
                 onClick={onPromote}
-                disabled={busy}
-                className="h-7 rounded border border-[#3a2820] bg-[#2c1a18] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#3a2421] disabled:opacity-50"
+                disabled={anyDetailMutation}
+                className="interactive h-7 rounded border border-[#3a2820] bg-[#2c1a18] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#3a2421] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
               >
-                Promote to Switchboard
+                {isPromoting ? 'Promoting…' : 'Promote to Switchboard'}
               </button>
             </>
           )}
@@ -1218,7 +1436,7 @@ function DetailPane({
               </span>
               <span className="ml-auto text-[11px] tabular-nums text-[#6f7078]">{formatRelativeTime(triageComment.createdAt)}</span>
             </div>
-            <pre className="mt-2 whitespace-pre-wrap font-sans text-[13px] leading-6 text-[#d7d7dc]">{triageComment.body}</pre>
+            <div className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{triageComment.body}</div>
           </div>
         ) : null}
 
@@ -1231,7 +1449,7 @@ function DetailPane({
               className="min-h-[140px] w-full rounded border border-[#2a2b31] bg-[#0d0e11] p-2 text-[13px] leading-6 text-[#ececee] outline-none focus:border-[#ececee]/40"
             />
           ) : task.description.trim() ? (
-            <pre className="whitespace-pre-wrap font-sans text-[13px] leading-6 text-[#d7d7dc]">{task.description}</pre>
+            <div className="whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{task.description}</div>
           ) : (
             <div className="text-[12px] text-[#6f7078]">No description provided.</div>
           )}
@@ -1241,11 +1459,18 @@ function DetailPane({
       </div>
 
       <footer className="border-t border-[#1f2025] px-5 py-3">
-        <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">
-          Add comment
-        </label>
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor="watchtower-comment-input" className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">
+            Add comment
+          </label>
+          <ActionStatusChip
+            status={commentStatus}
+            onDismiss={commentStatus?.tone === 'error' ? onDismissCommentStatus : undefined}
+          />
+        </div>
         <div className="mt-2 flex gap-2">
           <textarea
+            id="watchtower-comment-input"
             value={commentBody}
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Note for triage, link a finding, or capture context..."
@@ -1255,10 +1480,10 @@ function DetailPane({
           <button
             type="button"
             onClick={onAddComment}
-            disabled={busy || !commentBody.trim()}
-            className="h-9 self-end rounded border border-[#2a2b31] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+            disabled={isCommenting || !commentBody.trim()}
+            className="interactive h-9 self-end rounded border border-[#2a2b31] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
           >
-            Comment
+            {isCommenting ? 'Sending…' : 'Comment'}
           </button>
         </div>
       </footer>
@@ -1295,7 +1520,7 @@ function CommentsSection({ record }: { record: SwitchboardTaskRecord }) {
                 <span className="text-[#6f7078]">·</span>
                 <span className="tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
               </div>
-              <pre className="mt-1 whitespace-pre-wrap font-sans text-[13px] leading-6 text-[#d7d7dc]">{comment.body}</pre>
+              <div className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{comment.body}</div>
             </li>
           ))}
         </ul>
@@ -1403,6 +1628,7 @@ function Banner({
     tone === 'error'
       ? 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]'
       : 'border-[#3a3426] bg-[#1d1714] text-[#f2c45f]'
+  const retryRing = tone === 'error' ? 'focus-visible:ring-[#ff787c]/50' : 'focus-visible:ring-[#f2c45f]/50'
   return (
     <div className={`flex items-center justify-between gap-3 border-b ${toneClass} px-3 py-2 text-[12px]`}>
       <span className="min-w-0 truncate">{message}</span>
@@ -1410,25 +1636,11 @@ function Banner({
         <button
           type="button"
           onClick={onRetry}
-          className="shrink-0 rounded border border-current px-2 py-0.5 text-[11px] font-semibold"
+          className={`interactive shrink-0 rounded border border-current bg-transparent px-2 py-0.5 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-1 ${retryRing}`}
         >
           Retry
         </button>
       ) : null}
-    </div>
-  )
-}
-
-function ToastBanner({ toast }: { toast: Toast }) {
-  const cls =
-    toast.tone === 'error'
-      ? 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]'
-      : toast.tone === 'success'
-        ? 'border-[#234d27] bg-[#0f1d10] text-[#9be39e]'
-        : 'border-[#2a2b31] bg-[#111216] text-[#d7d7dc]'
-  return (
-    <div className={`pointer-events-none absolute bottom-3 right-3 max-w-[420px] rounded border px-3 py-1.5 text-[12px] leading-5 ${cls}`}>
-      {toast.message}
     </div>
   )
 }

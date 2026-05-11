@@ -461,3 +461,51 @@ function PerformanceIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function PlusIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 5.5V18.5M5.5 12H18.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function MinusIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5.5 12H18.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function ChevronDownIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 9.5L12 15L18 9.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function CloseIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6.5 6.5L17.5 17.5M17.5 6.5L6.5 17.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function CheckIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 12.5L10 17L19 7.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function ArrowRightIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 12H18.5M13 6.5L18.5 12L13 17.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}

@@ -1,8 +1,15 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { CommentIcon, PriorityIcon, StatusIcon } from '../AppIcons'
+import { ArrowRightIcon, CommentIcon, PlusIcon, PriorityIcon, StatusIcon } from '../AppIcons'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
+import {
+  ActionStatusChip,
+  useActionFeedback,
+  usePendingActions,
+  type ActionStatus,
+  type ActionTone,
+} from '../ui/ActionFeedback'
 import {
   BOARD_STATUS_ORDER,
   formatRelativeTime,
@@ -37,6 +44,12 @@ import type {
 const PANEL_BG = 'bg-[#08090b]'
 const ACCENT = '#7c5cf2'
 
+type PendingKey =
+  | 'create'
+  | 'move'
+  | 'addComment'
+  | 'refresh'
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const tag = target.tagName
@@ -44,9 +57,6 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true
   return false
 }
-
-type ToastTone = 'info' | 'success' | 'error'
-type Toast = { tone: ToastTone; message: string }
 
 type DraftTask = {
   title: string
@@ -67,7 +77,7 @@ const emptyDraft: DraftTask = {
 export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const folderPath = workspace?.folderPath ?? null
-  const { state, tasks, problems, refresh, switchboardRoot } = useSwitchboardData(folderPath)
+  const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
   const runner = useSwitchboardRunner(folderPath)
 
   const grouped = useMemo(() => groupTasksByStatus(tasks), [tasks])
@@ -88,11 +98,11 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
   const [createOpen, setCreateOpen] = useState(false)
   const [draft, setDraft] = useState<DraftTask>(emptyDraft)
   const [commentBody, setCommentBody] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [toast, setToast] = useState<Toast | null>(null)
   const [dragSource, setDragSource] = useState<{ taskId: string; from: SwitchboardFolderStatus } | null>(null)
   const [dropTarget, setDropTarget] = useState<{ lane: SwitchboardTaskStatus; index: number } | null>(null)
   const [recentlyMovedId, setRecentlyMovedId] = useState<string | null>(null)
+  const { isPending, run: runAction } = usePendingActions<PendingKey>()
+  const feedback = useActionFeedback()
 
   useEffect(() => {
     if (!recentlyMovedId) return
@@ -105,13 +115,6 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
   )
 
   useEffect(() => {
-    if (!toast) return
-    if (toast.tone === 'error') return
-    const handle = window.setTimeout(() => setToast(null), 4000)
-    return () => window.clearTimeout(handle)
-  }, [toast])
-
-  useEffect(() => {
     if (selectedId && !boardTasks.some((record) => record.task.id === selectedId)) {
       setSelectedId(boardTasks[0]?.task.id ?? null)
     }
@@ -122,14 +125,14 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     [boardTasks, selectedId]
   )
 
-  const showToast = useCallback((tone: ToastTone, message: string) => {
-    setToast({ tone, message })
-  }, [])
+  const notifyToolbar = useCallback(
+    (tone: ActionTone, message: string) => feedback.notify('toolbar', tone, message),
+    [feedback]
+  )
 
   const handleCreate = useCallback(async () => {
     if (!folderPath || !draft.title.trim()) return
-    setBusy(true)
-    try {
+    await runAction('create', async () => {
       const labels = draft.labels.split(',').map((label) => label.trim()).filter(Boolean)
       const result = await window.api.createSwitchboardTask({
         workspaceRoot: folderPath,
@@ -142,41 +145,36 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         source: { type: 'manual' },
       })
       if (!result.ok) {
-        showToast('error', result.message)
+        feedback.notify('board', 'error', result.message)
         return
       }
       setSelectedId(result.record.task.id)
       setDraft(emptyDraft)
       setCreateOpen(false)
       await refresh()
-      showToast('success', 'Task added to Todo.')
-    } finally {
-      setBusy(false)
-    }
-  }, [draft, folderPath, refresh, showToast])
+      feedback.notify('board', 'success', 'Task added to Todo.')
+    })
+  }, [draft, feedback, folderPath, refresh, runAction])
 
   const handleMove = useCallback(
     async (record: SwitchboardTaskRecord, to: SwitchboardTaskStatus) => {
       if (!folderPath) return
-      setBusy(true)
-      try {
+      await runAction('move', async () => {
         const result = await window.api.moveSwitchboardTask({
           workspaceRoot: folderPath,
           id: record.task.id,
           to,
         })
         if (!result.ok) {
-          showToast('error', result.message)
+          feedback.notify('detail', 'error', result.message)
           return
         }
         setRecentlyMovedId(record.task.id)
         await refresh()
-        showToast('success', `Moved to ${statusLabel(to)}.`)
-      } finally {
-        setBusy(false)
-      }
+        feedback.notify('detail', 'success', `Moved to ${statusLabel(to)}.`)
+      })
     },
-    [folderPath, refresh, showToast]
+    [feedback, folderPath, refresh, runAction]
   )
 
   const handleBoardKeyDown = useCallback(
@@ -279,8 +277,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
 
   const handleAddComment = useCallback(async () => {
     if (!folderPath || !selected || !commentBody.trim()) return
-    setBusy(true)
-    try {
+    await runAction('addComment', async () => {
       const result = await window.api.addSwitchboardComment({
         workspaceRoot: folderPath,
         id: selected.task.id,
@@ -289,15 +286,20 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         kind: 'comment',
       })
       if (!result.ok) {
-        showToast('error', result.message)
+        feedback.notify('comment', 'error', result.message)
         return
       }
       setCommentBody('')
       await refresh()
-    } finally {
-      setBusy(false)
-    }
-  }, [commentBody, folderPath, refresh, selected, showToast])
+      feedback.notify('comment', 'success', 'Comment added.')
+    })
+  }, [commentBody, feedback, folderPath, refresh, runAction, selected])
+
+  const handleRefreshBoard = useCallback(async () => {
+    await runAction('refresh', async () => {
+      await refresh()
+    })
+  }, [refresh, runAction])
 
   if (!workspace) {
     return <div className={`h-full ${PANEL_BG} p-4 text-sm text-[#8a8a92]`}>Workspace not found.</div>
@@ -326,32 +328,34 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
               style={{ background: ACCENT }}
               aria-hidden="true"
             />
-            <span className="shrink-0 text-[11px] text-[#6f7078]">{boardTasks.length} tasks</span>
-            {switchboardRoot ? (
-              <span className="ml-2 hidden truncate font-mono text-[11px] text-[#5a5a63] md:inline">
-                {switchboardRoot}
-              </span>
-            ) : null}
+            <span className="shrink-0 text-[11px] tabular-nums text-[#6f7078]">{boardTasks.length} tasks</span>
+            <ActionStatusChip
+              status={feedback.statuses.board ?? null}
+              onDismiss={feedback.statuses.board?.tone === 'error' ? () => feedback.dismiss('board') : undefined}
+              className="ml-1"
+            />
           </div>
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => void refresh()}
-              className="h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee]"
+              onClick={() => void handleRefreshBoard()}
+              disabled={isPending('refresh')}
+              className="interactive h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
             >
-              Refresh
+              {isPending('refresh') ? 'Refreshing…' : 'Refresh'}
             </button>
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a]"
+              className="interactive inline-flex h-7 items-center gap-1 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60"
             >
-              + New task
+              <PlusIcon className="h-3 w-3" />
+              New task
             </button>
           </div>
         </header>
 
-        <RunnerToolbar runner={runner} workspaceId={workspaceId} onRefresh={refresh} onNotify={showToast} />
+        <RunnerToolbar runner={runner} workspaceId={workspaceId} onRefresh={refresh} onNotify={notifyToolbar} toolbarStatus={feedback.statuses.toolbar ?? null} onDismissToolbarStatus={() => feedback.dismiss('toolbar')} />
 
         {state.kind === 'error' ? <Banner tone="error" message={state.message} onRetry={refresh} /> : null}
         {problems.length > 0 ? (
@@ -363,9 +367,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
 
         <div className="flex min-h-0 flex-1 gap-1.5 overflow-x-auto px-1.5 py-2">
           {state.kind === 'loading' && boardTasks.length === 0 ? (
-            <div className="flex h-full w-full items-center justify-center text-[12px] text-[#6f7078]">
-              Loading board...
-            </div>
+            <BoardSkeleton />
           ) : (
             BOARD_STATUS_ORDER.map((status) => {
               const isLegalDropTarget = Boolean(dragSource) && dragLegalTargets.has(status)
@@ -426,7 +428,12 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
             onCommentChange={setCommentBody}
             onAddComment={handleAddComment}
             onMove={(to) => void handleMove(selected, to)}
-            busy={busy}
+            isMoving={isPending('move')}
+            isCommenting={isPending('addComment')}
+            detailStatus={feedback.statuses.detail ?? null}
+            commentStatus={feedback.statuses.comment ?? null}
+            onDismissDetailStatus={() => feedback.dismiss('detail')}
+            onDismissCommentStatus={() => feedback.dismiss('comment')}
           />
         ) : (
           <EmptyDetail />
@@ -439,11 +446,9 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
           onChange={setDraft}
           onClose={() => setCreateOpen(false)}
           onSubmit={handleCreate}
-          busy={busy}
+          busy={isPending('create')}
         />
       ) : null}
-
-      {toast ? <ToastBanner toast={toast} /> : null}
     </div>
   )
 }
@@ -612,7 +617,7 @@ function BoardCard({
         setDragging(false)
         onDragEnd()
       }}
-      className={`relative rounded-md border px-2.5 py-2 shadow-[0_1px_0_rgba(0,0,0,0.4)] transition-colors focus:outline-none focus:ring-1 focus:ring-[#7c5cf2] ${
+      className={`interactive relative rounded-md border px-2.5 py-2 shadow-[0_1px_0_rgba(0,0,0,0.4)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2] ${
         dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab'
       } ${justMoved ? 'card-just-moved' : ''} ${
         selected
@@ -621,12 +626,12 @@ function BoardCard({
       }`}
     >
       <div className="flex items-baseline justify-between gap-2 text-[11px]">
-        <span className={`font-mono tabular-nums ${selected ? 'text-[#cdbcff]' : 'text-[#8a8a92]'}`}>
+        <span className="font-mono tabular-nums text-[#8a8a92]">
           {shortIdentifier(record)}
         </span>
         <PriorityIcon
           priority={task.priority}
-          className={`h-3.5 w-3.5 shrink-0 ${selected ? 'text-[#cdbcff]' : 'text-[#9a9aa2]'}`}
+          className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]"
         />
       </div>
       <div className="mt-1 line-clamp-2 text-[12.5px] font-medium leading-5">{task.title}</div>
@@ -660,6 +665,33 @@ function DropIndicator() {
     <li aria-hidden="true" className="-my-1 list-none">
       <div className="h-[2px] rounded-full bg-[#7c5cf2] shadow-[0_0_6px_rgba(124,92,242,0.6)]" />
     </li>
+  )
+}
+
+function BoardSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading board" className="flex h-full w-full gap-1.5">
+      {BOARD_STATUS_ORDER.slice(0, 5).map((status, laneIdx) => (
+        <div key={status} className="flex h-full w-[260px] shrink-0 flex-col rounded-md bg-[#0a0b0e]">
+          <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
+            <div className="skeleton-shimmer h-3 w-20 rounded bg-[#13141a]" />
+            <div className="skeleton-shimmer h-3 w-5 rounded bg-[#13141a]" />
+          </div>
+          <ol className="flex-1 space-y-2 px-2 py-2">
+            {Array.from({ length: 3 - (laneIdx % 2) }).map((_, cardIdx) => (
+              <li key={cardIdx} className="rounded-md border border-[#16171c] bg-[#0d0e11] px-2.5 py-2">
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="skeleton-shimmer h-2.5 w-12 rounded bg-[#13141a]" />
+                  <div className="skeleton-shimmer h-2.5 w-3.5 rounded bg-[#13141a]" />
+                </div>
+                <div className="skeleton-shimmer mt-2 h-3 w-[85%] rounded bg-[#13141a]" />
+                <div className="skeleton-shimmer mt-1.5 h-2.5 w-[60%] rounded bg-[#13141a]" />
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -781,7 +813,12 @@ function BoardDetailPane({
   onCommentChange,
   onAddComment,
   onMove,
-  busy,
+  isMoving,
+  isCommenting,
+  detailStatus,
+  commentStatus,
+  onDismissDetailStatus,
+  onDismissCommentStatus,
 }: {
   record: SwitchboardTaskRecord
   executionStatus: SwitchboardExecutionStatus | null
@@ -789,7 +826,12 @@ function BoardDetailPane({
   onCommentChange: (next: string) => void
   onAddComment: () => void
   onMove: (to: SwitchboardTaskStatus) => void
-  busy: boolean
+  isMoving: boolean
+  isCommenting: boolean
+  detailStatus: ActionStatus | null
+  commentStatus: ActionStatus | null
+  onDismissDetailStatus: () => void
+  onDismissCommentStatus: () => void
 }) {
   const task = record.task
   const targets = legalMoveTargets(record.location.folderStatus)
@@ -797,7 +839,7 @@ function BoardDetailPane({
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-[#1f2025] px-5 py-4">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
-          <span className="font-mono tabular-nums text-[12px] text-[#cdbcff]">{shortIdentifier(record)}</span>
+          <span className="font-mono tabular-nums text-[12px] text-[#9a9aa2]">{shortIdentifier(record)}</span>
           <span>·</span>
           <span className="flex items-center gap-1.5">
             <StatusIcon status={record.location.folderStatus} className="h-3 w-3 text-[#9a9aa2]" />
@@ -805,6 +847,11 @@ function BoardDetailPane({
           </span>
           <span>·</span>
           <span className="tabular-nums">{formatRelativeTime(task.updatedAt)}</span>
+          <ActionStatusChip
+            status={detailStatus}
+            onDismiss={detailStatus?.tone === 'error' ? onDismissDetailStatus : undefined}
+            className="ml-auto"
+          />
         </div>
         <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[#ececee]">{task.title}</h3>
         {targets.length > 0 ? (
@@ -814,14 +861,21 @@ function BoardDetailPane({
                 key={target}
                 type="button"
                 onClick={() => onMove(target)}
-                disabled={busy}
-                className={`h-7 rounded border px-2.5 text-[11px] font-medium transition-colors ${
+                disabled={isMoving}
+                className={`interactive inline-flex h-7 items-center gap-1 rounded border px-2.5 text-[11px] font-medium focus-visible:outline-none focus-visible:ring-1 ${
                   target === 'canceled'
-                    ? 'border-[#3a2222] text-[#ffb3b5] hover:bg-[#1c1414]'
-                    : 'border-[#2a2b31] text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee]'
+                    ? 'border-[#3a2222] text-[#ffb3b5] hover:bg-[#1c1414] focus-visible:ring-[#ff787c]/60'
+                    : 'border-[#2a2b31] text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:ring-[#7c5cf2]/60'
                 } disabled:opacity-50`}
               >
-                {target === 'canceled' ? 'Cancel' : `→ ${statusLabel(target)}`}
+                {target === 'canceled' ? (
+                  'Cancel'
+                ) : (
+                  <>
+                    <ArrowRightIcon className="h-3 w-3" />
+                    {statusLabel(target)}
+                  </>
+                )}
               </button>
             ))}
           </div>
@@ -943,7 +997,7 @@ function BoardDetailPane({
 
         <Section title="Description">
           {task.description.trim() ? (
-            <pre className="whitespace-pre-wrap font-sans text-[13px] leading-6 text-[#d7d7dc]">{task.description}</pre>
+            <div className="whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{task.description}</div>
           ) : (
             <div className="text-[12px] text-[#6f7078]">No description.</div>
           )}
@@ -970,7 +1024,7 @@ function BoardDetailPane({
                     <span className="text-[#6f7078]">·</span>
                     <span className="tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
                   </div>
-                  <pre className="mt-1 whitespace-pre-wrap font-sans text-[13px] leading-6 text-[#d7d7dc]">{comment.body}</pre>
+                  <div className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{comment.body}</div>
                 </li>
               ))}
             </ul>
@@ -979,11 +1033,18 @@ function BoardDetailPane({
       </div>
 
       <footer className="border-t border-[#1f2025] px-5 py-3">
-        <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">
-          Add comment
-        </label>
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor="switchboard-comment-input" className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">
+            Add comment
+          </label>
+          <ActionStatusChip
+            status={commentStatus}
+            onDismiss={commentStatus?.tone === 'error' ? onDismissCommentStatus : undefined}
+          />
+        </div>
         <div className="mt-2 flex gap-2">
           <textarea
+            id="switchboard-comment-input"
             value={commentBody}
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Plan, ask, or note an enrichment for the next claimer..."
@@ -993,10 +1054,10 @@ function BoardDetailPane({
           <button
             type="button"
             onClick={onAddComment}
-            disabled={busy || !commentBody.trim()}
-            className="h-9 self-end rounded border border-[#2a2b31] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+            disabled={isCommenting || !commentBody.trim()}
+            className="interactive h-9 self-end rounded border border-[#2a2b31] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
           >
-            Comment
+            {isCommenting ? 'Sending…' : 'Comment'}
           </button>
         </div>
       </footer>
@@ -1176,11 +1237,15 @@ function RunnerToolbar({
   workspaceId,
   onRefresh,
   onNotify,
+  toolbarStatus,
+  onDismissToolbarStatus,
 }: {
   runner: SwitchboardRunner
   workspaceId: string
   onRefresh: () => Promise<void> | void
-  onNotify: (tone: ToastTone, message: string) => void
+  onNotify: (tone: ActionTone, message: string) => void
+  toolbarStatus: ActionStatus | null
+  onDismissToolbarStatus: () => void
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [draft, setDraft] = useState<RunnerSettings>(() => settingsFromState(runner.state))
@@ -1261,7 +1326,11 @@ function RunnerToolbar({
           <ToolbarFact label="Concurrency" value={String(summaryConcurrency)} />
           <ToolbarFact label="Queues" value={queuesLabel} />
           <ToolbarFact label="Active" value={String(activeCount)} />
-          {updatedAt ? <span className="text-[11px] text-[#6f7078]">Updated {updatedAt}</span> : null}
+          {updatedAt ? <span className="text-[11px] tabular-nums text-[#6f7078]">Updated {updatedAt}</span> : null}
+          <ActionStatusChip
+            status={toolbarStatus}
+            onDismiss={toolbarStatus?.tone === 'error' ? onDismissToolbarStatus : undefined}
+          />
         </div>
         <div className="relative flex items-center gap-1.5">
           {runner.status === 'running' ? (
@@ -1269,7 +1338,7 @@ function RunnerToolbar({
               type="button"
               onClick={() => void runner.pause()}
               disabled={runner.busy}
-              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+              className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
             >
               Pause
             </button>
@@ -1279,7 +1348,7 @@ function RunnerToolbar({
               type="button"
               onClick={() => void runner.resume()}
               disabled={runner.busy}
-              className="h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] disabled:opacity-50"
+              className="interactive h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
             >
               Resume
             </button>
@@ -1289,7 +1358,7 @@ function RunnerToolbar({
               type="button"
               onClick={() => void runner.tick()}
               disabled={runner.busy}
-              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+              className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
               title="Run one runner tick now"
             >
               Tick
@@ -1300,7 +1369,7 @@ function RunnerToolbar({
               type="button"
               onClick={() => void handleStopRunner()}
               disabled={runner.busy}
-              className="h-7 rounded border border-[#4a2527] px-2.5 text-[11px] font-semibold text-[#ffb3b5] hover:bg-[#1c1414] disabled:opacity-50"
+              className="interactive h-7 rounded border border-[#4a2527] px-2.5 text-[11px] font-semibold text-[#ffb3b5] hover:bg-[#1c1414] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-50"
               title="Stop the workspace runner backend"
             >
               Stop runner
@@ -1310,7 +1379,7 @@ function RunnerToolbar({
             type="button"
             aria-pressed={settingsOpen}
             onClick={() => setSettingsOpen((value) => !value)}
-            className={`h-7 rounded border px-2.5 text-[11px] font-medium transition-colors ${
+            className={`interactive h-7 rounded border px-2.5 text-[11px] font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 ${
               settingsOpen
                 ? 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff]'
                 : 'border-[#2a2b31] text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee]'
@@ -1323,7 +1392,7 @@ function RunnerToolbar({
               type="button"
               onClick={() => void handleStart()}
               disabled={runner.busy || draft.queues.length === 0}
-              className="h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] disabled:opacity-50"
+              className="interactive h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
             >
               {runner.busy ? 'Starting…' : 'Start runner'}
             </button>
@@ -1412,13 +1481,13 @@ function ExecutionsSection({
             key={execution.executionId}
             className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#16171b] px-3 py-1.5 text-[11.5px]"
           >
-            <span className="font-mono text-[11px] text-[#cdbcff]">{execution.taskId.slice(0, 8)}</span>
+            <span className="font-mono tabular-nums text-[11px] text-[#8a8a92]">{execution.taskId.slice(0, 8)}</span>
             <span className="text-[#d7d7dc]">{execution.role || 'unknown role'}</span>
             <span className="text-[#9a9aa2]">
               {runnerQueueLabel(execution.claimedFrom)} → {execution.claimedStatus.replace(/_/g, ' ')}
             </span>
             <span className="text-[#6f7078]">{providerLabel(execution.provider)}</span>
-            <span className="text-[#6f7078]">started {formatRelativeTime(execution.startedAt)}</span>
+            <span className="text-[#6f7078] tabular-nums">started {formatRelativeTime(execution.startedAt)}</span>
             {tone === 'inactive' && execution.status ? (
               <span className="rounded border border-[#3a3426] bg-[#1d1714] px-1.5 py-0.5 text-[10.5px] text-[#f2c45f]">
                 {execution.status}
@@ -1429,7 +1498,7 @@ function ExecutionsSection({
                 type="button"
                 onClick={() => onStopExecution(execution)}
                 disabled={busy}
-                className="ml-auto h-6 rounded border border-[#4a2527] px-2 text-[10.5px] font-semibold text-[#ffb3b5] hover:bg-[#1c1414] disabled:opacity-50"
+                className="interactive ml-auto h-6 rounded border border-[#4a2527] px-2 text-[10.5px] font-semibold text-[#ffb3b5] hover:bg-[#1c1414] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-50"
               >
                 Stop
               </button>
@@ -1467,7 +1536,7 @@ function RunnerSettingsPopover({
     <div
       role="dialog"
       aria-label="Runner settings"
-      className="absolute right-0 top-9 z-30 w-[320px] rounded-md border border-[#2a2b31] bg-[#0d0e11] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
+      className="popover-enter absolute right-0 top-9 z-30 w-[320px] rounded-md border border-[#2a2b31] bg-[#0d0e11] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
       onKeyDown={(event) => {
         if (event.key === 'Escape') onClose()
       }}
@@ -1479,7 +1548,7 @@ function RunnerSettingsPopover({
         <button
           type="button"
           onClick={onClose}
-          className="h-6 rounded border border-[#2a2b31] px-1.5 text-[10.5px] text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee]"
+          className="interactive h-6 rounded border border-[#2a2b31] px-1.5 text-[10.5px] text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60"
         >
           Close
         </button>
@@ -1502,7 +1571,7 @@ function RunnerSettingsPopover({
                       : [...draft.queues, queue]
                     onChange({ ...draft, queues: next })
                   }}
-                  className={`h-6 rounded border px-2 text-[10.5px] font-medium transition-colors ${
+                  className={`interactive h-6 rounded border px-2 text-[10.5px] font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 ${
                     active
                       ? 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff]'
                       : 'border-[#2a2b31] text-[#9a9aa2] hover:text-[#d7d7dc]'
@@ -1571,7 +1640,7 @@ function RunnerSettingsPopover({
               type="button"
               onClick={onStart}
               disabled={busy || draft.queues.length === 0}
-              className="h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-3 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] disabled:opacity-50"
+              className="interactive h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-3 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
             >
               {busy ? 'Starting…' : 'Start runner'}
             </button>
@@ -1595,6 +1664,7 @@ function Banner({
     tone === 'error'
       ? 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]'
       : 'border-[#3a3426] bg-[#1d1714] text-[#f2c45f]'
+  const retryRing = tone === 'error' ? 'focus-visible:ring-[#ff787c]/50' : 'focus-visible:ring-[#f2c45f]/50'
   return (
     <div className={`flex items-center justify-between gap-3 border-b ${toneClass} px-3 py-2 text-[12px]`}>
       <span className="min-w-0 truncate">{message}</span>
@@ -1602,25 +1672,11 @@ function Banner({
         <button
           type="button"
           onClick={onRetry}
-          className="shrink-0 rounded border border-current px-2 py-0.5 text-[11px] font-semibold"
+          className={`interactive shrink-0 rounded border border-current bg-transparent px-2 py-0.5 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-1 ${retryRing}`}
         >
           Retry
         </button>
       ) : null}
-    </div>
-  )
-}
-
-function ToastBanner({ toast }: { toast: Toast }) {
-  const cls =
-    toast.tone === 'error'
-      ? 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]'
-      : toast.tone === 'success'
-        ? 'border-[#234d27] bg-[#0f1d10] text-[#9be39e]'
-        : 'border-[#2a2b31] bg-[#111216] text-[#d7d7dc]'
-  return (
-    <div className={`pointer-events-none absolute bottom-3 right-3 max-w-[520px] rounded border px-3 py-1.5 text-[12px] shadow-[0_12px_30px_rgba(0,0,0,0.35)] ${cls}`}>
-      {toast.message}
     </div>
   )
 }

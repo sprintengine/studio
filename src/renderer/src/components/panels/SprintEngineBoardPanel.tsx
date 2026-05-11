@@ -1050,13 +1050,13 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
           <span className="flex shrink-0 items-center gap-2">
             <button
               onClick={() => void recheckFolder()}
-              className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[#d7d7dc] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
             >
               Retry
             </button>
             <button
               onClick={() => void relinkFolder()}
-              className="rounded-md bg-[#5c7cff]/10 px-2.5 py-1 text-[11px] font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/16"
+              className="rounded-md bg-[#5c7cff]/10 px-2.5 py-1 text-[11px] font-semibold text-[#b8ccff] interactive transition-colors hover:bg-[#5c7cff]/16"
             >
               Relink
             </button>
@@ -1347,7 +1347,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               aria-label={autoEnabled ? 'Pause roster runner' : 'Start roster runner'}
               onClick={toggleAuto}
               title={autoEnabled ? 'Pause roster runner' : 'Start roster runner'}
-              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors ${
+              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold interactive transition-colors ${
                 autoEnabled
                   ? 'border-[#5c7cff]/55 bg-[#5c7cff]/14 text-[#d4ddff] hover:border-[#5c7cff]/75 hover:bg-[#5c7cff]/18'
                   : 'border-[#303139] bg-[#111216] text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]'
@@ -1363,7 +1363,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               aria-describedby={!autoEnabled ? 'artifact-auto-approval-disabled' : undefined}
               onClick={toggleArtifactAutoApproval}
               disabled={!autoEnabled}
-              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold interactive transition-colors ${
                 autoEnabled && autoApproveArtifacts
                   ? 'border-[#5c7cff]/45 bg-[#5c7cff]/12 text-[#d4ddff] hover:border-[#5c7cff]/65 hover:bg-[#5c7cff]/16'
                   : 'border-[#303139] bg-[#111216] text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
@@ -1371,7 +1371,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               title={autoEnabled ? 'Approve all artifacts' : 'Start the roster runner before approving all artifacts'}
             >
               <span
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                className={`relative h-5 w-9 shrink-0 rounded-full interactive transition-colors ${
                   autoEnabled && autoApproveArtifacts ? 'bg-[#5c7cff]' : 'bg-[#303139]'
                 }`}
                 aria-hidden="true"
@@ -1400,7 +1400,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 sprintEngineCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title
                 ?? 'CLI permissions for the Sprint Engine roster runner'
               }
-              className={`h-8 rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none transition-colors focus:ring-1 ${
+              className={`h-8 rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none interactive transition-colors focus:ring-1 ${
                 cliPermissionPreset === 'bypass_all'
                   ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
                   : cliPermissionPreset === 'auto_workspace'
@@ -1424,7 +1424,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   <button
                     key={view.id}
                     onClick={() => activateView(view.id)}
-                    className={`rounded px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                    className={`rounded px-2.5 py-1.5 text-sm font-semibold interactive transition-colors ${
                       effectiveView === view.id
                         ? 'text-[#ececee]'
                         : 'text-[#8a8a92] hover:bg-[#17181d] hover:text-[#ececee]'
@@ -1441,7 +1441,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               type="button"
               onClick={() => void refreshSprintEngineState()}
               disabled={!folderPath || manualRefreshBusy}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#838896]"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#838896] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#838896]"
               title="Refresh Sprint Engine state"
               aria-label="Refresh Sprint Engine state"
             >
@@ -1456,7 +1456,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     openSpawnDialog(focusAgent.agentId)
                   }
                 }}
-                className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
+                className={`rounded-md px-3 py-1.5 text-sm font-semibold interactive transition-colors ${
                   needsInputAgent
                     ? 'bg-[#ffbf2f]/12 text-[#ffe0a3] hover:bg-[#ffbf2f]/18'
                     : 'bg-[#5c7cff]/10 text-[#d4ddff] hover:bg-[#5c7cff]/16'
@@ -1487,7 +1487,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                       openReadyTaskWorker(task)
                     }
                   }}
-                  className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16"
+                  className="rounded-md bg-[#5c7cff]/10 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] interactive transition-colors hover:bg-[#5c7cff]/16"
                 >
                   {actionLabel}
                 </button>
@@ -1496,7 +1496,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             {architectAgentId && showPlanningActions && roleTaskLaunches.length === 0 ? (
               <button
                 onClick={() => openSpawnDialog(architectAgentId)}
-                className="rounded-md bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/16"
+                className="rounded-md bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] interactive transition-colors hover:bg-[#ffbf2f]/16"
               >
                 {agents[architectAgentId]?.cliStartRequested ? 'Open Architect' : 'Spawn Architect'}
               </button>
@@ -1504,7 +1504,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             {architectAgentId ? (
               <button
                 onClick={openRecoveryDialog}
-                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
               >
                 Verify Progress
               </button>
@@ -1512,7 +1512,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             <div className="relative">
               <button
                 onClick={() => setActionMenuOpen((open) => !open)}
-                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#8a8a92] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                 aria-haspopup="menu"
                 aria-expanded={actionMenuOpen}
               >
@@ -1521,12 +1521,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               {actionMenuOpen ? (
                 <div
                   role="menu"
-                  className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 overflow-hidden rounded-md bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
+                  className="popover-enter absolute right-0 top-[calc(100%+8px)] z-30 w-56 overflow-hidden rounded-md bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
                 >
                   <button
                     role="menuitem"
                     onClick={openAddMemberDialog}
-                    className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+                    className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
                   >
                     More Roles
                   </button>
@@ -1539,7 +1539,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                           requestPlanReviews()
                         }}
                         disabled={!folderPath || specialistReviewAgents.length === 0}
-                        className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
+                        className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
                       >
                         Request Plan Reviews
                       </button>
@@ -1551,7 +1551,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                             addressPlanReviews()
                           }}
                           disabled={!folderPath}
-                          className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
+                          className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-[#d7d7dc] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
                         >
                           Address Feedback
                         </button>
@@ -1592,7 +1592,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => focusOrAddComponentTab(workspaceId, 'sprintengine-run-summary', 'Run Summary')}
-                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d4ffdc] transition-colors hover:bg-[#30d158]/12"
+                className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d4ffdc] interactive transition-colors hover:bg-[#30d158]/12"
               >
                 View Run Summary
               </button>
@@ -1779,7 +1779,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                             setSelectedTaskId(task.id)
                           }
                         }}
-                        className={`group relative w-full cursor-pointer overflow-hidden rounded-md border px-2.5 py-2 text-left shadow-[0_1px_0_rgba(0,0,0,0.4)] transition-colors focus:outline-none focus:ring-1 ${
+                        className={`group relative w-full cursor-pointer overflow-hidden rounded-md border px-2.5 py-2 text-left shadow-[0_1px_0_rgba(0,0,0,0.4)] interactive transition-colors focus:outline-none focus:ring-1 ${
                           justMoved ? 'card-just-moved-gold' : ''
                         } ${
                           taskSelected
@@ -1803,7 +1803,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.08em] text-[#5a5a63]">
-                              <span className={`font-mono tabular-nums ${taskSelected ? 'text-[#f0d47a]' : 'text-[#8a8a92]'}`}>
+                              <span className="font-mono tabular-nums text-[#8a8a92]">
                                 {task.id}
                               </span>
                               <span className="rounded border border-[#24252b] bg-[#08090b] px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-[#9a9aa2]">
@@ -1883,7 +1883,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                                 }}
                                 disabled={quickOpenArtifactPending}
                                 title={quickOpenArtifact.title}
-                                className="rounded bg-[#ffbf2f]/12 px-2 py-1 text-[11px] font-semibold text-[#ffe0a3] transition-colors hover:bg-[#ffbf2f]/18 hover:text-[#fff0c8] disabled:opacity-45 disabled:hover:bg-[#ffbf2f]/12 disabled:hover:text-[#ffe0a3]"
+                                className="rounded bg-[#ffbf2f]/12 px-2 py-1 text-[11px] font-semibold text-[#ffe0a3] interactive transition-colors hover:bg-[#ffbf2f]/18 hover:text-[#fff0c8] disabled:opacity-45 disabled:hover:bg-[#ffbf2f]/12 disabled:hover:text-[#ffe0a3]"
                               >
                                 {quickOpenArtifactPending && quickOpenArtifactAction?.kind === 'open'
                                   ? 'Opening...'
@@ -1896,7 +1896,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                                 event.stopPropagation()
                                 openReadyTaskWorker(task)
                               }}
-                              className="rounded bg-[#5c7cff]/10 px-2 py-1 text-[11px] font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/16 hover:text-[#ececee]"
+                              className="rounded bg-[#5c7cff]/10 px-2 py-1 text-[11px] font-semibold text-[#d4ddff] interactive transition-colors hover:bg-[#5c7cff]/16 hover:text-[#ececee]"
                             >
                               {actionLabel}
                             </button>
@@ -1917,7 +1917,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                               onKeyDown={(event) => {
                                 event.stopPropagation()
                               }}
-                              className="shrink-0 rounded-md border border-[#4a3812] bg-[#221a0b] px-2.5 py-1 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#2b210e] disabled:cursor-wait disabled:opacity-60"
+                              className="shrink-0 rounded-md border border-[#4a3812] bg-[#221a0b] px-2.5 py-1 text-[11px] font-semibold text-[#f0d47a] interactive transition-colors hover:bg-[#2b210e] disabled:cursor-wait disabled:opacity-60"
                             >
                               Ready
                             </button>
@@ -1973,7 +1973,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 setRecoveryDialog(null)
               }}
               aria-label="Close"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
             >
               <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -1996,7 +1996,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   onClick={() => setCliPickerOpen((open) => !open)}
                   aria-haspopup="listbox"
                   aria-expanded={cliPickerOpen}
-                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#303139]"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none interactive transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#303139]"
                 >
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#9a9aa2]">
                     <CliIcon cli={selectedRecoveryCliOption.value} className="h-5 w-5" />
@@ -2023,7 +2023,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 {cliPickerOpen ? (
                   <div
                     role="listbox"
-                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
+                    className="popover-enter absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
                   >
                     {cliOptions.map((option) => {
                       const selected = recoveryDialog.cli === option.value
@@ -2039,7 +2039,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                             )
                             setCliPickerOpen(false)
                           }}
-                          className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
+                          className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left interactive transition-colors ${
                             selected
                               ? 'bg-[#17181d] text-[#ececee]'
                               : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
@@ -2128,7 +2128,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 setSpawnDialog(null)
               }}
               aria-label="Close"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
             >
               <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -2155,7 +2155,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     )
                   }}
                   placeholder={spawnDialogDefaultName}
-                  className="h-10 w-full rounded-md bg-[#111216] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#5c7cff]/50"
+                  className="h-10 w-full rounded-md bg-[#111216] px-3 text-sm text-[#ececee] outline-none interactive transition-colors placeholder:text-[#5a5a63] hover:bg-[#17181d] focus:ring-1 focus:ring-[#5c7cff]/50"
                 />
               </label>
 
@@ -2168,7 +2168,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   onClick={() => setCliPickerOpen((open) => !open)}
                   aria-haspopup="listbox"
                   aria-expanded={cliPickerOpen}
-                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#303139]"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[#111216] px-3 text-left text-[#ececee] outline-none interactive transition-colors hover:bg-[#17181d] focus:ring-1 focus:ring-[#303139]"
                 >
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#9a9aa2]">
                     <CliIcon cli={selectedCliOption.value} className="h-5 w-5" />
@@ -2195,7 +2195,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 {cliPickerOpen ? (
                   <div
                     role="listbox"
-                    className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
+                    className="popover-enter absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
                   >
                     {cliOptions.map((option) => {
                       const selected = spawnDialog.cli === option.value
@@ -2211,7 +2211,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                             )
                             setCliPickerOpen(false)
                           }}
-                          className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
+                          className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left interactive transition-colors ${
                             selected
                               ? 'bg-[#17181d] text-[#ececee]'
                               : 'text-[#d7d7dc] hover:bg-[#17181d] hover:text-[#ececee]'
@@ -2290,7 +2290,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               type="button"
               onClick={() => setAddMemberOpen(false)}
               aria-label="Close"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
             >
               <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -2311,7 +2311,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     key={role}
                     onClick={() => setAddMemberRole(role)}
                     aria-pressed={selected}
-                    className={`w-full rounded-md border-l-2 px-3 py-3 text-left transition-colors ${
+                    className={`w-full rounded-md border-l-2 px-3 py-3 text-left interactive transition-colors ${
                       selected
                         ? 'border-l-[#5c7cff] bg-[#5c7cff]/8 text-[#ececee]'
                         : 'border-l-transparent text-[#d7d7dc] hover:bg-[#17181d]'
@@ -2497,7 +2497,7 @@ function SprintEngineInspectorPanel({
               type="button"
               onClick={onClose}
               aria-label="Close agent detail"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -2509,7 +2509,7 @@ function SprintEngineInspectorPanel({
               <button
                 type="button"
                 onClick={() => onOpenAgentTerminal(agent.id)}
-                className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] transition-colors hover:bg-[#111216] hover:text-[#ececee]"
+                className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] interactive transition-colors hover:bg-[#111216] hover:text-[#ececee]"
               >
                 Open Terminal
               </button>
@@ -2517,7 +2517,7 @@ function SprintEngineInspectorPanel({
               <button
                 type="button"
                 onClick={() => onSpawnAgent(agent.id)}
-                className="h-7 rounded border border-[#3a4d8a] bg-[#19204a] px-2.5 text-[11px] font-semibold text-[#d4ddff] transition-colors hover:bg-[#222b5c]"
+                className="h-7 rounded border border-[#3a4d8a] bg-[#19204a] px-2.5 text-[11px] font-semibold text-[#d4ddff] interactive transition-colors hover:bg-[#222b5c]"
               >
                 Spawn {sprintEngineRoleLabels[agent.role]}
               </button>
@@ -2534,7 +2534,7 @@ function SprintEngineInspectorPanel({
               <button
                 type="button"
                 onClick={() => onSelectTask(currentTask.id)}
-                className="block w-full rounded-md border border-[#1f2025] px-3 py-2 text-left transition-colors hover:border-[#303139] hover:bg-[#111216]"
+                className="block w-full rounded-md border border-[#1f2025] px-3 py-2 text-left interactive transition-colors hover:border-[#303139] hover:bg-[#111216]"
               >
                 <div className="font-mono text-[11px] text-[#f0d47a]">{currentTask.id}</div>
                 <div className="mt-1 truncate text-sm font-semibold text-[#ececee]">
@@ -2559,7 +2559,7 @@ function SprintEngineInspectorPanel({
                     <button
                       type="button"
                       onClick={() => onSelectTask(task.id)}
-                      className="block w-full px-1 py-2.5 text-left transition-colors hover:bg-[#111216]"
+                      className="block w-full px-1 py-2.5 text-left interactive transition-colors hover:bg-[#111216]"
                     >
                       <div className="flex items-center gap-2 text-[11px]">
                         <span className="font-mono text-[#f0d47a]">{task.id}</span>
@@ -2585,7 +2585,7 @@ function SprintEngineInspectorPanel({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
-              <span className="font-mono tabular-nums text-[12px] text-[#f0d47a]">{selectedTask.id}</span>
+              <span className="font-mono tabular-nums text-[12px] text-[#9a9aa2]">{selectedTask.id}</span>
               <span>·</span>
               <span className="flex items-center gap-1.5">
                 <SprintEngineTaskStatusIcon
@@ -2605,7 +2605,7 @@ function SprintEngineInspectorPanel({
             type="button"
             onClick={onClose}
             aria-label="Close task detail"
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -2618,7 +2618,7 @@ function SprintEngineInspectorPanel({
               type="button"
               disabled={taskReadyActions[selectedTask.id]?.status === 'pending'}
               onClick={() => void onMarkTaskReady(selectedTask)}
-              className="h-7 rounded border border-[#4a3812] bg-[#221a0b] px-2.5 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#2b210e] disabled:cursor-wait disabled:opacity-60"
+              className="h-7 rounded border border-[#4a3812] bg-[#221a0b] px-2.5 text-[11px] font-semibold text-[#f0d47a] interactive transition-colors hover:bg-[#2b210e] disabled:cursor-wait disabled:opacity-60"
             >
               Move To Ready
             </button>
@@ -2627,7 +2627,7 @@ function SprintEngineInspectorPanel({
             <button
               type="button"
               onClick={() => onOpenReadyTaskWorker(selectedTask)}
-              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] transition-colors hover:bg-[#111216] hover:text-[#ececee]"
+              className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] interactive transition-colors hover:bg-[#111216] hover:text-[#ececee]"
             >
               {selectedTask.ownerAgentId
                 ? selectedTaskOwnerCliRunning ? 'Open Terminal' : 'Respawn'
@@ -2668,7 +2668,7 @@ function SprintEngineInspectorPanel({
                 onClick={() => {
                   window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
                 }}
-                className="mt-2 rounded px-2 py-1 text-[11px] font-semibold text-[#f0d47a] transition-colors hover:bg-[#221a0b]"
+                className="mt-2 rounded px-2 py-1 text-[11px] font-semibold text-[#f0d47a] interactive transition-colors hover:bg-[#221a0b]"
               >
                 Open Issue
               </button>
@@ -3003,7 +3003,7 @@ function RosterCanvas({
   return (
     <div
       ref={containerRef}
-      className={`relative min-h-[360px] flex-1 overflow-hidden rounded-md border transition-colors ${
+      className={`relative min-h-[360px] flex-1 overflow-hidden rounded-md border interactive transition-colors ${
         isRoleDropTarget ? 'border-[#5c7cff]/55 bg-[#5c7cff]/4' : 'border-[#1f2025]'
       }`}
       style={{
@@ -3113,7 +3113,7 @@ function RosterCanvas({
           type="button"
           onClick={onZoomIn}
           aria-label="Zoom in"
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
         >
           <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M6 1.5V10.5M1.5 6H10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -3123,7 +3123,7 @@ function RosterCanvas({
           type="button"
           onClick={onZoomOut}
           aria-label="Zoom out"
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
         >
           <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M1.5 6H10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -3134,7 +3134,7 @@ function RosterCanvas({
           onClick={onResetView}
           aria-label="Reset view"
           title="Fit to agents"
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
         >
           <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M2 4.5V2.5C2 2.22 2.22 2 2.5 2H4.5M9.5 7.5V9.5C9.5 9.78 9.28 10 9 10H7M7 2H9C9.28 2 9.5 2.22 9.5 2.5V4.5M4.5 10H2.5C2.22 10 2 9.78 2 9.5V7.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -3230,7 +3230,7 @@ function SprintEngineProjectView({
                 if (canExpandGoal) setGoalExpanded((current) => !current)
               }}
               aria-expanded={goalExpanded}
-              className={`mt-2 block w-full max-w-3xl text-left text-sm leading-6 text-[#9a9aa2] transition-colors ${
+              className={`mt-2 block w-full max-w-3xl text-left text-sm leading-6 text-[#9a9aa2] interactive transition-colors ${
                 canExpandGoal ? 'cursor-pointer hover:text-[#d7d7dc]' : 'cursor-default'
               }`}
             >
@@ -3246,7 +3246,7 @@ function SprintEngineProjectView({
           </div>
           <button
             onClick={onReadPlan}
-            className="shrink-0 rounded-md border border-[#1f2025] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee]"
+            className="shrink-0 rounded-md border border-[#1f2025] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee]"
           >
             Read Plan
           </button>
@@ -3334,7 +3334,7 @@ function SprintEngineProjectView({
                   <button
                     key={task.id}
                     onClick={() => onSelectTask(task.id)}
-                    className="block w-full px-1 py-3 text-left transition-colors hover:bg-[#111216]"
+                    className="block w-full px-1 py-3 text-left interactive transition-colors hover:bg-[#111216]"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-[#ececee]">
@@ -3363,7 +3363,7 @@ function SprintEngineProjectView({
             </div>
             <button
               onClick={onAddMember}
-              className="rounded-md px-2.5 py-1 text-[12px] font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              className="rounded-md px-2.5 py-1 text-[12px] font-semibold text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
             >
               More Roles
             </button>
@@ -3387,7 +3387,7 @@ function SprintEngineProjectView({
                   }}
                   onClick={() => dispatchRoleSpawn(role)}
                   title={`${sprintEngineRoleLabels[role]} — ${subtitle}`}
-                  className={`flex items-center gap-2 rounded-md border bg-transparent px-2 py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 ${
+                  className={`flex items-center gap-2 rounded-md border bg-transparent px-2 py-1.5 text-left interactive transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 ${
                     existing
                       ? 'border-[#1f2025] hover:border-[#303139] hover:bg-[#111216]'
                       : 'border-dashed border-[#303139] hover:border-[#5c7cff]/45 hover:bg-[#111216]'
@@ -3745,7 +3745,7 @@ function SprintEngineTaskGraphView({
             type="button"
             onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'out'))}
             disabled={!canZoomOut}
-            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
             aria-label="Zoom out task graph"
             title="Zoom out"
           >
@@ -3761,7 +3761,7 @@ function SprintEngineTaskGraphView({
             type="button"
             onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'in'))}
             disabled={!canZoomIn}
-            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
             aria-label="Zoom in task graph"
             title="Zoom in"
           >
@@ -3771,7 +3771,7 @@ function SprintEngineTaskGraphView({
           <button
             type="button"
             onClick={fitGraphToViewport}
-            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
+            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
             aria-label="Fit task graph to viewport"
             title="Fit graph"
           >
@@ -3781,7 +3781,7 @@ function SprintEngineTaskGraphView({
             type="button"
             onClick={() => setGraphZoomFromAnchor(defaultTaskGraphZoom)}
             disabled={!canResetZoom}
-            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
             aria-label="Reset task graph zoom"
             title="Reset zoom"
           >
@@ -3999,7 +3999,7 @@ function SprintEngineTaskGraphView({
               type="button"
               onClick={() => setLegendOpen((open) => !open)}
               aria-expanded={legendOpen}
-              className="flex items-center gap-1.5 rounded-md border border-[#1f2025] bg-[#0d0e11]/92 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2] backdrop-blur transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
+              className="flex items-center gap-1.5 rounded-md border border-[#1f2025] bg-[#0d0e11]/92 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2] backdrop-blur interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
             >
               Legend
               <svg
@@ -4012,7 +4012,7 @@ function SprintEngineTaskGraphView({
               </svg>
             </button>
             {legendOpen ? (
-              <div className="mt-1 rounded-md border border-[#1f2025] bg-[#0d0e11]/94 p-3 text-[11px] backdrop-blur shadow-[0_18px_45px_rgba(0,0,0,0.32)]">
+              <div className="popover-enter mt-1 rounded-md border border-[#1f2025] bg-[#0d0e11]/94 p-3 text-[11px] backdrop-blur shadow-[0_18px_45px_rgba(0,0,0,0.32)]">
                 <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Status
                 </div>
@@ -4040,7 +4040,7 @@ function SprintEngineTaskGraphView({
               type="button"
               onClick={() => setMinimapOpen((open) => !open)}
               aria-expanded={minimapOpen}
-              className="flex items-center gap-1.5 rounded-md border border-[#1f2025] bg-[#0d0e11]/92 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2] backdrop-blur transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
+              className="flex items-center gap-1.5 rounded-md border border-[#1f2025] bg-[#0d0e11]/92 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2] backdrop-blur interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
             >
               Minimap
               <svg
@@ -4053,7 +4053,7 @@ function SprintEngineTaskGraphView({
               </svg>
             </button>
             {minimapOpen ? (
-              <div className="mt-1 rounded-md border border-[#1f2025] bg-[#0d0e11]/94 p-2 backdrop-blur shadow-[0_18px_45px_rgba(0,0,0,0.32)]">
+              <div className="popover-enter mt-1 rounded-md border border-[#1f2025] bg-[#0d0e11]/94 p-2 backdrop-blur shadow-[0_18px_45px_rgba(0,0,0,0.32)]">
                 <div
                   className="relative cursor-crosshair overflow-hidden rounded bg-[#08090b]"
                   style={{ width: minimapInnerWidth, height: minimapInnerHeight }}
@@ -4529,7 +4529,7 @@ function SprintEngineArtifactPreview({
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[12px] font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[12px] font-semibold text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
             aria-label="Back to task detail"
           >
             <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
@@ -4544,7 +4544,7 @@ function SprintEngineArtifactPreview({
         <button
           type="button"
           onClick={onPopOut}
-          className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
           title="Open in editor tab"
         >
           <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
@@ -4791,7 +4791,7 @@ function SprintEngineArtifactList({
                       type="button"
                       onClick={() => onSelectTask(artifact.taskId)}
                       disabled={!task}
-                      className="font-mono text-[#9a9aa2] transition-colors hover:text-[#ececee] disabled:text-[#5a5a63]"
+                      className="font-mono text-[#9a9aa2] interactive transition-colors hover:text-[#ececee] disabled:text-[#5a5a63]"
                     >
                       {artifact.taskId || 'No task'}
                     </button>
@@ -4828,7 +4828,7 @@ function SprintEngineArtifactList({
                     type="button"
                     onClick={() => onOpenArtifact(artifact)}
                     disabled={pending}
-                    className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
+                    className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
                   >
                     {pending && action?.kind === 'open' ? 'Opening...' : 'Open'}
                   </button>
@@ -4838,7 +4838,7 @@ function SprintEngineArtifactList({
                         type="button"
                         onClick={() => onApproveArtifact(artifact)}
                         disabled={pending}
-                        className="rounded-md bg-[#5c7cff]/14 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] transition-colors hover:bg-[#5c7cff]/20 disabled:opacity-45 disabled:hover:bg-[#5c7cff]/14"
+                        className="rounded-md bg-[#5c7cff]/14 px-3 py-1.5 text-sm font-semibold text-[#d4ddff] interactive transition-colors hover:bg-[#5c7cff]/20 disabled:opacity-45 disabled:hover:bg-[#5c7cff]/14"
                       >
                         {pending && action?.kind === 'approve' ? 'Approving...' : 'Approve'}
                       </button>
@@ -4846,7 +4846,7 @@ function SprintEngineArtifactList({
                         type="button"
                         onClick={() => onRequestArtifactChanges(artifact)}
                         disabled={pending}
-                        className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#ff1a3d]/10 hover:text-[#ffb3bf] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
+                        className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] interactive transition-colors hover:bg-[#ff1a3d]/10 hover:text-[#ffb3bf] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
                       >
                         {pending && action?.kind === 'requestChanges'
                           ? 'Requesting changes...'
