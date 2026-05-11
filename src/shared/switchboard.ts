@@ -17,7 +17,7 @@ export type SwitchboardTaskStatus = (typeof SWITCHBOARD_TASK_STATUSES)[number]
 export type SwitchboardFolderStatus = (typeof SWITCHBOARD_FOLDER_STATUSES)[number]
 
 export type SwitchboardAuthorType = 'user' | 'agent' | 'system'
-export type SwitchboardCommentKind = 'comment' | 'status_change' | 'claim' | 'evidence' | 'import'
+export type SwitchboardCommentKind = 'comment' | 'status_change' | 'claim' | 'evidence' | 'import' | 'triage'
 export type SwitchboardSourceType = 'manual' | 'watchtower' | 'github' | 'jira' | 'campaign' | 'sprintengine'
 
 export type SwitchboardAuthor = {

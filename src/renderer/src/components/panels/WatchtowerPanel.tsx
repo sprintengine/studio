@@ -7,16 +7,18 @@ import {
   type WatchtowerReviewPresetId,
 } from '../../utils/watchtowerReview'
 import { buildWatchtowerStartupPrompt } from '../../utils/watchtowerPrompt'
+import { buildWatchtowerTriagePrompt } from '../../utils/watchtowerTriagePrompt'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { prependAgentIdentifier } from '../../utils/agentPrompt'
 import type { AgentState, SpecialistActionId, WatchtowerReviewSectorId } from '../../types/workspace'
 import type {
+  SwitchboardComment,
   SwitchboardTaskRecord,
   SwitchboardImportResult,
   WatchtowerRun,
   WatchtowerRunAgent,
 } from '../../../../shared/switchboard'
-import { CommentIcon, PriorityIcon } from '../AppIcons'
+import { CommentIcon, PriorityIcon, SpecialistActionIcon } from '../AppIcons'
 import {
   formatRelativeTime,
   priorityLabel,
@@ -25,6 +27,7 @@ import {
   useSwitchboardData,
 } from '../../utils/switchboardBoard'
 import { filterInboxTasks } from '../../utils/watchtower'
+import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 
 const PANEL_BG = 'bg-[#08090b]'
 const SECTION_DIVIDER = 'border-t border-[#1f2025]'
@@ -114,6 +117,28 @@ type SelectedWatchtowerAgent = {
   sectors: WatchtowerReviewSectorId[]
   outputDirectory: string
   reportPath: string
+}
+
+type TriageImportance = 'critical' | 'high' | 'medium' | 'low' | null
+
+function latestTriageComment(record: SwitchboardTaskRecord): SwitchboardComment | null {
+  for (let index = record.task.comments.length - 1; index >= 0; index -= 1) {
+    const comment = record.task.comments[index]
+    if (comment.kind === 'triage') return comment
+  }
+  return null
+}
+
+function parseTriageImportance(comment: SwitchboardComment | null): TriageImportance {
+  if (!comment) return null
+  const match = comment.body.match(/^Importance:\s*(Critical|High|Medium|Low)\s*$/imu)
+  return match ? match[1].toLowerCase() as TriageImportance : null
+}
+
+function triageImportanceDotClass(importance: TriageImportance): string {
+  if (importance === 'critical') return 'bg-[#ff787c]'
+  if (importance === 'high') return 'bg-[#ffbf2f]'
+  return 'bg-[#6f7078]'
 }
 
 export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }) {
@@ -223,6 +248,27 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const handleRefreshAll = useCallback(async () => {
     await Promise.all([refresh(), refreshRuns()])
   }, [refresh, refreshRuns])
+
+  const handleOpenRunAgent = useCallback(async (agent: WatchtowerRunAgent) => {
+    const label = specialistShortLabel(agent)
+    const sessionId = workspace?.agents[agent.agentId]?.cliSessionId
+    if (!sessionId) {
+      showToast('info', `${label} does not have an attached terminal session.`)
+      return
+    }
+
+    const status = await window.api.terminalStatus(sessionId).catch(() => ({ running: false }))
+    if (!status.running) {
+      showToast('info', `${label} terminal is closed. Start a new review to run it again.`)
+      await refreshRuns()
+      return
+    }
+
+    const opened = focusOrAddAgentTab(workspaceId, agent.agentId, label)
+    if (!opened) {
+      showToast('error', 'Unable to open the agent terminal for this workspace.')
+    }
+  }, [refreshRuns, showToast, workspace?.agents, workspaceId])
 
   const selectedPreset = useMemo(
     () => WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0],
@@ -360,6 +406,135 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       setBusy(false)
     }
   }, [cliRuntimes, folderPath, preset, refreshRuns, selectedPreset.agents, showToast, switchboardRoot, updateAgent, workspaceId])
+
+  const handleStartTriage = useCallback(async (scope: 'all' | 'selected') => {
+    if (!folderPath) return
+    const scopedTasks = scope === 'selected' ? (selected ? [selected] : []) : inbox
+    if (scopedTasks.length === 0) {
+      showToast('info', scope === 'selected' ? 'Select an inbox task to triage.' : 'There are no inbox tasks to triage.')
+      return
+    }
+
+    setBusy(true)
+    try {
+      const runNonce = crypto.randomUUID().slice(0, 8)
+      const agentId = `watchtower-triage-${runNonce}-architect`
+      const runAgents: WatchtowerRunAgent[] = [{
+        agentId,
+        specialistId: 'architect',
+        status: 'running',
+        outputDir: `outputs/${agentId}`,
+        reportPath: `reports/${agentId}.md`,
+      }]
+      const created = await window.api.createWatchtowerRun({
+        workspaceRoot: folderPath,
+        preset: 'inbox_triage',
+        status: 'running',
+        agents: runAgents,
+      })
+      if (!created.ok) {
+        showToast('error', created.message)
+        return
+      }
+
+      const architect = getSpecialistAction('architect')
+      const prompt = buildWatchtowerTriagePrompt({
+        run: created.run,
+        workspaceRoot: folderPath,
+        tasks: scopedTasks,
+        scopeLabel: scope === 'selected' ? `selected inbox task ${scopedTasks[0].task.identifier}` : `${scopedTasks.length} inbox tasks`,
+      })
+      const sessionId = crypto.randomUUID()
+      const startupPrompt = prependAgentIdentifier(prompt, architect.shortLabel, architect.shortLabel)
+      const agentPatch: Partial<AgentState> = {
+        name: architect.shortLabel,
+        kind: 'watchtower',
+        specialistId: 'architect',
+        cli: 'codex',
+        cliPermissionPreset: 'bypass_all',
+        cliStartupPrompt: startupPrompt,
+        watchtowerRunId: created.run.runId,
+        cliStartRequested: true,
+        cliOnboardingPromptSent: false,
+        cliHasLaunched: false,
+        cliResumeAvailable: false,
+        cliSessionId: sessionId,
+      }
+      updateAgent(workspaceId, agentId, agentPatch)
+
+      const spawnResult = await window.api.terminalSpawn(
+        sessionId,
+        100,
+        30,
+        folderPath,
+        false,
+        undefined,
+        'codex',
+        startupPrompt,
+        cliRuntimes,
+        false,
+        {
+          kind: 'agent',
+          workspaceId,
+          agentId,
+          cliPermissionPreset: 'bypass_all',
+          watchtowerRunId: created.run.runId,
+          watchtowerWorkspaceRoot: folderPath,
+        }
+      ).catch((error): TerminalSpawnResult => ({
+        ok: false,
+        sessionId,
+        message: error instanceof Error ? error.message : 'Failed to start terminal.',
+        exitCode: 1,
+      }))
+
+      if (!spawnResult.ok) {
+        updateAgent(workspaceId, agentId, {
+          cliStartRequested: false,
+          cliHasLaunched: false,
+          cliOnboardingPromptSent: false,
+          cliResumeAvailable: false,
+        })
+        await window.api.updateWatchtowerRunAgentStatus({
+          workspaceRoot: folderPath,
+          runId: created.run.runId,
+          agentId,
+          status: 'failed',
+        }).catch(() => null)
+        showToast('error', `Architect was not started: ${spawnResult.message}`)
+        return
+      }
+
+      updateAgent(workspaceId, agentId, {
+        cliHasLaunched: true,
+        cliOnboardingPromptSent: true,
+        cliResumeAvailable: true,
+        cliStartupPrompt: undefined,
+      })
+      const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
+        updateAgent(workspaceId, agentId, {
+          cliStartRequested: false,
+          cliHasLaunched: false,
+          cliOnboardingPromptSent: false,
+        })
+        void window.api.updateWatchtowerRunAgentStatus({
+          workspaceRoot: folderPath,
+          runId: created.run.runId,
+          agentId,
+          status: code === 0 ? 'completed' : 'failed',
+        }).finally(() => {
+          void refreshRuns()
+          void refresh()
+        })
+      })
+      backgroundExitDisposers.current.push(disposeExit)
+      setSelectedRunId(created.run.runId)
+      await refreshRuns()
+      showToast('success', scope === 'selected' ? 'Architect triage started for this task.' : 'Architect inbox triage started.')
+    } finally {
+      setBusy(false)
+    }
+  }, [cliRuntimes, folderPath, inbox, refresh, refreshRuns, selected, showToast, updateAgent, workspaceId])
 
   const handleImportGitHub = useCallback(async () => {
     if (!folderPath) return
@@ -587,7 +762,10 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           selectedRun={selectedRun}
           selectedRunAgentCounts={selectedRunAgentCounts}
           onSelectRun={setSelectedRunId}
+          onOpenRunAgent={handleOpenRunAgent}
+          onStartTriage={() => void handleStartTriage('all')}
           onStartReview={handleStartReview}
+          triageDisabled={busy || inbox.length === 0}
           busy={busy}
         />
 
@@ -616,6 +794,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             <button
               type="button"
               onClick={() => void handleRefreshAll()}
+              disabled={busy}
               className="h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee]"
               aria-label="Refresh inbox"
             >
@@ -677,6 +856,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             onSaveEdit={handleEditSave}
             onPromote={handlePromote}
             onCancelTask={handleCancel}
+            onTriageTask={() => void handleStartTriage('selected')}
             commentBody={commentBody}
             onCommentChange={setCommentBody}
             onAddComment={handleAddComment}
@@ -756,7 +936,10 @@ function RunReviewSection({
   selectedRun,
   selectedRunAgentCounts,
   onSelectRun,
+  onOpenRunAgent,
+  onStartTriage,
   onStartReview,
+  triageDisabled,
   busy,
 }: {
   preset: WatchtowerReviewPresetId
@@ -765,7 +948,10 @@ function RunReviewSection({
   selectedRun: WatchtowerRun | null
   selectedRunAgentCounts: Map<string, number>
   onSelectRun: (runId: string) => void
+  onOpenRunAgent: (agent: WatchtowerRunAgent) => void | Promise<void>
+  onStartTriage: () => void
   onStartReview: () => void
+  triageDisabled: boolean
   busy: boolean
 }) {
   const selectedPreset = WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
@@ -777,14 +963,24 @@ function RunReviewSection({
           <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Run a review</div>
           <div className="mt-1 truncate text-[12px] text-[#c8c8cf]">{selectedPreset.description}</div>
         </div>
-        <button
-          type="button"
-          onClick={onStartReview}
-          disabled={busy || presetAgents.length === 0}
-          className="h-7 shrink-0 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] disabled:opacity-50"
-        >
-          Start
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onStartTriage}
+            disabled={triageDisabled}
+            className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+          >
+            Triage inbox
+          </button>
+          <button
+            type="button"
+            onClick={onStartReview}
+            disabled={busy || presetAgents.length === 0}
+            className="h-7 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] disabled:opacity-50"
+          >
+            Start
+          </button>
+        </div>
       </div>
       <div className="mt-3 grid gap-2">
         <select
@@ -841,12 +1037,18 @@ function RunReviewSection({
               return (
                 <li
                   key={agent.agentId}
-                  className="flex min-w-0 items-center justify-between gap-2 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5"
                 >
-                  <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
-                  <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] ${PILL_TONE_CLASSES[pill.tone]}`}>
-                    {pill.label}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void onOpenRunAgent(agent)}
+                    className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5 text-left hover:border-[#303139] hover:bg-[#111216] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/45"
+                    title={`Open ${specialistShortLabel(agent)} terminal`}
+                  >
+                    <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
+                    <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] ${PILL_TONE_CLASSES[pill.tone]}`}>
+                      {pill.label}
+                    </span>
+                  </button>
                 </li>
               )
             })}
@@ -961,6 +1163,8 @@ function InboxRow({
   const task = record.task
   const commentCount = task.comments.length
   const labels = task.labels.slice(0, 2)
+  const triageComment = latestTriageComment(record)
+  const triageImportance = parseTriageImportance(triageComment)
   const provenanceLabel = attribution
     ? `review · ${specialistShortLabel(attribution.agent)}`
     : record.task.source.type !== 'manual'
@@ -1009,6 +1213,12 @@ function InboxRow({
                 <span className="tabular-nums">{commentCount}</span>
               </span>
             ) : null}
+            {triageComment ? (
+              <span className="flex shrink-0 items-center gap-1 rounded border border-[#2a2b31] bg-[#0d0e11] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[#9a9aa2]">
+                <span className={`h-1.5 w-1.5 rounded-full ${triageImportanceDotClass(triageImportance)}`} aria-hidden="true" />
+                Triaged
+              </span>
+            ) : null}
             <span className={`shrink-0 tabular-nums ${commentCount > 0 ? '' : 'ml-auto'}`}>
               {formatRelativeTime(task.createdAt)}
             </span>
@@ -1041,6 +1251,7 @@ function DetailPane({
   onSaveEdit,
   onPromote,
   onCancelTask,
+  onTriageTask,
   commentBody,
   onCommentChange,
   onAddComment,
@@ -1055,12 +1266,15 @@ function DetailPane({
   onSaveEdit: () => void
   onPromote: () => void
   onCancelTask: () => void
+  onTriageTask: () => void
   commentBody: string
   onCommentChange: (next: string) => void
   onAddComment: () => void
   busy: boolean
 }) {
   const task = record.task
+  const triageComment = latestTriageComment(record)
+  const triageImportance = parseTriageImportance(triageComment)
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#1f2025] px-5 py-4">
@@ -1119,6 +1333,14 @@ function DetailPane({
                 className="h-7 rounded border border-[#3a2222] px-2.5 text-[11px] font-medium text-[#ffb3b5] hover:bg-[#1c1414] disabled:opacity-50"
               >
                 Cancel task
+              </button>
+              <button
+                type="button"
+                onClick={onTriageTask}
+                disabled={busy}
+                className="h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
+              >
+                Triage task
               </button>
               <button
                 type="button"
@@ -1202,6 +1424,23 @@ function DetailPane({
         <PropertyRow label="Created">
           <span className="text-[12px] text-[#9a9aa2]">{task.createdAt}</span>
         </PropertyRow>
+
+        {triageComment ? (
+          <div className="mt-4 rounded border border-[#2a2b31] bg-[#0d0e11] px-3 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#d7d7dc]">
+                <SpecialistActionIcon icon="architecture" className="h-3.5 w-3.5 text-[#9a9aa2]" />
+                Architect triage
+              </span>
+              <span className="flex items-center gap-1 rounded border border-[#2a2b31] bg-[#111216] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[#9a9aa2]">
+                <span className={`h-1.5 w-1.5 rounded-full ${triageImportanceDotClass(triageImportance)}`} aria-hidden="true" />
+                {triageImportance ?? 'triaged'}
+              </span>
+              <span className="ml-auto text-[11px] tabular-nums text-[#6f7078]">{formatRelativeTime(triageComment.createdAt)}</span>
+            </div>
+            <pre className="mt-2 whitespace-pre-wrap font-sans text-[13px] leading-6 text-[#d7d7dc]">{triageComment.body}</pre>
+          </div>
+        ) : null}
 
         <div className={`mt-4 ${SECTION_DIVIDER} pt-4`}>
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Description</div>

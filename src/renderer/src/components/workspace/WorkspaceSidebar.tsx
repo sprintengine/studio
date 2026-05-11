@@ -4,6 +4,7 @@ import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/M
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   HighlightColor,
+  LayoutTemplate,
   Workspace,
   WorkspaceId,
 } from '../../types/workspace'
@@ -13,6 +14,20 @@ import {
   hasHighlightOverride,
   isStarred,
 } from '../../utils/highlight'
+import {
+  addTabAsNewColumn,
+  appendTabAsNewColumnInJson,
+  buildSingleTabLayoutModel,
+  extractTabSpec,
+  getModel,
+  removeTab,
+  type CrossWorkspaceTabSpec,
+} from '../../utils/modelRegistry'
+import {
+  dataTransferHasTabDrag,
+  readTabDragPayload,
+  type TabDragPayload,
+} from '../../utils/tabDragPayload'
 
 type Activity = 'running' | 'needs-input' | 'idle'
 
@@ -254,6 +269,11 @@ export default function WorkspaceSidebar({
   const reorderWorkspaces = useWorkspaceStore((s) => s.reorderWorkspaces)
   const setWorkspaceHighlight = useWorkspaceStore((s) => s.setWorkspaceHighlight)
   const clearWorkspaceHighlight = useWorkspaceStore((s) => s.clearWorkspaceHighlight)
+  const addWorkspaceFromStore = useWorkspaceStore((s) => s.addWorkspace)
+  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
+  const updateLayout = useWorkspaceStore((s) => s.updateLayout)
+  const moveAgentToWorkspace = useWorkspaceStore((s) => s.moveAgentToWorkspace)
+  const moveOpenFileToWorkspace = useWorkspaceStore((s) => s.moveOpenFileToWorkspace)
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   const [starredCollapsed, setStarredCollapsed] = useState(false)
@@ -275,6 +295,11 @@ export default function WorkspaceSidebar({
   const [dropIndicator, setDropIndicator] = useState<
     | { kind: 'workspace'; targetId: WorkspaceId; position: 'before' | 'after' }
     | { kind: 'folder'; targetKey: string; position: 'before' | 'after' }
+    | null
+  >(null)
+  const [tabDropTarget, setTabDropTarget] = useState<
+    | { kind: 'new' }
+    | { kind: 'workspace'; id: WorkspaceId }
     | null
   >(null)
 
@@ -448,7 +473,140 @@ export default function WorkspaceSidebar({
   const handleDragEnd = () => {
     dragRef.current = null
     setDropIndicator(null)
+    setTabDropTarget(null)
   }
+
+  const migrateTabSideEffects = useCallback(
+    (payload: TabDragPayload, destWorkspaceId: WorkspaceId) => {
+      if (payload.sourceWorkspaceId === destWorkspaceId) return
+      if (payload.component === 'agent') {
+        const agentId =
+          payload.config && typeof payload.config.agentId === 'string'
+            ? payload.config.agentId
+            : null
+        if (agentId) {
+          moveAgentToWorkspace(payload.sourceWorkspaceId, destWorkspaceId, agentId)
+        }
+        return
+      }
+      if (payload.component === 'file-editor') {
+        const filePath =
+          payload.config && typeof payload.config.filePath === 'string'
+            ? payload.config.filePath
+            : null
+        if (filePath) {
+          moveOpenFileToWorkspace(payload.sourceWorkspaceId, destWorkspaceId, filePath)
+        }
+      }
+    },
+    [moveAgentToWorkspace, moveOpenFileToWorkspace]
+  )
+
+  const handleTabDragOverNew = useCallback((event: React.DragEvent) => {
+    if (!dataTransferHasTabDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setTabDropTarget({ kind: 'new' })
+  }, [])
+
+  const handleTabDragLeaveNew = useCallback(() => {
+    setTabDropTarget((current) => (current?.kind === 'new' ? null : current))
+  }, [])
+
+  const handleTabDropOnNew = useCallback(
+    (event: React.DragEvent) => {
+      const payload = readTabDragPayload(event.dataTransfer)
+      setTabDropTarget(null)
+      if (!payload) return
+      event.preventDefault()
+      event.stopPropagation()
+
+      // Prefer the live-model spec (has the most up-to-date className/config)
+      // and fall back to the drag payload if the source model has been
+      // unmounted between drag start and drop.
+      const liveSpec =
+        extractTabSpec(payload.sourceWorkspaceId, payload.tabId) ?? null
+      const spec: CrossWorkspaceTabSpec = liveSpec ?? {
+        component: payload.component,
+        name: payload.name,
+        config: payload.config,
+        className: payload.className,
+      }
+
+      const sourceWorkspace = workspaceById.get(payload.sourceWorkspaceId) ?? null
+      const inheritedFolderPath = sourceWorkspace?.folderPath ?? null
+
+      const syntheticTemplate: LayoutTemplate = {
+        id: `extracted-tab-${Date.now()}`,
+        name: payload.name || 'Workspace',
+        description: '',
+        previewSlots: [],
+        layout: buildSingleTabLayoutModel(spec),
+      }
+
+      const newWorkspaceId = addWorkspaceFromStore(syntheticTemplate, {
+        name: payload.name || undefined,
+        folderPath: inheritedFolderPath,
+      })
+
+      migrateTabSideEffects(payload, newWorkspaceId)
+      removeTab(payload.sourceWorkspaceId, payload.tabId)
+    },
+    [addWorkspaceFromStore, migrateTabSideEffects, workspaceById]
+  )
+
+  const handleTabDragOverRow = useCallback(
+    (event: React.DragEvent, workspace: Workspace) => {
+      if (!dataTransferHasTabDrag(event.dataTransfer)) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      setTabDropTarget({ kind: 'workspace', id: workspace.id })
+    },
+    []
+  )
+
+  const handleTabDragLeaveRow = useCallback((workspaceId: WorkspaceId) => {
+    setTabDropTarget((current) =>
+      current?.kind === 'workspace' && current.id === workspaceId ? null : current
+    )
+  }, [])
+
+  const handleTabDropOnRow = useCallback(
+    (event: React.DragEvent, workspace: Workspace) => {
+      const payload = readTabDragPayload(event.dataTransfer)
+      setTabDropTarget(null)
+      if (!payload) return
+      event.preventDefault()
+      event.stopPropagation()
+
+      // No-op if dropped on the source workspace itself.
+      if (payload.sourceWorkspaceId === workspace.id) return
+
+      const liveSpec =
+        extractTabSpec(payload.sourceWorkspaceId, payload.tabId) ?? null
+      const spec: CrossWorkspaceTabSpec = liveSpec ?? {
+        component: payload.component,
+        name: payload.name,
+        config: payload.config,
+        className: payload.className,
+      }
+
+      const destinationModel = getModel(workspace.id)
+      if (destinationModel) {
+        addTabAsNewColumn(workspace.id, spec)
+      } else {
+        // Destination is unmounted; mutate persisted JSON so the new tab is
+        // present when the layout next mounts.
+        const nextLayout = appendTabAsNewColumnInJson(workspace.layoutModel, spec)
+        updateLayout(workspace.id, nextLayout)
+      }
+
+      migrateTabSideEffects(payload, workspace.id)
+      removeTab(payload.sourceWorkspaceId, payload.tabId)
+      setActiveWorkspace(workspace.id)
+    },
+    [migrateTabSideEffects, setActiveWorkspace, updateLayout]
+  )
 
   const renderWorkspaceRow = (workspace: Workspace, fKey: string, options?: { keyPrefix?: string }) => {
     const active = workspace.id === activeWorkspaceId
@@ -462,14 +620,29 @@ export default function WorkspaceSidebar({
       dropIndicator?.kind === 'workspace' && dropIndicator.targetId === workspace.id
         ? dropIndicator.position
         : null
+    const isTabDropTarget =
+      tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id
 
     return (
       <div
         key={`${options?.keyPrefix ?? ''}${workspace.id}`}
         draggable={!renamingId}
         onDragStart={(event) => handleRowDragStart(event, workspace, fKey)}
-        onDragOver={(event) => handleRowDragOver(event, workspace, fKey)}
-        onDrop={(event) => handleRowDrop(event, workspace, fKey)}
+        onDragOver={(event) => {
+          if (dataTransferHasTabDrag(event.dataTransfer)) {
+            handleTabDragOverRow(event, workspace)
+            return
+          }
+          handleRowDragOver(event, workspace, fKey)
+        }}
+        onDragLeave={() => handleTabDragLeaveRow(workspace.id)}
+        onDrop={(event) => {
+          if (dataTransferHasTabDrag(event.dataTransfer)) {
+            handleTabDropOnRow(event, workspace)
+            return
+          }
+          handleRowDrop(event, workspace, fKey)
+        }}
         onDragEnd={handleDragEnd}
         onClick={() => {
           if (renamingId) return
@@ -511,6 +684,12 @@ export default function WorkspaceSidebar({
         ) : null}
         {dropMark === 'after' ? (
           <span aria-hidden="true" className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[#5c7cff]" />
+        ) : null}
+        {isTabDropTarget ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 rounded-md ring-2 ring-[#5c7cff] ring-offset-0"
+          />
         ) : null}
 
         <span
@@ -681,16 +860,23 @@ export default function WorkspaceSidebar({
       <button
         type="button"
         onClick={onNewWorkspace}
-        className={`mt-2 inline-flex h-[30px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-dashed border-[#2a2b31] text-[12px] font-medium text-[#9a9aa2] transition-colors hover:border-[#3a3d49] hover:bg-[#15161a] hover:text-[#d7d7dc] ${
-          sidebarCollapsed ? 'mx-1.5' : 'mx-2'
-        }`}
-        title="New workspace (Ctrl+T)"
+        onDragOver={handleTabDragOverNew}
+        onDragLeave={handleTabDragLeaveNew}
+        onDrop={handleTabDropOnNew}
+        className={`mt-2 inline-flex h-[30px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-dashed text-[12px] font-medium transition-colors ${
+          tabDropTarget?.kind === 'new'
+            ? 'border-[#5c7cff] bg-[#15161a] text-[#ececee]'
+            : 'border-[#2a2b31] text-[#9a9aa2] hover:border-[#3a3d49] hover:bg-[#15161a] hover:text-[#d7d7dc]'
+        } ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}
+        title="New workspace (Ctrl+T) — drop a tab here to extract it"
         aria-label="New workspace"
       >
         <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
           <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
-        {!sidebarCollapsed && <span>New workspace</span>}
+        {!sidebarCollapsed && (
+          <span>{tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New workspace'}</span>
+        )}
       </button>
 
       {/* Tree */}

@@ -14,6 +14,7 @@ import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentState, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
+import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { sprintEngineRoleAccent } from '../../utils/sprintengine'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
@@ -573,9 +574,31 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       }
 
       const canRenameTab = node.getComponent() !== 'file-editor'
+      const canDragOut = node.isEnableClose()
+      const handleTabDragStart = canDragOut
+        ? (event: React.DragEvent<HTMLSpanElement>) => {
+            const rawConfig = node.getConfig()
+            const payload = serializeTabDragPayload({
+              sourceWorkspaceId: workspaceId,
+              tabId: node.getId(),
+              component: node.getComponent() ?? '',
+              name: node.getName(),
+              config:
+                rawConfig && typeof rawConfig === 'object'
+                  ? (rawConfig as Record<string, unknown>)
+                  : null,
+              className: node.getClassName() ?? null,
+            })
+            event.dataTransfer.effectAllowed = 'move'
+            event.dataTransfer.setData(TAB_DRAG_MIME, payload)
+            event.dataTransfer.setData('text/plain', node.getName())
+          }
+        : undefined
       const tabContent = (
         <span
           className="min-w-0 truncate"
+          draggable={canDragOut}
+          onDragStart={handleTabDragStart}
           onContextMenu={(event) => void showTabContextMenu(event, node)}
           onDoubleClick={canRenameTab ? (event) => startRename(event, node) : undefined}
         >
@@ -709,7 +732,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.content = tabContent
       }
     },
-    [commitRename, renameValue, renamingTabId, showTabContextMenu, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.sprintEngineState]
+    [commitRename, renameValue, renamingTabId, showTabContextMenu, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.sprintEngineState, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

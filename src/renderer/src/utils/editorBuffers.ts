@@ -57,6 +57,21 @@ export function remapEditorBuffers(workspaceId: string, fromPath: string, toPath
   }
 }
 
+export function moveEditorBuffer(
+  sourceWorkspaceId: string,
+  destWorkspaceId: string,
+  path: string
+): void {
+  if (sourceWorkspaceId === destWorkspaceId) return
+  const sourceKey = bufferKey(sourceWorkspaceId, path)
+  if (!buffers.has(sourceKey)) return
+  const content = buffers.get(sourceKey) ?? ''
+  buffers.delete(sourceKey)
+  buffers.set(bufferKey(destWorkspaceId, path), content)
+  emit(sourceWorkspaceId, path)
+  emit(destWorkspaceId, path)
+}
+
 export function removeEditorBuffersForPath(workspaceId: string, path: string): void {
   for (const key of [...buffers.keys()]) {
     const [bufferWorkspaceId, bufferPath] = key.split('\u0000')

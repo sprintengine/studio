@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import MemoryPreviewModal from '../memory/MemoryPreviewModal'
+import MemoryPreviewPane from '../memory/MemoryPreviewPane'
 import MemoryGraphCanvas, {
   MemoryGraphCanvasHandle,
 } from '../memory/MemoryGraphCanvas'
@@ -323,7 +323,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       </div>
 
       {selectedNode ? (
-        <MemoryPreviewModal
+        <MemoryPreviewPane
           workspaceId={workspaceId}
           node={selectedNode}
           preview={preview}

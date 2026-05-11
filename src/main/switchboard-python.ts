@@ -372,6 +372,9 @@ export async function cancelSwitchboardTask(input: SwitchboardCancelTaskInput): 
 export async function addSwitchboardComment(input: SwitchboardAddCommentInput): Promise<SwitchboardMutationResult> {
   const args = ['comment', ...workspaceArgs(input.workspaceRoot), input.id, '--body', input.body]
   if (input.author?.name) args.push('--author', input.author.name)
+  if (input.author?.type) args.push('--author-type', input.author.type)
+  if (input.author?.id) args.push('--author-id', input.author.id)
+  if (input.kind) args.push('--kind', input.kind)
   const result = await runSwitchboardCore(args)
   return mutationResult(result, 'Unable to add Switchboard comment.')
 }

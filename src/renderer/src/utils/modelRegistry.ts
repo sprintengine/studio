@@ -554,3 +554,123 @@ export function focusOrAddEditorBesideExplorer(workspaceId: string): boolean {
   )
   return true
 }
+
+export type CrossWorkspaceTabSpec = {
+  component: string
+  name: string
+  config: Record<string, unknown> | null
+  className: string | null
+}
+
+export function extractTabSpec(
+  workspaceId: string,
+  tabId: string
+): CrossWorkspaceTabSpec | null {
+  const model = models.get(workspaceId)
+  if (!model) return null
+  const node = model.getNodeById(tabId)
+  if (!(node instanceof TabNode)) return null
+
+  const rawConfig = node.getConfig()
+  return {
+    component: node.getComponent() ?? '',
+    name: node.getName(),
+    config:
+      rawConfig && typeof rawConfig === 'object'
+        ? (rawConfig as Record<string, unknown>)
+        : null,
+    className: node.getClassName() ?? null,
+  }
+}
+
+export function removeTab(workspaceId: string, tabId: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  const node = model.getNodeById(tabId)
+  if (!(node instanceof TabNode)) return false
+  model.doAction(Actions.deleteTab(tabId))
+  return true
+}
+
+function buildTabJson(spec: CrossWorkspaceTabSpec): Record<string, unknown> {
+  const tabJson: Record<string, unknown> = {
+    type: 'tab',
+    name: spec.name,
+    component: spec.component,
+  }
+  if (spec.config) tabJson.config = spec.config
+  if (spec.className) tabJson.className = spec.className
+  return tabJson
+}
+
+// Adds a tab as a new tabset docked on the right edge of the workspace's root,
+// producing a side-by-side tile. Used for cross-workspace tab moves where the
+// caller has chosen "tile, don't stack" semantics.
+export function addTabAsNewColumn(
+  workspaceId: string,
+  spec: CrossWorkspaceTabSpec
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  model.doAction(
+    Actions.addNode(
+      buildTabJson(spec) as Parameters<typeof Actions.addNode>[0],
+      model.getRoot().getId(),
+      DockLocation.RIGHT,
+      -1,
+      true
+    )
+  )
+  return true
+}
+
+// Mutates a persisted IJsonModel to append a new tabset (containing the given
+// tab) as a sibling of the existing root layout, producing a side-by-side
+// tile. Used when the destination workspace's live flexlayout Model is not
+// mounted (so we cannot dispatch addNode); the next mount will pick up the
+// new tab from this JSON.
+export function appendTabAsNewColumnInJson(
+  layoutModel: IJsonModel,
+  spec: CrossWorkspaceTabSpec
+): IJsonModel {
+  const tabJson = buildTabJson(spec)
+  const root = layoutModel.layout
+  const newTabset = { type: 'tabset', weight: 50, children: [tabJson] }
+
+  if (root && root.type === 'row') {
+    const existingChildren = Array.isArray(root.children) ? root.children : []
+    return {
+      ...layoutModel,
+      layout: {
+        ...root,
+        children: [...existingChildren, newTabset],
+      } as IJsonModel['layout'],
+    }
+  }
+
+  return {
+    ...layoutModel,
+    layout: {
+      type: 'row',
+      children: [root, newTabset],
+    } as IJsonModel['layout'],
+  }
+}
+
+export function buildSingleTabLayoutModel(spec: CrossWorkspaceTabSpec): IJsonModel {
+  return {
+    global: { tabSetEnableDrop: true, tabEnableClose: true },
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          weight: 100,
+          children: [buildTabJson(spec)],
+        },
+      ],
+    } as IJsonModel['layout'],
+  }
+}

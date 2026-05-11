@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useFlipReorder } from '../../utils/flipReorder'
+import { Modal, ModalBody, ModalButton, ModalFooter } from '../ui/Modal'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type {
   AgentCli,
@@ -626,6 +627,20 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     const handle = window.setTimeout(() => setRecentlyMovedTaskIds(new Set()), 700)
     return () => window.clearTimeout(handle)
   }, [recentlyMovedTaskIds])
+
+  // Close the docked task-detail inspector with Escape from non-kanban views.
+  // Kanban view has its own Escape handler scoped to the board grid.
+  useEffect(() => {
+    if (!selectedTaskId || effectiveView === 'kanban') return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (isEditableTarget(event.target)) return
+      event.preventDefault()
+      setSelectedTaskId(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedTaskId, effectiveView])
 
   const handleKanbanKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -2116,32 +2131,44 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       ) : null}
 
       {recoveryDialog ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
-          <div className="w-full max-w-[520px] overflow-hidden rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-              <div className="min-w-0">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Verify Progress
-                </div>
-                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  Architect Audit
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                  The Architect will back up state.yaml, check each task in order, and update task status through the sprintengine Python tool.
-                </p>
+        <Modal
+          open
+          contained
+          width={520}
+          labelledBy="recovery-dialog-title"
+          onClose={() => {
+            setCliPickerOpen(false)
+            setRecoveryDialog(null)
+          }}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
+            <div className="min-w-0">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Verify Progress
               </div>
-              <button
-                onClick={() => {
-                  setCliPickerOpen(false)
-                  setRecoveryDialog(null)
-                }}
-                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Close
-              </button>
+              <h3 id="recovery-dialog-title" className="truncate text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
+                Architect Audit
+              </h3>
+              <p className="mt-2 text-[13px] leading-6 text-[#9a9aa2]">
+                The Architect will back up state.yaml, check each task in order, and update task status through the sprintengine Python tool.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCliPickerOpen(false)
+                setRecoveryDialog(null)
+              }}
+              aria-label="Close"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
 
-            <div className="space-y-4 px-5 py-5">
+          <ModalBody className="space-y-4">
               <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
                 <MetaItem label="Tasks" value={`${sprintEngineState.tasks.length} to check`} />
                 <MetaItem label="Backup" value="state-timestamp.yaml" />
@@ -2235,57 +2262,68 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               <p className="border-l border-[#303139] pl-3 text-sm leading-6 text-[#9a9aa2]">
                 The Architect runs the audit in a terminal and writes updates to the watched state file.
               </p>
-            </div>
+          </ModalBody>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
-              <button
-                onClick={() => {
-                  setCliPickerOpen(false)
-                  setRecoveryDialog(null)
-                }}
-                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmRecoveryAudit}
-                disabled={!folderPath || !architectAgentId}
-                className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
-              >
-                Start Audit
-              </button>
-            </div>
-          </div>
-        </div>
+          <ModalFooter>
+            <ModalButton
+              onClick={() => {
+                setCliPickerOpen(false)
+                setRecoveryDialog(null)
+              }}
+            >
+              Cancel
+            </ModalButton>
+            <ModalButton
+              variant="primary"
+              accent="gold"
+              onClick={confirmRecoveryAudit}
+              disabled={!folderPath || !architectAgentId}
+            >
+              Start Audit
+            </ModalButton>
+          </ModalFooter>
+        </Modal>
       ) : null}
 
       {spawnDialog && spawnDialogAgent ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
-          <div className="w-full max-w-[520px] overflow-hidden rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-              <div className="min-w-0">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Spawn Agent
-                </div>
-                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  {spawnDialogDisplayName}
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                  Choose the CLI and optional identifier for this specialist.
-                </p>
+        <Modal
+          open
+          contained
+          width={520}
+          labelledBy="spawn-dialog-title"
+          onClose={() => {
+            setCliPickerOpen(false)
+            setSpawnDialog(null)
+          }}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
+            <div className="min-w-0">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Spawn Agent
               </div>
-              <button
-                onClick={() => {
-                  setCliPickerOpen(false)
-                  setSpawnDialog(null)
-                }}
-                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Close
-              </button>
+              <h3 id="spawn-dialog-title" className="truncate text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
+                {spawnDialogDisplayName}
+              </h3>
+              <p className="mt-2 text-[13px] leading-6 text-[#9a9aa2]">
+                Choose the CLI and optional identifier for this specialist.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCliPickerOpen(false)
+                setSpawnDialog(null)
+              }}
+              aria-label="Close"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
 
-            <div className="space-y-4 px-5 py-5">
+          <ModalBody className="space-y-4">
               <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
                 <MetaItem label="Role" value={sprintEngineRoleLabels[spawnDialogAgent.role]} />
                 <MetaItem label="Status" value={runtimeStatusLabel(spawnDialogRuntime?.status ?? 'idle')} />
@@ -2399,58 +2437,58 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   <span className="text-[#5a5a63]"> A terminal already exists, so this will focus it unless you changed the CLI.</span>
                 ) : null}
               </p>
-            </div>
+          </ModalBody>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
-              <button
-                onClick={() => {
-                  setCliPickerOpen(false)
-                  setSpawnDialog(null)
-                }}
-                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmSpawnDialog}
-                className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff]"
-              >
-                {spawnDialogIsRunning ? 'Open Terminal' : 'Spawn'}
-              </button>
-            </div>
-          </div>
-        </div>
+          <ModalFooter>
+            <ModalButton
+              onClick={() => {
+                setCliPickerOpen(false)
+                setSpawnDialog(null)
+              }}
+            >
+              Cancel
+            </ModalButton>
+            <ModalButton variant="primary" accent="gold" onClick={confirmSpawnDialog}>
+              {spawnDialogIsRunning ? 'Open Terminal' : 'Spawn'}
+            </ModalButton>
+          </ModalFooter>
+        </Modal>
       ) : null}
 
       {selectedTask && effectiveView !== 'kanban' ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
-          <div className="max-h-[90vh] w-full max-w-[920px] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
+        <aside
+          role="complementary"
+          aria-label="Task detail"
+          className="absolute inset-y-0 right-0 z-20 flex w-[min(560px,90%)] flex-col border-l border-[#1f2025] bg-[#0d0e11] shadow-[-16px_0_40px_rgba(0,0,0,0.45)]"
+        >
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
               <div className="min-w-0">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
                   Task Detail
                 </div>
-                <h3 className="text-[20px] font-semibold leading-7 tracking-tight text-[#ececee]">
+                <h3 className="text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
                   {selectedTask.title}
                 </h3>
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#5a5a63]">
-                  <span className="font-mono">{selectedTask.id}</span>
+                  <span className="font-mono tabular-nums">{selectedTask.id}</span>
                   <span>{sprintEngineRoleLabels[selectedTask.role]}</span>
                   <span className="font-semibold text-[#d7d7dc]">{selectedTaskStatusLabel}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setSelectedTaskId(null)}
-                  className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-                >
-                  Close
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedTaskId(null)}
+                aria-label="Close task detail"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
             </div>
 
-            <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
-              <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 md:grid-cols-4">
+            <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
+              <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 sm:grid-cols-2">
                 <MetaItem label="Source" value={formatTaskSourceLabel(selectedTask)} />
                 <MetaItem label="Status" value={selectedTaskStatusLabel} />
                 <MetaItem label="Owner" value={selectedTaskOwnerLabel} />
@@ -2680,35 +2718,43 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 emptyLabel="No touched files recorded."
               />
             </div>
-          </div>
-        </div>
+        </aside>
       ) : null}
 
       {showRunSummary ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
-          <div className="max-h-[90vh] w-full max-w-[980px] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-              <div>
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Run Summary
-                </div>
-                <h3 className="text-[14px] font-semibold tracking-tight text-[#ececee]">
-                  {formatSprintEngineGoal(sprintEngineState.goal)}
-                </h3>
-                <p className="mt-2 text-sm text-[#9a9aa2]">
-                  Final evidence collected from completed sprintengine task cards.
-                </p>
+        <Modal
+          open
+          contained
+          width={980}
+          labelledBy="run-summary-dialog-title"
+          onClose={() => setShowRunSummary(false)}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Run Summary
               </div>
-              <button
-                onClick={() => setShowRunSummary(false)}
-                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Close
-              </button>
+              <h3 id="run-summary-dialog-title" className="text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
+                {formatSprintEngineGoal(sprintEngineState.goal)}
+              </h3>
+              <p className="mt-2 text-[13px] leading-6 text-[#9a9aa2]">
+                Final evidence collected from completed sprintengine task cards.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowRunSummary(false)}
+              aria-label="Close"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
 
-            <div className="space-y-5 px-5 py-5 text-[13px] leading-6 text-[#d7d7dc]">
-              <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 md:grid-cols-4">
+          <ModalBody className="space-y-5 text-[13px] leading-6 text-[#d7d7dc]">
+              <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 sm:grid-cols-2 md:grid-cols-4">
                 <MetaItem label="Tasks Done" value={`${runSummary.completedTasks}/${runSummary.totalTasks}`} />
                 <MetaItem label="Files Touched" value={String(runSummary.touchedFiles.length)} />
                 <MetaItem label="Commands" value={String(runSummary.commandsRan.length)} />
@@ -2759,32 +2805,44 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               <div className="border-l border-[#ffbf2f]/70 pl-3 text-sm text-[#ffe0a3]">
                 Next step: manually test the uncommitted changes in the workspace before committing or reverting.
               </div>
-            </div>
-          </div>
-        </div>
+          </ModalBody>
+
+          <ModalFooter>
+            <ModalButton onClick={() => setShowRunSummary(false)}>Close</ModalButton>
+          </ModalFooter>
+        </Modal>
       ) : null}
 
       {addMemberOpen ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
-          <div className="max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
-            <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-              <div>
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  SprintEngine Roster
-                </div>
-                <h3 className="text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  {sprintEngineState.rosterConfigured ? 'Add Roster Member' : 'Spawn Team Member'}
-                </h3>
+        <Modal
+          open
+          contained
+          width={760}
+          labelledBy="add-member-dialog-title"
+          onClose={() => setAddMemberOpen(false)}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
+            <div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                SprintEngine Roster
               </div>
-              <button
-                onClick={() => setAddMemberOpen(false)}
-                className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Close
-              </button>
+              <h3 id="add-member-dialog-title" className="text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
+                {sprintEngineState.rosterConfigured ? 'Add Roster Member' : 'Spawn Team Member'}
+              </h3>
             </div>
+            <button
+              type="button"
+              onClick={() => setAddMemberOpen(false)}
+              aria-label="Close"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
 
-            <div className="space-y-1 px-5 py-5">
+          <ModalBody className="space-y-1">
               {addableRoles.map((role) => {
                 const selected = role === addMemberRole
                 const activeForRole = roster.filter((agent) => agent.role === role).length
@@ -2830,74 +2888,81 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                   </button>
                 )
               })}
-            </div>
+          </ModalBody>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
-              <button
-                onClick={() => setAddMemberOpen(false)}
-                className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void confirmAddMember()}
-                className="rounded-md bg-[#5c7cff] px-4 py-2 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff]"
-              >
-                {sprintEngineState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {sprintEngineRoleLabels[addMemberRole]}
-              </button>
-            </div>
-          </div>
-        </div>
+          <ModalFooter>
+            <ModalButton onClick={() => setAddMemberOpen(false)}>Cancel</ModalButton>
+            <ModalButton
+              variant="primary"
+              accent="gold"
+              onClick={() => void confirmAddMember()}
+            >
+              {sprintEngineState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {sprintEngineRoleLabels[addMemberRole]}
+            </ModalButton>
+          </ModalFooter>
+        </Modal>
       ) : null}
 
       {planReader.open ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]">
-          <div className="flex max-h-[90vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11]">
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
-              <div className="min-w-0 flex-1">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                  Architect Plan
-                </div>
-                <h3 className="truncate text-[20px] font-semibold tracking-tight text-[#ececee]">
-                  {planFilePath ?? '.multi-code/sprintengine/<team>/plan.md'}
-                </h3>
+        <Modal
+          open
+          contained
+          width={1040}
+          labelledBy="plan-reader-dialog-title"
+          onClose={() => setPlanReader((current) => ({ ...current, open: false }))}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1f2025] px-5 py-4">
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                Architect Plan
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() =>
-                    setPlanReader((current) => ({
-                      ...current,
-                      mode: current.mode === 'preview' ? 'source' : 'preview',
-                    }))
-                  }
-                  className="rounded-md px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-                >
-                  {planReader.mode === 'preview' ? 'Source' : 'Preview'}
-                </button>
-                <button
-                  onClick={() => void loadPlanReader()}
-                  className="rounded-md px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-                >
-                  Refresh
-                </button>
-                {architectAgentId ? (
-                  <button
-                    onClick={() => openAgentTerminal(architectAgentId)}
-                    className="rounded-md px-3 py-2 text-sm text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-                  >
-                    Open Architect
-                  </button>
-                ) : null}
-                <button
-                  onClick={() => setPlanReader((current) => ({ ...current, open: false }))}
-                  className="rounded-md px-3 py-2 text-sm text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-                >
-                  Close
-                </button>
-              </div>
+              <h3 id="plan-reader-dialog-title" className="truncate text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
+                {planFilePath ?? '.multi-code/sprintengine/<team>/plan.md'}
+              </h3>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setPlanReader((current) => ({
+                    ...current,
+                    mode: current.mode === 'preview' ? 'source' : 'preview',
+                  }))
+                }
+                className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              >
+                {planReader.mode === 'preview' ? 'Source' : 'Preview'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void loadPlanReader()}
+                className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              >
+                Refresh
+              </button>
+              {architectAgentId ? (
+                <button
+                  type="button"
+                  onClick={() => openAgentTerminal(architectAgentId)}
+                  className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+                >
+                  Open Architect
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setPlanReader((current) => ({ ...current, open: false }))}
+                aria-label="Close"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <ModalBody className="min-h-0 flex-1 overflow-y-auto">
               {planReader.status === 'loading' ? (
                 <div className="px-1 py-2 text-sm text-[#9a9aa2]">
                   Loading plan...
@@ -2920,32 +2985,19 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 </div>
               ) : null}
               {planReader.status === 'ready' && planReader.mode === 'source' ? (
-                <pre className="min-h-[420px] overflow-x-auto rounded-lg bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]">
+                <pre className="min-h-[420px] overflow-x-auto rounded-md border border-[#24252b] bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]">
                   <code>{planReader.content}</code>
                 </pre>
               ) : null}
-            </div>
+          </ModalBody>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-4">
-              <div className="flex flex-wrap items-center gap-2">
-                {planFilePath ? (
-                  <button
-                    onClick={() => void openPlanInEditor()}
-                    className="rounded-md px-4 py-2 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-                  >
-                    Open in Editor
-                  </button>
-                ) : null}
-                <button
-                  onClick={() => setPlanReader((current) => ({ ...current, open: false }))}
-                  className="rounded-md px-4 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+          <ModalFooter>
+            {planFilePath ? (
+              <ModalButton onClick={() => void openPlanInEditor()}>Open in Editor</ModalButton>
+            ) : null}
+            <ModalButton onClick={() => setPlanReader((current) => ({ ...current, open: false }))}>Done</ModalButton>
+          </ModalFooter>
+        </Modal>
       ) : null}
     </div>
   )
@@ -3408,19 +3460,6 @@ function SprintEngineTaskGraphView({
     return () => window.cancelAnimationFrame(frame)
   }, [graphZoom])
 
-  const updateGraphCursor = (event: React.PointerEvent<HTMLDivElement>) => {
-    const el = graphCanvasRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    el.style.setProperty('--sprintengine-cursor-x', `${(event.clientX - rect.left) / graphZoom}px`)
-    el.style.setProperty('--sprintengine-cursor-y', `${(event.clientY - rect.top) / graphZoom}px`)
-    el.style.setProperty('--sprintengine-cursor-opacity', '1')
-  }
-
-  const clearGraphCursor = () => {
-    graphCanvasRef.current?.style.setProperty('--sprintengine-cursor-opacity', '0')
-  }
-
   const handleGraphWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     if (!event.ctrlKey && !event.metaKey) return
 
@@ -3437,263 +3476,388 @@ function SprintEngineTaskGraphView({
   const zoomPercent = Math.round(graphZoom * 100)
   const canZoomOut = graphZoom > minTaskGraphZoom + 0.001
   const canZoomIn = graphZoom < maxTaskGraphZoom - 0.001
+  const canResetZoom = Math.abs(graphZoom - defaultTaskGraphZoom) >= 0.001
+
+  const taskCount = sprintEngineState.tasks.length
+  const readyCount = useMemo(
+    () => sprintEngineState.tasks.filter(
+      (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
+    ).length,
+    [sprintEngineState.tasks]
+  )
+  const doneCount = useMemo(
+    () => sprintEngineState.tasks.filter((task) => task.status === 'done').length,
+    [sprintEngineState.tasks]
+  )
+  const inFlightCount = useMemo(
+    () => sprintEngineState.tasks.filter(
+      (task) => task.status === 'in_progress' || task.status === 'needs_input'
+    ).length,
+    [sprintEngineState.tasks]
+  )
+
+  const hasWarning = graph.hasCycle || graph.missingDependencyCount > 0
+  const warningMessage = [
+    graph.hasCycle ? 'Dependency cycle detected' : null,
+    graph.missingDependencyCount > 0
+      ? `${graph.missingDependencyCount} missing ${graph.missingDependencyCount === 1 ? 'dependency' : 'dependencies'}`
+      : null,
+  ].filter(Boolean).join(' · ')
+
+  const [legendOpen, setLegendOpen] = useState(true)
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-[#08090b]">
-      <div className="absolute right-4 top-4 z-30 flex items-center gap-1 rounded-md bg-[#0d0e11]/92 p-1 shadow-[0_14px_38px_rgba(0,0,0,0.28)] backdrop-blur">
-        <button
-          type="button"
-          onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'out'))}
-          disabled={!canZoomOut}
-          className="flex h-8 w-8 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
-          aria-label="Zoom out task graph"
-          title="Zoom out"
-        >
-          <ZoomOutSprintEngineIcon />
-        </button>
-        <div className="w-12 text-center text-[11px] font-semibold tabular-nums text-[#d7d7dc]" aria-live="polite">
-          {zoomPercent}%
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#08090b]">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[#1f2025] bg-[#0d0e11] px-6 py-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2]">
+            Task Graph
+          </h3>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#6f7480]">
+            <span>
+              <span className="font-semibold text-[#d7d7dc]">{taskCount}</span> task{taskCount === 1 ? '' : 's'}
+            </span>
+            {readyCount > 0 ? (
+              <span className="text-[#b9f7c8]">
+                <span className="font-semibold">{readyCount}</span> ready
+              </span>
+            ) : null}
+            {inFlightCount > 0 ? (
+              <span className="text-[#ffd58a]">
+                <span className="font-semibold">{inFlightCount}</span> in flight
+              </span>
+            ) : null}
+            {doneCount > 0 ? (
+              <span className="text-[#d4ffdc]">
+                <span className="font-semibold">{doneCount}</span> done
+              </span>
+            ) : null}
+            {terminalCount > 0 ? (
+              <span>
+                <span className="font-semibold text-[#d7d7dc]">{terminalCount}</span> final {terminalCount === 1 ? 'chain' : 'chains'}
+              </span>
+            ) : null}
+          </div>
+          {hasWarning ? (
+            <span
+              role="alert"
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#ffbf2f]/12 px-2 py-1 text-[11px] font-semibold text-[#ffe0a3]"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 1.75L14.75 13.5H1.25L8 1.75Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                <path d="M8 6.5V9.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                <circle cx="8" cy="11.6" r="0.7" fill="currentColor" />
+              </svg>
+              {warningMessage}
+            </span>
+          ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'in'))}
-          disabled={!canZoomIn}
-          className="flex h-8 w-8 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
-          aria-label="Zoom in task graph"
-          title="Zoom in"
-        >
-          <ZoomInSprintEngineIcon />
-        </button>
-        <button
-          type="button"
-          onClick={fitGraphToViewport}
-          className="flex h-8 w-8 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-          aria-label="Fit task graph to viewport"
-          title="Fit graph"
-        >
-          <FitGraphZoomIcon />
-        </button>
-        <button
-          type="button"
-          onClick={() => setGraphZoomFromAnchor(defaultTaskGraphZoom)}
-          disabled={Math.abs(graphZoom - defaultTaskGraphZoom) < 0.001}
-          className="flex h-8 w-8 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
-          aria-label="Reset task graph zoom"
-          title="Reset zoom"
-        >
-          <ResetGraphZoomIcon />
-        </button>
-      </div>
+        <div className="flex items-center gap-1 rounded-md border border-[#1f2025] bg-[#0d0e11] p-0.5">
+          <button
+            type="button"
+            onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'out'))}
+            disabled={!canZoomOut}
+            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+            aria-label="Zoom out task graph"
+            title="Zoom out"
+          >
+            <ZoomOutSprintEngineIcon />
+          </button>
+          <div
+            className="min-w-[2.75rem] px-1 text-center text-[11px] font-semibold tabular-nums text-[#d7d7dc]"
+            aria-live="polite"
+          >
+            {zoomPercent}%
+          </div>
+          <button
+            type="button"
+            onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'in'))}
+            disabled={!canZoomIn}
+            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+            aria-label="Zoom in task graph"
+            title="Zoom in"
+          >
+            <ZoomInSprintEngineIcon />
+          </button>
+          <span className="mx-0.5 h-4 w-px bg-[#1f2025]" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={fitGraphToViewport}
+            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
+            aria-label="Fit task graph to viewport"
+            title="Fit graph"
+          >
+            <FitGraphZoomIcon />
+          </button>
+          <button
+            type="button"
+            onClick={() => setGraphZoomFromAnchor(defaultTaskGraphZoom)}
+            disabled={!canResetZoom}
+            className="flex h-7 w-7 items-center justify-center rounded text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#9a9aa2]"
+            aria-label="Reset task graph zoom"
+            title="Reset zoom"
+          >
+            <ResetGraphZoomIcon />
+          </button>
+        </div>
+      </header>
+
+      <div className="relative min-h-[460px] flex-1">
       <div
         ref={graphScrollRef}
-        onPointerEnter={updateGraphCursor}
-        onPointerMove={updateGraphCursor}
-        onPointerLeave={clearGraphCursor}
         onWheel={handleGraphWheel}
-        className="h-full min-h-[460px] overflow-auto"
+        className="absolute inset-0 overflow-auto"
       >
-        <div
-          className="relative"
-          style={{
-            width: graph.canvasWidth * graphZoom,
-            height: graph.canvasHeight * graphZoom,
-          }}
-        >
+        {taskCount === 0 ? (
+          <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
+            <div className="max-w-xl">
+              <div
+                aria-hidden="true"
+                className="mx-auto h-10 w-10 rounded-full border border-[#1f2025]"
+                style={{
+                  backgroundImage:
+                    'radial-gradient(circle, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px)',
+                  backgroundSize: '6px 6px',
+                }}
+              />
+              <div className="mt-4 text-sm font-semibold text-[#ececee]">
+                Waiting for the architect plan
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
+                Tasks and their dependencies will appear here as the architect builds out the run.
+              </p>
+            </div>
+          </div>
+        ) : (
           <div
-            ref={graphCanvasRef}
             className="relative"
             style={{
-              width: graph.canvasWidth,
-              height: graph.canvasHeight,
-              transform: `scale(${graphZoom})`,
-              transformOrigin: 'top left',
-              backgroundImage:
-                'radial-gradient(circle, rgba(255,255,255,0.12) 0, rgba(255,255,255,0.12) 1px, transparent 1px)',
-              backgroundColor: '#08090b',
-              backgroundSize: '24px 24px',
+              width: graph.canvasWidth * graphZoom,
+              height: graph.canvasHeight * graphZoom,
             }}
           >
             <div
-              className="pointer-events-none absolute inset-0 transition-opacity duration-150"
+              ref={graphCanvasRef}
+              className="relative"
               style={{
+                width: graph.canvasWidth,
+                height: graph.canvasHeight,
+                transform: `scale(${graphZoom})`,
+                transformOrigin: 'top left',
                 backgroundImage:
-                  'radial-gradient(circle, rgba(255,255,255,0.38) 0, rgba(255,255,255,0.38) 1px, transparent 1px)',
+                  'radial-gradient(circle, rgba(255,255,255,0.10) 0, rgba(255,255,255,0.10) 1px, transparent 1px)',
+                backgroundColor: '#08090b',
                 backgroundSize: '24px 24px',
-                maskImage:
-                  'radial-gradient(circle at var(--sprintengine-cursor-x, 50%) var(--sprintengine-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
-                opacity: 'var(--sprintengine-cursor-opacity, 0)',
-                WebkitMaskImage:
-                  'radial-gradient(circle at var(--sprintengine-cursor-x, 50%) var(--sprintengine-cursor-y, 50%), black 0, rgba(0,0,0,0.65) 18px, transparent 42px)',
               }}
-            />
-
-            {(graph.hasCycle || graph.missingDependencyCount > 0) ? (
-            <div className="absolute left-4 top-4 z-20 max-w-md border-l border-[#ffbf2f]/60 bg-[#08090b]/88 px-3 py-2 text-sm leading-6 text-[#ffe0a3] backdrop-blur">
-              {graph.hasCycle ? 'A dependency cycle was detected. ' : ''}
-              {graph.missingDependencyCount > 0
-                ? `${graph.missingDependencyCount} dependency ${graph.missingDependencyCount === 1 ? 'reference is' : 'references are'} missing.`
-                : ''}
-            </div>
-          ) : null}
-
-          {sprintEngineState.tasks.length === 0 ? (
-            <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
-              <div className="max-w-xl">
-                <div className="text-sm font-semibold text-[#ececee]">Waiting for the architect plan</div>
-                <p className="mt-2 text-sm leading-6 text-[#9a9aa2]">
-                  The dependency graph will appear as tasks are added through the Sprint Engine tool.
-                </p>
-              </div>
-            </div>
-          ) : null}
-
-          <svg
-            className="pointer-events-none absolute inset-0"
-            width={graph.canvasWidth}
-            height={graph.canvasHeight}
-            viewBox={`0 0 ${graph.canvasWidth} ${graph.canvasHeight}`}
-          >
-            {graph.edges.map((edge) => {
-              const from = graph.nodesById[edge.fromId]
-              const to = graph.nodesById[edge.toId]
-              if (!from || !to) return null
-              return (
-                <path
-                  key={edge.id}
-                  d={taskGraphEdgePath(from, to)}
-                  fill="none"
-                  stroke={edge.color}
-                  strokeWidth={edge.weight}
-                  strokeDasharray={edge.dashed ? '7 8' : undefined}
-                  opacity={edge.opacity}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              )
-            })}
-            {graph.nodes.map((node) => (
-              <rect
-                key={`${node.id}:line-blocker`}
-                x={node.x - node.width / 2 - 8}
-                y={node.y - node.height / 2 - 8}
-                width={node.width + 16}
-                height={node.height + 16}
-                rx="14"
-                fill="#08090b"
-              />
-            ))}
-          </svg>
-
-          {graph.nodes.map((node) => {
-            if (node.type === 'end') {
-              return (
-                <div
-                  key={node.id}
-                  className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden rounded-lg border border-[#303139] bg-[#111216] px-5 py-4 text-center"
-                  style={{
-                    left: node.x,
-                    top: node.y,
-                    width: node.width,
-                    minHeight: node.height,
-                  }}
-                >
-                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
-                    End Product
-                  </div>
-                  <div className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[#d4ffdc]">
-                    {formatSprintEngineGoalPreview(sprintEngineState.goal)}
-                  </div>
-                  <div className="mt-3 text-[10px] uppercase tracking-[0.12em] text-[#9a9aa2]">
-                    {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
-                  </div>
-                </div>
-              )
-            }
-
-            const task = node.task
-            const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
-            const ownerRole = ownerAgent?.role ?? (task.ownerAgentId ? task.role : null)
-            const ownerLabel = task.ownerAgentId ? ownerAgent?.label ?? task.ownerAgentId : null
-            const isFocused = task.id === focusTaskId
-            const isSelected = task.id === selectedTaskId
-            const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
-            const dependencyLabel = task.dependsOn.length > 0
-              ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
-              : 'root'
-
-            return (
-              <button
-                key={node.id}
-                onClick={() => onSelectTask(task.id)}
-                className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] ${
-                  isSelected || isFocused ? 'z-10' : 'z-0'
-                }`}
-                style={{
-                  ...taskGraphNodeStyle(task, ownerRole, isFocused, isSelected),
-                  left: node.x,
-                  top: node.y,
-                  width: node.width,
-                  minHeight: node.height,
-                }}
+            >
+              <svg
+                className="pointer-events-none absolute inset-0"
+                width={graph.canvasWidth}
+                height={graph.canvasHeight}
+                viewBox={`0 0 ${graph.canvasWidth} ${graph.canvasHeight}`}
               >
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
-                  style={{
-                    backgroundColor: sprintEngineRoleAccent[task.role],
-                  }}
-                />
-                <div className="flex items-start justify-between gap-3 pl-2">
-                  <div className="min-w-0">
-                    <div className="line-clamp-2 text-sm font-semibold leading-5 text-[#ececee]">{task.title}</div>
-                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                      <span>{task.id}</span>
+                {graph.edges.map((edge) => {
+                  const from = graph.nodesById[edge.fromId]
+                  const to = graph.nodesById[edge.toId]
+                  if (!from || !to) return null
+                  return (
+                    <path
+                      key={edge.id}
+                      d={taskGraphEdgePath(from, to)}
+                      fill="none"
+                      stroke={edge.color}
+                      strokeWidth={edge.weight}
+                      strokeDasharray={edge.dashed ? '7 8' : undefined}
+                      opacity={edge.opacity}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )
+                })}
+                {graph.nodes.map((node) => (
+                  <rect
+                    key={`${node.id}:line-blocker`}
+                    x={node.x - node.width / 2 - 8}
+                    y={node.y - node.height / 2 - 8}
+                    width={node.width + 16}
+                    height={node.height + 16}
+                    rx="14"
+                    fill="#08090b"
+                  />
+                ))}
+              </svg>
+
+              {graph.nodes.map((node) => {
+                if (node.type === 'end') {
+                  return (
+                    <div
+                      key={node.id}
+                      className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-[#30d158]/55 bg-[#0c1a12] px-5 py-4 text-center shadow-[0_0_0_4px_rgba(48,209,88,0.06)]"
+                      style={{
+                        left: node.x,
+                        top: node.y,
+                        width: node.width,
+                        minHeight: node.height,
+                      }}
+                    >
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[#30d158]">
+                        <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                          <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        Goal
+                      </div>
+                      <div className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[#d4ffdc]">
+                        {formatSprintEngineGoalPreview(sprintEngineState.goal)}
+                      </div>
+                      <div className="mt-3 text-[10px] uppercase tracking-[0.12em] text-[#9a9aa2]">
+                        {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
+                      </div>
+                    </div>
+                  )
+                }
+
+                const task = node.task
+                const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
+                const ownerRole = ownerAgent?.role ?? (task.ownerAgentId ? task.role : null)
+                const ownerLabel = task.ownerAgentId ? ownerAgent?.label ?? task.ownerAgentId : null
+                const isFocused = task.id === focusTaskId
+                const isSelected = task.id === selectedTaskId
+                const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+                const dependencyLabel = task.dependsOn.length > 0
+                  ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
+                  : 'root'
+
+                return (
+                  <button
+                    key={node.id}
+                    onClick={() => onSelectTask(task.id)}
+                    aria-pressed={isSelected}
+                    className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/45 ${
+                      isSelected || isFocused ? 'z-10' : 'z-0'
+                    }`}
+                    style={{
+                      ...taskGraphNodeStyle(task, ownerRole, isFocused, isSelected),
+                      left: node.x,
+                      top: node.y,
+                      width: node.width,
+                      minHeight: node.height,
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
+                      style={{
+                        backgroundColor: sprintEngineRoleAccent[task.role],
+                      }}
+                    />
+                    <div className="flex items-start justify-between gap-3 pl-2">
+                      <div className="min-w-0">
+                        <div className="line-clamp-2 text-sm font-semibold leading-5 text-[#ececee]">{task.title}</div>
+                        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                          <span>{task.id}</span>
+                          <span
+                            className="h-1.5 w-1.5 shrink-0 rounded-full"
+                            style={{
+                              backgroundColor: sprintEngineRoleAccent[task.role],
+                            }}
+                          />
+                          <span className="min-w-0 truncate" style={{ color: sprintEngineRoleAccent[task.role] }}>
+                            {sprintEngineRoleLabels[task.role]}
+                          </span>
+                        </div>
+                      </div>
                       <span
-                        className="h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor: sprintEngineRoleAccent[task.role],
-                        }}
-                      />
-                      <span className="min-w-0 truncate" style={{ color: sprintEngineRoleAccent[task.role] }}>
-                        {sprintEngineRoleLabels[task.role]}
+                        className={`max-w-[92px] shrink-0 truncate rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${taskGraphStatusTone(task.status, boardColumn)}`}
+                      >
+                        {boardColumn === 'ready' ? 'Ready' : taskStateLabel[task.status]}
                       </span>
                     </div>
-                  </div>
-                  <span
-                    className={`max-w-[92px] shrink-0 truncate rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${taskGraphStatusTone(task.status, boardColumn)}`}
-                  >
-                    {boardColumn === 'ready' ? 'Ready' : taskStateLabel[task.status]}
-                  </span>
-                </div>
 
-                <p className="mt-3 line-clamp-2 pl-2 text-[12px] leading-5 text-[#9a9aa2]">
-                  {task.description || 'No description recorded.'}
-                </p>
+                    <p className="mt-3 line-clamp-2 pl-2 text-[12px] leading-5 text-[#9a9aa2]">
+                      {task.description || 'No description recorded.'}
+                    </p>
 
-                <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
-                  <span>
-                    {dependencyLabel}
-                  </span>
-                  <span className="text-[#3a3d49]">/</span>
-                  <span>
-                    {task.acceptanceCriteria.length} checks
-                  </span>
-                  {ownerLabel && ownerRole ? (
-                    <>
-                      <span className="text-[#3a3d49]">/</span>
-                      <span className="max-w-full truncate" style={{ color: sprintEngineRoleAccent[ownerRole] }}>
-                        {ownerLabel}
+                    <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-[10px] uppercase tracking-[0.12em] text-[#5a5a63]">
+                      <span>
+                        {dependencyLabel}
                       </span>
-                    </>
-                  ) : null}
+                      <span className="text-[#3a3d49]">/</span>
+                      <span>
+                        {task.acceptanceCriteria.length} checks
+                      </span>
+                      {ownerLabel && ownerRole ? (
+                        <>
+                          <span className="text-[#3a3d49]">/</span>
+                          <span className="max-w-full truncate" style={{ color: sprintEngineRoleAccent[ownerRole] }}>
+                            {ownerLabel}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {taskCount > 0 ? (
+        <div className="pointer-events-none absolute bottom-3 left-3 z-30">
+          <div className="pointer-events-auto inline-flex flex-col items-start">
+            <button
+              type="button"
+              onClick={() => setLegendOpen((open) => !open)}
+              aria-expanded={legendOpen}
+              className="flex items-center gap-1.5 rounded-md border border-[#1f2025] bg-[#0d0e11]/92 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2] backdrop-blur transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
+            >
+              Legend
+              <svg
+                className={`h-3 w-3 transition-transform ${legendOpen ? 'rotate-180' : ''}`}
+                viewBox="0 0 12 12"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {legendOpen ? (
+              <div className="mt-1 rounded-md border border-[#1f2025] bg-[#0d0e11]/94 p-3 text-[11px] backdrop-blur shadow-[0_18px_45px_rgba(0,0,0,0.32)]">
+                <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+                  Status
                 </div>
-              </button>
-            )
-          })}
+                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[#9a9aa2]">
+                  <TaskGraphLegendDot color="#b9f7c8" label="Ready" />
+                  <TaskGraphLegendDot color="#ffd58a" label="In progress" />
+                  <TaskGraphLegendDot color="#ffe0a3" label="Needs input" />
+                  <TaskGraphLegendDot color="#d4ffdc" label="Done" />
+                  <TaskGraphLegendDot color="#9a9aa2" label="Todo" />
+                </div>
+                <div className="mt-3 border-t border-[#1f2025] pt-2 text-[10px] leading-5 text-[#6f7480]">
+                  <div>Left bar &middot; role accent</div>
+                  <div>Edge color &middot; dependency state (green when complete)</div>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
-        </div>
+      ) : null}
       </div>
     </div>
+  )
+}
+
+function TaskGraphLegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span
+        aria-hidden="true"
+        className="inline-block h-2 w-2 rounded-full"
+        style={{ backgroundColor: color }}
+      />
+      <span>{label}</span>
+    </span>
   )
 }
 

@@ -340,6 +340,29 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(commented["nextFolder"], "todo")
         self.assertEqual(commented["record"]["task"]["comments"][-1]["body"], "Needs focused validation.")
         self.assertEqual(commented["record"]["task"]["comments"][-1]["author"]["name"], "Reviewer")
+        self.assertEqual(commented["record"]["task"]["comments"][-1]["kind"], "comment")
+
+        triaged = stdout_json(
+            self.run_cli([
+                "comment",
+                *self.workspace_args(),
+                task_id,
+                "--body",
+                "Architect triage\n\nRecommendation: Promote\nImportance: High",
+                "--author",
+                "Architect",
+                "--author-type",
+                "agent",
+                "--author-id",
+                "watchtower-architect",
+                "--kind",
+                "triage",
+            ])
+        )
+        self.assertEqual(triaged["record"]["task"]["comments"][-1]["kind"], "triage")
+        self.assertEqual(triaged["record"]["task"]["comments"][-1]["author"]["name"], "Architect")
+        self.assertEqual(triaged["record"]["task"]["comments"][-1]["author"]["type"], "agent")
+        self.assertEqual(triaged["record"]["task"]["comments"][-1]["author"]["id"], "watchtower-architect")
 
     def test_import_task_creates_uuid_inbox_task_and_skips_duplicate_source(self) -> None:
         item = {

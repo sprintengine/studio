@@ -14,6 +14,8 @@ from typing import Any
 from .store import (
     CLAIMABLE_STATUSES,
     FOLDER_STATUSES,
+    COMMENT_KINDS,
+    AUTHOR_TYPES,
     PUBLISH_TARGETS,
     SOURCE_TYPES,
     TASK_STATUSES,
@@ -275,6 +277,9 @@ def cmd_comment(args: argparse.Namespace) -> int:
         args.task_id,
         body=args.body,
         author_name=args.author or "User",
+        kind=args.kind,
+        author_type=args.author_type,
+        author_id=args.author_id,
     )
     emit(mutation_payload(action="comment", previous=before.folder_status, record=record_for_output(located)))
     return 0
@@ -521,6 +526,9 @@ Watchtower agents should create findings directly in the inbox:
     comment.add_argument("task_id", metavar="uuid")
     comment.add_argument("--body", required=True)
     comment.add_argument("--author")
+    comment.add_argument("--kind", choices=sorted(COMMENT_KINDS), default="comment")
+    comment.add_argument("--author-type", choices=sorted(AUTHOR_TYPES), default="user")
+    comment.add_argument("--author-id")
     comment.set_defaults(func=cmd_comment)
 
     move = subcommands.add_parser("move", help="Move a task to another status.")

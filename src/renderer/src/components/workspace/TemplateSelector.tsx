@@ -3,6 +3,7 @@ import { createMultiloopTemplate, createSprintEngineTemplate, createSwitchboardT
 import { SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { WorkspacePanel } from '../ui/WorkspacePanel'
 import type {
   AgentCli,
   LayoutTemplate,
@@ -631,35 +632,47 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
     await window.api.authLogin(authState.selectedOrganization?.id ?? null)
   }
 
+  const createLabel = isCreating
+    ? 'Creating...'
+    : selectedExistingTeam
+      ? 'Load Team'
+      : mode === 'sprintengine'
+        ? 'Create SprintEngine'
+        : mode === 'switchboard'
+          ? 'Create Switchboard'
+          : mode === 'multiloop'
+            ? 'Create Multiloop'
+            : 'Create Workspace'
+
   return (
-    <div className="h-full overflow-auto bg-[#08090b] text-[#ececee]">
-      <section className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-6 py-5">
-        <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-[#1f2025] pb-4">
-          <div className="min-w-0">
-            <h1 className="text-[22px] font-semibold text-[#ececee]">New Workspace</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            {allowClose ? (
-              <button
-                type="button"
-                onClick={onClose}
-                className="h-9 rounded-md border border-[#303139] bg-[#111216] px-3 text-sm font-medium text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-              >
-                Cancel
-              </button>
-            ) : null}
+    <WorkspacePanel
+      title="New Workspace"
+      subtitle="Choose a workspace mode and configure its starting state."
+      titleId="new-workspace-title"
+      contentClassName="mx-auto min-h-full w-full max-w-5xl px-6 py-5"
+      toolbar={
+        <>
+          {allowClose ? (
             <button
               type="button"
-              onClick={() => void handleCreate()}
-              disabled={!canCreate}
-              className="h-9 rounded-md border border-[#ececee] bg-[#ececee] px-4 text-sm font-semibold text-[#08090b] transition-colors hover:bg-white disabled:border-[#303139] disabled:bg-[#17181d] disabled:text-[#5a5a63]"
+              onClick={onClose}
+              className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-sm font-medium text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
             >
-              {isCreating ? 'Creating...' : selectedExistingTeam ? 'Load Team' : mode === 'sprintengine' ? 'Create SprintEngine' : mode === 'switchboard' ? 'Create Switchboard' : mode === 'multiloop' ? 'Create Multiloop' : 'Create Workspace'}
+              Cancel
             </button>
-          </div>
-        </header>
-
-        <div className="mt-5 min-h-0 flex-1">
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void handleCreate()}
+            disabled={!canCreate}
+            className="h-8 rounded-md bg-[#5c7cff] px-4 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-not-allowed disabled:bg-[#17181d] disabled:text-[#5a5a63] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+          >
+            {createLabel}
+          </button>
+        </>
+      }
+    >
+        <div className="min-h-0 flex-1">
           <main className="min-w-0 space-y-4">
             <div className="inline-flex rounded-md bg-[#111216] p-1">
               {[
@@ -1180,8 +1193,7 @@ export default function TemplateSelector({ onCreate, onClose, allowClose = true,
             )}
           </main>
         </div>
-      </section>
-    </div>
+    </WorkspacePanel>
   )
 }
 

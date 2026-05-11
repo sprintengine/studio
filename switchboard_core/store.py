@@ -89,7 +89,7 @@ REQUEUE_TRANSITIONS = {
     "review_in_progress": "review",
 }
 SOURCE_TYPES = {"manual", "watchtower", "github", "jira", "campaign", "sprintengine"}
-COMMENT_KINDS = {"comment", "status_change", "claim", "evidence", "import"}
+COMMENT_KINDS = {"comment", "status_change", "claim", "evidence", "import", "triage"}
 AUTHOR_TYPES = {"user", "agent", "system"}
 STALE_LOCK_SECONDS = 5 * 60
 STALE_RUNNER_LOCK_SECONDS = 2 * 60

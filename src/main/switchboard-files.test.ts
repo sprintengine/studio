@@ -108,6 +108,18 @@ async function assertCreateReadPromoteCommentAndCancel(): Promise<void> {
   assert.equal(commented.ok, true)
   assert.equal(commented.ok && commented.record.task.comments.at(-1)?.body, 'Ready after product review.')
 
+  const triaged = await addSwitchboardComment({
+    workspaceRoot,
+    id: moved.ok ? moved.record.task.id : '',
+    body: 'Architect triage\n\nRecommendation: Promote\nImportance: High',
+    author: { type: 'agent', id: 'watchtower-architect', name: 'Architect' },
+    kind: 'triage',
+  })
+  assert.equal(triaged.ok, true)
+  assert.equal(triaged.ok && triaged.record.task.comments.at(-1)?.kind, 'triage')
+  assert.equal(triaged.ok && triaged.record.task.comments.at(-1)?.author.type, 'agent')
+  assert.equal(triaged.ok && triaged.record.task.comments.at(-1)?.author.id, 'watchtower-architect')
+
   const updated = await updateSwitchboardTask({
     workspaceRoot,
     id: moved.ok ? moved.record.task.id : '',

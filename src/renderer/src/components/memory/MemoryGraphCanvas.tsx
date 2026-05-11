@@ -154,6 +154,13 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
     | null
   >(null)
 
+  // Render-on-demand handles. The main effect installs these; everything that
+  // mutates visual state (camera, drag, hover, pulses, sparks, search, resize)
+  // calls requestRender(). bumpSimHot extends a window during which the physics
+  // simulation runs each frame so a freshly-released node can settle.
+  const requestRenderRef = useRef<(() => void) | null>(null)
+  const bumpSimHotRef = useRef<((durationMs: number) => void) | null>(null)
+
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>()
     edges.forEach((edge) => {
@@ -191,8 +198,15 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         startedAt: now,
       })
     }
+    requestRenderRef.current?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestEvent, eventNonce])
+
+  // Search match changes don't trigger any other render path, so wake the
+  // canvas explicitly when matchIds toggles or the matched set shifts.
+  useEffect(() => {
+    requestRenderRef.current?.()
+  }, [matchIds])
 
   // Generate the starfield once. Stars live in a large world-space patch so
   // panning and zooming reveals new constellations.
@@ -300,26 +314,54 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         }
       }
     }
+    // The set of visible nodes changed; ask the canvas to redraw. New nodes
+    // also get a brief sim-hot window so they ease into place rather than
+    // popping in.
+    bumpSimHotRef.current?.(400)
+    requestRenderRef.current?.()
   }, [nodes, edges, onCameraChange])
 
-  // Main render + physics loop.
+  // Render-on-demand loop. We only schedule a frame when something visual has
+  // changed (camera, drag, hover, search, resize) or while an animation is
+  // still alive (drag, sim-hot window, pulses, sparks). Idle = zero work.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    let frame = 0
+    let frame: number | null = null
     let disposed = false
+    let simHotUntil = 0
+
+    const requestRender = () => {
+      if (disposed) return
+      if (frame !== null) return
+      frame = requestAnimationFrame(step)
+    }
+
+    const bumpSimHot = (durationMs: number) => {
+      const target = performance.now() + durationMs
+      if (target > simHotUntil) simHotUntil = target
+      requestRender()
+    }
 
     const step = () => {
+      frame = null
       if (disposed) return
       const positioned = positionedRef.current
       const camera = cameraRef.current
       const matchSet = matchIdsRef.current
       const hoveredId = hoveredIdRef.current
 
-      stepSimulation(positioned, edges)
+      const drag = dragStateRef.current
+      const isDraggingNode = drag?.kind === 'node'
+      const inRelaxWindow = performance.now() < simHotUntil
+      const simShouldRun = isDraggingNode || inRelaxWindow
+
+      if (simShouldRun) {
+        stepSimulation(positioned, edges)
+      }
       const pos = positioned
       const byId = new Map(pos.map((n) => [n.id, n] as const))
 
@@ -551,13 +593,33 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       ctx.globalAlpha = 1
       ctx.restore()
 
-      frame = requestAnimationFrame(step)
+      // Reschedule only while something is still animating. Otherwise the
+      // canvas sleeps until an event wakes it via requestRender().
+      const stillAnimating =
+        isDraggingNode ||
+        performance.now() < simHotUntil ||
+        pulsesRef.current.size > 0 ||
+        sparksRef.current.length > 0
+      if (stillAnimating) {
+        requestRender()
+      }
     }
 
-    frame = requestAnimationFrame(step)
+    requestRenderRef.current = requestRender
+    bumpSimHotRef.current = bumpSimHot
+
+    // Canvas resizes (window, splitter, devtools) need a redraw — the backing
+    // store size is read inside step().
+    const resizeObserver = new ResizeObserver(() => requestRender())
+    resizeObserver.observe(canvas)
+
+    requestRender()
     return () => {
       disposed = true
-      cancelAnimationFrame(frame)
+      if (frame !== null) cancelAnimationFrame(frame)
+      resizeObserver.disconnect()
+      if (requestRenderRef.current === requestRender) requestRenderRef.current = null
+      if (bumpSimHotRef.current === bumpSimHot) bumpSimHotRef.current = null
     }
   }, [edges, neighbors])
 
@@ -569,10 +631,12 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       const next = clamp(cameraRef.current.zoom * factor, MIN_ZOOM, MAX_ZOOM)
       cameraRef.current = { ...cameraRef.current, zoom: next }
       onCameraChange?.(cameraRef.current)
+      requestRenderRef.current?.()
     },
     resetView: () => {
       cameraRef.current = { x: 0, y: 0, zoom: 1 }
       onCameraChange?.(cameraRef.current)
+      requestRenderRef.current?.()
     },
     fitToView: () => {
       const canvas = canvasRef.current
@@ -595,6 +659,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       const cy = (minY + maxY) / 2
       cameraRef.current = { zoom, x: -cx * zoom, y: -cy * zoom }
       onCameraChange?.(cameraRef.current)
+      requestRenderRef.current?.()
     },
     getCamera: () => ({ ...cameraRef.current }),
   }))
@@ -624,6 +689,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         y: my - rect.height / 2 - wy * nextZoom,
       }
       onCameraChange?.(cameraRef.current)
+      requestRenderRef.current?.()
     }
     canvas.addEventListener('wheel', onWheel, { passive: false })
     return () => canvas.removeEventListener('wheel', onWheel)
@@ -686,6 +752,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
             moved: false,
           }
         }
+        requestRenderRef.current?.()
       }}
       onMouseMove={(event) => {
         const drag = dragStateRef.current
@@ -699,6 +766,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
             y: drag.camera.y + dy,
           }
           onCameraChange?.(cameraRef.current)
+          requestRenderRef.current?.()
           return
         }
         if (drag?.kind === 'node') {
@@ -711,20 +779,25 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
             live.y = live.fy
           }
           drag.moved = true
+          requestRenderRef.current?.()
           return
         }
         const node = hitTest(event.clientX, event.clientY)
         const id = node?.id ?? null
-        if (id !== hoveredIdRef.current) {
+        const hoverChanged = id !== hoveredIdRef.current
+        if (hoverChanged) {
           hoveredIdRef.current = id
         }
         const rect = canvasRef.current?.getBoundingClientRect()
         const point = rect ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : null
         onHoverNode(node, node ? point : null)
+        if (hoverChanged) requestRenderRef.current?.()
       }}
       onMouseLeave={() => {
+        const had = hoveredIdRef.current !== null
         hoveredIdRef.current = null
         onHoverNode(null, null)
+        if (had) requestRenderRef.current?.()
       }}
       onMouseUp={(event) => {
         const drag = dragStateRef.current
@@ -738,10 +811,17 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
             live.fx = null
             live.fy = null
           }
+          // Let the released node and its neighbours relax for a beat before
+          // the canvas freezes again.
+          bumpSimHotRef.current?.(800)
         }
-        if (drag.moved) return
+        if (drag.moved) {
+          requestRenderRef.current?.()
+          return
+        }
         const node = hitTest(event.clientX, event.clientY)
         if (node) onSelectNode(node)
+        requestRenderRef.current?.()
       }}
     />
   )

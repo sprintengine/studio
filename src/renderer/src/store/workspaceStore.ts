@@ -62,6 +62,7 @@ import {
 } from '../utils/multiloopStateFile'
 import {
   deleteEditorBuffer,
+  moveEditorBuffer,
   remapEditorBuffers,
   removeEditorBuffersForPath,
   setEditorBuffer,
@@ -192,6 +193,17 @@ interface WorkspaceStore {
   markFileClean: (workspaceId: WorkspaceId, path: string) => void
   remapOpenFiles: (workspaceId: WorkspaceId, fromPath: string, toPath: string) => void
   removeOpenFilesForPath: (workspaceId: WorkspaceId, path: string) => void
+
+  moveAgentToWorkspace: (
+    sourceWorkspaceId: WorkspaceId,
+    destWorkspaceId: WorkspaceId,
+    agentId: AgentId
+  ) => void
+  moveOpenFileToWorkspace: (
+    sourceWorkspaceId: WorkspaceId,
+    destWorkspaceId: WorkspaceId,
+    path: string
+  ) => void
 }
 
 const defaultAppSettings = (): AppSettings => ({
@@ -1752,6 +1764,46 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (activeFileDeleted) {
             ws.editorState.activeFilePath = ws.editorState.openFiles.at(-1)?.path ?? null
           }
+        })
+      },
+
+      moveAgentToWorkspace: (sourceWorkspaceId, destWorkspaceId, agentId) => {
+        if (sourceWorkspaceId === destWorkspaceId) return
+        set((state) => {
+          const source = state.workspaces.find((w) => w.id === sourceWorkspaceId)
+          const dest = state.workspaces.find((w) => w.id === destWorkspaceId)
+          if (!source || !dest) return
+          const agent = source.agents[agentId]
+          if (!agent) return
+          dest.agents[agentId] = agent
+          delete source.agents[agentId]
+        })
+      },
+
+      moveOpenFileToWorkspace: (sourceWorkspaceId, destWorkspaceId, path) => {
+        if (sourceWorkspaceId === destWorkspaceId) return
+        moveEditorBuffer(sourceWorkspaceId, destWorkspaceId, path)
+        set((state) => {
+          const source = state.workspaces.find((w) => w.id === sourceWorkspaceId)
+          const dest = state.workspaces.find((w) => w.id === destWorkspaceId)
+          if (!source || !dest) return
+          const sourceEditor = source.editorState
+          if (!sourceEditor) return
+          const idx = sourceEditor.openFiles.findIndex((file) => file.path === path)
+          if (idx === -1) return
+          const [openFile] = sourceEditor.openFiles.splice(idx, 1)
+          if (sourceEditor.activeFilePath === path) {
+            sourceEditor.activeFilePath = sourceEditor.openFiles.at(-1)?.path ?? null
+          }
+          if (!dest.editorState) dest.editorState = defaultEditorState()
+          const destEditor = dest.editorState
+          const existing = destEditor.openFiles.findIndex((file) => file.path === path)
+          if (existing !== -1) {
+            destEditor.openFiles[existing] = openFile
+          } else {
+            destEditor.openFiles.push(openFile)
+          }
+          destEditor.activeFilePath = path
         })
       },
     })),
