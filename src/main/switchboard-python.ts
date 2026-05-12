@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import { existsSync, readFileSync, unlinkSync } from 'fs'
+import { existsSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { acquireWorkspaceRunnerLock, releaseWorkspaceRunnerLock } from './workspace-runner-lock'
 import type {
@@ -223,12 +223,6 @@ async function prepareAndSpawnSwitchboardSession(workspaceRoot: string, workspac
   await switchboardSessionSpawner({ workspaceId, workspaceRoot, descriptor: payload.descriptor })
 }
 
-function serverDescriptorPath(workspaceRoot: string): string {
-  return join(resolve(workspaceRoot), '.multi-code', 'switchboard', 'runner', 'server.json')
-}
-
-type SwitchboardServerDescriptor = { host: string; port: number; token: string; pid?: number }
-const SWITCHBOARD_SERVER_API_VERSION = 2
 const SWITCHBOARD_RUNNER_INTERVAL_MS = 5_000
 let switchboardSessionSpawner: SwitchboardSessionSpawner | null = null
 const switchboardRunnerIntervals = new Map<string, NodeJS.Timeout>()
@@ -250,93 +244,6 @@ export async function recordSwitchboardSessionExit(input: {
     '--exit-code',
     String(input.exitCode),
   ])
-}
-
-export function readSwitchboardServerDescriptor(workspaceRoot: string): SwitchboardServerDescriptor | null {
-  return readServerDescriptor(workspaceRoot)
-}
-
-export type { SwitchboardServerDescriptor }
-
-function readServerDescriptor(workspaceRoot: string): SwitchboardServerDescriptor | null {
-  try {
-    const parsed = JSON.parse(readFileSync(serverDescriptorPath(workspaceRoot), 'utf-8')) as unknown
-    if (!parsed || typeof parsed !== 'object') return null
-    const descriptor = parsed as { host?: unknown; port?: unknown; token?: unknown; pid?: unknown }
-    if (typeof descriptor.host !== 'string' || typeof descriptor.port !== 'number' || typeof descriptor.token !== 'string') return null
-    return {
-      host: descriptor.host,
-      port: descriptor.port,
-      token: descriptor.token,
-      pid: typeof descriptor.pid === 'number' ? descriptor.pid : undefined,
-    }
-  } catch {
-    return null
-  }
-}
-
-function removeServerDescriptor(workspaceRoot: string): void {
-  try {
-    unlinkSync(serverDescriptorPath(workspaceRoot))
-  } catch {
-    // The descriptor may already have been removed by the backend.
-  }
-}
-
-function terminateServerDescriptorProcess(workspaceRoot: string, descriptor: SwitchboardServerDescriptor | null): void {
-  if (!descriptor?.pid || descriptor.pid <= 0) return
-  try {
-    process.kill(descriptor.pid, 'SIGTERM')
-  } catch {
-    // The process may have exited between the failed request and fallback stop.
-  }
-  removeServerDescriptor(workspaceRoot)
-}
-
-export function forceTerminateSwitchboardBackend(workspaceRoot: string): void {
-  const descriptor = readServerDescriptor(workspaceRoot)
-  terminateServerDescriptorProcess(workspaceRoot, descriptor)
-}
-
-async function backendHealthy(descriptor: SwitchboardServerDescriptor): Promise<boolean> {
-  try {
-    const response = await fetch(`http://${descriptor.host}:${descriptor.port}/health`, {
-      headers: { Authorization: `Bearer ${descriptor.token}` },
-    })
-    if (!response.ok) return false
-    const payload = parseJsonPayload(await response.text())
-    return payload.apiVersion === SWITCHBOARD_SERVER_API_VERSION
-  } catch {
-    return false
-  }
-}
-
-async function requestExistingSwitchboardBackend(
-  workspaceRoot: string,
-  pathName: string,
-  body?: Record<string, unknown>
-): Promise<PythonCommandResult> {
-  const descriptor = readServerDescriptor(workspaceRoot)
-  if (!descriptor || !(await backendHealthy(descriptor))) {
-    return { ok: false, message: 'Switchboard backend is not running.' }
-  }
-  try {
-    const response = await fetch(`http://${descriptor.host}:${descriptor.port}${pathName}`, {
-      method: body ? 'POST' : 'GET',
-      headers: {
-        Authorization: `Bearer ${descriptor.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    })
-    const payload = parseJsonPayload(await response.text())
-    if (!response.ok || payload.ok === false) {
-      return { ok: false, message: typeof payload.message === 'string' ? payload.message : 'Switchboard backend request failed.' }
-    }
-    return { ok: true, payload }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'Switchboard backend request failed.' }
-  }
 }
 
 export async function initializeSwitchboard(input: { workspaceRoot: string }): Promise<SwitchboardInitApiResult> {
@@ -487,7 +394,7 @@ export async function startSwitchboardRunner(input: SwitchboardRunnerStartInput)
   if (!lock.ok) return { ok: false, message: lock.message }
 
   const args = ['runner', 'start', ...workspaceArgs(input.workspaceRoot)]
-  args.push('--provider', input.provider ?? 'local-process')
+  args.push('--provider', input.provider ?? 'electron-session')
   args.push('--cli', input.cli ?? 'codex')
   for (const queue of input.queues ?? []) args.push('--queue', queue)
   if (typeof input.maxConcurrency === 'number') args.push('--max-concurrency', String(input.maxConcurrency))
@@ -535,9 +442,6 @@ export async function getSwitchboardRunnerState(workspaceRoot?: string): Promise
 }
 
 export async function stopSwitchboardExecution(input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> {
-  const body = input.reason?.trim() ? { reason: input.reason.trim() } : {}
-  const result = await requestExistingSwitchboardBackend(input.workspaceRoot, `/execution/${input.executionId}/stop`, body)
-  if (result.ok) return result.payload as SwitchboardStopExecutionResult
   const args = ['execution', 'stop', ...workspaceArgs(input.workspaceRoot), input.executionId]
   if (input.reason?.trim()) args.push('--reason', input.reason.trim())
   const fallback = await runSwitchboardCore(args)
@@ -550,9 +454,6 @@ export async function getSwitchboardExecutionStatus(
 ): Promise<SwitchboardExecutionStatusResult> {
   if (!input.workspaceRoot?.trim()) return { ok: false, message: 'workspaceRoot is required.' }
   if (!input.executionId?.trim()) return { ok: false, message: 'executionId is required.' }
-  const path = `/execution/${encodeURIComponent(input.executionId)}/status`
-  const result = await requestExistingSwitchboardBackend(input.workspaceRoot, path)
-  if (result.ok) return result.payload as SwitchboardExecutionStatusResult
   const fallback = await runSwitchboardCore([
     'execution',
     'status',
@@ -574,10 +475,6 @@ export async function getSwitchboardExecutionLogs(
     return { ok: false, message: 'stream must be stdout or stderr.' }
   }
   const tail = Number.isFinite(input.tail) ? Math.max(1, Math.min(5000, Math.floor(input.tail as number))) : 200
-  const query = new URLSearchParams({ stream: input.stream, tail: String(tail) }).toString()
-  const path = `/execution/${encodeURIComponent(input.executionId)}/logs?${query}`
-  const result = await requestExistingSwitchboardBackend(input.workspaceRoot, path)
-  if (result.ok) return result.payload as SwitchboardExecutionLogsResult
   const fallback = await runSwitchboardCore([
     'execution',
     'logs',

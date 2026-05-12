@@ -333,7 +333,7 @@ export type SwitchboardStopExecutionInput = {
 }
 
 export type SwitchboardRunnerQueue = 'ready' | 'testing' | 'review'
-export type SwitchboardExecutionProviderKind = 'local-process' | 'electron-session' | 'codex-app-server'
+export type SwitchboardExecutionProviderKind = 'electron-session'
 export type SwitchboardExecutionStatus = 'launching' | 'active' | 'missing' | 'stale' | 'abandoned' | 'completed' | 'stopped'
 export type SwitchboardExecutionProviderRef = Record<string, string | number | boolean | null>
 

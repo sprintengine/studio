@@ -18,7 +18,6 @@ import {
 } from './ipc/sprintengine-ipc'
 import { registerSwitchboardIpc } from './ipc/switchboard-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
-import { registerBackendSessionIpc } from './backend-session-bridge'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { initializeMultiloopState } from './multiloop-init'
@@ -127,8 +126,6 @@ registerMobileBridgeIpc(ipcMain, {
 })
 
 registerTerminalIpc(ipcMain, terminalRuntime.ipcHandlers)
-
-registerBackendSessionIpc(ipcMain)
 
 const sprintEngineArtifacts = createSprintEngineArtifactHandlers({
   getAuthenticatedUserId: getAuthenticatedMulticodeUserId,

@@ -8,7 +8,7 @@ import type {
 } from '../../../shared/switchboard'
 
 export const RUNNER_QUEUES: SwitchboardRunnerQueue[] = ['ready', 'testing', 'review']
-export const RUNNER_PROVIDERS: SwitchboardExecutionProviderKind[] = ['local-process', 'codex-app-server']
+export const RUNNER_PROVIDERS: SwitchboardExecutionProviderKind[] = ['electron-session']
 
 export type RunnerStatusKind = 'unconfigured' | 'stopped' | 'running' | 'paused'
 
@@ -171,11 +171,7 @@ export function runnerQueueLabel(queue: SwitchboardRunnerQueue): string {
 
 export function providerLabel(provider: SwitchboardExecutionProviderKind): string {
   switch (provider) {
-    case 'local-process':
-      return 'local process'
     case 'electron-session':
       return 'session manager'
-    case 'codex-app-server':
-      return 'codex app server'
   }
 }

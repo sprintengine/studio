@@ -2,13 +2,9 @@ import { app, BrowserWindow, Menu } from 'electron'
 import { resolve } from 'path'
 import { createAppMenu } from './app-menu'
 import { createMainWindow } from './window-factory'
-import { knownBackendWorkspaces, stopAllKnownBackendRunners } from './backend-session-bridge'
-import { forceTerminateSwitchboardBackend, stopAllSwitchboardRunnerLoops } from './switchboard-python'
+import { stopAllSwitchboardRunnerLoops } from './switchboard-python'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import type { MulticodeUpdateService } from './update-service'
-
-const BACKEND_QUIT_DEADLINE_MS = 5_000
-const BACKEND_QUIT_GRACE_SECONDS = 3
 
 type RegisterAppLifecycleOptions = {
   diagnosticsEnabled: boolean
@@ -84,21 +80,8 @@ export function registerAppLifecycle({
     terminalRuntime.shutdown()
     mobileBridge.shutdown()
 
-    let settled = false
-    const settle = (): void => {
-      if (settled) return
-      settled = true
-      for (const root of knownBackendWorkspaces()) {
-        forceTerminateSwitchboardBackend(root)
-      }
-      void releaseAllWorkspaceRunnerLocks().finally(() => {
-        app.exit(0)
-      })
-    }
-    const timeout = setTimeout(settle, BACKEND_QUIT_DEADLINE_MS)
-    void stopAllKnownBackendRunners(BACKEND_QUIT_GRACE_SECONDS).finally(() => {
-      clearTimeout(timeout)
-      settle()
+    void releaseAllWorkspaceRunnerLocks().finally(() => {
+      app.exit(0)
     })
   })
 }

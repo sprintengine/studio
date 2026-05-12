@@ -2,12 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import signal
-import subprocess
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +33,6 @@ from .store import (
     requeue_task,
     runner_pause,
     runner_resume,
-    runner_run,
     runner_start,
     runner_status,
     runner_stop,
@@ -69,58 +63,6 @@ def emit(payload: dict[str, Any]) -> None:
 
 def workspace_path(args: argparse.Namespace) -> Path:
     return Path(args.workspace)
-
-
-def runner_server_descriptor_path(workspace: Path) -> Path:
-    return switchboard_root(workspace) / "runner" / "server.json"
-
-
-def read_runner_server_descriptor(workspace: Path) -> dict[str, Any] | None:
-    try:
-        parsed = json.loads(runner_server_descriptor_path(workspace).read_text(encoding="utf-8"))
-        return parsed if isinstance(parsed, dict) else None
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def post_runner_stop_to_backend(workspace: Path) -> dict[str, Any] | None:
-    descriptor = read_runner_server_descriptor(workspace)
-    if not descriptor:
-        return None
-    host = descriptor.get("host")
-    port = descriptor.get("port")
-    token = descriptor.get("token")
-    if not isinstance(host, str) or not isinstance(port, int) or not isinstance(token, str):
-        return None
-    request = urllib.request.Request(
-        f"http://{host}:{port}/runner/stop",
-        data=b"{}",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=3) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, json.JSONDecodeError):
-        terminate_descriptor_process(workspace, descriptor)
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def terminate_descriptor_process(workspace: Path, descriptor: dict[str, Any]) -> None:
-    pid = descriptor.get("pid")
-    if isinstance(pid, int) and pid > 0:
-        try:
-            if os.name == "nt":
-                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-            else:
-                os.kill(pid, signal.SIGTERM)
-        except OSError:
-            pass
-    try:
-        runner_server_descriptor_path(workspace).unlink(missing_ok=True)
-    except OSError:
-        pass
 
 
 def mutation_payload(
@@ -384,7 +326,7 @@ def cmd_runner_resume(args: argparse.Namespace) -> int:
 
 def cmd_runner_stop(args: argparse.Namespace) -> int:
     workspace = workspace_path(args)
-    emit(post_runner_stop_to_backend(workspace) or runner_stop(workspace))
+    emit(runner_stop(workspace))
     return 0
 
 
@@ -404,11 +346,6 @@ def cmd_runner_prepare_session(args: argparse.Namespace) -> int:
 
     with locked_runner(workspace):
         emit(prepare_electron_session_execution(workspace, read_runner_state(workspace)))
-    return 0
-
-
-def cmd_runner_run(args: argparse.Namespace) -> int:
-    emit(runner_run(workspace_path(args), once=args.once))
     return 0
 
 
@@ -609,7 +546,7 @@ Watchtower agents should create findings directly in the inbox:
 
     runner_start_cmd = runner_subcommands.add_parser("start", help="Enable and start the persistent runner.")
     runner_start_cmd.add_argument("--workspace", required=True)
-    runner_start_cmd.add_argument("--provider", choices=("local-process", "codex-app-server"), default="local-process")
+    runner_start_cmd.add_argument("--provider", choices=("electron-session",), default="electron-session")
     runner_start_cmd.add_argument("--cli", choices=("codex", "claude"), default="codex")
     runner_start_cmd.add_argument("--queue", action="append", choices=CLAIMABLE_STATUSES)
     runner_start_cmd.add_argument("--max-concurrency", type=int, default=1)
@@ -638,11 +575,6 @@ Watchtower agents should create findings directly in the inbox:
     runner_prepare_session_cmd = runner_subcommands.add_parser("prepare-session", help=argparse.SUPPRESS)
     runner_prepare_session_cmd.add_argument("--workspace", required=True)
     runner_prepare_session_cmd.set_defaults(func=cmd_runner_prepare_session)
-
-    runner_run_cmd = runner_subcommands.add_parser("run", help="Run the local Switchboard backend.")
-    runner_run_cmd.add_argument("--workspace", required=True)
-    runner_run_cmd.add_argument("--once", action="store_true", help=argparse.SUPPRESS)
-    runner_run_cmd.set_defaults(func=cmd_runner_run)
 
     execution = subcommands.add_parser("execution", help="Inspect Switchboard executions.")
     execution_subcommands = execution.add_subparsers(dest="execution_command", required=True)

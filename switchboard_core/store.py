@@ -23,9 +23,6 @@ except ImportError:  # Windows
     _fcntl_module = None
     import msvcrt as _msvcrt_module  # type: ignore[import-not-found]
 
-from .runtime import start_local_process_agent_execution as runtime_start_local_process_agent_execution
-
-
 TASK_STATUSES = (
     "planning",
     "todo",
@@ -41,7 +38,7 @@ TASK_STATUSES = (
 FOLDER_STATUSES = ("inbox", *TASK_STATUSES)
 CLAIMABLE_STATUSES = ("ready", "testing", "review")
 PUBLISH_TARGETS = ("testing", "review", "done")
-RUNNER_PROVIDERS = ("local-process", "electron-session", "codex-app-server")
+RUNNER_PROVIDERS = ("electron-session",)
 RUNNER_EVENTS = {
     "start",
     "pause",
@@ -416,7 +413,7 @@ def default_runner_state(workspace: Path) -> dict[str, Any]:
         "enabled": False,
         "paused": True,
         "workspaceRoot": str(workspace.expanduser().resolve()),
-        "provider": "local-process",
+        "provider": "electron-session",
         "cli": "codex",
         "queues": list(CLAIMABLE_STATUSES),
         "maxConcurrency": 1,
@@ -433,7 +430,7 @@ def normalize_runner_state(workspace: Path, payload: Any) -> dict[str, Any]:
     state["enabled"] = payload.get("enabled") is True
     state["paused"] = payload.get("paused") is not False
     state["workspaceRoot"] = str(Path(payload.get("workspaceRoot") or workspace).expanduser().resolve())
-    state["provider"] = payload.get("provider") if payload.get("provider") in RUNNER_PROVIDERS else "local-process"
+    state["provider"] = payload.get("provider") if payload.get("provider") in RUNNER_PROVIDERS else "electron-session"
     state["cli"] = payload.get("cli") if payload.get("cli") in {"codex", "claude"} else "codex"
     state["queues"] = normalize_runner_queues(payload.get("queues") if isinstance(payload.get("queues"), list) else None)
     state["maxConcurrency"] = normalize_runner_concurrency(payload.get("maxConcurrency"))
@@ -505,7 +502,7 @@ def runner_public_payload(state: dict[str, Any]) -> dict[str, Any]:
         "enabled": state.get("enabled") is True,
         "running": state.get("enabled") is True and state.get("paused") is False,
         "paused": state.get("paused") is not False,
-        "provider": state.get("provider", "local-process"),
+        "provider": state.get("provider", "electron-session"),
         "cli": state.get("cli", "codex"),
         "maxConcurrency": state.get("maxConcurrency", 1),
         "queues": state.get("queues", list(CLAIMABLE_STATUSES)),
@@ -518,7 +515,7 @@ def runner_public_payload(state: dict[str, Any]) -> dict[str, Any]:
 def runner_start(
     workspace: Path,
     *,
-    provider: str = "local-process",
+    provider: str = "electron-session",
     cli: str = "codex",
     queues: list[str] | None = None,
     max_concurrency: int = 1,
@@ -596,12 +593,6 @@ def runner_tick_unlocked(workspace: Path) -> dict[str, Any]:
         append_runner_event(workspace, "tick", data={"skipped": "paused" if state["paused"] else "disabled"})
         return runner_public_payload(write_runner_state(workspace, state))
 
-    while active_execution_count(state) < state["maxConcurrency"]:
-        launched = runner_claim_and_launch(workspace, state)
-        if not launched:
-            break
-        state = reconcile_runner_state(workspace, read_runner_state(workspace))
-
     state = write_runner_state(workspace, state)
     append_runner_event(workspace, "tick", data={"activeExecutions": active_execution_count(state)})
     return runner_public_payload(state)
@@ -676,8 +667,6 @@ def runner_command_for(state: dict[str, Any]) -> list[str] | None:
 
 def validate_runner_capability(workspace: Path, state: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if state["provider"] != "local-process":
-        return [f"{state['provider']} execution provider is defined but not implemented yet."]
     workspace_root = workspace.expanduser().resolve()
     if not workspace_root.is_dir():
         errors.append("workspace root must exist and be a directory.")
@@ -964,109 +953,6 @@ def reconcile_watchtower_execution(workspace: Path, execution: dict[str, Any]) -
     return completed
 
 
-def runner_claim_and_launch(workspace: Path, state: dict[str, Any]) -> bool:
-    capability_errors = validate_runner_capability(workspace, state)
-    if capability_errors:
-        message = " ".join(capability_errors)
-        state["lastError"] = message
-        write_runner_state(workspace, state)
-        append_runner_event(workspace, "provider_error", message=message, data={"provider": state["provider"]})
-        return False
-    command = runner_command_for(state)
-    if not command:
-        raise SwitchboardError("Runner command disappeared after capability check.")
-
-    for queue in state["queues"]:
-        if not has_claim_candidate(workspace, queue):
-            continue
-        if queue == "ready":
-            worktree_errors = validate_worktree_capability(workspace)
-            if worktree_errors:
-                message = " ".join(worktree_errors)
-                state["lastError"] = message
-                write_runner_state(workspace, state)
-                append_runner_event(workspace, "provider_error", message=message, data={"provider": state["provider"], "queue": queue})
-                return False
-        role = role_for_queue(queue)
-        located = claim_task(workspace, from_status=queue, agent=f"switchboard-{role}")
-        if located is None:
-            continue
-        append_runner_event(workspace, "claim", data={"taskId": located.task["id"], "from": queue})
-        execution_id = f"exec_{uuid.uuid4().hex}"
-        try:
-            execution = start_local_process_execution(workspace, state, located, queue, command, execution_id)
-        except Exception as exc:
-            requeue_task(workspace, located.task["id"], reason=f"Switchboard runner could not launch local-process: {exc}")
-            state["lastError"] = str(exc)
-            write_runner_state(workspace, state)
-            append_runner_event(workspace, "provider_error", message=str(exc), data={"taskId": located.task["id"], "executionId": execution_id})
-            return False
-        state["activeExecutions"].append(execution)
-        state["lastError"] = None
-        write_runner_state(workspace, state)
-        append_runner_event(workspace, "launch", data={"taskId": located.task["id"], "executionId": execution_id, "provider": "local-process"})
-        return True
-    return False
-
-
-def start_local_process_execution(
-    workspace: Path,
-    state: dict[str, Any],
-    located: LocatedTask,
-    queue: str,
-    command: list[str],
-    execution_id: str,
-) -> dict[str, Any]:
-    worktree: dict[str, str] | None = create_execution_worktree(workspace, located.task["id"], execution_id) if queue == "ready" else None
-    run_workspace = Path(worktree["worktreePath"]) if worktree else workspace.expanduser().resolve()
-    prompt = build_runner_prompt(
-        workspace=workspace,
-        task_id=located.task["id"],
-        queue=queue,
-        execution_id=execution_id,
-        run_workspace=run_workspace,
-    )
-    role = role_for_queue(queue)
-    execution = start_local_process_agent_execution(
-        workspace=workspace,
-        command=command,
-        execution_id=execution_id,
-        kind="switchboard_task",
-        role=role,
-        prompt=prompt,
-        run_workspace=run_workspace,
-        metadata={
-            "taskId": located.task["id"],
-            "claimedFrom": queue,
-            "claimedStatus": claimed_status_for_queue(queue),
-            **(worktree or {}),
-        },
-        provider_ref_metadata=worktree,
-        cleanup_path=Path(worktree["worktreePath"]) if worktree else None,
-    )
-    try:
-        link_runner_execution_to_task(workspace, located.task["id"], execution)
-    except Exception as exc:
-        terminate_process(execution.get("providerRef", {}).get("pid"))
-        if worktree:
-            try:
-                remove_worktree_path(workspace, Path(worktree["worktreePath"]), force=True)
-            except SwitchboardError:
-                pass
-        update_execution_metadata(
-            workspace,
-            execution,
-            {
-                "status": "launch_failed",
-                "completedAt": now_iso(),
-                "error": f"Task execution link failed: {exc}",
-                "worktreeState": "cleaned" if worktree else None,
-            },
-        )
-        raise
-    return execution
-
-
 def prepare_electron_session_execution(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
     state = reconcile_runner_state(workspace, state)
     if not state["enabled"] or state["paused"]:
@@ -1183,41 +1069,6 @@ def prepare_electron_session_execution(workspace: Path, state: dict[str, Any]) -
         }
 
     return {"ok": True, "prepared": False, "message": "No eligible task.", "runner": runner_public_payload(state)}
-
-
-def start_local_process_agent_execution(
-    *,
-    workspace: Path,
-    command: list[str],
-    execution_id: str,
-    kind: str,
-    role: str,
-    prompt: str,
-    run_workspace: Path,
-    metadata: dict[str, Any] | None = None,
-    provider_ref_metadata: dict[str, Any] | None = None,
-    cleanup_path: Path | None = None,
-) -> dict[str, Any]:
-    def cleanup(path: Path) -> None:
-        try:
-            remove_worktree_path(workspace, path, force=True)
-        except SwitchboardError:
-            pass
-
-    return runtime_start_local_process_agent_execution(
-        switchboard_root=switchboard_root(workspace),
-        command=command,
-        execution_id=execution_id,
-        kind=kind,
-        role=role,
-        prompt=prompt,
-        run_workspace=run_workspace,
-        metadata=metadata,
-        provider_ref_metadata=provider_ref_metadata,
-        cleanup_path=cleanup_path,
-        cleanup_on_launch_error=cleanup if cleanup_path else None,
-        started_at=now_iso(),
-    )
 
 
 def terminate_process(pid: Any, *, timeout_seconds: float = 3.0) -> dict[str, Any]:
@@ -1363,7 +1214,7 @@ def execution_stop_unlocked(workspace: Path, execution_id: str, *, reason: str |
                 "role": metadata.get("role", ""),
                 "claimedFrom": metadata.get("claimedFrom", "ready"),
                 "claimedStatus": metadata.get("claimedStatus", "in_progress"),
-                "provider": metadata.get("provider", "local-process"),
+                "provider": metadata.get("provider", "electron-session"),
                 "providerRef": provider_ref,
                 "startedAt": metadata.get("startedAt", stopped_at),
                 "lastSeenAt": metadata.get("lastSeenAt", stopped_at),
@@ -1744,31 +1595,6 @@ def link_runner_execution_to_task(workspace: Path, task_id: str, execution: dict
             }
         },
     )
-
-
-def runner_run(workspace: Path, *, once: bool = False) -> dict[str, Any]:
-    if once:
-        return runner_tick(workspace)
-    from .server import serve
-
-    return serve(workspace)
-
-
-def runner_run_loop(workspace: Path, *, interval_seconds: float = 5.0, stop_event: Any | None = None) -> None:
-    interval_override = os.environ.get("SWITCHBOARD_RUNNER_INTERVAL_SECONDS")
-    if interval_override:
-        try:
-            interval_seconds = max(0.1, float(interval_override))
-        except ValueError:
-            pass
-    append_runner_event(workspace, "run", data={"intervalSeconds": interval_seconds})
-    while stop_event is None or not stop_event.is_set():
-        try:
-            with locked_runner(workspace):
-                runner_tick_unlocked(workspace)
-        except SwitchboardError:
-            pass
-        time.sleep(interval_seconds)
 
 
 def lock_status_for(workspace: Path, status: str) -> LockStatus:

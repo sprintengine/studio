@@ -676,60 +676,6 @@ export function appendTabAsNewColumnInJson(
   }
 }
 
-export function focusOrAddBackendSessionTab(
-  workspaceId: string,
-  args: { executionId: string; workspaceRoot: string; title: string; role?: string },
-): boolean {
-  const model = models.get(workspaceId)
-  if (!model) return false
-
-  let targetTabId: string | null = null
-  model.visitNodes((node) => {
-    if (targetTabId || !(node instanceof TabNode) || node.getComponent() !== 'backend-session') return
-    const config = node.getConfig() as { executionId?: string } | undefined
-    if (config?.executionId === args.executionId) targetTabId = node.getId()
-  })
-
-  if (targetTabId) {
-    model.doAction(Actions.selectTab(targetTabId))
-    return true
-  }
-
-  let targetTabset: TabSetNode | null = null
-  model.visitNodes((node) => {
-    if (targetTabset || !(node instanceof TabSetNode)) return
-    const hasAgentTab = node.getChildren().some((child) =>
-      child instanceof TabNode && (child.getComponent() === 'agent' || child.getComponent() === 'backend-session'),
-    )
-    if (hasAgentTab) targetTabset = node
-  })
-  const targetId = targetTabset
-    ? (targetTabset as TabSetNode).getId()
-    : model.getRoot().getId()
-  const targetLocation = targetTabset ? DockLocation.CENTER : DockLocation.RIGHT
-
-  model.doAction(
-    Actions.addNode(
-      {
-        type: 'tab',
-        name: args.title,
-        component: 'backend-session',
-        config: {
-          executionId: args.executionId,
-          workspaceRoot: args.workspaceRoot,
-          role: args.role,
-          title: args.title,
-        },
-      },
-      targetId,
-      targetLocation,
-      -1,
-      true,
-    ),
-  )
-  return true
-}
-
 export function buildSingleTabLayoutModel(spec: CrossWorkspaceTabSpec): IJsonModel {
   return {
     global: { tabSetEnableDrop: true, tabEnableClose: true },

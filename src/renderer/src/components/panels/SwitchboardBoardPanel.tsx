@@ -1358,7 +1358,7 @@ type RunnerSettings = {
 const DEFAULT_RUNNER_SETTINGS: RunnerSettings = {
   queues: ['ready'],
   maxConcurrency: 2,
-  provider: 'local-process',
+  provider: 'electron-session',
   cli: 'codex',
 }
 
