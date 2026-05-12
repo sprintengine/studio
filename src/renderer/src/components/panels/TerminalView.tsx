@@ -15,6 +15,7 @@ import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
+import type { McpSettings } from '../../types/workspace'
 
 interface Props {
   workspaceId: string
@@ -34,6 +35,8 @@ type MemoryLaunchContext = {
   rootPath: string | undefined
   relativeRoot: string | undefined
 }
+
+const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
 
 function resolveAgentExecutionRoot(
   execution: AgentExecution | undefined,
@@ -168,7 +171,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     return worktreeId ? workspace?.worktreeState.entries[worktreeId]?.path : undefined
   })
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
+  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const cli = agent?.cli ?? 'codex'
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const startupPrompt = useWorkspaceStore((s) => {

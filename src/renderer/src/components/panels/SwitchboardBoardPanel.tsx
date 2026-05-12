@@ -51,6 +51,7 @@ import type {
   SwitchboardTaskRecord,
   SwitchboardTaskStatus,
 } from '../../../../shared/switchboard'
+import type { McpSettings } from '../../types/workspace'
 
 const PANEL_BG = 'bg-[#08090b]'
 const ACCENT = '#7c5cf2'
@@ -86,9 +87,11 @@ const emptyDraft: DraftTask = {
   labels: '',
 }
 
+const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
+
 export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
-  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
+  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
   const runner = useSwitchboardRunner(folderPath, workspaceId, mcpSettings)

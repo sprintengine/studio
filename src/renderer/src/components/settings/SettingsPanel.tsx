@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentCli, McpCatalogServer, McpServerConfig } from '../../types/workspace'
+import type { AgentCli, McpCatalogServer, McpServerConfig, McpSettings } from '../../types/workspace'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import LearnCenter from '../learn/LearnCenter'
@@ -22,6 +22,7 @@ type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenSt
 
 const EMPTY_SEARCH_EXCLUDES: string[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
+const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
 
 type SettingsTabId =
   | 'updates'
@@ -153,7 +154,7 @@ export default function SettingsPanel({
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
   )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
+  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
@@ -377,6 +378,12 @@ export default function SettingsPanel({
 
   useEffect(() => {
     let cancelled = false
+    if (typeof window.api.mcpListCatalog !== 'function') {
+      setMcpMessage('MCP settings need an app restart before this tab is available.')
+      return () => {
+        cancelled = true
+      }
+    }
     void window.api.mcpListCatalog().then((result) => {
       if (cancelled) return
       if (result.ok) {
