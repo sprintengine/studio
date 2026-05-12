@@ -2,6 +2,7 @@ export {
   addSwitchboardComment,
   cancelSwitchboardTask,
   claimSwitchboardTask,
+  configureSwitchboardSessionSpawner,
   createSwitchboardTask,
   getSwitchboardExecutionLogs,
   getSwitchboardExecutionStatus,

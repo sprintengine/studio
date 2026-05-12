@@ -8,6 +8,7 @@ import type {
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
+import type { SwitchboardAgentSpawnDescriptor } from '../shared/switchboard'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -48,6 +49,11 @@ type TerminalIpcHandlers = {
 type TerminalRuntime = {
   commandService: MobileSprintEngineCommandService
   ipcHandlers: TerminalIpcHandlers
+  spawnAgentSession(input: {
+    workspaceId?: string
+    workspaceRoot: string
+    descriptor: SwitchboardAgentSpawnDescriptor
+  }): Promise<TerminalSpawnResult>
 }
 
 let requireAuthenticatedUser = (_message: string): void => {}
@@ -64,6 +70,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
 
   return {
     commandService: createMobileCommandService(),
+    spawnAgentSession: spawnAgentSessionFromDescriptor,
     ipcHandlers: {
       spawnTerminal: spawnTerminalFromIpc,
       writeTerminal: writeTerminalInput,
@@ -246,6 +253,46 @@ function attachTerminalSession(
   if (initialInput) {
     terminalSession.process.write(initialInput)
   }
+}
+
+async function spawnAgentSessionFromDescriptor(input: {
+  workspaceId?: string
+  workspaceRoot: string
+  descriptor: SwitchboardAgentSpawnDescriptor
+}): Promise<TerminalSpawnResult> {
+  const sender = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())?.webContents
+  if (!sender) {
+    return {
+      ok: false,
+      sessionId: input.descriptor.executionId,
+      message: 'No desktop window is available to host the agent terminal.',
+      exitCode: 1,
+    }
+  }
+
+  return spawnTerminalFromIpc(sender, {
+    sessionId: input.descriptor.executionId,
+    cols: 120,
+    rows: 30,
+    cwd: input.descriptor.cwd,
+    resume: false,
+    cli: input.descriptor.cli ?? 'codex',
+    initialPrompt: input.descriptor.prompt,
+    shellOnly: false,
+    kind: 'agent',
+    workspaceId: input.workspaceId,
+    agentId: input.descriptor.executionId,
+    visible: false,
+    agentSession: {
+      executionId: input.descriptor.executionId,
+      system: input.descriptor.system,
+      workspaceId: input.workspaceId ?? '',
+      workspaceRoot: input.workspaceRoot,
+      workId: input.descriptor.workId,
+      role: input.descriptor.role,
+      displayName: input.descriptor.displayName,
+    },
+  })
 }
 
 function createMobileCommandService(): MobileSprintEngineCommandService {

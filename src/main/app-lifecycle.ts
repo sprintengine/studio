@@ -3,7 +3,7 @@ import { resolve } from 'path'
 import { createAppMenu } from './app-menu'
 import { createMainWindow } from './window-factory'
 import { knownBackendWorkspaces, stopAllKnownBackendRunners } from './backend-session-bridge'
-import { forceTerminateSwitchboardBackend } from './switchboard-python'
+import { forceTerminateSwitchboardBackend, stopAllSwitchboardRunnerLoops } from './switchboard-python'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import type { MulticodeUpdateService } from './update-service'
 
@@ -76,6 +76,7 @@ export function registerAppLifecycle({
     if (isShuttingDown) return
     event.preventDefault()
     isShuttingDown = true
+    stopAllSwitchboardRunnerLoops()
     mobileBridge.shutdown()
 
     let settled = false

@@ -46,6 +46,7 @@ import {
   addSwitchboardComment,
   cancelSwitchboardTask,
   claimSwitchboardTask,
+  configureSwitchboardSessionSpawner,
   createSwitchboardTask,
   getSwitchboardExecutionLogs,
   getSwitchboardExecutionStatus,
@@ -92,6 +93,8 @@ const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
   snapshotService: mobileSnapshotService,
   statePathsProvider: () => discoverMobileSprintEngineStatePaths(mobileWorkspaceRoots),
 })
+
+configureSwitchboardSessionSpawner(terminalRuntime.spawnAgentSession)
 
 function getAuthenticatedMulticodeUserId(): string | null {
   const state = multicodeAuth.getState()
