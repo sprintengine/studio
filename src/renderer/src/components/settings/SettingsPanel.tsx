@@ -141,9 +141,10 @@ export default function SettingsPanel({
   const [activityInstalled, setActivityInstalled] = useState(false)
   const [activityPending, setActivityPending] = useState(false)
   const [activityMessage, setActivityMessage] = useState<string | null>(null)
-  const [memorySkillStatus, setMemorySkillStatus] = useState<BuiltinSkillStatus | null>(null)
-  const [memorySkillPending, setMemorySkillPending] = useState(false)
-  const [memorySkillMessage, setMemorySkillMessage] = useState<string | null>(null)
+  const [builtinSkills, setBuiltinSkills] = useState<BuiltinSkill[]>([])
+  const [builtinSkillStatuses, setBuiltinSkillStatuses] = useState<Record<string, BuiltinSkillStatus>>({})
+  const [builtinSkillPendingId, setBuiltinSkillPendingId] = useState<string | null>(null)
+  const [builtinSkillMessage, setBuiltinSkillMessage] = useState<string | null>(null)
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>(
     isSettingsTabId(initialTab) ? initialTab : 'updates'
   )
@@ -190,10 +191,13 @@ export default function SettingsPanel({
   useEffect(() => {
     let cancelled = false
     setActivityMessage(null)
-    setMemorySkillMessage(null)
+    setBuiltinSkillMessage(null)
+    setBuiltinSkillStatuses({})
     if (!activeProjectRoot) {
       setActivityInstalled(false)
-      setMemorySkillStatus(null)
+      void window.api.builtinSkillsList().then((skills) => {
+        if (!cancelled) setBuiltinSkills(skills)
+      })
       return
     }
     void window.api
@@ -201,43 +205,57 @@ export default function SettingsPanel({
       .then((installed) => {
         if (!cancelled) setActivityInstalled(installed)
       })
-    void window.api
-      .builtinSkillStatus({
-        workspaceRoot: activeProjectRoot,
-        skillId: 'workspace-knowledge',
-      })
-      .then((status) => {
-        if (!cancelled) setMemorySkillStatus(status)
-      })
+    void window.api.builtinSkillsList().then(async (skills) => {
+      if (cancelled) return
+      setBuiltinSkills(skills)
+      const statuses = await Promise.all(skills.map(async (skill) => {
+        const status = await window.api.builtinSkillStatus({
+          workspaceRoot: activeProjectRoot,
+          skillId: skill.id,
+        })
+        return [skill.id, status] as const
+      }))
+      if (!cancelled) {
+        setBuiltinSkillStatuses(Object.fromEntries(statuses))
+      }
+    }).catch((error) => {
+      if (!cancelled) {
+        setBuiltinSkillMessage(error instanceof Error ? error.message : 'Failed to load built-in skills.')
+      }
+    })
     return () => {
       cancelled = true
     }
   }, [activeProjectRoot])
 
-  const installWorkspaceMemorySkill = useCallback(async () => {
+  const installBuiltinSkill = useCallback(async (skill: BuiltinSkill) => {
     if (!activeProjectRoot) return
-    setMemorySkillPending(true)
-    setMemorySkillMessage(null)
+    setBuiltinSkillPendingId(skill.id)
+    setBuiltinSkillMessage(null)
     try {
       const result = await window.api.builtinSkillInstall({
         workspaceRoot: activeProjectRoot,
-        skillId: 'workspace-knowledge',
+        skillId: skill.id,
       })
       if (result.ok) {
-        setMemorySkillMessage(result.status === 'updated'
-          ? 'Workspace Knowledge skill updated.'
-          : 'Workspace Knowledge skill installed.')
-        setMemorySkillStatus(await window.api.builtinSkillStatus({
+        setBuiltinSkillMessage(result.status === 'updated'
+          ? `${skill.name} updated.`
+          : `${skill.name} installed.`)
+        const status = await window.api.builtinSkillStatus({
           workspaceRoot: activeProjectRoot,
-          skillId: 'workspace-knowledge',
+          skillId: skill.id,
+        })
+        setBuiltinSkillStatuses((current) => ({
+          ...current,
+          [skill.id]: status,
         }))
       } else {
-        setMemorySkillMessage(result.message)
+        setBuiltinSkillMessage(result.message)
       }
     } catch (error) {
-      setMemorySkillMessage(error instanceof Error ? error.message : 'Failed to install Workspace Knowledge skill.')
+      setBuiltinSkillMessage(error instanceof Error ? error.message : `Failed to install ${skill.name}.`)
     } finally {
-      setMemorySkillPending(false)
+      setBuiltinSkillPendingId(null)
     }
   }, [activeProjectRoot])
 
@@ -776,35 +794,58 @@ export default function SettingsPanel({
           </div>
 
           <div className="border-t border-[#24252b] pt-4">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-l-2 border-[#24252b] pl-3">
-              <div className="min-w-0">
+            <div className="mb-4 border-l-2 border-[#24252b] pl-3">
+              <div className="mb-3 min-w-0">
                 <div className="text-sm font-semibold text-[#ececee]">
-                  Workspace Knowledge skill
+                  Built-in agent skills
                 </div>
                 <div className="mt-1 text-[12px] leading-5 text-[#9a9aa2]">
-                  {formatBuiltinSkillStatus(memorySkillStatus)}
                   {activeKnowledgeConfig?.relativeRoot
-                    ? ` Agents will use the configured knowledge folder: ${activeKnowledgeConfig.relativeRoot}.`
+                    ? `Install workflow skills into .agents/skills. Knowledge-aware skills will use the configured graph: ${activeKnowledgeConfig.relativeRoot}.`
                     : ' Configure a knowledge folder so agents know which graph to read and update.'}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => void installWorkspaceMemorySkill()}
-                disabled={
-                  memorySkillPending
-                  || !activeProjectRoot
-                  || memorySkillStatus?.status === 'installed'
-                  || memorySkillStatus?.status === 'modified'
-                  || memorySkillStatus?.status === 'local'
-                }
-                className="h-8 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
-              >
-                {memorySkillStatus?.status === 'update-available' ? 'Update' : 'Install'}
-              </button>
-              {memorySkillMessage ? (
+              <div className="grid gap-2">
+                {builtinSkills.length ? builtinSkills.map((skill) => {
+                  const status = builtinSkillStatuses[skill.id] ?? null
+                  const installBlocked =
+                    !activeProjectRoot
+                    || !status
+                    || !status.ok
+                    || status.status === 'installed'
+                    || status.status === 'modified'
+                    || status.status === 'local'
+                  return (
+                    <div
+                      key={skill.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#24252b] bg-[#0d0e11]/55 px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-semibold text-[#ececee]">{skill.name}</div>
+                        <div className="mt-0.5 text-[12px] leading-5 text-[#9a9aa2]">{skill.description}</div>
+                        <div className="mt-1 text-[11px] leading-4 text-[#6f7078]">
+                          {formatBuiltinSkillStatus(status, skill.id)}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void installBuiltinSkill(skill)}
+                        disabled={builtinSkillPendingId !== null || installBlocked}
+                        className="h-8 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
+                      >
+                        {status?.ok && status.status === 'update-available' ? 'Update' : 'Install'}
+                      </button>
+                    </div>
+                  )
+                }) : (
+                  <div className="rounded-md border border-[#24252b] bg-[#0d0e11]/55 px-3 py-2 text-[12px] leading-5 text-[#9a9aa2]">
+                    Built-in skills have not loaded yet.
+                  </div>
+                )}
+              </div>
+              {builtinSkillMessage ? (
                 <div className="basis-full border-l-2 border-[#ffbf2f]/75 pl-3 text-[12px] leading-5 text-[#ffd58a]">
-                  {memorySkillMessage}
+                  {builtinSkillMessage}
                 </div>
               ) : null}
             </div>
@@ -960,7 +1001,7 @@ function UpdateActionButton({
   )
 }
 
-function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null): string {
+function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null, skillId: string): string {
   if (!status) return 'Skill status has not been checked.'
   if (!status.ok) return status.message
 
@@ -968,7 +1009,7 @@ function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null): string {
     case 'missing':
       return 'Not installed in this workspace.'
     case 'installed':
-      return 'Installed in .agents/skills/workspace-knowledge.'
+      return `Installed in .agents/skills/${skillId}.`
     case 'update-available':
       return `Update available. Installed version: ${status.installedVersion}.`
     case 'modified':

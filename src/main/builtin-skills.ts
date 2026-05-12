@@ -28,6 +28,42 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     version: '1.0.0',
     description: 'Read and update a workspace-local Markdown knowledge graph.',
   },
+  {
+    id: 'knowledge-grill',
+    name: 'Knowledge Grill',
+    version: '1.0.0',
+    description: 'Stress-test plans against workspace knowledge and current code.',
+  },
+  {
+    id: 'diagnose',
+    name: 'Diagnose',
+    version: '1.0.0',
+    description: 'Debug bugs and regressions through reproducible feedback loops.',
+  },
+  {
+    id: 'behavior-first-testing',
+    name: 'Behavior First Testing',
+    version: '1.0.0',
+    description: 'Design tests around observable behavior through public interfaces.',
+  },
+  {
+    id: 'prototype',
+    name: 'Prototype',
+    version: '1.0.0',
+    description: 'Build clearly throwaway prototypes for design and workflow questions.',
+  },
+  {
+    id: 'architecture-deepening',
+    name: 'Architecture Deepening',
+    version: '1.0.0',
+    description: 'Find focused architecture improvements for locality and testability.',
+  },
+  {
+    id: 'handoff',
+    name: 'Handoff',
+    version: '1.0.0',
+    description: 'Create concise continuation handoffs for another agent or session.',
+  },
 ]
 
 type BuiltinSkillManagerOptions = {

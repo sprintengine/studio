@@ -1,0 +1,4 @@
+interface:
+  display_name: "Knowledge Grill"
+  short_description: "Stress-test plans against workspace knowledge."
+  default_prompt: "Use $knowledge-grill to stress-test this plan against the Knowledge Graph."

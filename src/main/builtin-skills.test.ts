@@ -3,23 +3,48 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createBuiltinSkillManager } from './builtin-skills'
+import { BUILTIN_SKILLS, createBuiltinSkillManager } from './builtin-skills'
 
-async function writeSkillSource(root: string, body: string): Promise<void> {
-  const skillRoot = join(root, 'workspace-knowledge')
+async function writeSkillSource(root: string, skillId: string, body: string): Promise<void> {
+  const skillRoot = join(root, skillId)
   await mkdir(join(skillRoot, 'agents'), { recursive: true })
   await writeFile(join(skillRoot, 'SKILL.md'), body, 'utf-8')
-  await writeFile(join(skillRoot, 'agents', 'openai.yaml'), 'display_name: Workspace Knowledge\n', 'utf-8')
+  await writeFile(join(skillRoot, 'agents', 'openai.yaml'), `display_name: ${skillId}\n`, 'utf-8')
+}
+
+async function writeAllSkillSources(root: string, body: string): Promise<void> {
+  for (const skill of BUILTIN_SKILLS) {
+    await writeSkillSource(root, skill.id, body)
+  }
 }
 
 async function main(): Promise<void> {
+  for (const skill of BUILTIN_SKILLS) {
+    const realSkill = await readFile(join(process.cwd(), 'resources', 'skills', skill.id, 'SKILL.md'), 'utf-8')
+    assert.match(realSkill, new RegExp(`name:\\s*${skill.id}`))
+    await readFile(join(process.cwd(), 'resources', 'skills', skill.id, 'agents', 'openai.yaml'), 'utf-8')
+  }
+
   const temp = await mkdtemp(join(tmpdir(), 'multicode-builtin-skills-'))
   const sourceRoot = join(temp, 'source')
   const workspaceRoot = join(temp, 'workspace')
   await mkdir(workspaceRoot, { recursive: true })
-  await writeSkillSource(sourceRoot, 'version one\n')
+  await writeAllSkillSources(sourceRoot, 'version one\n')
 
   const manager = createBuiltinSkillManager({ sourceRoot })
+  const listed = await manager.list()
+  assert.deepEqual(
+    listed.map((skill) => skill.id),
+    [
+      'workspace-knowledge',
+      'knowledge-grill',
+      'diagnose',
+      'behavior-first-testing',
+      'prototype',
+      'architecture-deepening',
+      'handoff',
+    ]
+  )
 
   const missing = await manager.getStatus(workspaceRoot, 'workspace-knowledge')
   assert.equal(missing.ok, true)
@@ -33,7 +58,15 @@ async function main(): Promise<void> {
   assert.equal(installedStatus.ok, true)
   assert.equal(installedStatus.ok && installedStatus.status, 'installed')
 
-  await writeSkillSource(sourceRoot, 'version two\n')
+  const diagnoseInstalled = await manager.install(workspaceRoot, 'diagnose')
+  assert.equal(diagnoseInstalled.ok, true)
+  assert.equal(diagnoseInstalled.ok && diagnoseInstalled.status, 'installed')
+  assert.equal(
+    await readFile(join(workspaceRoot, '.agents', 'skills', 'diagnose', 'SKILL.md'), 'utf-8'),
+    'version one\n'
+  )
+
+  await writeAllSkillSources(sourceRoot, 'version two\n')
   const updateAvailable = await manager.getStatus(workspaceRoot, 'workspace-knowledge')
   assert.equal(updateAvailable.ok, true)
   assert.equal(updateAvailable.ok && updateAvailable.status, 'update-available')
