@@ -28,6 +28,7 @@ from .store import (
     runner_stop,
     runner_tick,
     runner_run_loop,
+    terminate_process,
     execution_logs,
     execution_stop,
     execution_status,
@@ -108,14 +109,60 @@ def serve(workspace: Path) -> dict[str, Any]:
         atomic_write_json(server_path, descriptor)
         supervisor = threading.Thread(target=runner_run_loop, kwargs={"workspace": workspace, "stop_event": stop_event}, daemon=True)
         supervisor.start()
+        shutdown_started = threading.Event()
+        previous_signal_handlers: dict[int, Any] = {}
+
+        def _shutdown_from_signal(signal_number: int, _frame: Any) -> None:
+            if shutdown_started.is_set():
+                return
+            shutdown_started.set()
+            signal_name = next((name for name, value in SIGNAL_MAP.items() if value == signal_number), str(signal_number))
+            append_runner_event(workspace, "stop", message=f"Switchboard backend received SIG{signal_name}.")
+
+            def _shutdown() -> None:
+                stop_event.set()
+                shutdown_active_executions(workspace)
+                get_registry().shutdown_all(grace_seconds=3.0)
+                server.shutdown()
+
+            threading.Thread(target=_shutdown, name="SwitchboardSignalShutdown", daemon=True).start()
+
+        for signal_name in ("TERM", "INT"):
+            signal_number = SIGNAL_MAP.get(signal_name)
+            if signal_number is None:
+                continue
+            try:
+                previous_signal_handlers[signal_number] = signal.getsignal(signal_number)
+                signal.signal(signal_number, _shutdown_from_signal)
+            except (ValueError, OSError):
+                previous_signal_handlers.pop(signal_number, None)
+
         try:
             server.serve_forever()
         finally:
             stop_event.set()
+            get_registry().shutdown_all(grace_seconds=1.0)
+            for signal_number, previous_handler in previous_signal_handlers.items():
+                try:
+                    signal.signal(signal_number, previous_handler)
+                except (ValueError, OSError):
+                    pass
             remove_descriptor_if_current(server_path, os.getpid())
         return {"ok": True, "server": descriptor}
     finally:
         runner_lock.release()
+
+
+def shutdown_active_executions(workspace: Path) -> None:
+    try:
+        state = read_runner_state(workspace)
+    except Exception:
+        return
+    for execution in state.get("activeExecutions", []):
+        if not isinstance(execution, dict):
+            continue
+        provider_ref = execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}
+        terminate_process(provider_ref.get("pid"), timeout_seconds=2.0)
 
 
 def read_descriptor(path: Path) -> dict[str, Any] | None:

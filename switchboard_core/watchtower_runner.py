@@ -86,7 +86,14 @@ def start_watchtower_triage(workspace: Path, *, scope: str = "all", task_id: str
             )
         scoped = triage_scope_records(workspace, scope=scope, task_id=task_id)
         if not scoped:
-            raise SwitchboardError("There are no Watchtower inbox tasks to triage.")
+            tasks, _problems, _locks = read_all(workspace)
+            inbox_total = sum(1 for located in tasks if located.folder_status == "inbox")
+            if inbox_total == 0:
+                raise SwitchboardError("There are no Watchtower inbox tasks to triage.")
+            raise SwitchboardError(
+                f"All {inbox_total} inbox task{'s' if inbox_total != 1 else ''} already have triage comments. "
+                "Click a specific task to re-triage it."
+            )
         nonce = uuid.uuid4().hex[:8]
         agent_id = f"watchtower-triage-{nonce}-architect"
         run = create_watchtower_run_with_status(
@@ -103,12 +110,25 @@ def triage_scope_records(workspace: Path, *, scope: str, task_id: str | None) ->
     tasks, _problems, _locks = read_all(workspace)
     inbox = [record_for_output(located) for located in tasks if located.folder_status == "inbox"]
     if scope == "all":
-        return inbox
+        # Skip tasks that already carry a triage comment. Re-running
+        # "triage all" without this filter has the architect add a
+        # second comment to each item, which is wasteful and misleads
+        # the UI count ("triaging 19/19" when 0 actually need it).
+        # The "selected" scope intentionally does not filter; a user
+        # who clicks a specific task is asking for a re-triage.
+        return [record for record in inbox if not _has_triage_comment(record)]
     if scope == "selected":
         if not task_id:
             raise SwitchboardError("Watchtower selected triage requires a task id.")
         return [record for record in inbox if record["task"]["id"] == task_id]
     raise SwitchboardError("Watchtower triage scope must be all or selected.")
+
+
+def _has_triage_comment(record: dict[str, Any]) -> bool:
+    comments = record.get("task", {}).get("comments")
+    if not isinstance(comments, list):
+        return False
+    return any(isinstance(c, dict) and c.get("kind") == "triage" for c in comments)
 
 
 def active_watchtower_review_run(workspace: Path) -> dict[str, Any] | None:

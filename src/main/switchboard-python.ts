@@ -229,6 +229,49 @@ export function forceTerminateSwitchboardBackend(workspaceRoot: string): void {
   terminateServerDescriptorProcess(workspaceRoot, descriptor)
 }
 
+function descriptorProcessIsRunning(descriptor: SwitchboardServerDescriptor | null): boolean {
+  if (!descriptor?.pid || descriptor.pid <= 0) return false
+  try {
+    process.kill(descriptor.pid, 0)
+    return true
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH') return false
+    return true
+  }
+}
+
+async function terminateStaleServerDescriptorProcess(
+  workspaceRoot: string,
+  descriptor: SwitchboardServerDescriptor | null,
+): Promise<void> {
+  if (!descriptor?.pid || descriptor.pid <= 0) {
+    removeServerDescriptor(workspaceRoot)
+    return
+  }
+
+  try {
+    process.kill(descriptor.pid, 'SIGTERM')
+  } catch {
+    removeServerDescriptor(workspaceRoot)
+    return
+  }
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100))
+    if (!descriptorProcessIsRunning(descriptor)) {
+      removeServerDescriptor(workspaceRoot)
+      return
+    }
+  }
+
+  try {
+    process.kill(descriptor.pid, 'SIGKILL')
+  } catch {
+    // The process may have exited after the final liveness check.
+  }
+  removeServerDescriptor(workspaceRoot)
+}
+
 async function backendHealthy(descriptor: SwitchboardServerDescriptor): Promise<boolean> {
   try {
     const response = await fetch(`http://${descriptor.host}:${descriptor.port}/health`, {
@@ -248,19 +291,30 @@ async function ensureSwitchboardBackend(
   rememberBackendWorkspace(workspaceRoot)
   const existing = readServerDescriptor(workspaceRoot)
   if (existing && (await backendHealthy(existing))) return { ok: true, descriptor: existing }
+  if (existing) await terminateStaleServerDescriptorProcess(workspaceRoot, existing)
 
   const repoRoot = findRepositoryRoot()
   const python = findPythonExecutable(repoRoot)
   const existingPythonPath = process.env['PYTHONPATH']
-  const child = spawn(python, ['-m', 'switchboard_core', 'runner', 'run', ...workspaceArgs(workspaceRoot)], {
-    cwd: repoRoot,
-    detached: true,
-    stdio: 'ignore',
-    env: {
-      ...process.env,
-      PYTHONPATH: existingPythonPath ? `${repoRoot}${process.platform === 'win32' ? ';' : ':'}${existingPythonPath}` : repoRoot,
-    },
-  })
+  let child: ReturnType<typeof spawn>
+  try {
+    child = spawn(python, ['-m', 'switchboard_core', 'runner', 'run', ...workspaceArgs(workspaceRoot)], {
+      cwd: repoRoot,
+      detached: true,
+      stdio: 'ignore',
+      env: {
+        ...process.env,
+        PYTHONPATH: existingPythonPath ? `${repoRoot}${process.platform === 'win32' ? ';' : ':'}${existingPythonPath}` : repoRoot,
+      },
+    })
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error
+        ? `Failed to spawn Switchboard backend ('${python}'): ${error.message}`
+        : `Failed to spawn Switchboard backend ('${python}').`,
+    }
+  }
   child.unref()
 
   for (let attempt = 0; attempt < 30; attempt += 1) {

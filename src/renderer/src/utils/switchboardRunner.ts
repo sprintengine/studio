@@ -33,6 +33,7 @@ export function useSwitchboardRunner(workspaceRoot: string | null | undefined): 
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const activeRootRef = useRef<string | null>(workspaceRoot ?? null)
+  const refreshInFlightRef = useRef(false)
 
   const apply = useCallback((result: SwitchboardRunnerResult, expectedRoot: string | null): boolean => {
     if (activeRootRef.current !== expectedRoot) return false
@@ -48,17 +49,21 @@ export function useSwitchboardRunner(workspaceRoot: string | null | undefined): 
   const refresh = useCallback(async () => {
     activeRootRef.current = workspaceRoot ?? null
     const targetRoot = workspaceRoot ?? null
+    if (refreshInFlightRef.current) return
     if (!targetRoot) {
       setState(null)
       setError(null)
       return
     }
+    refreshInFlightRef.current = true
     try {
       const result = await window.api.getSwitchboardRunnerState(targetRoot)
       apply(result, targetRoot)
     } catch (caught) {
       if (activeRootRef.current !== targetRoot) return
       setError(caught instanceof Error ? caught.message : 'Failed to read runner state.')
+    } finally {
+      refreshInFlightRef.current = false
     }
   }, [apply, workspaceRoot])
 

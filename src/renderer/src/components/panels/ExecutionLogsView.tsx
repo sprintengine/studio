@@ -70,7 +70,12 @@ export function ExecutionLogsView({
   const requestSeqRef = useRef(0)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const feedback = useActionFeedback()
+  const feedbackRef = useRef(feedback)
   const tokens = ACCENT_TOKENS[accent]
+
+  useEffect(() => {
+    feedbackRef.current = feedback
+  }, [feedback])
 
   const load = useCallback(
     async (nextStream: SwitchboardExecutionStream) => {
@@ -85,13 +90,13 @@ export function ExecutionLogsView({
       if (seq !== requestSeqRef.current) return
       if (result.ok) {
         setState({ kind: 'loaded', lines: result.lines, tailedAt: Date.now(), stream: result.stream })
-        feedback.dismiss('logs')
+        feedbackRef.current.dismiss('logs')
       } else {
         setState((prev) => ({ kind: 'error', message: result.message, lines: lastLines(prev) }))
-        feedback.notify('logs', 'error', result.message)
+        feedbackRef.current.notify('logs', 'error', result.message)
       }
     },
-    [workspaceRoot, executionId, tail, feedback],
+    [workspaceRoot, executionId, tail],
   )
 
   useEffect(() => {
