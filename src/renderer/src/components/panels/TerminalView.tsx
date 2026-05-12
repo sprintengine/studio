@@ -424,6 +424,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           cliPermissionPreset,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
+          visible: true,
           agentSession: {
             executionId: sessionId,
             system: agentSessionSystem(agent?.kind),
@@ -496,6 +497,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     return () => {
       disposed = true
+      void window.api.terminalSetVisible(sessionId, false).catch(() => {})
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       container.removeEventListener('mousedown', focusTerminal)

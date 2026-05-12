@@ -38,6 +38,7 @@ export type TerminalSession = {
   worktreeId?: string
   worktreePath?: string
   agentSession?: AgentSessionIdentity
+  visible: boolean
   startedAt: number
   lastOutputAt: number | null
   lastInputAt: number | null
@@ -104,6 +105,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     worktreeId: session.worktreeId,
     worktreePath: session.worktreePath,
     agentSession: session.agentSession,
+    visible: session.visible,
     startedAt: session.startedAt,
     lastOutputAt: session.lastOutputAt,
     outputBufferLength: session.outputLength,

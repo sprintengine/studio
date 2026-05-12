@@ -1081,6 +1081,7 @@ async function spawnAutoRunCandidate(
       cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
+      visible: false,
       agentSession: {
         executionId: sessionId,
         system: 'sprintengine',

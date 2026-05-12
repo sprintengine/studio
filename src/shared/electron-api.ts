@@ -263,6 +263,7 @@ export type TerminalSpawnMetadata = {
   memoryRootPath?: string
   memoryRelativeRoot?: string
   agentSession?: AgentSessionMetadata
+  visible?: boolean
 }
 
 export type TerminalSessionSnapshot = {
@@ -280,6 +281,7 @@ export type TerminalSessionSnapshot = {
   worktreeId?: string
   worktreePath?: string
   agentSession?: AgentSessionIdentity
+  visible: boolean
   startedAt: number
   lastOutputAt: number | null
   outputBufferLength: number
@@ -1007,6 +1009,7 @@ export type ElectronApi = {
   terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
   terminalStatus: (sessionId: string) => Promise<{ running: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
+  terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
   terminalKill: (sessionId: string) => Promise<void>
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void

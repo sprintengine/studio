@@ -39,6 +39,7 @@ export const terminalApi = {
   terminalResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
   terminalStatus: (sessionId: string): Promise<{ running: boolean }> => ipcRenderer.invoke('terminal:status', sessionId),
   terminalList: (): Promise<TerminalSessionSnapshot[]> => ipcRenderer.invoke('terminal:list'),
+  terminalSetVisible: (sessionId: string, visible: boolean) => ipcRenderer.invoke('terminal:set-visible', { sessionId, visible }),
   terminalKill: (sessionId: string) => ipcRenderer.invoke('terminal:kill', sessionId),
   onTerminalData: (sessionId: string, cb: (data: string) => void): (() => void) => {
     const ch = `terminal:data:${sessionId}`
@@ -72,6 +73,7 @@ export const terminalApi = {
   | 'terminalResize'
   | 'terminalStatus'
   | 'terminalList'
+  | 'terminalSetVisible'
   | 'terminalKill'
   | 'onTerminalData'
   | 'onTerminalExit'

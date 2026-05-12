@@ -32,6 +32,7 @@ export type TerminalSpawnPayload = {
   memoryRootPath?: string
   memoryRelativeRoot?: string
   agentSession?: AgentSessionMetadata
+  visible?: boolean
 }
 
 type TerminalIpcDependencies = {
@@ -40,6 +41,7 @@ type TerminalIpcDependencies = {
   resizeTerminal(sessionId: string, cols: number, rows: number): void
   getTerminalStatus(sessionId: string): { running: boolean }
   listTerminals(): TerminalSessionSnapshot[]
+  setTerminalVisible(sessionId: string, visible: boolean): void
   killTerminal(sessionId: string): void
 }
 
@@ -70,6 +72,10 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
 
   ipcMain.handle('terminal:list', (): TerminalSessionSnapshot[] => {
     return deps.listTerminals()
+  })
+
+  ipcMain.handle('terminal:set-visible', (_, { sessionId, visible }: { sessionId: string; visible: boolean }): void => {
+    deps.setTerminalVisible(sessionId, visible)
   })
 
   ipcMain.handle('terminal:kill', (_, sessionId: string): void => {

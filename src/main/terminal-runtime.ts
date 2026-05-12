@@ -41,6 +41,7 @@ type TerminalIpcHandlers = {
   resizeTerminal(sessionId: string, cols: number, rows: number): void
   getTerminalStatus(sessionId: string): { running: boolean }
   listTerminals(): TerminalSessionSnapshot[]
+  setTerminalVisible(sessionId: string, visible: boolean): void
   killTerminal(sessionId: string): void
 }
 
@@ -78,6 +79,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
           .filter((session) => !session.hasExited && !session.isDisposed)
           .map(getTerminalSnapshot)
       },
+      setTerminalVisible: setTerminalVisible,
       killTerminal: disposeTerminal,
     },
   }
@@ -114,6 +116,13 @@ function broadcastTerminalSessionsChanged(): void {
       win.webContents.send('terminal:sessions-changed', snapshots)
     }
   }
+}
+
+function setTerminalVisible(sessionId: string, visible: boolean): void {
+  const session = terminals.get(sessionId)
+  if (!session || session.hasExited || session.isDisposed) return
+  session.visible = visible
+  broadcastTerminalSessionsChanged()
 }
 
 function safeResizeTerminal(sessionId: string, cols: number, rows: number): void {
@@ -319,6 +328,7 @@ async function spawnMobileAgentTerminal(input: {
       executionMode: input.executionMode,
       worktreeId: input.worktreeId,
       worktreePath: input.worktreePath,
+      visible: false,
       startedAt: Date.now(),
       lastOutputAt: null,
       lastInputAt: null,
@@ -357,6 +367,7 @@ async function spawnTerminalFromIpc(
     memoryRootPath,
     memoryRelativeRoot,
     agentSession,
+    visible = true,
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
@@ -370,6 +381,7 @@ async function spawnTerminalFromIpc(
       existingSession.worktreeId = worktreeId ?? existingSession.worktreeId
       existingSession.worktreePath = worktreePath ?? existingSession.worktreePath
       existingSession.agentSession = materializeAgentSessionIdentity(sessionId, workspaceId, agentSession) ?? existingSession.agentSession
+      existingSession.visible = visible
       safeResizeTerminal(sessionId, cols, rows)
       const replay = materializeTerminalReplay(existingSession)
       if (replay) {
@@ -448,6 +460,7 @@ async function spawnTerminalFromIpc(
         worktreeId,
         worktreePath,
         agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
+        visible,
         startedAt: Date.now(),
         lastOutputAt: null,
         lastInputAt: null,
