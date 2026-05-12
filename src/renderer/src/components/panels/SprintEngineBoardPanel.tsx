@@ -530,6 +530,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       cliLastExitedAt: undefined,
       cli: selectedCli,
       cliStartupPrompt: startupPrompt,
+      kind: 'sprintengine',
     })
     focusOrAddAgentTab(workspaceId, agentId, label)
   }
@@ -5307,4 +5308,3 @@ function buildRosterRevisionPrompt(role: SprintEngineRole, agentId: string, team
     'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit state.yaml directly.',
   ].join('\n')
 }
-

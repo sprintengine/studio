@@ -127,6 +127,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const sprintEngineContext = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext ?? null
   )
+  const sprintEngineRuntimeAgent = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId] ?? null
+  )
   const workspaceFolderPath = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.folderPath
   )
@@ -405,6 +408,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const launchInitialPrompt = shouldResumeCli
         ? undefined
         : appendMemoryPrompt(startupPromptRef.current ?? undefined, memoryContext)
+      const sessionSystem = agentSessionSystem(agent?.kind)
+      const sessionRole = sessionSystem === 'sprintengine'
+        ? sprintEngineRuntimeAgent?.role ?? 'sprintengine'
+        : agent?.kind ?? 'manual'
+      const sessionWorkId = sessionSystem === 'sprintengine'
+        ? sprintEngineRuntimeAgent?.currentTaskId ?? agentId
+        : agentId
 
       const spawnResult = await window.api.terminalSpawn(
         sessionId,
@@ -430,11 +440,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           visible: true,
           agentSession: {
             executionId: sessionId,
-            system: agentSessionSystem(agent?.kind),
+            system: sessionSystem,
             workspaceId,
             workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
-            workId: agentId,
-            role: agent?.kind ?? 'manual',
+            workId: sessionWorkId,
+            role: sessionRole,
             displayName: agent?.name ?? agentId,
           },
         } as TerminalSpawnMetadata & {
@@ -538,6 +548,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     workspaceName,
     savedFolderPath,
     sprintEngineContext?.statePath,
+    sprintEngineRuntimeAgent?.currentTaskId,
+    sprintEngineRuntimeAgent?.role,
     memoryConfig?.projectRoot,
     memoryConfig?.relativeRoot,
     storedExecutionWorktreePath,
