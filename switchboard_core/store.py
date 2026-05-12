@@ -95,6 +95,10 @@ REQUEUE_TRANSITIONS = {
     "testing_in_progress": "testing",
     "review_in_progress": "review",
 }
+REQUEST_CHANGES_TRANSITIONS = {
+    "testing_in_progress": "ready",
+    "review_in_progress": "ready",
+}
 SOURCE_TYPES = {"manual", "watchtower", "github", "jira", "campaign", "sprintengine"}
 COMMENT_KINDS = {"comment", "status_change", "claim", "evidence", "import", "triage"}
 AUTHOR_TYPES = {"user", "agent", "system"}
@@ -670,7 +674,7 @@ def worktree_dir(workspace: Path, execution_id: str) -> Path:
 
 
 def role_for_queue(queue: str) -> str:
-    return {"ready": "developer", "testing": "tester", "review": "reviewer"}[queue]
+    return {"ready": "developer", "testing": "tester", "review": "code_reviewer"}[queue]
 
 
 def claimed_status_for_queue(queue: str) -> str:
@@ -684,22 +688,76 @@ def next_publish_for_queue(queue: str) -> str:
 def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_id: str, run_workspace: Path | None = None) -> str:
     role = role_for_queue(queue)
     workspace_for_agent = (run_workspace or workspace).expanduser().resolve()
+    workspace_root = workspace.expanduser().resolve()
+    pass_target = next_publish_for_queue(queue)
+    soul_bootstrap = [
+        "Fetch your Soul from the Souls CLI before doing any role-specific work.",
+        "",
+        f"First try: `souls get {role}`.",
+        "",
+        "If `souls` is not on PATH, use the command form for your shell:",
+        "",
+        "```powershell",
+        f".\\scripts\\souls.cmd get {role}",
+        "```",
+        "",
+        "```bash",
+        f"scripts/souls get {role}",
+        "```",
+        "",
+        "If the wrapper is unavailable but Python can import the local repo package, run:",
+        "",
+        "```powershell",
+        f"python -m souls get {role}",
+        "```",
+        "",
+        "```bash",
+        f"python3 -m souls get {role}",
+        "```",
+        "",
+        "Treat the returned text as your role, judgment, and quality bar.",
+        "",
+        "Only if all of those commands fail, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.",
+    ]
+    role_rules = {
+        "developer": [
+            "- Implement the requested change in the execution worktree.",
+            "- Do not move the task forward unless implementation evidence is complete.",
+            f"- When implementation is complete, publish with evidence: scripts/switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --touched-file \"...\" --comment \"...\"",
+        ],
+        "tester": [
+            "- Validate behavior against the task description, acceptance expectations, evidence, and full comment history.",
+            "- Run focused tests or manual checks and record exactly what you ran.",
+            "- Do not make implementation fixes. If the failure is in tests or test harness only, explain that clearly before changing test-only files.",
+            f"- If validation passes, publish with evidence: scripts/switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --comment \"...\"",
+            f"- If validation fails, request changes back to Ready: scripts/switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Expected ... but observed ... Repro: ...\"",
+        ],
+        "code_reviewer": [
+            "- Review correctness, maintainability, security, reliability, and verification evidence against the task description and full comment history.",
+            "- Do not make implementation fixes. Leave concrete requested changes for the next developer pass.",
+            f"- If review passes, publish with a verdict: scripts/switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --comment \"...\"",
+            f"- If review finds required changes, request changes back to Ready: scripts/switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Required changes: ... Evidence: ...\"",
+        ],
+    }[role]
     return "\n".join(
         [
+            *soul_bootstrap,
+            "",
             f"You are the Switchboard {role} agent for task {task_id}.",
             "",
             f"Workspace: {workspace_for_agent}",
-            f"Switchboard root workspace: {workspace.expanduser().resolve()}",
+            f"Switchboard root workspace: {workspace_root}",
             f"Execution ID: {execution_id}",
             f"Claimed queue: {queue}",
             "",
             "Rules:",
             "- Do not edit Switchboard task JSON files or Lock files directly.",
             "- Use the local Switchboard CLI for task activity.",
-            f"- Inspect the task with: scripts/switchboard show --workspace {workspace.expanduser().resolve()} {task_id}",
-            f"- Add progress notes with: scripts/switchboard comment --workspace {workspace.expanduser().resolve()} {task_id} --body \"...\" --author \"{role}\"",
-            f"- Publish only when required evidence is complete: scripts/switchboard publish --workspace {workspace.expanduser().resolve()} {task_id} --to {next_publish_for_queue(queue)}",
-            "- If blocked or unable to proceed, add a comment and stop without moving the task.",
+            f"- Inspect the task before acting with: scripts/switchboard show --workspace {workspace_root} {task_id}",
+            "- The show output includes the task description, evidence, and full comment history; read the comments before deciding what to do.",
+            f"- Add progress notes with: scripts/switchboard comment --workspace {workspace_root} {task_id} --body \"...\" --author \"{role}\" --author-type agent --author-id \"switchboard-{role}\"",
+            *role_rules,
+            "- If blocked or unable to proceed for reasons other than requested changes, add a comment and stop without moving the task.",
         ]
     )
 
@@ -1139,6 +1197,8 @@ def prepare_electron_session_execution(
             execution = {
                 "executionId": execution_id,
                 "kind": "switchboard_task",
+                "system": "switchboard",
+                "workId": located.task["id"],
                 "role": role,
                 "provider": "electron-session",
                 "providerRef": provider_ref,
@@ -2611,6 +2671,55 @@ def requeue_task(workspace: Path, task_id: str, *, reason: str | None = None) ->
                 "createdAt": now,
             }
         )
+        task = {
+            **located.task,
+            "state": target,
+            "claim": None,
+            "execution": clear_active_execution_metadata(located.task),
+            "updatedAt": now,
+            "comments": comments,
+        }
+        destination = task_path(workspace, target, task_id)
+        if destination.exists() and destination != located.path:
+            raise SwitchboardError("A Switchboard task already exists in the destination folder.")
+        atomic_write_json(located.path, task)
+        os.replace(located.path, destination)
+        return read_task_file(destination, target)
+
+
+def request_changes_task(workspace: Path, task_id: str, *, reason: str) -> LocatedTask:
+    if not isinstance(reason, str) or not reason.strip():
+        raise SwitchboardError("--reason is required when requesting changes.")
+    init_workspace(workspace)
+    located = find_task(workspace, task_id)
+    target = REQUEST_CHANGES_TRANSITIONS.get(located.folder_status)
+    if not target:
+        raise SwitchboardError(f"Cannot request changes from {located.folder_status}.")
+    with locked_folders(workspace, [located.folder_status, target], owner="switchboard-cli"):
+        located = find_task(workspace, task_id)
+        target = REQUEST_CHANGES_TRANSITIONS.get(located.folder_status)
+        if not target:
+            raise SwitchboardError(f"Cannot request changes from {located.folder_status}.")
+        now = now_iso()
+        claim = located.task.get("claim") if isinstance(located.task.get("claim"), dict) else {}
+        owner = claim.get("owner") if isinstance(claim.get("owner"), str) and claim.get("owner").strip() else "switchboard-review"
+        comments = [
+            *located.task["comments"],
+            {
+                "id": str(uuid.uuid4()),
+                "author": {"type": "agent", "id": owner, "name": owner},
+                "kind": "comment",
+                "body": reason.strip(),
+                "createdAt": now,
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "author": {"type": "system", "id": "switchboard", "name": "Switchboard"},
+                "kind": "status_change",
+                "body": f"Changes requested from {located.folder_status}; moved back to {target}.",
+                "createdAt": now,
+            },
+        ]
         task = {
             **located.task,
             "state": target,

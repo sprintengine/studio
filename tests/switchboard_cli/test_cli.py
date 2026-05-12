@@ -688,6 +688,73 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIsNone(requeued["record"]["task"]["execution"].get("providerRef"))
         self.assertIn("Agent session stopped.", requeued["record"]["task"]["comments"][-1]["body"])
 
+    def test_request_changes_from_testing_returns_task_to_ready_with_comment_history(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Testing found defect")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "in_progress"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "testing"])
+        self.run_cli(["claim", *self.workspace_args(), "--from", "testing", "--agent", "switchboard-tester"])
+
+        changed = stdout_json(
+            self.run_cli([
+                "request-changes",
+                *self.workspace_args(),
+                task_id,
+                "--reason",
+                "Expected saved settings to persist. Observed reset after reload.",
+            ])
+        )
+
+        self.assertEqual(changed["previousFolder"], "testing_in_progress")
+        self.assertEqual(changed["nextFolder"], "ready")
+        task = changed["record"]["task"]
+        self.assertIsNone(task["claim"])
+        self.assertIsNone(task["execution"]["activeExecutionId"])
+        self.assertEqual(task["comments"][-2]["author"]["id"], "switchboard-tester")
+        self.assertIn("Expected saved settings", task["comments"][-2]["body"])
+        self.assertIn("moved back to ready", task["comments"][-1]["body"])
+        shown = stdout_json(self.run_cli(["show", *self.workspace_args(), task_id]))
+        self.assertEqual(shown["record"]["task"]["comments"][-2]["body"], task["comments"][-2]["body"])
+
+    def test_request_changes_from_review_returns_task_to_ready(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Review found defect")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "in_progress"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "testing"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "testing_in_progress"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "review"])
+        self.run_cli(["claim", *self.workspace_args(), "--from", "review", "--agent", "switchboard-code_reviewer"])
+
+        changed = stdout_json(
+            self.run_cli([
+                "request-changes",
+                *self.workspace_args(),
+                task_id,
+                "--reason",
+                "Required changes: preserve existing task comments in the UI.",
+            ])
+        )
+
+        self.assertEqual(changed["previousFolder"], "review_in_progress")
+        self.assertEqual(changed["nextFolder"], "ready")
+        self.assertEqual(changed["record"]["task"]["comments"][-2]["author"]["id"], "switchboard-code_reviewer")
+
+    def test_request_changes_requires_review_or_testing_in_progress_task(self) -> None:
+        task_id = self.create_task(title="Invalid request changes")["id"]
+
+        rejected = self.run_cli([
+            "request-changes",
+            *self.workspace_args(),
+            task_id,
+            "--reason",
+            "Needs work.",
+        ], check=False)
+
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("Cannot request changes from todo", stderr_json(rejected)["message"])
+
     def test_publish_rejects_missing_implementation_evidence(self) -> None:
         self.init_git_repo()
         task_id = self.create_task(title="Publish validation task")["id"]
@@ -963,6 +1030,72 @@ class SwitchboardCliTests(unittest.TestCase):
         status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
         self.assertFalse(status["enabled"])
         self.assertTrue(status["paused"])
+
+    def test_ready_runner_prompt_uses_developer_soul_and_publish_contract(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Prompt developer task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        command = f"{sys.executable} -c \"pass\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+
+        prepared = stdout_json(
+            self.run_cli(["runner", "prepare-session", *self.workspace_args()], env={"SWITCHBOARD_RUNNER_COMMAND": command})
+        )
+
+        prompt = prepared["descriptor"]["prompt"]
+        self.assertEqual(prepared["execution"]["role"], "developer")
+        self.assertIn("souls get developer", prompt)
+        self.assertIn("full comment history", prompt)
+        self.assertIn("scripts/switchboard publish", prompt)
+        self.assertIn("--to testing", prompt)
+        self.assertIn("--summary", prompt)
+        self.assertIn("--command", prompt)
+        self.assertIn("--touched-file", prompt)
+        self.assertIn("--comment", prompt)
+
+    def test_testing_runner_prompt_uses_tester_soul_and_request_changes_contract(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Prompt tester task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "in_progress"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "testing"])
+        command = f"{sys.executable} -c \"pass\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "testing", "--max-concurrency", "1"])
+
+        prepared = stdout_json(
+            self.run_cli(["runner", "prepare-session", *self.workspace_args()], env={"SWITCHBOARD_RUNNER_COMMAND": command})
+        )
+
+        prompt = prepared["descriptor"]["prompt"]
+        self.assertEqual(prepared["execution"]["role"], "tester")
+        self.assertIn("souls get tester", prompt)
+        self.assertIn("full comment history", prompt)
+        self.assertIn("Do not make implementation fixes", prompt)
+        self.assertIn("scripts/switchboard request-changes", prompt)
+        self.assertIn("--to review", prompt)
+
+    def test_review_runner_prompt_uses_code_reviewer_soul_and_request_changes_contract(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Prompt reviewer task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "in_progress"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "testing"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "testing_in_progress"])
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "review"])
+        command = f"{sys.executable} -c \"pass\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "review", "--max-concurrency", "1"])
+
+        prepared = stdout_json(
+            self.run_cli(["runner", "prepare-session", *self.workspace_args()], env={"SWITCHBOARD_RUNNER_COMMAND": command})
+        )
+
+        prompt = prepared["descriptor"]["prompt"]
+        self.assertEqual(prepared["execution"]["role"], "code_reviewer")
+        self.assertIn("souls get code_reviewer", prompt)
+        self.assertIn("full comment history", prompt)
+        self.assertIn("Do not make implementation fixes", prompt)
+        self.assertIn("scripts/switchboard request-changes", prompt)
+        self.assertIn("--to done", prompt)
 
     def test_stopped_electron_session_exit_does_not_overwrite_stopped_status(self) -> None:
         self.init_git_repo()

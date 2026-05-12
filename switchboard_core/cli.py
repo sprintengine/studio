@@ -31,6 +31,7 @@ from .store import (
     record_for_output,
     recover_lock,
     requeue_task,
+    request_changes_task,
     runner_pause,
     runner_resume,
     runner_start,
@@ -299,6 +300,13 @@ def cmd_requeue(args: argparse.Namespace) -> int:
     before = find_task(workspace_path(args), args.task_id)
     located = requeue_task(workspace_path(args), args.task_id, reason=args.reason)
     emit(mutation_payload(action="requeue", previous=before.folder_status, record=record_for_output(located)))
+    return 0
+
+
+def cmd_request_changes(args: argparse.Namespace) -> int:
+    before = find_task(workspace_path(args), args.task_id)
+    located = request_changes_task(workspace_path(args), args.task_id, reason=args.reason)
+    emit(mutation_payload(action="request_changes", previous=before.folder_status, record=record_for_output(located)))
     return 0
 
 
@@ -574,6 +582,12 @@ Watchtower agents should create findings directly in the inbox:
     requeue.add_argument("task_id", metavar="uuid")
     requeue.add_argument("--reason")
     requeue.set_defaults(func=cmd_requeue)
+
+    request_changes = subcommands.add_parser("request-changes", help="Send a testing or review task back to Ready with required changes.")
+    request_changes.add_argument("--workspace", required=True)
+    request_changes.add_argument("task_id", metavar="uuid")
+    request_changes.add_argument("--reason", required=True)
+    request_changes.set_defaults(func=cmd_request_changes)
 
     runner = subcommands.add_parser("runner", help="Manage the persistent Switchboard runner.")
     runner_subcommands = runner.add_subparsers(dest="runner_command", required=True)
