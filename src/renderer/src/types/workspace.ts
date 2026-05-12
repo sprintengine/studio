@@ -583,6 +583,7 @@ export type McpRiskLevel = 'low' | 'network' | 'local-command' | 'secrets'
 export type McpServerConfig = {
   id: string
   name: string
+  category?: string
   description?: string
   transport: McpTransport
   command?: string
@@ -597,6 +598,9 @@ export type McpServerConfig = {
   scope: McpScope
   source: McpServerSource
   riskLevel: McpRiskLevel
+  auth?: string
+  capabilities?: string[]
+  sourceUrl?: string
 }
 
 export type McpSettings = {

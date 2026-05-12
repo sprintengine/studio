@@ -161,6 +161,10 @@ function normalizeServer(server: McpServerConfig): McpServerConfig | null {
     scope: server.scope === 'user' ? 'user' : 'workspace',
     source: server.source === 'custom' ? 'custom' : 'bundled',
     riskLevel: server.riskLevel === 'network' || server.riskLevel === 'local-command' || server.riskLevel === 'secrets' ? server.riskLevel : 'low',
+    category: normalizeOptionalString(server.category),
+    auth: normalizeOptionalString(server.auth),
+    capabilities: normalizeStringArray(server.capabilities),
+    sourceUrl: normalizeOptionalString(server.sourceUrl),
   }
 }
 
@@ -179,6 +183,19 @@ function normalizeCatalogServer(value: unknown): McpCatalogServer | null {
     recommendedScope: candidate.recommendedScope === 'user' ? 'user' : 'workspace',
     setupNotes: typeof candidate.setupNotes === 'string' ? candidate.setupNotes : undefined,
   }
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const items = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return items.length ? Array.from(new Set(items)) : undefined
 }
 
 function normalizeStringRecord(value: unknown): Record<string, string> | undefined {

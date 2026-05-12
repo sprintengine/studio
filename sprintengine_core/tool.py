@@ -2241,6 +2241,12 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
         }
 
     team_dir.mkdir(parents=True, exist_ok=True)
+
+    wrote_handover = False
+    if handover_text.strip():
+        handover_path.write_text(handover_text.rstrip() + "\n", encoding="utf-8")
+        wrote_handover = True
+
     initial: Dict[str, Any] = {
         "sprintengine": {
             "name": team_slug,
@@ -2264,12 +2270,35 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
     }
     if source_metadata and handover_text.strip():
         initial["source"] = source_metadata
+    if wrote_handover:
+        source_artifact = {
+            "id": next_artifact_id(initial["artifacts"]),
+            "kind": "requirements",
+            "title": "Source Handoff",
+            "path": project_relative_display_path(state_path, handover_path),
+            "status": "approved",
+            "createdBy": args.actor,
+            "taskId": "",
+            "fingerprint": file_fingerprint(handover_path),
+            "reviewHistory": [
+                {"action": "created", "actor": args.actor, "timestamp": captured_at},
+                {"action": "approved", "actor": args.actor, "timestamp": captured_at, "note": "Imported as the root handoff artifact."},
+            ],
+            "recommendedTasks": [],
+            "createdAt": captured_at,
+            "updatedAt": captured_at,
+            "approvedBy": args.actor,
+            "approvedAt": captured_at,
+        }
+        initial["artifacts"].append(source_artifact)
+        initial["events"].append({
+            "id": "EVT-002",
+            "timestamp": captured_at,
+            "type": "artifact_added",
+            "actor": args.actor,
+            "message": f"{args.actor} registered root handoff artifact {source_artifact['id']}.",
+        })
     save_state(state_path, initial)
-
-    wrote_handover = False
-    if handover_text.strip():
-        handover_path.write_text(handover_text.rstrip() + "\n", encoding="utf-8")
-        wrote_handover = True
 
     init_command = f"sprintengine --state {json.dumps(str(state_path))} init"
     architect_startup_prompt = "\n\n".join([

@@ -47,6 +47,7 @@ import {
   sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
 import { renderMarkdown } from '../../utils/markdown'
+import { formatRelativeTime } from '../../utils/switchboardBoard'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import {
   parseSprintEngineStateFile,
@@ -95,6 +96,7 @@ const taskStateLabel: Record<SprintEngineTaskStatus, string> = {
 }
 
 const addableRoles: SprintEngineRole[] = ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
+const SPRINTENGINE_PANEL_ACCENT = '#5c7cff'
 const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
   { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
   { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
@@ -1112,7 +1114,13 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const selectedTaskOwnerHasLiveTerminal = selectedTask?.ownerAgentId
     ? isAgentTerminalLive(selectedTask.ownerAgentId)
     : false
-  const selectedTaskArtifacts = selectedTask ? artifactsByTaskId[selectedTask.id] ?? [] : []
+  const selectedTaskArtifacts = selectedTask
+    ? [...(artifactsByTaskId[selectedTask.id] ?? [])].sort((a, b) => {
+        const timestampDelta = artifactTimestampMs(b) - artifactTimestampMs(a)
+        if (timestampDelta !== 0) return timestampDelta
+        return a.title.localeCompare(b.title)
+      })
+    : []
   const selectedTaskArtifactBlockers = selectedTask ? artifactBlockersByTaskId[selectedTask.id] ?? [] : []
   const inspectorSelectedAgent = selectedAgentId
     ? roster.find((entry) => entry.id === selectedAgentId) ?? null
@@ -2798,375 +2806,6 @@ function SprintEngineInspectorPanel({
   )
 }
 
-const ROSTER_WORLD_WIDTH = 260
-const ROSTER_WORLD_HEIGHT = 200
-const ROSTER_MIN_ZOOM = 0.35
-const ROSTER_MAX_ZOOM = 3
-
-function RosterCanvas({
-  roster,
-  runtimeAgents,
-  sprintEngineState,
-  selectedAgentId,
-  addableRoles,
-  onSelectAgent,
-  onAddRole,
-}: {
-  roster: RosterItem[]
-  runtimeAgents: RuntimeAgentView[]
-  sprintEngineState: SprintEngineState
-  selectedAgentId: string | null
-  addableRoles: readonly SprintEngineRole[]
-  onSelectAgent: (agentId: string) => void
-  onAddRole: (role: SprintEngineRole) => void
-}) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const positionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
-  const pendingSpawnPositionRef = useRef<{ x: number; y: number } | null>(null)
-  const cameraRef = useRef<{ x: number; y: number; zoom: number }>({ x: 0, y: 0, zoom: 1 })
-  const dragStateRef = useRef<
-    | { kind: 'pan'; startClientX: number; startClientY: number; cameraStart: { x: number; y: number }; moved: boolean }
-    | { kind: 'node'; agentId: string; offsetWorldX: number; offsetWorldY: number; moved: boolean }
-    | null
-  >(null)
-  const [isRoleDropTarget, setIsRoleDropTarget] = useState(false)
-  const [renderTick, setRenderTick] = useState(0)
-  const bump = useCallback(() => setRenderTick((tick) => tick + 1), [])
-
-  // Seed positions for newly-arrived agents using the existing ellipse layout,
-  // mapped from percentages (0-100) into a fixed world rect. If a drop
-  // position was captured just before this agent arrived, use that instead so
-  // palette drops land where the user actually dropped.
-  useEffect(() => {
-    const positions = positionsRef.current
-    let changed = false
-    const ellipse = buildMapPositions(roster)
-    for (const node of ellipse) {
-      if (positions.has(node.agent.id)) continue
-      let worldX: number
-      let worldY: number
-      if (pendingSpawnPositionRef.current) {
-        worldX = pendingSpawnPositionRef.current.x
-        worldY = pendingSpawnPositionRef.current.y
-        pendingSpawnPositionRef.current = null
-      } else {
-        worldX = (node.x / 100 - 0.5) * ROSTER_WORLD_WIDTH
-        worldY = (node.y / 100 - 0.5) * ROSTER_WORLD_HEIGHT
-      }
-      positions.set(node.agent.id, { x: worldX, y: worldY })
-      changed = true
-    }
-    for (const id of Array.from(positions.keys())) {
-      if (!roster.find((agent) => agent.id === id)) {
-        positions.delete(id)
-        changed = true
-      }
-    }
-    if (changed) bump()
-  }, [roster, bump])
-
-  const screenToWorld = useCallback((clientX: number, clientY: number) => {
-    const container = containerRef.current
-    if (!container) return { x: 0, y: 0 }
-    const rect = container.getBoundingClientRect()
-    const camera = cameraRef.current
-    const mx = clientX - rect.left
-    const my = clientY - rect.top
-    return {
-      x: (mx - rect.width / 2 - camera.x) / camera.zoom,
-      y: (my - rect.height / 2 - camera.y) / camera.zoom,
-    }
-  }, [])
-
-  // Wheel zoom — zoom toward the cursor, mirroring the knowledge graph math.
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault()
-      if (event.deltaY === 0) return
-      const camera = cameraRef.current
-      const rect = container.getBoundingClientRect()
-      const mx = event.clientX - rect.left
-      const my = event.clientY - rect.top
-      const wx = (mx - rect.width / 2 - camera.x) / camera.zoom
-      const wy = (my - rect.height / 2 - camera.y) / camera.zoom
-      const normalized = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY
-      const factor = Math.exp(-Math.max(-120, Math.min(120, normalized)) * 0.0035)
-      const nextZoom = Math.max(ROSTER_MIN_ZOOM, Math.min(ROSTER_MAX_ZOOM, camera.zoom * factor))
-      if (nextZoom === camera.zoom) return
-      cameraRef.current = {
-        zoom: nextZoom,
-        x: mx - rect.width / 2 - wx * nextZoom,
-        y: my - rect.height / 2 - wy * nextZoom,
-      }
-      bump()
-    }
-    container.addEventListener('wheel', onWheel, { passive: false })
-    return () => container.removeEventListener('wheel', onWheel)
-  }, [bump])
-
-  const onPointerDownBackground = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return
-    dragStateRef.current = {
-      kind: 'pan',
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      cameraStart: { x: cameraRef.current.x, y: cameraRef.current.y },
-      moved: false,
-    }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  const onPointerDownAgent = (event: React.PointerEvent<HTMLButtonElement>, agentId: string) => {
-    if (event.button !== 0) return
-    event.stopPropagation()
-    const world = screenToWorld(event.clientX, event.clientY)
-    const pos = positionsRef.current.get(agentId)
-    if (!pos) return
-    dragStateRef.current = {
-      kind: 'node',
-      agentId,
-      offsetWorldX: world.x - pos.x,
-      offsetWorldY: world.y - pos.y,
-      moved: false,
-    }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  const onPointerMove = (event: React.PointerEvent<HTMLElement>) => {
-    const drag = dragStateRef.current
-    if (!drag) return
-    if (drag.kind === 'pan') {
-      const dx = event.clientX - drag.startClientX
-      const dy = event.clientY - drag.startClientY
-      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true
-      cameraRef.current = {
-        zoom: cameraRef.current.zoom,
-        x: drag.cameraStart.x + dx,
-        y: drag.cameraStart.y + dy,
-      }
-      bump()
-      return
-    }
-    const world = screenToWorld(event.clientX, event.clientY)
-    positionsRef.current.set(drag.agentId, {
-      x: world.x - drag.offsetWorldX,
-      y: world.y - drag.offsetWorldY,
-    })
-    drag.moved = true
-    bump()
-  }
-
-  const onPointerUp = (event: React.PointerEvent<HTMLElement>) => {
-    const drag = dragStateRef.current
-    dragStateRef.current = null
-    if (!drag) return
-    if (drag.kind === 'node' && !drag.moved) {
-      onSelectAgent(drag.agentId)
-    }
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    } catch {
-      // ignore — pointer wasn't captured on this element
-    }
-  }
-
-  const onZoomIn = () => {
-    const camera = cameraRef.current
-    const nextZoom = Math.min(ROSTER_MAX_ZOOM, camera.zoom * 1.2)
-    if (nextZoom === camera.zoom) return
-    cameraRef.current = { ...camera, zoom: nextZoom }
-    bump()
-  }
-
-  const onZoomOut = () => {
-    const camera = cameraRef.current
-    const nextZoom = Math.max(ROSTER_MIN_ZOOM, camera.zoom / 1.2)
-    if (nextZoom === camera.zoom) return
-    cameraRef.current = { ...camera, zoom: nextZoom }
-    bump()
-  }
-
-  const onResetView = () => {
-    const container = containerRef.current
-    const positions = positionsRef.current
-    if (positions.size === 0 || !container) {
-      cameraRef.current = { x: 0, y: 0, zoom: 1 }
-      bump()
-      return
-    }
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    for (const pos of positions.values()) {
-      if (pos.x < minX) minX = pos.x
-      if (pos.y < minY) minY = pos.y
-      if (pos.x > maxX) maxX = pos.x
-      if (pos.y > maxY) maxY = pos.y
-    }
-    const rect = container.getBoundingClientRect()
-    const padding = 80
-    const dx = Math.max(1, maxX - minX)
-    const dy = Math.max(1, maxY - minY)
-    const zoom = Math.max(
-      ROSTER_MIN_ZOOM,
-      Math.min(ROSTER_MAX_ZOOM, Math.min((rect.width - padding * 2) / dx, (rect.height - padding * 2) / dy))
-    )
-    const cx = (minX + maxX) / 2
-    const cy = (minY + maxY) / 2
-    cameraRef.current = { zoom, x: -cx * zoom, y: -cy * zoom }
-    bump()
-  }
-
-  const camera = cameraRef.current
-  // Reading renderTick keeps React aware the value is consumed even though
-  // the actual visual state lives in refs.
-  void renderTick
-
-  return (
-    <div
-      ref={containerRef}
-      className={`relative min-h-[360px] flex-1 overflow-hidden rounded-md border interactive transition-colors ${
-        isRoleDropTarget ? 'border-[#5c7cff]/55 bg-[#5c7cff]/4' : 'border-[#1f2025]'
-      }`}
-      style={{
-        backgroundImage:
-          'radial-gradient(circle, rgba(255,255,255,0.10) 0, rgba(255,255,255,0.10) 1px, transparent 1px)',
-        backgroundColor: isRoleDropTarget ? '#0e1330' : '#08090b',
-        backgroundSize: '20px 20px',
-        cursor: dragStateRef.current?.kind === 'pan' ? 'grabbing' : 'default',
-      }}
-      onPointerDown={onPointerDownBackground}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onDragOver={(event) => {
-        if (!Array.from(event.dataTransfer.types).includes('text/sprintengine-role')) return
-        event.preventDefault()
-        event.dataTransfer.dropEffect = 'copy'
-        setIsRoleDropTarget(true)
-      }}
-      onDragLeave={() => setIsRoleDropTarget(false)}
-      onDrop={(event) => {
-        event.preventDefault()
-        setIsRoleDropTarget(false)
-        const role = event.dataTransfer.getData('text/sprintengine-role')
-        if (!role || !(addableRoles as readonly string[]).includes(role)) return
-        const existing = roster.find((agent) => agent.role === role)
-        if (!existing) {
-          // Stash the drop position in world coords; the seed effect will
-          // place the first newly-arrived agent here.
-          pendingSpawnPositionRef.current = screenToWorld(event.clientX, event.clientY)
-        }
-        onAddRole(role as SprintEngineRole)
-      }}
-      aria-label="Roster map"
-    >
-      {roster.length === 0 ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-[#6f7480]">
-          Drag a role from the palette to start the team.
-        </div>
-      ) : null}
-
-      <div
-        className="absolute left-1/2 top-1/2"
-        style={{
-          transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
-          transformOrigin: '0 0',
-        }}
-      >
-        {roster.map((agent) => {
-          const pos = positionsRef.current.get(agent.id)
-          if (!pos) return null
-          const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id)
-          const selected = agent.id === selectedAgentId
-          const task = runtime?.currentTaskId
-            ? sprintEngineState.tasks.find((candidate) => candidate.id === runtime.currentTaskId)
-            : null
-          return (
-            <button
-              key={agent.id}
-              type="button"
-              onPointerDown={(event) => onPointerDownAgent(event, agent.id)}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onPointerCancel={onPointerUp}
-              title={`${agent.label} — drag to move, click to inspect`}
-              className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 text-center transition-transform ${
-                selected ? 'z-10' : 'z-0'
-              }`}
-              style={{
-                left: pos.x,
-                top: pos.y,
-                cursor: dragStateRef.current?.kind === 'node' && dragStateRef.current.agentId === agent.id ? 'grabbing' : 'grab',
-              }}
-            >
-              <span
-                className="relative flex h-12 w-12 items-center justify-center rounded-full border bg-[#111216]"
-                style={{
-                  borderColor: selected ? sprintEngineRoleAccent[agent.role] : '#303139',
-                  color: '#9a9aa2',
-                  boxShadow: selected
-                    ? `0 0 0 3px ${hexToRgba(sprintEngineRoleAccent[agent.role], 0.16)}`
-                    : undefined,
-                }}
-              >
-                <SprintEngineRoleIcon role={agent.role} className="h-5 w-5" />
-                <span
-                  className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-[#0d0e11]"
-                  style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
-                />
-              </span>
-              <span className="max-w-[120px] truncate text-[11px] font-semibold text-[#ececee]">
-                {agent.label}
-              </span>
-              {task ? (
-                <span className="max-w-[140px] truncate text-[10px] text-[#9a9aa2]">
-                  {task.id}
-                </span>
-              ) : null}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Zoom controls */}
-      <div className="absolute right-2 top-2 flex flex-col gap-1 rounded-md border border-[#1f2025] bg-[#0d0e11]/85 p-1 backdrop-blur-sm">
-        <button
-          type="button"
-          onClick={onZoomIn}
-          aria-label="Zoom in"
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-        >
-          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-            <path d="M6 1.5V10.5M1.5 6H10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={onZoomOut}
-          aria-label="Zoom out"
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-        >
-          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-            <path d="M1.5 6H10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={onResetView}
-          aria-label="Reset view"
-          title="Fit to agents"
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-        >
-          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-            <path d="M2 4.5V2.5C2 2.22 2.22 2 2.5 2H4.5M9.5 7.5V9.5C9.5 9.78 9.28 10 9 10H7M7 2H9C9.28 2 9.5 2.22 9.5 2.5V4.5M4.5 10H2.5C2.22 10 2 9.78 2 9.5V7.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function SprintEngineProjectView({
   sprintEngineState,
   roster,
@@ -3226,6 +2865,10 @@ function SprintEngineProjectView({
     () => Object.fromEntries(sprintEngineState.tasks.map((task) => [task.id, task])),
     [sprintEngineState.tasks]
   )
+  const inboxArtifacts = useMemo(
+    () => getSprintEngineInboxArtifacts(reviewArtifacts),
+    [reviewArtifacts]
+  )
   const blockedByArtifacts = useMemo(() => (
     sprintEngineState.tasks
       .map((task) => ({
@@ -3235,9 +2878,11 @@ function SprintEngineProjectView({
       .filter(({ blockers }) => blockers.length > 0)
   ), [reviewArtifacts, sprintEngineState.tasks])
 
+  const missingRoles = addableRoles.filter((role) => !roster.some((agent) => agent.role === role))
+
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-[#08090b]">
-      <header className="border-b border-[#1f2025] bg-[#0d0e11] px-6 py-5">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#08090b] text-[#d7d7dc]">
+      <header className="shrink-0 border-b border-[#1f2025] bg-[#0d0e11] px-6 py-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <span className="inline-flex items-center rounded-full bg-[#5c7cff]/14 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[#d4ddff]">
@@ -3314,147 +2959,227 @@ function SprintEngineProjectView({
         </div>
       </header>
 
-      <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="min-w-0 space-y-7">
-          <section>
-            <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2]">
-                Review Queue
-              </h3>
-              <span className="text-[11px] text-[#5a5a63]">
-                {reviewArtifacts.length === 0
-                  ? 'Nothing waiting'
-                  : `${reviewArtifacts.length} ${reviewArtifacts.length === 1 ? 'artifact' : 'artifacts'}`}
+      <div className="flex min-h-0 flex-1 min-w-0">
+        <section
+          className="flex w-[44%] min-w-[320px] max-w-[560px] flex-col border-r border-[#1f2025]"
+          aria-label="Inbox"
+        >
+          <header className="flex items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ background: SPRINTENGINE_PANEL_ACCENT }}
+                aria-hidden="true"
+              />
+              <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#ececee]">
+                Inbox
+              </h2>
+              <span className="shrink-0 tabular-nums text-[11px] text-[#6f7078]">
+                {inboxArtifacts.length}
               </span>
             </div>
-            <div className="mt-3">
-              <SprintEngineArtifactList
-                artifacts={reviewArtifacts}
-                tasksById={tasksById}
-                actions={artifactActions}
-                emptyLabel="No artifacts are awaiting review."
-                onSelectTask={onSelectTask}
-                onOpenArtifact={onOpenArtifact}
-                onApproveArtifact={onApproveArtifact}
-                onRequestArtifactChanges={onRequestArtifactChanges}
+          </header>
+
+          <div className="flex-1 overflow-auto">
+            <SprintEngineArtifactList
+              artifacts={inboxArtifacts}
+              tasksById={tasksById}
+              actions={artifactActions}
+              hideHeader
+              emptyLabel="Inbox empty. The handover and any artifacts agents produce will appear here."
+              onSelectTask={onSelectTask}
+              onOpenArtifact={onOpenArtifact}
+              onApproveArtifact={onApproveArtifact}
+              onRequestArtifactChanges={onRequestArtifactChanges}
+            />
+
+            {blockedByArtifacts.length > 0 ? (
+              <section aria-label="Tasks blocked by review" className="border-t border-[#1f2025]">
+                <header className="flex items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full bg-[#ffbf2f]"
+                      aria-hidden="true"
+                    />
+                    <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#ececee]">
+                      Blocked by review
+                    </h2>
+                    <span className="shrink-0 tabular-nums text-[11px] text-[#6f7078]">
+                      {blockedByArtifacts.length}
+                    </span>
+                  </div>
+                </header>
+                <ol className="divide-y divide-[#13141a]">
+                  {blockedByArtifacts.map(({ task, blockers }) => (
+                    <li key={task.id}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectTask(task.id)}
+                        className="interactive flex w-full min-w-0 flex-col gap-0.5 px-3 py-2.5 text-left transition-colors hover:bg-[#0e0f12]"
+                      >
+                        <div className="flex min-w-0 items-baseline gap-2">
+                          <span className="shrink-0 font-mono tabular-nums text-[11px] text-[#8a8a92]">
+                            {task.id}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#ececee]">
+                            {task.title}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-[#ffe0a3]">
+                          Waiting on {formatArtifactBlockerSummary(blockers)}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ) : null}
+          </div>
+        </section>
+
+        <section
+          className="flex min-w-0 flex-1 flex-col"
+          aria-label="Roster"
+        >
+          <header className="flex items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ background: SPRINTENGINE_PANEL_ACCENT }}
+                aria-hidden="true"
               />
-            </div>
-          </section>
-
-          {blockedByArtifacts.length > 0 ? (
-            <section>
-              <div className="flex items-baseline justify-between gap-3">
-                <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ffe0a3]">
-                  Blocked by Review
-                </h3>
-                <span className="text-[11px] text-[#5a5a63]">
-                  {blockedByArtifacts.length} {blockedByArtifacts.length === 1 ? 'task' : 'tasks'}
-                </span>
-              </div>
-              <div className="mt-3 divide-y divide-[#1f2025] border-y border-[#1f2025]">
-                {blockedByArtifacts.map(({ task, blockers }) => (
-                  <button
-                    key={task.id}
-                    onClick={() => onSelectTask(task.id)}
-                    className="block w-full px-1 py-3 text-left interactive transition-colors hover:bg-[#111216]"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-[#ececee]">
-                        {task.id}: {task.title}
-                      </span>
-                      <span className="text-[11px] font-semibold text-[#ffe0a3]">
-                        Waiting on {formatArtifactBlockerSummary(blockers)}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
-        </div>
-
-        <aside className="flex min-w-0 flex-col gap-3">
-          <div className="flex items-baseline justify-between gap-3">
-            <div>
-              <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#9a9aa2]">
+              <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#ececee]">
                 Roster
-              </h3>
-              <div className="mt-1 text-[11px] text-[#5a5a63]">
-                Drag a role onto the map to spawn
-              </div>
+              </h2>
+              <span className="shrink-0 tabular-nums text-[11px] text-[#6f7078]">
+                {roster.length}
+              </span>
             </div>
             <button
+              type="button"
               onClick={onAddMember}
-              className="rounded-md px-2.5 py-1 text-[12px] font-semibold text-[#9a9aa2] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
+              className="interactive h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
+              title="Add a roster member"
             >
-              More Roles
+              Add member
             </button>
-          </div>
+          </header>
 
-          <div className="grid grid-cols-2 gap-1.5">
-            {addableRoles.map((role) => {
-              const existing = roster.find((agent) => agent.role === role)
-              const hasLiveTerminal = existing ? isAgentTerminalLive(existing.id) : false
-              const subtitle = existing
-                ? (hasLiveTerminal ? 'Open terminal' : 'Drag to spawn')
-                : 'Drag to add'
-              return (
-                <button
-                  key={role}
-                  type="button"
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData('text/sprintengine-role', role)
-                    event.dataTransfer.effectAllowed = 'copy'
-                  }}
-                  onClick={() => dispatchRoleSpawn(role)}
-                  title={`${sprintEngineRoleLabels[role]} — ${subtitle}`}
-                  className={`flex items-center gap-2 rounded-md border bg-transparent px-2 py-1.5 text-left interactive transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45 ${
-                    existing
-                      ? 'border-[#1f2025] hover:border-[#303139] hover:bg-[#111216]'
-                      : 'border-dashed border-[#303139] hover:border-[#5c7cff]/45 hover:bg-[#111216]'
-                  }`}
-                  style={{ cursor: 'grab' }}
-                >
-                  <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                    style={{
-                      backgroundColor: hexToRgba(sprintEngineRoleAccent[role], existing ? 0.18 : 0.08),
-                      color: sprintEngineRoleAccent[role],
-                    }}
-                  >
-                    <SprintEngineRoleIcon role={role} className="h-4 w-4" />
+          <div className="flex-1 overflow-auto">
+            {roster.length === 0 ? (
+              <div className="px-3 py-6 text-[12px] leading-5 text-[#6f7078]">
+                No agents on roster yet. Pick a role below to add the first member.
+              </div>
+            ) : (
+              <ol aria-label="Roster agents">
+                {roster.map((agent) => {
+                  const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id) ?? null
+                  const hasLiveTerminal = isAgentTerminalLive(agent.id)
+                  const statusKey = runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')
+                  const currentTask = runtime?.currentTaskId
+                    ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
+                    : null
+                  const selected = selectedAgentId === agent.id
+                  return (
+                    <li key={agent.id}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectAgent(agent.id)}
+                        aria-pressed={selected}
+                        className={`interactive relative flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left border-b border-[#13141a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/55 focus-visible:ring-inset ${
+                          selected
+                            ? 'bg-[#17181d] pl-[9px] text-[#ececee] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-[#5c7cff]'
+                            : 'hover:bg-[#0e0f12] text-[#c8c8cf]'
+                        }`}
+                      >
+                        <span
+                          className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                          style={{
+                            backgroundColor: hexToRgba(sprintEngineRoleAccent[agent.role], 0.18),
+                            color: sprintEngineRoleAccent[agent.role],
+                          }}
+                          aria-hidden="true"
+                        >
+                          <SprintEngineRoleIcon role={agent.role} className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0 flex-1 space-y-0.5">
+                          <span className="flex min-w-0 items-baseline gap-2">
+                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                              {agent.label}
+                            </span>
+                            <span className="shrink-0 rounded border border-[#2a2b31] bg-[#0d0e11] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em] text-[#9a9aa2]">
+                              {sprintEngineRoleLabels[agent.role]}
+                            </span>
+                          </span>
+                          <span className="flex min-w-0 items-center gap-2 text-[11px] text-[#6f7078]">
+                            <span className="flex shrink-0 items-center gap-1.5">
+                              <span
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ background: statusColor(statusKey) }}
+                                aria-hidden="true"
+                              />
+                              <span className="capitalize">{statusKey}</span>
+                            </span>
+                            {currentTask ? (
+                              <span className="min-w-0 truncate">
+                                <span className="font-mono text-[#9a9aa2]">{currentTask.id}</span>
+                                <span className="text-[#5a5a63]"> · </span>
+                                <span>{currentTask.title}</span>
+                              </span>
+                            ) : (
+                              <span className="text-[#5a5a63]">No active task</span>
+                            )}
+                            {hasLiveTerminal ? (
+                              <span className="ml-auto shrink-0 rounded border border-[#234d27] bg-[#0f1d10] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[#9be39e]">
+                                Terminal live
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
+
+            {missingRoles.length > 0 ? (
+              <section aria-label="Add a role" className="border-t border-[#1f2025]">
+                <div className="flex items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2">
+                  <h3 className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2]">
+                    Add a role
+                  </h3>
+                  <span className="shrink-0 tabular-nums text-[11px] text-[#6f7078]">
+                    {missingRoles.length} open
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12px] font-semibold text-[#ececee]">
+                </div>
+                <div className="flex flex-wrap gap-1.5 px-3 py-2.5">
+                  {missingRoles.map((role) => (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => dispatchRoleSpawn(role)}
+                      title={`Add ${sprintEngineRoleLabels[role]}`}
+                      className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[#303139] px-2 py-1 text-[11px] font-medium text-[#c8c8cf] transition-colors hover:border-[#5c7cff]/55 hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
+                    >
+                      <span
+                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
+                        style={{
+                          backgroundColor: hexToRgba(sprintEngineRoleAccent[role], 0.14),
+                          color: sprintEngineRoleAccent[role],
+                        }}
+                        aria-hidden="true"
+                      >
+                        <SprintEngineRoleIcon role={role} className="h-3 w-3" />
+                      </span>
                       {sprintEngineRoleLabels[role]}
-                    </span>
-                    <span className="block truncate text-[10px] text-[#6f7480]">
-                      {subtitle}
-                    </span>
-                  </span>
-                </button>
-              )
-            })}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
-
-          <RosterCanvas
-            roster={roster}
-            runtimeAgents={runtimeAgents}
-            sprintEngineState={sprintEngineState}
-            selectedAgentId={selectedAgentId}
-            addableRoles={addableRoles}
-            onSelectAgent={onSelectAgent}
-            onAddRole={(role) => {
-              const existing = roster.find((agent) => agent.role === role)
-              if (existing) {
-                onSelectAgent(existing.id)
-              } else {
-                onAddRole(role)
-              }
-            }}
-          />
-        </aside>
+        </section>
       </div>
     </div>
   )
@@ -4155,35 +3880,6 @@ function TaskGraphLegendDot({ color, label }: { color: string; label: string }) 
   )
 }
 
-function buildMapPositions(roster: RosterItem[]): Array<{ agent: RosterItem; x: number; y: number }> {
-  const architect = roster.find((agent) => agent.role === 'architect')
-  const others = roster.filter((agent) => agent.role !== 'architect')
-  const ordered = [
-    ...others.filter((agent) => agent.role === 'product'),
-    ...others.filter((agent) => agent.role === 'frontend'),
-    ...others.filter((agent) => agent.role === 'developer'),
-    ...others.filter((agent) => agent.role === 'tester'),
-    ...others.filter((agent) => agent.role === 'security'),
-  ]
-  const positions: Array<{ agent: RosterItem; x: number; y: number }> = []
-
-  if (architect) {
-    positions.push({ agent: architect, x: 50, y: 38 })
-  }
-
-  ordered.forEach((agent, index) => {
-    const angle = (-105 + (210 / Math.max(1, ordered.length - 1)) * index) * (Math.PI / 180)
-    const radiusX = 34
-    const radiusY = 30
-    positions.push({
-      agent,
-      x: 50 + Math.cos(angle) * radiusX,
-      y: 52 + Math.sin(angle) * radiusY,
-    })
-  })
-
-  return positions
-}
 
 type TaskGraphLayoutNode =
   | {
@@ -4750,11 +4446,69 @@ function RoleFindings({
   )
 }
 
+function ConfidenceDial({ value, size = 14, label }: { value: number; size?: number; label?: string }) {
+  const clamped = Math.max(0, Math.min(100, Math.round(value)))
+  const stroke = 1.5
+  const radius = size / 2 - stroke / 2 - 0.5
+  const cx = size / 2
+  const cy = size / 2
+  const tone = clamped >= 80 ? '#9be39e' : clamped >= 50 ? '#f2c45f' : '#ffb3b5'
+  const trackTone = '#2a2b31'
+  const ariaLabel = label ? `${label}: ${clamped}% confidence` : `${clamped}% confidence`
+
+  let arc: React.ReactNode = null
+  if (clamped >= 100) {
+    arc = <circle cx={cx} cy={cy} r={radius} stroke={tone} strokeWidth={stroke} fill="none" />
+  } else if (clamped > 0) {
+    const angle = (clamped / 100) * 2 * Math.PI
+    const endX = cx + radius * Math.sin(angle)
+    const endY = cy - radius * Math.cos(angle)
+    const largeArc = clamped > 50 ? 1 : 0
+    arc = (
+      <path
+        d={`M ${cx} ${cy - radius} A ${radius} ${radius} 0 ${largeArc} 1 ${endX} ${endY}`}
+        stroke={tone}
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        fill="none"
+      />
+    )
+  }
+
+  return (
+    <span
+      className="inline-flex shrink-0 items-center"
+      title={ariaLabel}
+      aria-label={ariaLabel}
+      role="img"
+    >
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+        <circle cx={cx} cy={cy} r={radius} stroke={trackTone} strokeWidth={stroke} fill="none" />
+        {arc}
+        <circle cx={cx} cy={cy} r={Math.max(0.8, size / 14)} fill={tone} />
+      </svg>
+    </span>
+  )
+}
+
+function getArtifactConfidencePct(
+  artifact: SprintEngineArtifact,
+  task: SprintEngineTask | undefined
+): number | null {
+  const feedback = task?.feedback
+  if (!feedback) return null
+  if (feedback.agentId !== artifact.createdBy) return null
+  const value = feedback.scores?.confidencePct
+  return typeof value === 'number' ? value : null
+}
+
 function SprintEngineArtifactList({
   artifacts,
   tasksById,
   actions,
+  title = 'Review Artifacts',
   emptyLabel,
+  hideHeader = false,
   onSelectTask,
   onOpenArtifact,
   onApproveArtifact,
@@ -4763,63 +4517,79 @@ function SprintEngineArtifactList({
   artifacts: SprintEngineArtifact[]
   tasksById: Record<string, SprintEngineTask | undefined>
   actions: Record<string, ArtifactActionState>
+  title?: string
   emptyLabel: string
+  hideHeader?: boolean
   onSelectTask: (taskId: string) => void
   onOpenArtifact: (artifact: SprintEngineArtifact) => void
   onApproveArtifact: (artifact: SprintEngineArtifact) => void
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
 }) {
-  const sortedArtifacts = [...artifacts].sort((a, b) => {
-    const statusOrder = ['ready_for_review', 'changes_requested', 'draft', 'approved', 'superseded']
-    const statusDelta = statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status)
-    return statusDelta !== 0 ? statusDelta : a.title.localeCompare(b.title)
-  })
-
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-          Review Artifacts
+      {hideHeader ? null : (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+            {title}
+          </div>
+          {artifacts.length > 0 ? (
+            <span className="text-[11px] font-semibold text-[#5a5a63]">
+              {formatArtifactSummary(artifacts)}
+            </span>
+          ) : null}
         </div>
-        {artifacts.length > 0 ? (
-          <span className="text-[11px] font-semibold text-[#5a5a63]">
-            {formatArtifactSummary(artifacts)}
-          </span>
-        ) : null}
-      </div>
+      )}
 
-      {sortedArtifacts.length > 0 ? (
-        <div className="divide-y divide-[#1f2025] border-y border-[#1f2025]">
-          {sortedArtifacts.map((artifact) => {
+      {artifacts.length > 0 ? (
+        <ol className="divide-y divide-[#13141a]">
+          {artifacts.map((artifact) => {
             const task = tasksById[artifact.taskId]
             const action = actions[artifact.id]
             const pending = action?.status === 'pending'
             const readyForReview = artifact.status === 'ready_for_review'
+            const canOpenArtifact = Boolean(artifact.path.trim()) && artifact.status !== 'draft'
             const autoApprovalEligibility = getSprintEngineArtifactAutoApprovalEligibility(artifact)
             const mobileDecision = getMobileArtifactDecision(artifact)
+            const confidencePct = getArtifactConfidencePct(artifact, task)
+            const isSourceHandoff = artifact.id === SOURCE_HANDOFF_ARTIFACT_ID
+            const timestamp = artifact.createdAt ?? artifact.updatedAt
+            const absoluteTimestamp = timestamp ? new Date(timestamp).toLocaleString() : null
+            const relativeTimestamp = timestamp ? formatRelativeTime(timestamp) : 'No timestamp'
 
             return (
-              <div key={artifact.id} className="grid gap-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold text-[#ececee]">{artifact.title}</span>
+              <li key={artifact.id} className="grid gap-3 px-3 py-2.5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <span className="shrink-0 font-mono tabular-nums text-[11px] text-[#8a8a92]">{artifact.id}</span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#ececee]">{artifact.title}</span>
+                    {confidencePct !== null ? (
+                      <ConfidenceDial value={confidencePct} label="Agent confidence" />
+                    ) : null}
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] ${artifactStatusTone(artifact.status)}`}>
-                      {sprintEngineArtifactStatusLabels[artifact.status]}
+                      {isSourceHandoff ? 'Source' : sprintEngineArtifactStatusLabels[artifact.status]}
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#5a5a63]">
-                    <span>{sprintEngineArtifactKindLabels[artifact.kind]}</span>
-                    <button
-                      type="button"
-                      onClick={() => onSelectTask(artifact.taskId)}
-                      disabled={!task}
-                      className="font-mono text-[#9a9aa2] interactive transition-colors hover:text-[#ececee] disabled:text-[#5a5a63]"
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#6f7078]">
+                    <span>{isSourceHandoff ? 'Handover' : sprintEngineArtifactKindLabels[artifact.kind]}</span>
+                    {isSourceHandoff ? null : (
+                      <button
+                        type="button"
+                        onClick={() => onSelectTask(artifact.taskId)}
+                        disabled={!task}
+                        className="font-mono text-[#9a9aa2] interactive transition-colors hover:text-[#ececee] disabled:text-[#5a5a63]"
+                      >
+                        {artifact.taskId || 'No task'}
+                      </button>
+                    )}
+                    {task && !isSourceHandoff ? <span className="min-w-0 truncate">{task.title}</span> : null}
+                    <span
+                      className="ml-auto shrink-0 tabular-nums"
+                      title={absoluteTimestamp ?? undefined}
                     >
-                      {artifact.taskId || 'No task'}
-                    </button>
-                    {task ? <span className="min-w-0 truncate">{task.title}</span> : null}
+                      {relativeTimestamp}
+                    </span>
                   </div>
-                  <div className="mt-1 text-[12px] text-[#9a9aa2] [overflow-wrap:anywhere]">
+                  <div className="truncate text-[12px] leading-5 text-[#8a8a92]">
                     {artifact.path || 'No file path recorded.'}
                   </div>
                   {mobileDecision ? (
@@ -4846,14 +4616,16 @@ function SprintEngineArtifactList({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                  <button
-                    type="button"
-                    onClick={() => onOpenArtifact(artifact)}
-                    disabled={pending}
-                    className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
-                  >
-                    {pending && action?.kind === 'open' ? 'Opening...' : 'Open'}
-                  </button>
+                  {canOpenArtifact ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenArtifact(artifact)}
+                      disabled={pending}
+                      className="rounded-md px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] interactive transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[#d7d7dc]"
+                    >
+                      {pending && action?.kind === 'open' ? 'Opening...' : 'Open'}
+                    </button>
+                  ) : null}
                   {readyForReview ? (
                     <>
                       <button
@@ -4877,12 +4649,12 @@ function SprintEngineArtifactList({
                     </>
                   ) : null}
                 </div>
-              </div>
+              </li>
             )
           })}
-        </div>
+        </ol>
       ) : (
-        <div className="text-[12px] text-[#5a5a63]">
+        <div className={hideHeader ? 'px-3 py-6 text-[12px] leading-5 text-[#6f7078]' : 'text-[12px] text-[#5a5a63]'}>
           {emptyLabel}
         </div>
       )}
@@ -5054,6 +4826,26 @@ function formatArtifactSummary(artifacts: SprintEngineArtifact[]): string {
     return `${pendingCount} pending ${pendingCount === 1 ? 'artifact' : 'artifacts'}`
   }
   return `${approvedCount} approved ${approvedCount === 1 ? 'artifact' : 'artifacts'}`
+}
+
+function artifactTimestampMs(artifact: SprintEngineArtifact): number {
+  const timestamp = artifact.updatedAt ?? artifact.createdAt
+  if (!timestamp) return 0
+  const parsed = Date.parse(timestamp)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+const SOURCE_HANDOFF_ARTIFACT_ID = 'source-handoff'
+
+function getSprintEngineInboxArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
+  return [...artifacts].sort((a, b) => {
+    const aIsHandoff = a.id === SOURCE_HANDOFF_ARTIFACT_ID
+    const bIsHandoff = b.id === SOURCE_HANDOFF_ARTIFACT_ID
+    if (aIsHandoff !== bIsHandoff) return aIsHandoff ? -1 : 1
+    const timestampDelta = artifactTimestampMs(b) - artifactTimestampMs(a)
+    if (timestampDelta !== 0) return timestampDelta
+    return a.title.localeCompare(b.title)
+  })
 }
 
 function getPrimaryTaskArtifact(artifacts: SprintEngineArtifact[]): SprintEngineArtifact | null {

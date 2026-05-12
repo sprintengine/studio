@@ -285,6 +285,12 @@ def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_
     assert state["source"]["kind"] == "markdown"
     assert state["source"]["origin"] == "inline"
     assert state["source"]["path"].endswith(".multi-code/sprintengine/handover-prompt/handover.md")
+    assert state["artifacts"][0]["id"] == "A1"
+    assert state["artifacts"][0]["kind"] == "requirements"
+    assert state["artifacts"][0]["title"] == "Source Handoff"
+    assert state["artifacts"][0]["path"] == state["source"]["path"]
+    assert state["artifacts"][0]["status"] == "approved"
+    assert state["artifacts"][0]["taskId"] == ""
 
 
 def test_handover_records_markdown_file_source_metadata(tmp_path) -> None:
@@ -313,6 +319,9 @@ def test_handover_records_markdown_file_source_metadata(tmp_path) -> None:
     assert state["source"]["origin"] == "file"
     assert state["source"]["path"].endswith(".multi-code/sprintengine/file-handover/handover.md")
     assert state["source"]["originalPath"].endswith("future-plans/source-plan.md")
+    assert state["artifacts"][0]["title"] == "Source Handoff"
+    assert state["artifacts"][0]["path"] == state["source"]["path"]
+    assert state["artifacts"][0]["status"] == "approved"
 
 
 def test_product_intake_task_includes_handover_note_without_duplicates(tmp_path) -> None:

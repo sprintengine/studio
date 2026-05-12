@@ -79,6 +79,7 @@ function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig {
   return {
     id: server.id,
     name: server.name,
+    category: server.category,
     description: server.description,
     transport: server.transport,
     command: server.command,
@@ -93,7 +94,242 @@ function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig {
     scope: server.recommendedScope ?? 'workspace',
     source: 'bundled',
     riskLevel: server.riskLevel,
+    auth: server.auth,
+    capabilities: server.capabilities,
+    sourceUrl: server.sourceUrl,
   }
+}
+
+function groupMcpCatalog(servers: McpCatalogServer[]): Array<[string, McpCatalogServer[]]> {
+  const groups = new Map<string, McpCatalogServer[]>()
+  for (const server of servers) {
+    const category = server.category?.trim() || 'Other'
+    groups.set(category, [...(groups.get(category) ?? []), server])
+  }
+  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right))
+}
+
+function mcpIconSlug(id: string): string | null {
+  if (id === 'context7') return null
+  if (id === 'openai-docs') return 'openai'
+  if (id === 'brave-search') return 'brave'
+  return id
+}
+
+function mcpMonogram(name: string): string {
+  return name
+    .split(/\s+/u)
+    .map((piece) => piece[0] ?? '')
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
+}
+
+function McpBrandIcon({
+  slug,
+  name,
+  size = 36,
+}: {
+  slug: string | null
+  name: string
+  size?: number
+}) {
+  const [failed, setFailed] = useState(false)
+  if (!slug || failed) {
+    return (
+      <span
+        aria-hidden
+        style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
+        className="grid place-items-center rounded-md bg-[#1c1d25] font-mono font-semibold text-[#d7d7dc]"
+      >
+        {mcpMonogram(name)}
+      </span>
+    )
+  }
+  return (
+    <img
+      src={`https://cdn.simpleicons.org/${slug}/e5e7eb`}
+      alt=""
+      aria-hidden
+      width={size}
+      height={size}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      className="pointer-events-none select-none"
+    />
+  )
+}
+
+function McpCatalogTile({
+  server,
+  installed,
+  selected,
+  onToggle,
+  onInfo,
+}: {
+  server: McpCatalogServer
+  installed: boolean
+  selected: boolean
+  onToggle: () => void
+  onInfo: () => void
+}) {
+  const tileClass = installed
+    ? 'border-[#5c7cff]/55 bg-[#100f1c] shadow-[0_0_0_1px_rgba(92,124,255,0.18),0_0_24px_-12px_rgba(92,124,255,0.55)]'
+    : selected
+      ? 'border-[#3a3b42] bg-[#11121a]'
+      : 'border-[#24252b] bg-[#0d0e11] hover:border-[#3a3b42] hover:bg-[#11121a]'
+  return (
+    <div className="relative aspect-square">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={installed}
+        aria-label={installed ? `Remove ${server.name}` : `Add ${server.name}`}
+        className={`flex h-full w-full flex-col items-start justify-between rounded-lg border p-3 text-left transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 ${tileClass}`}
+      >
+        <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} size={36} />
+        {installed ? (
+          <span
+            aria-hidden
+            className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[#5c7cff] text-[#08090b]"
+          >
+            <svg
+              viewBox="0 0 10 10"
+              className="h-2.5 w-2.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="1.5,5 4,7.5 8.5,2.5" />
+            </svg>
+          </span>
+        ) : null}
+        <div className="w-full min-w-0 pr-6">
+          <div className="truncate text-[13px] font-semibold leading-5 text-[#ececee]">{server.name}</div>
+          <div className="mt-0.5 truncate font-mono text-[10px] leading-3 text-[#6f7078]">{server.transport}</div>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={onInfo}
+        aria-label={`Show details for ${server.name}`}
+        aria-expanded={selected}
+        className={`absolute bottom-2 right-2 z-10 grid h-5 w-5 place-items-center rounded-full transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 ${
+          selected
+            ? 'bg-[#5c7cff]/20 text-[#b8ccff]'
+            : 'text-[#5f6068] hover:bg-[#1c1d25] hover:text-[#d7d7dc]'
+        }`}
+      >
+        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
+          <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 12.5A5.5 5.5 0 118 2.5a5.5 5.5 0 010 11zM7.25 5.5a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM7.25 7.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
+function McpInfoPanel({
+  server,
+  installed,
+  onToggle,
+  onClose,
+}: {
+  server: McpCatalogServer
+  installed: boolean
+  onToggle: () => void
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const hasAuth = Boolean(server.auth && server.auth.trim().toLowerCase() !== 'none')
+
+  return (
+    <aside
+      aria-label={`${server.name} details`}
+      className="sticky top-2 w-72 shrink-0 self-start rounded-lg border border-[#24252b] bg-[#0d0e11] p-4"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} size={32} />
+          <div className="min-w-0">
+            <h5 className="truncate text-[14px] font-semibold leading-5 text-[#ececee]">{server.name}</h5>
+            <div className="mt-0.5 truncate font-mono text-[11px] text-[#7f8088]">{server.transport}</div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close details"
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[#7f8088] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+        >
+          <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+            <path d="M3 3l6 6M9 3l-6 6" />
+          </svg>
+        </button>
+      </div>
+      {server.description ? (
+        <p className="mt-3 text-[12px] leading-5 text-[#9a9aa2]">{server.description}</p>
+      ) : null}
+      {hasAuth ? (
+        <div className="mt-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5f6068]">Auth</div>
+          <div className="mt-1 text-[12px] text-[#d5a868]">{server.auth}</div>
+        </div>
+      ) : null}
+      {server.capabilities?.length ? (
+        <div className="mt-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5f6068]">Capabilities</div>
+          <ul className="mt-1 space-y-0.5 text-[12px] text-[#9a9aa2]">
+            {server.capabilities.map((capability) => (
+              <li key={capability} className="flex gap-1.5">
+                <span aria-hidden className="text-[#5f6068]">·</span>
+                <span>{capability}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {server.setupNotes ? (
+        <p className="mt-3 border-l-2 border-[rgba(255,255,255,0.10)] pl-2 text-[11px] leading-4 text-[#7f8088]">
+          {server.setupNotes}
+        </p>
+      ) : null}
+      {server.sourceUrl ? (
+        <a
+          href={server.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 inline-flex text-[12px] font-semibold text-[#9fb4ff] transition-colors hover:text-[#c5d0ff] focus:outline-none focus-visible:underline"
+        >
+          Source docs
+        </a>
+      ) : null}
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`mt-4 h-9 w-full rounded-md text-[13px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 ${
+          installed
+            ? 'border border-[#3a3b42] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#17181d]'
+            : 'bg-[#5c7cff] text-[#08090b] hover:bg-[#6e8eff]'
+        }`}
+      >
+        {installed ? 'Remove' : 'Add to active'}
+      </button>
+    </aside>
+  )
 }
 
 function parseSearchExcludeText(value: string): string[] {
@@ -191,6 +427,7 @@ export default function SettingsPanel({
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogServer[]>([])
   const [mcpMessage, setMcpMessage] = useState<string | null>(null)
   const [mcpPending, setMcpPending] = useState(false)
+  const [selectedCatalogId, setSelectedCatalogId] = useState<string | null>(null)
   const [customMcpId, setCustomMcpId] = useState('')
   const [customMcpName, setCustomMcpName] = useState('')
   const [customMcpCommand, setCustomMcpCommand] = useState('')
@@ -629,6 +866,24 @@ export default function SettingsPanel({
       : 'check'
 
   const activeTab = settingsTabs.find((tab) => tab.id === activeSettingsTab) ?? settingsTabs[0]
+  const groupedMcpCatalog = groupMcpCatalog(mcpCatalog)
+  const selectedCatalogServer = selectedCatalogId
+    ? mcpCatalog.find((server) => server.id === selectedCatalogId) ?? null
+    : null
+  const activeMcpServers = Object.values(mcpSettings.servers).filter((server) => server.enabled)
+
+  const toggleCatalogServer = useCallback((server: McpCatalogServer) => {
+    const existing = mcpSettings.servers[server.id]
+    if (existing?.enabled) {
+      removeMcpServer(server.id)
+      setMcpMessage(`${server.name} removed.`)
+    } else {
+      upsertMcpServer(mcpServerFromCatalog(server))
+      setMcpMessage(server.setupNotes
+        ? `${server.name} added. ${server.setupNotes}`
+        : `${server.name} added.`)
+    }
+  }, [mcpSettings.servers, removeMcpServer, upsertMcpServer])
 
   const selectSettingsTab = useCallback((tabId: SettingsTabId) => {
     setActiveSettingsTab(tabId)
@@ -862,122 +1117,203 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-mcps"
           className="space-y-5"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <SettingToggle
-              label="Sync MCPs for new agent terminals"
-              description="Multicode writes enabled MCPs to Codex and Claude workspace config before launching a new agent terminal."
-              enabled={mcpSettings.syncEnabled}
-              onChange={setMcpSyncEnabled}
-            />
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <SettingToggle
+                label="Sync MCPs for new agent terminals"
+                description="Multicode writes enabled MCPs to Codex and Claude workspace config before launching a new agent terminal."
+                enabled={mcpSettings.syncEnabled}
+                onChange={setMcpSyncEnabled}
+              />
+            </div>
             <button
               type="button"
               onClick={() => void syncMcps()}
               disabled={mcpPending || !activeProjectRoot}
-              className="h-9 rounded-md bg-[#5c7cff] px-3 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
+              className="mt-3 h-9 shrink-0 rounded-md bg-[#5c7cff] px-3 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
             >
               {mcpPending ? 'Syncing' : 'Sync now'}
             </button>
           </div>
 
-          <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-              Enabled MCPs
+          <section className="space-y-2 border-t border-[#24252b] pt-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+                Active
+              </h4>
+              {activeMcpServers.length ? (
+                <span className="text-[11px] font-medium text-[#5f6068]">
+                  {activeMcpServers.length} active
+                </span>
+              ) : null}
             </div>
-            {Object.values(mcpSettings.servers).length === 0 ? (
+            {activeMcpServers.length === 0 ? (
               <div className="border-l-2 border-[rgba(255,255,255,0.10)] pl-3 text-[12px] leading-5 text-[#9a9aa2]">
-                No MCPs enabled yet. Add one from the bundled catalog or create a custom server.
+                Nothing selected yet. Click a tile in the catalog below to add it.
               </div>
             ) : (
-              <div className="space-y-2">
-                {Object.values(mcpSettings.servers).map((server) => (
-                  <div key={server.id} className="rounded-md border border-[#24252b] bg-[#0d0e11] p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+              <ul className="divide-y divide-[#24252b]">
+                {activeMcpServers.map((server) => (
+                  <li key={server.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <McpBrandIcon
+                        slug={server.source === 'bundled' ? mcpIconSlug(server.id) : null}
+                        name={server.name}
+                        size={24}
+                      />
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-[#ececee]">{server.name}</div>
-                        <div className="mt-1 font-mono text-[11px] text-[#7f8088]">
+                        <div className="truncate text-[13px] font-semibold text-[#ececee]">{server.name}</div>
+                        <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[#7f8088]">
                           {server.id} · {server.transport} · {server.clients.join(', ')}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => upsertMcpServer({ ...server, enabled: !server.enabled })}
-                          className={`h-8 rounded-md border px-2.5 text-xs font-semibold ${server.enabled ? 'border-[#4d7c5f] text-[#9fe6b5]' : 'border-[#3a3b42] text-[#9a9aa2]'}`}
-                        >
-                          {server.enabled ? 'Enabled' : 'Disabled'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeMcpServer(server.id)}
-                          className="h-8 rounded-md border border-[#3a3b42] px-2.5 text-xs font-semibold text-[#d7d7dc] hover:border-[#5a5b63]"
-                        >
-                          Remove
-                        </button>
-                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        removeMcpServer(server.id)
+                        setMcpMessage(`${server.name} removed.`)
+                      }}
+                      className="text-[12px] font-semibold text-[#7f8088] transition-colors hover:text-[#ececee] focus:outline-none focus-visible:underline"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <div className="flex gap-4 border-t border-[#24252b] pt-4">
+            <section className="min-w-0 flex-1 space-y-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+                  Bundled catalog
+                </h4>
+                {mcpCatalog.length ? (
+                  <span className="text-[11px] font-medium text-[#5f6068]">
+                    {mcpCatalog.length} servers
+                  </span>
+                ) : null}
+              </div>
+              <div className="space-y-5">
+                {groupedMcpCatalog.map(([category, servers]) => (
+                  <div key={category} className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8a8a92]">{category}</span>
+                      <span className="h-px flex-1 bg-[#24252b]" />
+                      <span className="font-mono text-[10px] text-[#5f6068]">{servers.length}</span>
+                    </div>
+                    <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${selectedCatalogServer ? '' : 'lg:grid-cols-4'}`}>
+                      {servers.map((server) => (
+                        <McpCatalogTile
+                          key={server.id}
+                          server={server}
+                          installed={Boolean(mcpSettings.servers[server.id]?.enabled)}
+                          selected={selectedCatalogId === server.id}
+                          onToggle={() => toggleCatalogServer(server)}
+                          onInfo={() => setSelectedCatalogId((current) => current === server.id ? null : server.id)}
+                        />
+                      ))}
                     </div>
                   </div>
                 ))}
               </div>
-            )}
+            </section>
+            {selectedCatalogServer ? (
+              <McpInfoPanel
+                server={selectedCatalogServer}
+                installed={Boolean(mcpSettings.servers[selectedCatalogServer.id]?.enabled)}
+                onToggle={() => toggleCatalogServer(selectedCatalogServer)}
+                onClose={() => setSelectedCatalogId(null)}
+              />
+            ) : null}
           </div>
 
-          <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-              Bundled catalog
-            </div>
-            <div className="grid gap-2 md:grid-cols-2">
-              {mcpCatalog.map((server) => {
-                const installed = Boolean(mcpSettings.servers[server.id])
-                return (
-                  <div key={server.id} className="rounded-md border border-[#24252b] bg-[#0d0e11] p-3">
-                    <div className="text-sm font-semibold text-[#ececee]">{server.name}</div>
-                    <div className="mt-1 min-h-[40px] text-[12px] leading-5 text-[#9a9aa2]">{server.description}</div>
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <span className="font-mono text-[11px] text-[#7f8088]">{server.transport}</span>
-                      <button
-                        type="button"
-                        onClick={() => upsertMcpServer(mcpServerFromCatalog(server))}
-                        disabled={installed}
-                        className="h-8 rounded-md border border-[#3a3b42] px-2.5 text-xs font-semibold text-[#d7d7dc] hover:border-[#5a5b63] disabled:cursor-default disabled:opacity-45"
-                      >
-                        {installed ? 'Added' : 'Add'}
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="space-y-3 border-t border-[#24252b] pt-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-              Custom MCP
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <input value={customMcpId} onChange={(event) => setCustomMcpId(event.target.value)} placeholder="server-id" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
-              <input value={customMcpName} onChange={(event) => setCustomMcpName(event.target.value)} placeholder="Display name" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
-              <select value={customMcpTransport} onChange={(event) => setCustomMcpTransport(event.target.value === 'http' ? 'http' : 'stdio')} className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none focus:border-[#5c7cff]/70">
-                <option value="stdio">stdio</option>
-                <option value="http">http</option>
-              </select>
-              {customMcpTransport === 'stdio' ? (
-                <input value={customMcpCommand} onChange={(event) => setCustomMcpCommand(event.target.value)} placeholder="Command, for example npx" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
-              ) : (
-                <input value={customMcpUrl} onChange={(event) => setCustomMcpUrl(event.target.value)} placeholder="https://example.com/mcp" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
-              )}
-              <input value={customMcpArgs} onChange={(event) => setCustomMcpArgs(event.target.value)} placeholder="Args, space separated" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
-              <input value={customMcpEnv} onChange={(event) => setCustomMcpEnv(event.target.value)} placeholder="Required env vars, comma separated" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
+          <details className="group space-y-3 border-t border-[#24252b] pt-4 [&[open]]:space-y-3">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2] transition-colors hover:text-[#d7d7dc] focus:outline-none focus-visible:underline">
+              <span>Custom MCP</span>
+              <span aria-hidden className="text-[10px] font-medium tracking-normal text-[#5f6068] transition-transform group-open:rotate-180">▾</span>
+            </summary>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Server id</span>
+                <input
+                  value={customMcpId}
+                  onChange={(event) => setCustomMcpId(event.target.value)}
+                  placeholder="server-id"
+                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Display name</span>
+                <input
+                  value={customMcpName}
+                  onChange={(event) => setCustomMcpName(event.target.value)}
+                  placeholder="Display name"
+                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Transport</span>
+                <select
+                  value={customMcpTransport}
+                  onChange={(event) => setCustomMcpTransport(event.target.value === 'http' ? 'http' : 'stdio')}
+                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none transition-colors focus:border-[#5c7cff]/70"
+                >
+                  <option value="stdio">stdio</option>
+                  <option value="http">http</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+                  {customMcpTransport === 'stdio' ? 'Command' : 'URL'}
+                </span>
+                {customMcpTransport === 'stdio' ? (
+                  <input
+                    value={customMcpCommand}
+                    onChange={(event) => setCustomMcpCommand(event.target.value)}
+                    placeholder="e.g. npx"
+                    className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                  />
+                ) : (
+                  <input
+                    value={customMcpUrl}
+                    onChange={(event) => setCustomMcpUrl(event.target.value)}
+                    placeholder="https://example.com/mcp"
+                    className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                  />
+                )}
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Args (space separated)</span>
+                <input
+                  value={customMcpArgs}
+                  onChange={(event) => setCustomMcpArgs(event.target.value)}
+                  placeholder="e.g. -y @vendor/server"
+                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Required env vars (comma separated)</span>
+                <input
+                  value={customMcpEnv}
+                  onChange={(event) => setCustomMcpEnv(event.target.value)}
+                  placeholder="API_KEY, ANOTHER_VAR"
+                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                />
+              </label>
             </div>
             <div className="flex justify-end">
               <button
                 type="button"
                 onClick={addCustomMcp}
-                className="h-9 rounded-md border border-[#3a3b42] px-3 text-sm font-semibold text-[#d7d7dc] hover:border-[#5a5b63]"
+                className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d]"
               >
                 Add custom MCP
               </button>
             </div>
-          </div>
+          </details>
 
           <div className={`border-l-2 pl-3 text-[12px] leading-5 ${mcpMessage ? 'border-[#5c7cff]/70 text-[#b8ccff]' : 'border-[rgba(255,255,255,0.10)] text-[#9a9aa2]'}`}>
             {mcpMessage || 'Workspace-scoped sync writes Codex config to .codex/config.toml and Claude config to .mcp.json. Existing terminals are unchanged.'}
