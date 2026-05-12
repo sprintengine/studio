@@ -120,6 +120,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/mcps",
+        "to": "mcps",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

@@ -36,6 +36,8 @@ import type {
   WorkspaceMemoryConfig,
   MemoryGraphSettings,
   WorkspaceHighlight,
+  McpServerConfig,
+  McpSettings,
 } from '../types/workspace'
 import {
   DEFAULT_GRAPH_SETTINGS,
@@ -107,6 +109,9 @@ interface WorkspaceStore {
   recordWorkspaceTerminalActivity: (id: WorkspaceId, exitedAt: number) => void
   setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
+  setMcpSyncEnabled: (enabled: boolean) => void
+  upsertMcpServer: (server: McpServerConfig) => void
+  removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
@@ -271,6 +276,7 @@ const defaultAppSettings = (): AppSettings => ({
       useWsl: typeof window !== 'undefined' && window.api?.platform === 'win32',
     },
   },
+  mcp: defaultMcpSettings(),
   lastSelectedCli: 'claude',
   lastSelectedSpecialist: 'architect',
   lastSelectedMultiloopRole: 'coordinator',
@@ -283,6 +289,93 @@ const defaultAppSettings = (): AppSettings => ({
   usageTelemetry: defaultUsageTelemetrySettings(),
   learning: defaultLearningSettings(),
 })
+
+function defaultMcpSettings(): McpSettings {
+  return {
+    syncEnabled: false,
+    servers: {},
+  }
+}
+
+function normalizeMcpId(value: unknown): string {
+  return typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    : ''
+}
+
+function normalizeMcpStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function normalizeMcpRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && Boolean(entry[0].trim()))
+    .map(([key, item]) => [key.trim(), item] as const)
+  return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+function normalizeMcpServer(value: unknown): McpServerConfig | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<McpServerConfig>
+  const id = normalizeMcpId(candidate.id)
+  const name = typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim() : id
+  const transport = candidate.transport === 'http' || candidate.transport === 'sse' ? candidate.transport : 'stdio'
+  const clients = normalizeMcpStringList(candidate.clients).filter((client): client is AgentCli => client === 'codex' || client === 'claude')
+  const scope = candidate.scope === 'user' ? 'user' : 'workspace'
+  const source = candidate.source === 'custom' ? 'custom' : 'bundled'
+  const riskLevel = (
+    candidate.riskLevel === 'network'
+    || candidate.riskLevel === 'local-command'
+    || candidate.riskLevel === 'secrets'
+  ) ? candidate.riskLevel : 'low'
+
+  if (!id || !name || clients.length === 0) return null
+  if (transport === 'stdio' && !(typeof candidate.command === 'string' && candidate.command.trim())) return null
+  if ((transport === 'http' || transport === 'sse') && !(typeof candidate.url === 'string' && candidate.url.trim())) return null
+
+  return {
+    id,
+    name,
+    ...(typeof candidate.description === 'string' && candidate.description.trim()
+      ? { description: candidate.description.trim() }
+      : {}),
+    transport,
+    ...(typeof candidate.command === 'string' && candidate.command.trim() ? { command: candidate.command.trim() } : {}),
+    args: normalizeMcpStringList(candidate.args),
+    ...(typeof candidate.url === 'string' && candidate.url.trim() ? { url: candidate.url.trim() } : {}),
+    ...(normalizeMcpRecord(candidate.env) ? { env: normalizeMcpRecord(candidate.env) } : {}),
+    envVarNames: normalizeMcpStringList(candidate.envVarNames),
+    ...(normalizeMcpRecord(candidate.headers) ? { headers: normalizeMcpRecord(candidate.headers) } : {}),
+    enabled: candidate.enabled === true,
+    required: candidate.required === true,
+    clients,
+    scope,
+    source,
+    riskLevel,
+  }
+}
+
+function normalizeMcpSettings(value: unknown): McpSettings {
+  const defaults = defaultMcpSettings()
+  if (!value || typeof value !== 'object') return defaults
+  const candidate = value as Partial<McpSettings>
+  const servers: Record<string, McpServerConfig> = {}
+  if (candidate.servers && typeof candidate.servers === 'object') {
+    for (const server of Object.values(candidate.servers)) {
+      const normalized = normalizeMcpServer(server)
+      if (normalized) servers[normalized.id] = normalized
+    }
+  }
+  return {
+    syncEnabled: candidate.syncEnabled === true,
+    servers,
+  }
+}
 
 function normalizeProjectKnowledgeRoots(
   roots: unknown,
@@ -315,6 +408,7 @@ function normalizeAppSettings(settings: Partial<AppSettings> | undefined, worksp
       ...defaults.cliRuntimes,
       ...(settings?.cliRuntimes ?? {}),
     },
+    mcp: normalizeMcpSettings(settings?.mcp),
     lastSelectedCli: settings?.lastSelectedCli ?? defaults.lastSelectedCli,
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
@@ -1082,6 +1176,35 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...state.appSettings.cliRuntimes[cli],
             ...update,
           }
+        }),
+
+      setMcpSyncEnabled: (enabled) =>
+        set((state) => {
+          state.appSettings.mcp = normalizeMcpSettings({
+            ...state.appSettings.mcp,
+            syncEnabled: enabled,
+          })
+        }),
+
+      upsertMcpServer: (server) =>
+        set((state) => {
+          const normalized = normalizeMcpServer(server)
+          if (!normalized) return
+          const current = normalizeMcpSettings(state.appSettings.mcp)
+          state.appSettings.mcp = {
+            ...current,
+            servers: {
+              ...current.servers,
+              [normalized.id]: normalized,
+            },
+          }
+        }),
+
+      removeMcpServer: (serverId) =>
+        set((state) => {
+          const current = normalizeMcpSettings(state.appSettings.mcp)
+          delete current.servers[normalizeMcpId(serverId)]
+          state.appSettings.mcp = current
         }),
 
       setLastSelectedCli: (cli) =>
@@ -1891,7 +2014,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 41,
+      version: 42,
       // Migrate older persisted state that lacks editorState / folderPath / sprintEngineState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Partial<WorkspaceMigrationState> | undefined
@@ -2272,6 +2395,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           })
         }
         if (version < 41) {
+          const current = migrationState
+          current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
+        }
+        if (version < 42) {
           const current = migrationState
           current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
         }

@@ -571,6 +571,42 @@ export type CliRuntimeSettings = {
   useWsl: boolean
 }
 
+export type McpClientTarget = AgentCli
+export type McpTransport = 'stdio' | 'http' | 'sse'
+export type McpScope = 'workspace' | 'user'
+export type McpServerSource = 'bundled' | 'custom'
+export type McpRiskLevel = 'low' | 'network' | 'local-command' | 'secrets'
+
+export type McpServerConfig = {
+  id: string
+  name: string
+  description?: string
+  transport: McpTransport
+  command?: string
+  args?: string[]
+  url?: string
+  env?: Record<string, string>
+  envVarNames?: string[]
+  headers?: Record<string, string>
+  enabled: boolean
+  required?: boolean
+  clients: McpClientTarget[]
+  scope: McpScope
+  source: McpServerSource
+  riskLevel: McpRiskLevel
+}
+
+export type McpSettings = {
+  syncEnabled: boolean
+  servers: Record<string, McpServerConfig>
+}
+
+export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'source'> & {
+  defaultClients?: McpClientTarget[]
+  recommendedScope?: McpScope
+  setupNotes?: string
+}
+
 export type AgentExecution = {
   mode: AgentExecutionMode
   worktreeId: string | null
@@ -659,6 +695,7 @@ export type LearningSettings = {
 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
+  mcp: McpSettings
   lastSelectedCli: AgentCli
   lastSelectedSpecialist: SpecialistActionId
   lastSelectedMultiloopRole: MultiloopRole

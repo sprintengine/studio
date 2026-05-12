@@ -1,0 +1,57 @@
+{
+  "servers": [
+    {
+      "id": "context7",
+      "name": "Context7",
+      "description": "Developer documentation lookup for libraries and frameworks.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "network",
+      "envVarNames": [],
+      "setupNotes": "Runs a third-party package through npx and may need network access."
+    },
+    {
+      "id": "openai-docs",
+      "name": "OpenAI Docs",
+      "description": "Official OpenAI documentation lookup for API, Codex, and ChatGPT integration work.",
+      "transport": "http",
+      "url": "https://mcp.openai.com/mcp",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "network",
+      "envVarNames": [],
+      "setupNotes": "Uses a remote HTTP MCP endpoint."
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "description": "Production error and trace investigation through Sentry.",
+      "transport": "http",
+      "url": "https://mcp.sentry.dev/mcp",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "network",
+      "envVarNames": [],
+      "setupNotes": "Requires Sentry authentication in the target client."
+    },
+    {
+      "id": "figma",
+      "name": "Figma",
+      "description": "Design context from Figma files when connected to a Figma MCP endpoint.",
+      "transport": "http",
+      "url": "https://mcp.figma.com/mcp",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "envVarNames": ["FIGMA_OAUTH_TOKEN"],
+      "setupNotes": "Set FIGMA_OAUTH_TOKEN or authenticate through the target client before use."
+    }
+  ]
+}

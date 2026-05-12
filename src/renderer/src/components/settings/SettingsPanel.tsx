@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentCli } from '../../types/workspace'
+import type { AgentCli, McpCatalogServer, McpServerConfig } from '../../types/workspace'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import LearnCenter from '../learn/LearnCenter'
@@ -27,6 +27,7 @@ type SettingsTabId =
   | 'updates'
   | 'github'
   | 'agents'
+  | 'mcps'
   | 'file-search'
   | 'knowledge-graph'
   | 'learn'
@@ -37,6 +38,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'updates', label: 'Updates', description: 'Version and release channel' },
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
+  { id: 'mcps', label: 'MCPs', description: 'Agent tool integrations' },
   { id: 'file-search', label: 'File Search', description: 'Index exclude patterns' },
   { id: 'knowledge-graph', label: 'Knowledge Graph', description: 'Project knowledge' },
   { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
@@ -49,12 +51,48 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     value === 'updates'
     || value === 'github'
     || value === 'agents'
+    || value === 'mcps'
     || value === 'file-search'
     || value === 'knowledge-graph'
     || value === 'learn'
     || value === 'mobile'
     || value === 'telemetry'
   )
+}
+
+function splitCommandArgs(value: string): string[] {
+  return value
+    .split(/\s+/u)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function parseEnvNames(value: string): string[] {
+  return value
+    .split(/\r?\n|,/u)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig {
+  return {
+    id: server.id,
+    name: server.name,
+    description: server.description,
+    transport: server.transport,
+    command: server.command,
+    args: server.args ?? [],
+    url: server.url,
+    env: server.env,
+    envVarNames: server.envVarNames ?? [],
+    headers: server.headers,
+    enabled: true,
+    required: false,
+    clients: server.defaultClients?.length ? server.defaultClients : server.clients,
+    scope: server.recommendedScope ?? 'workspace',
+    source: 'bundled',
+    riskLevel: server.riskLevel,
+  }
 }
 
 function parseSearchExcludeText(value: string): string[] {
@@ -115,10 +153,14 @@ export default function SettingsPanel({
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
   )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
+  const setMcpSyncEnabled = useWorkspaceStore((s) => s.setMcpSyncEnabled)
+  const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
+  const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
   const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
@@ -145,6 +187,16 @@ export default function SettingsPanel({
   const [builtinSkillStatuses, setBuiltinSkillStatuses] = useState<Record<string, BuiltinSkillStatus>>({})
   const [builtinSkillPendingId, setBuiltinSkillPendingId] = useState<string | null>(null)
   const [builtinSkillMessage, setBuiltinSkillMessage] = useState<string | null>(null)
+  const [mcpCatalog, setMcpCatalog] = useState<McpCatalogServer[]>([])
+  const [mcpMessage, setMcpMessage] = useState<string | null>(null)
+  const [mcpPending, setMcpPending] = useState(false)
+  const [customMcpId, setCustomMcpId] = useState('')
+  const [customMcpName, setCustomMcpName] = useState('')
+  const [customMcpCommand, setCustomMcpCommand] = useState('')
+  const [customMcpArgs, setCustomMcpArgs] = useState('')
+  const [customMcpUrl, setCustomMcpUrl] = useState('')
+  const [customMcpEnv, setCustomMcpEnv] = useState('')
+  const [customMcpTransport, setCustomMcpTransport] = useState<'stdio' | 'http'>('stdio')
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>(
     isSettingsTabId(initialTab) ? initialTab : 'updates'
   )
@@ -159,6 +211,7 @@ export default function SettingsPanel({
     updates: null,
     github: null,
     agents: null,
+    mcps: null,
     'file-search': null,
     'knowledge-graph': null,
     learn: null,
@@ -321,6 +374,99 @@ export default function SettingsPanel({
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.mcpListCatalog().then((result) => {
+      if (cancelled) return
+      if (result.ok) {
+        setMcpCatalog(result.servers)
+      } else {
+        setMcpMessage(result.message)
+      }
+    }).catch((error) => {
+      if (!cancelled) setMcpMessage(error instanceof Error ? error.message : 'Unable to load MCP catalog.')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const syncMcps = useCallback(async () => {
+    if (!activeProjectRoot) {
+      setMcpMessage('Open a workspace folder before syncing MCPs.')
+      return
+    }
+    setMcpPending(true)
+    setMcpMessage(null)
+    try {
+      const result = await window.api.mcpSync({
+        workspaceRoot: activeProjectRoot,
+        settings: mcpSettings,
+      })
+      if (result.ok) {
+        const targetCount = result.targets.length
+        const issueText = result.issues.length ? ` ${result.issues.map((issue) => issue.message).join(' ')}` : ''
+        setMcpMessage(targetCount
+          ? `Synced ${targetCount} MCP target${targetCount === 1 ? '' : 's'}.${issueText}`
+          : `No enabled MCP targets to sync.${issueText}`)
+      } else {
+        setMcpMessage(result.message)
+      }
+    } catch (error) {
+      setMcpMessage(error instanceof Error ? error.message : 'MCP sync failed.')
+    } finally {
+      setMcpPending(false)
+    }
+  }, [activeProjectRoot, mcpSettings])
+
+  const addCustomMcp = useCallback(() => {
+    const id = customMcpId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+    const name = customMcpName.trim() || id
+    if (!id || !name) {
+      setMcpMessage('Custom MCP needs an id and name.')
+      return
+    }
+    if (customMcpTransport === 'stdio' && !customMcpCommand.trim()) {
+      setMcpMessage('Stdio MCP needs a command.')
+      return
+    }
+    if (customMcpTransport === 'http' && !customMcpUrl.trim()) {
+      setMcpMessage('HTTP MCP needs a URL.')
+      return
+    }
+    upsertMcpServer({
+      id,
+      name,
+      transport: customMcpTransport,
+      command: customMcpTransport === 'stdio' ? customMcpCommand.trim() : undefined,
+      args: splitCommandArgs(customMcpArgs),
+      url: customMcpTransport === 'http' ? customMcpUrl.trim() : undefined,
+      envVarNames: parseEnvNames(customMcpEnv),
+      enabled: true,
+      required: false,
+      clients: ['codex', 'claude'],
+      scope: 'workspace',
+      source: 'custom',
+      riskLevel: customMcpTransport === 'stdio' ? 'local-command' : 'network',
+    })
+    setCustomMcpId('')
+    setCustomMcpName('')
+    setCustomMcpCommand('')
+    setCustomMcpArgs('')
+    setCustomMcpUrl('')
+    setCustomMcpEnv('')
+    setMcpMessage('Custom MCP added. Sync applies to new agent terminals.')
+  }, [
+    customMcpArgs,
+    customMcpCommand,
+    customMcpEnv,
+    customMcpId,
+    customMcpName,
+    customMcpTransport,
+    customMcpUrl,
+    upsertMcpServer,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -699,6 +845,136 @@ export default function SettingsPanel({
             <span className="font-mono text-[#d7d7dc]">claude</span>{isWindows ? ' through WSL' : ''}.
             Use a full executable path if your CLI is not on PATH.
           </p>
+        </div>
+        ) : null}
+
+        {activeSettingsTab === 'mcps' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-mcps"
+          aria-labelledby="settings-tab-mcps"
+          className="space-y-5"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SettingToggle
+              label="Sync MCPs for new agent terminals"
+              description="Multicode writes enabled MCPs to Codex and Claude workspace config before launching a new agent terminal."
+              enabled={mcpSettings.syncEnabled}
+              onChange={setMcpSyncEnabled}
+            />
+            <button
+              type="button"
+              onClick={() => void syncMcps()}
+              disabled={mcpPending || !activeProjectRoot}
+              className="h-9 rounded-md bg-[#5c7cff] px-3 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
+            >
+              {mcpPending ? 'Syncing' : 'Sync now'}
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+              Enabled MCPs
+            </div>
+            {Object.values(mcpSettings.servers).length === 0 ? (
+              <div className="border-l-2 border-[rgba(255,255,255,0.10)] pl-3 text-[12px] leading-5 text-[#9a9aa2]">
+                No MCPs enabled yet. Add one from the bundled catalog or create a custom server.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {Object.values(mcpSettings.servers).map((server) => (
+                  <div key={server.id} className="rounded-md border border-[#24252b] bg-[#0d0e11] p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-[#ececee]">{server.name}</div>
+                        <div className="mt-1 font-mono text-[11px] text-[#7f8088]">
+                          {server.id} · {server.transport} · {server.clients.join(', ')}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => upsertMcpServer({ ...server, enabled: !server.enabled })}
+                          className={`h-8 rounded-md border px-2.5 text-xs font-semibold ${server.enabled ? 'border-[#4d7c5f] text-[#9fe6b5]' : 'border-[#3a3b42] text-[#9a9aa2]'}`}
+                        >
+                          {server.enabled ? 'Enabled' : 'Disabled'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeMcpServer(server.id)}
+                          className="h-8 rounded-md border border-[#3a3b42] px-2.5 text-xs font-semibold text-[#d7d7dc] hover:border-[#5a5b63]"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+              Bundled catalog
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {mcpCatalog.map((server) => {
+                const installed = Boolean(mcpSettings.servers[server.id])
+                return (
+                  <div key={server.id} className="rounded-md border border-[#24252b] bg-[#0d0e11] p-3">
+                    <div className="text-sm font-semibold text-[#ececee]">{server.name}</div>
+                    <div className="mt-1 min-h-[40px] text-[12px] leading-5 text-[#9a9aa2]">{server.description}</div>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <span className="font-mono text-[11px] text-[#7f8088]">{server.transport}</span>
+                      <button
+                        type="button"
+                        onClick={() => upsertMcpServer(mcpServerFromCatalog(server))}
+                        disabled={installed}
+                        className="h-8 rounded-md border border-[#3a3b42] px-2.5 text-xs font-semibold text-[#d7d7dc] hover:border-[#5a5b63] disabled:cursor-default disabled:opacity-45"
+                      >
+                        {installed ? 'Added' : 'Add'}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t border-[#24252b] pt-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+              Custom MCP
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input value={customMcpId} onChange={(event) => setCustomMcpId(event.target.value)} placeholder="server-id" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
+              <input value={customMcpName} onChange={(event) => setCustomMcpName(event.target.value)} placeholder="Display name" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
+              <select value={customMcpTransport} onChange={(event) => setCustomMcpTransport(event.target.value === 'http' ? 'http' : 'stdio')} className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none focus:border-[#5c7cff]/70">
+                <option value="stdio">stdio</option>
+                <option value="http">http</option>
+              </select>
+              {customMcpTransport === 'stdio' ? (
+                <input value={customMcpCommand} onChange={(event) => setCustomMcpCommand(event.target.value)} placeholder="Command, for example npx" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
+              ) : (
+                <input value={customMcpUrl} onChange={(event) => setCustomMcpUrl(event.target.value)} placeholder="https://example.com/mcp" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
+              )}
+              <input value={customMcpArgs} onChange={(event) => setCustomMcpArgs(event.target.value)} placeholder="Args, space separated" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
+              <input value={customMcpEnv} onChange={(event) => setCustomMcpEnv(event.target.value)} placeholder="Required env vars, comma separated" className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70" />
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={addCustomMcp}
+                className="h-9 rounded-md border border-[#3a3b42] px-3 text-sm font-semibold text-[#d7d7dc] hover:border-[#5a5b63]"
+              >
+                Add custom MCP
+              </button>
+            </div>
+          </div>
+
+          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${mcpMessage ? 'border-[#5c7cff]/70 text-[#b8ccff]' : 'border-[rgba(255,255,255,0.10)] text-[#9a9aa2]'}`}>
+            {mcpMessage || 'Workspace-scoped sync writes Codex config to .codex/config.toml and Claude config to .mcp.json. Existing terminals are unchanged.'}
+          </div>
         </div>
         ) : null}
 

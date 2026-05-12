@@ -168,6 +168,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     return worktreeId ? workspace?.worktreeState.entries[worktreeId]?.path : undefined
   })
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const cli = agent?.cli ?? 'codex'
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const startupPrompt = useWorkspaceStore((s) => {
@@ -448,6 +449,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           cliPermissionPreset,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
+          mcpSettings,
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
@@ -555,6 +557,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     sprintEngineRuntimeAgent?.role,
     memoryConfig?.projectRoot,
     memoryConfig?.relativeRoot,
+    mcpSettings,
     storedExecutionWorktreePath,
     updateAgent,
   ])

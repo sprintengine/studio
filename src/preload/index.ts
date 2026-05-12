@@ -6,6 +6,7 @@ import { builtinSkillsApi } from './api/builtinSkills'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { memoryActivityApi } from './api/memoryActivity'
+import { mcpApi } from './api/mcp'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { multiloopApi } from './api/multiloop'
 import { soulsApi } from './api/souls'
@@ -27,6 +28,7 @@ const api = {
   ...soulsApi,
   ...gitApi,
   ...memoryActivityApi,
+  ...mcpApi,
   ...sprintEngineApi,
   ...switchboardApi,
   ...multiloopApi,

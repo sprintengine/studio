@@ -5,6 +5,7 @@ import type {
   AgentExecutionMode,
   AgentSessionIdentity,
   AgentSessionMetadata,
+  McpSettings,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
@@ -40,6 +41,11 @@ type TerminalRuntimeOptions = {
     executionId: string
     exitCode: number
   }): void | Promise<void>
+  syncMcpConfig?(input: {
+    workspaceRoot: string
+    settings: McpSettings
+    clients: AgentCli[]
+  }): Promise<{ ok: true } | { ok: false; message: string }>
 }
 
 type TerminalIpcHandlers = {
@@ -74,9 +80,11 @@ let terminalDiagnostics = createTerminalDiagnostics({
   logMainPerfEvent: () => {},
 })
 let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
+let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 export function createTerminalRuntime(options: TerminalRuntimeOptions): TerminalRuntime {
   requireAuthenticatedUser = options.requireAuthenticatedUser
   onAgentSessionExit = options.onAgentSessionExit
+  syncMcpConfig = options.syncMcpConfig
   terminalDiagnostics = createTerminalDiagnostics({
     enabled: options.diagnosticsEnabled,
     logMainPerfEvent: options.logMainPerfEvent,
@@ -577,6 +585,7 @@ async function spawnTerminalFromIpc(
     memoryRelativeRoot,
     agentSession,
     visible = true,
+    mcpSettings,
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
@@ -626,6 +635,24 @@ async function spawnTerminalFromIpc(
       }
       if ((kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
         disposeOtherAgentSessions(sessionId, workspaceId, agentId, sprintEngineStatePath)
+      }
+
+      if (!shellOnly && mcpSettings?.syncEnabled && syncMcpConfig) {
+        const syncResult = await syncMcpConfig({
+          workspaceRoot: workingDirectory,
+          settings: mcpSettings,
+          clients: [cli],
+        })
+        if (!syncResult.ok) {
+          sendTerminalEvent(sender, `terminal:error:${sessionId}`, syncResult.message)
+          sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
+          return {
+            ok: false,
+            sessionId,
+            message: syncResult.message,
+            exitCode: 1,
+          } satisfies TerminalSpawnResult
+        }
       }
 
       const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = shellOnly

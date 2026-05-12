@@ -4,6 +4,7 @@ import type {
   AgentExecutionMode,
   AgentSessionMetadata,
   CliRuntimeSettings,
+  McpSettings,
   SprintEngineCliPermissionPreset,
   TerminalKind,
   TerminalSessionSnapshot,
@@ -33,6 +34,7 @@ export type TerminalSpawnPayload = {
   memoryRelativeRoot?: string
   agentSession?: AgentSessionMetadata
   visible?: boolean
+  mcpSettings?: McpSettings
 }
 
 type TerminalIpcDependencies = {

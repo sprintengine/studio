@@ -233,6 +233,75 @@ export type CliRuntimeSettings = {
   useWsl: boolean
 }
 
+export type McpClientTarget = AgentCli
+export type McpTransport = 'stdio' | 'http' | 'sse'
+export type McpScope = 'workspace' | 'user'
+export type McpServerSource = 'bundled' | 'custom'
+export type McpRiskLevel = 'low' | 'network' | 'local-command' | 'secrets'
+
+export type McpServerConfig = {
+  id: string
+  name: string
+  description?: string
+  transport: McpTransport
+  command?: string
+  args?: string[]
+  url?: string
+  env?: Record<string, string>
+  envVarNames?: string[]
+  headers?: Record<string, string>
+  enabled: boolean
+  required?: boolean
+  clients: McpClientTarget[]
+  scope: McpScope
+  source: McpServerSource
+  riskLevel: McpRiskLevel
+}
+
+export type McpSettings = {
+  syncEnabled: boolean
+  servers: Record<string, McpServerConfig>
+}
+
+export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'source'> & {
+  defaultClients?: McpClientTarget[]
+  recommendedScope?: McpScope
+  setupNotes?: string
+}
+
+export type McpCatalogResult =
+  | { ok: true; servers: McpCatalogServer[] }
+  | { ok: false; message: string }
+
+export type McpValidationIssue = {
+  level: 'error' | 'warning'
+  serverId?: string
+  client?: McpClientTarget
+  message: string
+}
+
+export type McpSyncTarget = {
+  client: McpClientTarget
+  path: string
+  serverIds: string[]
+}
+
+export type McpSyncPreview =
+  | { ok: true; targets: McpSyncTarget[]; issues: McpValidationIssue[] }
+  | { ok: false; message: string; issues?: McpValidationIssue[] }
+
+export type McpSyncResult =
+  | { ok: true; targets: McpSyncTarget[]; issues: McpValidationIssue[] }
+  | { ok: false; message: string; issues?: McpValidationIssue[] }
+
+export type McpSyncInput = {
+  workspaceRoot: string
+  settings: McpSettings
+  clients?: McpClientTarget[]
+  requiredOnly?: boolean
+  write?: boolean
+}
+
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
 export type AgentSessionSystem = 'switchboard' | 'watchtower' | 'sprintengine' | 'manual'
@@ -265,6 +334,7 @@ export type TerminalSpawnMetadata = {
   memoryRelativeRoot?: string
   agentSession?: AgentSessionMetadata
   visible?: boolean
+  mcpSettings?: McpSettings
 }
 
 export type TerminalSessionSnapshot = {
@@ -953,6 +1023,9 @@ export type ElectronApi = {
   getGitHubTokenStatus: () => Promise<GitHubTokenStatus>
   setGitHubToken: (token: string) => Promise<GitHubTokenStatus>
   clearGitHubToken: () => Promise<GitHubTokenStatus>
+  mcpListCatalog: () => Promise<McpCatalogResult>
+  mcpPreviewSync: (input: McpSyncInput) => Promise<McpSyncPreview>
+  mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
   openSprintEngineArtifact: (statePath: string, artifactPath: string) => Promise<SprintEngineArtifactCommandResult>
   approveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
   autoApproveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>

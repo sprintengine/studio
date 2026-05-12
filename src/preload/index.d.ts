@@ -51,6 +51,17 @@ import type {
   MemoryPreviewResult as SharedMemoryPreviewResult,
   MemoryRootStatus as SharedMemoryRootStatus,
   MemoryUnresolvedLink as SharedMemoryUnresolvedLink,
+  McpCatalogResult as SharedMcpCatalogResult,
+  McpCatalogServer as SharedMcpCatalogServer,
+  McpClientTarget as SharedMcpClientTarget,
+  McpScope as SharedMcpScope,
+  McpServerConfig as SharedMcpServerConfig,
+  McpSettings as SharedMcpSettings,
+  McpSyncInput as SharedMcpSyncInput,
+  McpSyncPreview as SharedMcpSyncPreview,
+  McpSyncResult as SharedMcpSyncResult,
+  McpTransport as SharedMcpTransport,
+  McpValidationIssue as SharedMcpValidationIssue,
   MobileBridgeDiagnosticEntry as SharedMobileBridgeDiagnosticEntry,
   MobileBridgePairingChallenge as SharedMobileBridgePairingChallenge,
   MobileBridgePresence as SharedMobileBridgePresence,
@@ -131,6 +142,17 @@ declare global {
   type MemoryRootStatus = SharedMemoryRootStatus
   type MemoryGraphIndexResult = SharedMemoryGraphIndexResult
   type MemoryPreviewResult = SharedMemoryPreviewResult
+  type McpClientTarget = SharedMcpClientTarget
+  type McpTransport = SharedMcpTransport
+  type McpScope = SharedMcpScope
+  type McpServerConfig = SharedMcpServerConfig
+  type McpSettings = SharedMcpSettings
+  type McpCatalogServer = SharedMcpCatalogServer
+  type McpCatalogResult = SharedMcpCatalogResult
+  type McpSyncInput = SharedMcpSyncInput
+  type McpSyncPreview = SharedMcpSyncPreview
+  type McpSyncResult = SharedMcpSyncResult
+  type McpValidationIssue = SharedMcpValidationIssue
   type BuiltinSkill = SharedBuiltinSkill
   type BuiltinSkillStatus = SharedBuiltinSkillStatus
   type BuiltinSkillInstallResult = SharedBuiltinSkillInstallResult

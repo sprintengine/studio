@@ -9,6 +9,7 @@ import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
+import { registerMcpIpc } from './ipc/mcp-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMobileBridgeIpc } from './ipc/mobile-bridge-ipc'
 import { registerMultiloopIpc } from './ipc/multiloop-ipc'
@@ -33,6 +34,7 @@ import { GitHubTokenStore } from './github-token-store'
 import { MulticodeAuthBridge, parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createMainDiagnostics } from './main-diagnostics'
+import { createMcpConfigService } from './mcp-config-service'
 import { createTerminalRuntime } from './terminal-runtime'
 import { MulticodeUpdateService } from './update-service'
 import { createBuiltinSkillManager } from './builtin-skills'
@@ -91,11 +93,16 @@ if (!cliInstallResult.ok) {
 }
 
 const multicodeAuth = new MulticodeAuthBridge()
+const mcpConfigService = createMcpConfigService()
 const terminalRuntime = createTerminalRuntime({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
   logMainPerfEvent,
   onAgentSessionExit: (input) => input.workspaceRoot ? recordSwitchboardSessionExit(input) : undefined,
+  syncMcpConfig: async (input) => {
+    const result = mcpConfigService.sync(input)
+    return result.ok ? { ok: true } : { ok: false, message: result.message }
+  },
 })
 const mobileSnapshotService = new MobileSprintEngineSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
@@ -169,6 +176,7 @@ registerWindowIpc(ipcMain)
 registerAuthIpc(ipcMain, multicodeAuth)
 
 registerBuiltinSkillsIpc(ipcMain, builtinSkillManager)
+registerMcpIpc(ipcMain, mcpConfigService)
 
 registerMobileBridgeIpc(ipcMain, {
   bridge: mobileBridge,

@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   AgentCli,
   CliRuntimeSettings,
+  McpSettings,
   SprintEngineArtifact,
   SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
@@ -929,6 +930,7 @@ async function spawnAutoRunCandidate(
   sprintEngineState: SprintEngineState,
   nextRun: AutoRunCandidate,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>,
   options: { trackPendingSpawn?: boolean } = {}
 ): Promise<'started' | 'failed' | 'skipped'> {
@@ -1081,6 +1083,7 @@ async function spawnAutoRunCandidate(
       cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
+      mcpSettings,
       visible: false,
       agentSession: {
         executionId: sessionId,
@@ -1172,6 +1175,7 @@ async function startMissingRosterAgents(
   sprintEngineState: SprintEngineState,
   runningAgentIds: Set<string>,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'none'> {
   if (!getSprintEngineAutoState(workspace).enabled || !workspace.sprintEngineContext) return 'none'
@@ -1223,6 +1227,7 @@ async function startMissingRosterAgents(
         taskId: `roster-${agent.id}`,
       },
       cliRuntimes,
+      mcpSettings,
       inFlightSpawns,
       { trackPendingSpawn: false }
     )
@@ -1239,6 +1244,7 @@ async function startMissingRosterAgents(
 async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>,
   sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
@@ -1361,6 +1367,7 @@ async function superviseWorkspace(
     sprintEngineState,
     runningAgentIds,
     cliRuntimes,
+    mcpSettings,
     inFlightSpawns
   )
   if (rosterStartResult === 'failed') return
@@ -1466,6 +1473,7 @@ async function superviseWorkspace(
       sprintEngineState,
       nextRun,
       cliRuntimes,
+      mcpSettings,
       inFlightSpawns
     )
     if (spawnResult === 'failed') return
@@ -1578,6 +1586,7 @@ export default function SprintEngineAutoRunSupervisor() {
           await superviseWorkspace(
             workspace,
             appSettings.cliRuntimes,
+            appSettings.mcp,
             inFlightSpawns,
             sentArtifactApprovalMessages,
             autoApprovalDiagnostics,

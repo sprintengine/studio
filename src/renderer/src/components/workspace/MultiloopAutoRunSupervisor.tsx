@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   AgentCli,
   CliRuntimeSettings,
+  McpSettings,
   MultiloopAutoPendingSpawn,
   MultiloopState,
   SprintEngineState,
@@ -225,6 +226,7 @@ async function spawnMultiloopAutoRunCandidate(
   linkedSprintEngineState: SprintEngineState | null,
   candidate: MultiloopAutoRunCandidate,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'skipped'> {
   const spawnKey = `${workspace.id}:${candidate.agentId}`
@@ -392,6 +394,7 @@ async function spawnMultiloopAutoRunCandidate(
         cliPermissionPreset: workspace.multiloopAutoState.cliPermissionPreset,
         memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
         memoryRelativeRoot: memoryRelativeRoot ?? undefined,
+        mcpSettings,
       }
     ).catch((error): TerminalSpawnResult => ({
       ok: false,
@@ -446,6 +449,7 @@ async function spawnMultiloopAutoRunCandidate(
 async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
@@ -496,7 +500,7 @@ async function superviseWorkspace(
   for (const candidate of selection.candidates) {
     const latest = useWorkspaceStore.getState().workspaces.find((item) => item.id === workspace.id)
     if (!latest?.multiloopAutoState.enabled) return
-    const result = await spawnMultiloopAutoRunCandidate(latest, multiloopState, linkedSprintEngineState, candidate, cliRuntimes, inFlightSpawns)
+    const result = await spawnMultiloopAutoRunCandidate(latest, multiloopState, linkedSprintEngineState, candidate, cliRuntimes, mcpSettings, inFlightSpawns)
     if (result === 'started' && candidate.kind === 'coordinator') {
       const activeMilestoneId = getActiveMultiloopMilestone(multiloopState)?.id ?? null
       if (activeMilestoneId) {
@@ -538,7 +542,7 @@ export default function MultiloopAutoRunSupervisor() {
         const startupSpawnDelayElapsed = Date.now() - startedAt.current >= AUTO_RUN_STARTUP_SPAWN_DELAY_MS
         for (const workspace of autoWorkspaces) {
           if (disposed || !startupSpawnDelayElapsed) return
-          await superviseWorkspace(workspace, appSettings.cliRuntimes, inFlightSpawns, lastContentByWorkspace)
+          await superviseWorkspace(workspace, appSettings.cliRuntimes, appSettings.mcp, inFlightSpawns, lastContentByWorkspace)
         }
       } finally {
         tickInProgress.current = false
