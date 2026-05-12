@@ -41,7 +41,7 @@ TASK_STATUSES = (
 FOLDER_STATUSES = ("inbox", *TASK_STATUSES)
 CLAIMABLE_STATUSES = ("ready", "testing", "review")
 PUBLISH_TARGETS = ("testing", "review", "done")
-RUNNER_PROVIDERS = ("local-process", "codex-app-server")
+RUNNER_PROVIDERS = ("local-process", "electron-session", "codex-app-server")
 RUNNER_EVENTS = {
     "start",
     "pause",
@@ -838,7 +838,7 @@ def reap_process_exit(pid: Any) -> int | None:
 
 
 def active_execution_count(state: dict[str, Any]) -> int:
-    return len([execution for execution in state.get("activeExecutions", []) if execution.get("status") == "active"])
+    return len([execution for execution in state.get("activeExecutions", []) if execution.get("status") in {"active", "launching"}])
 
 
 def reconcile_execution_worktree(workspace: Path, execution: dict[str, Any]) -> dict[str, Any]:
@@ -891,6 +891,11 @@ def reconcile_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, 
             append_runner_event(workspace, "task_published", data={"executionId": execution.get("executionId"), "taskId": task_id})
             continue
         provider_ref = execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}
+        if execution.get("provider") == "electron-session" and execution.get("status") in {"launching", "active"}:
+            active = {**execution, "lastSeenAt": now_iso()}
+            update_execution_metadata(workspace, active, {"lastSeenAt": active["lastSeenAt"]})
+            reconciled.append(active)
+            continue
         exit_code = read_recorded_exit_code(workspace, execution)
         if exit_code is None:
             exit_code = reap_process_exit(provider_ref.get("pid"))
@@ -1061,6 +1066,124 @@ def start_local_process_execution(
         )
         raise
     return execution
+
+
+def prepare_electron_session_execution(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
+    state = reconcile_runner_state(workspace, state)
+    if not state["enabled"] or state["paused"]:
+        return {"ok": True, "prepared": False, "message": "Runner is paused or disabled.", "runner": runner_public_payload(state)}
+    if active_execution_count(state) >= state["maxConcurrency"]:
+        return {"ok": True, "prepared": False, "message": "Runner concurrency is full.", "runner": runner_public_payload(state)}
+
+    command = runner_command_for(state)
+    if not command:
+        message = f"Runner CLI executable was not found: {state.get('cli', 'codex')}"
+        state["lastError"] = message
+        write_runner_state(workspace, state)
+        return {"ok": False, "message": message, "runner": runner_public_payload(state)}
+
+    for queue in state["queues"]:
+        if not has_claim_candidate(workspace, queue):
+            continue
+        if queue == "ready":
+            worktree_errors = validate_worktree_capability(workspace)
+            if worktree_errors:
+                message = " ".join(worktree_errors)
+                state["lastError"] = message
+                write_runner_state(workspace, state)
+                return {"ok": False, "message": message, "runner": runner_public_payload(state)}
+
+        role = role_for_queue(queue)
+        located = claim_task(workspace, from_status=queue, agent=f"switchboard-{role}")
+        if located is None:
+            continue
+
+        execution_id = f"exec_{uuid.uuid4().hex}"
+        worktree: dict[str, str] | None = None
+        try:
+            worktree = create_execution_worktree(workspace, located.task["id"], execution_id) if queue == "ready" else None
+            run_workspace = Path(worktree["worktreePath"]) if worktree else workspace.expanduser().resolve()
+            prompt = build_runner_prompt(
+                workspace=workspace,
+                task_id=located.task["id"],
+                queue=queue,
+                execution_id=execution_id,
+                run_workspace=run_workspace,
+            )
+            started_at = now_iso()
+            execution_dir(workspace, execution_id).mkdir(parents=True, exist_ok=False)
+            prompt_path = execution_dir(workspace, execution_id) / "prompt.txt"
+            prompt_path.write_text(prompt + "\n", encoding="utf-8")
+            provider_ref = {
+                "cwd": str(run_workspace),
+                "sessionId": None,
+                "attachable": True,
+                **(worktree or {}),
+            }
+            execution = {
+                "executionId": execution_id,
+                "kind": "switchboard_task",
+                "role": role,
+                "provider": "electron-session",
+                "providerRef": provider_ref,
+                "startedAt": started_at,
+                "lastSeenAt": started_at,
+                "status": "launching",
+                "taskId": located.task["id"],
+                "claimedFrom": queue,
+                "claimedStatus": claimed_status_for_queue(queue),
+                **(worktree or {}),
+            }
+            atomic_write_json(
+                execution_metadata_path(workspace, execution_id),
+                {
+                    "schemaVersion": 1,
+                    **execution,
+                    "command": command,
+                    "cwd": str(run_workspace),
+                    "prompt": prompt,
+                    "promptFile": relative_to_switchboard_root(workspace, prompt_path),
+                    "exitCode": None,
+                    "completedAt": None,
+                    "error": None,
+                },
+            )
+            link_runner_execution_to_task(workspace, located.task["id"], execution)
+        except Exception:
+            if worktree:
+                try:
+                    remove_worktree_path(workspace, Path(worktree["worktreePath"]), force=True)
+                except SwitchboardError:
+                    pass
+            raise
+
+        state["activeExecutions"].append(execution)
+        state["lastError"] = None
+        state = write_runner_state(workspace, state)
+        append_runner_event(
+            workspace,
+            "launch",
+            data={"taskId": located.task["id"], "executionId": execution_id, "provider": "electron-session"},
+        )
+        return {
+            "ok": True,
+            "prepared": True,
+            "execution": execution,
+            "descriptor": {
+                "executionId": execution_id,
+                "system": "switchboard",
+                "workId": located.task["id"],
+                "role": role,
+                "displayName": located.task.get("title") or f"Switchboard {role}",
+                "command": command,
+                "cwd": str(run_workspace),
+                "prompt": prompt,
+                "cli": state.get("cli", "codex"),
+            },
+            "runner": runner_public_payload(state),
+        }
+
+    return {"ok": True, "prepared": False, "message": "No eligible task.", "runner": runner_public_payload(state)}
 
 
 def start_local_process_agent_execution(

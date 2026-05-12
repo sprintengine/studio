@@ -29,6 +29,7 @@ from .store import (
     init_workspace,
     import_inbox_task,
     move_task,
+    prepare_electron_session_execution,
     promote_task,
     publish_task,
     read_all,
@@ -396,6 +397,15 @@ def cmd_runner_tick(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runner_prepare_session(args: argparse.Namespace) -> int:
+    workspace = workspace_path(args)
+    from .store import locked_runner, read_runner_state
+
+    with locked_runner(workspace):
+        emit(prepare_electron_session_execution(workspace, read_runner_state(workspace)))
+    return 0
+
+
 def cmd_runner_run(args: argparse.Namespace) -> int:
     emit(runner_run(workspace_path(args), once=args.once))
     return 0
@@ -618,6 +628,10 @@ Watchtower agents should create findings directly in the inbox:
     runner_tick_cmd = runner_subcommands.add_parser("tick", help="Run one idempotent runner tick.")
     runner_tick_cmd.add_argument("--workspace", required=True)
     runner_tick_cmd.set_defaults(func=cmd_runner_tick)
+
+    runner_prepare_session_cmd = runner_subcommands.add_parser("prepare-session", help=argparse.SUPPRESS)
+    runner_prepare_session_cmd.add_argument("--workspace", required=True)
+    runner_prepare_session_cmd.set_defaults(func=cmd_runner_prepare_session)
 
     runner_run_cmd = runner_subcommands.add_parser("run", help="Run the local Switchboard backend.")
     runner_run_cmd.add_argument("--workspace", required=True)

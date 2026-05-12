@@ -173,6 +173,8 @@ export function providerLabel(provider: SwitchboardExecutionProviderKind): strin
   switch (provider) {
     case 'local-process':
       return 'local process'
+    case 'electron-session':
+      return 'session manager'
     case 'codex-app-server':
       return 'codex app server'
   }

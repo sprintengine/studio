@@ -749,6 +749,7 @@ function BoardSkeleton() {
 }
 
 const EXECUTION_STATUS_LABELS: Record<SwitchboardExecutionStatus, string> = {
+  launching: 'launching',
   active: 'exec',
   abandoned: 'abandoned',
   stale: 'stale',
@@ -758,6 +759,7 @@ const EXECUTION_STATUS_LABELS: Record<SwitchboardExecutionStatus, string> = {
 }
 
 const EXECUTION_STATUS_TONES: Record<SwitchboardExecutionStatus, string> = {
+  launching: 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff]',
   active: 'border-[#1f3949] bg-[#0d1922] text-[#9fd8ff]',
   abandoned: 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]',
   stale: 'border-[#3a3426] bg-[#1d1714] text-[#f2c45f]',
@@ -816,6 +818,7 @@ function AttentionStrip({
 }
 
 const ATTEMPT_DOT_TONES: Record<SwitchboardExecutionStatus, string> = {
+  launching: 'bg-[#a78bfa]',
   active: 'bg-[#9fd8ff]',
   abandoned: 'bg-[#ffb3b5]',
   stale: 'bg-[#f2c45f]',

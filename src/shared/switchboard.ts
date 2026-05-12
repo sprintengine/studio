@@ -331,9 +331,22 @@ export type SwitchboardStopExecutionInput = {
 }
 
 export type SwitchboardRunnerQueue = 'ready' | 'testing' | 'review'
-export type SwitchboardExecutionProviderKind = 'local-process' | 'codex-app-server'
-export type SwitchboardExecutionStatus = 'active' | 'missing' | 'stale' | 'abandoned' | 'completed' | 'stopped'
+export type SwitchboardExecutionProviderKind = 'local-process' | 'electron-session' | 'codex-app-server'
+export type SwitchboardExecutionStatus = 'launching' | 'active' | 'missing' | 'stale' | 'abandoned' | 'completed' | 'stopped'
 export type SwitchboardExecutionProviderRef = Record<string, string | number | boolean | null>
+
+export type SwitchboardAgentSpawnDescriptor = {
+  executionId: string
+  system: 'switchboard' | 'watchtower'
+  workId: string
+  role: string
+  displayName: string
+  command: string[]
+  cwd: string
+  env?: Record<string, string>
+  prompt?: string
+  cli?: 'codex' | 'claude'
+}
 
 export type SwitchboardRunnerStartInput = {
   workspaceRoot: string
@@ -375,6 +388,22 @@ export type SwitchboardRunnerState = {
 export type SwitchboardRunnerResult =
   | SwitchboardRunnerState
   | { ok: false; message: string }
+
+export type SwitchboardPrepareSessionResult =
+  | {
+      ok: true
+      prepared: true
+      execution: SwitchboardRunnerExecution
+      descriptor: SwitchboardAgentSpawnDescriptor
+      runner: SwitchboardRunnerState
+    }
+  | {
+      ok: true
+      prepared: false
+      message?: string
+      runner: SwitchboardRunnerState
+    }
+  | { ok: false; message: string; runner?: SwitchboardRunnerState }
 
 export type SwitchboardStopExecutionResult =
   | {
