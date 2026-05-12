@@ -1081,6 +1081,15 @@ async function spawnAutoRunCandidate(
       cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
+      agentSession: {
+        executionId: sessionId,
+        system: 'sprintengine',
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.folderPath,
+        workId: nextRun.taskId,
+        role: nextRun.role,
+        displayName: latestAgent?.name ?? nextRun.label,
+      },
     } as TerminalSpawnMetadata & {
       executionMode: 'current_workspace' | 'worktree'
     }

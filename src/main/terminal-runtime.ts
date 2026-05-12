@@ -3,6 +3,8 @@ import * as pty from 'node-pty'
 import type {
   AgentCli,
   AgentExecutionMode,
+  AgentSessionIdentity,
+  AgentSessionMetadata,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
@@ -182,6 +184,25 @@ function disposeOtherAgentSessions(
   duplicateSessionIds.forEach(disposeTerminal)
 }
 
+function materializeAgentSessionIdentity(
+  sessionId: string,
+  workspaceId: string | undefined,
+  agentSession: AgentSessionMetadata | undefined
+): AgentSessionIdentity | undefined {
+  if (!agentSession) return undefined
+
+  return {
+    sessionId: agentSession.sessionId ?? sessionId,
+    executionId: agentSession.executionId,
+    system: agentSession.system,
+    workspaceId: agentSession.workspaceId || workspaceId || '',
+    workspaceRoot: agentSession.workspaceRoot,
+    workId: agentSession.workId,
+    role: agentSession.role,
+    displayName: agentSession.displayName,
+  }
+}
+
 function attachTerminalSession(
   sessionId: string,
   terminalSession: TerminalSession,
@@ -335,6 +356,7 @@ async function spawnTerminalFromIpc(
     cliPermissionPreset = 'default',
     memoryRootPath,
     memoryRelativeRoot,
+    agentSession,
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
@@ -347,6 +369,7 @@ async function spawnTerminalFromIpc(
       existingSession.executionMode = executionMode ?? existingSession.executionMode
       existingSession.worktreeId = worktreeId ?? existingSession.worktreeId
       existingSession.worktreePath = worktreePath ?? existingSession.worktreePath
+      existingSession.agentSession = materializeAgentSessionIdentity(sessionId, workspaceId, agentSession) ?? existingSession.agentSession
       safeResizeTerminal(sessionId, cols, rows)
       const replay = materializeTerminalReplay(existingSession)
       if (replay) {
@@ -424,6 +447,7 @@ async function spawnTerminalFromIpc(
         executionMode,
         worktreeId,
         worktreePath,
+        agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
         startedAt: Date.now(),
         lastOutputAt: null,
         lastInputAt: null,

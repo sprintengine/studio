@@ -4,7 +4,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
-import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
+import type { AgentExecution, AgentExecutionMode, AgentKind } from '../../types/workspace'
+import type { AgentSessionSystem } from '../../../../shared/electron-api'
 import { buildSpecialistSoulStartupPrompt, getSpecialistAction } from '../../specialists/specialistActions'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, sprintEngineRoleLabels } from '../../utils/sprintengine'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -98,6 +99,12 @@ function appendMemoryPrompt(prompt: string | undefined, memoryContext: MemoryLau
   if (!memoryContext.promptSuffix) return prompt
   if (!prompt) return memoryContext.promptSuffix
   return `${prompt}\n\n${memoryContext.promptSuffix}`
+}
+
+function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
+  if (kind === 'sprintengine') return 'sprintengine'
+  if (kind === 'watchtower') return 'watchtower'
+  return 'manual'
 }
 
 export default function TerminalView({ workspaceId, agentId }: Props) {
@@ -417,6 +424,15 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           cliPermissionPreset,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
+          agentSession: {
+            executionId: sessionId,
+            system: agentSessionSystem(agent?.kind),
+            workspaceId,
+            workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
+            workId: agentId,
+            role: agent?.kind ?? 'manual',
+            displayName: agent?.name ?? agentId,
+          },
         } as TerminalSpawnMetadata & {
           executionMode: AgentExecutionMode
           worktreeId?: string

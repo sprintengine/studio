@@ -234,6 +234,22 @@ export type CliRuntimeSettings = {
 
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
+export type AgentSessionSystem = 'switchboard' | 'watchtower' | 'sprintengine' | 'manual'
+
+export type AgentSessionIdentity = {
+  sessionId: string
+  executionId: string
+  system: AgentSessionSystem
+  workspaceId: string
+  workspaceRoot: string
+  workId: string
+  role: string
+  displayName: string
+}
+
+export type AgentSessionMetadata = Omit<AgentSessionIdentity, 'sessionId'> & {
+  sessionId?: string
+}
 
 export type TerminalSpawnMetadata = {
   kind?: TerminalKind
@@ -246,6 +262,7 @@ export type TerminalSpawnMetadata = {
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   memoryRootPath?: string
   memoryRelativeRoot?: string
+  agentSession?: AgentSessionMetadata
 }
 
 export type TerminalSessionSnapshot = {
@@ -262,6 +279,7 @@ export type TerminalSessionSnapshot = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
+  agentSession?: AgentSessionIdentity
   startedAt: number
   lastOutputAt: number | null
   outputBufferLength: number

@@ -3,6 +3,7 @@ import type * as pty from 'node-pty'
 import type {
   AgentCli,
   AgentExecutionMode,
+  AgentSessionIdentity,
   TerminalKind,
   TerminalPathStyle,
   TerminalSessionSnapshot,
@@ -36,6 +37,7 @@ export type TerminalSession = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
+  agentSession?: AgentSessionIdentity
   startedAt: number
   lastOutputAt: number | null
   lastInputAt: number | null
@@ -101,6 +103,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     executionMode: session.executionMode,
     worktreeId: session.worktreeId,
     worktreePath: session.worktreePath,
+    agentSession: session.agentSession,
     startedAt: session.startedAt,
     lastOutputAt: session.lastOutputAt,
     outputBufferLength: session.outputLength,

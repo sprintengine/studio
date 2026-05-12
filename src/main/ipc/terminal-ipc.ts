@@ -2,6 +2,7 @@ import type { IpcMain, WebContents } from 'electron'
 import type {
   AgentCli,
   AgentExecutionMode,
+  AgentSessionMetadata,
   CliRuntimeSettings,
   SprintEngineCliPermissionPreset,
   TerminalKind,
@@ -30,6 +31,7 @@ export type TerminalSpawnPayload = {
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   memoryRootPath?: string
   memoryRelativeRoot?: string
+  agentSession?: AgentSessionMetadata
 }
 
 type TerminalIpcDependencies = {
