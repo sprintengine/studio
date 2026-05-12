@@ -251,7 +251,12 @@ export function deriveAttentionInfo(
   liveExecutionStatus: SwitchboardExecutionStatus | null
 ): SwitchboardAttentionInfo | null {
   if (!CLAIMED_LANE_STATUSES.has(record.location.folderStatus)) return null
-  const attempts = record.task.execution.attempts
+  // Defensive: tasks on disk may have been written by older multicode
+  // versions where `execution` or `execution.attempts` could be absent.
+  // Treat missing fields as an empty attempt history.
+  const attempts = Array.isArray(record.task.execution?.attempts)
+    ? record.task.execution.attempts
+    : []
   const latest = attempts.length > 0 ? attempts[attempts.length - 1] : null
   const lastAttemptAt = latest?.completedAt ?? latest?.startedAt ?? null
 

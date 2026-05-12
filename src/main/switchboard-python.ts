@@ -85,14 +85,35 @@ async function runSwitchboardCore(args: string[]): Promise<PythonCommandResult> 
 
   return new Promise((resolvePromise) => {
     const existingPythonPath = process.env['PYTHONPATH']
-    const child = spawn(python, ['-m', 'switchboard_core', ...args], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        PYTHONPATH: existingPythonPath ? `${repoRoot}${process.platform === 'win32' ? ';' : ':'}${existingPythonPath}` : repoRoot,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+    let child
+    try {
+      child = spawn(python, ['-m', 'switchboard_core', ...args], {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          PYTHONPATH: existingPythonPath ? `${repoRoot}${process.platform === 'win32' ? ';' : ':'}${existingPythonPath}` : repoRoot,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    } catch (error) {
+      resolvePromise({
+        ok: false,
+        message: error instanceof Error
+          ? `Failed to spawn '${python}': ${error.message}`
+          : `Failed to spawn '${python}'.`,
+      })
+      return
+    }
+    if (!child.stdout || !child.stderr) {
+      // Should never happen for stdio: ['ignore', 'pipe', 'pipe'], but
+      // surface a clear error if some Electron/Node combination yields
+      // null streams instead of a TypeError on the next .setEncoding.
+      resolvePromise({
+        ok: false,
+        message: `'${python}' was spawned without pipe streams (stdout=${Boolean(child.stdout)}, stderr=${Boolean(child.stderr)}).`,
+      })
+      return
+    }
     let stdout = ''
     let stderr = ''
     child.stdout.setEncoding('utf8')
