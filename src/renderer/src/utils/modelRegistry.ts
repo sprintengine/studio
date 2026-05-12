@@ -1,5 +1,7 @@
 import { Actions, DockLocation, Model, TabNode, TabSetNode, type IJsonModel } from 'flexlayout-react'
 
+const AGENT_TAB_SPAWN_FLASH_CLASS = 'agent-tab-spawn-flash'
+
 // Ephemeral registry of live flexlayout Model instances, keyed by workspace id.
 // Lets components outside of WorkspaceLayout (e.g. the workspace action bar)
 // dispatch actions to the active workspace's layout without prop-drilling.
@@ -66,6 +68,98 @@ function renameAgentTab(model: Model, agentId: string, name: string): void {
   if (targetTabId) model.doAction(Actions.renameTab(targetTabId, name))
 }
 
+function firstTabset(model: Model): TabSetNode | null {
+  let targetTabset: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (!targetTabset && node instanceof TabSetNode) targetTabset = node
+  })
+  return targetTabset
+}
+
+function agentTileLocation(targetTabset: TabSetNode): DockLocation {
+  const rect = targetTabset.getRect()
+  if (rect.width > 0 && rect.height > 0 && rect.height > rect.width) {
+    return DockLocation.BOTTOM
+  }
+  return DockLocation.RIGHT
+}
+
+function agentTabNode(
+  agentId: string,
+  name: string,
+  config?: Record<string, unknown>,
+  options?: { flash?: boolean }
+) {
+  const flash = options?.flash ?? true
+  return {
+    type: 'tab',
+    name,
+    component: 'agent',
+    ...(flash
+      ? {
+          className: AGENT_TAB_SPAWN_FLASH_CLASS,
+          contentClassName: 'agent-tab-spawn-flash-panel',
+        }
+      : {}),
+    config: { agentId, ...(config ?? {}) },
+  }
+}
+
+function clearAgentSpawnFlash(model: Model, agentId: string): void {
+  let targetTabId: string | null = null
+  model.visitNodes((node) => {
+    if (targetTabId || !(node instanceof TabNode) || node.getComponent() !== 'agent') return
+
+    const config = node.getConfig() as { agentId?: string } | undefined
+    if (config?.agentId === agentId) targetTabId = node.getId()
+  })
+
+  if (!targetTabId) return
+  const node = model.getNodeById(targetTabId)
+  if (!(node instanceof TabNode)) return
+
+  const nextClassName = (node.getClassName() ?? '')
+    .split(/\s+/u)
+    .filter((className) => className && className !== AGENT_TAB_SPAWN_FLASH_CLASS)
+    .join(' ')
+  const nextContentClassName = (node.getContentClassName() ?? '')
+    .split(/\s+/u)
+    .filter((className) => className && className !== 'agent-tab-spawn-flash-panel')
+    .join(' ')
+
+  model.doAction(
+    Actions.updateNodeAttributes(targetTabId, {
+      className: nextClassName || undefined,
+      contentClassName: nextContentClassName || undefined,
+    })
+  )
+}
+
+export function addAgentTabTiled(
+  workspaceId: string,
+  agentId: string,
+  name: string,
+  config?: Record<string, unknown>
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+  if (!targetTabset) return false
+
+  model.doAction(
+    Actions.addNode(
+      agentTabNode(agentId, name, config),
+      targetTabset.getId(),
+      agentTileLocation(targetTabset),
+      -1,
+      true
+    )
+  )
+  window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
+  return true
+}
+
 export function focusOrAddAgentTab(
   workspaceId: string,
   agentId: string,
@@ -79,29 +173,7 @@ export function focusOrAddAgentTab(
     return true
   }
 
-  let targetTabset: TabSetNode | null = null
-  model.visitNodes((node) => {
-    if (targetTabset || !(node instanceof TabSetNode)) return
-    const hasAgentTab = node.getChildren().some((child) =>
-      child instanceof TabNode && child.getComponent() === 'agent'
-    )
-    if (hasAgentTab) targetTabset = node
-  })
-  const targetId = targetTabset
-    ? (targetTabset as TabSetNode).getId()
-    : model.getRoot().getId()
-  const targetLocation = targetTabset ? DockLocation.CENTER : DockLocation.RIGHT
-
-  model.doAction(
-    Actions.addNode(
-      { type: 'tab', name, component: 'agent', config: { agentId, ...(config ?? {}) } },
-      targetId,
-      targetLocation,
-      -1,
-      true
-    )
-  )
-  return true
+  return addAgentTabTiled(workspaceId, agentId, name, config)
 }
 
 export async function focusOrAddAgentSessionTab(
@@ -177,25 +249,14 @@ export function ensureAgentTabInLayoutModel(
     return model.toJson()
   }
 
-  let targetTabset: TabSetNode | null = null
-  model.visitNodes((node) => {
-    if (targetTabset || !(node instanceof TabSetNode)) return
-    const hasAgentTab = node.getChildren().some((child) =>
-      child instanceof TabNode && child.getComponent() === 'agent'
-    )
-    if (hasAgentTab) targetTabset = node
-  })
-
-  const targetId = targetTabset
-    ? (targetTabset as TabSetNode).getId()
-    : model.getRoot().getId()
-  const targetLocation = targetTabset ? DockLocation.CENTER : DockLocation.RIGHT
+  const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+  if (!targetTabset) return model.toJson()
 
   model.doAction(
     Actions.addNode(
-      { type: 'tab', name, component: 'agent', config: { agentId } },
-      targetId,
-      targetLocation,
+      agentTabNode(agentId, name, undefined, { flash: false }),
+      targetTabset.getId(),
+      agentTileLocation(targetTabset),
       -1,
       true
     )

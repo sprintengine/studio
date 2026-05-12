@@ -31,7 +31,7 @@ import type {
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel, hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
+import { addAgentTabTiled, focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel, hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
@@ -1044,8 +1044,7 @@ export default function WorkspaceManager() {
       Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name)
     )
     const newId = `specialist-${specialist.id}-${nanoid(6)}`
-    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-    if (!targetTabset) return
+    if (!(model.getActiveTabset() ?? firstTabset(model))) return
     const prompt = buildSpecialistSoulStartupPrompt(specialist)
     const cliForSpawn = specialistCliDefaults[specialist.id] ?? lastSelectedCli
 
@@ -1060,20 +1059,7 @@ export default function WorkspaceManager() {
       cliHasLaunched: false,
       cliResumeAvailable: false,
     })
-    model.doAction(
-      Actions.addNode(
-        {
-          type: 'tab',
-          name: tabName,
-          component: 'agent',
-          config: { agentId: newId },
-        },
-        targetTabset.getId(),
-        DockLocation.CENTER,
-        -1,
-        true
-      )
-    )
+    addAgentTabTiled(activeWorkspaceId, newId, tabName)
   }
 
   const addNewMultiloopAgent = async (
@@ -1091,8 +1077,7 @@ export default function WorkspaceManager() {
     const agentName = normalizeAgentIdentifier(requestedName)
     const tabName = agentName || uniqueAgentName(soul.label, activeWorkspace.agents)
     const newId = `multiloop-${role}-${nanoid(6)}`
-    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-    if (!targetTabset) return
+    if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
     if (activeWorkspace.folderPath && activeWorkspace.multiloopState) {
       const repaired = await window.api.initializeMultiloopState({
@@ -1136,20 +1121,7 @@ export default function WorkspaceManager() {
       cliResumeAvailable: false,
       cliSessionId: crypto.randomUUID(),
     })
-    model.doAction(
-      Actions.addNode(
-        {
-          type: 'tab',
-          name: tabName,
-          component: 'agent',
-          config: { agentId: newId },
-        },
-        targetTabset.getId(),
-        DockLocation.CENTER,
-        -1,
-        true
-      )
-    )
+    addAgentTabTiled(activeWorkspaceId, newId, tabName)
   }
 
   const addNewCliAgent = (cli: AgentCli, label: string) => {
@@ -1160,8 +1132,7 @@ export default function WorkspaceManager() {
     const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     const tabName = uniqueAgentName(label, activeWorkspace?.agents ?? {})
     const newId = `agent-${cli}-${nanoid(6)}`
-    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-    if (!targetTabset) return
+    if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
     updateAgent(activeWorkspaceId, newId, {
       name: tabName,
@@ -1174,20 +1145,7 @@ export default function WorkspaceManager() {
       cliHasLaunched: false,
       cliResumeAvailable: false,
     })
-    model.doAction(
-      Actions.addNode(
-        {
-          type: 'tab',
-          name: tabName,
-          component: 'agent',
-          config: { agentId: newId },
-        },
-        targetTabset.getId(),
-        DockLocation.CENTER,
-        -1,
-        true
-      )
-    )
+    addAgentTabTiled(activeWorkspaceId, newId, tabName)
     setSpecialistMenuOpen(false)
   }
 

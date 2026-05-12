@@ -453,6 +453,58 @@ samp,
   box-shadow: inset 0 0 0 1px rgba(255, 191, 47, 0.18);
 }
 
+.flexlayout__tab_button.agent-tab-spawn-flash {
+  animation: agent-spawn-tab-flash 12800ms ease-out;
+}
+
+.flexlayout__tab.agent-tab-spawn-flash-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  animation: agent-spawn-panel-flash 12800ms ease-out;
+}
+
+@keyframes agent-spawn-tab-flash {
+  0%,
+  78% {
+    border-color: #30d158;
+    box-shadow:
+      inset 0 0 0 1px rgba(48, 209, 88, 0.7),
+      0 0 18px rgba(48, 209, 88, 0.45);
+  }
+
+  100% {
+    border-color: rgba(48, 209, 88, 0);
+    box-shadow:
+      inset 0 0 0 1px rgba(48, 209, 88, 0),
+      0 0 18px rgba(48, 209, 88, 0);
+  }
+}
+
+@keyframes agent-spawn-panel-flash {
+  0%,
+  78% {
+    box-shadow:
+      inset 0 0 0 2px rgba(48, 209, 88, 0.95),
+      inset 0 0 28px rgba(48, 209, 88, 0.24);
+  }
+
+  100% {
+    box-shadow:
+      inset 0 0 0 2px rgba(48, 209, 88, 0),
+      inset 0 0 28px rgba(48, 209, 88, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flexlayout__tab_button.agent-tab-spawn-flash,
+  .flexlayout__tab.agent-tab-spawn-flash-panel::after {
+    animation-duration: 700ms;
+  }
+}
+
 /* Terminal tab highlight colors. Applied via flexlayout className when the
    user picks a color from the tab right-click → Color submenu. The same
    palette as workspace highlight colors (utils/highlight.ts). */
