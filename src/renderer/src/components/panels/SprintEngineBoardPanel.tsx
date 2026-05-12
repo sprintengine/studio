@@ -424,10 +424,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     [roster]
   )
 
-  const isAgentTerminalLive = useCallback(
-    (agentId: string): boolean => {
+  const getLiveAgentTerminalSession = useCallback(
+    (agentId: string) => {
       const agentSessionId = agents[agentId]?.cliSessionId
-      return terminalSessions.some((session) =>
+      return terminalSessions.find((session) =>
         session.processAlive
         && session.kind === 'agent'
         && session.workspaceId === workspaceId
@@ -439,6 +439,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       )
     },
     [agents, sprintEngineContext, terminalSessions, workspaceId]
+  )
+
+  const isAgentTerminalLive = useCallback(
+    (agentId: string): boolean => Boolean(getLiveAgentTerminalSession(agentId)),
+    [getLiveAgentTerminalSession]
   )
 
   useEffect(() => {
@@ -1216,13 +1221,21 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     setAddMemberOpen(true)
   }
 
-  const confirmAddMember = async () => {
+  const confirmAddMember = async (role = addMemberRole) => {
     if (sprintEngineState.rosterConfigured) {
       if (!architectAgentId || !sprintEngineContext) return
-      const agentId = getNextSprintEngineAgentId(addMemberRole, sprintEngineState.sprintEngineAgents)
+      const agentId = getNextSprintEngineAgentId(role, sprintEngineState.sprintEngineAgents)
       const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
       const label = getAgentName(architectAgentId, fallbackLabel)
-      const prompt = buildRosterRevisionPrompt(addMemberRole, agentId, sprintEngineContext.teamSlug)
+      const prompt = buildRosterRevisionPrompt(role, agentId, sprintEngineContext.teamSlug)
+      const liveArchitectSession = getLiveAgentTerminalSession(architectAgentId)
+      if (liveArchitectSession) {
+        await window.api.terminalWrite(liveArchitectSession.sessionId, bracketedTerminalPaste(prompt))
+        focusOrAddAgentTab(workspaceId, architectAgentId, label)
+        setSelectedAgentId(architectAgentId)
+        setAddMemberOpen(false)
+        return
+      }
       const started = await startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
         freshSession: true,
         agentName: getCustomAgentName(architectAgentId, fallbackLabel),
@@ -1234,7 +1247,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       return
     }
 
-    const addedAgent = addSprintEngineMember(workspaceId, addMemberRole)
+    const addedAgent = addSprintEngineMember(workspaceId, role)
     if (!addedAgent) return
 
     void startAgentTerminalWhenReady(addedAgent.id, addedAgent.label)
@@ -1649,11 +1662,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             selectedAgentId={resolvedSelectedAgentId}
             onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
             onSelectTask={setSelectedTaskId}
-            onAddMember={openAddMemberDialog}
             onAddRole={(role) => {
-              setAddMemberRole(role)
+              void confirmAddMember(role)
               setActionMenuOpen(false)
-              setAddMemberOpen(true)
             }}
             onReadPlan={() => focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan')}
             onOpenArtifact={(artifact) => void openArtifact(artifact)}
@@ -2819,7 +2830,6 @@ function SprintEngineProjectView({
   selectedAgentId,
   onSelectAgent,
   onSelectTask,
-  onAddMember,
   onAddRole,
   onReadPlan,
   onOpenArtifact,
@@ -2839,7 +2849,6 @@ function SprintEngineProjectView({
   selectedAgentId: string | null
   onSelectAgent: (agentId: string) => void
   onSelectTask: (taskId: string) => void
-  onAddMember: () => void
   onAddRole: (role: SprintEngineRole) => void
   onReadPlan: () => void
   onOpenArtifact: (artifact: SprintEngineArtifact) => void
@@ -2853,13 +2862,8 @@ function SprintEngineProjectView({
   const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 260
   const totalTasks = sprintEngineState.tasks.length
   const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
-  const dispatchRoleSpawn = (role: SprintEngineRole) => {
-    const existing = roster.find((agent) => agent.role === role)
-    if (existing) {
-      onSelectAgent(existing.id)
-    } else {
-      onAddRole(role)
-    }
+  const dispatchRoleAdd = (role: SprintEngineRole) => {
+    onAddRole(role)
   }
   const tasksById = useMemo(
     () => Object.fromEntries(sprintEngineState.tasks.map((task) => [task.id, task])),
@@ -2878,7 +2882,13 @@ function SprintEngineProjectView({
       .filter(({ blockers }) => blockers.length > 0)
   ), [reviewArtifacts, sprintEngineState.tasks])
 
-  const missingRoles = addableRoles.filter((role) => !roster.some((agent) => agent.role === role))
+  const rosterCountByRole = useMemo(() => {
+    const counts = Object.fromEntries(addableRoles.map((role) => [role, 0])) as Record<SprintEngineRole, number>
+    for (const agent of roster) {
+      counts[agent.role] = (counts[agent.role] ?? 0) + 1
+    }
+    return counts
+  }, [roster])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#08090b] text-[#d7d7dc]">
@@ -3055,14 +3065,7 @@ function SprintEngineProjectView({
                 {roster.length}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={onAddMember}
-              className="interactive h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
-              title="Add a roster member"
-            >
-              Add member
-            </button>
+            <span className="text-[11px] text-[#6f7078]">Pick a role below to add another member</span>
           </header>
 
           <div className="flex-1 overflow-auto">
@@ -3143,41 +3146,47 @@ function SprintEngineProjectView({
               </ol>
             )}
 
-            {missingRoles.length > 0 ? (
-              <section aria-label="Add a role" className="border-t border-[#1f2025]">
+            <section aria-label="Add a roster member" className="border-t border-[#1f2025]">
                 <div className="flex items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-2">
                   <h3 className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2]">
-                    Add a role
+                    Add member
                   </h3>
                   <span className="shrink-0 tabular-nums text-[11px] text-[#6f7078]">
-                    {missingRoles.length} open
+                    {addableRoles.length} roles
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-1.5 px-3 py-2.5">
-                  {missingRoles.map((role) => (
-                    <button
-                      key={role}
-                      type="button"
-                      onClick={() => dispatchRoleSpawn(role)}
-                      title={`Add ${sprintEngineRoleLabels[role]}`}
-                      className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[#303139] px-2 py-1 text-[11px] font-medium text-[#c8c8cf] transition-colors hover:border-[#5c7cff]/55 hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
-                    >
-                      <span
-                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
-                        style={{
-                          backgroundColor: hexToRgba(sprintEngineRoleAccent[role], 0.14),
-                          color: sprintEngineRoleAccent[role],
-                        }}
-                        aria-hidden="true"
+                  {addableRoles.map((role) => {
+                    const count = rosterCountByRole[role] ?? 0
+                    return (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => dispatchRoleAdd(role)}
+                        title={`${count > 0 ? 'Add another' : 'Add'} ${sprintEngineRoleLabels[role]}`}
+                        className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[#303139] px-2 py-1 text-[11px] font-medium text-[#c8c8cf] transition-colors hover:border-[#5c7cff]/55 hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/45"
                       >
-                        <SprintEngineRoleIcon role={role} className="h-3 w-3" />
-                      </span>
-                      {sprintEngineRoleLabels[role]}
-                    </button>
-                  ))}
+                        <span
+                          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
+                          style={{
+                            backgroundColor: hexToRgba(sprintEngineRoleAccent[role], 0.14),
+                            color: sprintEngineRoleAccent[role],
+                          }}
+                          aria-hidden="true"
+                        >
+                          <SprintEngineRoleIcon role={role} className="h-3 w-3" />
+                        </span>
+                        <span>{sprintEngineRoleLabels[role]}</span>
+                        {count > 0 ? (
+                          <span className="ml-0.5 rounded bg-[#1b1c22] px-1 tabular-nums text-[#8a8a92]">
+                            {count}
+                          </span>
+                        ) : null}
+                      </button>
+                    )
+                  })}
                 </div>
               </section>
-            ) : null}
           </div>
         </section>
       </div>
@@ -5102,6 +5111,10 @@ function buildAddressPlanReviewsPrompt(): string {
     'Fetch the canonical plan review feedback instructions from the Python tool.',
     'Run `Sprint Engine plan address-reviews --actor architect` now.',
   ].join('\n')
+}
+
+function bracketedTerminalPaste(text: string): string {
+  return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~\r`
 }
 
 function buildRosterRevisionPrompt(role: SprintEngineRole, agentId: string, teamSlug: string): string {
