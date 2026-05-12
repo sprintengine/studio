@@ -36,6 +36,7 @@ import { createMainDiagnostics } from './main-diagnostics'
 import { createTerminalRuntime } from './terminal-runtime'
 import { MulticodeUpdateService } from './update-service'
 import { createBuiltinSkillManager } from './builtin-skills'
+import { installMulticodeCliTools } from './cli-install'
 import {
   MobileBridge,
 } from './mobile/bridge'
@@ -78,6 +79,16 @@ const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
   enabled: MULTICODE_DIAGNOSTICS,
 })
+const cliInstallResult = installMulticodeCliTools()
+if (!cliInstallResult.ok) {
+  void writeDiagnosticLog({
+    level: 'warning',
+    source: 'workspace',
+    title: 'Multicode CLI install failed',
+    message: `Unable to install all Multicode CLI tools into ${cliInstallResult.binDir}.`,
+    details: cliInstallResult.errors.join('; '),
+  })
+}
 
 const multicodeAuth = new MulticodeAuthBridge()
 const terminalRuntime = createTerminalRuntime({

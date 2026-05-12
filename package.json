@@ -39,6 +39,8 @@
       "scripts/souls.cmd",
       "scripts/switchboard",
       "scripts/switchboard.cmd",
+      "scripts/sprintengine",
+      "scripts/sprintengine.cmd",
       "scripts/sprintengine_tool.py",
       "switchboard_core/**/*.py",
       "sprintengine_core/**/*.py",
@@ -59,6 +61,22 @@
       {
         "from": "scripts/sprintengine_tool.py",
         "to": "scripts/sprintengine_tool.py"
+      },
+      {
+        "from": "scripts/souls",
+        "to": "scripts/souls"
+      },
+      {
+        "from": "scripts/souls.cmd",
+        "to": "scripts/souls.cmd"
+      },
+      {
+        "from": "scripts/sprintengine",
+        "to": "scripts/sprintengine"
+      },
+      {
+        "from": "scripts/sprintengine.cmd",
+        "to": "scripts/sprintengine.cmd"
       },
       {
         "from": "scripts/switchboard",

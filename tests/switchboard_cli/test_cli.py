@@ -41,6 +41,27 @@ def run_switchboard(args: list[str], *, check: bool = True, env: dict[str, str] 
     return completed
 
 
+def run_switchboard_from_cwd(
+    args: list[str],
+    *,
+    cwd: Path,
+    check: bool = True,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(
+        switchboard_command(args),
+        cwd=cwd,
+        env={**os.environ, **(env or {})},
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if check and completed.returncode != 0:
+        raise AssertionError(f"switchboard failed\nargs={args}\nstdout={completed.stdout}\nstderr={completed.stderr}")
+    return completed
+
+
 def stdout_json(completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
     return json.loads(completed.stdout)
 
@@ -120,6 +141,15 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertEqual(command, ["python3", "-c", "pass"])
 
+    def test_switchboard_wrapper_works_outside_repo_cwd_without_pythonpath(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX wrapper coverage only")
+
+        completed = run_switchboard_from_cwd(["--help"], cwd=self.workspace, env={"PYTHONPATH": ""})
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("Switchboard", completed.stdout)
+
     def test_init_creates_full_folder_model_and_locks(self) -> None:
         payload = stdout_json(self.run_cli(["init", *self.workspace_args()]))
 
@@ -146,6 +176,10 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertTrue((root / "runner").is_dir())
         self.assertTrue((root / "runner" / "events.jsonl").is_file())
         self.assertTrue((root / "executions").is_dir())
+        self.assertTrue((root / "bin" / "switchboard").is_file())
+        self.assertTrue(os.access(root / "bin" / "switchboard", os.X_OK))
+        self.assertTrue((root / "bin" / "switchboard.cmd").is_file())
+        self.assertEqual(payload["cli"]["binDir"], str((root / "bin").resolve()))
 
     def test_watchtower_run_create_status_and_list(self) -> None:
         created = stdout_json(
@@ -1278,12 +1312,14 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(prepared["execution"]["role"], "developer")
         self.assertIn("souls get developer", prompt)
         self.assertIn("full comment history", prompt)
-        self.assertIn("scripts/switchboard publish", prompt)
+        self.assertIn("switchboard publish", prompt)
+        self.assertNotIn("scripts/switchboard publish", prompt)
         self.assertIn("--to testing", prompt)
         self.assertIn("--summary", prompt)
         self.assertIn("--command", prompt)
         self.assertIn("--touched-file", prompt)
         self.assertIn("--comment", prompt)
+        self.assertIn(str(self.workspace / ".multi-code" / "switchboard" / "bin"), prepared["descriptor"]["env"]["PATH"])
 
     def test_testing_runner_prompt_uses_tester_soul_and_request_changes_contract(self) -> None:
         self.init_git_repo()
@@ -1303,10 +1339,12 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIn("souls get tester", prompt)
         self.assertIn("full comment history", prompt)
         self.assertIn("Do not make implementation fixes", prompt)
-        self.assertIn("scripts/switchboard assess-agent", prompt)
+        self.assertIn("switchboard assess-agent", prompt)
+        self.assertNotIn("scripts/switchboard assess-agent", prompt)
         self.assertIn("--claims-checked", prompt)
         self.assertIn("--hallucinated-claims", prompt)
-        self.assertIn("scripts/switchboard request-changes", prompt)
+        self.assertIn("switchboard request-changes", prompt)
+        self.assertNotIn("scripts/switchboard request-changes", prompt)
         self.assertIn("--to review", prompt)
 
     def test_review_runner_prompt_uses_code_reviewer_soul_and_request_changes_contract(self) -> None:
@@ -1329,10 +1367,12 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIn("souls get code_reviewer", prompt)
         self.assertIn("full comment history", prompt)
         self.assertIn("Do not make implementation fixes", prompt)
-        self.assertIn("scripts/switchboard assess-agent", prompt)
+        self.assertIn("switchboard assess-agent", prompt)
+        self.assertNotIn("scripts/switchboard assess-agent", prompt)
         self.assertIn("--claims-checked", prompt)
         self.assertIn("--hallucinated-claims", prompt)
-        self.assertIn("scripts/switchboard request-changes", prompt)
+        self.assertIn("switchboard request-changes", prompt)
+        self.assertNotIn("scripts/switchboard request-changes", prompt)
         self.assertIn("--to done", prompt)
 
     def test_stopped_electron_session_exit_does_not_overwrite_stopped_status(self) -> None:

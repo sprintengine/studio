@@ -4,6 +4,11 @@ setlocal
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%SCRIPT_DIR%.."
 set "VENV_PYTHON=%REPO_ROOT%\.venv\Scripts\python.exe"
+if defined PYTHONPATH (
+    set "PYTHONPATH=%REPO_ROOT%;%PYTHONPATH%"
+) else (
+    set "PYTHONPATH=%REPO_ROOT%"
+)
 
 if exist "%VENV_PYTHON%" (
     "%VENV_PYTHON%" -m souls %*

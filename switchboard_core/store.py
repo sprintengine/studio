@@ -251,6 +251,90 @@ def task_path(workspace: Path, status: str, task_id: str) -> Path:
     return folder_path(workspace, status) / f"{task_id}.json"
 
 
+def multicode_cli_bin_dir() -> Path:
+    configured = os.environ.get("MULTICODE_CLI_BIN")
+    if configured and configured.strip():
+        return Path(configured).expanduser().resolve()
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return (Path(base) / "Multicode" / "bin").resolve()
+    return (Path.home() / ".multicode" / "bin").resolve()
+
+
+def switchboard_bin_dir(workspace: Path) -> Path:
+    return switchboard_root(workspace) / "bin"
+
+
+def _module_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _script_path(name: str) -> Path:
+    return _module_root() / "scripts" / name
+
+
+def _switchboard_wrapper_path(*, windows: bool = False) -> Path:
+    env_name = "MULTICODE_SWITCHBOARD_CLI_CMD" if windows else "MULTICODE_SWITCHBOARD_CLI"
+    configured = os.environ.get(env_name)
+    if configured and configured.strip():
+        return Path(configured).expanduser().resolve()
+    installed = multicode_cli_bin_dir() / ("switchboard.cmd" if windows else "switchboard")
+    if installed.exists():
+        return installed
+    return _script_path("switchboard.cmd" if windows else "switchboard").resolve()
+
+
+def _write_text_if_changed(path: Path, text: str, *, mode: int | None = None) -> None:
+    if not path.exists() or path.read_text(encoding="utf-8") != text:
+        path.write_text(text, encoding="utf-8")
+    if mode is not None:
+        path.chmod(mode)
+
+
+def ensure_switchboard_cli_shims(workspace: Path) -> dict[str, str]:
+    bin_dir = switchboard_bin_dir(workspace)
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    posix_target = _switchboard_wrapper_path(windows=False)
+    cmd_target = _switchboard_wrapper_path(windows=True)
+    posix = bin_dir / "switchboard"
+    cmd = bin_dir / "switchboard.cmd"
+    posix_body = "\n".join(
+        [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            f"exec {shlex.quote(str(posix_target))} \"$@\"",
+            "",
+        ]
+    )
+    cmd_body = "\n".join(
+        [
+            "@echo off",
+            f"\"{cmd_target}\" %*",
+            "",
+        ]
+    )
+    _write_text_if_changed(posix, posix_body, mode=0o755)
+    _write_text_if_changed(cmd, cmd_body)
+    return {
+        "binDir": str(bin_dir),
+        "switchboard": str(posix),
+        "switchboardCmd": str(cmd),
+    }
+
+
+def agent_cli_env(workspace: Path) -> dict[str, str]:
+    shims = ensure_switchboard_cli_shims(workspace)
+    path_entries = [shims["binDir"], str(multicode_cli_bin_dir())]
+    path_key = "Path" if os.name == "nt" else "PATH"
+    existing_path = os.environ.get(path_key) or os.environ.get("PATH", "")
+    if existing_path:
+        path_entries.append(existing_path)
+    return {
+        path_key: os.pathsep.join(path_entries),
+        "MULTICODE_SWITCHBOARD_WORKSPACE": str(workspace.expanduser().resolve()),
+    }
+
+
 def validate_task_id(task_id: str) -> None:
     if not UUID_RE.match(task_id):
         raise SwitchboardError("Switchboard task id must be a UUID.")
@@ -265,6 +349,7 @@ def init_workspace(workspace: Path) -> dict[str, Any]:
     runner.mkdir(parents=True, exist_ok=True)
     (root / "executions").mkdir(parents=True, exist_ok=True)
     (root / "worktrees").mkdir(parents=True, exist_ok=True)
+    cli_shims = ensure_switchboard_cli_shims(workspace)
     events = runner / "events.jsonl"
     if not events.exists():
         events.write_text("", encoding="utf-8")
@@ -281,6 +366,7 @@ def init_workspace(workspace: Path) -> dict[str, Any]:
         "workspaceRoot": str(workspace.expanduser().resolve()),
         "switchboardRoot": str(root),
         "folders": folders,
+        "cli": cli_shims,
     }
 
 
@@ -783,53 +869,35 @@ def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_
     soul_bootstrap = [
         "Fetch your Soul from the Souls CLI before doing any role-specific work.",
         "",
-        f"First try: `souls get {role}`.",
-        "",
-        "If `souls` is not on PATH, use the command form for your shell:",
-        "",
-        "```powershell",
-        f".\\scripts\\souls.cmd get {role}",
-        "```",
-        "",
         "```bash",
-        f"scripts/souls get {role}",
-        "```",
-        "",
-        "If the wrapper is unavailable but Python can import the local repo package, run:",
-        "",
-        "```powershell",
-        f"python -m souls get {role}",
-        "```",
-        "",
-        "```bash",
-        f"python3 -m souls get {role}",
+        f"souls get {role}",
         "```",
         "",
         "Treat the returned text as your role, judgment, and quality bar.",
         "",
-        "Only if all of those commands fail, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.",
+        "If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.",
     ]
     role_rules = {
         "developer": [
             "- Implement the requested change in the execution worktree.",
             "- When you publish implementation work, Switchboard will commit worktree changes, push the execution branch, create or reuse a GitHub pull request, and record the PR URL as evidence.",
             "- Do not move the task forward unless implementation evidence is complete.",
-            f"- When implementation is complete, publish with evidence: scripts/switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --touched-file \"...\" --comment \"...\"",
+            f"- When implementation is complete, publish with evidence: switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --touched-file \"...\" --comment \"...\"",
         ],
         "tester": [
             "- Validate behavior against the task description, acceptance expectations, evidence, and full comment history.",
             "- Run focused tests or manual checks and record exactly what you ran.",
             "- Do not make implementation fixes. If the failure is in tests or test harness only, explain that clearly before changing test-only files.",
-            f"- Before publishing or requesting changes, assess the implementation attempt you reviewed: scripts/switchboard assess-agent --workspace {workspace_root} {task_id} --target-execution <execution-id-from-show> --reviewer-agent \"switchboard-{role}\" --reviewer-role \"{role}\" --summary \"...\" --correctness-pct 0-100 --evidence-quality-pct 0-100 --instruction-following-pct 0-100 --claims-checked <n> --hallucinated-claims <n>",
-            f"- If validation passes, publish with evidence: scripts/switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --comment \"...\"",
-            f"- If validation fails, request changes back to Ready: scripts/switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Expected ... but observed ... Repro: ...\"",
+            f"- Before publishing or requesting changes, assess the implementation attempt you reviewed: switchboard assess-agent --workspace {workspace_root} {task_id} --target-execution <execution-id-from-show> --reviewer-agent \"switchboard-{role}\" --reviewer-role \"{role}\" --summary \"...\" --correctness-pct 0-100 --evidence-quality-pct 0-100 --instruction-following-pct 0-100 --claims-checked <n> --hallucinated-claims <n>",
+            f"- If validation passes, publish with evidence: switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --comment \"...\"",
+            f"- If validation fails, request changes back to Ready: switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Expected ... but observed ... Repro: ...\"",
         ],
         "code_reviewer": [
             "- Review correctness, maintainability, security, reliability, and verification evidence against the task description and full comment history.",
             "- Do not make implementation fixes. Leave concrete requested changes for the next developer pass.",
-            f"- Before publishing or requesting changes, assess the implementation attempt you reviewed: scripts/switchboard assess-agent --workspace {workspace_root} {task_id} --target-execution <execution-id-from-show> --reviewer-agent \"switchboard-{role}\" --reviewer-role \"{role}\" --summary \"...\" --correctness-pct 0-100 --evidence-quality-pct 0-100 --instruction-following-pct 0-100 --code-quality-pct 0-100 --maintainability-pct 0-100 --claims-checked <n> --hallucinated-claims <n>",
-            f"- If review passes, publish with a verdict: scripts/switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --comment \"...\"",
-            f"- If review finds required changes, request changes back to Ready: scripts/switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Required changes: ... Evidence: ...\"",
+            f"- Before publishing or requesting changes, assess the implementation attempt you reviewed: switchboard assess-agent --workspace {workspace_root} {task_id} --target-execution <execution-id-from-show> --reviewer-agent \"switchboard-{role}\" --reviewer-role \"{role}\" --summary \"...\" --correctness-pct 0-100 --evidence-quality-pct 0-100 --instruction-following-pct 0-100 --code-quality-pct 0-100 --maintainability-pct 0-100 --claims-checked <n> --hallucinated-claims <n>",
+            f"- If review passes, publish with a verdict: switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --comment \"...\"",
+            f"- If review finds required changes, request changes back to Ready: switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Required changes: ... Evidence: ...\"",
         ],
     }[role]
     return "\n".join(
@@ -845,10 +913,10 @@ def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_
             "",
             "Rules:",
             "- Do not edit Switchboard task JSON files or Lock files directly.",
-            "- Use the local Switchboard CLI for task activity.",
-            f"- Inspect the task before acting with: scripts/switchboard show --workspace {workspace_root} {task_id}",
+            "- Use the local `switchboard` command for task activity.",
+            f"- Inspect the task before acting with: switchboard show --workspace {workspace_root} {task_id}",
             "- The show output includes the task description, evidence, and full comment history; read the comments before deciding what to do.",
-            f"- Add progress notes with: scripts/switchboard comment --workspace {workspace_root} {task_id} --body \"...\" --author \"{role}\" --author-type agent --author-id \"switchboard-{role}\"",
+            f"- Add progress notes with: switchboard comment --workspace {workspace_root} {task_id} --body \"...\" --author \"{role}\" --author-type agent --author-id \"switchboard-{role}\"",
             *role_rules,
             "- If blocked or unable to proceed for reasons other than requested changes, add a comment and stop without moving the task.",
         ]
@@ -1281,6 +1349,7 @@ def prepare_electron_session_execution(
             execution_dir(workspace, execution_id).mkdir(parents=True, exist_ok=False)
             prompt_path = execution_dir(workspace, execution_id) / "prompt.txt"
             prompt_path.write_text(prompt + "\n", encoding="utf-8")
+            env = agent_cli_env(workspace)
             provider_ref = {
                 "cwd": str(run_workspace),
                 "sessionId": execution_id,
@@ -1350,6 +1419,7 @@ def prepare_electron_session_execution(
                 "displayName": located.task.get("title") or f"Switchboard {role}",
                 "command": command,
                 "cwd": str(run_workspace),
+                "env": env,
                 "prompt": prompt,
                 "cli": state.get("cli", "codex"),
             },

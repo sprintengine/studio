@@ -65,7 +65,7 @@ def test_task_mutation_commands_fail_with_sprintengine_direction(tmp_path: Path)
     for command in commands:
         result = cli.run_failure(*command)
         assert "Multiloop no longer owns task execution." in result.stderr
-        assert "scripts/sprintengine --state <linked-sprintengine-state>" in result.stderr
+        assert "sprintengine --state <linked-sprintengine-state>" in result.stderr
     assert read_state(state_path) == before
 
 

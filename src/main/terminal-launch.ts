@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
+import { withMulticodeCliPath } from './cli-install'
 
 export type ShellLaunchConfig = {
   command: string
@@ -22,7 +23,7 @@ export function getTerminalEnv(): Record<string, string> {
   delete env.ELECTRON_RUN_AS_NODE
   env.TERM = env.TERM || 'xterm-256color'
 
-  return env
+  return withMulticodeCliPath(env)
 }
 
 function withSprintEngineEnv(

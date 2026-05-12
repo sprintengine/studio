@@ -353,9 +353,9 @@ function buildMultiloopRoleCommandLines(
   if (role && !['product', 'tester', 'security', 'code_reviewer', 'performance'].includes(role)) {
     if (sprintEngineStatePath) {
       return [
-        `Claim work first: scripts/sprintengine --state ${sprintEngineStatePath} task next --role ${role} --id ${agentId}`,
-        `Log evidence before handoff: scripts/sprintengine --state ${sprintEngineStatePath} task log --task-id <task-id> --id ${agentId} --summary "<summary>" --file <path> --command "<command>" --result "<result>"`,
-        `Mark completion after evidence: scripts/sprintengine --state ${sprintEngineStatePath} task status --task-id <task-id> --status done --id ${agentId}`,
+        `Claim work first: sprintengine --state ${sprintEngineStatePath} task next --role ${role} --id ${agentId}`,
+        `Log evidence before handoff: sprintengine --state ${sprintEngineStatePath} task log --task-id <task-id> --id ${agentId} --summary "<summary>" --file <path> --command "<command>" --result "<result>"`,
+        `Mark completion after evidence: sprintengine --state ${sprintEngineStatePath} task status --task-id <task-id> --status done --id ${agentId}`,
       ]
     }
     return [

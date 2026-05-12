@@ -7,6 +7,7 @@ from typing import Any
 from .store import (
     SwitchboardError,
     active_execution_count,
+    agent_cli_env,
     append_runner_event,
     atomic_write_json,
     execution_dir,
@@ -344,6 +345,7 @@ def prepare_watchtower_agent(
         "sessionId": execution_id,
         "attachable": True,
     }
+    env = agent_cli_env(workspace)
     execution = {
         "executionId": execution_id,
         "kind": kind,
@@ -386,6 +388,7 @@ def prepare_watchtower_agent(
         "displayName": role,
         "command": command,
         "cwd": str(run_workspace),
+        "env": env,
         "prompt": prompt,
         "cli": state.get("cli", "codex"),
     }
