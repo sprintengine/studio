@@ -19,6 +19,7 @@ import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 interface Props {
   workspaceId: string
   agentId: string
+  sessionId?: string
 }
 
 type AgentExecutionRoot = {
@@ -107,7 +108,7 @@ function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
   return 'manual'
 }
 
-export default function TerminalView({ workspaceId, agentId }: Props) {
+export default function TerminalView({ workspaceId, agentId, sessionId: attachedSessionId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [isFileDragOver, setIsFileDragOver] = useState(false)
   const agent = useWorkspaceStore((s) =>
@@ -206,7 +207,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     if (!container) return
     if (savedFolderPath && !folderReadyPath) return
 
-    if (!agent?.cliSessionId) {
+    if (!agent?.cliSessionId && !attachedSessionId) {
       updateAgent(workspaceId, agentId, {
         cliSessionId: crypto.randomUUID(),
         cliHasLaunched: false,
@@ -214,9 +215,10 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       return
     }
 
-    const sessionId = agent.cliSessionId
-    const shouldResume = agent.cliHasLaunched ?? false
-    const shouldResumeCodexConversation = cli === 'codex' && Boolean(agent.cliResumeAvailable)
+    const sessionId = attachedSessionId ?? agent?.cliSessionId
+    if (!sessionId) return
+    const shouldResume = attachedSessionId ? true : agent?.cliHasLaunched ?? false
+    const shouldResumeCodexConversation = cli === 'codex' && Boolean(agent?.cliResumeAvailable)
     const term = new Terminal({
       theme: {
         background: '#09090b',
@@ -357,6 +359,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
 
     const ensureSpecialistStartupPrompt = async (promptAlreadySentForActiveSession: boolean) => {
       if (startupPromptRef.current || promptAlreadySentForActiveSession) return
+      if (!agent) return
       if ((agent.kind !== 'specialist' && agent.kind !== 'watchtower') || !agent.specialistId) return
 
       const specialist = getSpecialistAction(agent.specialistId)
@@ -376,13 +379,13 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       const resumeExistingPty = shouldResume && terminalStatus.running
       const shouldResumeClaudeConversation = cli === 'claude' && shouldResume
       const shouldResumeCli = resumeExistingPty || shouldResumeClaudeConversation || shouldResumeCodexConversation
-      const promptAlreadySentForActiveSession = Boolean(shouldResumeCli && agent.cliOnboardingPromptSent)
+      const promptAlreadySentForActiveSession = Boolean(shouldResumeCli && agent?.cliOnboardingPromptSent)
       await ensureSpecialistStartupPrompt(promptAlreadySentForActiveSession)
       if (disposed) return
 
       const sprintEngineStatePath = folderReadyPath ? sprintEngineContext?.statePath : undefined
       const executionRoot = resolveAgentExecutionRoot(
-        agent.execution,
+        agent?.execution,
         storedExecutionWorktreePath,
         folderReadyPath
       )
@@ -452,6 +455,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
           .workspaces.find((w) => w.id === workspaceId)
           ?.agents[agentId]
           ?.cliSessionId
+        if (attachedSessionId) return
         if (currentSessionId !== sessionId) return
         updateAgent(workspaceId, agentId, {
           cliStartRequested: false,
@@ -476,6 +480,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
       }
 
       if (!resumeExistingPty) {
+        if (attachedSessionId) return
         updateAgent(workspaceId, agentId, {
           cliHasLaunched: true,
           ...(cli === 'codex' ? { cliResumeAvailable: true } : {}),
@@ -518,6 +523,7 @@ export default function TerminalView({ workspaceId, agentId }: Props) {
     workspaceId,
     agentId,
     agent?.cliSessionId,
+    attachedSessionId,
     agent?.cliRestartNonce,
     agent?.kind,
     agent?.name,

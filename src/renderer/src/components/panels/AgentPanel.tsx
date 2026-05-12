@@ -7,9 +7,10 @@ import TerminalView from './TerminalView'
 interface Props {
   workspaceId: string
   agentId: string
+  sessionId?: string
 }
 
-export default function AgentPanel({ workspaceId, agentId }: Props) {
+export default function AgentPanel({ workspaceId, agentId, sessionId }: Props) {
   const agent = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
@@ -23,7 +24,7 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
   const label = agent?.name ?? agentId
   const isSprintEngineAgent = workspace?.mode === 'sprintengine' && Boolean(sprintEngineRuntimeAgent)
   const sprintEngineTerminalBlocked = MULTICODE_DISABLE_SPRINTENGINE_TERMINALS && isSprintEngineAgent
-  const hasStarted = !sprintEngineTerminalBlocked && (!isSprintEngineAgent || Boolean(agent?.cliStartRequested))
+  const hasStarted = Boolean(sessionId) || (!sprintEngineTerminalBlocked && (!isSprintEngineAgent || Boolean(agent?.cliStartRequested)))
   const needsInput = sprintEngineRuntimeAgent?.status === 'needs_input'
   const cli: AgentCli = agent?.cli ?? 'codex'
   const cliShellTone = needsInput
@@ -49,7 +50,7 @@ export default function AgentPanel({ workspaceId, agentId }: Props) {
     <div className={`flex h-full flex-col bg-[#0d0e11] font-mono text-[12px] text-[#d7d7dc] ${cliShellTone}`}>
       <div className={`relative flex-1 overflow-hidden bg-[#08090b] ${needsInput ? 'shadow-[inset_0_1px_0_rgba(255,191,47,0.1)]' : ''}`}>
         {hasStarted ? (
-          <TerminalView workspaceId={workspaceId} agentId={agentId} />
+          <TerminalView workspaceId={workspaceId} agentId={agentId} sessionId={sessionId} />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
             {sprintEngineTerminalBlocked ? (

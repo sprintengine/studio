@@ -275,6 +275,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         workspaceRoot?: string
         role?: string
         title?: string
+        sessionId?: string
       } | undefined
 
       const wrapWithHighlight = (children: React.ReactNode): React.ReactNode => {
@@ -298,6 +299,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             <AgentPanel
               workspaceId={workspaceId}
               agentId={config?.agentId ?? node.getId()}
+              sessionId={config?.sessionId}
             />
           )
         case 'editor':

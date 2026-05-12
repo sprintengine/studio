@@ -54,7 +54,8 @@ function renameAgentTab(model: Model, agentId: string, name: string): void {
 export function focusOrAddAgentTab(
   workspaceId: string,
   agentId: string,
-  name: string
+  name: string,
+  config?: Record<string, unknown>,
 ): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
@@ -78,7 +79,7 @@ export function focusOrAddAgentTab(
 
   model.doAction(
     Actions.addNode(
-      { type: 'tab', name, component: 'agent', config: { agentId } },
+      { type: 'tab', name, component: 'agent', config: { agentId, ...(config ?? {}) } },
       targetId,
       targetLocation,
       -1,
@@ -100,9 +101,9 @@ export async function focusOrAddAgentSessionTab(
     && candidate.agentSession?.executionId === args.executionId
   )
 
-  const agentId = session?.agentId ?? session?.agentSession?.workId ?? args.executionId
+  const agentId = session?.agentId ?? session?.agentSession?.executionId ?? args.executionId
   const name = session?.agentSession?.displayName ?? args.fallbackName
-  return focusOrAddAgentTab(workspaceId, agentId, name)
+  return focusOrAddAgentTab(workspaceId, agentId, name, session ? { sessionId: session.sessionId } : undefined)
 }
 
 function collectAgentTabIds(model: Model, agentId: string): string[] {
