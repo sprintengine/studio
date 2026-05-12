@@ -183,12 +183,60 @@ samp,
   animation: status-dot-pulse 1800ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+@keyframes logo-rise {
+  from {
+    opacity: 0;
+    transform: scale(0.84);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.logo-rise {
+  animation: logo-rise 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes wizard-step-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes wizard-step-in-backward {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.wizard-step-in-forward {
+  animation: wizard-step-in-forward 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.wizard-step-in-backward {
+  animation: wizard-step-in-backward 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chip-enter,
   .toast-enter,
   .popover-enter,
   .skeleton-shimmer,
-  .status-dot-pulse {
+  .status-dot-pulse,
+  .wizard-step-in-forward,
+  .wizard-step-in-backward,
+  .logo-rise {
     animation: none;
   }
   .interactive:active:not(:disabled):not([aria-disabled="true"]) {

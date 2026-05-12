@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createMultiloopTemplate,
   createSprintEngineTemplate,
@@ -31,6 +31,8 @@ import {
   createInitialSprintEngineState,
 } from '../../utils/sprintengine'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
+import MulticodeMark from '../brand/MulticodeMark'
+import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { SprintEngineRosterTable } from './newWorkspace/SprintEngineRosterTable'
@@ -44,6 +46,48 @@ import type { CreationMode, ExistingTeam, SprintEnginePath } from './newWorkspac
 
 const MAX_RECENT_FOLDERS = 6
 const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop']
+
+type StepId =
+  | 'workspace'
+  | 'mode'
+  | 'standard-layout'
+  | 'multiloop-goal'
+  | 'sprintengine-team'
+  | 'sprintengine-roster'
+
+const STEPS_BY_MODE: Record<CreationMode, StepId[]> = {
+  standard: ['workspace', 'mode', 'standard-layout'],
+  switchboard: ['workspace', 'mode'],
+  multiloop: ['workspace', 'mode', 'multiloop-goal'],
+  sprintengine: ['workspace', 'mode', 'sprintengine-team', 'sprintengine-roster'],
+}
+
+const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
+  workspace: {
+    title: 'Name your workspace',
+    subtitle: 'Give it a name and pick the folder it lives in.',
+  },
+  mode: {
+    title: 'Choose a mode',
+    subtitle: 'How will you use this workspace?',
+  },
+  'standard-layout': {
+    title: 'Pick an IDE layout',
+    subtitle: 'You can change this any time. The default fits most projects.',
+  },
+  'multiloop-goal': {
+    title: 'Set the loop goal',
+    subtitle: 'What outcome should this loop reach?',
+  },
+  'sprintengine-team': {
+    title: 'Plan the team',
+    subtitle: 'Pick a starting point and describe the objective.',
+  },
+  'sprintengine-roster': {
+    title: 'Pick specialists',
+    subtitle: 'Choose how many of each role and which CLI they default to.',
+  },
+}
 
 const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
@@ -115,7 +159,6 @@ export default function NewWorkspacePanel({
   const [layoutId, setLayoutId] = useState<string>(
     LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id,
   )
-  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const [sePath, setSePath] = useState<SprintEnginePath>(initialFuturePlan ? 'plan' : 'new')
   const [sePlanPath, setSePlanPath] = useState(initialFuturePlan?.sourcePath ?? '')
@@ -136,7 +179,6 @@ export default function NewWorkspacePanel({
   const [sePlanError, setSePlanError] = useState<string | null>(null)
 
   const [mlName, setMlName] = useState('')
-  const [mlNameTouched, setMlNameTouched] = useState(false)
   const [mlGoal, setMlGoal] = useState('')
   const [mlError, setMlError] = useState<string | null>(null)
 
@@ -145,6 +187,19 @@ export default function NewWorkspacePanel({
   const folderScan = useFolderScan(folderPath)
   const totalAgents = countSprintEngineAgents(seRoleCounts)
   const isSprintEngine = mode === 'sprintengine'
+
+  const [step, setStep] = useState<StepId>(initialFuturePlan ? 'sprintengine-team' : 'workspace')
+  const [direction, setDirection] = useState<'forward' | 'backward'>('forward')
+
+  const steps = STEPS_BY_MODE[mode]
+  const stepIndex = Math.max(0, steps.indexOf(step))
+  const isLastStep = stepIndex >= steps.length - 1
+
+  const headingRef = useRef<HTMLHeadingElement | null>(null)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
+  const stepBodyRef = useRef<HTMLElement | null>(null)
+  const logoOuterRef = useRef<HTMLDivElement | null>(null)
+  const logoInnerRef = useRef<HTMLDivElement | null>(null)
 
   const recentFolders = useMemo(() => {
     const seen = new Set<string>()
@@ -193,32 +248,113 @@ export default function NewWorkspacePanel({
     }
   }, [isSprintEngine, sePath, folderScan.result, folderScan.isScanning, sePlanPath])
 
+  // When mode changes, ensure the current step exists in the new mode's step list.
+  useEffect(() => {
+    const list = STEPS_BY_MODE[mode]
+    if (!list.includes(step)) {
+      const fallback = list.includes('mode') ? 'mode' : list[0]
+      setStep(fallback as StepId)
+    }
+  }, [mode, step])
+
+  // Move focus to the step heading and reset scroll on step change.
+  useEffect(() => {
+    if (stepBodyRef.current) stepBodyRef.current.scrollTop = 0
+    headingRef.current?.focus({ preventScroll: true })
+  }, [step])
+
+  // Auto-focus the name input when entering the workspace step.
+  useEffect(() => {
+    if (step === 'workspace') {
+      const id = window.setTimeout(() => nameInputRef.current?.focus(), 60)
+      return () => window.clearTimeout(id)
+    }
+    return undefined
+  }, [step])
+
+  // Mouse-reactive tilt for the welcome logo on the workspace step.
+  useEffect(() => {
+    if (step !== 'workspace') return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const main = stepBodyRef.current
+    if (!main) return
+
+    let rafId: number | null = null
+    const onMove = (event: MouseEvent) => {
+      if (rafId != null) return
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null
+        const inner = logoInnerRef.current
+        const outer = logoOuterRef.current
+        if (!inner || !outer) return
+        const rect = outer.getBoundingClientRect()
+        const cx = rect.left + rect.width / 2
+        const cy = rect.top + rect.height / 2
+        // Tilt — normalize over a ~320px radius then clamp to [-1, 1].
+        const dx = Math.max(-1, Math.min(1, (event.clientX - cx) / 320))
+        const dy = Math.max(-1, Math.min(1, (event.clientY - cy) / 320))
+        const rotateY = dx * 12
+        const rotateX = -dy * 10
+        inner.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`
+        // Spotlight — clamp cursor to pedestal bounds in percent.
+        const localX = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100))
+        const localY = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100))
+        outer.style.setProperty('--mx', `${localX}%`)
+        outer.style.setProperty('--my', `${localY}%`)
+      })
+    }
+    const onLeave = () => {
+      if (rafId != null) {
+        window.cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      if (logoInnerRef.current) {
+        logoInnerRef.current.style.transform = 'rotateX(0deg) rotateY(0deg)'
+      }
+      if (logoOuterRef.current) {
+        logoOuterRef.current.style.setProperty('--mx', '50%')
+        logoOuterRef.current.style.setProperty('--my', '50%')
+      }
+    }
+
+    main.addEventListener('mousemove', onMove)
+    main.addEventListener('mouseleave', onLeave)
+    return () => {
+      main.removeEventListener('mousemove', onMove)
+      main.removeEventListener('mouseleave', onLeave)
+      if (rafId != null) window.cancelAnimationFrame(rafId)
+    }
+  }, [step])
+
   const sprintEngineAccess = getSprintEngineAccessState(authState)
 
-  const switchboardObjectiveComplete =
-    Boolean(folderPath?.trim()) && name.trim().length > 0
-  const standardComplete = name.trim().length > 0
-  const multiloopComplete =
-    Boolean(folderPath?.trim()) && mlName.trim().length > 0 && mlGoal.trim().length > 0
-  const seObjectiveComplete =
-    seExistingTeam != null || (seTeamName.trim().length > 0 && seGoal.trim().length > 0)
+  const workspaceStepReady = Boolean(folderPath?.trim()) && name.trim().length > 0
+  const standardLayoutStepReady = Boolean(layoutId)
+  const multiloopGoalReady = mlGoal.trim().length > 0
   const sePlanReady =
     sePath !== 'plan' || (sePlanPath !== '' && sePlanContent != null && !sePlanError)
-  const sprintEngineComplete =
-    sprintEngineAccess.allowed
-    && Boolean(folderPath?.trim())
-    && sePlanReady
-    && (seExistingTeam != null || (seObjectiveComplete && totalAgents > 0))
+  const seObjectiveComplete =
+    seExistingTeam != null || (seTeamName.trim().length > 0 && seGoal.trim().length > 0)
+  const sprintEngineTeamReady =
+    sprintEngineAccess.allowed && sePlanReady && seObjectiveComplete
+  const sprintEngineRosterReady =
+    sprintEngineAccess.allowed && (seExistingTeam != null || totalAgents > 0)
 
-  const blockingMessage = computeBlockingMessage({
+  const canAdvanceFromCurrent = isStepReady(step, {
+    workspaceStepReady,
+    standardLayoutStepReady,
+    multiloopGoalReady,
+    sprintEngineTeamReady,
+    sprintEngineRosterReady,
+  })
+
+  const blockingMessage = getStepBlockingMessage({
+    step,
     mode,
     folderPath,
     name,
-    standardComplete,
-    switchboardObjectiveComplete,
-    multiloopComplete,
+    mlGoal,
     sprintEngineAccess,
-    sprintEngineComplete,
     sePath,
     sePlanReady,
     seExistingTeam,
@@ -226,25 +362,26 @@ export default function NewWorkspacePanel({
     totalAgents,
   })
 
-  const canCreate =
-    !isCreating
-    && (
-      (mode === 'standard' && Boolean(folderPath?.trim()) && standardComplete)
-      || (mode === 'switchboard' && switchboardObjectiveComplete)
-      || (mode === 'multiloop' && multiloopComplete)
-      || (mode === 'sprintengine' && sprintEngineComplete)
-    )
-
   const handleSelectMode = (next: CreationMode) => {
     setMode(next)
     if (next === 'standard' && !nameTouched) setName(basename(folderPath ?? '') || 'workspace')
     if (next === 'switchboard' && !nameTouched)
       setName(toTitleName(basename(folderPath ?? '')) || 'Switchboard')
-    if (next === 'multiloop' && !mlNameTouched)
+    if (next === 'multiloop')
       setMlName(toTitleName(basename(folderPath ?? '')) || 'Product Loop')
     if (next !== 'sprintengine') {
       setSeExistingTeam(null)
     }
+  }
+
+  const handleChangeName = (value: string) => {
+    setName(value)
+    setNameTouched(true)
+    // Mirror the single workspace name into mode-specific name slots so the
+    // user never re-types the same name later. Mode-specific edits below still
+    // override these values.
+    setMlName(value)
+    if (!seTeamNameTouched) setSeTeamName(value)
   }
 
   const handleSelectFolder = (dir: string) => {
@@ -257,11 +394,10 @@ export default function NewWorkspacePanel({
     setMlError(null)
     if (!nameTouched) setName(folderName || 'workspace')
     if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Engine Team')
-    if (!mlNameTouched) setMlName(toTitleName(folderName) || 'Product Loop')
+    setMlName(toTitleName(folderName) || 'Product Loop')
 
     const hint = folderHints.get(dir)
     if (hint && (hint.hasSprintEngineTeam || hint.hasMultiloop)) {
-      // Suggest the matching mode if user hasn't deviated.
       if (!nameTouched && hint.hasSprintEngineTeam) handleSelectMode('sprintengine')
       else if (!nameTouched && hint.hasMultiloop) handleSelectMode('multiloop')
     }
@@ -335,22 +471,22 @@ export default function NewWorkspacePanel({
   )
 
   const handleCreate = async () => {
-    if (!canCreate) return
-
+    if (!sprintEngineRosterReady && mode === 'sprintengine') return
     if (mode === 'multiloop') {
       if (!folderPath) return
       setIsCreating(true)
       setMlError(null)
       try {
+        const loopName = (mlName.trim() || name.trim() || 'Multiloop').trim()
         const created = await createMultiloopWorkspace({
           rootPath: folderPath,
-          loopName: mlName,
+          loopName,
           finalGoal: mlGoal,
           initializeState: window.api.initializeMultiloopState,
           readFile: window.api.readfile,
         })
         addWorkspace(createMultiloopTemplate(), {
-          name: mlName.trim() || 'Multiloop',
+          name: loopName,
           folderPath,
           multiloopState: created.state,
           multiloopContext: created.context,
@@ -475,36 +611,74 @@ export default function NewWorkspacePanel({
     })
   }
 
+  const goNext = () => {
+    if (!canAdvanceFromCurrent || isCreating) return
+    if (isLastStep) {
+      void handleCreate()
+      return
+    }
+    setDirection('forward')
+    setStep(steps[stepIndex + 1])
+  }
+
+  const goBack = () => {
+    if (stepIndex === 0) return
+    setDirection('backward')
+    setStep(steps[stepIndex - 1])
+  }
+
+  const handleSectionKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Enter' || event.isDefaultPrevented()) return
+    const target = event.target as HTMLElement
+    const tag = target.tagName
+    // Buttons (and role=radio buttons) handle Enter natively as click.
+    if (tag === 'BUTTON') return
+    // Selects use Enter to open/close the dropdown.
+    if (tag === 'SELECT') return
+    // Textareas insert newlines on Enter; Cmd/Ctrl+Enter advances.
+    if (tag === 'TEXTAREA' && !(event.metaKey || event.ctrlKey)) return
+    event.preventDefault()
+    goNext()
+  }
+
   const startLogin = async () => {
     await window.api.authLogin(authState.selectedOrganization?.id ?? null)
   }
+
+  const primaryLabel = isLastStep
+    ? createLabelFor(mode, isCreating, seExistingTeam != null)
+    : 'Continue'
+
+  const stepHeading = STEP_HEADING[step]
+  const stepAnimationClass =
+    direction === 'forward' ? 'wizard-step-in-forward' : 'wizard-step-in-backward'
 
   return (
     <section
       aria-labelledby="new-workspace-title"
       tabIndex={-1}
+      onKeyDown={handleSectionKeyDown}
       className="flex h-full min-h-0 flex-col bg-[#08090b] outline-none"
     >
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0d0e11] px-5 py-3">
-        <div className="min-w-0">
+      <header className="flex shrink-0 items-center gap-3 border-b border-[#15161a] px-5 py-3">
+        <div className="flex shrink-0 items-center gap-2">
+          <MulticodeMark className="h-[18px] w-[18px]" variant="mono" />
           <h2
             id="new-workspace-title"
-            className="truncate text-[15px] font-semibold tracking-tight text-[#ececee]"
+            className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[#a8a8b0]"
           >
             New workspace
           </h2>
-          <p className="mt-0.5 truncate text-[12px] leading-5 text-[#8a8a92]">
-            Pick a mode, a folder, and the few settings that matter.
-          </p>
         </div>
+        <WizardProgress total={steps.length} active={stepIndex} />
         {allowClose ? (
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
             className="
-              inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216]
-              text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee]
+              ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#777780]
+              transition-colors hover:bg-[#15161a] hover:text-[#ececee]
               focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
             "
           >
@@ -520,390 +694,437 @@ export default function NewWorkspacePanel({
         ) : null}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[680px] px-6 pb-32 pt-6">
-          <Section label="Workspace mode" hint="Choose how this workspace opens.">
-            <div role="radiogroup" aria-label="Workspace mode" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {MODES.map((m) => (
-                <ModeCard key={m} mode={m} active={mode === m} onSelect={handleSelectMode} />
-              ))}
-            </div>
-          </Section>
-
-          <Section label="Folder" hint="Workspace files live here. Recent folders are below.">
+      <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
+        <div
+          key={step}
+          className={`mx-auto flex w-full max-w-[520px] flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
+        >
+          {stepIndex > 0 ? (
             <button
               type="button"
-              onClick={() => void pickFolder()}
+              onClick={goBack}
               className="
-                flex h-[42px] w-full items-center gap-3 rounded-md border border-[#303139] bg-[#0d0e11] px-3
-                text-left transition-colors hover:bg-[#111216]
+                -ml-1.5 inline-flex h-7 w-fit items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[#777780]
+                transition-colors hover:bg-[#15161a] hover:text-[#ececee]
                 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
               "
             >
-              <svg className="h-4 w-4 shrink-0 text-[#9a9aa2]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path
-                  d="M3.75 7.5C3.75 6.39543 4.64543 5.5 5.75 5.5H9.5L11.5 7.5H18.25C19.3546 7.5 20.25 8.39543 20.25 9.5V16.25C20.25 17.3546 19.3546 18.25 18.25 18.25H5.75C4.64543 18.25 3.75 17.3546 3.75 16.25V7.5Z"
+                  d="M7.5 3L4.5 6L7.5 9"
                   stroke="currentColor"
-                  strokeWidth="1.7"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
                   strokeLinejoin="round"
                 />
               </svg>
-              <span
-                className={`min-w-0 flex-1 truncate text-[13px] ${
-                  folderPath ? 'text-[#d7d7dc]' : 'text-[#777780]'
-                }`}
-              >
-                {folderPath ?? 'Choose a folder…'}
-              </span>
-              <span className="shrink-0 text-[12px] font-semibold text-[#a8a8b0]">Browse</span>
+              Back
             </button>
-
-            {recentFolders.length > 0 ? (
-              <div className="mt-3">
-                <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#777780]">
-                  Recent
+          ) : null}
+          <header className="flex flex-col gap-1.5">
+            {step === 'workspace' ? (
+              <div
+                aria-hidden="true"
+                className="logo-rise mx-auto mb-6 flex flex-col items-center gap-3"
+              >
+                <div
+                  ref={logoOuterRef}
+                  className="h-16 w-16"
+                  style={{ perspective: '420px' }}
+                >
+                  <div
+                    ref={logoInnerRef}
+                    className="h-full w-full will-change-transform"
+                    style={{
+                      transformStyle: 'preserve-3d',
+                      transition: 'transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+                      filter: 'drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45))',
+                    }}
+                  >
+                    <MulticodeMark
+                      className="h-full w-full"
+                      variant="gradient"
+                      title="Multicode"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-0.5">
-                  {recentFolders.map((recent) => {
-                    const hint = folderHints.get(recent)
-                    const hints: Array<'sprintengine' | 'multiloop'> = []
-                    if (hint?.hasSprintEngineTeam) hints.push('sprintengine')
-                    if (hint?.hasMultiloop) hints.push('multiloop')
-                    return (
-                      <RecentFolderRow
-                        key={recent}
-                        path={recent}
-                        active={isSameFolder(folderPath, recent)}
-                        hints={hints}
-                        onSelect={handleSelectFolder}
-                      />
-                    )
-                  })}
-                </div>
+                <MulticodeWordmark className="h-5 text-[#ececee]" />
               </div>
             ) : null}
-          </Section>
+            <h3
+              ref={headingRef}
+              tabIndex={-1}
+              className="text-[22px] font-semibold leading-7 tracking-tight text-[#ececee] outline-none"
+            >
+              {stepHeading.title}
+            </h3>
+            <p className="text-[13px] leading-5 text-[#8a8a92]">{stepHeading.subtitle}</p>
+          </header>
 
-          <Section
-            label="Configure"
-            hint={`Settings specific to the ${labelFor(mode).toLowerCase()} mode.`}
-          >
-            {mode === 'standard' ? (
-              <StandardConfigure
-                name={name}
-                onChangeName={(value) => {
-                  setName(value)
-                  setNameTouched(true)
-                }}
-                onSubmit={() => void handleCreate()}
-                showAdvanced={showAdvanced}
-                onToggleAdvanced={() => setShowAdvanced((v) => !v)}
-                layoutId={layoutId}
-                onChangeLayoutId={setLayoutId}
-              />
-            ) : null}
+          {step === 'workspace' ? (
+            <WorkspaceStep
+              name={name}
+              onChangeName={handleChangeName}
+              folderPath={folderPath}
+              onPickFolder={() => void pickFolder()}
+              onSelectRecent={handleSelectFolder}
+              recentFolders={recentFolders}
+              folderHints={folderHints}
+              inputRef={nameInputRef}
+            />
+          ) : null}
 
-            {mode === 'switchboard' ? (
-              <SwitchboardConfigure
-                name={name}
-                onChangeName={(value) => {
-                  setName(value)
-                  setNameTouched(true)
-                }}
-                onSubmit={() => void handleCreate()}
-              />
-            ) : null}
+          {step === 'mode' ? (
+            <ModeStep
+              mode={mode}
+              onSelect={handleSelectMode}
+              folderPath={folderPath}
+              folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
+            />
+          ) : null}
 
-            {mode === 'multiloop' ? (
-              <MultiloopConfigure
-                loopName={mlName}
-                onChangeLoopName={(value) => {
-                  setMlName(value)
-                  setMlNameTouched(true)
-                  setMlError(null)
-                }}
-                goal={mlGoal}
-                onChangeGoal={(value) => {
-                  setMlGoal(value)
-                  setMlError(null)
-                }}
-                error={mlError}
-              />
-            ) : null}
+          {step === 'standard-layout' ? (
+            <StandardLayoutStep layoutId={layoutId} onChange={setLayoutId} />
+          ) : null}
 
-            {mode === 'sprintengine' ? (
-              <SprintEngineConfigure
-                access={sprintEngineAccess}
-                onSignIn={() => void startLogin()}
-                folderPath={folderPath}
-                isScanning={folderScan.isScanning}
-                existingTeams={folderScan.result.teams}
-                planOptions={folderScan.result.plans}
-                path={sePath}
-                onChangePath={(p) => {
-                  setSePath(p)
-                  setSeExistingTeam(null)
-                  if (p === 'plan') {
-                    /* keep existing plan selection */
-                  } else {
-                    setSePlanPath('')
-                    setSePlanContent(null)
-                  }
-                  setSePlanError(null)
-                }}
-                planPath={sePlanPath}
-                onSelectPlan={(p) => void handleSelectPlan(p)}
-                planError={sePlanError}
-                existingTeamSlug={seExistingTeam?.slug ?? ''}
-                onSelectExistingTeam={handleSelectExistingTeam}
-                teamName={seTeamName}
-                onChangeTeamName={(value) => {
-                  setSeExistingTeam(null)
-                  setSeTeamName(value)
-                  setSeTeamNameTouched(true)
-                  setSePlanError(null)
-                }}
-                goal={seGoal}
-                onChangeGoal={(value) => {
-                  setSeExistingTeam(null)
-                  setSeGoal(value)
-                  setSePlanError(null)
-                }}
-                roleCounts={seRoleCounts}
-                roleCliDefaults={seRoleCliDefaults}
-                rosterDisabled={seExistingTeam != null}
-                onSetRoleCount={setRoleCount}
-                onSetRoleCli={setRoleCli}
-                startRunner={seStartRunner}
-                onChangeStartRunner={setSeStartRunner}
-              />
-            ) : null}
-          </Section>
-        </div>
-      </div>
+          {step === 'multiloop-goal' ? (
+            <MultiloopGoalStep
+              goal={mlGoal}
+              onChangeGoal={(value) => {
+                setMlGoal(value)
+                setMlError(null)
+              }}
+              error={mlError}
+            />
+          ) : null}
 
-      <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-[#1f2025] bg-[#0d0e11] px-5 py-3">
-        <div className="min-w-0 flex-1 text-[12px] leading-5 text-[#8a8a92]">
-          {blockingMessage}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {allowClose ? (
+          {step === 'sprintengine-team' ? (
+            <SprintEngineTeamStep
+              access={sprintEngineAccess}
+              onSignIn={() => void startLogin()}
+              folderPath={folderPath}
+              isScanning={folderScan.isScanning}
+              existingTeams={folderScan.result.teams}
+              planOptions={folderScan.result.plans}
+              path={sePath}
+              onChangePath={(p) => {
+                setSePath(p)
+                setSeExistingTeam(null)
+                if (p !== 'plan') {
+                  setSePlanPath('')
+                  setSePlanContent(null)
+                }
+                setSePlanError(null)
+              }}
+              planPath={sePlanPath}
+              onSelectPlan={(p) => void handleSelectPlan(p)}
+              planError={sePlanError}
+              existingTeamSlug={seExistingTeam?.slug ?? ''}
+              onSelectExistingTeam={handleSelectExistingTeam}
+              teamName={seTeamName}
+              onChangeTeamName={(value) => {
+                setSeExistingTeam(null)
+                setSeTeamName(value)
+                setSeTeamNameTouched(true)
+                setSePlanError(null)
+              }}
+              goal={seGoal}
+              onChangeGoal={(value) => {
+                setSeExistingTeam(null)
+                setSeGoal(value)
+                setSePlanError(null)
+              }}
+            />
+          ) : null}
+
+          {step === 'sprintengine-roster' ? (
+            <SprintEngineRosterStep
+              access={sprintEngineAccess}
+              onSignIn={() => void startLogin()}
+              roleCounts={seRoleCounts}
+              roleCliDefaults={seRoleCliDefaults}
+              rosterDisabled={seExistingTeam != null}
+              onSetRoleCount={setRoleCount}
+              onSetRoleCli={setRoleCli}
+              startRunner={seStartRunner}
+              onChangeStartRunner={setSeStartRunner}
+              totalAgents={totalAgents}
+              hasExistingTeam={seExistingTeam != null}
+              existingTeamName={seExistingTeam?.displayName ?? null}
+            />
+          ) : null}
+
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-[#777780]">
+              {blockingMessage}
+            </p>
             <button
               type="button"
-              onClick={onClose}
+              onClick={goNext}
+              disabled={!canAdvanceFromCurrent || isCreating}
               className="
-                h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[13px] font-medium text-[#d7d7dc]
-                transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee]
+                inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[#5c7cff] px-4 text-[13px] font-semibold text-[#08090b]
+                transition-colors hover:bg-[#6e8eff]
+                disabled:cursor-not-allowed disabled:bg-[#15161a] disabled:text-[#5a5a63]
                 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
               "
             >
-              Cancel
+              {primaryLabel}
+              {!isLastStep ? (
+                <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path
+                    d="M4.5 3L7.5 6L4.5 9"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              ) : null}
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => void handleCreate()}
-            disabled={!canCreate}
-            className="
-              h-8 rounded-md bg-[#5c7cff] px-4 text-[13px] font-semibold text-[#08090b]
-              transition-colors hover:bg-[#6e8eff]
-              disabled:cursor-not-allowed disabled:bg-[#17181d] disabled:text-[#5a5a63]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
-            "
-          >
-            {createLabelFor(mode, isCreating, seExistingTeam != null)}
-          </button>
+          </div>
         </div>
-      </footer>
+      </main>
     </section>
   )
 }
 
-function Section({
-  label,
-  hint,
-  children,
-}: {
-  label: string
-  hint?: string
-  children: React.ReactNode
-}) {
+function WizardProgress({ total, active }: { total: number; active: number }) {
   return (
-    <section className="border-t border-[#1f2025] py-5 first:border-t-0 first:pt-0">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h3 className="text-[13px] font-semibold text-[#ececee]">{label}</h3>
-        {hint ? <p className="text-[11px] text-[#8a8a92]">{hint}</p> : null}
-      </div>
-      {children}
-    </section>
+    <div
+      role="progressbar"
+      aria-valuemin={1}
+      aria-valuemax={total}
+      aria-valuenow={Math.min(total, active + 1)}
+      aria-label={`Step ${Math.min(total, active + 1)} of ${total}`}
+      className="flex min-w-0 flex-1 items-center gap-1.5"
+    >
+      {Array.from({ length: total }).map((_, idx) => {
+        const isPast = idx < active
+        const isCurrent = idx === active
+        return (
+          <span
+            key={idx}
+            aria-hidden="true"
+            className={`h-[3px] flex-1 rounded-full transition-colors duration-300 ${
+              isCurrent ? 'bg-[#ececee]' : isPast ? 'bg-[#5a5a63]' : 'bg-[#1f2025]'
+            }`}
+          />
+        )
+      })}
+    </div>
   )
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#9a9aa2]">{children}</span>
+  return (
+    <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#9a9aa2]">
+      {children}
+    </span>
+  )
 }
 
-function StandardConfigure({
+function WorkspaceStep({
   name,
   onChangeName,
-  onSubmit,
-  showAdvanced,
-  onToggleAdvanced,
-  layoutId,
-  onChangeLayoutId,
+  folderPath,
+  onPickFolder,
+  onSelectRecent,
+  recentFolders,
+  folderHints,
+  inputRef,
 }: {
   name: string
   onChangeName: (value: string) => void
-  onSubmit: () => void
-  showAdvanced: boolean
-  onToggleAdvanced: () => void
-  layoutId: string
-  onChangeLayoutId: (id: string) => void
+  folderPath: string | null
+  onPickFolder: () => void
+  onSelectRecent: (path: string) => void
+  recentFolders: string[]
+  folderHints: ReturnType<typeof useFolderHints>
+  inputRef: React.MutableRefObject<HTMLInputElement | null>
 }) {
-  const layout = LAYOUT_TEMPLATES.find((t) => t.id === layoutId) ?? LAYOUT_TEMPLATES[0]
   return (
-    <div className="space-y-4">
-      <label className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-6">
+      <label className="flex flex-col gap-2">
         <FieldLabel>Workspace name</FieldLabel>
         <input
+          ref={inputRef}
           value={name}
           onChange={(event) => onChangeName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') onSubmit()
-          }}
           placeholder="my-workspace"
           className="
-            block h-[36px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3
-            text-[13px] text-[#ececee] outline-none transition-colors
-            placeholder:text-[#5a5a63] focus:border-[#ececee]/70
+            block h-11 w-full rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
+            text-[14px] text-[#ececee] outline-none transition-colors
+            placeholder:text-[#5a5a63]
+            hover:border-[#303139] focus:border-[#ececee]/60
           "
         />
       </label>
 
-      <div>
+      <div className="flex flex-col gap-2">
+        <FieldLabel>Folder</FieldLabel>
         <button
           type="button"
-          onClick={onToggleAdvanced}
+          onClick={onPickFolder}
           className="
-            inline-flex items-center gap-1.5 text-[12px] font-medium text-[#8a8a92]
-            hover:text-[#ececee] focus:outline-none focus-visible:underline
+            flex h-11 w-full items-center gap-3 rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
+            text-left transition-colors hover:border-[#303139] hover:bg-[#111216]
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
           "
         >
-          <svg
-            className={`h-3 w-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
-            viewBox="0 0 12 12"
-            fill="none"
-            aria-hidden="true"
-          >
-            <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <svg className="h-4 w-4 shrink-0 text-[#9a9aa2]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M3.75 7.5C3.75 6.39543 4.64543 5.5 5.75 5.5H9.5L11.5 7.5H18.25C19.3546 7.5 20.25 8.39543 20.25 9.5V16.25C20.25 17.3546 19.3546 18.25 18.25 18.25H5.75C4.64543 18.25 3.75 17.3546 3.75 16.25V7.5Z"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinejoin="round"
+            />
           </svg>
-          IDE layout · {layout.name}
+          <span
+            className={`min-w-0 flex-1 truncate text-[13px] ${
+              folderPath ? 'text-[#d7d7dc]' : 'text-[#5a5a63]'
+            }`}
+          >
+            {folderPath ?? 'Choose a folder…'}
+          </span>
+          <span className="shrink-0 text-[12px] font-semibold text-[#a8a8b0]">Browse</span>
         </button>
-        {showAdvanced ? (
-          <div className="mt-2 space-y-1 rounded-md border border-[#1f2025] bg-[#0a0b0e] p-2">
-            {LAYOUT_TEMPLATES.map((template) => {
-              const active = template.id === layoutId
+      </div>
+
+      {recentFolders.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#777780]">
+            Recent
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {recentFolders.map((recent) => {
+              const hint = folderHints.get(recent)
+              const hints: Array<'sprintengine' | 'multiloop'> = []
+              if (hint?.hasSprintEngineTeam) hints.push('sprintengine')
+              if (hint?.hasMultiloop) hints.push('multiloop')
               return (
-                <button
-                  key={template.id}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => onChangeLayoutId(template.id)}
-                  className={`
-                    grid w-full grid-cols-[16px_minmax(0,1fr)] items-start gap-3 rounded px-2 py-1.5 text-left
-                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
-                    ${active ? 'bg-[#17181d]' : 'hover:bg-[#111216]'}
-                  `}
-                >
-                  <span
-                    className={`mt-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
-                      active ? 'border-[#ececee] bg-[#ececee]' : 'border-[#3a3b42]'
-                    }`}
-                    aria-hidden="true"
-                  >
-                    {active ? <span className="h-1.5 w-1.5 rounded-full bg-[#08090b]" /> : null}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[13px] font-semibold text-[#ececee]">{template.name}</span>
-                    <span className="block text-[11px] leading-4 text-[#9a9aa2]">{template.description}</span>
-                  </span>
-                </button>
+                <RecentFolderRow
+                  key={recent}
+                  path={recent}
+                  active={isSameFolder(folderPath, recent)}
+                  hints={hints}
+                  onSelect={onSelectRecent}
+                />
               )
             })}
           </div>
-        ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ModeStep({
+  mode,
+  onSelect,
+  folderPath,
+  folderHint,
+}: {
+  mode: CreationMode
+  onSelect: (mode: CreationMode) => void
+  folderPath: string | null
+  folderHint: { hasSprintEngineTeam?: boolean; hasMultiloop?: boolean } | null
+}) {
+  const suggested: CreationMode | null = (() => {
+    if (!folderHint) return null
+    if (folderHint.hasSprintEngineTeam) return 'sprintengine'
+    if (folderHint.hasMultiloop) return 'multiloop'
+    return null
+  })()
+
+  return (
+    <div className="flex flex-col gap-3">
+      {folderPath && suggested ? (
+        <p className="rounded-md border border-[#1f2025] bg-[#0d0e11] px-3 py-2 text-[12px] leading-5 text-[#a8a8b0]">
+          We found a saved{' '}
+          <span className="font-semibold text-[#ececee]">{labelFor(suggested)}</span>{' '}
+          team in this folder. {mode === suggested ? 'Selected for you.' : 'Select it to load.'}
+        </p>
+      ) : null}
+      <div role="radiogroup" aria-label="Workspace mode" className="grid grid-cols-2 gap-2.5">
+        {MODES.map((m) => (
+          <ModeCard key={m} mode={m} active={mode === m} onSelect={onSelect} />
+        ))}
       </div>
     </div>
   )
 }
 
-function SwitchboardConfigure({
-  name,
-  onChangeName,
-  onSubmit,
+function StandardLayoutStep({
+  layoutId,
+  onChange,
 }: {
-  name: string
-  onChangeName: (value: string) => void
-  onSubmit: () => void
+  layoutId: string
+  onChange: (id: string) => void
 }) {
   return (
-    <label className="flex flex-col gap-1.5">
-      <FieldLabel>Workspace name</FieldLabel>
-      <input
-        value={name}
-        onChange={(event) => onChangeName(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') onSubmit()
-        }}
-        placeholder="Switchboard"
-        className="
-          block h-[36px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3
-          text-[13px] text-[#ececee] outline-none transition-colors
-          placeholder:text-[#5a5a63] focus:border-[#ececee]/70
-        "
-      />
-    </label>
+    <div role="radiogroup" aria-label="IDE layout" className="flex flex-col gap-1.5">
+      {LAYOUT_TEMPLATES.map((template) => {
+        const active = template.id === layoutId
+        return (
+          <button
+            key={template.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(template.id)}
+            className={`
+              grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
+              transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+              ${active
+                ? 'border-[#3a3b42] bg-[#15161a]'
+                : 'border-[#1f2025] bg-[#0d0e11] hover:border-[#303139] hover:bg-[#111216]'}
+            `}
+          >
+            <span
+              className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
+                active ? 'border-[#ececee] bg-[#ececee]' : 'border-[#3a3b42]'
+              }`}
+              aria-hidden="true"
+            >
+              {active ? <span className="h-1.5 w-1.5 rounded-full bg-[#08090b]" /> : null}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[13px] font-semibold text-[#ececee]">{template.name}</span>
+              <span className="mt-0.5 block text-[12px] leading-5 text-[#9a9aa2]">
+                {template.description}
+              </span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
-function MultiloopConfigure({
-  loopName,
-  onChangeLoopName,
+function MultiloopGoalStep({
   goal,
   onChangeGoal,
   error,
 }: {
-  loopName: string
-  onChangeLoopName: (value: string) => void
   goal: string
   onChangeGoal: (value: string) => void
   error: string | null
 }) {
   return (
-    <div className="space-y-4">
-      <label className="flex flex-col gap-1.5">
-        <FieldLabel>Loop name</FieldLabel>
-        <input
-          value={loopName}
-          onChange={(event) => onChangeLoopName(event.target.value)}
-          placeholder="Release Readiness"
-          className="
-            block h-[36px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3
-            text-[13px] font-medium text-[#ececee] outline-none transition-colors
-            placeholder:text-[#5a5a63] focus:border-[#ececee]/70
-          "
-        />
-      </label>
-      <label className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-4">
+      <label className="flex flex-col gap-2">
         <FieldLabel>Final goal</FieldLabel>
         <textarea
           value={goal}
           onChange={(event) => onChangeGoal(event.target.value)}
           placeholder="What outcome should this loop reach?"
+          autoFocus
           className="
-            min-h-[120px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2.5
-            text-[13px] leading-5 text-[#ececee] outline-none transition-colors
-            placeholder:text-[#5a5a63] focus:border-[#ececee]/70
+            min-h-[140px] w-full resize-none rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5 py-3
+            text-[14px] leading-6 text-[#ececee] outline-none transition-colors
+            placeholder:text-[#5a5a63]
+            hover:border-[#303139] focus:border-[#ececee]/60
           "
         />
       </label>
@@ -927,20 +1148,50 @@ function getSprintEngineAccessState(authState: MulticodeAuthState): SprintEngine
   if (!authState.authenticated) {
     return {
       allowed: false,
-      title: 'Sprint Engine mode is locked while signed out.',
+      title: 'Sprint Engine is locked while signed out.',
       body: 'Sign in to create or supervise local Sprint Engine specialist workflows.',
       action: 'login',
     }
   }
   return {
     allowed: true,
-    title: 'Sprint Engine mode is available.',
+    title: 'Sprint Engine is available.',
     body: 'This signed-in Multicode session can create local Sprint Engine workflows.',
     action: 'login',
   }
 }
 
-function SprintEngineConfigure(props: {
+function SprintEngineAccessNotice({
+  access,
+  onSignIn,
+}: {
+  access: SprintEngineAccessState
+  onSignIn: () => void
+}) {
+  return (
+    <div
+      className="rounded-md border border-[#3a3426] bg-[#1a1408] px-4 py-4"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="text-[13px] font-semibold text-[#ffe0a3]">{access.title}</div>
+      <p className="mt-1 text-[12px] leading-5 text-[#a8a8b0]">{access.body}</p>
+      <button
+        type="button"
+        onClick={onSignIn}
+        className="
+          mt-3 inline-flex h-8 items-center justify-center rounded-md bg-[#ececee] px-3
+          text-[12px] font-semibold text-[#08090b] transition-colors hover:bg-white
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+        "
+      >
+        Sign in
+      </button>
+    </div>
+  )
+}
+
+function SprintEngineTeamStep(props: {
   access: SprintEngineAccessState
   onSignIn: () => void
   folderPath: string | null
@@ -958,13 +1209,6 @@ function SprintEngineConfigure(props: {
   onChangeTeamName: (value: string) => void
   goal: string
   onChangeGoal: (value: string) => void
-  roleCounts: SprintEngineRoleCounts
-  roleCliDefaults: Required<SprintEngineRoleCliDefaults>
-  rosterDisabled: boolean
-  onSetRoleCount: (role: SprintEngineRole, count: number) => void
-  onSetRoleCli: (role: SprintEngineRole, cli: AgentCli) => void
-  startRunner: boolean
-  onChangeStartRunner: (value: boolean) => void
 }) {
   const {
     access,
@@ -984,45 +1228,22 @@ function SprintEngineConfigure(props: {
     onChangeTeamName,
     goal,
     onChangeGoal,
-    roleCounts,
-    roleCliDefaults,
-    rosterDisabled,
-    onSetRoleCount,
-    onSetRoleCli,
-    startRunner,
-    onChangeStartRunner,
   } = props
 
   if (!access.allowed) {
-    return (
-      <div className="rounded-md border border-[#3a3426] bg-[#1a1408] p-4" aria-live="polite">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-semibold text-[#ffe0a3]">{access.title}</div>
-            <p className="mt-1 max-w-md text-[12px] leading-5 text-[#a8a8b0]">{access.body}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onSignIn}
-            className="
-              h-8 shrink-0 rounded-md bg-[#ececee] px-3 text-[12px] font-semibold text-[#08090b]
-              transition-colors hover:bg-white
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
-            "
-          >
-            Sign in
-          </button>
-        </div>
-      </div>
-    )
+    return <SprintEngineAccessNotice access={access} onSignIn={onSignIn} />
   }
 
   const planAvailable = planOptions.length > 0
   const teamAvailable = existingTeams.length > 0
 
   return (
-    <div className="space-y-5">
-      <div role="radiogroup" aria-label="Sprint Engine starting point" className="grid gap-1.5">
+    <div className="flex flex-col gap-5">
+      <div
+        role="radiogroup"
+        aria-label="Sprint Engine starting point"
+        className="flex flex-col gap-1.5"
+      >
         <PathRadio
           checked={path === 'new'}
           label="Start a new team"
@@ -1062,16 +1283,16 @@ function SprintEngineConfigure(props: {
       </div>
 
       {path === 'existing' ? (
-        <label className="flex flex-col gap-1.5">
+        <label className="flex flex-col gap-2">
           <FieldLabel>Team</FieldLabel>
           <select
             value={existingTeamSlug}
             onChange={(event) => onSelectExistingTeam(event.target.value)}
             disabled={isScanning || existingTeams.length === 0}
             className="
-              h-[36px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3
+              h-11 w-full rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
               text-[13px] font-medium text-[#d7d7dc] outline-none transition-colors
-              focus:border-[#ececee]/70 disabled:text-[#5a5a63]
+              focus:border-[#ececee]/60 disabled:text-[#5a5a63]
             "
           >
             <option value="">Select a team…</option>
@@ -1085,16 +1306,16 @@ function SprintEngineConfigure(props: {
       ) : null}
 
       {path === 'plan' ? (
-        <label className="flex flex-col gap-1.5">
+        <label className="flex flex-col gap-2">
           <FieldLabel>Markdown plan</FieldLabel>
           <select
             value={planPath}
             onChange={(event) => onSelectPlan(event.target.value)}
             disabled={!folderPath || isScanning}
             className="
-              h-[36px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3
+              h-11 w-full rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
               text-[13px] font-medium text-[#d7d7dc] outline-none transition-colors
-              focus:border-[#ececee]/70 disabled:text-[#5a5a63]
+              focus:border-[#ececee]/60 disabled:text-[#5a5a63]
             "
           >
             <option value="">Select a plan…</option>
@@ -1113,42 +1334,85 @@ function SprintEngineConfigure(props: {
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5">
-          <FieldLabel>Team name</FieldLabel>
-          <input
-            value={teamName}
-            onChange={(event) => onChangeTeamName(event.target.value)}
-            placeholder="Interface Team"
-            className="
-              block h-[36px] w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3
-              text-[13px] font-medium text-[#ececee] outline-none transition-colors
-              placeholder:text-[#5a5a63] focus:border-[#ececee]/70
-            "
-          />
-        </label>
-      </div>
+      <label className="flex flex-col gap-2">
+        <FieldLabel>Team name</FieldLabel>
+        <input
+          value={teamName}
+          onChange={(event) => onChangeTeamName(event.target.value)}
+          placeholder="Interface Team"
+          className="
+            block h-11 w-full rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
+            text-[14px] font-medium text-[#ececee] outline-none transition-colors
+            placeholder:text-[#5a5a63]
+            hover:border-[#303139] focus:border-[#ececee]/60
+          "
+        />
+      </label>
 
-      <label className="flex flex-col gap-1.5">
+      <label className="flex flex-col gap-2">
         <FieldLabel>Objective</FieldLabel>
         <textarea
           value={goal}
           onChange={(event) => onChangeGoal(event.target.value)}
           placeholder="What outcome should this team deliver?"
           className="
-            min-h-[100px] w-full resize-none rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2.5
-            text-[13px] leading-5 text-[#ececee] outline-none transition-colors
-            placeholder:text-[#5a5a63] focus:border-[#ececee]/70
+            min-h-[120px] w-full resize-none rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5 py-3
+            text-[14px] leading-6 text-[#ececee] outline-none transition-colors
+            placeholder:text-[#5a5a63]
+            hover:border-[#303139] focus:border-[#ececee]/60
           "
         />
       </label>
+    </div>
+  )
+}
 
-      <div>
-        <div className="mb-2 flex items-baseline justify-between">
+function SprintEngineRosterStep(props: {
+  access: SprintEngineAccessState
+  onSignIn: () => void
+  roleCounts: SprintEngineRoleCounts
+  roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  rosterDisabled: boolean
+  onSetRoleCount: (role: SprintEngineRole, count: number) => void
+  onSetRoleCli: (role: SprintEngineRole, cli: AgentCli) => void
+  startRunner: boolean
+  onChangeStartRunner: (value: boolean) => void
+  totalAgents: number
+  hasExistingTeam: boolean
+  existingTeamName: string | null
+}) {
+  const {
+    access,
+    onSignIn,
+    roleCounts,
+    roleCliDefaults,
+    rosterDisabled,
+    onSetRoleCount,
+    onSetRoleCli,
+    startRunner,
+    onChangeStartRunner,
+    totalAgents,
+    hasExistingTeam,
+    existingTeamName,
+  } = props
+
+  if (!access.allowed) {
+    return <SprintEngineAccessNotice access={access} onSignIn={onSignIn} />
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {hasExistingTeam ? (
+        <p className="rounded-md border border-[#3a3426] bg-[#1a1408] px-3 py-2 text-[12px] leading-5 text-[#ffe0a3]">
+          Loading <span className="font-semibold">{existingTeamName}</span> — roster is read-only.
+        </p>
+      ) : null}
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-baseline justify-between">
           <FieldLabel>Roster</FieldLabel>
-          <span className="text-[11px] text-[#8a8a92]">
-            {countSprintEngineAgents(roleCounts)} specialist
-            {countSprintEngineAgents(roleCounts) === 1 ? '' : 's'}
+          <span className="text-[11px] tabular-nums text-[#8a8a92]">
+            {totalAgents} specialist{totalAgents === 1 ? '' : 's'}
           </span>
         </div>
         <SprintEngineRosterTable
@@ -1160,7 +1424,7 @@ function SprintEngineConfigure(props: {
         />
       </div>
 
-      <label className="flex items-start justify-between gap-3 rounded-md border border-[#1f2025] bg-[#0a0b0e] px-3 py-2.5">
+      <label className="flex items-start justify-between gap-3 rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5 py-3">
         <span className="min-w-0">
           <span className="block text-[13px] font-semibold text-[#ececee]">
             Start roster runner when workspace opens
@@ -1201,14 +1465,16 @@ function PathRadio({
       disabled={disabled}
       onClick={onSelect}
       className={`
-        grid w-full grid-cols-[16px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3 py-2.5 text-left
+        grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
         transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
         disabled:cursor-not-allowed disabled:opacity-55
-        ${checked ? 'border-[#3a3b42] bg-[#17181d]' : 'border-[#1f2025] bg-[#0d0e11] hover:border-[#303139] hover:bg-[#111216]'}
+        ${checked
+          ? 'border-[#3a3b42] bg-[#15161a]'
+          : 'border-[#1f2025] bg-[#0d0e11] hover:border-[#303139] hover:bg-[#111216]'}
       `}
     >
       <span
-        className={`mt-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
+        className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
           checked ? 'border-[#ececee] bg-[#ececee]' : 'border-[#3a3b42]'
         }`}
         aria-hidden="true"
@@ -1253,15 +1519,39 @@ function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam
   }
 }
 
-function computeBlockingMessage(args: {
+function isStepReady(
+  step: StepId,
+  readiness: {
+    workspaceStepReady: boolean
+    standardLayoutStepReady: boolean
+    multiloopGoalReady: boolean
+    sprintEngineTeamReady: boolean
+    sprintEngineRosterReady: boolean
+  },
+): boolean {
+  switch (step) {
+    case 'workspace':
+      return readiness.workspaceStepReady
+    case 'mode':
+      return true
+    case 'standard-layout':
+      return readiness.standardLayoutStepReady
+    case 'multiloop-goal':
+      return readiness.multiloopGoalReady
+    case 'sprintengine-team':
+      return readiness.sprintEngineTeamReady
+    case 'sprintengine-roster':
+      return readiness.sprintEngineRosterReady
+  }
+}
+
+function getStepBlockingMessage(args: {
+  step: StepId
   mode: CreationMode
   folderPath: string | null
   name: string
-  standardComplete: boolean
-  switchboardObjectiveComplete: boolean
-  multiloopComplete: boolean
+  mlGoal: string
   sprintEngineAccess: SprintEngineAccessState
-  sprintEngineComplete: boolean
   sePath: SprintEnginePath
   sePlanReady: boolean
   seExistingTeam: ExistingTeam | null
@@ -1269,14 +1559,12 @@ function computeBlockingMessage(args: {
   totalAgents: number
 }): string {
   const {
+    step,
     mode,
     folderPath,
     name,
-    standardComplete,
-    switchboardObjectiveComplete,
-    multiloopComplete,
+    mlGoal,
     sprintEngineAccess,
-    sprintEngineComplete,
     sePath,
     sePlanReady,
     seExistingTeam,
@@ -1284,29 +1572,29 @@ function computeBlockingMessage(args: {
     totalAgents,
   } = args
 
-  if (mode === 'standard') {
-    if (!folderPath) return 'Pick a folder to continue.'
-    if (!standardComplete) return 'Give the workspace a name.'
-    return 'Ready to create.'
+  switch (step) {
+    case 'workspace':
+      if (!folderPath && !name.trim()) return 'Add a name and choose a folder.'
+      if (!folderPath) return 'Choose a folder to continue.'
+      if (!name.trim()) return 'Give the workspace a name.'
+      return 'Press Continue to choose a mode.'
+    case 'mode':
+      return `Continue with ${labelFor(mode)}, or pick another.`
+    case 'standard-layout':
+      return 'Pick a layout, then create.'
+    case 'multiloop-goal':
+      if (!mlGoal.trim()) return 'Describe the loop goal to create.'
+      return 'Ready to create the loop.'
+    case 'sprintengine-team':
+      if (!sprintEngineAccess.allowed) return 'Sign in to use Sprint Engine mode.'
+      if (sePath === 'plan' && !sePlanReady) return 'Select a markdown plan.'
+      if (seExistingTeam) return 'Existing team loaded — continue.'
+      if (!seObjectiveComplete) return 'Add a team name and an objective.'
+      return 'Continue to the roster.'
+    case 'sprintengine-roster':
+      if (!sprintEngineAccess.allowed) return 'Sign in to use Sprint Engine mode.'
+      if (seExistingTeam) return 'Ready to load team.'
+      if (totalAgents === 0) return 'Add at least one specialist.'
+      return 'Ready to create.'
   }
-  if (mode === 'switchboard') {
-    if (!folderPath) return 'Pick a folder to continue.'
-    if (!switchboardObjectiveComplete) return 'Give the workspace a name.'
-    return 'Ready to create.'
-  }
-  if (mode === 'multiloop') {
-    if (!folderPath) return 'Pick a folder to continue.'
-    if (!name && !multiloopComplete) return 'Add a loop name and a final goal.'
-    if (!multiloopComplete) return 'A loop name and final goal are required.'
-    return 'Ready to create.'
-  }
-  // SprintEngine
-  if (!sprintEngineAccess.allowed) return 'Sign in to use Sprint Engine mode.'
-  if (!folderPath) return 'Pick a folder to continue.'
-  if (sePath === 'plan' && !sePlanReady) return 'Select a markdown plan.'
-  if (seExistingTeam) return 'Ready to load team.'
-  if (!seObjectiveComplete) return 'Add a team name and an objective.'
-  if (totalAgents === 0) return 'Add at least one specialist.'
-  if (sprintEngineComplete) return 'Ready to create.'
-  return 'Add the missing details to continue.'
 }
