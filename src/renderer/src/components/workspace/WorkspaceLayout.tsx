@@ -761,9 +761,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         return
       }
 
-      const config = node.getConfig() as { agentId?: string } | undefined
+      const config = node.getConfig() as { agentId?: string; sessionId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
       const agent = workspace.agents[agentId]
+      const agentSessionId = config?.sessionId ?? agent?.cliSessionId
       const runtimeAgent = workspace.sprintEngineState?.sprintEngineAgents[agentId]
       const activity = agentTabActivity(agent, runtimeAgent?.status)
       const currentTaskId = runtimeAgent?.currentTaskId
@@ -811,8 +812,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.leading = null
       }
 
-      const agentSession = agent?.cliSessionId
-        ? terminalSessions.find((s) => s.sessionId === agent.cliSessionId)
+      const agentSession = agentSessionId
+        ? terminalSessions.find((s) => s.sessionId === agentSessionId)
         : undefined
       const agentExitedAt =
         agentSession && !agentSession.running && typeof agentSession.exitedAt === 'number'
