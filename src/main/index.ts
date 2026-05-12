@@ -48,6 +48,7 @@ import {
   claimSwitchboardTask,
   configureSwitchboardRuntimeInventoryProvider,
   configureSwitchboardSessionSpawner,
+  configureSwitchboardSessionStopper,
   createSwitchboardTask,
   getSwitchboardExecutionLogs,
   getSwitchboardExecutionStatus,
@@ -98,10 +99,14 @@ const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
 })
 
 configureSwitchboardSessionSpawner(terminalRuntime.spawnAgentSession)
+configureSwitchboardSessionStopper(terminalRuntime.killAgentSession)
 configureSwitchboardRuntimeInventoryProvider(() => terminalRuntime.getLiveAgentExecutionIds())
 
-function isLiveSwitchboardExecution(execution: SwitchboardRunnerExecution): boolean {
-  return !execution.status || execution.status === 'active' || execution.status === 'launching'
+function isLiveSwitchboardTaskExecution(execution: SwitchboardRunnerExecution): boolean {
+  return (
+    execution.kind === 'switchboard_task'
+    && (!execution.status || execution.status === 'active' || execution.status === 'launching')
+  )
 }
 
 async function stopSwitchboardRunnerAndExecutions(workspaceRoot: string) {
@@ -109,7 +114,7 @@ async function stopSwitchboardRunnerAndExecutions(workspaceRoot: string) {
   if (stopResult.ok === false) return stopResult
 
   const failures: string[] = []
-  const executions = stopResult.activeExecutions.filter(isLiveSwitchboardExecution)
+  const executions = stopResult.activeExecutions.filter(isLiveSwitchboardTaskExecution)
   for (const execution of executions) {
     const executionResult = await stopSwitchboardExecution({
       workspaceRoot,

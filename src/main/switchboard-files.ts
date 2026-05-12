@@ -5,6 +5,7 @@ export {
   beginSwitchboardPythonRuntimeShutdown,
   configureSwitchboardRuntimeInventoryProvider,
   configureSwitchboardSessionSpawner,
+  configureSwitchboardSessionStopper,
   createSwitchboardTask,
   getSwitchboardExecutionLogs,
   getSwitchboardExecutionStatus,
