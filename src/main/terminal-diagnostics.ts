@@ -1,4 +1,5 @@
 import type { TerminalSession } from './terminal-session'
+import type { SessionActivity } from '../shared/electron-api'
 
 type TerminalDiagnosticCause = 'timer' | 'exit' | 'dispose'
 
@@ -115,6 +116,28 @@ export function createTerminalDiagnostics({ enabled, logMainPerfEvent }: Termina
     terminalInputDiagnostics.set(session.sessionId, stats)
   }
 
+  function recordActivityTransition(
+    session: TerminalSession | undefined,
+    previousActivity: SessionActivity,
+    nextActivity: SessionActivity
+  ): void {
+    if (!session || !enabled) return
+
+    logMainPerfEvent('Terminal', 'activity-transition', {
+      sessionId: session.sessionId,
+      kind: session.kind,
+      workspaceId: session.workspaceId,
+      agentId: session.agentId,
+      terminalId: session.terminalId,
+      previousKind: previousActivity.kind,
+      nextKind: nextActivity.kind,
+      lastOutputAt: session.lastOutputAt,
+      lastInputAt: session.lastInputAt,
+      exitCode: 'exitCode' in nextActivity ? nextActivity.exitCode : undefined,
+      message: nextActivity.kind === 'failed' ? nextActivity.message : undefined,
+    })
+  }
+
   function clear(sessionId: string): void {
     terminalBatchDiagnostics.delete(sessionId)
     terminalInputDiagnostics.delete(sessionId)
@@ -123,6 +146,7 @@ export function createTerminalDiagnostics({ enabled, logMainPerfEvent }: Termina
   return {
     recordDataBatch,
     recordInputWrite,
+    recordActivityTransition,
     clear,
   }
 }

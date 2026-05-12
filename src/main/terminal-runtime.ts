@@ -6,6 +6,7 @@ import type {
   AgentSessionIdentity,
   AgentSessionMetadata,
   McpSettings,
+  SessionActivity,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
@@ -22,9 +23,16 @@ import { getTerminalErrorMessage } from './terminal-error'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import {
   appendTerminalOutput,
+  clearTerminalIdleTimer,
+  createFailedTerminalSession,
+  createInitialTerminalActivity,
   getTerminalSize,
   getTerminalSnapshot,
+  getTerminalIdleTimeoutMs,
+  isTerminalProcessAlive,
   materializeTerminalReplay,
+  recordTerminalInput,
+  transitionTerminalActivity,
   type TerminalSession,
 } from './terminal-session'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
@@ -52,7 +60,7 @@ type TerminalIpcHandlers = {
   spawnTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   writeTerminal(sessionId: string, data: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
-  getTerminalStatus(sessionId: string): { running: boolean }
+  getTerminalStatus(sessionId: string): { processAlive: boolean }
   listTerminals(): TerminalSessionSnapshot[]
   setTerminalVisible(sessionId: string, visible: boolean): void
   killTerminal(sessionId: string): void
@@ -104,7 +112,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       getTerminalStatus(sessionId) {
         const session = terminals.get(sessionId)
         return {
-          running: Boolean(session && !session.hasExited && !session.isDisposed),
+          processAlive: Boolean(session && isTerminalProcessAlive(session)),
         }
       },
       listTerminals() {
@@ -159,14 +167,14 @@ function broadcastTerminalSessionsChanged(): void {
 
 function setTerminalVisible(sessionId: string, visible: boolean): void {
   const session = terminals.get(sessionId)
-  if (!session || session.hasExited || session.isDisposed) return
+  if (!session || session.isDisposed) return
   session.visible = visible
   broadcastTerminalSessionsChanged()
 }
 
 function safeResizeTerminal(sessionId: string, cols: number, rows: number): void {
   const session = terminals.get(sessionId)
-  if (!session || session.hasExited || session.isDisposed) return
+  if (!session || !isTerminalProcessAlive(session)) return
 
   const size = getTerminalSize(cols, rows)
   if (process.platform === 'win32' && !session.isReady) {
@@ -178,8 +186,7 @@ function safeResizeTerminal(sessionId: string, cols: number, rows: number): void
     session.process.resize(size.cols, size.rows)
   } catch {
     // node-pty can report resize-after-exit races before its exit event is delivered.
-    session.hasExited = true
-    session.exitedAt ??= Date.now()
+    setTerminalActivity(session, { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 })
   }
 }
 
@@ -199,8 +206,7 @@ function disposeTerminal(sessionId: string): void {
   terminalOutput.flush(sessionId, 'dispose')
   terminalDiagnostics.clear(sessionId)
   session.isDisposed = true
-  session.hasExited = true
-  session.exitedAt ??= Date.now()
+  setTerminalActivity(session, { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 }, { broadcast: false })
   terminals.delete(sessionId)
   broadcastTerminalSessionsChanged()
 
@@ -231,6 +237,7 @@ async function disposeAllTerminals(): Promise<void> {
     cleanupTerminalStartupScript(session.startupScriptPath)
     terminalOutput.flush(session.sessionId, 'dispose')
     terminalDiagnostics.clear(session.sessionId)
+    clearTerminalIdleTimer(session)
     try {
       session.process.kill()
     } catch {
@@ -254,8 +261,7 @@ async function disposeAllTerminals(): Promise<void> {
   for (const session of sessions) {
     if (terminals.get(session.sessionId) === session) {
       session.isDisposed = true
-      session.hasExited = true
-      session.exitedAt ??= Date.now()
+      setTerminalActivity(session, { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 }, { broadcast: false })
       terminals.delete(session.sessionId)
     }
   }
@@ -265,8 +271,7 @@ async function disposeAllTerminals(): Promise<void> {
 function getLiveAgentExecutionIds(): string[] {
   return [...terminals.values()]
     .filter((session) => (
-      !session.hasExited
-      && !session.isDisposed
+      isTerminalProcessAlive(session)
       && (session.agentSession?.system === 'switchboard' || session.agentSession?.system === 'watchtower')
     ))
     .map((session) => session.agentSession?.executionId)
@@ -278,8 +283,7 @@ function killAgentSessionByExecutionId(input: { workspaceRoot: string; execution
   const executionId = input.executionId
   const matchingSessionIds = [...terminals.values()]
     .filter((session) => (
-      !session.hasExited
-      && !session.isDisposed
+      isTerminalProcessAlive(session)
       && session.agentSession?.workspaceRoot === workspaceRoot
       && session.agentSession.executionId === executionId
     ))
@@ -299,8 +303,7 @@ function disposeOtherAgentSessions(
   const duplicateSessionIds = [...terminals.values()]
     .filter((session) => (
       session.sessionId !== sessionId
-      && !session.hasExited
-      && !session.isDisposed
+      && isTerminalProcessAlive(session)
       && session.kind === 'agent'
       && session.workspaceId === workspaceId
       && session.agentId === agentId
@@ -309,6 +312,70 @@ function disposeOtherAgentSessions(
     .map((session) => session.sessionId)
 
   duplicateSessionIds.forEach(disposeTerminal)
+}
+
+function scheduleTerminalIdleTransition(session: TerminalSession): void {
+  clearTerminalIdleTimer(session)
+  if (!isTerminalProcessAlive(session)) return
+
+  session.idleTimer = setTimeout(() => {
+    session.idleTimer = undefined
+    setTerminalActivity(session, { kind: 'idle', since: Date.now() })
+  }, getTerminalIdleTimeoutMs(session))
+}
+
+function setTerminalActivity(
+  session: TerminalSession,
+  nextActivity: SessionActivity,
+  options: { broadcast?: boolean } = {}
+): boolean {
+  const previousActivity = session.activity
+  const changed = transitionTerminalActivity(session, nextActivity)
+  if (!changed) return false
+
+  terminalDiagnostics.recordActivityTransition(session, previousActivity, session.activity)
+  if (options.broadcast !== false && terminals.get(session.sessionId) === session) {
+    broadcastTerminalSessionsChanged()
+  }
+  return true
+}
+
+function retainFailedTerminalSession(input: {
+  sessionId: string
+  sender?: WebContents
+  message: string
+  exitCode?: number
+  kind?: TerminalSession['kind']
+  pathStyle?: TerminalSession['pathStyle']
+  workspaceId?: string
+  agentId?: string
+  terminalId?: string
+  cli?: TerminalSession['cli']
+  cwd?: string
+  sprintEngineStatePath?: string
+  executionMode?: TerminalSession['executionMode']
+  worktreeId?: string
+  worktreePath?: string
+  agentSession?: TerminalSession['agentSession']
+  visible?: boolean
+}): TerminalSession {
+  const at = Date.now()
+  if (terminals.has(input.sessionId)) {
+    disposeTerminal(input.sessionId)
+  }
+  const session = createFailedTerminalSession({
+    ...input,
+    at,
+    exitCode: input.exitCode ?? 1,
+  })
+  terminals.set(input.sessionId, session)
+  terminalDiagnostics.recordActivityTransition(
+    session,
+    { kind: 'working', since: at },
+    session.activity
+  )
+  broadcastTerminalSessionsChanged()
+  return session
 }
 
 function materializeAgentSessionIdentity(
@@ -336,6 +403,7 @@ function attachTerminalSession(
   initialInput: string | undefined
 ): void {
   terminals.set(sessionId, terminalSession)
+  scheduleTerminalIdleTransition(terminalSession)
   broadcastTerminalSessionsChanged()
 
   terminalSession.process.onData((data) => {
@@ -344,6 +412,13 @@ function attachTerminalSession(
       flushPendingTerminalResize(sessionId, terminalSession)
     }
     appendTerminalOutput(terminalSession, data)
+    if (terminalSession.activity.kind !== 'working') {
+      setTerminalActivity(
+        terminalSession,
+        { kind: 'working', since: terminalSession.lastOutputAt ?? Date.now() }
+      )
+    }
+    scheduleTerminalIdleTransition(terminalSession)
     terminalOutput.send(terminalSession, data)
   })
 
@@ -351,9 +426,7 @@ function attachTerminalSession(
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
     terminalOutput.flush(sessionId, 'exit')
     terminalDiagnostics.clear(sessionId)
-    terminalSession.hasExited = true
-    terminalSession.exitedAt ??= Date.now()
-    terminalSession.exitCode = event.exitCode
+    setTerminalActivity(terminalSession, { kind: 'exited', at: Date.now(), exitCode: event.exitCode })
     if (terminalSession.agentSession?.system === 'switchboard' || terminalSession.agentSession?.system === 'watchtower') {
       const exitRecord = Promise.resolve(onAgentSessionExit?.({
         workspaceRoot: terminalSession.agentSession.workspaceRoot,
@@ -375,6 +448,7 @@ function attachTerminalSession(
   })
 
   if (initialInput) {
+    recordTerminalInput(terminalSession)
     terminalSession.process.write(initialInput)
   }
 }
@@ -387,6 +461,25 @@ async function spawnAgentSessionFromDescriptor(input: {
 }): Promise<TerminalSpawnResult> {
   const sender = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())?.webContents
   if (!sender) {
+    retainFailedTerminalSession({
+      sessionId: input.descriptor.executionId,
+      message: 'No desktop window is available to host the agent terminal.',
+      kind: 'agent',
+      workspaceId: input.workspaceId,
+      agentId: input.descriptor.executionId,
+      cli: input.descriptor.cli,
+      cwd: input.descriptor.cwd,
+      agentSession: {
+        sessionId: input.descriptor.executionId,
+        executionId: input.descriptor.executionId,
+        system: input.descriptor.system,
+        workspaceId: input.workspaceId ?? '',
+        workspaceRoot: input.workspaceRoot,
+        workId: input.descriptor.workId,
+        role: input.descriptor.role,
+        displayName: input.descriptor.displayName,
+      },
+    })
     return {
       ok: false,
       sessionId: input.descriptor.executionId,
@@ -397,6 +490,26 @@ async function spawnAgentSessionFromDescriptor(input: {
 
   const [command, ...args] = input.descriptor.command
   if (!command) {
+    retainFailedTerminalSession({
+      sessionId: input.descriptor.executionId,
+      sender,
+      message: 'Agent descriptor did not include a command.',
+      kind: 'agent',
+      workspaceId: input.workspaceId,
+      agentId: input.descriptor.executionId,
+      cli: input.descriptor.cli,
+      cwd: input.descriptor.cwd,
+      agentSession: {
+        sessionId: input.descriptor.executionId,
+        executionId: input.descriptor.executionId,
+        system: input.descriptor.system,
+        workspaceId: input.workspaceId ?? '',
+        workspaceRoot: input.workspaceRoot,
+        workId: input.descriptor.workId,
+        role: input.descriptor.role,
+        displayName: input.descriptor.displayName,
+      },
+    })
     return {
       ok: false,
       sessionId: input.descriptor.executionId,
@@ -415,6 +528,26 @@ async function spawnAgentSessionFromDescriptor(input: {
         clients: [input.descriptor.cli],
       })
       if (!syncResult.ok) {
+        retainFailedTerminalSession({
+          sessionId: input.descriptor.executionId,
+          sender,
+          message: syncResult.message,
+          kind: 'agent',
+          workspaceId: input.workspaceId,
+          agentId: input.descriptor.executionId,
+          cli: input.descriptor.cli,
+          cwd: input.descriptor.cwd,
+          agentSession: {
+            sessionId: input.descriptor.executionId,
+            executionId: input.descriptor.executionId,
+            system: input.descriptor.system,
+            workspaceId: input.workspaceId ?? '',
+            workspaceRoot: input.workspaceRoot,
+            workId: input.descriptor.workId,
+            role: input.descriptor.role,
+            displayName: input.descriptor.displayName,
+          },
+        })
         return {
           ok: false,
           sessionId: input.descriptor.executionId,
@@ -435,6 +568,7 @@ async function spawnAgentSessionFromDescriptor(input: {
         ...(input.descriptor.env ?? {}),
       },
     })
+    const startedAt = Date.now()
     const terminalSession: TerminalSession = {
       sessionId: input.descriptor.executionId,
       process: termProcess,
@@ -443,6 +577,7 @@ async function spawnAgentSessionFromDescriptor(input: {
       hasExited: false,
       exitedAt: null,
       isDisposed: false,
+      activity: createInitialTerminalActivity(startedAt),
       outputChunks: [],
       outputChunkBytes: [],
       outputChunkStart: 0,
@@ -465,18 +600,39 @@ async function spawnAgentSessionFromDescriptor(input: {
         displayName: input.descriptor.displayName,
       },
       visible: false,
-      startedAt: Date.now(),
-      lastOutputAt: null,
+      startedAt,
+      lastOutputAt: startedAt,
       lastInputAt: null,
     }
 
     attachTerminalSession(input.descriptor.executionId, terminalSession, descriptorPromptInput(input.descriptor.prompt))
     return { ok: true, sessionId: input.descriptor.executionId }
   } catch (error) {
+    const message = getTerminalErrorMessage(error)
+    retainFailedTerminalSession({
+      sessionId: input.descriptor.executionId,
+      sender,
+      message,
+      kind: 'agent',
+      workspaceId: input.workspaceId,
+      agentId: input.descriptor.executionId,
+      cli: input.descriptor.cli,
+      cwd: input.descriptor.cwd,
+      agentSession: {
+        sessionId: input.descriptor.executionId,
+        executionId: input.descriptor.executionId,
+        system: input.descriptor.system,
+        workspaceId: input.workspaceId ?? '',
+        workspaceRoot: input.workspaceRoot,
+        workId: input.descriptor.workId,
+        role: input.descriptor.role,
+        displayName: input.descriptor.displayName,
+      },
+    })
     return {
       ok: false,
       sessionId: input.descriptor.executionId,
-      message: getTerminalErrorMessage(error),
+      message,
       exitCode: 1,
     }
   }
@@ -490,10 +646,21 @@ function createMobileCommandService(): MobileSprintEngineCommandService {
     spawnAgentTerminal: spawnMobileAgentTerminal,
     writeTerminal: (sessionId, data) => {
       const session = terminals.get(sessionId)
-      if (!session || session.hasExited || session.isDisposed) {
+      if (!session || !isTerminalProcessAlive(session)) {
         throw new Error('Desktop terminal session is no longer running.')
       }
-      session.process.write(data)
+      try {
+        recordTerminalInput(session)
+        session.process.write(data)
+      } catch (error) {
+        setTerminalActivity(session, {
+          kind: 'failed',
+          at: Date.now(),
+          exitCode: session.exitCode ?? 1,
+          message: getErrorMessage(error),
+        })
+        throw error
+      }
     },
   })
 }
@@ -511,13 +678,39 @@ async function spawnMobileAgentTerminal(input: {
 }): Promise<{ ok: true; sessionId: string } | { ok: false; message: string }> {
   const sender = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())?.webContents
   if (!sender) {
+    retainFailedTerminalSession({
+      sessionId: input.sessionId,
+      message: 'No desktop window is available to host a mobile-started agent terminal.',
+      kind: 'agent',
+      agentId: input.agentId,
+      cli: input.cli,
+      cwd: input.cwd,
+      sprintEngineStatePath: input.sprintEngineStatePath,
+      executionMode: input.executionMode,
+      worktreeId: input.worktreeId,
+      worktreePath: input.worktreePath,
+    })
     return { ok: false, message: 'No desktop window is available to host a mobile-started agent terminal.' }
   }
 
   try {
     requireAuthenticatedUser('Sign in to launch Sprint Engine specialist workflows from the app.')
   } catch (error) {
-    return { ok: false, message: getErrorMessage(error) }
+    const message = getErrorMessage(error)
+    retainFailedTerminalSession({
+      sessionId: input.sessionId,
+      sender,
+      message,
+      kind: 'agent',
+      agentId: input.agentId,
+      cli: input.cli,
+      cwd: input.cwd,
+      sprintEngineStatePath: input.sprintEngineStatePath,
+      executionMode: input.executionMode,
+      worktreeId: input.worktreeId,
+      worktreePath: input.worktreePath,
+    })
+    return { ok: false, message }
   }
 
   disposeTerminal(input.sessionId)
@@ -541,6 +734,7 @@ async function spawnMobileAgentTerminal(input: {
       cwd: launchCwd ?? input.cwd,
       env: env ?? getTerminalEnv(),
     })
+    const startedAt = Date.now()
     const terminalSession: TerminalSession = {
       sessionId: input.sessionId,
       process: termProcess,
@@ -549,6 +743,7 @@ async function spawnMobileAgentTerminal(input: {
       hasExited: false,
       exitedAt: null,
       isDisposed: false,
+      activity: createInitialTerminalActivity(startedAt),
       outputChunks: [],
       outputChunkBytes: [],
       outputChunkStart: 0,
@@ -564,8 +759,8 @@ async function spawnMobileAgentTerminal(input: {
       worktreeId: input.worktreeId,
       worktreePath: input.worktreePath,
       visible: false,
-      startedAt: Date.now(),
-      lastOutputAt: null,
+      startedAt,
+      lastOutputAt: startedAt,
       lastInputAt: null,
       startupScriptPath,
     }
@@ -574,7 +769,21 @@ async function spawnMobileAgentTerminal(input: {
 
     return { ok: true, sessionId: input.sessionId }
   } catch (error) {
-    return { ok: false, message: getTerminalErrorMessage(error) }
+    const message = getTerminalErrorMessage(error)
+    retainFailedTerminalSession({
+      sessionId: input.sessionId,
+      sender,
+      message,
+      kind: 'agent',
+      agentId: input.agentId,
+      cli: input.cli,
+      cwd: input.cwd,
+      sprintEngineStatePath: input.sprintEngineStatePath,
+      executionMode: input.executionMode,
+      worktreeId: input.worktreeId,
+      worktreePath: input.worktreePath,
+    })
+    return { ok: false, message }
   }
 }
 
@@ -641,6 +850,23 @@ async function spawnTerminalFromIpc(
           requireAuthenticatedUser('Sign in to launch Sprint Engine specialist workflows from the app.')
         } catch (error) {
           const message = getErrorMessage(error)
+          retainFailedTerminalSession({
+            sessionId,
+            sender,
+            message,
+            kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+            workspaceId,
+            agentId,
+            terminalId,
+            cli: shellOnly ? undefined : cli,
+            cwd: workingDirectory,
+            sprintEngineStatePath,
+            executionMode,
+            worktreeId,
+            worktreePath,
+            agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
+            visible,
+          })
           sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
           sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
           return {
@@ -662,6 +888,23 @@ async function spawnTerminalFromIpc(
           clients: [cli],
         })
         if (!syncResult.ok) {
+          retainFailedTerminalSession({
+            sessionId,
+            sender,
+            message: syncResult.message,
+            kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+            workspaceId,
+            agentId,
+            terminalId,
+            cli: shellOnly ? undefined : cli,
+            cwd: workingDirectory,
+            sprintEngineStatePath,
+            executionMode,
+            worktreeId,
+            worktreePath,
+            agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
+            visible,
+          })
           sendTerminalEvent(sender, `terminal:error:${sessionId}`, syncResult.message)
           sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
           return {
@@ -695,6 +938,7 @@ async function spawnTerminalFromIpc(
         cwd: launchCwd ?? workingDirectory,
         env: env ?? getTerminalEnv(),
       })
+      const startedAt = Date.now()
       const terminalSession: TerminalSession = {
         sessionId,
         process: termProcess,
@@ -703,6 +947,7 @@ async function spawnTerminalFromIpc(
         hasExited: false,
         exitedAt: null,
         isDisposed: false,
+        activity: createInitialTerminalActivity(startedAt),
         outputChunks: [],
         outputChunkBytes: [],
         outputChunkStart: 0,
@@ -721,8 +966,8 @@ async function spawnTerminalFromIpc(
         worktreePath,
         agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
         visible,
-        startedAt: Date.now(),
-        lastOutputAt: null,
+        startedAt,
+        lastOutputAt: startedAt,
         lastInputAt: null,
         startupScriptPath,
       }
@@ -732,6 +977,23 @@ async function spawnTerminalFromIpc(
       return { ok: true, sessionId } satisfies TerminalSpawnResult
     } catch (error) {
       const message = getTerminalErrorMessage(error)
+      retainFailedTerminalSession({
+        sessionId,
+        sender,
+        message,
+        kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+        workspaceId,
+        agentId,
+        terminalId,
+        cli: shellOnly ? undefined : cli,
+        cwd: cwd || process.cwd(),
+        sprintEngineStatePath,
+        executionMode,
+        worktreeId,
+        worktreePath,
+        agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
+        visible,
+      })
       sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
       sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
       return {
@@ -746,15 +1008,19 @@ async function spawnTerminalFromIpc(
 function writeTerminalInput(sessionId: string, data: string): void {
   const startedAt = Date.now()
   const session = terminals.get(sessionId)
-  if (!session || session.hasExited || session.isDisposed) return
+  if (!session || !isTerminalProcessAlive(session)) return
 
   try {
-    session.lastInputAt = Date.now()
+    recordTerminalInput(session, startedAt)
     session.process.write(data)
     terminalDiagnostics.recordInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, true)
-  } catch {
-    session.hasExited = true
-    session.exitedAt ??= Date.now()
+  } catch (error) {
+    setTerminalActivity(session, {
+      kind: 'failed',
+      at: Date.now(),
+      exitCode: session.exitCode ?? 1,
+      message: getErrorMessage(error),
+    })
     terminalDiagnostics.recordInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, false)
   }
 }

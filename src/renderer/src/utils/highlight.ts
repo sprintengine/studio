@@ -1,4 +1,4 @@
-import type { HighlightColor, WorkspaceHighlight } from '../types/workspace'
+import type { HighlightColor, Workspace, WorkspaceHighlight, WorkspaceMode } from '../types/workspace'
 
 export const HIGHLIGHT_COLORS: HighlightColor[] = [
   'red',
@@ -152,4 +152,22 @@ export function hasHighlightOverride(
   highlight: WorkspaceHighlight | undefined | null
 ): boolean {
   return getHighlightColor(highlight) !== null
+}
+
+const WORKSPACE_MODE_ACCENT_HEX: Record<WorkspaceMode, string | null> = {
+  sprintengine: '#ffbf2f',
+  switchboard: '#a78bfa',
+  multiloop: '#5c7cff',
+  standard: null,
+}
+
+// Effective accent for a workspace anywhere outside the sidebar. Highlight
+// color wins; otherwise fall back to the workspace mode identity. Standard
+// workspaces without a highlight return null so callers can render a neutral
+// treatment instead of an arbitrary tint.
+export function getWorkspaceAccentHex(
+  workspace: Pick<Workspace, 'highlight' | 'mode'>
+): string | null {
+  if (workspace.highlight?.color) return swatches[workspace.highlight.color].hex
+  return WORKSPACE_MODE_ACCENT_HEX[workspace.mode]
 }

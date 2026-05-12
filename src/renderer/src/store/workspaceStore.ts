@@ -106,7 +106,8 @@ interface WorkspaceStore {
   forgetFolder: (folderPath: string) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
-  recordWorkspaceTerminalActivity: (id: WorkspaceId, exitedAt: number) => void
+  recordWorkspaceTerminalActivity: (id: WorkspaceId, lastOutputAt: number) => void
+  reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setMcpSyncEnabled: (enabled: boolean) => void
@@ -1134,12 +1135,42 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           if (ws) ws.highlight = undefined
         }),
 
-      recordWorkspaceTerminalActivity: (id, exitedAt) =>
+      recordWorkspaceTerminalActivity: (id, lastOutputAt) =>
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === id)
           if (!ws) return
-          if (typeof ws.lastTerminalActivityAt !== 'number' || ws.lastTerminalActivityAt < exitedAt) {
-            ws.lastTerminalActivityAt = exitedAt
+          if (
+            typeof ws.lastTerminalActivityAt !== 'number'
+            || ws.lastTerminalActivityAt < lastOutputAt
+          ) {
+            ws.lastTerminalActivityAt = lastOutputAt
+          }
+        }),
+
+      reconcileWorkspaceAgentLaunchFlags: (sessions) =>
+        set((state) => {
+          for (const ws of state.workspaces) {
+            for (const [agentId, agent] of Object.entries(ws.agents)) {
+              if (
+                !agent.cliStartRequested
+                && !agent.cliHasLaunched
+                && !agent.cliSessionId
+              ) continue
+              const matchingLive = sessions.find(
+                (session) =>
+                  session.processAlive
+                  && session.kind === 'agent'
+                  && session.workspaceId === ws.id
+                  && (
+                    (agent.cliSessionId && session.sessionId === agent.cliSessionId)
+                    || session.agentId === agentId
+                  )
+              )
+              if (matchingLive) continue
+              agent.cliStartRequested = false
+              agent.cliHasLaunched = false
+              agent.cliSessionId = undefined
+            }
           }
         }),
 

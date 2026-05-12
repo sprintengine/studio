@@ -131,7 +131,7 @@ function isMatchingWorkspaceAgentSession(
   agentId: string
 ): boolean {
   if (
-    !session.running
+    !session.processAlive
     || session.kind !== 'agent'
     || session.workspaceId !== workspace.id
     || session.agentId !== agentId
@@ -672,7 +672,7 @@ function sessionBelongsToWorkspaceSprintEngine(
   workspace: Workspace
 ): boolean {
   return Boolean(
-    session.running
+    session.processAlive
     && session.kind === 'agent'
     && session.workspaceId === workspace.id
     && (!workspace.sprintEngineContext || session.sprintEngineStatePath === workspace.sprintEngineContext.statePath)
@@ -990,8 +990,8 @@ async function spawnAutoRunCandidate(
       .workspaces.find((candidate) => candidate.id === workspace.id)
       ?.agents[nextRun.agentId]
     if (latestAgent?.cliSessionId) {
-      const status = await window.api.terminalStatus(latestAgent.cliSessionId).catch(() => ({ running: false }))
-      if (status.running) return 'skipped'
+      const status = await window.api.terminalStatus(latestAgent.cliSessionId).catch(() => ({ processAlive: false }))
+      if (status.processAlive) return 'skipped'
       latestStateBeforeSpawn.updateAgent(workspace.id, nextRun.agentId, {
         cliSessionId: undefined,
         cliStartRequested: false,
@@ -1213,9 +1213,9 @@ async function startMissingRosterAgents(
       continue
     }
     const status = currentAgent?.cliSessionId
-      ? await window.api.terminalStatus(currentAgent.cliSessionId).catch(() => ({ running: false }))
-      : { running: false }
-    if (status.running) continue
+      ? await window.api.terminalStatus(currentAgent.cliSessionId).catch(() => ({ processAlive: false }))
+      : { processAlive: false }
+    if (status.processAlive) continue
 
     const result = await spawnAutoRunCandidate(
       workspace,
@@ -1498,7 +1498,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     }
 
     const status = await window.api.terminalStatus(agent.cliSessionId)
-    if (status.running) continue
+    if (status.processAlive) continue
 
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
       cliSessionId: undefined,

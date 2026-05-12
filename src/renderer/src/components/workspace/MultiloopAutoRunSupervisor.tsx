@@ -67,7 +67,7 @@ function isMatchingMultiloopAutoRunSession(
   agentId: string
 ): boolean {
   return Boolean(
-    session.running
+    session.processAlive
     && session.kind === 'agent'
     && session.workspaceId === workspace.id
     && session.agentId === agentId
@@ -176,7 +176,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     if (!['multiloop', 'sprintengine'].includes(agent.kind ?? '') || !agent.cliStartRequested || !agent.cliHasLaunched || !agent.cliSessionId) continue
 
     const status = await window.api.terminalStatus(agent.cliSessionId)
-    if (status.running) continue
+    if (status.processAlive) continue
 
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
       cliSessionId: undefined,

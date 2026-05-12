@@ -337,9 +337,15 @@ export type TerminalSpawnMetadata = {
   mcpSettings?: McpSettings
 }
 
+export type SessionActivity =
+  | { kind: 'working'; since: number }
+  | { kind: 'idle'; since: number }
+  | { kind: 'exited'; at: number; exitCode: number }
+  | { kind: 'failed'; at: number; exitCode: number; message?: string }
+
 export type TerminalSessionSnapshot = {
   sessionId: string
-  running: boolean
+  processAlive: boolean
   kind: TerminalKind
   pathStyle?: TerminalPathStyle
   workspaceId?: string
@@ -355,6 +361,8 @@ export type TerminalSessionSnapshot = {
   visible: boolean
   startedAt: number
   lastOutputAt: number | null
+  lastInputAt: number | null
+  activity: SessionActivity
   exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number
@@ -1085,7 +1093,7 @@ export type ElectronApi = {
   terminalWrite: (sessionId: string, data: string) => Promise<void>
   terminalWriteFast: (sessionId: string, data: string) => void
   terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
-  terminalStatus: (sessionId: string) => Promise<{ running: boolean }>
+  terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
   terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
   terminalKill: (sessionId: string) => Promise<void>

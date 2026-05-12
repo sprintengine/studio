@@ -49,20 +49,20 @@ async function assertTaskStartRejectsTerminalLimit(): Promise<void> {
       listTerminals: async () => [
         {
           sessionId: 'session_existing',
-          running: true,
+          processAlive: true,
           kind: 'agent',
           agentId: 'developer-1',
           sprintEngineStatePath: fixture.statePath,
         },
       ],
     }),
-    maxRunningAgentTerminals: 1,
+    maxProcessAliveAgentTerminals: 1,
     now: () => now,
   })
 
   await assert.rejects(
     () => orchestrator.startTask(taskStartRequest(fixture)),
-    /running Sprint Engine terminal limit/
+    /live Sprint Engine terminal limit/
   )
 }
 
@@ -74,7 +74,7 @@ async function assertFollowUpWritesOnlyToKnownAgentTerminal(): Promise<void> {
       listTerminals: async () => [
         {
           sessionId: 'session_developer',
-          running: true,
+          processAlive: true,
           kind: 'agent',
           agentId: 'developer-1',
           sprintEngineStatePath: fixture.statePath,
@@ -118,7 +118,7 @@ async function assertFollowUpRejectsCrLfBeforeTerminalWrite(): Promise<void> {
         listTerminals: async () => [
           {
             sessionId: 'session_developer',
-            running: true,
+            processAlive: true,
             kind: 'agent',
             agentId: 'developer-1',
             sprintEngineStatePath: fixture.statePath,

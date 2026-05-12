@@ -14,7 +14,7 @@ type AgentCli = 'codex' | 'claude'
 
 type TerminalSessionSnapshot = {
   sessionId: string
-  running: boolean
+  processAlive: boolean
   kind: 'agent' | 'terminal'
   agentId?: string
   cli?: AgentCli
@@ -46,7 +46,7 @@ export type DesktopMobileSprintEngineSessionAdapters = {
 
 type DesktopMobileSprintEngineSessionOptions = {
   adapters: DesktopMobileSprintEngineSessionAdapters
-  maxRunningAgentTerminals?: number
+  maxProcessAliveAgentTerminals?: number
   now?: () => Date
 }
 
@@ -82,30 +82,30 @@ const sprintEngineRoleLabels: Record<string, string> = {
 }
 
 export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprintEngineSessionOrchestrator {
-  private readonly maxRunningAgentTerminals: number
+  private readonly maxProcessAliveAgentTerminals: number
   private readonly now: () => Date
 
   constructor(private readonly options: DesktopMobileSprintEngineSessionOptions) {
-    this.maxRunningAgentTerminals = Math.max(1, options.maxRunningAgentTerminals ?? 8)
+    this.maxProcessAliveAgentTerminals = Math.max(1, options.maxProcessAliveAgentTerminals ?? 8)
     this.now = options.now ?? (() => new Date())
   }
 
   async startTask(request: MobileSprintEngineTaskStartRequest): Promise<MobileSprintEngineTaskStartResult> {
     const sessions = await this.options.adapters.listTerminals()
-    const sprintEngineSessions = sessions.filter((session) =>
-      session.running
+    const processAliveSprintEngineSessions = sessions.filter((session) =>
+      session.processAlive
       && session.kind === 'agent'
       && session.sprintEngineStatePath === request.statePath
     )
 
-    if (sprintEngineSessions.length >= this.maxRunningAgentTerminals) {
-      throw new MobileSprintEngineCommandError('task_not_ready', 'Desktop has reached the running Sprint Engine terminal limit.', true)
+    if (processAliveSprintEngineSessions.length >= this.maxProcessAliveAgentTerminals) {
+      throw new MobileSprintEngineCommandError('task_not_ready', 'Desktop has reached the live Sprint Engine terminal limit.', true)
     }
 
     const state = await readRawSprintEngineState(request.statePath)
-    const agentId = chooseAgentId(state, request.role, sprintEngineSessions)
-    if (sprintEngineSessions.some((session) => session.agentId === agentId)) {
-      throw new MobileSprintEngineCommandError('task_not_ready', 'The selected Sprint Engine agent already has a running terminal.', false)
+    const agentId = chooseAgentId(state, request.role, processAliveSprintEngineSessions)
+    if (processAliveSprintEngineSessions.some((session) => session.agentId === agentId)) {
+      throw new MobileSprintEngineCommandError('task_not_ready', 'The selected Sprint Engine agent already has a live terminal.', false)
     }
 
     const executionCwd = request.workspaceRoot
@@ -145,14 +145,14 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
     const text = normalizeFollowUpTextForTerminal(request.text)
     const sessions = await this.options.adapters.listTerminals()
     const session = sessions.find((candidate) =>
-      candidate.running
+      candidate.processAlive
       && candidate.kind === 'agent'
       && candidate.sprintEngineStatePath === request.statePath
       && candidate.agentId === request.agentId
     )
 
     if (!session) {
-      throw new MobileSprintEngineCommandError('task_not_ready', 'Follow-up target agent does not have a running desktop terminal.', true)
+      throw new MobileSprintEngineCommandError('task_not_ready', 'Follow-up target agent does not have a live desktop terminal.', true)
     }
 
     const message = [
@@ -191,16 +191,16 @@ async function readRawSprintEngineState(statePath: string): Promise<RawSprintEng
 function chooseAgentId(
   state: RawSprintEngineState,
   role: string,
-  runningSessions: TerminalSessionSnapshot[]
+  processAliveSessions: TerminalSessionSnapshot[]
 ): string {
-  const runningAgentIds = new Set(runningSessions.flatMap((session) => session.agentId ? [session.agentId] : []))
+  const processAliveAgentIds = new Set(processAliveSessions.flatMap((session) => session.agentId ? [session.agentId] : []))
   const agents = state.sprintEngineAgents && typeof state.sprintEngineAgents === 'object' ? state.sprintEngineAgents : {}
   const idleAgent = Object.entries(agents)
     .sort(([first], [second]) => agentIdSortValue(first, role) - agentIdSortValue(second, role))
     .find(([agentId, agent]) =>
       agent.role === role
       && agent.status !== 'done'
-      && !runningAgentIds.has(agentId)
+      && !processAliveAgentIds.has(agentId)
     )
   if (idleAgent) return idleAgent[0]
 

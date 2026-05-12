@@ -42,7 +42,9 @@ export async function pasteDroppedFilesIntoTerminal(input: {
   }
 
   const sessions = await window.api.terminalList()
-  const session = sessions.find((candidate) => candidate.sessionId === input.sessionId && candidate.running)
+  const session = sessions.find(
+    (candidate) => candidate.sessionId === input.sessionId && candidate.processAlive
+  )
   if (!session) return { ok: false, message: 'Terminal session is no longer running.' }
 
   const text = formatDroppedPathsForTerminal(payload, session)

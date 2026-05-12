@@ -32,7 +32,7 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 
-type Activity = 'running' | 'needs-input' | 'idle'
+type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
 type TerminalRecency = { hasRunning: boolean; lastFinishedAt: number | null }
 
@@ -200,15 +200,17 @@ function inactiveHighlightClass(workspace: Workspace): string {
   return `border-l-[3px] ${swatch.border}`
 }
 
-function activityTone(activity: Activity): 'running' | 'needs-input' | null {
+function activityTone(activity: Activity): 'running' | 'needs-input' | 'error' | null {
   if (activity === 'needs-input') return 'needs-input'
-  if (activity === 'running') return 'running'
+  if (activity === 'working') return 'running'
+  if (activity === 'failed') return 'error'
   return null
 }
 
 function activityLabel(activity: Activity): string {
   if (activity === 'needs-input') return 'Workspace needs input'
-  if (activity === 'running') return 'Workspace has running agents'
+  if (activity === 'working') return 'Workspace agents working'
+  if (activity === 'failed') return 'Workspace agent failed'
   return 'Workspace idle'
 }
 
@@ -385,7 +387,7 @@ export default function WorkspaceSidebar({
       const workspace = workspaceById.get(workspaceId)
       if (!workspace) return
       const activity = activityByWorkspaceId[workspaceId] ?? 'idle'
-      if (activity === 'running' || activity === 'needs-input') {
+      if (activity === 'working' || activity === 'failed' || activity === 'needs-input') {
         setConfirmClose(workspaceId)
         return
       }
@@ -769,8 +771,8 @@ export default function WorkspaceSidebar({
             {showRecencyText ? (
               <span
                 className="ml-1 shrink-0 text-[10px] tabular-nums text-[#5a5a63]"
-                title={`Last terminal exited ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
-                aria-label={`Last terminal exited ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
+                title={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
+                aria-label={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
               >
                 {formatRelativeMs(recency!.lastFinishedAt!, now)}
               </span>

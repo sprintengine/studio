@@ -16,10 +16,10 @@ import {
   formatSprintEngineGoal,
 } from '../../utils/sprintengineRunSummary'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
+import { useTerminalSessions } from '../../hooks/useTerminalSessions'
 import type {
   AgentCli,
   AgentExecution,
-  AgentState,
   SprintEngineArtifact,
   SprintEngineCliPermissionPreset,
   SprintEngineRole,
@@ -402,6 +402,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const effectiveView = fixedView ?? activeView
   const folderPath = folderReadyPath
   const agents = workspace?.agents ?? {}
+  const terminalSessions = useTerminalSessions()
   const autoEnabled = workspace?.sprintEngineAutoState?.enabled ?? false
   const autoApproveArtifacts = workspace?.sprintEngineAutoState?.autoApproveArtifacts ?? false
   const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
@@ -419,6 +420,23 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const rosterById = useMemo(
     () => Object.fromEntries(roster.map((agent) => [agent.id, agent])),
     [roster]
+  )
+
+  const isAgentTerminalLive = useCallback(
+    (agentId: string): boolean => {
+      const agentSessionId = agents[agentId]?.cliSessionId
+      return terminalSessions.some((session) =>
+        session.processAlive
+        && session.kind === 'agent'
+        && session.workspaceId === workspaceId
+        && (
+          session.agentId === agentId
+          || (agentSessionId ? session.sessionId === agentSessionId : false)
+        )
+        && (!sprintEngineContext || session.sprintEngineStatePath === sprintEngineContext.statePath)
+      )
+    },
+    [agents, sprintEngineContext, terminalSessions, workspaceId]
   )
 
   useEffect(() => {
@@ -767,12 +785,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const spawnDialogRuntime = spawnDialog
     ? runtimeAgents.find((agent) => agent.agentId === spawnDialog.agentId)
     : undefined
-  const spawnDialogAgentState = spawnDialog ? agents[spawnDialog.agentId] : undefined
   const spawnDialogDefaultName = spawnDialogAgent?.label ?? spawnDialog?.agentId ?? ''
   const spawnDialogDisplayName = spawnDialog
     ? normalizeAgentIdentifier(spawnDialog.name) || spawnDialogDefaultName
     : spawnDialogDefaultName
-  const spawnDialogIsRunning = Boolean(spawnDialogAgentState?.cliStartRequested)
+  const spawnDialogHasLiveTerminal = spawnDialog ? isAgentTerminalLive(spawnDialog.agentId) : false
   const selectedCliOption = cliOptions.find((option) => option.value === spawnDialog?.cli) ?? cliOptions[0]
   const selectedRecoveryCliOption =
     cliOptions.find((option) => option.value === recoveryDialog?.cli) ?? cliOptions[0]
@@ -948,7 +965,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
     if (linkedTask) {
       const runningRoleAgents = roster.filter((agent) =>
-        agent.role === linkedTask.role && Boolean(agents[agent.id]?.cliStartRequested)
+        agent.role === linkedTask.role && isAgentTerminalLive(agent.id)
       )
       if (runningRoleAgents.length === 1) return runningRoleAgents[0].id
     }
@@ -977,13 +994,13 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const runningArtifactProducerSessionId = async (agentId: string): Promise<string | null> => {
     const sessionId = agents[agentId]?.cliSessionId
     if (sessionId) {
-      const status = await window.api.terminalStatus(sessionId).catch(() => ({ running: false }))
-      if (status.running) return sessionId
+      const status = await window.api.terminalStatus(sessionId).catch(() => ({ processAlive: false }))
+      if (status.processAlive) return sessionId
     }
 
     const sessions = await window.api.terminalList().catch(() => [])
     const runningSession = sessions.find((session) =>
-      session.running
+      session.processAlive
       && session.kind === 'agent'
       && session.workspaceId === workspaceId
       && session.agentId === agentId
@@ -1072,7 +1089,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const runningAgent = runtimeAgents.find((agent) => agent.status === 'running')
   const focusAgent = needsInputAgent ?? runningAgent
   const focusAgentRoster = focusAgent ? rosterById[focusAgent.agentId] : undefined
-  const focusAgentIsLaunched = focusAgent ? Boolean(agents[focusAgent.agentId]?.cliStartRequested) : false
+  const focusAgentHasLiveTerminal = focusAgent ? isAgentTerminalLive(focusAgent.agentId) : false
   const focusAgentRole = focusAgentRoster?.role ?? focusAgent?.role ?? null
   const showFocusAgentAction = Boolean(focusAgent)
     && (!focusAgentRole || focusAgentRole === 'architect' || !roleTaskLaunchSet.has(focusAgentRole))
@@ -1092,8 +1109,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     && selectedTask.dispatch.status !== 'ready'
   const selectedTaskCanSpawnWorker = selectedTaskBoardColumn === 'ready' && !selectedTask?.ownerAgentId
   const selectedTaskCanManageWorker = selectedTask?.status === 'in_progress' || selectedTask?.status === 'needs_input'
-  const selectedTaskOwnerCliRunning = selectedTask?.ownerAgentId
-    ? Boolean(agents[selectedTask.ownerAgentId]?.cliStartRequested)
+  const selectedTaskOwnerHasLiveTerminal = selectedTask?.ownerAgentId
+    ? isAgentTerminalLive(selectedTask.ownerAgentId)
     : false
   const selectedTaskArtifacts = selectedTask ? artifactsByTaskId[selectedTask.id] ?? [] : []
   const selectedTaskArtifactBlockers = selectedTask ? artifactBlockersByTaskId[selectedTask.id] ?? [] : []
@@ -1120,7 +1137,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       <SprintEngineInspectorPanel
         selection={inspectorSelection}
         sprintEngineState={sprintEngineState}
-        agents={agents}
         runtimeAgents={runtimeAgents}
         tasksById={tasksById}
         selectedTaskBoardColumn={selectedTaskBoardColumn}
@@ -1130,7 +1146,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         selectedTaskCanMarkReady={selectedTaskCanMarkReady}
         selectedTaskCanSpawnWorker={selectedTaskCanSpawnWorker}
         selectedTaskCanManageWorker={selectedTaskCanManageWorker}
-        selectedTaskOwnerCliRunning={selectedTaskOwnerCliRunning}
+        selectedTaskOwnerCliRunning={selectedTaskOwnerHasLiveTerminal}
         selectedTaskArtifacts={selectedTaskArtifacts}
         selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
         taskReadyActions={taskReadyActions}
@@ -1146,6 +1162,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
         onPopOutArtifact={popOutPreviewedArtifact}
         onSpawnAgent={openSpawnDialog}
         onOpenAgentTerminal={openAgentTerminal}
+        isAgentTerminalLive={isAgentTerminalLive}
       />
     </aside>
   ) : null
@@ -1242,7 +1259,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     const defaultName = rosterById[spawnDialog.agentId]?.label ?? spawnDialog.agentId
     const agentName = normalizeAgentIdentifier(spawnDialog.name)
     const label = agentName || defaultName
-    const started = await startAgentTerminalWhenReady(spawnDialog.agentId, label, spawnDialog.cli, { agentName })
+    const started = await startAgentTerminalWhenReady(spawnDialog.agentId, label, spawnDialog.cli, {
+      agentName,
+      freshSession: !spawnDialogHasLiveTerminal,
+    })
     if (!started) return
     setCliPickerOpen(false)
     setSpawnDialog(null)
@@ -1252,7 +1272,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
     const existing = roster.find((agent) =>
       agent.role === role
       && runtimeAgentById[agent.id]?.status !== 'done'
-      && !agents[agent.id]?.cliStartRequested
+      && !isAgentTerminalLive(agent.id)
     )
       ?? roster.find((agent) =>
         agent.role === role
@@ -1271,7 +1291,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
       const fallbackLabel = agent?.label ?? agentId
       const label = getAgentName(agentId, fallbackLabel)
 
-      if (agents[agentId]?.cliStartRequested) {
+      if (isAgentTerminalLive(agentId)) {
         openAgentTerminal(agentId)
         return
       }
@@ -1452,7 +1472,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             {showFocusAgentAction && focusAgent ? (
               <button
                 onClick={() => {
-                  if (focusAgentIsLaunched) {
+                  if (focusAgentHasLiveTerminal) {
                     openAgentTerminal(focusAgent.agentId)
                   } else {
                     openSpawnDialog(focusAgent.agentId)
@@ -1464,7 +1484,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     : 'bg-[#5c7cff]/10 text-[#d4ddff] hover:bg-[#5c7cff]/16'
                 }`}
               >
-                {focusAgentIsLaunched
+                {focusAgentHasLiveTerminal
                   ? `Open ${focusAgentRoster?.label ?? focusAgent.agentId}`
                   : `Spawn ${focusAgentRoster?.label ?? focusAgent.agentId}`}
               </button>
@@ -1472,18 +1492,18 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             {roleTaskLaunches.map(({ role, task, agent }) => {
               const ownerAgentId = task.ownerAgentId
               const targetAgentId = ownerAgentId ?? agent?.id ?? null
-              const targetIsLaunched = targetAgentId ? Boolean(agents[targetAgentId]?.cliStartRequested) : false
+              const targetHasLiveTerminal = targetAgentId ? isAgentTerminalLive(targetAgentId) : false
               const targetLabel = ownerAgentId
                 ? agent?.label ?? ownerAgentId
                 : agent?.label ?? sprintEngineRoleLabels[role]
               const actionLabel = ownerAgentId
-                ? targetIsLaunched ? `Open ${targetLabel}` : `Respawn ${targetLabel}`
-                : targetIsLaunched ? `Open ${targetLabel}` : `Spawn ${sprintEngineRoleLabels[role]}`
+                ? targetHasLiveTerminal ? `Open ${targetLabel}` : `Respawn ${targetLabel}`
+                : targetHasLiveTerminal ? `Open ${targetLabel}` : `Spawn ${sprintEngineRoleLabels[role]}`
               return (
                 <button
                   key={role}
                   onClick={() => {
-                    if (!ownerAgentId && targetAgentId && targetIsLaunched) {
+                    if (!ownerAgentId && targetAgentId && targetHasLiveTerminal) {
                       openAgentTerminal(targetAgentId)
                     } else {
                       openReadyTaskWorker(task)
@@ -1500,7 +1520,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                 onClick={() => openSpawnDialog(architectAgentId)}
                 className="rounded-md bg-[#ffbf2f]/12 px-3 py-1.5 text-sm font-semibold text-[#ffe0a3] interactive transition-colors hover:bg-[#ffbf2f]/16"
               >
-                {agents[architectAgentId]?.cliStartRequested ? 'Open Architect' : 'Spawn Architect'}
+                {isAgentTerminalLive(architectAgentId) ? 'Open Architect' : 'Spawn Architect'}
               </button>
             ) : null}
             {architectAgentId ? (
@@ -1612,7 +1632,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             sprintEngineState={sprintEngineState}
             roster={roster}
             runtimeAgents={runtimeAgents}
-            agents={agents}
             runPhase={runPhase}
             doneCount={doneCount}
             activeCount={activeCount}
@@ -1632,6 +1651,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
             onOpenArtifact={(artifact) => void openArtifact(artifact)}
             onApproveArtifact={(artifact) => void approveArtifact(artifact)}
             onRequestArtifactChanges={requestArtifactChanges}
+            isAgentTerminalLive={isAgentTerminalLive}
           />
           {renderInspectorAside()}
         </div>
@@ -1728,8 +1748,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     const ownerLabel = task.ownerAgentId
                       ? ownerAgent?.label ?? task.ownerAgentId
                       : null
-                    const ownerCliRunning = task.ownerAgentId
-                      ? Boolean(agents[task.ownerAgentId]?.cliStartRequested)
+                    const ownerHasLiveTerminal = task.ownerAgentId
+                      ? isAgentTerminalLive(task.ownerAgentId)
                       : false
                     const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
                     const dependencyLabel = task.dependsOn.length > 0
@@ -1757,7 +1777,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
                     const mobileDecisionSummary = formatTaskMobileDecisionSummary(taskArtifacts)
                     const taskArtifactBlockers = artifactBlockersByTaskId[task.id] ?? []
                     const actionLabel = task.ownerAgentId
-                      ? ownerCliRunning ? 'Open Terminal' : 'Respawn'
+                      ? ownerHasLiveTerminal ? 'Open Terminal' : 'Respawn'
                       : `Spawn ${sprintEngineRoleLabels[task.role]}`
                     const sourceLabel = formatTaskSourceLabel(task)
                     const canMarkReady = task.status === 'todo'
@@ -2248,7 +2268,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
               <p className="border-l border-[#303139] pl-3 text-sm leading-6 text-[#9a9aa2]">
                 {cliOptions.find((option) => option.value === spawnDialog.cli)?.description}
-                {spawnDialogIsRunning ? (
+                {spawnDialogHasLiveTerminal ? (
                   <span className="text-[#5a5a63]"> A terminal already exists, so this will focus it unless you changed the CLI.</span>
                 ) : null}
               </p>
@@ -2264,7 +2284,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
               Cancel
             </ModalButton>
             <ModalButton variant="primary" accent="gold" onClick={confirmSpawnDialog}>
-              {spawnDialogIsRunning ? 'Open Terminal' : 'Spawn'}
+              {spawnDialogHasLiveTerminal ? 'Open Terminal' : 'Spawn'}
             </ModalButton>
           </ModalFooter>
         </Modal>
@@ -2389,7 +2409,6 @@ type SprintEngineInspectorSelection =
 function SprintEngineInspectorPanel({
   selection,
   sprintEngineState,
-  agents,
   runtimeAgents,
   tasksById,
   selectedTaskBoardColumn,
@@ -2415,10 +2434,10 @@ function SprintEngineInspectorPanel({
   onPopOutArtifact,
   onSpawnAgent,
   onOpenAgentTerminal,
+  isAgentTerminalLive,
 }: {
   selection: SprintEngineInspectorSelection
   sprintEngineState: SprintEngineState
-  agents: Record<string, AgentState>
   runtimeAgents: RuntimeAgentView[]
   tasksById: Record<string, SprintEngineTask>
   selectedTaskBoardColumn: SprintEngineTaskBoardColumn | null
@@ -2444,6 +2463,7 @@ function SprintEngineInspectorPanel({
   onPopOutArtifact: () => void
   onSpawnAgent: (agentId: string) => void
   onOpenAgentTerminal: (agentId: string) => void
+  isAgentTerminalLive: (agentId: string) => boolean
 }) {
   if (selection.kind === 'artifact') {
     return (
@@ -2458,7 +2478,7 @@ function SprintEngineInspectorPanel({
   if (selection.kind === 'agent') {
     const agent = selection.agent
     const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id) ?? null
-    const launched = Boolean(agents[agent.id]?.cliStartRequested)
+    const hasLiveTerminal = isAgentTerminalLive(agent.id)
     const currentTask = runtime?.currentTaskId
       ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
       : null
@@ -2487,7 +2507,7 @@ function SprintEngineInspectorPanel({
                     className="h-2 w-2 rounded-full"
                     style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
                   />
-                  {runtime?.status ?? (launched ? 'running' : 'idle')}
+                  {runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')}
                 </span>
               </div>
               <h3 className="mt-2 truncate text-[18px] font-semibold leading-7 text-[#ececee]">
@@ -2507,7 +2527,7 @@ function SprintEngineInspectorPanel({
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {launched ? (
+            {hasLiveTerminal ? (
               <button
                 type="button"
                 onClick={() => onOpenAgentTerminal(agent.id)}
@@ -3151,7 +3171,6 @@ function SprintEngineProjectView({
   sprintEngineState,
   roster,
   runtimeAgents,
-  agents,
   runPhase,
   doneCount,
   activeCount,
@@ -3167,11 +3186,11 @@ function SprintEngineProjectView({
   onOpenArtifact,
   onApproveArtifact,
   onRequestArtifactChanges,
+  isAgentTerminalLive,
 }: {
   sprintEngineState: SprintEngineState
   roster: RosterItem[]
   runtimeAgents: RuntimeAgentView[]
-  agents: Record<string, AgentState>
   runPhase: string
   doneCount: number
   activeCount: number
@@ -3187,6 +3206,7 @@ function SprintEngineProjectView({
   onOpenArtifact: (artifact: SprintEngineArtifact) => void
   onApproveArtifact: (artifact: SprintEngineArtifact) => void
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+  isAgentTerminalLive: (agentId: string) => boolean
 }) {
   const [goalExpanded, setGoalExpanded] = useState(false)
   const fullGoal = formatSprintEngineGoal(sprintEngineState.goal)
@@ -3374,9 +3394,9 @@ function SprintEngineProjectView({
           <div className="grid grid-cols-2 gap-1.5">
             {addableRoles.map((role) => {
               const existing = roster.find((agent) => agent.role === role)
-              const isLaunched = existing ? Boolean(agents[existing.id]?.cliStartRequested) : false
+              const hasLiveTerminal = existing ? isAgentTerminalLive(existing.id) : false
               const subtitle = existing
-                ? (isLaunched ? 'Open terminal' : 'Drag to spawn')
+                ? (hasLiveTerminal ? 'Open terminal' : 'Drag to spawn')
                 : 'Drag to add'
               return (
                 <button

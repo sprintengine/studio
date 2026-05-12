@@ -12,10 +12,17 @@ import {
 import 'flexlayout-react/style/dark.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { useTerminalSessions } from '../../hooks/useTerminalSessions'
+import {
+  isSessionFailed,
+  isSessionWorking,
+  pickAgentTabRecency,
+  pickTerminalTabRecency,
+  tabRecencyLabel,
+  useTerminalSessions,
+} from '../../hooks/useTerminalSessions'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import type { AgentState, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus } from '../../types/workspace'
+import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
@@ -47,7 +54,7 @@ const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const AGENT_TAB_ROLE_CLASS_PREFIX = 'agent-tab-role-'
 const loadedPanelComponents = new Set<string>()
-type AgentTabActivity = 'needs-input' | 'running' | 'idle'
+type AgentTabActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 const SPRINTENGINE_ROLES: SprintEngineRole[] = [
   'architect',
   'product',
@@ -61,16 +68,17 @@ const SPRINTENGINE_ROLES: SprintEngineRole[] = [
 ]
 
 type AgentTabActivityDot = {
-  tone: 'running' | 'needs-input'
+  tone: 'running' | 'needs-input' | 'error'
   label: string
 }
 
 function agentTabActivity(
-  agent: AgentState | undefined,
+  session: TerminalSessionSnapshot | undefined,
   runtimeStatus: SprintEngineRuntimeAgentStatus | undefined
 ): AgentTabActivity {
   if (runtimeStatus === 'needs_input') return 'needs-input'
-  if (agent?.cliStartRequested || agent?.cliHasLaunched || agent?.cliSessionId) return 'running'
+  if (isSessionWorking(session)) return 'working'
+  if (isSessionFailed(session)) return 'failed'
   return 'idle'
 }
 
@@ -84,10 +92,15 @@ function agentTabActivityDot(
         tone: 'needs-input',
         label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
       }
-    case 'running':
+    case 'working':
       return {
         tone: 'running',
-        label: 'CLI running',
+        label: 'Working',
+      }
+    case 'failed':
+      return {
+        tone: 'error',
+        label: 'Failed',
       }
     default:
       return null
@@ -152,23 +165,34 @@ function renderTerminalRecencyIndicator(
   now: number
 ): React.ReactNode {
   if (!session) return null
-  if (session.running) {
+  if (isSessionWorking(session)) {
     return (
       <span
         className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#30d158]"
-        title="Running"
-        aria-label="Running"
+        title="Working"
+        aria-label="Working"
       />
     )
   }
-  if (typeof session.exitedAt !== 'number') return null
+  if (isSessionFailed(session)) {
+    return (
+      <span
+        className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ff787c]"
+        title="Failed"
+        aria-label="Failed"
+      />
+    )
+  }
+  const recency = pickTerminalTabRecency(session)
+  if (!recency) return null
+  const label = tabRecencyLabel(recency.source)
   return (
     <span
       className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[#6f7078]"
-      title={`Exited ${formatRelativeMsAgo(session.exitedAt, now)} (${new Date(session.exitedAt).toLocaleString()})`}
-      aria-label={`Exited ${formatRelativeMsAgo(session.exitedAt, now)}`}
+      title={`${label} ${formatRelativeMsAgo(recency.at, now)} (${new Date(recency.at).toLocaleString()})`}
+      aria-label={`${label} ${formatRelativeMsAgo(recency.at, now)}`}
     >
-      {formatRelativeMs(session.exitedAt, now)}
+      {formatRelativeMs(recency.at, now)}
     </span>
   )
 }
@@ -767,7 +791,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const agent = workspace.agents[agentId]
       const agentSessionId = config?.sessionId ?? agent?.cliSessionId
       const runtimeAgent = workspace.sprintEngineState?.sprintEngineAgents[agentId]
-      const activity = agentTabActivity(agent, runtimeAgent?.status)
+      const agentSession = agentSessionId
+        ? terminalSessions.find((s) => s.sessionId === agentSessionId)
+        : undefined
+      const activity = agentTabActivity(agentSession, runtimeAgent?.status)
       const currentTaskId = runtimeAgent?.currentTaskId
       const activityDot = agentTabActivityDot(activity, currentTaskId)
       const specialist = (agent?.kind === 'specialist' || agent?.kind === 'watchtower') && agent.specialistId
@@ -813,23 +840,21 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.leading = null
       }
 
-      const agentSession = agentSessionId
-        ? terminalSessions.find((s) => s.sessionId === agentSessionId)
-        : undefined
-      const agentExitedAt =
-        agentSession && !agentSession.running && typeof agentSession.exitedAt === 'number'
-          ? agentSession.exitedAt
-          : typeof agent?.cliLastExitedAt === 'number' && (!agentSession || !agentSession.running)
-            ? agent.cliLastExitedAt
-            : null
-      const exitIndicator = agentExitedAt !== null
+      const agentRecency = activity === 'working'
+        ? null
+        : pickAgentTabRecency(
+            agentSession,
+            workspace.lastTerminalActivityAt,
+            agent?.cliLastExitedAt
+          )
+      const recencyIndicator = agentRecency !== null
         ? (
             <span
               className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[#6f7078]"
-              title={`Exited ${formatRelativeMsAgo(agentExitedAt, now)} (${new Date(agentExitedAt).toLocaleString()})`}
-              aria-label={`Exited ${formatRelativeMsAgo(agentExitedAt, now)}`}
+              title={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)} (${new Date(agentRecency.at).toLocaleString()})`}
+              aria-label={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)}`}
             >
-              {formatRelativeMs(agentExitedAt, now)}
+              {formatRelativeMs(agentRecency.at, now)}
             </span>
           )
         : null
@@ -839,19 +864,19 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           <span className="inline-flex min-w-0 items-center gap-1.5">
             {tabContent}
             <StatusDot tone={activityDot.tone} label={activityDot.label} />
-            {exitIndicator}
+            {recencyIndicator}
           </span>
         )
       } else {
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1.5">
             {tabContent}
-            {exitIndicator}
+            {recencyIndicator}
           </span>
         )
       }
     },
-    [commitRename, hideTab, renameValue, renamingTabId, showTabContextMenu, startRename, terminalSessions, now, workspace.agents, workspace.editorState?.openFiles, workspace.sprintEngineState, workspaceId]
+    [commitRename, hideTab, renameValue, renamingTabId, showTabContextMenu, startRename, terminalSessions, now, workspace.agents, workspace.editorState?.openFiles, workspace.lastTerminalActivityAt, workspace.sprintEngineState, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

@@ -87,6 +87,7 @@ import type {
   SpecialistActionId as SharedSpecialistActionId,
   SprintEngineArtifactCommandResult as SharedSprintEngineArtifactCommandResult,
   SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
+  SessionActivity as SharedSessionActivity,
   TerminalKind as SharedTerminalKind,
   TerminalSessionSnapshot as SharedTerminalSessionSnapshot,
   TerminalSpawnMetadata as SharedTerminalSpawnMetadata,
@@ -165,6 +166,7 @@ declare global {
   type AppUpdateCheckResult = SharedAppUpdateCheckResult
   type SprintEngineCliPermissionPreset = SharedSprintEngineCliPermissionPreset
   type CliRuntimeSettings = SharedCliRuntimeSettings
+  type SessionActivity = SharedSessionActivity
   type TerminalKind = SharedTerminalKind
   type TerminalSpawnMetadata = SharedTerminalSpawnMetadata
   type TerminalSessionSnapshot = SharedTerminalSessionSnapshot

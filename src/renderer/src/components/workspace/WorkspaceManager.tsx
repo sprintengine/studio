@@ -9,6 +9,13 @@ import SettingsPanel from '../settings/SettingsPanel'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
+  deriveWorkspaceLastOutputAt,
+  deriveWorkspaceDisplayActivity,
+  deriveWorkspaceTerminalActivity,
+  findLiveSession,
+  isLiveTerminal,
+} from '../../hooks/useTerminalSessions'
+import {
   MULTILOOP_ROLES,
   SPECIALIST_ACTIONS,
   getMultiloopRole,
@@ -36,7 +43,7 @@ import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
 import { sprintEngineRoleAccent } from '../../utils/sprintengine'
-import { getHighlightSwatch } from '../../utils/highlight'
+import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import NewWorkspacePanel, { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
@@ -115,8 +122,8 @@ function shortcutLabel(shortcut: string): string {
 }
 
 type WorkspacePanelComponent = 'explorer' | 'editor' | 'git' | 'memory-graph'
-type WorkspaceActivity = 'needs-input' | 'running' | 'idle'
-type SessionStatus = 'needs-input' | 'running'
+type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
+type SessionStatus = 'needs-input' | 'working'
 type SessionItem = {
   workspace: Workspace
   kind: TerminalKind
@@ -126,6 +133,8 @@ type SessionItem = {
   cli: AgentCli
   status: SessionStatus
   role: NonNullable<Workspace['sprintEngineState']>['sprintEngineAgents'][string]['role'] | null
+  specialistId: SpecialistActionId | null
+  multiloopRole: MultiloopRole | null
   taskId: string | null
   sessionId: string
 }
@@ -136,22 +145,15 @@ function workspaceNeedsInput(workspace: Workspace): boolean {
   )
 }
 
-function workspaceHasRunningAgent(
-  workspace: Workspace,
-  terminalSessions: TerminalSessionSnapshot[]
-): boolean {
-  return terminalSessions.some((session) =>
-    session.kind === 'agent' && session.workspaceId === workspace.id && session.running
-  )
-}
-
 function getWorkspaceActivity(
   workspace: Workspace,
   terminalSessions: TerminalSessionSnapshot[]
 ): WorkspaceActivity {
-  if (workspaceNeedsInput(workspace)) return 'needs-input'
-  if (workspaceHasRunningAgent(workspace, terminalSessions)) return 'running'
-  return 'idle'
+  return deriveWorkspaceDisplayActivity(
+    workspace.id,
+    terminalSessions,
+    workspaceNeedsInput(workspace)
+  )
 }
 
 function workspaceTabIconClass(mode: Workspace['mode']): string {
@@ -185,7 +187,7 @@ function getSessionItems(
 ): SessionItem[] {
   return terminalSessions
     .filter((session) => (
-      session.running
+      isLiveTerminal(session)
       && typeof session.workspaceId === 'string'
     ))
     .flatMap((session): SessionItem[] => {
@@ -196,7 +198,11 @@ function getSessionItems(
         if (!session.agentId) return []
         const agent = workspace.agents[session.agentId]
         const runtime = workspace.sprintEngineState?.sprintEngineAgents[session.agentId]
-        const status: SessionStatus = runtime?.status === 'needs_input' ? 'needs-input' : 'running'
+        const status: SessionStatus = runtime?.status === 'needs_input' ? 'needs-input' : 'working'
+        const specialistId = (agent?.kind === 'specialist' || agent?.kind === 'watchtower')
+          ? agent.specialistId ?? null
+          : null
+        const multiloopRole = agent?.kind === 'multiloop' ? agent.multiloopRole ?? null : null
 
         return [{
           workspace,
@@ -207,6 +213,8 @@ function getSessionItems(
           cli: session.cli ?? agent?.cli ?? 'codex',
           status,
           role: runtime?.role ?? null,
+          specialistId,
+          multiloopRole,
           taskId: runtime?.currentTaskId ?? null,
           sessionId: session.sessionId,
         }]
@@ -220,12 +228,48 @@ function getSessionItems(
         terminalId,
         label: terminalSessionLabel(terminalId),
         cli: 'codex' as AgentCli,
-        status: 'running' as const,
+        status: 'working' as const,
         role: null,
+        specialistId: null,
+        multiloopRole: null,
         taskId: null,
         sessionId: session.sessionId,
       }]
     })
+}
+
+// Reproduces the workspace order users see in the left sidebar so the
+// session manager dropdown matches: starred workspaces first (in their
+// stored order), then folder groups in first-occurrence order, with each
+// workspace appearing exactly once.
+function buildSidebarWorkspaceOrder(workspaces: Workspace[]): Map<string, number> {
+  const order = new Map<string, number>()
+  let index = 0
+
+  for (const workspace of workspaces) {
+    if (isStarred(workspace.highlight)) order.set(workspace.id, index++)
+  }
+
+  const seenFolders: string[] = []
+  const folderBuckets = new Map<string, Workspace[]>()
+  for (const workspace of workspaces) {
+    if (isStarred(workspace.highlight)) continue
+    const folderPath = workspace.folderPath ?? null
+    const key = folderPath
+      ? folderPath.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+      : '__no_folder__'
+    if (!folderBuckets.has(key)) {
+      seenFolders.push(key)
+      folderBuckets.set(key, [])
+    }
+    folderBuckets.get(key)!.push(workspace)
+  }
+  for (const key of seenFolders) {
+    for (const workspace of folderBuckets.get(key)!) {
+      order.set(workspace.id, index++)
+    }
+  }
+  return order
 }
 
 function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]): string {
@@ -233,7 +277,8 @@ function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]): stri
     .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
     .map((session) => [
       session.sessionId,
-      session.running ? '1' : '0',
+      session.processAlive ? '1' : '0',
+      session.activity.kind,
       session.kind,
       session.workspaceId ?? '',
       session.agentId ?? '',
@@ -305,6 +350,7 @@ export default function WorkspaceManager() {
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setSidebarCollapsed)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
+  const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setSprintEngineAutoEnabled = useWorkspaceStore((s) => s.setSprintEngineAutoEnabled)
   const authState = useWorkspaceStore((s) => s.authState)
@@ -392,10 +438,15 @@ export default function WorkspaceManager() {
   const accountRef = useRef<HTMLDivElement>(null)
   const handoffInputRef = useRef<HTMLInputElement>(null)
   const terminalSessionsSignatureRef = useRef('')
-  const reportedTerminalExitsRef = useRef<Map<string, number>>(new Map())
+  const reportedTerminalLastOutputRef = useRef<Map<string, number>>(new Map())
+  const reconciledLaunchFlagsRef = useRef(false)
   const workspaceLayoutUnloadTimersRef = useRef<Record<string, number>>({})
   const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
   const sessions = getSessionItems(workspaces, terminalSessions)
+  const sidebarWorkspaceOrder = useMemo(
+    () => buildSidebarWorkspaceOrder(workspaces),
+    [workspaces]
+  )
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
   const settingsOpen = showSettings || Boolean(activeWorkspaceId && hasComponentTab(activeWorkspaceId, 'settings'))
   const renderedWorkspaceIds = workspaces
@@ -619,26 +670,28 @@ export default function WorkspaceManager() {
 
     const applyTerminalSessions = (sessions: TerminalSessionSnapshot[]) => {
       if (disposed) return
-      const liveSessionIds = new Set<string>()
+
+      const lastOutputByWorkspace = new Map<string, number>()
       for (const session of sessions) {
-        liveSessionIds.add(session.sessionId)
-        if (session.running) {
-          // Re-arm reporting if a sessionId is reused after a prior exit.
-          reportedTerminalExitsRef.current.delete(session.sessionId)
-          continue
+        if (typeof session.workspaceId !== 'string') continue
+        if (typeof session.lastOutputAt !== 'number') continue
+        const current = lastOutputByWorkspace.get(session.workspaceId)
+        if (current === undefined || session.lastOutputAt > current) {
+          lastOutputByWorkspace.set(session.workspaceId, session.lastOutputAt)
         }
-        if (
-          typeof session.exitedAt !== 'number'
-          || typeof session.workspaceId !== 'string'
-        ) continue
-        const lastReported = reportedTerminalExitsRef.current.get(session.sessionId)
-        if (lastReported !== undefined && lastReported >= session.exitedAt) continue
-        reportedTerminalExitsRef.current.set(session.sessionId, session.exitedAt)
-        recordWorkspaceTerminalActivity(session.workspaceId, session.exitedAt)
       }
-      for (const trackedId of reportedTerminalExitsRef.current.keys()) {
-        if (!liveSessionIds.has(trackedId)) reportedTerminalExitsRef.current.delete(trackedId)
+      for (const [workspaceId, lastOutputAt] of lastOutputByWorkspace) {
+        const lastReported = reportedTerminalLastOutputRef.current.get(workspaceId)
+        if (lastReported !== undefined && lastReported >= lastOutputAt) continue
+        reportedTerminalLastOutputRef.current.set(workspaceId, lastOutputAt)
+        recordWorkspaceTerminalActivity(workspaceId, lastOutputAt)
       }
+
+      if (!reconciledLaunchFlagsRef.current) {
+        reconciledLaunchFlagsRef.current = true
+        reconcileWorkspaceAgentLaunchFlags(sessions)
+      }
+
       const signature = getTerminalSessionsSignature(sessions)
       if (signature === terminalSessionsSignatureRef.current) return
       terminalSessionsSignatureRef.current = signature
@@ -660,7 +713,7 @@ export default function WorkspaceManager() {
       unsubscribe()
       window.clearInterval(interval)
     }
-  }, [recordWorkspaceTerminalActivity])
+  }, [recordWorkspaceTerminalActivity, reconcileWorkspaceAgentLaunchFlags])
 
   useEffect(() => {
     if (window.api.platform === 'darwin') return
@@ -1001,7 +1054,7 @@ export default function WorkspaceManager() {
   }, [])
 
   const activityByWorkspaceId = useMemo(() => {
-    const map: Record<string, 'running' | 'needs-input' | 'idle'> = {}
+    const map: Record<string, WorkspaceActivity> = {}
     for (const workspace of workspaces) {
       map[workspace.id] = getWorkspaceActivity(workspace, terminalSessions)
     }
@@ -1011,23 +1064,17 @@ export default function WorkspaceManager() {
   const terminalRecencyByWorkspaceId = useMemo(() => {
     const map: Record<string, { hasRunning: boolean; lastFinishedAt: number | null }> = {}
     for (const workspace of workspaces) {
-      let hasRunning = false
-      let lastFinishedAt: number | null =
-        typeof workspace.lastTerminalActivityAt === 'number' ? workspace.lastTerminalActivityAt : null
-      for (const session of terminalSessions) {
-        if (session.workspaceId !== workspace.id) continue
-        if (session.running) {
-          hasRunning = true
-        } else if (typeof session.exitedAt === 'number') {
-          if (lastFinishedAt === null || session.exitedAt > lastFinishedAt) {
-            lastFinishedAt = session.exitedAt
-          }
-        }
-      }
+      const persistedLastOutputAt = typeof workspace.lastTerminalActivityAt === 'number'
+        ? workspace.lastTerminalActivityAt
+        : null
+      const activity = deriveWorkspaceTerminalActivity(workspace.id, terminalSessions, persistedLastOutputAt)
+      const hasRunning = activity.kind === 'working' || activity.kind === 'failed'
+      const lastFinishedAt = deriveWorkspaceLastOutputAt(workspace.id, terminalSessions, persistedLastOutputAt)
       map[workspace.id] = { hasRunning, lastFinishedAt }
     }
     return map
   }, [workspaces, terminalSessions])
+
 
   const addNewSpecialist = async (
     specialistId: SpecialistActionId = lastSelectedSpecialist,
@@ -1263,7 +1310,7 @@ export default function WorkspaceManager() {
 
   const openSession = async (item: SessionItem) => {
     const status = await window.api.terminalStatus(item.sessionId)
-    if (!status.running) {
+    if (!status.processAlive) {
       setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
       if (item.agentId) {
         updateAgent(item.workspace.id, item.agentId, {
@@ -1471,6 +1518,7 @@ export default function WorkspaceManager() {
               {sessionsOpen ? (
                 <SessionsPopover
                   items={sessions}
+                  workspaceOrder={sidebarWorkspaceOrder}
                   onOpen={openSession}
                   onStop={stopSession}
                 />
@@ -2398,24 +2446,56 @@ function NotificationsPopover({
   )
 }
 
+function SessionAgentIcon({ item, className }: { item: SessionItem; className?: string }) {
+  if (item.specialistId) {
+    const action = getSpecialistAction(item.specialistId)
+    return <SpecialistActionIcon icon={action.icon} className={className} />
+  }
+  if (item.role) {
+    return <SprintEngineRoleIcon role={item.role} className={className} />
+  }
+  if (item.multiloopRole) {
+    const descriptor = getMultiloopRole(item.multiloopRole)
+    return <SpecialistActionIcon icon={descriptor.icon} className={className} />
+  }
+  if (item.kind === 'terminal') {
+    return <TerminalSessionIcon className={className} />
+  }
+  return <CliIcon cli={item.cli} className={className} />
+}
+
+function sessionAgentTypeLabel(item: SessionItem): string | null {
+  if (item.specialistId) return getSpecialistAction(item.specialistId).shortLabel
+  if (item.multiloopRole) return getMultiloopRole(item.multiloopRole).shortLabel
+  return null
+}
+
 function SessionsPopover({
   items,
+  workspaceOrder,
   onOpen,
   onStop,
 }: {
   items: SessionItem[]
+  workspaceOrder: Map<string, number>
   onOpen: (item: SessionItem) => void | Promise<void>
   onStop: (item: SessionItem) => void
 }) {
-  const groups = items.reduce<Array<{ workspace: Workspace; items: SessionItem[] }>>((acc, item) => {
-    const group = acc.find((candidate) => candidate.workspace.id === item.workspace.id)
-    if (group) {
-      group.items.push(item)
-    } else {
-      acc.push({ workspace: item.workspace, items: [item] })
-    }
-    return acc
-  }, [])
+  const groups = items
+    .reduce<Array<{ workspace: Workspace; items: SessionItem[] }>>((acc, item) => {
+      const group = acc.find((candidate) => candidate.workspace.id === item.workspace.id)
+      if (group) {
+        group.items.push(item)
+      } else {
+        acc.push({ workspace: item.workspace, items: [item] })
+      }
+      return acc
+    }, [])
+    .sort((a, b) => {
+      const aIdx = workspaceOrder.get(a.workspace.id) ?? Number.MAX_SAFE_INTEGER
+      const bIdx = workspaceOrder.get(b.workspace.id) ?? Number.MAX_SAFE_INTEGER
+      return aIdx - bIdx
+    })
 
   return (
     <div
@@ -2437,71 +2517,100 @@ function SessionsPopover({
         <div className="px-2.5 py-3 text-[13px] text-[#5a5a63]">No sessions</div>
       ) : (
         <div className="max-h-[420px] overflow-y-auto py-1">
-          {groups.map((group) => (
-            <div key={group.workspace.id} className="py-1">
-              <div className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
-                <WorkspaceTypeIcon mode={group.workspace.mode} className="h-3.5 w-3.5 shrink-0" />
-                <span className="min-w-0 truncate">{group.workspace.name}</span>
-              </div>
-              <div className="space-y-1">
-                {group.items.map((item) => (
-                  <div
-                    key={`${item.workspace.id}:${item.agentId}`}
-                    className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[#d7d7dc] hover:bg-[#15161a]"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92]"
-                        style={item.role ? {
+          {groups.map((group) => {
+            const accent = getWorkspaceAccentHex(group.workspace)
+            const starred = isStarred(group.workspace.highlight)
+            const headerColor = accent ?? '#7a7a83'
+            return (
+              <div key={group.workspace.id} className="relative py-1 pl-2">
+                {accent ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-2 left-0 w-[2px] rounded-full"
+                    style={{ background: accent }}
+                  />
+                ) : null}
+                <div
+                  className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                  style={{ color: headerColor }}
+                >
+                  <WorkspaceTypeIcon mode={group.workspace.mode} className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 truncate">{group.workspace.name}</span>
+                  {starred ? (
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                      className="h-3 w-3 shrink-0 text-[#ffbf2f]"
+                      aria-label="Starred workspace"
+                    >
+                      <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
+                    </svg>
+                  ) : null}
+                </div>
+                <div className="space-y-1">
+                  {group.items.map((item) => {
+                    const chipStyle = item.role
+                      ? {
                           borderColor: sprintEngineRoleAccent[item.role],
                           color: sprintEngineRoleAccent[item.role],
                           backgroundColor: `${sprintEngineRoleAccent[item.role]}14`,
-                        } : undefined}
+                        }
+                      : undefined
+                    const typeLabel = sessionAgentTypeLabel(item)
+                    const sublineParts = item.kind === 'terminal'
+                      ? [item.label.toLowerCase()]
+                      : [typeLabel, item.taskId, item.cli].filter((value): value is string => Boolean(value))
+                    const subline = sublineParts.join(' · ') || item.cli
+                    return (
+                      <div
+                        key={`${item.workspace.id}:${item.agentId ?? item.terminalId ?? item.sessionId}`}
+                        className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[#d7d7dc] hover:bg-[#15161a]"
                       >
-                        {item.role ? (
-                          <SprintEngineRoleIcon role={item.role} className="h-[17px] w-[17px]" />
-                        ) : item.kind === 'terminal' ? (
-                          <TerminalSessionIcon className="h-[17px] w-[17px]" />
-                        ) : (
-                          <CliIcon cli={item.cli} className="h-[17px] w-[17px]" />
-                        )}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="flex min-w-0 items-center gap-1.5">
-                          <span className="truncate font-medium text-[#ececee]">{item.label}</span>
-                          <StatusDot
-                            tone={item.status}
-                            label={item.status === 'needs-input' ? 'Needs input' : 'Running'}
-                          />
-                        </span>
-                        <span className="mt-0.5 block truncate text-[11px] text-[#7a7a83]">
-                        {item.kind === 'terminal' ? item.label.toLowerCase() : item.taskId ?? item.cli}
-                        </span>
-                      </span>
-                    </div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92]"
+                            style={chipStyle}
+                          >
+                            <SessionAgentIcon item={item} className="h-[17px] w-[17px]" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="truncate font-medium text-[#ececee]">{item.label}</span>
+                              <StatusDot
+                                tone={item.status === 'needs-input' ? 'needs-input' : 'running'}
+                                label={item.status === 'needs-input' ? 'Needs input' : 'Working'}
+                              />
+                            </span>
+                            <span className="mt-0.5 block truncate text-[11px] text-[#7a7a83]">
+                              {subline}
+                            </span>
+                          </span>
+                        </div>
 
-                    <button
-                      type="button"
-                      onClick={() => void onOpen(item)}
-                      className="h-7 rounded border border-[#24252b] bg-[#111216] px-2.5 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#1b1c21] hover:text-[#ececee]"
-                    >
-                      Open
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => void onOpen(item)}
+                          className="h-7 rounded border border-[#24252b] bg-[#111216] px-2.5 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#1b1c21] hover:text-[#ececee]"
+                        >
+                          Open
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => onStop(item)}
-                      className="flex h-7 w-7 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92] transition-colors hover:border-[#4a2426] hover:bg-[#2a1214] hover:text-[#ff787c]"
-                      title="Stop"
-                      aria-label={`Stop ${item.label}`}
-                    >
-                      <StopIcon className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
+                        <button
+                          type="button"
+                          onClick={() => onStop(item)}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-[#24252b] bg-[#111216] text-[#8a8a92] transition-colors hover:border-[#4a2426] hover:bg-[#2a1214] hover:text-[#ff787c]"
+                          title="Stop"
+                          aria-label={`Stop ${item.label}`}
+                        >
+                          <StopIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -2864,7 +2973,7 @@ function findRunningSession(
   terminalSessions: TerminalSessionSnapshot[],
   predicate: (session: TerminalSessionSnapshot) => boolean
 ): TerminalSessionSnapshot | null {
-  return terminalSessions.find((session) => session.running && predicate(session)) ?? null
+  return findLiveSession(terminalSessions, predicate)
 }
 
 function getActiveCliSession(

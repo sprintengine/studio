@@ -22,10 +22,12 @@ function directoryPayload(path: string, rootPath = 'C:\\repo'): FileDropPayload 
 function session(input: Partial<TerminalSessionSnapshot>): TerminalSessionSnapshot {
   return {
     sessionId: 'session-1',
-    running: true,
+    processAlive: true,
     kind: 'terminal',
     startedAt: 1,
     lastOutputAt: null,
+    lastInputAt: null,
+    activity: { kind: 'idle', since: 1 },
     exitedAt: null,
     outputBufferLength: 0,
     retainedOutputBytes: 0,

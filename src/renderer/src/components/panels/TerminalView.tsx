@@ -379,11 +379,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     }
 
     const launchTerminal = async () => {
-      const terminalStatus = await window.api.terminalStatus(sessionId).catch(() => ({ running: false }))
+      const terminalStatus = await window.api.terminalStatus(sessionId).catch(() => ({ processAlive: false }))
       if (disposed) return
       if (savedFolderPath && !folderReadyPath) return
 
-      const resumeExistingPty = shouldResume && terminalStatus.running
+      const resumeExistingPty = shouldResume && terminalStatus.processAlive
       const shouldResumeClaudeConversation = cli === 'claude' && shouldResume
       const shouldResumeCli = resumeExistingPty || shouldResumeClaudeConversation || shouldResumeCodexConversation
       const promptAlreadySentForActiveSession = Boolean(shouldResumeCli && agent?.cliOnboardingPromptSent)
