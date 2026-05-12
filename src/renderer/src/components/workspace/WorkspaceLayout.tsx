@@ -19,7 +19,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { sprintEngineRoleAccent } from '../../utils/sprintengine'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
-import MulticodeBlackHoleSpinner from '../brand/MulticodeBlackHoleSpinner'
+import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
 import FileExplorer from '../panels/FileExplorer'
 import SettingsPanel from '../settings/SettingsPanel'
@@ -102,7 +102,7 @@ function PanelLoadingFallback() {
   return (
     <div className="flex h-full items-center justify-center bg-[#08090b] text-[12px] font-mono text-[#6f7078]">
       <span className="flex items-center gap-3">
-        <MulticodeBlackHoleSpinner className="h-8 w-8" />
+        <MulticodeSpinner className="h-8 w-8" />
         <span>Loading panel...</span>
       </span>
     </div>

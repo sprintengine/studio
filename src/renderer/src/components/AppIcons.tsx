@@ -1,7 +1,6 @@
 import type { SpecialistIcon } from '../specialists/specialistActions'
 import type { SprintEngineRole, Workspace } from '../types/workspace'
 import type { SwitchboardFolderStatus } from '../../../shared/switchboard'
-import multiloopBlackHoleTabIcon from '../assets/brand/multiloop-black-hole-tab-icon.png'
 
 type IconProps = {
   className?: string
@@ -68,13 +67,11 @@ export function WorkspaceTypeIcon({
 
   if (mode === 'multiloop') {
     return (
-      <img
-        src={multiloopBlackHoleTabIcon}
-        alt=""
-        aria-hidden="true"
-        className={className}
-        draggable={false}
-      />
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={iconStroke} />
+        <circle cx="12" cy="12" r="3.5" stroke="currentColor" strokeWidth={iconStroke} strokeOpacity="0.5" />
+        <path d="M12 4.5 A7.5 7.5 0 0 1 19.5 12" stroke="currentColor" strokeWidth={iconStroke + 0.5} strokeLinecap="round" />
+      </svg>
     )
   }
 

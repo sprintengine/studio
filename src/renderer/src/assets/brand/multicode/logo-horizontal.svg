@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" fill="none" role="img" aria-label="multicode">
+  <defs>
+    <linearGradient id="mc-h-left-light" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3a3a44"/>
+      <stop offset="100%" stop-color="#0c0c10"/>
+    </linearGradient>
+    <linearGradient id="mc-h-right-light" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#16161c"/>
+      <stop offset="100%" stop-color="#040406"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(2 4)">
+    <path d="M2 1.5 L16 13 L16 30.5 L2 30.5 Z" fill="url(#mc-h-left-light)"/>
+    <path d="M30 1.5 L16 13 L16 30.5 L30 30.5 Z" fill="url(#mc-h-right-light)"/>
+    <path d="M16 13 L16 30.5" stroke="#ffffff" stroke-width="0.45" stroke-opacity="0.12"/>
+  </g>
+  <text x="44" y="28" font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="600" letter-spacing="-0.02em" fill="#0c0c10">multicode</text>
+</svg>

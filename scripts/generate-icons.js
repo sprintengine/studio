@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
  * Generates app icon files for electron-builder using only Node.js built-ins.
- * Output: resources/icon.png (256px), resources/icon.ico (16+32+256px), resources/icon.icns (16+32+128+256px)
+ * Renders the Multicode brand mark: a rounded-square charcoal background with
+ * a two-faced angular glyph (light-grey left face, mid-grey right face).
+ * Output: resources/icon.png (256px), resources/icon.ico (16+32+256px),
+ *         resources/icon.icns (16+32+128+256px).
  */
 
 'use strict'
@@ -63,10 +66,20 @@ function buildPNG(size, getPixel) {
   ])
 }
 
-// ── Pixel functions ───────────────────────────────────────────────────────────
-const BG     = [9,   9,   11,  255]  // zinc-950
-const INDIGO = [99,  102, 241, 255]  // indigo-500 (orchestrator cell)
-const SKY    = [56,  189, 248, 255]  // sky-400    (worker cells)
+// ── Brand palette ─────────────────────────────────────────────────────────────
+const BG_TOP    = [22, 22, 28]
+const BG_BOTTOM = [5,  5,  7 ]
+const LEFT_TOP    = [244, 244, 245]
+const LEFT_BOTTOM = [122, 122, 130]
+const RIGHT_TOP    = [154, 154, 162]
+const RIGHT_BOTTOM = [58,  58,  68 ]
+
+function lerp(a, b, t) { return a + (b - a) * t }
+function lerpRGB(c0, c1, t) {
+  return [Math.round(lerp(c0[0], c1[0], t)),
+          Math.round(lerp(c0[1], c1[1], t)),
+          Math.round(lerp(c0[2], c1[2], t))]
+}
 
 function inRoundedRect(x, y, x1, y1, x2, y2, r) {
   if (x < x1 || x > x2 || y < y1 || y > y2) return false
@@ -82,23 +95,74 @@ function inRoundedRect(x, y, x1, y1, x2, y2, r) {
   return true
 }
 
-function makeGridPixel(size, pad, gap, radius) {
+// Point-in-triangle via sign of edge cross products.
+function pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
+  const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by)
+  const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy)
+  const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay)
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0
+  return !(hasNeg && hasPos)
+}
+
+// Point in quad (4 vertices in order) — split into two triangles.
+function pointInQuad(px, py, q) {
+  return (
+    pointInTriangle(px, py, q[0][0], q[0][1], q[1][0], q[1][1], q[2][0], q[2][1]) ||
+    pointInTriangle(px, py, q[0][0], q[0][1], q[2][0], q[2][1], q[3][0], q[3][1])
+  )
+}
+
+function makeMarkPixel(size) {
+  const radius = Math.round(size * 0.22)
+  // Glyph occupies an inner rect roughly 60% wide, 64% tall, centered.
+  const gx0 = Math.round(size * 0.20)
+  const gx1 = Math.round(size * 0.80)
+  const gy0 = Math.round(size * 0.18)
+  const gy1 = Math.round(size * 0.84)
+  const cx  = Math.round(size * 0.50)
+  const cyTop = Math.round(size * 0.44) // valley meeting point (top of inner V)
+
+  // Left quad: TopLeft, TopRight (slope down to valley), BottomRight, BottomLeft
+  const leftQuad = [
+    [gx0, gy0],
+    [cx,  cyTop],
+    [cx,  gy1],
+    [gx0, gy1],
+  ]
+  // Right quad mirror
+  const rightQuad = [
+    [cx,  cyTop],
+    [gx1, gy0],
+    [gx1, gy1],
+    [cx,  gy1],
+  ]
+
   return function pixel(x, y) {
-    const cellSize = (size - pad * 2 - gap) / 2
-    const x2 = pad + cellSize,       y2 = pad + cellSize
-    const x3 = pad + cellSize + gap, y3 = pad + cellSize + gap
-    const x4 = x3 + cellSize,        y4 = y3 + cellSize
-    if (inRoundedRect(x, y, pad, pad, x2, y2, radius)) return INDIGO
-    if (inRoundedRect(x, y, x3,  pad, x4, y2, radius)) return SKY
-    if (inRoundedRect(x, y, pad, y3,  x2, y4, radius)) return SKY
-    if (inRoundedRect(x, y, x3,  y3,  x4, y4, radius)) return SKY
-    return BG
+    // Outside the rounded square: transparent.
+    if (!inRoundedRect(x, y, 0, 0, size - 1, size - 1, radius)) {
+      return [0, 0, 0, 0]
+    }
+    // Background: vertical gradient charcoal.
+    const ty = y / (size - 1)
+    const bg = lerpRGB(BG_TOP, BG_BOTTOM, ty)
+
+    if (pointInQuad(x, y, leftQuad)) {
+      const t = (y - gy0) / Math.max(1, gy1 - gy0)
+      const [r, g, b] = lerpRGB(LEFT_TOP, LEFT_BOTTOM, t)
+      return [r, g, b, 255]
+    }
+    if (pointInQuad(x, y, rightQuad)) {
+      const t = (y - gy0) / Math.max(1, gy1 - gy0)
+      const [r, g, b] = lerpRGB(RIGHT_TOP, RIGHT_BOTTOM, t)
+      return [r, g, b, 255]
+    }
+    return [bg[0], bg[1], bg[2], 255]
   }
 }
 
 // ── ICO format (PNG-inside-ICO, Vista+) ──────────────────────────────────────
 function buildICO(images) {
-  // images: array of { size: number, png: Buffer }
   const count      = images.length
   const entryBytes = 16
   const dataStart  = 6 + count * entryBytes
@@ -124,9 +188,7 @@ function buildICO(images) {
 }
 
 // ── ICNS format ───────────────────────────────────────────────────────────────
-// OSType codes: icp4=16, icp5=32, ic07=128, ic08=256
 function buildICNS(icons) {
-  // icons: array of { ostype: string, png: Buffer }
   const chunks = icons.map(({ ostype, png }) => {
     const t = Buffer.from(ostype, 'ascii')
     const l = Buffer.allocUnsafe(4)
@@ -146,16 +208,14 @@ fs.mkdirSync(outDir, { recursive: true })
 
 process.stdout.write('Generating icons…\n')
 
-const png16  = buildPNG(16,  makeGridPixel(16,  2,  2, 1))
-const png32  = buildPNG(32,  makeGridPixel(32,  4,  2, 2))
-const png128 = buildPNG(128, makeGridPixel(128, 16, 8, 8))
-const png256 = buildPNG(256, makeGridPixel(256, 32, 12, 14))
+const png16  = buildPNG(16,  makeMarkPixel(16))
+const png32  = buildPNG(32,  makeMarkPixel(32))
+const png128 = buildPNG(128, makeMarkPixel(128))
+const png256 = buildPNG(256, makeMarkPixel(256))
 
-// Linux — single 256px PNG
 fs.writeFileSync(path.join(outDir, 'icon.png'), png256)
 process.stdout.write('  ✓ resources/icon.png  (256×256)\n')
 
-// Windows — ICO containing 16, 32, 256
 fs.writeFileSync(path.join(outDir, 'icon.ico'), buildICO([
   { size: 16,  png: png16  },
   { size: 32,  png: png32  },
@@ -163,7 +223,6 @@ fs.writeFileSync(path.join(outDir, 'icon.ico'), buildICO([
 ]))
 process.stdout.write('  ✓ resources/icon.ico  (16, 32, 256px)\n')
 
-// macOS — ICNS containing 16, 32, 128, 256
 fs.writeFileSync(path.join(outDir, 'icon.icns'), buildICNS([
   { ostype: 'icp4', png: png16  },
   { ostype: 'icp5', png: png32  },

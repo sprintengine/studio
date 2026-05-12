@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StatusDot, WorkspaceTypeIcon } from '../AppIcons'
+import MulticodeMark from '../brand/MulticodeMark'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
@@ -115,9 +116,9 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     bg: 'bg-[#1a1408]',
     text: 'text-[#ffe7b3]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.18),0_0_24px_-4px_rgba(255,191,47,0.40)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.20),0_0_10px_-6px_rgba(255,191,47,0.18)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.20),0_0_10px_-3px_rgba(255,191,47,0.22)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.22),0_0_6px_-4px_rgba(255,191,47,0.14)]',
     chip: 'bg-[#ffbf2f]/15',
     glyph: 'text-[#ffbf2f]',
   },
@@ -126,9 +127,9 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     bg: 'bg-[#150f2c]',
     text: 'text-[#efe5ff]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(124,92,242,0.28),0_0_24px_-4px_rgba(124,92,242,0.50)]',
+      'shadow-[inset_0_0_0_1px_rgba(124,92,242,0.26),0_0_10px_-6px_rgba(124,92,242,0.22)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(124,92,242,0.26),0_0_10px_-3px_rgba(124,92,242,0.28)]',
+      'shadow-[inset_0_0_0_1px_rgba(124,92,242,0.28),0_0_6px_-4px_rgba(124,92,242,0.16)]',
     chip: 'bg-[#7c5cf2]/18',
     glyph: 'text-[#a78bfa]',
   },
@@ -137,9 +138,9 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     bg: 'bg-[#15203c]',
     text: 'text-[#dfe6ff]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.25),0_0_24px_-4px_rgba(92,124,255,0.45)]',
+      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.24),0_0_10px_-6px_rgba(92,124,255,0.20)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.24),0_0_10px_-3px_rgba(92,124,255,0.26)]',
+      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.26),0_0_6px_-4px_rgba(92,124,255,0.15)]',
     chip: 'bg-[#5c7cff]/18',
     glyph: 'text-[#5c7cff]',
   },
@@ -831,9 +832,9 @@ export default function WorkspaceSidebar({
       {/* Header */}
       <div className="flex h-[38px] shrink-0 items-center gap-2 border-b border-[#1f2025] px-2">
         {!sidebarCollapsed && (
-          <div className="flex min-w-0 flex-1 items-center gap-2 pl-1.5 text-[13px] font-semibold text-[#d7d7dc]">
-            <span className="h-4 w-4 shrink-0 rounded bg-gradient-to-br from-[#5c7cff] to-[#7c5cf2]" />
-            <span className="truncate">Multicode</span>
+          <div className="flex min-w-0 flex-1 items-center gap-2 pl-1.5 text-[13px] font-semibold tracking-tight text-[#ececee]">
+            <MulticodeMark className="h-[18px] w-[18px] shrink-0" />
+            <span className="truncate">multicode</span>
           </div>
         )}
         <button

@@ -6,6 +6,7 @@ import { WorkspacePanel } from '../ui/WorkspacePanel'
 import LearnCenter from '../learn/LearnCenter'
 import MobileSettingsTab from './MobileSettingsTab'
 import { MetaCell, SettingToggle, formatNullableDate } from './SettingsAtoms'
+import MulticodeMark from '../brand/MulticodeMark'
 
 interface Props {
   onClose: () => void
@@ -18,6 +19,9 @@ interface Props {
 type UpdateAction = 'check' | 'download' | 'restart'
 
 type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
+
+const EMPTY_SEARCH_EXCLUDES: string[] = []
+const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
 type SettingsTabId =
   | 'updates'
@@ -111,8 +115,8 @@ export default function SettingsPanel({
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
   )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
-  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? {})
+  const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
+  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
@@ -522,8 +526,9 @@ export default function SettingsPanel({
           className="space-y-4"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 text-sm font-semibold text-[#ececee]">
-              Multicode {updateState?.version ?? '...'}
+            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#ececee]">
+              <MulticodeMark className="h-4 w-4 shrink-0" />
+              <span>multicode {updateState?.version ?? '...'}</span>
             </div>
             <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${updateChannelClass(updateState?.channel)}`}>
               {formatUpdateChannel(updateState?.channel)}
@@ -1048,4 +1053,3 @@ function formatUpdateStatus(state: AppUpdateState | null): string {
       return 'No update check is running.'
   }
 }
-
