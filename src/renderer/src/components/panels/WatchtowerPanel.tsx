@@ -14,7 +14,7 @@ import {
   type WatchtowerReviewPresetId,
 } from '../../utils/watchtowerReview'
 import { getSpecialistAction } from '../../specialists/specialistActions'
-import type { SpecialistActionId } from '../../types/workspace'
+import type { McpSettings, SpecialistActionId } from '../../types/workspace'
 import type {
   SwitchboardComment,
   SwitchboardTaskRecord,
@@ -205,8 +205,11 @@ function triageImportanceDotClass(importance: TriageImportance): string {
   return 'bg-[#6f7078]'
 }
 
+const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
+
 export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
 
@@ -330,6 +333,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           workspaceRoot: folderPath,
           workspaceId,
           preset,
+          mcpSettings,
         })
         if (!started.ok) {
           notifyStartFailure('review', started.message)
@@ -342,7 +346,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         notifyStartFailure('review', caught instanceof Error ? caught.message : 'Watchtower review did not start.')
       }
     })
-  }, [feedback, folderPath, notifyStartFailure, preset, refreshRuns, runAction, selectedPreset.agents, workspaceId])
+  }, [feedback, folderPath, mcpSettings, notifyStartFailure, preset, refreshRuns, runAction, selectedPreset.agents, workspaceId])
 
   const handleStartTriage = useCallback(
     async (scope: 'all' | 'selected') => {
@@ -366,6 +370,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             workspaceId,
             scope: scope === 'selected' ? 'selected' : 'all',
             taskId: scope === 'selected' ? scopedTasks[0]?.task.id : undefined,
+            mcpSettings,
           })
           if (!started.ok) {
             notifyStartFailure('triage', started.message)
@@ -388,7 +393,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         }
       })
     },
-    [feedback, folderPath, inbox, notifyStartFailure, refreshRuns, runAction, selected, workspaceId]
+    [feedback, folderPath, inbox, mcpSettings, notifyStartFailure, refreshRuns, runAction, selected, workspaceId]
   )
 
   const handleImportGitHub = useCallback(async () => {

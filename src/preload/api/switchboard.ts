@@ -67,8 +67,8 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:runner:stop', workspaceRoot),
   tickSwitchboardRunner: (input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:tick', input),
-  getSwitchboardRunnerState: (workspaceRoot?: string): Promise<SwitchboardRunnerResult> =>
-    ipcRenderer.invoke('switchboard:runner:state', workspaceRoot),
+  getSwitchboardRunnerState: (input?: string | SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult> =>
+    ipcRenderer.invoke('switchboard:runner:state', input),
   stopSwitchboardExecution: (input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> =>
     ipcRenderer.invoke('switchboard:execution:stop', input),
   getSwitchboardExecutionStatus: (input: SwitchboardExecutionStatusInput): Promise<SwitchboardExecutionStatusResult> =>

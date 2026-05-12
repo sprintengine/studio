@@ -323,6 +323,7 @@ function renderCodexServer(server: McpServerConfig): string[] {
     if (server.env) lines.push(`env = { ${Object.entries(server.env).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`).join(', ')} }`)
   } else {
     lines.push(`url = ${tomlString(server.url ?? '')}`)
+    if (server.envVarNames?.length) lines.push(`bearer_token_env_var = ${tomlString(server.envVarNames[0])}`)
     if (server.headers) lines.push(`http_headers = { ${Object.entries(server.headers).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`).join(', ')} }`)
   }
   lines.push(`enabled = ${server.enabled ? 'true' : 'false'}`)

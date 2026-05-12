@@ -247,6 +247,7 @@ export type WatchtowerStartReviewInput = {
   workspaceRoot: string
   workspaceId?: string
   preset: string
+  mcpSettings?: McpSettings
 }
 
 export type WatchtowerStartTriageInput = {
@@ -254,6 +255,7 @@ export type WatchtowerStartTriageInput = {
   workspaceId?: string
   scope: 'all' | 'selected'
   taskId?: string | null
+  mcpSettings?: McpSettings
 }
 
 export type WatchtowerRunResult =

@@ -64,7 +64,7 @@ export function useSwitchboardRunner(
     }
     refreshInFlightRef.current = true
     try {
-      const result = await window.api.getSwitchboardRunnerState(targetRoot)
+      const result = await window.api.getSwitchboardRunnerState({ workspaceRoot: targetRoot, workspaceId, mcpSettings })
       apply(result, targetRoot)
     } catch (caught) {
       if (activeRootRef.current !== targetRoot) return
@@ -72,7 +72,7 @@ export function useSwitchboardRunner(
     } finally {
       refreshInFlightRef.current = false
     }
-  }, [apply, workspaceRoot])
+  }, [apply, mcpSettings, workspaceId, workspaceRoot])
 
   useEffect(() => {
     setState(null)

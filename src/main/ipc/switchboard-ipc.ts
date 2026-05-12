@@ -49,7 +49,7 @@ type SwitchboardIpcDependencies = {
   resumeRunner(input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult>
   stopRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
   tickRunner(input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult>
-  getRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult>
+  getRunnerState(input?: string | SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult>
   stopExecution(input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult>
   getExecutionStatus(input: SwitchboardExecutionStatusInput): Promise<SwitchboardExecutionStatusResult>
   getExecutionLogs(input: SwitchboardExecutionLogsInput): Promise<SwitchboardExecutionLogsResult>
@@ -133,8 +133,8 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
     return deps.tickRunner(input)
   })
 
-  ipcMain.handle('switchboard:runner:state', async (_, workspaceRoot?: string): Promise<SwitchboardRunnerResult> => {
-    return deps.getRunnerState(workspaceRoot)
+  ipcMain.handle('switchboard:runner:state', async (_, input?: string | SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult> => {
+    return deps.getRunnerState(input)
   })
 
   ipcMain.handle('switchboard:execution:stop', async (_, input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> => {

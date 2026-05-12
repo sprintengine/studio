@@ -607,8 +607,12 @@ export async function tickSwitchboardRunner(input: { workspaceRoot: string; work
   return getSwitchboardRunnerState(input.workspaceRoot)
 }
 
-export async function getSwitchboardRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult> {
+export async function getSwitchboardRunnerState(input?: string | { workspaceRoot?: string; mcpSettings?: McpSettings }): Promise<SwitchboardRunnerResult> {
+  const workspaceRoot = typeof input === 'string' ? input : input?.workspaceRoot
   if (!workspaceRoot?.trim()) return { ok: false, message: 'workspaceRoot is required.' }
+  if (typeof input === 'object' && input.mcpSettings) {
+    switchboardRunnerMcpSettings.set(runnerKey(workspaceRoot), input.mcpSettings)
+  }
   const result = await runSwitchboardCore(['runner', 'status', ...workspaceArgs(workspaceRoot)])
   if (!result.ok) return { ok: false, message: result.message || 'Unable to read Switchboard runner status.' }
   return result.payload as SwitchboardRunnerResult
@@ -681,7 +685,12 @@ export async function startWatchtowerReview(input: WatchtowerStartReviewInput): 
   if (payload.ok) {
     const descriptors = payload.descriptors ?? []
     for (const descriptor of payload.descriptors ?? []) {
-      const spawned = await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
+      const spawned = await switchboardSessionSpawner?.({
+        workspaceId: input.workspaceId,
+        workspaceRoot: input.workspaceRoot,
+        descriptor,
+        mcpSettings: input.mcpSettings,
+      })
       if (spawned && !spawned.ok) {
         await stopSpawnedWatchtowerSessions(
           input.workspaceRoot,
@@ -713,7 +722,12 @@ export async function startWatchtowerTriage(input: WatchtowerStartTriageInput): 
   if (payload.ok) {
     const descriptors = payload.descriptors ?? []
     for (const descriptor of payload.descriptors ?? []) {
-      const spawned = await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
+      const spawned = await switchboardSessionSpawner?.({
+        workspaceId: input.workspaceId,
+        workspaceRoot: input.workspaceRoot,
+        descriptor,
+        mcpSettings: input.mcpSettings,
+      })
       if (spawned && !spawned.ok) {
         await stopSpawnedWatchtowerSessions(
           input.workspaceRoot,
