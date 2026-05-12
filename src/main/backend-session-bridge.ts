@@ -50,6 +50,8 @@ export type BackendSessionListResult =
   | { ok: true; sessions: BackendSessionListEntry[] }
   | { ok: false; message: string }
 
+const REQUEST_TIMEOUT_MS = 5_000
+
 async function requestJson(
   descriptor: SwitchboardServerDescriptor,
   pathName: string,
@@ -64,8 +66,15 @@ async function requestJson(
       Authorization: `Bearer ${descriptor.token}`,
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
+    timeout: REQUEST_TIMEOUT_MS,
   }
   return new Promise((resolvePromise) => {
+    let settled = false
+    const settle = (result: { ok: true; payload: Record<string, unknown> } | { ok: false; message: string }): void => {
+      if (settled) return
+      settled = true
+      resolvePromise(result)
+    }
     const req = http.request(options, (res) => {
       let raw = ''
       res.setEncoding('utf8')
@@ -76,17 +85,21 @@ async function requestJson(
         try {
           const parsed = JSON.parse(raw) as Record<string, unknown>
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300 && parsed.ok !== false) {
-            resolvePromise({ ok: true, payload: parsed })
+            settle({ ok: true, payload: parsed })
           } else {
             const message = typeof parsed.message === 'string' ? parsed.message : `HTTP ${res.statusCode}`
-            resolvePromise({ ok: false, message })
+            settle({ ok: false, message })
           }
         } catch (error) {
-          resolvePromise({ ok: false, message: error instanceof Error ? error.message : 'Invalid response.' })
+          settle({ ok: false, message: error instanceof Error ? error.message : 'Invalid response.' })
         }
       })
     })
-    req.on('error', (error) => resolvePromise({ ok: false, message: error.message }))
+    req.on('error', (error) => settle({ ok: false, message: error.message }))
+    req.on('timeout', () => {
+      req.destroy()
+      settle({ ok: false, message: `Request timed out after ${REQUEST_TIMEOUT_MS}ms.` })
+    })
     if (body) req.write(JSON.stringify(body))
     req.end()
   })

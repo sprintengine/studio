@@ -23,6 +23,11 @@ PTY_READ_CHUNK = 4096
 LOG_FLUSH_BYTES = 64 * 1024
 LOG_FLUSH_INTERVAL_SECONDS = 1.0
 
+# Exited sessions linger in the registry briefly so late attachers can
+# still see the replay buffer + exit event. After this window the
+# registry prunes them on the next access (or via prune_completed()).
+EXITED_SESSION_TTL_SECONDS = 5 * 60
+
 
 class PtySession:
     def __init__(
@@ -67,24 +72,31 @@ class PtySession:
         self._ring_bytes = 0
         self._subscribers: set[Subscriber] = set()
         self._closed = False
+        self._exited_monotonic: float | None = None
 
         merged_env = os.environ.copy()
         if env:
             merged_env.update(env)
 
-        self.process = PtyProcess.spawn(
-            list(argv),
-            cwd=str(cwd),
-            env=merged_env,
-            dimensions=(self.rows, self.cols),
-            echo=False,
-        )
-
-        if initial_input:
+        try:
+            self.process = PtyProcess.spawn(
+                list(argv),
+                cwd=str(cwd),
+                env=merged_env,
+                dimensions=(self.rows, self.cols),
+                echo=False,
+            )
+        except Exception:
+            # Spawn failed — release the log handle we already opened so
+            # the file descriptor doesn't leak. Caller will propagate.
             try:
-                self.process.write(initial_input)
+                self._log_handle.close()
             except OSError:
                 pass
+            raise
+
+        if initial_input:
+            self._write_all(initial_input)
 
         self._reader = threading.Thread(
             target=self._read_loop,
@@ -92,6 +104,24 @@ class PtySession:
             daemon=True,
         )
         self._reader.start()
+
+    def _write_all(self, data: bytes) -> None:
+        """Write all bytes to the PTY, looping over short writes.
+
+        ``PtyProcess.write`` may return fewer bytes written than passed when
+        the kernel TTY buffer is near-full. For prompts approaching that
+        size (typically 4-8 KB) a single ``write`` call could truncate.
+        """
+        view = memoryview(data)
+        offset = 0
+        while offset < len(view):
+            try:
+                written = self.process.write(bytes(view[offset:]))
+            except OSError:
+                return
+            if not written:
+                return
+            offset += int(written)
 
     @property
     def pid(self) -> int:
@@ -258,6 +288,7 @@ class PtySession:
             self._closed = True
             self.exit_code = exit_code
             self.exited_at = exited_at
+            self._exited_monotonic = time.monotonic()
             subscribers = list(self._subscribers)
         try:
             self._log_handle.flush()
@@ -267,18 +298,28 @@ class PtySession:
             self._log_handle.close()
         except OSError:
             pass
-        try:
-            self._exit_file_path.write_text(
-                json.dumps({"exitCode": exit_code, "exitedAt": exited_at}),
-                encoding="utf-8",
-            )
-        except OSError:
-            pass
+        _atomic_write_exit_file(self._exit_file_path, exit_code, exited_at)
         for cb in subscribers:
             try:
                 cb("exit", None)
             except Exception:
                 pass
+
+
+def _atomic_write_exit_file(path: Path, exit_code: int | None, exited_at: str) -> None:
+    """Atomically write the exit metadata so partial reads can't see truncated JSON."""
+    payload = json.dumps({"exitCode": exit_code, "exitedAt": exited_at})
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp_path.write_text(payload, encoding="utf-8")
+        tmp_path.replace(path)
+    except OSError:
+        # Best-effort cleanup; the runner's reconcile loop will recover by
+        # observing the dead pid and marking the execution abandoned.
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class PtySessionRegistry:
@@ -287,6 +328,9 @@ class PtySessionRegistry:
         self._sessions: dict[str, PtySession] = {}
 
     def register(self, session: PtySession) -> None:
+        # Opportunistic prune so a long-running server doesn't hold every
+        # session it has ever spawned.
+        self.prune_completed()
         with self._lock:
             self._sessions[session.execution_id] = session
 
@@ -305,6 +349,28 @@ class PtySessionRegistry:
     def remove(self, execution_id: str) -> None:
         with self._lock:
             self._sessions.pop(execution_id, None)
+
+    def prune_completed(self, *, ttl_seconds: float = EXITED_SESSION_TTL_SECONDS) -> int:
+        """Drop exited sessions whose grace window has elapsed.
+
+        Returns the number of sessions pruned. Called opportunistically
+        on each ``register`` so a long-running server doesn't accumulate
+        every session it has ever spawned.
+        """
+        now = time.monotonic()
+        removed = 0
+        with self._lock:
+            stale_ids = [
+                exec_id
+                for exec_id, session in self._sessions.items()
+                if session._closed
+                and session._exited_monotonic is not None
+                and (now - session._exited_monotonic) >= ttl_seconds
+            ]
+            for exec_id in stale_ids:
+                self._sessions.pop(exec_id, None)
+                removed += 1
+        return removed
 
     def shutdown_all(self, *, grace_seconds: float = 3.0) -> None:
         with self._lock:

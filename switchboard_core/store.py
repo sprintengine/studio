@@ -51,6 +51,7 @@ RUNNER_EVENTS = {
     "tick",
     "claim",
     "launch",
+    "warning",
     "provider_error",
     "provider_execution_untracked",
     "execution_missing",

@@ -19,13 +19,6 @@ DEFAULT_TTY_ROWS = 32
 _PTY_EOF = b"\x04"
 
 
-def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    tmp_path.replace(path)
-
-
 def start_local_process_agent_execution(
     *,
     switchboard_root: Path,
@@ -114,6 +107,10 @@ def start_local_process_agent_execution(
         "completedAt": None,
         "error": None,
     }
+    # Imported lazily because store.py imports runtime.py for the spawn
+    # function — a top-level import here would be circular.
+    from .store import atomic_write_json
+
     atomic_write_json(metadata_path, execution_metadata)
     return execution
 

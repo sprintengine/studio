@@ -1316,12 +1316,19 @@ class SwitchboardCliTests(unittest.TestCase):
 
     def test_health_does_not_wait_for_runner_lock(self) -> None:
         self.run_cli(["init", *self.workspace_args()])
+        # Push the supervisor's tick interval far out so it doesn't race the
+        # test for the per-tick lock dir. Without this the supervisor's
+        # first tick (which immediately enters locked_runner) sometimes
+        # holds .runner.lock when the test tries to grab it.
+        env = os.environ.copy()
+        env["SWITCHBOARD_RUNNER_INTERVAL_SECONDS"] = "3600"
         process = subprocess.Popen(
             switchboard_command(["runner", "run", *self.workspace_args()]),
             cwd=REPO_ROOT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
         try:
             descriptor_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "server.json"
@@ -1334,6 +1341,12 @@ class SwitchboardCliTests(unittest.TestCase):
             self.assertIsNotNone(descriptor)
             assert descriptor is not None
             lock_dir = self.workspace / ".multi-code" / "switchboard" / "runner" / ".runner.lock"
+            # Wait for the supervisor's first tick to release the lock
+            # before the test re-acquires it.
+            for _ in range(60):
+                if not lock_dir.exists():
+                    break
+                time.sleep(0.05)
             lock_dir.mkdir()
             try:
                 request = urllib.request.Request(

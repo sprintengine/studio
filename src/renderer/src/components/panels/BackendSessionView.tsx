@@ -14,8 +14,10 @@ interface Props {
 const CONNECT_TIMEOUT_MS = 8_000
 
 const STATUS_TONE: Record<'connecting' | 'attached' | 'exited' | 'error', { dot: string; label: string; pulse: boolean }> = {
+  // Brand semantics: emerald = running/live, amber = pending/needs-input,
+  // grey = inert, red = failed. See knowledge/brand/BRAND.md.
   connecting: { dot: '#f2c45f', label: 'text-[#f2c45f]', pulse: true },
-  attached: { dot: '#f2c45f', label: 'text-[#f2c45f]', pulse: true },
+  attached: { dot: '#30d158', label: 'text-[#9be39e]', pulse: true },
   exited: { dot: '#71717a', label: 'text-[#71717a]', pulse: false },
   error: { dot: '#ff787c', label: 'text-[#ff787c]', pulse: false },
 }

@@ -1021,7 +1021,7 @@ function RunReviewSection({
                             className="interactive inline-flex h-5 items-center gap-1 rounded border border-[#3a2820] bg-[#241513] px-1.5 text-[10.5px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
                             title="Open live terminal"
                           >
-                            <span className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse" style={{ background: '#f2c45f' }} />
+                            <span className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse" style={{ background: '#30d158' }} />
                             Live
                           </button>
                         ) : null}

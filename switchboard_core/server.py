@@ -39,6 +39,9 @@ from .watchtower_runner import start_watchtower_review, start_watchtower_triage
 SERVER_API_VERSION = 2
 
 SSE_KEEPALIVE_SECONDS = 15.0
+# Bounded queue so a slow SSE consumer can't grow memory without limit. Each
+# entry is at most one PTY_READ_CHUNK (~4 KB) so the worst-case is ~2 MB.
+SSE_QUEUE_MAX = 512
 
 SIGNAL_MAP: dict[str, int] = {}
 for _sig_name in ("TERM", "INT", "KILL", "HUP", "QUIT"):
@@ -333,10 +336,17 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             self.respond({"ok": False, "message": "Session not found."}, status=404)
             return
 
-        events: _queue.Queue[tuple[str, bytes | None]] = _queue.Queue()
+        events: _queue.Queue[tuple[str, bytes | None]] = _queue.Queue(maxsize=SSE_QUEUE_MAX)
+        overflow_event = threading.Event()
 
         def on_event(name: str, data: bytes | None) -> None:
-            events.put((name, data))
+            try:
+                events.put_nowait((name, data))
+            except _queue.Full:
+                # Slow consumer: drop further data and signal a controlled
+                # close. The handler loop will detect this and end the SSE
+                # stream so the bounded queue can't pin memory.
+                overflow_event.set()
 
         replay, already_closed, unsubscribe = session.attach(on_event)
 
@@ -363,6 +373,12 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
                 return
 
             while True:
+                if overflow_event.is_set():
+                    self._sse_write(
+                        "overflow",
+                        json.dumps({"message": "SSE consumer fell behind; closing stream."}),
+                    )
+                    return
                 try:
                     name, data = events.get(timeout=SSE_KEEPALIVE_SECONDS)
                 except _queue.Empty:

@@ -209,6 +209,61 @@ class BackendSessionEndpointsTests(unittest.TestCase):
         pty_session.enable_pty_mode()
         self.assertTrue(pty_session.pty_mode_enabled() or pty_session.PtyProcess is None)
 
+    def test_registry_prunes_exited_sessions_after_ttl(self) -> None:
+        # Spawn a short-lived session, let it exit, then verify it is pruned
+        # when another register() call lands and the TTL has elapsed.
+        from switchboard_core.pty_session import PtySessionRegistry
+
+        registry = PtySessionRegistry()
+        first = self._spawn_session("exec_prune_1", ["bash", "-c", "exit 0"])
+        registry.register(first)
+        self.assertTrue(first.wait_until_closed(timeout=2.0))
+        self.assertFalse(first.is_active())
+
+        # Before the TTL elapses, the exited session is still tracked.
+        self.assertEqual(registry.prune_completed(ttl_seconds=60.0), 0)
+        self.assertIn("exec_prune_1", {s.execution_id for s in registry.all_sessions()})
+
+        # Past the TTL, prune drops it. Calling register() also prunes
+        # opportunistically.
+        self.assertEqual(registry.prune_completed(ttl_seconds=0.0), 1)
+        self.assertNotIn("exec_prune_1", {s.execution_id for s in registry.all_sessions()})
+
+    def test_sse_queue_is_bounded(self) -> None:
+        # The SSE stream handler uses a bounded queue to keep slow consumers
+        # from pinning memory. Verify the bound is in place and finite.
+        from switchboard_core import server as server_module
+
+        self.assertIsInstance(server_module.SSE_QUEUE_MAX, int)
+        self.assertGreater(server_module.SSE_QUEUE_MAX, 0)
+        # 4 KB chunks * SSE_QUEUE_MAX should fit a reasonable upper bound.
+        self.assertLessEqual(server_module.SSE_QUEUE_MAX, 4096)
+
+
+class StartupWithoutPtyProcessTests(unittest.TestCase):
+    """Regression: warning event must be accepted by RUNNER_EVENTS.
+
+    The server emits a "warning" runner event when ``ptyprocess`` is
+    missing. The event must be valid; otherwise ``serve()`` crashes
+    before serving its first request on environments lacking ptyprocess.
+    """
+
+    def test_warning_event_is_a_valid_runner_event(self) -> None:
+        from switchboard_core import store
+
+        self.assertIn("warning", store.RUNNER_EVENTS)
+
+    def test_append_runner_event_accepts_warning(self) -> None:
+        from switchboard_core import store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            store.init_workspace(workspace)
+            # Must not raise.
+            store.append_runner_event(workspace, "warning", message="No ptyprocess.")
+            events_path = workspace / ".multi-code" / "switchboard" / "runner" / "events.jsonl"
+            self.assertIn('"type": "warning"', events_path.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

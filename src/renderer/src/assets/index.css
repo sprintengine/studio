@@ -163,11 +163,11 @@ samp,
   animation: skeleton-shimmer 1400ms linear infinite;
 }
 
-/* Status dot pulse — used by live-attached terminal indicators and
- * "View live" affordances on Switchboard / Watchtower task cards. Brand
- * allows this animation explicitly under "what communicates state".
- * Color is overridden inline by the consuming element so the same
- * keyframe serves both amber (running) and red (recording) tones. */
+/* Status dot pulse — shared keyframe for live indicators.
+ * Color is overridden inline by the consuming element. Brand semantics
+ * (knowledge/brand/BRAND.md): emerald #30d158 = running/live, amber
+ * #ffbf2f or #f2c45f = needs-input/pending, red #ff787c = failed.
+ * Brand allows this animation explicitly under "what communicates state". */
 @keyframes status-dot-pulse {
   0%, 100% {
     opacity: 1;
