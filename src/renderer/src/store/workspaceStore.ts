@@ -110,6 +110,8 @@ interface WorkspaceStore {
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
+  setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
   setSearchExcludes: (patterns: string[]) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
@@ -272,6 +274,8 @@ const defaultAppSettings = (): AppSettings => ({
   lastSelectedSpecialist: 'architect',
   lastSelectedMultiloopRole: 'coordinator',
   lastAgentSpawnPermissionPreset: 'default',
+  specialistCliDefaults: {},
+  multiloopRoleCliDefaults: {},
   searchExcludes: [],
   projectKnowledgeRoots: {},
   recentWorkspaceFolders: [],
@@ -314,6 +318,8 @@ function normalizeAppSettings(settings: Partial<AppSettings> | undefined, worksp
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
+    specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
+    multiloopRoleCliDefaults: normalizeCliDefaults(settings?.multiloopRoleCliDefaults),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
     recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
@@ -665,6 +671,19 @@ function normalizeCliPermissionPreset(
   input: SprintEngineCliPermissionPreset | null | undefined
 ): SprintEngineCliPermissionPreset {
   return input === 'auto_workspace' || input === 'bypass_all' ? input : 'default'
+}
+
+function normalizeCliDefaults<K extends string>(
+  input: Partial<Record<K, AgentCli>> | null | undefined
+): Partial<Record<K, AgentCli>> {
+  if (!input || typeof input !== 'object') return {}
+  const result: Partial<Record<K, AgentCli>> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (value === 'codex' || value === 'claude') {
+      result[key as K] = value
+    }
+  }
+  return result
 }
 
 function normalizeSprintEngineAutoState(
@@ -1073,6 +1092,26 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       setLastAgentSpawnPermissionPreset: (preset) =>
         set((state) => {
           state.appSettings.lastAgentSpawnPermissionPreset = normalizeCliPermissionPreset(preset)
+        }),
+
+      setSpecialistCliDefault: (specialistId, cli) =>
+        set((state) => {
+          state.appSettings.specialistCliDefaults ??= {}
+          if (cli === null) {
+            delete state.appSettings.specialistCliDefaults[specialistId]
+          } else {
+            state.appSettings.specialistCliDefaults[specialistId] = cli
+          }
+        }),
+
+      setMultiloopRoleCliDefault: (role, cli) =>
+        set((state) => {
+          state.appSettings.multiloopRoleCliDefaults ??= {}
+          if (cli === null) {
+            delete state.appSettings.multiloopRoleCliDefaults[role]
+          } else {
+            state.appSettings.multiloopRoleCliDefaults[role] = cli
+          }
         }),
 
       setSearchExcludes: (patterns) =>
@@ -2227,6 +2266,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
         }
         return state as never
+      },
+      merge: (persisted, current) => {
+        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean }> | undefined
+        const workspaces = state?.workspaces ?? current.workspaces
+
+        return {
+          ...current,
+          ...(state ?? {}),
+          workspaces,
+          activeWorkspaceId: state?.activeWorkspaceId ?? current.activeWorkspaceId,
+          sidebarCollapsed:
+            typeof state?.sidebarCollapsed === 'boolean'
+              ? state.sidebarCollapsed
+              : current.sidebarCollapsed,
+          appSettings: normalizeAppSettings(state?.appSettings, workspaces),
+        }
       },
       partialize: (s) => ({
         appSettings: s.appSettings,

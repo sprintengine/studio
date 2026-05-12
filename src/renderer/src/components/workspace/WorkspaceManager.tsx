@@ -16,6 +16,7 @@ import {
   buildSpecialistSoulStartupPrompt,
   loadMultiloopPrompt,
   type MultiloopRoleDescriptor,
+  type SpecialistAction,
 } from '../../specialists/specialistActions'
 import type {
   AgentCli,
@@ -48,6 +49,9 @@ import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
+const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
+const EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>> = {}
+const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
 type ViewItem = { component: string; name: string }
 const VIEWS_FOR_MODE: Record<string, { label: string; views: ViewItem[] }> = {
@@ -305,7 +309,6 @@ export default function WorkspaceManager() {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'claude')
-  const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
   const lastSelectedSpecialist = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
@@ -320,6 +323,14 @@ export default function WorkspaceManager() {
   const setLastAgentSpawnPermissionPreset = useWorkspaceStore(
     (s) => s.setLastAgentSpawnPermissionPreset
   )
+  const specialistCliDefaults = useWorkspaceStore(
+    (s) => s.appSettings.specialistCliDefaults ?? EMPTY_SPECIALIST_CLI_DEFAULTS
+  )
+  const multiloopRoleCliDefaults = useWorkspaceStore(
+    (s) => s.appSettings.multiloopRoleCliDefaults ?? EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS
+  )
+  const setSpecialistCliDefault = useWorkspaceStore((s) => s.setSpecialistCliDefault)
+  const setMultiloopRoleCliDefault = useWorkspaceStore((s) => s.setMultiloopRoleCliDefault)
   const notifications = useNotificationStore((s) => s.notifications)
   const markNotificationRead = useNotificationStore((s) => s.markRead)
   const markAllNotificationsRead = useNotificationStore((s) => s.markAllRead)
@@ -330,7 +341,6 @@ export default function WorkspaceManager() {
     .map((workspace) => workspace.folderPath)
     .filter((folderPath): folderPath is string => Boolean(folderPath?.trim()))
     .join('\n')
-  const selectedCliOption = AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === lastSelectedCli) ?? AGENT_SPAWN_CLI_OPTIONS[0]
   const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
   const selectedMultiloopRoleDescriptor = getMultiloopRole(lastSelectedMultiloopRole)
   const multiloopLaunchMenu = activeWorkspace?.mode === 'multiloop'
@@ -344,10 +354,15 @@ export default function WorkspaceManager() {
   const [tipModalOpen, setTipModalOpen] = useState(false)
   const tipModalDecidedRef = useRef(false)
   const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
-  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? {})
+  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const [showPalette, setShowPalette] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
-  const [agentCliDropdownOpen, setAgentCliDropdownOpen] = useState(false)
+  const [agentMenuQuery, setAgentMenuQuery] = useState('')
+  const [agentMenuHighlight, setAgentMenuHighlight] = useState(0)
+  const [chipPopoverForRole, setChipPopoverForRole] = useState<
+    { kind: 'specialist'; id: SpecialistActionId } | { kind: 'multiloop'; role: MultiloopRole } | null
+  >(null)
+  const agentMenuSearchRef = useRef<HTMLInputElement>(null)
   const [agentSpawnPermissionPreset, setAgentSpawnPermissionPresetState] = useState<SprintEngineCliPermissionPreset>(
     lastAgentSpawnPermissionPreset
   )
@@ -480,7 +495,14 @@ export default function WorkspaceManager() {
   }
 
   useEffect(() => {
-    if (!specialistMenuOpen) setAgentCliDropdownOpen(false)
+    if (specialistMenuOpen) {
+      setAgentMenuQuery('')
+      setAgentMenuHighlight(0)
+      setChipPopoverForRole(null)
+      requestAnimationFrame(() => agentMenuSearchRef.current?.focus())
+    } else {
+      setChipPopoverForRole(null)
+    }
   }, [specialistMenuOpen])
 
   useEffect(() => {
@@ -982,10 +1004,11 @@ export default function WorkspaceManager() {
     const targetTabset = model.getActiveTabset() ?? firstTabset(model)
     if (!targetTabset) return
     const prompt = buildSpecialistSoulStartupPrompt(specialist)
+    const cliForSpawn = specialistCliDefaults[specialist.id] ?? lastSelectedCli
 
     updateAgent(activeWorkspaceId, newId, {
       name: tabName,
-      cli: lastSelectedCli,
+      cli: cliForSpawn,
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'specialist',
       specialistId: specialist.id,
@@ -1054,10 +1077,11 @@ export default function WorkspaceManager() {
       workspace: activeWorkspace,
       agentId: newId,
     })
+    const cliForSpawn = multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli
 
     updateAgent(activeWorkspaceId, newId, {
       name: tabName,
-      cli: lastSelectedCli,
+      cli: cliForSpawn,
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'multiloop',
       specialistId: undefined,
@@ -1189,11 +1213,6 @@ export default function WorkspaceManager() {
     setLastSelectedMultiloopRole(role)
     setSpecialistMenuOpen(false)
     void addNewMultiloopAgent(role)
-  }
-
-  const handleSelectSpawnCli = (cli: AgentCli) => {
-    setLastSelectedCli(cli)
-    setAgentCliDropdownOpen(false)
   }
 
   const startLogin = async () => {
@@ -1626,7 +1645,97 @@ export default function WorkspaceManager() {
             </button>
           ) : null}
 
-          {workspaceActionsEnabled ? (
+          {workspaceActionsEnabled ? (() => {
+            const triggerCli: AgentCli = multiloopLaunchMenu
+              ? (multiloopRoleCliDefaults[selectedMultiloopRoleDescriptor.role] ?? lastSelectedCli)
+              : (specialistCliDefaults[selectedSpecialistAction.id] ?? lastSelectedCli)
+            const triggerCliOption =
+              AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === triggerCli)
+              ?? AGENT_SPAWN_CLI_OPTIONS[0]
+            const menuQuery = agentMenuQuery.trim().toLowerCase()
+            const filteredSpecialists = menuQuery
+              ? SPECIALIST_ACTIONS.filter((action) =>
+                  action.label.toLowerCase().includes(menuQuery)
+                  || action.shortLabel.toLowerCase().includes(menuQuery)
+                  || action.description.toLowerCase().includes(menuQuery)
+                )
+              : SPECIALIST_ACTIONS
+            const filteredMultiloop = menuQuery
+              ? MULTILOOP_ROLES.filter((soul) =>
+                  soul.label.toLowerCase().includes(menuQuery)
+                  || soul.shortLabel.toLowerCase().includes(menuQuery)
+                )
+              : MULTILOOP_ROLES
+            const visibleItems = multiloopLaunchMenu ? filteredMultiloop : filteredSpecialists
+            const safeHighlight = visibleItems.length === 0
+              ? 0
+              : Math.min(agentMenuHighlight, visibleItems.length - 1)
+            const cycleCli = (current: AgentCli): AgentCli => {
+              const index = AGENT_SPAWN_CLI_OPTIONS.findIndex((option) => option.value === current)
+              const next = AGENT_SPAWN_CLI_OPTIONS[(index + 1) % AGENT_SPAWN_CLI_OPTIONS.length]
+              return next?.value ?? current
+            }
+            const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setAgentMenuHighlight((index) =>
+                  visibleItems.length === 0 ? 0 : Math.min(index + 1, visibleItems.length - 1)
+                )
+                return
+              }
+              if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                setAgentMenuHighlight((index) => Math.max(index - 1, 0))
+                return
+              }
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                const item = visibleItems[safeHighlight]
+                if (!item) return
+                if (multiloopLaunchMenu) {
+                  handleSelectMultiloopRole((item as MultiloopRoleDescriptor).role)
+                } else {
+                  handleSelectSpecialist((item as SpecialistAction).id)
+                }
+                return
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                if (chipPopoverForRole) {
+                  setChipPopoverForRole(null)
+                } else {
+                  setSpecialistMenuOpen(false)
+                }
+                return
+              }
+              if ((event.altKey || event.metaKey) && (event.key === 'm' || event.key === 'M')) {
+                event.preventDefault()
+                const item = visibleItems[safeHighlight]
+                if (!item) return
+                if (multiloopLaunchMenu) {
+                  const role = (item as MultiloopRoleDescriptor).role
+                  const next = cycleCli(multiloopRoleCliDefaults[role] ?? lastSelectedCli)
+                  setMultiloopRoleCliDefault(role, next)
+                } else {
+                  const id = (item as SpecialistAction).id
+                  const next = cycleCli(specialistCliDefaults[id] ?? lastSelectedCli)
+                  setSpecialistCliDefault(id, next)
+                }
+                return
+              }
+              if (event.shiftKey && event.key === 'Backspace') {
+                event.preventDefault()
+                const item = visibleItems[safeHighlight]
+                if (!item) return
+                if (multiloopLaunchMenu) {
+                  setMultiloopRoleCliDefault((item as MultiloopRoleDescriptor).role, null)
+                } else {
+                  setSpecialistCliDefault((item as SpecialistAction).id, null)
+                }
+                return
+              }
+            }
+            return (
             <div ref={specialistMenuRef} className="relative inline-flex">
               <div className="inline-flex overflow-hidden rounded-md border border-[#4b4d55] bg-[#181a20] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.025)]">
                 <button
@@ -1641,8 +1750,8 @@ export default function WorkspaceManager() {
                   className="inline-flex h-8 w-8 items-center justify-center text-[#d7d7dc] transition-colors hover:bg-[#22252c] hover:text-[#f3f3f5] disabled:opacity-40 disabled:hover:bg-[#181a20]"
                   title={
                     multiloopLaunchMenu
-                      ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label} with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}`
-                      : `Spawn ${selectedSpecialistAction.label} specialist with ${selectedCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${shortcutLabel(selectedSpecialistAction.shortcut)})` : ''}`
+                      ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label} with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
+                      : `Spawn ${selectedSpecialistAction.label} specialist with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${shortcutLabel(selectedSpecialistAction.shortcut)})` : ''}`
                   }
                   aria-label={
                     multiloopLaunchMenu
@@ -1655,6 +1764,13 @@ export default function WorkspaceManager() {
                     className="h-[18px] w-[18px]"
                   />
                 </button>
+                <span
+                  className="inline-flex h-8 items-center border-l border-[#4b4d55] px-1.5 text-[#b8ccff]"
+                  aria-hidden="true"
+                  title={`Default CLI: ${triggerCliOption.label}`}
+                >
+                  <CliIcon cli={triggerCli} className="h-3.5 w-3.5" />
+                </span>
                 <button
                   onClick={() => {
                     setSpecialistMenuOpen((open) => !open)
@@ -1675,217 +1791,284 @@ export default function WorkspaceManager() {
               {specialistMenuOpen ? (
                 <div
                   role="menu"
-                  className="absolute right-0 top-9 z-40 w-72 overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+                  className="absolute right-0 top-9 z-40 w-[320px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
                 >
-                  <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                    AI Model
+                  <div className="flex items-center gap-2 border-b border-white/[0.06] px-2.5 py-2">
+                    <svg className="h-3.5 w-3.5 shrink-0 text-[#5a5a63]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                      <circle cx="9" cy="9" r="5" stroke="currentColor" strokeWidth="1.6" />
+                      <path d="M13 13l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                    <input
+                      ref={agentMenuSearchRef}
+                      value={agentMenuQuery}
+                      onChange={(event) => {
+                        setAgentMenuQuery(event.currentTarget.value)
+                        setAgentMenuHighlight(0)
+                      }}
+                      onKeyDown={onSearchKeyDown}
+                      placeholder={multiloopLaunchMenu ? 'Spawn role…' : 'Spawn agent…'}
+                      className="min-w-0 flex-1 bg-transparent text-[13px] text-[#ececee] placeholder:text-[#5a5a63] focus:outline-none"
+                      aria-label="Filter agents"
+                    />
                   </div>
-                  <div className="px-1 pb-1">
-                    <button
-                      type="button"
-                      aria-haspopup="listbox"
-                      aria-expanded={agentCliDropdownOpen}
-                      aria-controls="agent-spawn-cli-options"
-                      onClick={() => setAgentCliDropdownOpen((open) => !open)}
-                      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-[#4b4d55] bg-[#181a20] px-2.5 text-left text-[13px] font-semibold text-[#ececee] transition-colors hover:border-[#5c5f68] hover:bg-[#22252c] focus:outline-none focus:ring-1 focus:ring-[#6b6e78]"
-                    >
-                      <CliIcon cli={selectedCliOption.value} className="h-4 w-4 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">{selectedCliOption.label}</span>
-                      <svg
-                        className={`h-3.5 w-3.5 shrink-0 text-[#9a9aa2] transition-transform ${
-                          agentCliDropdownOpen ? 'rotate-180' : ''
-                        }`}
-                        viewBox="0 0 20 20"
-                        fill="none"
-                        aria-hidden="true"
-                      >
-                        <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                    {agentCliDropdownOpen ? (
-                      <div
-                        id="agent-spawn-cli-options"
-                        role="listbox"
-                        aria-label="AI model for new agent"
-                        className="mt-1 overflow-hidden rounded-md border border-[#303139] bg-[#111216] p-1"
-                      >
-                        {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
-                          const selected = option.value === selectedCliOption.value
-                          return (
-                            <button
-                              key={option.value}
-                              type="button"
-                              role="option"
-                              aria-selected={selected}
-                              onClick={() => handleSelectSpawnCli(option.value)}
-                              className={`flex w-full min-w-0 items-center gap-2 rounded border px-2 py-2 text-left text-[12px] font-semibold transition-colors ${
-                                selected
-                                  ? 'border-[#4b4d55] bg-[#24262d] text-[#f3f3f5]'
-                                  : 'border-transparent text-[#b4b4bd] hover:border-[#3a3c44] hover:bg-[#1b1d23] hover:text-[#ececee]'
-                              }`}
-                            >
-                              <CliIcon cli={option.value} className="h-4 w-4 shrink-0" />
-                              <span className="truncate">{option.label}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="my-1 border-t border-[#24252b]" />
-                  <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                    Permissions
-                  </div>
-                  <div className="px-1 pb-1">
-                    <label className="sr-only" htmlFor="agent-spawn-cli-permissions">
-                      CLI permissions for new agent
-                    </label>
-                    <select
-                      id="agent-spawn-cli-permissions"
-                      value={agentSpawnPermissionPreset}
-                      onChange={(event) =>
-                        setAgentSpawnPermissionPreset(event.currentTarget.value as SprintEngineCliPermissionPreset)
-                      }
-                      title={
-                        AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === agentSpawnPermissionPreset)?.title
-                        ?? 'CLI permissions for new agent'
-                      }
-                      className={`h-8 w-full rounded-md border bg-[#111216] px-2.5 text-sm font-semibold outline-none transition-colors focus:ring-1 ${
-                        agentSpawnPermissionPreset === 'bypass_all'
-                          ? 'border-[#ffbf2f]/50 text-[#ffe0a3] focus:ring-[#ffbf2f]/45'
-                          : agentSpawnPermissionPreset === 'auto_workspace'
-                            ? 'border-[#5c7cff]/40 text-[#d4ddff] focus:ring-[#5c7cff]/40'
-                            : 'border-[#303139] text-[#8a8a92] focus:ring-[#303139]'
-                      }`}
-                    >
-                      {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="my-1 border-t border-[#24252b]" />
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => addNewCliAgent(selectedCliOption.value, 'General Agent')}
-                    className="flex w-full items-start gap-3 rounded px-2.5 py-2 text-left text-[#d7d7dc] transition-colors hover:bg-[#17181d] hover:text-[#ececee]"
-                  >
-                    <span
-                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border border-[#24252b] bg-[#111216] ${
-                        selectedCliOption.value === 'codex' ? 'text-[#9a9aa2]' : 'text-[#d97757]'
-                      }`}
-                    >
-                      <CliIcon cli={selectedCliOption.value} className="h-[18px] w-[18px]" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-semibold">
-                        General Agent
-                      </span>
-                      <span className="mt-0.5 block whitespace-normal break-words text-[11px] leading-4 text-[#8a8a92]">
-                        {selectedCliOption.label}, {selectedAgentPermissionOption.label.toLowerCase()}, no Soul prompt
-                      </span>
-                    </span>
-                  </button>
-                  <div className="my-1 border-t border-[#24252b]" />
-                  {multiloopLaunchMenu ? (
-                    <>
-                      <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                        Multiloop Roles
-                      </div>
-                      {MULTILOOP_ROLES.map((soul) => {
-                        const selected = soul.role === selectedMultiloopRoleDescriptor.role
-                        return (
-                          <button
-                            key={soul.role}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={selected}
-                            onClick={() => handleSelectMultiloopRole(soul.role)}
-                            className={`flex w-full items-start gap-3 rounded px-2.5 py-2 text-left transition-colors ${
-                              selected
-                                ? 'bg-[#ffbf2f]/8 text-[#ececee]'
-                                : 'text-[#d7d7dc] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
-                            }`}
-                          >
-                            <span
-                              className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
-                                selected
-                                  ? 'border-[#ffbf2f]/40 bg-[#ffbf2f]/8 text-[#ffbf2f]'
-                                  : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
-                              }`}
-                            >
-                              <SpecialistActionIcon icon={soul.icon} className="h-[18px] w-[18px]" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[13px] font-semibold">
-                                {soul.label}
-                              </span>
-                              <span className="mt-0.5 block text-[11px] leading-4 text-[#8a8a92]">
-                                multiloop_core/prompts.py
-                              </span>
-                            </span>
-                            {selected ? (
-                              <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f]" />
-                            ) : null}
-                          </button>
-                        )
-                      })}
-                    </>
+
+                  {visibleItems.length === 0 ? (
+                    <div className="px-3 py-5 text-center text-[11px] text-[#5a5a63]">
+                      No matches
+                    </div>
                   ) : (
-                    <>
-                      <div className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-                        Specialist Agents
-                      </div>
-                      {SPECIALIST_ACTIONS.map((action) => {
-                        const selected = action.id === selectedSpecialistAction.id
-                        return (
-                          <button
-                            key={action.id}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={selected}
-                            onClick={() => handleSelectSpecialist(action.id)}
-                            className={`flex w-full items-start gap-3 rounded px-2.5 py-2 text-left transition-colors ${
-                              selected
-                                ? 'bg-[#ffbf2f]/8 text-[#ececee]'
-                                : 'text-[#d7d7dc] hover:bg-[#ffbf2f]/8 hover:text-[#e6d4ad]'
-                            }`}
-                          >
-                            <span
-                              className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border ${
-                                selected
-                                  ? 'border-[#ffbf2f]/40 bg-[#ffbf2f]/8 text-[#ffbf2f]'
-                                  : 'border-[#24252b] bg-[#111216] text-[#5a5a63]'
-                              }`}
-                            >
-                              <SpecialistActionIcon icon={action.icon} className="h-[18px] w-[18px]" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[13px] font-semibold">
-                                {action.label}
-                              </span>
-                              <span className="mt-0.5 block text-[11px] leading-4 text-[#8a8a92]">
-                                {action.description}
-                              </span>
-                            </span>
-                            {selected ? (
-                              <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf2f]" />
-                            ) : action.shortcut ? (
-                              <kbd className="mt-2.5 shrink-0 rounded bg-[#111216] px-1.5 py-0.5 text-[10px] text-[#5a5a63]">
-                                {shortcutLabel(action.shortcut)}
-                              </kbd>
-                            ) : null}
-                          </button>
-                        )
-                      })}
-                    </>
+                    <div className="max-h-[340px] overflow-y-auto py-1">
+                      {multiloopLaunchMenu
+                        ? filteredMultiloop.map((soul, index) => {
+                            const highlighted = index === safeHighlight
+                            const boundCli = multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli
+                            const popoverOpen =
+                              chipPopoverForRole?.kind === 'multiloop'
+                              && chipPopoverForRole.role === soul.role
+                            const hasOverride = multiloopRoleCliDefaults[soul.role] !== undefined
+                            return (
+                              <div key={soul.role} className="relative">
+                                <button
+                                  type="button"
+                                  role="menuitemradio"
+                                  aria-checked={highlighted}
+                                  onClick={() => handleSelectMultiloopRole(soul.role)}
+                                  onMouseEnter={() => setAgentMenuHighlight(index)}
+                                  className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
+                                    highlighted
+                                      ? 'bg-[#111b30] pl-[7px] shadow-[inset_3px_0_0_#5c7cff] text-[#ececee]'
+                                      : 'pl-2.5 text-[#d7d7dc] hover:bg-[rgba(92,124,255,0.05)]'
+                                  }`}
+                                >
+                                  <SpecialistActionIcon
+                                    icon={soul.icon}
+                                    className={`h-4 w-4 ${highlighted ? 'text-[#b8ccff]' : 'text-[#9a9aa2]'}`}
+                                  />
+                                  <span className="truncate text-[13px]">{soul.label}</span>
+                                  <span
+                                    role="button"
+                                    tabIndex={-1}
+                                    aria-label={`Default CLI: ${boundCli === 'codex' ? 'Codex' : 'Claude Code'}`}
+                                    title={hasOverride
+                                      ? `Pinned to ${boundCli === 'codex' ? 'Codex' : 'Claude Code'} · click to change · ⇧⌫ to unpin`
+                                      : `Using last-used (${boundCli === 'codex' ? 'Codex' : 'Claude Code'}) · click to pin`}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      setAgentMenuHighlight(index)
+                                      setChipPopoverForRole((current) =>
+                                        current?.kind === 'multiloop' && current.role === soul.role
+                                          ? null
+                                          : { kind: 'multiloop', role: soul.role }
+                                      )
+                                    }}
+                                    className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
+                                      hasOverride
+                                        ? highlighted
+                                          ? 'bg-[#1a2540] text-[#b8ccff]'
+                                          : 'bg-[#111b30]/60 text-[#b8ccff]'
+                                        : highlighted
+                                          ? 'text-[#7d8aa8] hover:text-[#b8ccff]'
+                                          : 'text-[#5a5a63] hover:text-[#b8ccff]'
+                                    }`}
+                                  >
+                                    <CliIcon cli={boundCli} className="h-3.5 w-3.5" />
+                                  </span>
+                                </button>
+                                {popoverOpen ? (
+                                  <div
+                                    role="listbox"
+                                    aria-label={`Default CLI for ${soul.label}`}
+                                    className="absolute right-2 top-[32px] z-50 w-[180px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
+                                  >
+                                    {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
+                                      const isCurrent = option.value === boundCli
+                                      return (
+                                        <button
+                                          key={option.value}
+                                          type="button"
+                                          role="option"
+                                          aria-selected={isCurrent}
+                                          onClick={() => {
+                                            setMultiloopRoleCliDefault(soul.role, option.value)
+                                            setChipPopoverForRole(null)
+                                          }}
+                                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+                                            isCurrent
+                                              ? 'bg-[#1a2540] text-[#b8ccff]'
+                                              : 'text-[#c7c7ce] hover:bg-[rgba(92,124,255,0.06)] hover:text-[#ececee]'
+                                          }`}
+                                        >
+                                          <CliIcon cli={option.value} className="h-3.5 w-3.5" />
+                                          {option.label}
+                                          {isCurrent ? <span className="ml-auto text-[#5c7cff]">✓</span> : null}
+                                        </button>
+                                      )
+                                    })}
+                                    {hasOverride ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setMultiloopRoleCliDefault(soul.role, null)
+                                          setChipPopoverForRole(null)
+                                        }}
+                                        className="mt-0.5 flex w-full items-center gap-2 border-t border-white/[0.06] px-2 py-1.5 text-left text-[11px] text-[#8a8a92] transition-colors hover:text-[#ececee]"
+                                      >
+                                        Unpin
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                              </div>
+                            )
+                          })
+                        : filteredSpecialists.map((action, index) => {
+                            const highlighted = index === safeHighlight
+                            const boundCli = specialistCliDefaults[action.id] ?? lastSelectedCli
+                            const popoverOpen =
+                              chipPopoverForRole?.kind === 'specialist'
+                              && chipPopoverForRole.id === action.id
+                            const hasOverride = specialistCliDefaults[action.id] !== undefined
+                            return (
+                              <div key={action.id} className="relative">
+                                <button
+                                  type="button"
+                                  role="menuitemradio"
+                                  aria-checked={highlighted}
+                                  onClick={() => handleSelectSpecialist(action.id)}
+                                  onMouseEnter={() => setAgentMenuHighlight(index)}
+                                  className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
+                                    highlighted
+                                      ? 'bg-[#111b30] pl-[7px] shadow-[inset_3px_0_0_#5c7cff] text-[#ececee]'
+                                      : 'pl-2.5 text-[#d7d7dc] hover:bg-[rgba(92,124,255,0.05)]'
+                                  }`}
+                                >
+                                  <SpecialistActionIcon
+                                    icon={action.icon}
+                                    className={`h-4 w-4 ${highlighted ? 'text-[#b8ccff]' : 'text-[#9a9aa2]'}`}
+                                  />
+                                  <span className="truncate text-[13px]">{action.shortLabel}</span>
+                                  <span
+                                    role="button"
+                                    tabIndex={-1}
+                                    aria-label={`Default CLI: ${boundCli === 'codex' ? 'Codex' : 'Claude Code'}`}
+                                    title={hasOverride
+                                      ? `Pinned to ${boundCli === 'codex' ? 'Codex' : 'Claude Code'} · click to change · ⇧⌫ to unpin`
+                                      : `Using last-used (${boundCli === 'codex' ? 'Codex' : 'Claude Code'}) · click to pin`}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      setAgentMenuHighlight(index)
+                                      setChipPopoverForRole((current) =>
+                                        current?.kind === 'specialist' && current.id === action.id
+                                          ? null
+                                          : { kind: 'specialist', id: action.id }
+                                      )
+                                    }}
+                                    className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
+                                      hasOverride
+                                        ? highlighted
+                                          ? 'bg-[#1a2540] text-[#b8ccff]'
+                                          : 'bg-[#111b30]/60 text-[#b8ccff]'
+                                        : highlighted
+                                          ? 'text-[#7d8aa8] hover:text-[#b8ccff]'
+                                          : 'text-[#5a5a63] hover:text-[#b8ccff]'
+                                    }`}
+                                  >
+                                    <CliIcon cli={boundCli} className="h-3.5 w-3.5" />
+                                  </span>
+                                </button>
+                                {popoverOpen ? (
+                                  <div
+                                    role="listbox"
+                                    aria-label={`Default CLI for ${action.label}`}
+                                    className="absolute right-2 top-[32px] z-50 w-[180px] overflow-hidden rounded-md border border-[#303139] bg-[#0d0e11] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
+                                  >
+                                    {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
+                                      const isCurrent = option.value === boundCli
+                                      return (
+                                        <button
+                                          key={option.value}
+                                          type="button"
+                                          role="option"
+                                          aria-selected={isCurrent}
+                                          onClick={() => {
+                                            setSpecialistCliDefault(action.id, option.value)
+                                            setChipPopoverForRole(null)
+                                          }}
+                                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+                                            isCurrent
+                                              ? 'bg-[#1a2540] text-[#b8ccff]'
+                                              : 'text-[#c7c7ce] hover:bg-[rgba(92,124,255,0.06)] hover:text-[#ececee]'
+                                          }`}
+                                        >
+                                          <CliIcon cli={option.value} className="h-3.5 w-3.5" />
+                                          {option.label}
+                                          {isCurrent ? <span className="ml-auto text-[#5c7cff]">✓</span> : null}
+                                        </button>
+                                      )
+                                    })}
+                                    {hasOverride ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSpecialistCliDefault(action.id, null)
+                                          setChipPopoverForRole(null)
+                                        }}
+                                        className="mt-0.5 flex w-full items-center gap-2 border-t border-white/[0.06] px-2 py-1.5 text-left text-[11px] text-[#8a8a92] transition-colors hover:text-[#ececee]"
+                                      >
+                                        Unpin
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          addNewCliAgent(lastSelectedCli, 'General Agent')
+                          setSpecialistMenuOpen(false)
+                        }}
+                        className="mt-1 grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 border-t border-white/[0.06] py-1.5 pl-2.5 pr-2 text-left text-[#9a9aa2] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[#ececee]"
+                      >
+                        <CliIcon cli={lastSelectedCli} className="h-4 w-4" />
+                        <span className="truncate text-[13px]">General Agent</span>
+                        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-[#5a5a63]">
+                          <CliIcon cli={lastSelectedCli} className="h-3.5 w-3.5" />
+                        </span>
+                      </button>
+                    </div>
                   )}
+
+                  <div className="flex items-center gap-1 border-t border-white/[0.06] px-2 py-1.5">
+                    {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
+                      const active = option.value === agentSpawnPermissionPreset
+                      const isBypass = option.value === 'bypass_all'
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setAgentSpawnPermissionPreset(option.value)}
+                          title={option.title}
+                          className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                            active
+                              ? isBypass
+                                ? 'bg-[#ffbf2f]/12 text-[#ffe0a3]'
+                                : 'bg-[#111b30] text-[#b8ccff]'
+                              : 'text-[#5a5a63] hover:text-[#9a9aa2]'
+                          }`}
+                        >
+                          {option.value === 'default' ? 'Default' : option.value === 'auto_workspace' ? 'Auto' : 'Bypass'}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               ) : null}
             </div>
-          ) : null}
+            )
+          })() : null}
 
           <div ref={accountRef} className="relative inline-flex">
             {authState.authenticated ? (

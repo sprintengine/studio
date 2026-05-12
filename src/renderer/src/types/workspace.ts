@@ -663,6 +663,8 @@ export type AppSettings = {
   lastSelectedSpecialist: SpecialistActionId
   lastSelectedMultiloopRole: MultiloopRole
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
+  specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
+  multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
   searchExcludes: string[]
   projectKnowledgeRoots: Record<string, string | null>
   recentWorkspaceFolders: string[]
