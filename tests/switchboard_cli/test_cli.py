@@ -850,6 +850,64 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIn(".multi-code/switchboard/artifacts/report.md", evidence["artifacts"])
         self.assertEqual(published["record"]["task"]["comments"][-2]["body"], "Evidence attached during publish.")
 
+    def test_publish_to_testing_creates_pull_request_from_execution_worktree(self) -> None:
+        self.init_git_repo()
+        remote = self.workspace.with_name(f"{self.workspace.name}-remote.git")
+        subprocess.run(["git", "init", "--bare", str(remote)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.workspace, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.workspace, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+
+        gh = self.workspace / "gh"
+        gh.write_text(
+            "#!/bin/sh\n"
+            "if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then exit 0; fi\n"
+            "if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then exit 1; fi\n"
+            "if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"create\" ]; then echo 'https://github.com/example/repo/pull/123'; exit 0; fi\n"
+            "echo unexpected gh invocation >&2\n"
+            "exit 2\n",
+            encoding="utf-8",
+        )
+        gh.chmod(0o755)
+
+        task_id = self.create_task(title="PR publish task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        prepared = stdout_json(
+            self.run_cli(
+                ["runner", "prepare-session", *self.workspace_args()],
+                env={"SWITCHBOARD_RUNNER_COMMAND": f"{sys.executable} -c \"import sys; sys.stdin.read()\""},
+            )
+        )
+        execution = prepared["execution"]
+        worktree = Path(execution["worktreePath"])
+        (worktree / "feature.txt").write_text("implemented through switchboard\n", encoding="utf-8")
+
+        published = stdout_json(
+            self.run_cli(
+                [
+                    "publish",
+                    *self.workspace_args(),
+                    task_id,
+                    "--to",
+                    "testing",
+                    "--summary",
+                    "Implemented and opened a PR.",
+                    "--command",
+                    "python -m unittest tests.switchboard_cli.test_cli",
+                    "--touched-file",
+                    "feature.txt",
+                ],
+                env={"PATH": f"{self.workspace}{os.pathsep}{os.environ.get('PATH', '')}"},
+            )
+        )
+
+        evidence = published["record"]["task"]["evidence"]
+        self.assertIn("https://github.com/example/repo/pull/123", evidence["artifacts"])
+        self.assertIn("Pull request: https://github.com/example/repo/pull/123", published["record"]["task"]["comments"][-1]["body"])
+        branch = execution["worktreeBranch"]
+        pushed = subprocess.run(["git", "--git-dir", str(remote), "show-ref", "--verify", f"refs/heads/{branch}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+        self.assertEqual(pushed.returncode, 0)
+
     def test_publish_rejects_wrong_target(self) -> None:
         self.init_git_repo()
         task_id = self.create_task(title="Wrong publish target")["id"]

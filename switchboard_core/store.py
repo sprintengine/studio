@@ -722,6 +722,7 @@ def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_
     role_rules = {
         "developer": [
             "- Implement the requested change in the execution worktree.",
+            "- When you publish implementation work, Switchboard will commit worktree changes, push the execution branch, create or reuse a GitHub pull request, and record the PR URL as evidence.",
             "- Do not move the task forward unless implementation evidence is complete.",
             f"- When implementation is complete, publish with evidence: scripts/switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --touched-file \"...\" --comment \"...\"",
         ],
@@ -2583,6 +2584,137 @@ def validate_publish(task: dict[str, Any], from_status: str, to_status: str, evi
         raise SwitchboardError(" ".join(errors))
 
 
+def run_git_checked(cwd: Path, args: list[str], *, allow_failure: bool = False) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(cwd), *args],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            env=env,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SwitchboardError(f"Git command timed out after 60s: git {' '.join(args)}") from exc
+    if completed.returncode != 0 and not allow_failure:
+        raise SwitchboardError(f"Git command failed: git {' '.join(args)}: {completed.stderr.strip() or completed.stdout.strip()}")
+    return completed
+
+
+def compact_commit_subject(value: str) -> str:
+    compact = " ".join(value.strip().split())
+    return compact[:72] if compact else "Switchboard implementation"
+
+
+def current_git_branch(worktree: Path, fallback: str | None = None) -> str:
+    completed = run_git_checked(worktree, ["branch", "--show-current"])
+    branch = completed.stdout.strip()
+    if branch:
+        return branch
+    if fallback and fallback.strip():
+        return fallback.strip()
+    raise SwitchboardError("Switchboard worktree is not on a named branch.")
+
+
+def default_pr_base_branch(workspace: Path) -> str:
+    completed = run_git_checked(workspace, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], allow_failure=True)
+    ref = completed.stdout.strip()
+    if ref.startswith("origin/") and len(ref) > len("origin/"):
+        return ref[len("origin/"):]
+    completed = run_git_checked(workspace, ["branch", "--show-current"], allow_failure=True)
+    branch = completed.stdout.strip()
+    return branch or "main"
+
+
+def commit_worktree_changes_if_needed(worktree: Path, task: dict[str, Any], execution_id: str) -> bool:
+    status = run_git_checked(worktree, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).stdout
+    if not status:
+        return False
+    run_git_checked(worktree, ["add", "-A"])
+    staged = run_git_checked(worktree, ["diff", "--cached", "--quiet"], allow_failure=True)
+    if staged.returncode == 0:
+        return False
+    title = str(task.get("title") or task.get("identifier") or task.get("id") or "Switchboard implementation")
+    task_id = str(task.get("id") or "")
+    message = compact_commit_subject(f"Switchboard: {title}")
+    body = "\n".join([f"Task: {task_id}", f"Execution: {execution_id}"]).strip()
+    run_git_checked(worktree, ["commit", "-m", message, "-m", body])
+    return True
+
+
+def parse_url_from_output(output: str) -> str | None:
+    match = re.search(r"https?://\S+", output)
+    return match.group(0).rstrip(".,)") if match else None
+
+
+def run_gh_checked(cwd: Path, args: list[str], *, allow_failure: bool = False) -> subprocess.CompletedProcess[str]:
+    gh = shutil.which("gh")
+    if not gh:
+        raise SwitchboardError("GitHub CLI executable 'gh' was not found; cannot create a pull request.")
+    env = {**os.environ, "GH_PROMPT_DISABLED": "1", "GIT_TERMINAL_PROMPT": "0"}
+    try:
+        completed = subprocess.run(
+            [gh, *args],
+            cwd=str(cwd),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            env=env,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SwitchboardError(f"GitHub PR command timed out after 60s: gh {' '.join(args)}") from exc
+    if completed.returncode != 0 and not allow_failure:
+        raise SwitchboardError(f"GitHub PR command failed: gh {' '.join(args)}: {completed.stderr.strip() or completed.stdout.strip()}")
+    return completed
+
+
+def require_gh() -> None:
+    if not shutil.which("gh"):
+        raise SwitchboardError("GitHub CLI executable 'gh' was not found; cannot create a pull request.")
+
+
+def create_or_reuse_pull_request(workspace: Path, task: dict[str, Any], evidence: dict[str, Any]) -> str | None:
+    execution = task.get("execution") if isinstance(task.get("execution"), dict) else {}
+    execution_id = execution.get("activeExecutionId")
+    path_value = execution.get("worktreePath")
+    if not isinstance(execution_id, str) or not isinstance(path_value, str):
+        return None
+    require_gh()
+    worktree = validate_worktree_path(workspace, Path(path_value))
+    run_gh_checked(worktree, ["auth", "status"])
+    branch = current_git_branch(worktree, execution.get("worktreeBranch") if isinstance(execution.get("worktreeBranch"), str) else None)
+    commit_worktree_changes_if_needed(worktree, task, execution_id)
+    run_git_checked(worktree, ["push", "-u", "origin", branch])
+
+    existing = run_gh_checked(worktree, ["pr", "view", branch, "--json", "url", "--jq", ".url"], allow_failure=True)
+    existing_url = existing.stdout.strip()
+    if existing.returncode == 0 and existing_url.startswith("http"):
+        return existing_url
+
+    base = default_pr_base_branch(workspace)
+    title = compact_commit_subject(str(task.get("title") or task.get("identifier") or task.get("id") or "Switchboard task"))
+    summary = evidence.get("summary") if isinstance(evidence.get("summary"), str) else ""
+    body = "\n".join(
+        [
+            f"Switchboard task: {task.get('id')}",
+            f"Execution: {execution_id}",
+            "",
+            summary,
+        ]
+    ).strip()
+    created = run_gh_checked(worktree, ["pr", "create", "--head", branch, "--base", base, "--title", title, "--body", body])
+    pr_url = parse_url_from_output(created.stdout) or parse_url_from_output(created.stderr)
+    if not pr_url:
+        raise SwitchboardError("GitHub CLI did not return a pull request URL.")
+    return pr_url
+
+
 def publish_task(
     workspace: Path,
     task_id: str,
@@ -2610,6 +2742,17 @@ def publish_task(
             touched_files=touched_files,
         )
         validate_publish(located.task, located.folder_status, to_status, next_evidence)
+        destination = task_path(workspace, to_status, task_id)
+        if destination.exists() and destination != located.path:
+            raise SwitchboardError("A Switchboard task already exists in the destination folder.")
+        pull_request_url = None
+        if located.folder_status == "in_progress" and to_status == "testing":
+            pull_request_url = create_or_reuse_pull_request(workspace, located.task, next_evidence)
+            if pull_request_url:
+                artifacts_with_pr = list(next_evidence.get("artifacts", []))
+                if pull_request_url not in artifacts_with_pr:
+                    artifacts_with_pr.append(pull_request_url)
+                next_evidence = {**next_evidence, "artifacts": artifacts_with_pr}
         now = now_iso()
         comments = list(located.task["comments"])
         if comment and comment.strip():
@@ -2627,7 +2770,8 @@ def publish_task(
                 "id": str(uuid.uuid4()),
                 "author": {"type": "system", "id": "switchboard", "name": "Switchboard"},
                 "kind": "status_change",
-                "body": f"Published from {located.folder_status} to {to_status}.",
+                "body": f"Published from {located.folder_status} to {to_status}."
+                + (f" Pull request: {pull_request_url}" if pull_request_url else ""),
                 "createdAt": now,
             }
         )
@@ -2640,9 +2784,6 @@ def publish_task(
             "updatedAt": now,
             "comments": comments,
         }
-        destination = task_path(workspace, to_status, task_id)
-        if destination.exists() and destination != located.path:
-            raise SwitchboardError("A Switchboard task already exists in the destination folder.")
         atomic_write_json(located.path, task)
         os.replace(located.path, destination)
         return read_task_file(destination, to_status)
