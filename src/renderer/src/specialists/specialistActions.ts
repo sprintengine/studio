@@ -133,10 +133,19 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     id: 'code-review',
     label: 'AI Slop Code Reviewer',
     shortLabel: 'AI Slop Reviewer',
-    description: 'Review implementation quality, generic AI-code patterns, regressions, edge cases, and missing tests.',
+    description: 'Review implementation quality, generic AI-code patterns, fake affordances, design decay, and shallow abstractions.',
     icon: 'review',
     soulRole: 'code_reviewer',
     soulFile: 'code_reviewer.md',
+  },
+  {
+    id: 'spec-review',
+    label: 'Spec Reviewer',
+    shortLabel: 'Spec Reviewer',
+    description: 'Review completed work against requirements, acceptance criteria, behavior, tests, and implementation evidence.',
+    icon: 'review',
+    soulRole: 'spec_reviewer',
+    soulFile: 'spec_reviewer.md',
   },
 ]
 

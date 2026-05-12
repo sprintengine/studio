@@ -28,7 +28,7 @@ export type LayoutTemplate = {
   layout: IJsonModel
 }
 
-export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer' | 'performance'
+export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer' | 'spec_reviewer' | 'performance'
 
 export type SprintEngineSkillMap = Record<SprintEngineRole, string[]>
 export type SprintEngineRoleCounts = Record<SprintEngineRole, number>
@@ -46,6 +46,7 @@ export type SprintEngineArtifactKind =
   | 'branding'
   | 'security_review'
   | 'code_review'
+  | 'spec_review'
   | 'performance_review'
   | 'validation_report'
 
@@ -269,7 +270,7 @@ export type SprintEngineAutoState = {
 }
 
 export type MultiloopAutoPendingSpawn = {
-  role: MultiloopRole
+  role: MultiloopRole | SprintEngineRole
   taskId?: string | null
   agentId: string
   startedAt?: number
@@ -285,6 +286,7 @@ export type MultiloopAutoState = {
 
 export type WatchtowerReviewSectorId =
   | 'code_review'
+  | 'spec_review'
   | 'ai_slop'
   | 'architecture_quality'
   | 'frontend_design'
@@ -565,6 +567,7 @@ export type SpecialistActionId =
   | 'security-review'
   | 'frontend-design-review'
   | 'code-review'
+  | 'spec-review'
 
 export type CliRuntimeSettings = {
   command: string

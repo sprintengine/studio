@@ -166,7 +166,7 @@ def test_code_reviewer_join_prompt_allows_review_and_fix_tasks(tmp_path) -> None
             "You may edit application or test code only within the task's owned paths",
             "When complete: follow the claimed task's review mode.",
             "For review-and-fix tasks, make targeted source or test changes inside the owned paths",
-            "For review-only tasks, produce the requested review evidence or artifact.",
+            "For review-only tasks, produce the requested code quality review evidence or artifact.",
             "move the task to `needs_input` only when the review output requires approval or the task is blocked from meeting acceptance",
             "Do not mutate the task graph; the architect decides whether to add follow-up work.",
         ],

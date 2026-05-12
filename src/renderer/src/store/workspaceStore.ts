@@ -704,6 +704,7 @@ const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefau
   frontend: 'codex',
   developer: 'codex',
   code_reviewer: 'codex',
+  spec_reviewer: 'codex',
   performance: 'codex',
   tester: 'codex',
   security: 'codex',
@@ -737,7 +738,7 @@ function normalizeSprintEngineAutoPendingSpawn(
     : null
 }
 
-function isMultiloopAutoRole(input: unknown): input is MultiloopRole {
+function isMultiloopAutoRole(input: unknown): input is MultiloopRole | SprintEngineRole {
   return input === 'coordinator'
     || input === 'architect'
     || input === 'product'
@@ -746,6 +747,7 @@ function isMultiloopAutoRole(input: unknown): input is MultiloopRole {
     || input === 'tester'
     || input === 'security'
     || input === 'code_reviewer'
+    || input === 'spec_reviewer'
     || input === 'performance'
 }
 

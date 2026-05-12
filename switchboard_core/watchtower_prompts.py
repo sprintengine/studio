@@ -26,6 +26,7 @@ SPECIALIST_SOUL_ROLES = {
     "qa-test": "tester",
     "security-review": "security",
     "code-review": "code_reviewer",
+    "spec-review": "spec_reviewer",
 }
 
 SPECIALIST_SHORT_LABELS = {
@@ -39,10 +40,12 @@ SPECIALIST_SHORT_LABELS = {
     "qa-test": "QA Specialist",
     "security-review": "Security Specialist",
     "code-review": "AI Slop Reviewer",
+    "spec-review": "Spec Reviewer",
 }
 
 WATCHTOWER_REVIEW_SECTORS = [
-    WatchtowerSector("code_review", "Code Review", "Bugs, regressions, maintainability, unsafe assumptions, and missing tests."),
+    WatchtowerSector("code_review", "Code Review", "Implementation quality, maintainability, unsafe assumptions, and code-level regressions."),
+    WatchtowerSector("spec_review", "Spec Review", "Requirement conformance, acceptance coverage, behavioral gaps, bugs, tests, and evidence quality."),
     WatchtowerSector("ai_slop", "AI Slop", "Generic boilerplate, fake affordances, hallucinated APIs, dead UI, and shallow abstractions."),
     WatchtowerSector("architecture_quality", "Architecture", "Boundaries, state ownership, data flow, dependency direction, and migration safety."),
     WatchtowerSector("frontend_design", "Frontend Design", "Layout, hierarchy, interaction states, responsiveness, and visual polish."),
@@ -60,7 +63,8 @@ SECTORS_BY_ID = {sector.id: sector for sector in WATCHTOWER_REVIEW_SECTORS}
 
 WATCHTOWER_REVIEW_PRESETS = {
     "lean_code_review": {
-        "code-review": ["code_review", "ai_slop"],
+        "spec-review": ["spec_review"],
+        "code-review": ["ai_slop"],
         "qa-test": ["qa_testing"],
         "performance": ["performance"],
     },
@@ -72,12 +76,14 @@ WATCHTOWER_REVIEW_PRESETS = {
     "performance_focused_review": {
         "performance": ["performance", "cross_platform"],
         "devops-infra": ["infrastructure", "performance", "cross_platform"],
+        "spec-review": ["spec_review"],
         "code-review": ["code_review", "architecture_quality"],
         "qa-test": ["qa_testing"],
     },
     "security_deep_review": {
         "security-review": ["security"],
-        "code-review": ["ai_slop", "code_review"],
+        "spec-review": ["spec_review"],
+        "code-review": ["ai_slop"],
         "qa-test": ["qa_testing"],
     },
     "full_product_review": {
@@ -86,6 +92,7 @@ WATCHTOWER_REVIEW_PRESETS = {
         "qa-test": ["qa_testing", "cross_platform"],
         "security-review": ["security"],
         "performance": ["performance"],
+        "spec-review": ["spec_review"],
         "code-review": ["code_review", "ai_slop", "architecture_quality"],
         "devops-infra": ["infrastructure"],
     },

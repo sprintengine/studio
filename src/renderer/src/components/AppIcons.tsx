@@ -124,6 +124,8 @@ export function SprintEngineRoleIcon({ role, className }: IconProps & { role: Sp
       return <SecurityIcon className={className} />
     case 'code_reviewer':
       return <ReviewIcon className={className} />
+    case 'spec_reviewer':
+      return <ReviewIcon className={className} />
     case 'performance':
       return <PerformanceIcon className={className} />
   }

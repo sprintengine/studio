@@ -49,6 +49,7 @@ export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   tester: 'Tester',
   security: 'Security Specialist',
   code_reviewer: 'Code Reviewer',
+  spec_reviewer: 'Spec Reviewer',
   performance: 'Performance Engineer',
 }
 
@@ -60,6 +61,7 @@ export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   tester: '#3dff8f',
   security: '#ff6b6b',
   code_reviewer: '#f59e0b',
+  spec_reviewer: '#22c55e',
   performance: '#a78bfa',
 }
 
@@ -72,6 +74,7 @@ export const sprintEngineArtifactKindLabels: Record<SprintEngineArtifactKind, st
   branding: 'Branding',
   security_review: 'Security Review',
   code_review: 'Code Review',
+  spec_review: 'Spec Review',
   performance_review: 'Performance Review',
   validation_report: 'Validation Report',
 }
@@ -90,6 +93,7 @@ export const sprintEngineRoleOrder: SprintEngineRole[] = [
   'frontend',
   'developer',
   'code_reviewer',
+  'spec_reviewer',
   'performance',
   'tester',
   'security',
@@ -104,6 +108,7 @@ const sprintEngineArtifactKinds: readonly SprintEngineArtifactKind[] = [
   'branding',
   'security_review',
   'code_review',
+  'spec_review',
   'performance_review',
   'validation_report',
 ]
@@ -177,6 +182,7 @@ const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
   'branding',
   'security_review',
   'code_review',
+  'spec_review',
   'performance_review',
   'validation_report',
 ])
@@ -206,6 +212,7 @@ function isSprintEngineRole(value: unknown): value is SprintEngineRole {
     || value === 'tester'
     || value === 'security'
     || value === 'code_reviewer'
+    || value === 'spec_reviewer'
     || value === 'performance'
   )
 }
@@ -575,7 +582,7 @@ function normalizeSprintEngineArtifacts(value: unknown): SprintEngineArtifact[] 
 }
 
 export function createDefaultSprintEngineRoleCounts(): SprintEngineRoleCounts {
-  return { architect: 1, product: 1, developer: 1, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
+  return { architect: 1, product: 1, developer: 1, frontend: 0, tester: 0, security: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0 }
 }
 
 export function createDefaultSprintEngineSkills(): SprintEngineSkillMap {
@@ -587,6 +594,7 @@ export function createDefaultSprintEngineSkills(): SprintEngineSkillMap {
     tester: ['Regression checks', 'Acceptance review', 'Validation'],
     security: ['Threat modeling', 'Security review', 'Hardening', 'Abuse-case analysis'],
     code_reviewer: ['Code review', 'Regression risk', 'Maintainability', 'Evidence quality'],
+    spec_reviewer: ['Spec conformance', 'Acceptance coverage', 'Behavioral gaps', 'Test evidence'],
     performance: ['Latency review', 'Memory and CPU analysis', 'Bundle/runtime cost', 'Measurement quality'],
   }
 }
@@ -606,6 +614,7 @@ export function normalizeSprintEngineRoleCounts(
     tester: Math.max(0, roleCounts?.tester ?? 0),
     security: Math.max(0, roleCounts?.security ?? 0),
     code_reviewer: Math.max(0, roleCounts?.code_reviewer ?? 0),
+    spec_reviewer: Math.max(0, roleCounts?.spec_reviewer ?? 0),
     performance: Math.max(0, roleCounts?.performance ?? 0),
   }
 }
@@ -658,12 +667,12 @@ export function buildSprintEngineAgentRoster(roleCounts: SprintEngineRoleCounts)
 export function buildSprintEngineAgentRosterFromRuntimeAgents(
   sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
 ): SprintEngineAgentRosterItem[] {
-  const roleTotals: Record<SprintEngineRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
+  const roleTotals: Record<SprintEngineRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0 }
   for (const agent of Object.values(sprintEngineAgents)) {
     if (isSprintEngineRole(agent?.role)) roleTotals[agent.role] += 1
   }
 
-  const seenByRole: Record<SprintEngineRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, performance: 0 }
+  const seenByRole: Record<SprintEngineRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0 }
 
   return Object.entries(sprintEngineAgents)
     .filter((entry): entry is [AgentId, SprintEngineRuntimeAgent] => isSprintEngineRole(entry[1]?.role))

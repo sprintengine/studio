@@ -19,6 +19,7 @@ const specialistSoulRoles: Record<SpecialistActionId, string> = {
   'qa-test': 'tester',
   'security-review': 'security',
   'code-review': 'code_reviewer',
+  'spec-review': 'spec_reviewer',
 }
 
 function getSoulPromptCandidates(role: string): string[] {

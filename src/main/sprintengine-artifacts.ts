@@ -58,6 +58,7 @@ const validTaskRoles = new Set<SprintEngineTaskMutationRole>([
   'tester',
   'security',
   'code_reviewer',
+  'spec_reviewer',
   'performance',
 ])
 
@@ -85,6 +86,7 @@ const autoApprovableArtifactKinds = new Set([
   'branding',
   'security_review',
   'code_review',
+  'spec_review',
   'performance_review',
   'validation_report',
 ])

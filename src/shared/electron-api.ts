@@ -375,6 +375,7 @@ export type SpecialistActionId =
   | 'security-review'
   | 'frontend-design-review'
   | 'code-review'
+  | 'spec-review'
 
 export type SoulPromptResult =
   | { ok: true; prompt: string; path: string }
@@ -628,6 +629,7 @@ export type SprintEngineTaskMutationRole =
   | 'tester'
   | 'security'
   | 'code_reviewer'
+  | 'spec_reviewer'
   | 'performance'
 
 export type SprintEngineTaskUpdateInput = {

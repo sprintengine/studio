@@ -17,6 +17,7 @@ const roleSummaries: Record<SprintEngineRole, string> = {
   frontend: 'Implements UI, interaction states, and polish.',
   developer: 'Builds core logic, integrations, and refactors.',
   code_reviewer: 'Reviews implementation quality before validation.',
+  spec_reviewer: 'Checks implementation against requirements and acceptance criteria.',
   performance: 'Reviews latency, runtime cost, and measurement gaps.',
   tester: 'Runs acceptance checks and publishes evidence.',
   security: 'Reviews trust boundaries, secrets, and abuse cases.',

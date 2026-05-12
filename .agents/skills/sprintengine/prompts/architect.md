@@ -45,7 +45,7 @@ Artifact-producing tasks are approval gates. They create a concrete review file,
 Each task command must include:
 - A `title`
 - A concrete `--description` that gives the worker a self-contained task brief
-- A `role`: one of `architect`, `developer`, `frontend`, `tester`, `security`, `product`, `code_reviewer`, `performance`
+- A `role`: one of `architect`, `developer`, `frontend`, `tester`, `security`, `product`, `code_reviewer`, `spec_reviewer`, `performance`
 - `--acceptance`: repeatable verifiable conditions
 - `--depends-on`: repeatable task ids that must be done first
 - `--path`: repeatable files or directories this task will touch
@@ -97,6 +97,8 @@ For `code_reviewer` tasks, state whether the task is review-and-fix or review-on
 - Default to review-and-fix when the reviewer should directly improve code quality, modularity, regression coverage, or small correctness issues after inspecting the implementation.
 - Use review-only only when the work requires an independent gate, human approval, product/security trade-offs, broad ownership, or a formal artifact with recommended follow-up tasks.
 - Review-and-fix task acceptance should require evidence of files changed, verification commands, and any residual findings.
+
+Use `spec_reviewer` when the work is to compare completed implementation against approved requirements, acceptance criteria, task comments, tests, and evidence. Use `code_reviewer` when the work is implementation quality, maintainability, AI-slop patterns, architectural fit, and localized code-risk review.
 
 Do not create thin task cards that only contain a title and broad acceptance criteria. If the plan has already figured out the details, put those details directly into the task card.
 

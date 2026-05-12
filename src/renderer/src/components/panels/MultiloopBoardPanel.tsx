@@ -221,11 +221,13 @@ function resolveProjectPath(path: string, workspaceRoot: string | null | undefin
   return `${workspaceRoot.replace(/[\\/]+$/u, '')}${sep}${path.replace(/^[\\/]+/u, '')}`
 }
 
-function isSprintEngineRole(role: MultiloopRole): role is SprintEngineRole {
+type LinkedSprintEngineRole = Extract<SprintEngineRole, MultiloopRole>
+
+function isSprintEngineRole(role: MultiloopRole): role is LinkedSprintEngineRole {
   return role !== 'coordinator'
 }
 
-function getLinkedSprintEngineAgentId(role: SprintEngineRole, linkedState: SprintEngineState | null): string {
+function getLinkedSprintEngineAgentId(role: LinkedSprintEngineRole, linkedState: SprintEngineState | null): string {
   return buildSprintEngineAgentRosterForState(linkedState).find((agent) => agent.role === role)?.id ?? role
 }
 

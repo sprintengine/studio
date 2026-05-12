@@ -28,7 +28,7 @@ except ImportError as exc:
 
 VALID_TASK_STATUSES = {"todo", "in_progress", "needs_input", "done"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
-VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer", "performance"}
+VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer", "spec_reviewer", "performance"}
 VALID_TASK_SOURCE_TYPES = {"local", "github", "jira", "linear"}
 VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "conflict"}
 VALID_TASK_DISPATCH_MODES = {"dependency", "manual"}
@@ -43,6 +43,7 @@ VALID_ARTIFACT_KINDS = {
     "branding",
     "security_review",
     "code_review",
+    "spec_review",
     "performance_review",
     "validation_report",
 }
@@ -204,6 +205,7 @@ PLAN_REVIEW_FOCUS = {
     "tester": "test strategy, acceptance criteria, regression coverage, edge cases, and release confidence",
     "security": "trust boundaries, command safety, secrets, permissions, abuse cases, and hardening",
     "code_reviewer": "code correctness, integration risk, maintainability, regressions, and evidence quality",
+    "spec_reviewer": "specification conformance, acceptance coverage, behavioral gaps, and verification completeness",
     "performance": "latency, CPU, memory, bundle/runtime resource use, measurement quality, and likely bottlenecks",
 }
 
@@ -452,7 +454,7 @@ def artifact_registration_instruction(agent_id: str) -> str:
         "sprintengine artifact list --task-id <task-id>\n"
         "```\n"
         "Use the task's requested kind when specified. Otherwise use `security_review` for "
-        "security reviews, `code_review` for code reviews, `performance_review` for performance "
+        "security reviews, `code_review` for code reviews, `spec_review` for spec reviews, `performance_review` for performance "
         "reviews, `validation_report` for validation reports, `requirements` or `product_strategy` "
         "for product outputs, `design_notes` or "
         "`html_mockup` for frontend outputs, and `architect_plan` for plan gates. The `--ready` "
@@ -2367,12 +2369,13 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     print(f"[sprintengine] reading state from: {args.state}", file=sys.stderr)
 
     def completion_instruction() -> str:
-        if args.role == "code_reviewer":
+        if args.role in {"code_reviewer", "spec_reviewer"}:
+            review_kind = "specification conformance" if args.role == "spec_reviewer" else "code quality"
             return (
                 "When complete: follow the claimed task's review mode. For review-and-fix tasks, make targeted "
                 "source or test changes inside the owned paths when the fix is clear and bounded, log changed files "
                 "and verification evidence, then mark the task done if acceptance is met. For review-only tasks, "
-                "produce the requested review evidence or artifact. If unresolved findings remain, record them with "
+                f"produce the requested {review_kind} review evidence or artifact. If unresolved findings remain, record them with "
                 "repeatable `--finding-json` and, when an artifact is requested, `--recommended-task`; move the task "
                 "to `needs_input` only when the review output requires approval or the task is blocked from meeting "
                 "acceptance. "
@@ -3141,6 +3144,7 @@ Task commands:
 Plan commands (architect only):
   sprintengine plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
   sprintengine plan add-task --title "Review and fix implementation quality" --role code_reviewer --depends-on T3 --path src/foo --description "Review-and-fix the completed implementation for correctness, modularity, maintainability, and verification gaps. Make targeted source or test changes when the fix is clear and bounded; record unresolved findings for the architect." --acceptance "Reviewer logs changed files and verification commands" --acceptance "Clear bounded issues are fixed directly or recorded with severity and recommended follow-up"
+  sprintengine plan add-task --title "Spec review implementation" --role spec_reviewer --depends-on T3 --path .multi-code/sprintengine/team/reviews/spec-review.md --description "Review-only the completed implementation against approved requirements, acceptance criteria, implementation evidence, and tests." --acceptance "Spec review records requirement coverage, behavioral gaps, test gaps, and verdict"
   sprintengine plan add-task --title "Review performance" --role performance --depends-on T4 --path src/foo --acceptance "Performance review artifact documents measured evidence, findings, or approval"
   sprintengine plan update-task --task-id T1 --title "..." --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
   sprintengine plan add-dependency --task-id T2 --depends-on T1
@@ -3154,6 +3158,7 @@ Plan commands (architect only):
 Artifact commands:
   sprintengine artifact add --task-id T1 --kind product_strategy --title "Strategy" --path .multi-code/sprintengine/team/documents/strategy.md --created-by product
   sprintengine artifact add --task-id T4 --kind code_review --title "Code review" --path .multi-code/sprintengine/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
+  sprintengine artifact add --task-id T4 --kind spec_review --title "Spec review" --path .multi-code/sprintengine/team/reviews/spec-review.md --created-by spec-reviewer --recommended-task "Implement missing acceptance path"
   sprintengine artifact add --task-id T5 --kind performance_review --title "Performance review" --path .multi-code/sprintengine/team/reviews/performance-review.md --created-by performance --recommended-task "Fix unbounded render work"
   sprintengine artifact list --task-id T1
   sprintengine artifact ready --artifact-id A1 --id product

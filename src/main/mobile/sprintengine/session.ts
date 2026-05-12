@@ -77,6 +77,7 @@ const sprintEngineRoleLabels: Record<string, string> = {
   tester: 'Tester',
   security: 'Security Specialist',
   code_reviewer: 'Code Reviewer',
+  spec_reviewer: 'Spec Reviewer',
   performance: 'Performance Engineer',
 }
 

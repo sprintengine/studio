@@ -46,6 +46,7 @@ Canonical roles:
 - `tester`
 - `security`
 - `code_reviewer`
+- `spec_reviewer`
 - `performance`
 
 Supported aliases:
@@ -58,6 +59,7 @@ Supported aliases:
 - `qa-test` -> `tester`
 - `security-review` -> `security`
 - `code-review`, `code-reviewer` -> `code_reviewer`
+- `spec-review`, `spec-reviewer` -> `spec_reviewer`
 - `performance-engineer` -> `performance`
 
 Unknown roles fail clearly. They do not silently fall back to another Soul.

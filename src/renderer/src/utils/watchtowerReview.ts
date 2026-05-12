@@ -26,7 +26,8 @@ export type WatchtowerReviewPreset = {
 }
 
 export const WATCHTOWER_REVIEW_SECTORS: WatchtowerReviewSector[] = [
-  { id: 'code_review', label: 'Code Review', reportFile: 'code-review.md', description: 'Bugs, regressions, maintainability, unsafe assumptions, and missing tests.' },
+  { id: 'code_review', label: 'Code Review', reportFile: 'code-review.md', description: 'Implementation quality, maintainability, unsafe assumptions, and code-level regressions.' },
+  { id: 'spec_review', label: 'Spec Review', reportFile: 'spec-review.md', description: 'Requirement conformance, acceptance coverage, behavioral gaps, bugs, tests, and evidence quality.' },
   { id: 'ai_slop', label: 'AI Slop', reportFile: 'ai-slop.md', description: 'Generic boilerplate, fake affordances, hallucinated APIs, dead UI, and shallow abstractions.' },
   { id: 'architecture_quality', label: 'Architecture', reportFile: 'architecture-quality.md', description: 'Boundaries, state ownership, data flow, dependency direction, and migration safety.' },
   { id: 'frontend_design', label: 'Frontend Design', reportFile: 'frontend-design.md', description: 'Layout, hierarchy, interaction states, responsiveness, and visual polish.' },
@@ -54,6 +55,7 @@ export const WATCHTOWER_REVIEW_SPECIALIST_FOCUS: Record<SpecialistActionId, Watc
   'frontend-design-review': ['frontend_design', 'accessibility', 'brand_alignment', 'cross_platform'],
   'blog-writer': ['documentation', 'brand_alignment'],
   'code-review': ['code_review', 'ai_slop', 'architecture_quality', 'documentation'],
+  'spec-review': ['spec_review', 'qa_testing', 'documentation'],
 }
 
 export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
@@ -62,7 +64,8 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     label: 'Lean Code Review',
     description: 'Fast quality pass for code, tests, and performance risk.',
     agents: {
-      'code-review': ['code_review', 'ai_slop'],
+      'spec-review': ['spec_review'],
+      'code-review': ['ai_slop'],
       'qa-test': ['qa_testing'],
       performance: ['performance'],
     },
@@ -84,6 +87,7 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     agents: {
       performance: ['performance', 'cross_platform'],
       'devops-infra': ['infrastructure', 'performance', 'cross_platform'],
+      'spec-review': ['spec_review'],
       'code-review': ['code_review', 'architecture_quality'],
       'qa-test': ['qa_testing'],
     },
@@ -94,7 +98,8 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     description: 'Security-led review with quality and test coverage support.',
     agents: {
       'security-review': ['security'],
-      'code-review': ['ai_slop', 'code_review'],
+      'spec-review': ['spec_review'],
+      'code-review': ['ai_slop'],
       'qa-test': ['qa_testing'],
     },
   },
@@ -108,6 +113,7 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
       'qa-test': ['qa_testing', 'cross_platform'],
       'security-review': ['security'],
       performance: ['performance'],
+      'spec-review': ['spec_review'],
       'code-review': ['code_review', 'ai_slop', 'architecture_quality'],
       'devops-infra': ['infrastructure'],
     },
@@ -158,6 +164,8 @@ export function defaultSectorsForSpecialist(specialistId: SpecialistActionId): W
       return ['documentation', 'brand_alignment']
     case 'code-review':
       return ['code_review', 'ai_slop']
+    case 'spec-review':
+      return ['spec_review']
   }
 }
 

@@ -365,9 +365,9 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(run["preset"], "lean_code_review")
         running_agents = [agent for agent in run["agents"] if agent["status"] == "running"]
         pending_agents = [agent for agent in run["agents"] if agent["status"] == "pending"]
-        self.assertEqual(len(running_agents), 3)
+        self.assertEqual(len(running_agents), 4)
         self.assertEqual(len(pending_agents), 0)
-        self.assertEqual(len(started["descriptors"]), 3)
+        self.assertEqual(len(started["descriptors"]), 4)
         execution_id = running_agents[0]["executionId"]
         execution = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution_id]))["execution"]
         self.assertEqual(execution["kind"], "watchtower_review")
@@ -400,7 +400,7 @@ class SwitchboardCliTests(unittest.TestCase):
                 env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
             )
         )
-        self.assertEqual(len(started["descriptors"]), 3)
+        self.assertEqual(len(started["descriptors"]), 4)
         for descriptor in started["descriptors"]:
             execution_id = descriptor["executionId"]
             metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution_id]))["execution"]
@@ -411,7 +411,7 @@ class SwitchboardCliTests(unittest.TestCase):
 
         latest = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), started["run"]["runId"]]))["run"]
         running_agents = [agent for agent in latest["agents"] if agent["status"] == "running"]
-        self.assertEqual(len(running_agents), 3)
+        self.assertEqual(len(running_agents), 4)
 
     def test_runtime_tick_reconciles_stale_electron_owned_launching_execution_across_app_instances(self) -> None:
         self.init_git_repo()
@@ -468,7 +468,7 @@ class SwitchboardCliTests(unittest.TestCase):
         )
 
         self.assertTrue(started["ok"])
-        self.assertEqual(len(started["descriptors"]), 3)
+        self.assertEqual(len(started["descriptors"]), 4)
         runner_status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
         self.assertFalse(runner_status["enabled"])
         self.assertTrue(runner_status["paused"])
@@ -759,7 +759,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "testing"])
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "testing_in_progress"])
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "review"])
-        self.run_cli(["claim", *self.workspace_args(), "--from", "review", "--agent", "switchboard-code_reviewer"])
+        self.run_cli(["claim", *self.workspace_args(), "--from", "review", "--agent", "switchboard-spec_reviewer"])
 
         changed = stdout_json(
             self.run_cli([
@@ -773,7 +773,7 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertEqual(changed["previousFolder"], "review_in_progress")
         self.assertEqual(changed["nextFolder"], "ready")
-        self.assertEqual(changed["record"]["task"]["comments"][-2]["author"]["id"], "switchboard-code_reviewer")
+        self.assertEqual(changed["record"]["task"]["comments"][-2]["author"]["id"], "switchboard-spec_reviewer")
 
     def test_request_changes_requires_review_or_testing_in_progress_task(self) -> None:
         task_id = self.create_task(title="Invalid request changes")["id"]
@@ -881,9 +881,9 @@ class SwitchboardCliTests(unittest.TestCase):
                     "--target-execution",
                     "exec_reviewed",
                     "--reviewer-agent",
-                    "switchboard-code_reviewer",
+                    "switchboard-spec_reviewer",
                     "--reviewer-role",
-                    "code_reviewer",
+                    "spec_reviewer",
                     "--summary",
                     "Review passed with focused evidence.",
                     "--correctness-pct",
@@ -901,7 +901,7 @@ class SwitchboardCliTests(unittest.TestCase):
         assessment = payload["assessment"]
         self.assertEqual(assessment["targetExecutionId"], "exec_reviewed")
         self.assertEqual(assessment["targetAgentId"], "switchboard-developer")
-        self.assertEqual(assessment["reviewerAgentId"], "switchboard-code_reviewer")
+        self.assertEqual(assessment["reviewerAgentId"], "switchboard-spec_reviewer")
         self.assertEqual(assessment["scores"]["correctnessPct"], 95)
         self.assertEqual(assessment["scores"]["evidenceQualityPct"], 88)
         self.assertEqual(assessment["counts"]["claimsChecked"], 10)
@@ -1347,7 +1347,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertNotIn("scripts/switchboard request-changes", prompt)
         self.assertIn("--to review", prompt)
 
-    def test_review_runner_prompt_uses_code_reviewer_soul_and_request_changes_contract(self) -> None:
+    def test_review_runner_prompt_uses_spec_reviewer_soul_and_request_changes_contract(self) -> None:
         self.init_git_repo()
         task_id = self.create_task(title="Prompt reviewer task")["id"]
         self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
@@ -1363,14 +1363,15 @@ class SwitchboardCliTests(unittest.TestCase):
         )
 
         prompt = prepared["descriptor"]["prompt"]
-        self.assertEqual(prepared["execution"]["role"], "code_reviewer")
-        self.assertIn("souls get code_reviewer", prompt)
+        self.assertEqual(prepared["execution"]["role"], "spec_reviewer")
+        self.assertIn("souls get spec_reviewer", prompt)
         self.assertIn("full comment history", prompt)
         self.assertIn("Do not make implementation fixes", prompt)
         self.assertIn("switchboard assess-agent", prompt)
         self.assertNotIn("scripts/switchboard assess-agent", prompt)
         self.assertIn("--claims-checked", prompt)
         self.assertIn("--hallucinated-claims", prompt)
+        self.assertIn("--missed-requirements", prompt)
         self.assertIn("switchboard request-changes", prompt)
         self.assertNotIn("scripts/switchboard request-changes", prompt)
         self.assertIn("--to done", prompt)

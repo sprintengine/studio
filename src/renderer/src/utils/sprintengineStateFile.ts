@@ -49,7 +49,7 @@ export function getSprintEnginePlanFilePath(folderPath: string, sprintEngineName
 }
 
 function isSprintEngineRole(value: unknown): value is SprintEngineRole {
-  return ['architect', 'product', 'developer', 'frontend', 'tester', 'security', 'code_reviewer', 'performance'].includes(value as string)
+  return ['architect', 'product', 'developer', 'frontend', 'tester', 'security', 'code_reviewer', 'spec_reviewer', 'performance'].includes(value as string)
 }
 
 function countRolesFromAgents(agents: Record<string, { role: SprintEngineRole }> | undefined): SprintEngineRoleCounts | null {

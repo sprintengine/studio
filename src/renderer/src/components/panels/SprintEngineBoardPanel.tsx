@@ -94,7 +94,7 @@ const taskStateLabel: Record<SprintEngineTaskStatus, string> = {
   done: 'Done',
 }
 
-const addableRoles: SprintEngineRole[] = ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'performance', 'tester', 'security']
+const addableRoles: SprintEngineRole[] = ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
 const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
   { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
   { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
@@ -287,6 +287,7 @@ const roleSummaries: Record<SprintEngineRole, string> = {
   developer: 'Builds implementation and integration work.',
   frontend: 'Owns interaction design, visual quality, and UI implementation.',
   code_reviewer: 'Reviews implementation quality, regressions, and evidence.',
+  spec_reviewer: 'Checks implementation against requirements, acceptance criteria, and tests.',
   performance: 'Reviews latency, CPU, memory, runtime cost, and measurement gaps.',
   tester: 'Validates behavior, regressions, and acceptance criteria.',
   security: 'Reviews trust boundaries, command safety, data handling, and hardening.',
@@ -745,7 +746,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
   const runSummary = buildRunSummary(sprintEngineState.tasks)
   const architectAgentId = roster.find((agent) => agent.role === 'architect')?.id ?? null
   const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
-  const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'performance', 'tester', 'security']
+  const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
   const roleTaskLaunches = workerRoles.flatMap((role) => {
     const activeTask = sprintEngineState.tasks.find((task) =>
       task.role === role && (task.status === 'in_progress' || task.status === 'needs_input')

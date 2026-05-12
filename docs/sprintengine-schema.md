@@ -84,7 +84,7 @@ policies stay outside the core schema.
 - `id`
 - `kind`: one of `architect_plan`, `product_strategy`, `requirements`,
   `html_mockup`, `design_notes`, `branding`, `security_review`, `code_review`,
-  `performance_review`, `validation_report`.
+  `spec_review`, `performance_review`, `validation_report`.
 - `title`
 - `path`: project-relative artifact path.
 - `status`: one of `draft`, `ready_for_review`, `approved`,

@@ -117,6 +117,7 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
   - `branding`
   - `security_review`
   - `code_review`
+  - `spec_review`
   - `performance_review`
   - `validation_report`
 - `title`
@@ -162,6 +163,7 @@ Top-level `artifacts` is optional for compatibility. Missing artifact arrays are
 - The architect builds and revises the task graph during planning with `Sprint Engine plan` commands.
 - Product intake tasks should capture requirements, constraints, non-goals, user impact, and acceptance expectations. Product strategy/positioning work should be added only when the approved intake leaves a concrete product decision unresolved.
 - Code review tasks may be review-only or review-and-fix. Review-only tasks should produce direct review evidence or `code_review` artifacts with findings and recommended follow-up tasks. Review-and-fix tasks may edit source or tests inside their owned paths, log changed files and verification evidence, and record unresolved findings or recommended follow-up tasks.
+- Spec review tasks verify completed implementation against task descriptions, acceptance criteria, approved requirements, architect plans, comments, and evidence. They should produce direct review evidence or `spec_review` artifacts with requirement-by-requirement conformance, missing requirements, behavioral bugs, test gaps, and recommended follow-up tasks.
 - Initial task graphs should include an architect-owned final review scheduling task after implementation, validation, and code review. That scheduler reads the completed evidence and adds only the needed product, security, and performance final review tasks, with explicit skip rationale for unneeded reviews.
 - Product final acceptance review tasks should be scheduled when the work is product-facing, changes user-visible behavior, changes requirements interpretation, or when code review/validation raises acceptance uncertainty.
 - Security review tasks should be scheduled when work touches auth, permissions, IPC, command execution, filesystem boundaries, network/relay surfaces, secrets/tokens, HTML rendering, sandboxing, dependency risk, or when code review raises a security-adjacent concern.

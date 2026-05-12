@@ -850,7 +850,7 @@ def worktree_dir(workspace: Path, execution_id: str) -> Path:
 
 
 def role_for_queue(queue: str) -> str:
-    return {"ready": "developer", "testing": "tester", "review": "code_reviewer"}[queue]
+    return {"ready": "developer", "testing": "tester", "review": "spec_reviewer"}[queue]
 
 
 def claimed_status_for_queue(queue: str) -> str:
@@ -892,10 +892,10 @@ def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_
             f"- If validation passes, publish with evidence: switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --comment \"...\"",
             f"- If validation fails, request changes back to Ready: switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Expected ... but observed ... Repro: ...\"",
         ],
-        "code_reviewer": [
-            "- Review correctness, maintainability, security, reliability, and verification evidence against the task description and full comment history.",
+        "spec_reviewer": [
+            "- Review correctness, requirement coverage, acceptance criteria, tests, and verification evidence against the task description and full comment history.",
             "- Do not make implementation fixes. Leave concrete requested changes for the next developer pass.",
-            f"- Before publishing or requesting changes, assess the implementation attempt you reviewed: switchboard assess-agent --workspace {workspace_root} {task_id} --target-execution <execution-id-from-show> --reviewer-agent \"switchboard-{role}\" --reviewer-role \"{role}\" --summary \"...\" --correctness-pct 0-100 --evidence-quality-pct 0-100 --instruction-following-pct 0-100 --code-quality-pct 0-100 --maintainability-pct 0-100 --claims-checked <n> --hallucinated-claims <n>",
+            f"- Before publishing or requesting changes, assess the implementation attempt you reviewed: switchboard assess-agent --workspace {workspace_root} {task_id} --target-execution <execution-id-from-show> --reviewer-agent \"switchboard-{role}\" --reviewer-role \"{role}\" --summary \"...\" --correctness-pct 0-100 --evidence-quality-pct 0-100 --instruction-following-pct 0-100 --claims-checked <n> --hallucinated-claims <n> --missed-requirements <n> --implementation-mistakes <n>",
             f"- If review passes, publish with a verdict: switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --comment \"...\"",
             f"- If review finds required changes, request changes back to Ready: switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Required changes: ... Evidence: ...\"",
         ],

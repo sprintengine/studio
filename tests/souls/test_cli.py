@@ -34,6 +34,7 @@ def test_souls_list_includes_canonical_roles() -> None:
         "tester",
         "security",
         "code_reviewer",
+        "spec_reviewer",
         "performance",
     }.issubset(roles)
 
