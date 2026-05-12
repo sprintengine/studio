@@ -88,9 +88,10 @@ const emptyDraft: DraftTask = {
 
 export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
-  const runner = useSwitchboardRunner(folderPath, workspaceId)
+  const runner = useSwitchboardRunner(folderPath, workspaceId, mcpSettings)
 
   const grouped = useMemo(() => groupTasksByStatus(tasks), [tasks])
   const boardTasks = useMemo(

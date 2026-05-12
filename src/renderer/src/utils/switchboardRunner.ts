@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { McpSettings } from '../../../shared/electron-api'
 import type {
   SwitchboardExecutionProviderKind,
   SwitchboardRunnerExecution,
@@ -30,7 +31,11 @@ export type SwitchboardRunner = {
 
 const POLL_INTERVAL_MS = 5_000
 
-export function useSwitchboardRunner(workspaceRoot: string | null | undefined, workspaceId?: string): SwitchboardRunner {
+export function useSwitchboardRunner(
+  workspaceRoot: string | null | undefined,
+  workspaceId?: string,
+  mcpSettings?: McpSettings
+): SwitchboardRunner {
   const [state, setState] = useState<SwitchboardRunnerState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -103,24 +108,24 @@ export function useSwitchboardRunner(workspaceRoot: string | null | undefined, w
 
   const start = useCallback(
     (input: Omit<SwitchboardRunnerStartInput, 'workspaceRoot'>) =>
-      runAction((root) => window.api.startSwitchboardRunner({ workspaceRoot: root, ...input })),
-    [runAction]
+      runAction((root) => window.api.startSwitchboardRunner({ workspaceRoot: root, mcpSettings, ...input })),
+    [mcpSettings, runAction]
   )
   const pause = useCallback(
     () => runAction((root) => window.api.pauseSwitchboardRunner(root)),
     [runAction]
   )
   const resume = useCallback(
-    () => runAction((root) => window.api.resumeSwitchboardRunner({ workspaceRoot: root, workspaceId })),
-    [runAction, workspaceId]
+    () => runAction((root) => window.api.resumeSwitchboardRunner({ workspaceRoot: root, workspaceId, mcpSettings })),
+    [mcpSettings, runAction, workspaceId]
   )
   const stop = useCallback(
     () => runAction((root) => window.api.stopSwitchboardRunner(root)),
     [runAction]
   )
   const tick = useCallback(
-    () => runAction((root) => window.api.tickSwitchboardRunner({ workspaceRoot: root, workspaceId })),
-    [runAction, workspaceId]
+    () => runAction((root) => window.api.tickSwitchboardRunner({ workspaceRoot: root, workspaceId, mcpSettings })),
+    [mcpSettings, runAction, workspaceId]
   )
   const stopExecution = useCallback(
     async (executionId: string, reason?: string): Promise<boolean> => {

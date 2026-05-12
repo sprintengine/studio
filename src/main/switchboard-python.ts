@@ -36,11 +36,13 @@ import type {
   WatchtowerStartReviewInput,
   WatchtowerStartTriageInput,
 } from '../shared/switchboard'
+import type { McpSettings } from '../shared/electron-api'
 
 type SwitchboardSessionSpawner = (input: {
   workspaceId?: string
   workspaceRoot: string
   descriptor: SwitchboardAgentSpawnDescriptor
+  mcpSettings?: McpSettings
 }) => Promise<{ ok: true; sessionId: string } | { ok: false; message: string }>
 
 type SwitchboardSessionStopper = (input: {
@@ -208,7 +210,9 @@ function stopElectronRunnerLoop(workspaceRoot: string): void {
 }
 
 function clearElectronRunnerWorkspace(workspaceRoot: string): void {
-  switchboardRunnerWorkspaceIds.delete(runnerKey(workspaceRoot))
+  const key = runnerKey(workspaceRoot)
+  switchboardRunnerWorkspaceIds.delete(key)
+  switchboardRunnerMcpSettings.delete(key)
 }
 
 export function stopAllSwitchboardRunnerLoops(): void {
@@ -292,6 +296,7 @@ async function prepareAndSpawnSwitchboardSession(workspaceRoot: string, workspac
 
 async function runtimeTickAndSpawnSwitchboardSessions(workspaceRoot: string, workspaceId?: string): Promise<void> {
   if (!switchboardSessionSpawner) return
+  const key = runnerKey(workspaceRoot)
   const result = await runSwitchboardCore([
     'runner',
     'runtime-tick',
@@ -307,7 +312,12 @@ async function runtimeTickAndSpawnSwitchboardSessions(workspaceRoot: string, wor
   if (!payload.ok) return
   const descriptors = payload.descriptors ?? (payload.prepared ? [payload.descriptor] : [])
   for (const descriptor of descriptors) {
-    const spawned = await switchboardSessionSpawner({ workspaceId, workspaceRoot, descriptor })
+    const spawned = await switchboardSessionSpawner({
+      workspaceId,
+      workspaceRoot,
+      descriptor,
+      mcpSettings: switchboardRunnerMcpSettings.get(key),
+    })
     if (!spawned.ok) {
       await stopPreparedSessionExecution(workspaceRoot, descriptor.executionId, spawned.message)
     }
@@ -353,6 +363,7 @@ let switchboardSessionStopper: SwitchboardSessionStopper | null = null
 let switchboardRuntimeInventoryProvider: SwitchboardRuntimeInventoryProvider | null = null
 const switchboardRunnerIntervals = new Map<string, NodeJS.Timeout>()
 const switchboardRunnerWorkspaceIds = new Map<string, string>()
+const switchboardRunnerMcpSettings = new Map<string, McpSettings>()
 const inFlightWorkspaceTicks = new Set<string>()
 const inFlightPythonChildren = new Set<ChildProcess>()
 
@@ -545,6 +556,12 @@ export async function startSwitchboardRunner(input: SwitchboardRunnerStartInput)
     await releaseWorkspaceRunnerLock(input.workspaceRoot)
     return { ok: false, message: result.message || 'Unable to start Switchboard runner.' }
   }
+  const key = runnerKey(input.workspaceRoot)
+  if (input.mcpSettings) {
+    switchboardRunnerMcpSettings.set(key, input.mcpSettings)
+  } else {
+    switchboardRunnerMcpSettings.delete(key)
+  }
   startElectronRunnerLoop(input.workspaceRoot, input.workspaceId)
   return result.payload as SwitchboardRunnerResult
 }
@@ -556,13 +573,16 @@ export async function pauseSwitchboardRunner(workspaceRoot: string): Promise<Swi
   return result.payload as SwitchboardRunnerResult
 }
 
-export async function resumeSwitchboardRunner(input: { workspaceRoot: string; workspaceId?: string }): Promise<SwitchboardRunnerResult> {
+export async function resumeSwitchboardRunner(input: { workspaceRoot: string; workspaceId?: string; mcpSettings?: McpSettings }): Promise<SwitchboardRunnerResult> {
   const lock = await acquireWorkspaceRunnerLock(input.workspaceRoot)
   if (!lock.ok) return { ok: false, message: lock.message }
   const result = await runSwitchboardCore(['runner', 'resume', ...workspaceArgs(input.workspaceRoot)])
   if (!result.ok) {
     await releaseWorkspaceRunnerLock(input.workspaceRoot)
     return { ok: false, message: result.message || 'Unable to resume Switchboard runner.' }
+  }
+  if (input.mcpSettings) {
+    switchboardRunnerMcpSettings.set(runnerKey(input.workspaceRoot), input.mcpSettings)
   }
   startElectronRunnerLoop(input.workspaceRoot, input.workspaceId ?? switchboardRunnerWorkspaceIds.get(runnerKey(input.workspaceRoot)))
   return result.payload as SwitchboardRunnerResult
@@ -577,9 +597,12 @@ export async function stopSwitchboardRunner(workspaceRoot: string): Promise<Swit
   return result.payload as SwitchboardRunnerResult
 }
 
-export async function tickSwitchboardRunner(input: { workspaceRoot: string; workspaceId?: string }): Promise<SwitchboardRunnerResult> {
+export async function tickSwitchboardRunner(input: { workspaceRoot: string; workspaceId?: string; mcpSettings?: McpSettings }): Promise<SwitchboardRunnerResult> {
   const lock = await acquireWorkspaceRunnerLock(input.workspaceRoot)
   if (!lock.ok) return { ok: false, message: lock.message }
+  if (input.mcpSettings) {
+    switchboardRunnerMcpSettings.set(runnerKey(input.workspaceRoot), input.mcpSettings)
+  }
   await prepareAndSpawnSwitchboardSession(input.workspaceRoot, input.workspaceId ?? switchboardRunnerWorkspaceIds.get(runnerKey(input.workspaceRoot)))
   return getSwitchboardRunnerState(input.workspaceRoot)
 }

@@ -71,6 +71,7 @@ type TerminalRuntime = {
     workspaceId?: string
     workspaceRoot: string
     descriptor: SwitchboardAgentSpawnDescriptor
+    mcpSettings?: McpSettings
   }): Promise<TerminalSpawnResult>
 }
 
@@ -382,6 +383,7 @@ async function spawnAgentSessionFromDescriptor(input: {
   workspaceId?: string
   workspaceRoot: string
   descriptor: SwitchboardAgentSpawnDescriptor
+  mcpSettings?: McpSettings
 }): Promise<TerminalSpawnResult> {
   const sender = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())?.webContents
   if (!sender) {
@@ -406,6 +408,22 @@ async function spawnAgentSessionFromDescriptor(input: {
   disposeTerminal(input.descriptor.executionId)
 
   try {
+    if (input.mcpSettings?.syncEnabled && syncMcpConfig && input.descriptor.cli) {
+      const syncResult = await syncMcpConfig({
+        workspaceRoot: input.descriptor.cwd || input.workspaceRoot,
+        settings: input.mcpSettings,
+        clients: [input.descriptor.cli],
+      })
+      if (!syncResult.ok) {
+        return {
+          ok: false,
+          sessionId: input.descriptor.executionId,
+          message: syncResult.message,
+          exitCode: 1,
+        }
+      }
+    }
+
     const initialSize = getTerminalSize(120, 30)
     const termProcess = pty.spawn(command, args, {
       name: 'xterm-256color',

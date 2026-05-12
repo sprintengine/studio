@@ -1,3 +1,5 @@
+import type { McpSettings } from './electron-api'
+
 export const SWITCHBOARD_TASK_STATUSES = [
   'planning',
   'todo',
@@ -416,11 +418,13 @@ export type SwitchboardRunnerStartInput = {
   maxConcurrency?: number
   cli?: 'codex' | 'claude'
   provider?: SwitchboardExecutionProviderKind
+  mcpSettings?: McpSettings
 }
 
 export type SwitchboardRunnerWorkspaceInput = {
   workspaceRoot: string
   workspaceId?: string
+  mcpSettings?: McpSettings
 }
 
 type SwitchboardRunnerExecutionBase = {
