@@ -173,6 +173,34 @@ def test_code_reviewer_join_prompt_allows_review_and_fix_tasks(tmp_path) -> None
     )
 
 
+def test_spec_reviewer_join_prompt_uses_spec_soul_and_skill_standards(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "spec-reviewer-prompt",
+        [task("T1", "Review spec conformance", "spec_reviewer")],
+    )
+
+    payload = fixture.cli.run("join", "--role", "spec_reviewer", "--id", "spec-reviewer-fixture")
+
+    assert payload["ok"] is True
+    assert payload["action"] == "work"
+    assert_prompt_includes(
+        payload["prompt"],
+        [
+            "You are a principal-level specification reviewer.",
+            "sprintengine task next --role spec_reviewer --id spec-reviewer-fixture",
+            "Build a requirement checklist from the task, plan, requirements artifact, comments, and acceptance criteria",
+            "Use `workspace-knowledge` or `knowledge-grill`",
+            "Use `behavior-first-testing` criteria",
+            "Use `diagnose` principles",
+            "Use the `prototype` boundary",
+            "Apply the bundled workflow skills as review standards when relevant",
+            "For review-only tasks, produce the requested specification conformance review evidence or artifact.",
+            "Do not mutate the task graph; the architect decides whether to add follow-up work.",
+        ],
+    )
+
+
 def test_join_stops_when_only_other_role_tasks_are_ready(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
