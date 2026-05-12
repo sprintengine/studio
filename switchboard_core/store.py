@@ -1395,6 +1395,61 @@ def execution_stop_unlocked(workspace: Path, execution_id: str, *, reason: str |
     }
 
 
+def execution_record_session_exit(workspace: Path, execution_id: str, *, exit_code: int) -> dict[str, Any]:
+    with locked_runner(workspace):
+        validate_execution_id(execution_id)
+        metadata = read_execution_metadata(workspace, execution_id)
+        if not metadata:
+            raise SwitchboardError("Switchboard execution was not found.")
+        if metadata.get("provider") != "electron-session":
+            return {"ok": True, "execution": metadata}
+
+        completed_at = now_iso()
+        task_id = metadata.get("taskId")
+        try:
+            located = find_task(workspace, task_id) if isinstance(task_id, str) else None
+        except SwitchboardError:
+            located = None
+        claimed_status = metadata.get("claimedStatus")
+        published = bool(located and located.folder_status != claimed_status)
+        status = "completed" if published else "abandoned"
+        error = None if exit_code == 0 else f"Terminal exited with code {exit_code}."
+        worktree_state = metadata.get("worktreeState")
+        if metadata.get("worktreePath") and worktree_state == "active":
+            worktree_state = "completed" if published else "abandoned"
+
+        updates = {
+            "status": status,
+            "completedAt": completed_at,
+            "exitCode": exit_code,
+            "error": error,
+            "worktreeState": worktree_state,
+        }
+        completed = {**metadata, **updates}
+        update_execution_metadata(workspace, metadata, updates)
+        if isinstance(task_id, str):
+            mark_task_attempt_completed(workspace, completed, completed_at, exit_code)
+            if metadata.get("worktreePath"):
+                update_task_worktree_state(workspace, completed, str(worktree_state or status))
+            if not published:
+                clear_task_active_execution_if_matches(workspace, completed)
+
+        state = read_runner_state(workspace)
+        state["activeExecutions"] = [
+            {**execution, **updates}
+            if isinstance(execution, dict) and execution.get("executionId") == execution_id
+            else execution
+            for execution in state.get("activeExecutions", [])
+        ]
+        write_runner_state(workspace, state)
+        append_runner_event(
+            workspace,
+            "execution_exit",
+            data={"executionId": execution_id, "kind": metadata.get("kind"), "exitCode": exit_code, "status": status},
+        )
+        return {"ok": True, "execution": completed}
+
+
 def execution_logs(workspace: Path, execution_id: str, *, stream: str, tail: int = 200) -> dict[str, Any]:
     validate_execution_id(execution_id)
     if stream not in {"stdout", "stderr"}:

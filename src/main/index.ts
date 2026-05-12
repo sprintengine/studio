@@ -56,6 +56,7 @@ import {
   moveSwitchboardTask,
   promoteSwitchboardInboxTask,
   publishSwitchboardTask,
+  recordSwitchboardSessionExit,
   getSwitchboardRunnerState,
   readAllSwitchboardTasks,
   recoverSwitchboardLock,
@@ -81,6 +82,9 @@ const terminalRuntime = createTerminalRuntime({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
   logMainPerfEvent,
+  onAgentSessionExit: (input) => {
+    if (input.workspaceRoot) void recordSwitchboardSessionExit(input)
+  },
 })
 const mobileSnapshotService = new MobileSprintEngineSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })

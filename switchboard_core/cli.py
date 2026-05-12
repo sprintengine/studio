@@ -44,6 +44,7 @@ from .store import (
     runner_stop,
     runner_tick,
     execution_logs,
+    execution_record_session_exit,
     execution_stop,
     execution_status,
     execution_worktree_cleanup,
@@ -426,6 +427,11 @@ def cmd_execution_stop(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_execution_record_session_exit(args: argparse.Namespace) -> int:
+    emit(execution_record_session_exit(workspace_path(args), args.execution_id, exit_code=args.exit_code))
+    return 0
+
+
 def cmd_execution_worktree_cleanup(args: argparse.Namespace) -> int:
     emit(execution_worktree_cleanup(workspace_path(args), args.execution_id, force=args.force))
     return 0
@@ -658,6 +664,12 @@ Watchtower agents should create findings directly in the inbox:
     execution_stop_cmd.add_argument("execution_id")
     execution_stop_cmd.add_argument("--reason")
     execution_stop_cmd.set_defaults(func=cmd_execution_stop)
+
+    execution_record_session_exit_cmd = execution_subcommands.add_parser("record-session-exit", help=argparse.SUPPRESS)
+    execution_record_session_exit_cmd.add_argument("--workspace", required=True)
+    execution_record_session_exit_cmd.add_argument("execution_id")
+    execution_record_session_exit_cmd.add_argument("--exit-code", type=int, required=True)
+    execution_record_session_exit_cmd.set_defaults(func=cmd_execution_record_session_exit)
 
     execution_cleanup_cmd = execution_subcommands.add_parser("cleanup-worktree", help="Remove an execution worktree.")
     execution_cleanup_cmd.add_argument("--workspace", required=True)

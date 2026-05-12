@@ -13,6 +13,7 @@ export {
   moveSwitchboardTask,
   promoteSwitchboardInboxTask,
   publishSwitchboardTask,
+  recordSwitchboardSessionExit,
   getSwitchboardRunnerState,
   readAllSwitchboardTasks,
   recoverSwitchboardLock,

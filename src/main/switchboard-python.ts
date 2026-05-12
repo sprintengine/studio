@@ -238,6 +238,21 @@ export function configureSwitchboardSessionSpawner(spawner: SwitchboardSessionSp
   switchboardSessionSpawner = spawner
 }
 
+export async function recordSwitchboardSessionExit(input: {
+  workspaceRoot: string
+  executionId: string
+  exitCode: number
+}): Promise<void> {
+  await runSwitchboardCore([
+    'execution',
+    'record-session-exit',
+    ...workspaceArgs(input.workspaceRoot),
+    input.executionId,
+    '--exit-code',
+    String(input.exitCode),
+  ])
+}
+
 export function readSwitchboardServerDescriptor(workspaceRoot: string): SwitchboardServerDescriptor | null {
   return readServerDescriptor(workspaceRoot)
 }

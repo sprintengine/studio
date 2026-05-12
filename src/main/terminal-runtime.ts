@@ -34,6 +34,11 @@ type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
   requireAuthenticatedUser(message: string): void
   logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void
+  onAgentSessionExit?(input: {
+    workspaceRoot: string
+    executionId: string
+    exitCode: number
+  }): void | Promise<void>
 }
 
 type TerminalIpcHandlers = {
@@ -61,8 +66,10 @@ let terminalDiagnostics = createTerminalDiagnostics({
   enabled: false,
   logMainPerfEvent: () => {},
 })
+let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 export function createTerminalRuntime(options: TerminalRuntimeOptions): TerminalRuntime {
   requireAuthenticatedUser = options.requireAuthenticatedUser
+  onAgentSessionExit = options.onAgentSessionExit
   terminalDiagnostics = createTerminalDiagnostics({
     enabled: options.diagnosticsEnabled,
     logMainPerfEvent: options.logMainPerfEvent,
@@ -241,6 +248,13 @@ function attachTerminalSession(
     terminalOutput.flush(sessionId, 'exit')
     terminalDiagnostics.clear(sessionId)
     terminalSession.hasExited = true
+    if (terminalSession.agentSession?.system === 'switchboard') {
+      void onAgentSessionExit?.({
+        workspaceRoot: terminalSession.agentSession.workspaceRoot,
+        executionId: terminalSession.agentSession.executionId,
+        exitCode: event.exitCode,
+      })
+    }
     if (terminals.get(sessionId) === terminalSession) {
       terminals.delete(sessionId)
       broadcastTerminalSessionsChanged()
