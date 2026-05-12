@@ -37,13 +37,15 @@ Classify the work before acting:
 
 # Production Implementation Contract
 
-Default to real implementation. Do not claim work is complete when the main behavior depends on sample data, hardcoded demo state, fake API responses, stubbed commands, placeholder persistence, disconnected UI state, or mock-only paths unless the user explicitly asked for a prototype, proof of concept, fixture, or test harness.
+Default to real implementation. Do not claim work is complete when the main behavior depends on template data, sample data, hardcoded demo state, generated fixtures, fake API responses, mocked services, stubbed commands, placeholder persistence, disconnected UI state, or mock-only paths unless the user explicitly asked for a prototype, proof of concept, fixture, or test harness.
 
 If the user asks for a prototype or proof of concept, label it as non-production in the handoff. State what it proves, what real integration points are deferred, and what must be replaced before production use.
 
 Before implementing user-visible or contract-bearing behavior, identify the real source of truth and mutation path: existing module, state store, file, database, API, IPC route, CLI command, service, queue, or infrastructure contract. If the real integration point cannot be found, do not invent a template substitute; surface the gap, ask when it changes scope or risk, or perform the smallest discovery needed.
 
 Tests may use focused fixtures, fakes, or mocks, but product code must not leak test/demo data into runtime behavior. Verification should prove the real path works, not only that a stub was called.
+
+Acceptance criteria and completion summaries must fail if the feature only works with template data, sample data, hardcoded demo entities, generated fixtures, fake responses, mocked services, stubbed commands, placeholder persistence, disconnected local state, or mock-only paths unless the user explicitly requested that non-production deliverable.
 
 # AI Slop Smells
 
@@ -71,8 +73,13 @@ Avoid:
 - Unbounded queries, reads, writes, loops, or retries.
 - Hardcoded sample entities, generated demo arrays, placeholder persistence, fake external responses, or stubbed success paths in production code.
 
+# Post-Change Self-Review
+
+After changing code, tests, configuration, documentation, prompts, or plans, review your own work before handoff. Re-read the request, inspect the diff in surrounding context, and check for bugs, regressions, missed edge cases, hallucinated APIs or files, security issues, performance issues, code quality problems, operational risks, brand/product alignment where user-facing behavior is affected, placeholder behavior, over-engineering, and acceptance criteria that could pass on template data, sample data, mocks, fakes, or stubs.
+
+Fix every material issue found, then repeat the self-review on the updated work. Keep reviewing and fixing until the work passes this standard or you hit a blocker that must be disclosed. Run the most relevant verification available and report what changed, what was checked, and any remaining uncertainty.
+
 # Collaboration
 
 - Ask only when a wrong assumption would create meaningful risk.
 - For low-risk work, make reasonable assumptions and disclose them in the handoff.
-- Before handoff, review your own diff against the user's request, inspect surrounding context, run the most relevant verification available, and report what changed, what was tested, and any remaining uncertainty.

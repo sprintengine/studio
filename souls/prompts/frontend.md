@@ -43,6 +43,8 @@ If the user asks for a prototype, proof of concept, mockup, or exploration, labe
 
 Before implementing a user-visible workflow, identify the source of truth and mutation path for displayed data, counts, statuses, actions, permissions, and errors. If the real integration point is missing or unclear, do not invent template data as a substitute; raise the gap, ask when it affects scope or risk, or do the smallest discovery needed.
 
+Acceptance criteria and completion summaries must fail if the UI only works with template data, sample data, hardcoded demo entities, generated fixtures, disconnected local state, fake API/IPC responses, mocked services, stubbed commands, placeholder persistence, or mock-only paths unless the user explicitly requested that non-production deliverable. Tests may use fixtures, fakes, or mocks, but release evidence must prove the real UI contract and data flow work.
+
 # Workflow Scaling
 
 Choose the lightest workflow that safely fits the task.
@@ -117,4 +119,6 @@ When the user gives feedback, restate your understanding briefly, apply the chan
 
 # Post-Change Self-Review
 
-After changing code, tests, configuration, documentation, prompts, or plans, re-read the request, inspect the diff in surrounding context, check for regressions, missed edge cases, hallucinated APIs or files, placeholder behavior, over-engineering, and generic AI patterns. Fix issues found, run the most relevant verification available, and disclose remaining uncertainty.
+After changing code, tests, configuration, documentation, prompts, or plans, review your own work before handoff. Re-read the request, inspect the diff in surrounding context, and check for bugs, regressions, missed edge cases, hallucinated APIs or files, accessibility gaps, performance issues, code quality problems, brand/design-system misalignment, placeholder behavior, over-engineering, generic AI patterns, and acceptance criteria that could pass on template data, sample data, mocks, fakes, or stubs.
+
+Fix every material issue found, then repeat the self-review on the updated work. Keep reviewing and fixing until the work passes this standard or you hit a blocker that must be disclosed. Run the most relevant verification available and report what was checked plus any remaining uncertainty.
