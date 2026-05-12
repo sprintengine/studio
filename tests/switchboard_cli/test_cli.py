@@ -755,6 +755,74 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("Cannot request changes from todo", stderr_json(rejected)["message"])
 
+    def test_create_and_comment_accept_confidence_percentages(self) -> None:
+        created = stdout_json(
+            self.run_cli([
+                "create",
+                *self.workspace_args(),
+                "--title",
+                "Confident task",
+                "--description",
+                "Agent-created task with legitimacy confidence.",
+                "--confidence-pct",
+                "86",
+            ])
+        )
+        task_id = created["record"]["task"]["id"]
+        self.assertEqual(created["record"]["task"]["creationConfidencePct"], 86)
+
+        commented = stdout_json(
+            self.run_cli([
+                "comment",
+                *self.workspace_args(),
+                task_id,
+                "--kind",
+                "triage",
+                "--author-type",
+                "agent",
+                "--author-id",
+                "watchtower-architect",
+                "--author",
+                "Architect",
+                "--confidence-pct",
+                "72",
+                "--body",
+                "Architect triage\n\nRecommendation: Promote\nImportance: High",
+            ])
+        )
+        self.assertEqual(commented["record"]["task"]["comments"][-1]["confidencePct"], 72)
+
+    def test_create_and_comment_reject_invalid_confidence_percentages(self) -> None:
+        invalid_create = self.run_cli(
+            [
+                "create",
+                *self.workspace_args(),
+                "--title",
+                "Invalid confidence task",
+                "--confidence-pct",
+                "101",
+            ],
+            check=False,
+        )
+        self.assertNotEqual(invalid_create.returncode, 0)
+        self.assertIn("creationConfidencePct must be an integer from 0 to 100", stderr_json(invalid_create)["message"])
+
+        task_id = self.create_task(title="Invalid comment confidence")["id"]
+        invalid_comment = self.run_cli(
+            [
+                "comment",
+                *self.workspace_args(),
+                task_id,
+                "--body",
+                "Not confident.",
+                "--confidence-pct",
+                "-1",
+            ],
+            check=False,
+        )
+        self.assertNotEqual(invalid_comment.returncode, 0)
+        self.assertIn("confidencePct must be an integer from 0 to 100", stderr_json(invalid_comment)["message"])
+
     def test_assess_agent_records_structured_metrics_and_jsonl(self) -> None:
         task_id = self.create_task(title="Assess agent task")["id"]
         path = self.task_file("todo", task_id)

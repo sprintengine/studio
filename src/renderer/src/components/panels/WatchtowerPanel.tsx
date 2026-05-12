@@ -31,6 +31,8 @@ import {
   SpecialistActionIcon,
 } from '../AppIcons'
 import {
+  confidenceLabel,
+  confidenceToneClass,
   formatRelativeTime,
   priorityLabel,
   shortIdentifier,
@@ -1208,6 +1210,9 @@ function InboxRow({
                 {provenanceLabel}
               </span>
             ) : null}
+            {typeof task.creationConfidencePct === 'number' ? (
+              <ConfidenceChip value={task.creationConfidencePct} compact title="Legitimacy confidence" />
+            ) : null}
           </span>
           {descriptionPreview ? (
             <span className="block truncate text-[12px] leading-5 text-[#8a8a92]">{descriptionPreview}</span>
@@ -1473,6 +1478,11 @@ function DetailPane({
         <PropertyRow label="Source">
           <span className="text-[12px] text-[#d7d7dc]">{sourceLabel(record)}</span>
         </PropertyRow>
+        {typeof task.creationConfidencePct === 'number' ? (
+          <PropertyRow label="Legitimacy confidence">
+            <ConfidenceChip value={task.creationConfidencePct} />
+          </PropertyRow>
+        ) : null}
         <PropertyRow label="Created">
           <span className="text-[12px] text-[#9a9aa2]">{task.createdAt}</span>
         </PropertyRow>
@@ -1488,6 +1498,9 @@ function DetailPane({
                 <span className={`h-1.5 w-1.5 rounded-full ${triageImportanceDotClass(triageImportance)}`} aria-hidden="true" />
                 {triageImportance ?? 'triaged'}
               </span>
+              {typeof triageComment.confidencePct === 'number' ? (
+                <ConfidenceChip value={triageComment.confidencePct} compact title="Triage confidence" />
+              ) : null}
               <span className="ml-auto text-[11px] tabular-nums text-[#6f7078]">{formatRelativeTime(triageComment.createdAt)}</span>
             </div>
             <div className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{triageComment.body}</div>
@@ -1554,6 +1567,22 @@ function PropertyRow({ label, children }: { label: string; children: React.React
   )
 }
 
+function ConfidenceChip({ value, compact = false, title }: { value: number; compact?: boolean; title?: string }) {
+  const label = confidenceLabel(value)
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-medium tabular-nums ${confidenceToneClass(value)} ${
+        compact ? 'text-[10px]' : 'text-[11px]'
+      }`}
+      title={title ? `${title}: ${label}` : label}
+      aria-label={title ? `${title}: ${label}` : label}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      {compact ? `${value}%` : label}
+    </span>
+  )
+}
+
 function CommentsSection({ record }: { record: SwitchboardTaskRecord }) {
   const comments = record.task.comments
   return (
@@ -1571,6 +1600,12 @@ function CommentsSection({ record }: { record: SwitchboardTaskRecord }) {
                 <span className="font-medium text-[#d7d7dc]">{comment.author.name ?? comment.author.type}</span>
                 <span className="text-[#6f7078]">·</span>
                 <span className="uppercase tracking-[0.06em] text-[#6f7078]">{comment.kind}</span>
+                {typeof comment.confidencePct === 'number' ? (
+                  <>
+                    <span className="text-[#6f7078]">·</span>
+                    <ConfidenceChip value={comment.confidencePct} compact />
+                  </>
+                ) : null}
                 <span className="text-[#6f7078]">·</span>
                 <span className="tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
               </div>

@@ -68,12 +68,14 @@ async function assertCreateReadPromoteCommentAndCancel(): Promise<void> {
     title: 'Review auth redirect handling',
     description: 'Watchtower found a likely redirect regression.',
     labels: ['Bug', ' Auth ', 'bug'],
+    creationConfidencePct: 86,
   })
   assert.equal(inboxTask.ok, true)
   assert.equal(inboxTask.ok && inboxTask.record.location.folderStatus, 'inbox')
   assert.equal(inboxTask.ok && isSwitchboardTaskId(inboxTask.record.task.id), true)
   assert.equal(inboxTask.ok && basename(inboxTask.record.location.path), `${inboxTask.ok && inboxTask.record.task.id}.json`)
   assert.deepEqual(inboxTask.ok && inboxTask.record.task.labels, ['bug', 'auth'])
+  assert.equal(inboxTask.ok && inboxTask.record.task.creationConfidencePct, 86)
 
   const boardTask = await createSwitchboardTask({
     workspaceRoot,
@@ -114,11 +116,13 @@ async function assertCreateReadPromoteCommentAndCancel(): Promise<void> {
     body: 'Architect triage\n\nRecommendation: Promote\nImportance: High',
     author: { type: 'agent', id: 'watchtower-architect', name: 'Architect' },
     kind: 'triage',
+    confidencePct: 72,
   })
   assert.equal(triaged.ok, true)
   assert.equal(triaged.ok && triaged.record.task.comments.at(-1)?.kind, 'triage')
   assert.equal(triaged.ok && triaged.record.task.comments.at(-1)?.author.type, 'agent')
   assert.equal(triaged.ok && triaged.record.task.comments.at(-1)?.author.id, 'watchtower-architect')
+  assert.equal(triaged.ok && triaged.record.task.comments.at(-1)?.confidencePct, 72)
 
   const updated = await updateSwitchboardTask({
     workspaceRoot,

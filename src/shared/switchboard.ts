@@ -32,6 +32,7 @@ export type SwitchboardComment = {
   kind: SwitchboardCommentKind
   body: string
   createdAt: string
+  confidencePct?: number | null
 }
 
 export type SwitchboardSource = {
@@ -142,6 +143,7 @@ export type SwitchboardTask = {
   url: string | null
   labels: string[]
   blockedBy: string[]
+  creationConfidencePct?: number | null
   source: SwitchboardSource
   claim: SwitchboardClaim | null
   execution: SwitchboardExecution
@@ -311,6 +313,7 @@ export type SwitchboardCreateTaskInput = {
   labels?: string[]
   source?: Partial<SwitchboardSource>
   comments?: SwitchboardComment[]
+  creationConfidencePct?: number | null
 }
 
 export type SwitchboardUpdateTaskInput = {
@@ -341,6 +344,7 @@ export type SwitchboardAddCommentInput = {
   body: string
   author?: SwitchboardAuthor
   kind?: SwitchboardCommentKind
+  confidencePct?: number | null
 }
 
 export type SwitchboardClaimTaskInput = {
@@ -661,6 +665,10 @@ function validateAssessmentNumberMap(
   }
 }
 
+function isPercentInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100
+}
+
 function validateAgentAssessmentShape(value: unknown, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     errors.push('execution.assessments must contain objects.')
@@ -704,6 +712,9 @@ export function validateSwitchboardTaskShape(task: unknown): string[] {
   if (typeof record.title !== 'string' || !record.title.trim()) errors.push('title is required.')
   if (typeof record.description !== 'string') errors.push('description must be a string.')
   if (record.priority !== null && typeof record.priority !== 'number') errors.push('priority must be a number or null.')
+  if (record.creationConfidencePct !== undefined && record.creationConfidencePct !== null && !isPercentInteger(record.creationConfidencePct)) {
+    errors.push('creationConfidencePct must be an integer from 0 to 100.')
+  }
   if (!isSwitchboardTaskStatus(record.state)) errors.push('state must be a valid task status.')
   if (record.branchName !== null && typeof record.branchName !== 'string') errors.push('branchName must be a string or null.')
   if (record.url !== null && typeof record.url !== 'string') errors.push('url must be a string or null.')
@@ -770,8 +781,11 @@ export function validateSwitchboardTaskShape(task: unknown): string[] {
       if (typeof comment.id !== 'string' || !comment.id) errors.push('comment.id is required.')
       if (typeof comment.body !== 'string') errors.push('comment.body must be a string.')
       if (typeof comment.createdAt !== 'string' || !comment.createdAt) errors.push('comment.createdAt is required.')
-      if (!(['comment', 'status_change', 'claim', 'evidence', 'import'] as string[]).includes(comment.kind)) {
+      if (!(['comment', 'status_change', 'claim', 'evidence', 'import', 'triage'] as string[]).includes(comment.kind)) {
         errors.push('comment.kind must be valid.')
+      }
+      if (comment.confidencePct !== undefined && comment.confidencePct !== null && !isPercentInteger(comment.confidencePct)) {
+        errors.push('comment.confidencePct must be an integer from 0 to 100.')
       }
       if (!comment.author || typeof comment.author !== 'object' || Array.isArray(comment.author)) {
         errors.push('comment.author must be an object.')

@@ -163,6 +163,27 @@ export function priorityToneClass(priority: number | null): string {
   return 'text-[#9a9aa2]'
 }
 
+export type ConfidenceLevel = 'high' | 'medium' | 'low'
+
+export function confidenceLevel(value: number): ConfidenceLevel {
+  if (value >= 80) return 'high'
+  if (value >= 50) return 'medium'
+  return 'low'
+}
+
+export function confidenceLabel(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'Unknown confidence'
+  const level = confidenceLevel(value)
+  return `${level.charAt(0).toUpperCase()}${level.slice(1)} confidence · ${value}%`
+}
+
+export function confidenceToneClass(value: number): string {
+  const level = confidenceLevel(value)
+  if (level === 'high') return 'border-[#21432b] bg-[#0f1c14] text-[#8fd49c]'
+  if (level === 'medium') return 'border-[#4b3a1d] bg-[#1f1a10] text-[#d8b56d]'
+  return 'border-[#4a2224] bg-[#241313] text-[#ff9ea0]'
+}
+
 export function formatRelativeTime(iso: string | null | undefined): string {
   if (!iso) return ''
   const time = new Date(iso).getTime()

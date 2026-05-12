@@ -17,6 +17,8 @@ import {
   attentionReasonLabel,
   BOARD_STATUS_ORDER,
   deriveAttentionInfo,
+  confidenceLabel,
+  confidenceToneClass,
   formatRelativeTime,
   groupTasksByStatus,
   legalMoveTargets,
@@ -699,6 +701,9 @@ function BoardCard({
             <span className="tabular-nums">{commentCount}</span>
           </span>
         ) : null}
+        {typeof task.creationConfidencePct === 'number' ? (
+          <ConfidenceChip value={task.creationConfidencePct} compact title="Legitimacy confidence" />
+        ) : null}
         {attentionInfo ? (
           <StatusDot
             tone="needs-input"
@@ -1089,6 +1094,11 @@ function BoardDetailPane({
         <PropertyRow label="Source">
           <span className="text-[12px] text-[#d7d7dc]">{sourceLabel(record)}</span>
         </PropertyRow>
+        {typeof task.creationConfidencePct === 'number' ? (
+          <PropertyRow label="Legitimacy confidence">
+            <ConfidenceChip value={task.creationConfidencePct} />
+          </PropertyRow>
+        ) : null}
         {task.url ? (
           <PropertyRow label="Link">
             <span className="truncate text-[12px] text-[#cdbcff]">{task.url}</span>
@@ -1185,6 +1195,12 @@ function BoardDetailPane({
                     <span className="font-medium text-[#d7d7dc]">{comment.author.name ?? comment.author.type}</span>
                     <span className="text-[#6f7078]">·</span>
                     <span className="uppercase tracking-[0.06em] text-[#6f7078]">{comment.kind}</span>
+                    {typeof comment.confidencePct === 'number' ? (
+                      <>
+                        <span className="text-[#6f7078]">·</span>
+                        <ConfidenceChip value={comment.confidencePct} compact />
+                      </>
+                    ) : null}
                     <span className="text-[#6f7078]">·</span>
                     <span className="tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
                   </div>
@@ -1244,6 +1260,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">{title}</div>
       {children}
     </div>
+  )
+}
+
+function ConfidenceChip({ value, compact = false, title }: { value: number; compact?: boolean; title?: string }) {
+  const label = confidenceLabel(value)
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-medium tabular-nums ${confidenceToneClass(value)} ${
+        compact ? 'text-[10px]' : 'text-[11px]'
+      }`}
+      title={title ? `${title}: ${label}` : label}
+      aria-label={title ? `${title}: ${label}` : label}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      {compact ? `${value}%` : label}
+    </span>
   )
 }
 

@@ -1945,6 +1945,14 @@ def normalize_labels(labels: list[str] | None) -> list[str]:
     return list(seen.keys())
 
 
+def normalize_confidence_pct(value: Any, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 100:
+        raise SwitchboardError(f"{field_name} must be an integer from 0 to 100.")
+    return value
+
+
 def normalize_source(source: dict[str, Any] | None, fallback_type: str) -> dict[str, Any]:
     source = source or {}
     source_type = source.get("type") if source.get("type") in SOURCE_TYPES else fallback_type
@@ -1979,6 +1987,7 @@ def build_task(
     labels: list[str] | None = None,
     source_input: dict[str, Any] | None = None,
     comments: list[dict[str, Any]] | None = None,
+    creation_confidence_pct: int | None = None,
 ) -> dict[str, Any]:
     task_id = str(uuid.uuid4())
     created_at = now_iso()
@@ -1995,6 +2004,7 @@ def build_task(
         "url": source["externalUrl"],
         "labels": normalize_labels(labels),
         "blockedBy": [],
+        "creationConfidencePct": creation_confidence_pct,
         "source": source,
         "claim": None,
         "execution": {
@@ -2036,6 +2046,10 @@ def validate_task_shape(payload: Any) -> list[str]:
         errors.append("description must be a string.")
     if payload.get("priority") is not None and not isinstance(payload.get("priority"), (int, float)):
         errors.append("priority must be a number or null.")
+    try:
+        normalize_confidence_pct(payload.get("creationConfidencePct"), "creationConfidencePct")
+    except SwitchboardError as exc:
+        errors.append(str(exc))
     if payload.get("state") not in TASK_STATUSES:
         errors.append("state must be a valid task status.")
     if payload.get("branchName") is not None and not isinstance(payload.get("branchName"), str):
@@ -2098,6 +2112,10 @@ def validate_task_shape(payload: Any) -> list[str]:
                 errors.append("comment.body must be a string.")
             if not isinstance(comment.get("createdAt"), str) or not comment.get("createdAt"):
                 errors.append("comment.createdAt is required.")
+            try:
+                normalize_confidence_pct(comment.get("confidencePct"), "comment.confidencePct")
+            except SwitchboardError as exc:
+                errors.append(str(exc))
             author = comment.get("author")
             if not isinstance(author, dict):
                 errors.append("comment.author must be an object.")
@@ -2171,6 +2189,7 @@ def create_task(
     labels: list[str] | None = None,
     source: dict[str, Any] | None = None,
     comments: list[dict[str, Any]] | None = None,
+    creation_confidence_pct: int | None = None,
 ) -> LocatedTask:
     init_workspace(workspace)
     if not title.strip():
@@ -2184,6 +2203,7 @@ def create_task(
         labels=labels,
         source_input=source,
         comments=comments,
+        creation_confidence_pct=normalize_confidence_pct(creation_confidence_pct, "creationConfidencePct"),
     )
     errors = validate_task_shape(task)
     if errors:
@@ -2207,6 +2227,7 @@ def create_inbox_task_if_source_missing(
     labels: list[str] | None = None,
     source: dict[str, Any] | None = None,
     comments: list[dict[str, Any]] | None = None,
+    creation_confidence_pct: int | None = None,
 ) -> LocatedTask | None:
     init_workspace(workspace)
     if source_type not in SOURCE_TYPES:
@@ -2230,6 +2251,7 @@ def create_inbox_task_if_source_missing(
             labels=labels,
             source_input=source,
             comments=comments,
+            creation_confidence_pct=normalize_confidence_pct(creation_confidence_pct, "creationConfidencePct"),
         )
         errors = validate_task_shape(task)
         if errors:
@@ -2350,32 +2372,37 @@ def add_comment(
     kind: str = "comment",
     author_type: str = "user",
     author_id: str | None = None,
+    confidence_pct: int | None = None,
 ) -> LocatedTask:
     if not body.strip():
         raise SwitchboardError("Comment body is required.")
     if kind not in COMMENT_KINDS:
         raise SwitchboardError(f"Invalid comment kind: {kind}")
+    normalized_confidence = normalize_confidence_pct(confidence_pct, "confidencePct")
     initial = find_task(workspace, task_id)
     with locked_folders(workspace, [initial.folder_status], owner="switchboard-cli"):
         located = find_task(workspace, task_id)
         if located.folder_status != initial.folder_status:
             raise SwitchboardError("Switchboard task moved before comment could acquire its folder lock.")
         now = now_iso()
+        comment = {
+            "id": str(uuid.uuid4()),
+            "author": {
+                "type": author_type,
+                "id": author_id,
+                "name": author_name,
+            },
+            "kind": kind,
+            "body": body.strip(),
+            "createdAt": now,
+        }
+        if normalized_confidence is not None:
+            comment["confidencePct"] = normalized_confidence
         task = {
             **located.task,
             "comments": [
                 *located.task["comments"],
-                {
-                    "id": str(uuid.uuid4()),
-                    "author": {
-                        "type": author_type,
-                        "id": author_id,
-                        "name": author_name,
-                    },
-                    "kind": kind,
-                    "body": body.strip(),
-                    "createdAt": now,
-                },
+                comment,
             ],
             "updatedAt": now,
         }

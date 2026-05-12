@@ -175,6 +175,7 @@ def cmd_create(args: argparse.Namespace) -> int:
         labels=input_payload.get("labels", args.label),
         source=source,
         comments=input_payload.get("comments"),
+        creation_confidence_pct=input_payload.get("creationConfidencePct", args.confidence_pct),
     )
     emit(mutation_payload(action="create", previous=None, record=record_for_output(located)))
     return 0
@@ -231,6 +232,7 @@ def cmd_comment(args: argparse.Namespace) -> int:
         kind=args.kind,
         author_type=args.author_type,
         author_id=args.author_id,
+        confidence_pct=args.confidence_pct,
     )
     emit(mutation_payload(action="comment", previous=before.folder_status, record=record_for_output(located)))
     return 0
@@ -537,7 +539,8 @@ Watchtower agents should create findings directly in the inbox:
     create.add_argument("--source-external-id", help="Source external id for provenance.")
     create.add_argument("--source-external-key", help="Source external key for provenance.")
     create.add_argument("--source-external-url", help="Source external URL for provenance.")
-    create.add_argument("--input-json", help="JSON object containing title, description, priority, labels, identifier, source, and comments.")
+    create.add_argument("--confidence-pct", type=int, help="Optional 0-100 confidence that this is a legitimate, actionable task.")
+    create.add_argument("--input-json", help="JSON object containing title, description, priority, labels, identifier, source, comments, and creationConfidencePct.")
     create.set_defaults(func=cmd_create)
 
     import_task = subcommands.add_parser("import-task", help=argparse.SUPPRESS)
@@ -563,6 +566,7 @@ Watchtower agents should create findings directly in the inbox:
     comment.add_argument("--kind", choices=sorted(COMMENT_KINDS), default="comment")
     comment.add_argument("--author-type", choices=sorted(AUTHOR_TYPES), default="user")
     comment.add_argument("--author-id")
+    comment.add_argument("--confidence-pct", type=int, help="Optional 0-100 confidence in this comment or triage judgment.")
     comment.set_defaults(func=cmd_comment)
 
     move = subcommands.add_parser("move", help="Move a task to another status.")
