@@ -4,6 +4,7 @@ import { createAppMenu } from './app-menu'
 import { createMainWindow } from './window-factory'
 import { knownBackendWorkspaces, stopAllKnownBackendRunners } from './backend-session-bridge'
 import { forceTerminateSwitchboardBackend } from './switchboard-python'
+import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import type { MulticodeUpdateService } from './update-service'
 
 const BACKEND_QUIT_DEADLINE_MS = 5_000
@@ -84,7 +85,9 @@ export function registerAppLifecycle({
       for (const root of knownBackendWorkspaces()) {
         forceTerminateSwitchboardBackend(root)
       }
-      app.exit(0)
+      void releaseAllWorkspaceRunnerLocks().finally(() => {
+        app.exit(0)
+      })
     }
     const timeout = setTimeout(settle, BACKEND_QUIT_DEADLINE_MS)
     void stopAllKnownBackendRunners(BACKEND_QUIT_GRACE_SECONDS).finally(() => {

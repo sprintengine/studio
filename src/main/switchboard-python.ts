@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { existsSync, readFileSync, unlinkSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { rememberBackendWorkspace } from './backend-session-bridge'
+import { acquireWorkspaceRunnerLock, releaseWorkspaceRunnerLock } from './workspace-runner-lock'
 import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
@@ -536,13 +537,19 @@ export async function requeueSwitchboardTask(input: SwitchboardRequeueTaskInput)
 }
 
 export async function startSwitchboardRunner(input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult> {
+  const lock = await acquireWorkspaceRunnerLock(input.workspaceRoot)
+  if (!lock.ok) return { ok: false, message: lock.message }
+
   const result = await requestSwitchboardBackend(input.workspaceRoot, '/runner/start', {
     provider: input.provider ?? 'local-process',
     cli: input.cli ?? 'codex',
     queues: input.queues,
     maxConcurrency: input.maxConcurrency,
   })
-  if (!result.ok) return { ok: false, message: result.message || 'Unable to start Switchboard runner.' }
+  if (!result.ok) {
+    await releaseWorkspaceRunnerLock(input.workspaceRoot)
+    return { ok: false, message: result.message || 'Unable to start Switchboard runner.' }
+  }
   return result.payload as SwitchboardRunnerResult
 }
 
@@ -561,10 +568,14 @@ export async function resumeSwitchboardRunner(workspaceRoot: string): Promise<Sw
 export async function stopSwitchboardRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult> {
   const descriptor = readServerDescriptor(workspaceRoot)
   const result = await requestExistingSwitchboardBackend(workspaceRoot, '/runner/stop', {})
-  if (result.ok) return result.payload as SwitchboardRunnerResult
+  if (result.ok) {
+    await releaseWorkspaceRunnerLock(workspaceRoot)
+    return result.payload as SwitchboardRunnerResult
+  }
   const fallback = await runSwitchboardCore(['runner', 'stop', ...workspaceArgs(workspaceRoot)])
   if (!fallback.ok) return { ok: false, message: fallback.message || 'Unable to stop Switchboard runner.' }
   terminateServerDescriptorProcess(workspaceRoot, descriptor)
+  await releaseWorkspaceRunnerLock(workspaceRoot)
   return fallback.payload as SwitchboardRunnerResult
 }
 
