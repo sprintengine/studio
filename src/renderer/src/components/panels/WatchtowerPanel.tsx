@@ -39,6 +39,8 @@ import {
 } from '../../utils/switchboardBoard'
 import { filterInboxTasks } from '../../utils/watchtower'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { hasAgentTab } from '../../utils/modelRegistry'
 
 const PANEL_BG = 'bg-[#08090b]'
 const SECTION_DIVIDER = 'border-t border-[#1f2025]'
@@ -875,6 +877,7 @@ function RunReviewSection({
   const presetAgents = Object.entries(selectedPreset.agents)
   const runStatus = statuses.runReview ?? null
   const triageRun = selectedRun ? isTriageRun(selectedRun) : false
+  const terminalSessions = useTerminalSessions()
   return (
     <div className="border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -971,7 +974,18 @@ function RunReviewSection({
               const outcome = selectedRunAgentOutcomes.get(agent.agentId) ?? { count: 0 }
               const pill = agentPillState(agent, outcome, triageRun)
               const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
-              const canOpenTerminal = Boolean(agent.executionId && workspaceRoot)
+              const terminalState = describeExecutionTerminal(
+                terminalSessions,
+                workspaceId,
+                agent.executionId
+              )
+              const canOpenTerminal =
+                terminalState.kind !== 'missing' && Boolean(workspaceRoot) && Boolean(agent.executionId)
+              const terminalTabOpen =
+                terminalState.kind !== 'missing'
+                  ? hasAgentTab(workspaceId, terminalState.agentId)
+                  : false
+              const terminalButtonLabel = terminalTabOpen ? 'Focus terminal' : 'Open terminal'
               const handleOpenTerminal = (): void => {
                 if (!canOpenTerminal || !agent.executionId) return
                 void import('../../utils/modelRegistry').then(({ focusOrAddAgentSessionTab }) => {
@@ -995,9 +1009,22 @@ function RunReviewSection({
                             type="button"
                             onClick={handleOpenTerminal}
                             className="interactive inline-flex h-5 items-center gap-1 rounded border border-[#3a2820] bg-[#241513] px-1.5 text-[10.5px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
-                            title="Open terminal"
+                            title={terminalButtonLabel}
                           >
-                            Open terminal
+                            {terminalState.kind === 'running' ? (
+                              <span
+                                className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse"
+                                style={{ background: '#30d158' }}
+                                aria-hidden="true"
+                              />
+                            ) : terminalState.kind === 'exited' ? (
+                              <span
+                                className="inline-block h-1.5 w-1.5 rounded-full"
+                                style={{ background: '#5a5a63' }}
+                                aria-hidden="true"
+                              />
+                            ) : null}
+                            {terminalButtonLabel}
                           </button>
                         ) : null}
                         <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] transition-colors ${PILL_TONE_CLASSES[pill.tone]}`}>

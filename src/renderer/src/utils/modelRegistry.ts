@@ -37,6 +37,21 @@ export function focusAgentTab(workspaceId: string, agentId: string): boolean {
   return true
 }
 
+export function hasAgentTab(workspaceId: string, agentId: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  let found = false
+  model.visitNodes((node) => {
+    if (found) return
+    if (!(node instanceof TabNode) || node.getComponent() !== 'agent') return
+
+    const config = node.getConfig() as { agentId?: string } | undefined
+    if (config?.agentId === agentId) found = true
+  })
+  return found
+}
+
 function renameAgentTab(model: Model, agentId: string, name: string): void {
   let targetTabId: string | null = null
   model.visitNodes((node) => {

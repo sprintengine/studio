@@ -410,6 +410,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             cliHasLaunched: false,
             cliOnboardingPromptSent: false,
             cliResumeAvailable: false,
+            cliSessionId: undefined,
           })
         }
         return
@@ -474,9 +475,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
 
     event.preventDefault()
     event.stopPropagation()
-    cleanupNode(node)
     modelRef.current?.doAction(Actions.deleteTab(node.getId()))
-  }, [cleanupNode])
+  }, [])
 
   const handleMouseDownCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 1) return
@@ -491,14 +491,26 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
 
     parent.getChildren().forEach((child) => {
       if (!(child instanceof TabNode) || child.getId() === node.getId() || !child.isEnableClose()) return
-      cleanupNode(child)
       modelRef.current?.doAction(Actions.deleteTab(child.getId()))
     })
-  }, [cleanupNode])
+  }, [])
 
   const hideTab = useCallback((node: TabNode) => {
+    if (node.getComponent() !== 'agent') return
     hideTabWithoutCleanupRef.current.add(node.getId())
+    const parent = node.getParent()
     modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+
+    // The hide button is removed with the tab, leaving focus on <body>; hand it back to the new active tab.
+    if (!(parent instanceof TabSetNode)) return
+    const parentPath = parent.getPath()
+    requestAnimationFrame(() => {
+      const escapedPath = parentPath.replace(/"/gu, '\\"')
+      const tabsetEl = document.querySelector<HTMLElement>(`[data-layout-path="${escapedPath}"]`)
+      const nextActive = tabsetEl?.querySelector<HTMLElement>('.flexlayout__tab_button--selected')
+        ?? tabsetEl?.querySelector<HTMLElement>('.flexlayout__tab_button')
+      nextActive?.focus()
+    })
   }, [])
 
   const showTabContextMenu = useCallback(async (event: React.MouseEvent, node: TabNode) => {

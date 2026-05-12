@@ -2,6 +2,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ArrowRightIcon, CommentIcon, PlusIcon, PriorityIcon, StatusDot, StatusIcon } from '../AppIcons'
 import { useFlipReorder } from '../../utils/flipReorder'
+import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { hasAgentTab } from '../../utils/modelRegistry'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
   ActionStatusChip,
@@ -941,10 +943,17 @@ function BoardDetailPane({
 }) {
   const task = record.task
   const targets = legalMoveTargets(record.location.folderStatus)
+  const terminalSessions = useTerminalSessions()
+  const terminalState = describeExecutionTerminal(
+    terminalSessions,
+    workspaceId,
+    activeExecution?.executionId
+  )
   const canOpenTerminal =
-    Boolean(activeExecution) &&
-    Boolean(workspaceRoot) &&
-    Boolean(activeExecution?.executionId)
+    terminalState.kind !== 'missing' && Boolean(workspaceRoot) && Boolean(activeExecution?.executionId)
+  const terminalTabOpen =
+    terminalState.kind !== 'missing' ? hasAgentTab(workspaceId, terminalState.agentId) : false
+  const terminalButtonLabel = terminalTabOpen ? 'Focus terminal' : 'Open terminal'
   const handleOpenTerminal = (): void => {
     if (!canOpenTerminal || !activeExecution) return
     void import('../../utils/modelRegistry').then(({ focusOrAddAgentSessionTab }) => {
@@ -979,10 +988,22 @@ function BoardDetailPane({
               type="button"
               onClick={handleOpenTerminal}
               className="interactive inline-flex h-7 items-center gap-1.5 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60"
-              title="Open terminal"
+              title={terminalButtonLabel}
             >
-              <span className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse" style={{ background: '#30d158' }} />
-              Open terminal
+              {terminalState.kind === 'running' ? (
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse"
+                  style={{ background: '#30d158' }}
+                  aria-hidden="true"
+                />
+              ) : terminalState.kind === 'exited' ? (
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{ background: '#5a5a63' }}
+                  aria-hidden="true"
+                />
+              ) : null}
+              {terminalButtonLabel}
             </button>
           </div>
         ) : null}
@@ -1608,7 +1629,6 @@ function ExecutionsSection({
   busy?: boolean
   onStopExecution?: (execution: SwitchboardRunnerExecution) => void
 }) {
-  const includeLogsNote = tone === 'active'
   return (
     <div className="border-t border-[#16171b]">
       <div className="flex items-baseline justify-between gap-3 px-3 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">
@@ -1646,11 +1666,6 @@ function ExecutionsSection({
           </li>
         ))}
       </ul>
-      {includeLogsNote ? (
-        <div className="border-t border-[#16171b] px-3 py-1.5 text-[10.5px] text-[#5a5a63]">
-          Live execution logs are not bridged to the renderer. Inspect Python runner output for details.
-        </div>
-      ) : null}
     </div>
   )
 }
