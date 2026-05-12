@@ -49,7 +49,7 @@ VALID_ARTIFACT_KINDS = {
 VALID_ARTIFACT_STATUSES = {"draft", "ready_for_review", "approved", "changes_requested", "superseded"}
 APPROVAL_BLOCKING_ARTIFACT_STATUSES = VALID_ARTIFACT_STATUSES - {"superseded"}
 PLAN_REVIEW_ROLES = VALID_ROLES - {"architect"}
-FEEDBACK_SCHEMA_VERSION = 3
+FEEDBACK_SCHEMA_VERSION = 4
 FEEDBACK_SCORE_FIELDS = [
     ("directive_clarity_pct", "directiveClarityPct", "directive_clarity_pct"),
     ("task_clarity_pct", "taskClarityPct", "task_clarity_pct"),
@@ -61,6 +61,30 @@ FEEDBACK_SCORE_FIELDS = [
     ("role_fit_pct", "roleFitPct", "role_fit_pct"),
     ("autonomy_pct", "autonomyPct", "autonomy_pct"),
     ("confidence_pct", "confidencePct", "confidence_pct"),
+    ("correctness_pct", "correctnessPct", "correctness_pct"),
+    ("evidence_quality_pct", "evidenceQualityPct", "evidence_quality_pct"),
+    ("instruction_following_pct", "instructionFollowingPct", "instruction_following_pct"),
+    ("code_quality_pct", "codeQualityPct", "code_quality_pct"),
+    ("maintainability_pct", "maintainabilityPct", "maintainability_pct"),
+    ("test_quality_pct", "testQualityPct", "test_quality_pct"),
+    ("security_quality_pct", "securityQualityPct", "security_quality_pct"),
+    ("performance_quality_pct", "performanceQualityPct", "performance_quality_pct"),
+    ("frontend_functionality_pct", "frontendFunctionalityPct", "frontend_functionality_pct"),
+    ("frontend_aesthetic_quality_pct", "frontendAestheticQualityPct", "frontend_aesthetic_quality_pct"),
+    ("accessibility_pct", "accessibilityPct", "accessibility_pct"),
+    ("ux_competitiveness_pct", "uxCompetitivenessPct", "ux_competitiveness_pct"),
+]
+FEEDBACK_COUNT_FIELDS = [
+    ("claims_checked", "claimsChecked", "claims_checked"),
+    ("hallucinated_claims", "hallucinatedClaims", "hallucinated_claims"),
+    ("factual_errors", "factualErrors", "factual_errors"),
+    ("implementation_mistakes", "implementationMistakes", "implementation_mistakes"),
+    ("missed_requirements", "missedRequirements", "missed_requirements"),
+    ("regression_count", "regressionCount", "regression_count"),
+    ("test_failures_introduced", "testFailuresIntroduced", "test_failures_introduced"),
+    ("unsafe_changes", "unsafeChanges", "unsafe_changes"),
+    ("accessibility_issues", "accessibilityIssues", "accessibility_issues"),
+    ("design_issues", "designIssues", "design_issues"),
 ]
 FEEDBACK_TEXT_FIELDS = [
     ("top_friction", "topFriction", "top_friction"),
@@ -1051,7 +1075,13 @@ def path_is_relative_to(path: Path, parent: Path) -> bool:
 
 
 def feedback_args_present(args: argparse.Namespace) -> bool:
+    for attr in ("review_target_task_id", "review_target_agent_id", "review_target_execution_id"):
+        if str(getattr(args, attr, "") or "").strip():
+            return True
     for attr, _, _ in FEEDBACK_SCORE_FIELDS:
+        if getattr(args, attr, None) is not None:
+            return True
+    for attr, _, _ in FEEDBACK_COUNT_FIELDS:
         if getattr(args, attr, None) is not None:
             return True
     for attr, _, _ in FEEDBACK_TEXT_FIELDS:
@@ -1065,8 +1095,14 @@ def feedback_args_present(args: argparse.Namespace) -> bool:
 
 
 def validate_feedback_percent(value: int, field_name: str) -> int:
-    if not isinstance(value, int) or value < 0 or value > 100:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 100:
         raise SystemExit(f"{field_name} must be an integer from 0 to 100.")
+    return value
+
+
+def validate_feedback_count(value: int, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise SystemExit(f"{field_name} must be a non-negative integer.")
     return value
 
 
@@ -1192,6 +1228,16 @@ def parse_feedback_args(args: argparse.Namespace) -> Dict[str, Any]:
         scores[state_key] = value
         json_scores[json_key] = value
 
+    counts: Dict[str, int] = {}
+    json_counts: Dict[str, int] = {}
+    for attr, state_key, json_key in FEEDBACK_COUNT_FIELDS:
+        raw = getattr(args, attr, None)
+        if raw is None:
+            continue
+        value = validate_feedback_count(raw, f"--{attr.replace('_', '-')}")
+        counts[state_key] = value
+        json_counts[json_key] = value
+
     text_fields: Dict[str, str] = {}
     json_text_fields: Dict[str, str] = {}
     for attr, state_key, json_key in FEEDBACK_TEXT_FIELDS:
@@ -1202,7 +1248,14 @@ def parse_feedback_args(args: argparse.Namespace) -> Dict[str, Any]:
         text_fields[state_key] = text
         json_text_fields[json_key] = text
 
-    return {"scores": scores, "jsonScores": json_scores, "textFields": text_fields, "jsonTextFields": json_text_fields}
+    return {
+        "scores": scores,
+        "jsonScores": json_scores,
+        "counts": counts,
+        "jsonCounts": json_counts,
+        "textFields": text_fields,
+        "jsonTextFields": json_text_fields,
+    }
 
 
 def elapsed_ms(task: Dict[str, Any]) -> Optional[int]:
@@ -1232,6 +1285,29 @@ def observed_task_metrics(task: Dict[str, Any]) -> Dict[str, Any]:
     return observed
 
 
+def feedback_review_target(args: argparse.Namespace, state: Dict[str, Any], default_task: Dict[str, Any]) -> Dict[str, Any]:
+    target_task_id = str(getattr(args, "review_target_task_id", "") or "").strip()
+    target_agent_id = str(getattr(args, "review_target_agent_id", "") or "").strip()
+    target_execution_id = str(getattr(args, "review_target_execution_id", "") or "").strip()
+    target_values = {
+        "--review-target-task-id": target_task_id,
+        "--review-target-agent-id": target_agent_id,
+        "--review-target-execution-id": target_execution_id,
+    }
+    provided_target_flags = [flag for flag, value in target_values.items() if value]
+    if provided_target_flags and len(provided_target_flags) != len(target_values):
+        missing = ", ".join(flag for flag, value in target_values.items() if not value)
+        raise SystemExit(f"Reviewer assessments require all review target fields. Missing: {missing}.")
+    target_task = find_task(state, target_task_id) if target_task_id else default_task
+    return {
+        "task": target_task,
+        "taskId": str(target_task.get("id") or ""),
+        "agentId": target_agent_id,
+        "executionId": target_execution_id,
+        "isReviewerAssessment": bool(provided_target_flags),
+    }
+
+
 def build_feedback_payload(
     args: argparse.Namespace,
     state: Dict[str, Any],
@@ -1244,19 +1320,36 @@ def build_feedback_payload(
 
     parsed = parse_feedback_args(args)
     now = now_iso()
-    role = str(task.get("role") or "")
-    task_id = str(task.get("id") or "")
+    review_target = feedback_review_target(args, state, task)
+    target_task = review_target["task"]
+    role = str(target_task.get("role") or "")
+    reviewer_role = str(task.get("role") or "")
+    task_id = str(review_target["taskId"])
     team_slug = str(state.get("sprintengine", {}).get("name") or state_path.parent.name)
     issues = parse_feedback_issue_args(args, task_id)
     findings = parse_feedback_finding_args(args, task_id)
+    source = "reviewer_assessment" if review_target["isReviewerAssessment"] else "agent_self_report"
     state_feedback = {
         "schemaVersion": FEEDBACK_SCHEMA_VERSION,
         "capturedAt": now,
-        "source": "agent_self_report",
+        "source": source,
         "agentId": actor,
         "role": role,
         "scores": parsed["scores"],
     }
+    if parsed["counts"]:
+        state_feedback["counts"] = parsed["counts"]
+    if review_target["isReviewerAssessment"]:
+        state_feedback["reviewTarget"] = {
+            "taskId": task_id,
+            "agentId": review_target["agentId"],
+            "executionId": review_target["executionId"],
+        }
+        state_feedback["reviewer"] = {
+            "taskId": str(task.get("id") or ""),
+            "agentId": actor,
+            "role": reviewer_role,
+        }
     state_feedback.update(parsed["textFields"])
 
     record = {
@@ -1266,13 +1359,21 @@ def build_feedback_payload(
         "task_id": task_id,
         "agent_id": actor,
         "role": role,
-        "task_title": task.get("title") or "",
+        "task_title": target_task.get("title") or "",
         "captured_at": now,
-        "source": "agent_self_report",
+        "source": source,
         "scores": parsed["jsonScores"],
-        "observed": observed_task_metrics(task),
+        "counts": parsed["jsonCounts"],
+        "observed": observed_task_metrics(target_task),
         **parsed["jsonTextFields"],
     }
+    if review_target["isReviewerAssessment"]:
+        record["review_target_task_id"] = task_id
+        record["review_target_agent_id"] = review_target["agentId"]
+        record["review_target_execution_id"] = review_target["executionId"]
+        record["reviewer_task_id"] = str(task.get("id") or "")
+        record["reviewer_agent_id"] = actor
+        record["reviewer_role"] = reviewer_role
     if issues:
         state_feedback["issues"] = issues
         record["issues"] = [
@@ -1307,7 +1408,32 @@ def build_feedback_payload(
             }
             for finding in findings
         ]
-    return {"stateFeedback": state_feedback, "record": record}
+    return {
+        "stateFeedback": state_feedback,
+        "record": record,
+        "targetTask": target_task,
+        "isReviewerAssessment": review_target["isReviewerAssessment"],
+    }
+
+
+def attach_feedback_payload(state: Dict[str, Any], feedback_payload: Dict[str, Any], actor: str) -> None:
+    target_task = feedback_payload["targetTask"]
+    state_feedback = feedback_payload["stateFeedback"]
+    if feedback_payload["isReviewerAssessment"]:
+        assessments = target_task.get("feedbackAssessments")
+        if not isinstance(assessments, list):
+            assessments = []
+        assessments.append(state_feedback)
+        target_task["feedbackAssessments"] = assessments
+        append_event(
+            state,
+            "task_feedback_assessed",
+            actor,
+            f"{actor} recorded reviewer feedback for {target_task.get('id')}.",
+        )
+        return
+    target_task["feedback"] = state_feedback
+    append_event(state, "task_feedback_recorded", actor, f"{actor} recorded feedback for {target_task.get('id')}.")
 
 
 def metrics_feedback_path(state_path: Path) -> Path:
@@ -2520,8 +2646,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             set_agent_idle(ensure_agent(state, task["ownerAgentId"], task.get("role")))
         feedback_payload = build_feedback_payload(args, state, args.state, task, actor)
         if feedback_payload:
-            task["feedback"] = feedback_payload["stateFeedback"]
-            append_event(state, "task_feedback_recorded", actor, f"{actor} recorded feedback for {args.task_id}.")
+            attach_feedback_payload(state, feedback_payload, actor)
         recompute_phase(state)
         event = append_event(state, "task_status_changed", actor, f"{actor} moved {args.task_id} to {args.status}.")
         return {
@@ -2898,8 +3023,7 @@ def cmd_artifact_ready(args: argparse.Namespace) -> Dict[str, Any]:
         task = find_task(state, str(artifact.get("taskId")))
         feedback_payload = build_feedback_payload(args, state, args.state, task, args.id)
         if feedback_payload:
-            task["feedback"] = feedback_payload["stateFeedback"]
-            append_event(state, "task_feedback_recorded", args.id, f"{args.id} recorded feedback for {task.get('id')}.")
+            attach_feedback_payload(state, feedback_payload, args.id)
         recompute_phase(state)
         event = append_event(state, "artifact_ready_for_review", args.id, f"{args.id} marked artifact {args.artifact_id} ready for review.")
         return {
@@ -3077,8 +3201,18 @@ def add_feedback_arguments(parser: argparse.ArgumentParser) -> None:
             f"--{attr.replace('_', '-')}",
             dest=attr,
             type=int,
-            help="Optional agent self-assessment percentage from 0 to 100.",
+            help="Optional feedback percentage from 0 to 100.",
         )
+    for attr, _, _ in FEEDBACK_COUNT_FIELDS:
+        feedback.add_argument(
+            f"--{attr.replace('_', '-')}",
+            dest=attr,
+            type=int,
+            help="Optional non-negative feedback count.",
+        )
+    feedback.add_argument("--review-target-task-id", help="Optional task id being reviewed.")
+    feedback.add_argument("--review-target-agent-id", help="Optional agent id being reviewed.")
+    feedback.add_argument("--review-target-execution-id", help="Optional execution id being reviewed.")
     feedback.add_argument("--top-friction", default="", help="Optional short note on the biggest friction point.")
     feedback.add_argument("--suggested-improvement", default="", help="Optional short prompt, task, or tool improvement suggestion.")
     feedback.add_argument(

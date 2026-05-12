@@ -129,6 +129,155 @@ def test_artifact_ready_records_feedback_metrics_for_artifact_producer(tmp_path)
     assert records[0]["scores"] == {"task_clarity_pct": 88}
 
 
+def test_done_status_records_reviewer_target_feedback_on_reviewed_task(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "reviewer-target-feedback",
+        [
+            task("T1", "Implement feature", "developer", "done", owner="developer-fixture"),
+            task("T2", "Review feature", "code_reviewer", "in_progress", owner="reviewer-fixture"),
+        ],
+    )
+
+    payload = fixture.cli.run(
+        "task",
+        "status",
+        "--task-id",
+        "T2",
+        "--status",
+        "done",
+        "--id",
+        "reviewer-fixture",
+        "--review-target-task-id",
+        "T1",
+        "--review-target-agent-id",
+        "developer-fixture",
+        "--review-target-execution-id",
+        "exec_developer_fixture",
+        "--correctness-pct",
+        "84",
+        "--evidence-quality-pct",
+        "72",
+        "--claims-checked",
+        "12",
+        "--hallucinated-claims",
+        "3",
+        "--implementation-mistakes",
+        "2",
+        "--top-friction",
+        "Evidence was missing one command.",
+    )
+
+    assert payload["feedbackRecorded"] is True
+    state = read_state(fixture.state_path)
+    reviewed = get_task(state, "T1")
+    reviewer = get_task(state, "T2")
+    assessment = reviewed["feedbackAssessments"][0]
+    assert "feedback" not in reviewed
+    assert reviewer["status"] == "done"
+    assert assessment["source"] == "reviewer_assessment"
+    assert assessment["scores"]["correctnessPct"] == 84
+    assert assessment["counts"]["claimsChecked"] == 12
+    assert assessment["reviewTarget"] == {
+        "taskId": "T1",
+        "agentId": "developer-fixture",
+        "executionId": "exec_developer_fixture",
+    }
+    assert assessment["reviewer"]["taskId"] == "T2"
+
+    record = assert_feedback_record(fixture.team_dir, "T1", "reviewer-fixture")
+    assert record["source"] == "reviewer_assessment"
+    assert record["review_target_task_id"] == "T1"
+    assert record["reviewer_task_id"] == "T2"
+    assert record["counts"]["claims_checked"] == 12
+    assert "hallucination_pct" not in record
+
+
+def test_reviewer_target_feedback_rejects_missing_target_task(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "reviewer-target-missing",
+        [task("T1", "Review feature", "code_reviewer", "in_progress", owner="reviewer-fixture")],
+    )
+
+    rejected = fixture.cli.run_failure(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "done",
+        "--id",
+        "reviewer-fixture",
+        "--review-target-task-id",
+        "missing",
+        "--review-target-agent-id",
+        "developer-fixture",
+        "--review-target-execution-id",
+        "exec_missing",
+        "--correctness-pct",
+        "80",
+    )
+
+    assert "Task not found: missing" in rejected.stderr
+    assert read_feedback_records(fixture.team_dir) == []
+
+
+def test_reviewer_target_feedback_requires_complete_target_metadata(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "reviewer-target-partial",
+        [
+            task("T1", "Implement feature", "developer", "done", owner="developer-fixture"),
+            task("T2", "Review feature", "code_reviewer", "in_progress", owner="reviewer-fixture"),
+        ],
+    )
+
+    rejected = fixture.cli.run_failure(
+        "task",
+        "status",
+        "--task-id",
+        "T2",
+        "--status",
+        "done",
+        "--id",
+        "reviewer-fixture",
+        "--review-target-agent-id",
+        "developer-fixture",
+        "--correctness-pct",
+        "80",
+    )
+
+    assert "Reviewer assessments require all review target fields" in rejected.stderr
+    state = read_state(fixture.state_path)
+    assert "feedbackAssessments" not in get_task(state, "T2")
+    assert read_feedback_records(fixture.team_dir) == []
+
+
+def test_review_target_flags_are_rejected_on_non_done_status(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "reviewer-target-status-gate",
+        [task("T1", "Review feature", "code_reviewer", "todo", owner="reviewer-fixture")],
+    )
+
+    rejected = fixture.cli.run_failure(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "in_progress",
+        "--id",
+        "reviewer-fixture",
+        "--review-target-task-id",
+        "T2",
+    )
+
+    assert "Feedback flags on `sprintengine task status` are only supported with --status done" in rejected.stderr
+    assert read_feedback_records(fixture.team_dir) == []
+
+
 def test_feedback_rejects_invalid_percentages_and_malformed_json(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

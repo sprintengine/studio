@@ -16,7 +16,10 @@ from .store import (
     TASK_STATUSES,
     RunnerAlreadyRunningError,
     SwitchboardError,
+    AGENT_ASSESSMENT_COUNT_FIELDS,
+    AGENT_ASSESSMENT_SCORE_FIELDS,
     add_comment,
+    assess_agent,
     cancel_task,
     claim_task,
     create_task,
@@ -310,6 +313,30 @@ def cmd_request_changes(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_assess_agent(args: argparse.Namespace) -> int:
+    scores = {key: getattr(args, key) for key in AGENT_ASSESSMENT_SCORE_FIELDS}
+    counts = {key: getattr(args, key) for key in AGENT_ASSESSMENT_COUNT_FIELDS}
+    emit(
+        assess_agent(
+            workspace_path(args),
+            args.task_id,
+            target_execution_id=args.target_execution,
+            target_agent_id=args.target_agent,
+            reviewer_execution_id=args.reviewer_execution,
+            reviewer_agent_id=args.reviewer_agent,
+            reviewer_role=args.reviewer_role,
+            summary=args.summary,
+            scores=scores,
+            counts=counts,
+            top_friction=args.top_friction,
+            suggested_improvement=args.suggested_improvement,
+            issue_json=args.issue_json,
+            finding_json=args.finding_json,
+        )
+    )
+    return 0
+
+
 def cmd_runner_start(args: argparse.Namespace) -> int:
     emit(
         runner_start(
@@ -588,6 +615,25 @@ Watchtower agents should create findings directly in the inbox:
     request_changes.add_argument("task_id", metavar="uuid")
     request_changes.add_argument("--reason", required=True)
     request_changes.set_defaults(func=cmd_request_changes)
+
+    assess = subcommands.add_parser("assess-agent", help="Record structured reviewer metrics for a Switchboard execution attempt.")
+    assess.add_argument("--workspace", required=True)
+    assess.add_argument("task_id", metavar="uuid")
+    assess.add_argument("--target-execution", required=True)
+    assess.add_argument("--target-agent")
+    assess.add_argument("--reviewer-execution")
+    assess.add_argument("--reviewer-agent")
+    assess.add_argument("--reviewer-role")
+    assess.add_argument("--summary", required=True)
+    for attr in AGENT_ASSESSMENT_SCORE_FIELDS:
+        assess.add_argument(f"--{attr.replace('_', '-')}", dest=attr, type=int)
+    for attr in AGENT_ASSESSMENT_COUNT_FIELDS:
+        assess.add_argument(f"--{attr.replace('_', '-')}", dest=attr, type=int)
+    assess.add_argument("--top-friction", default="")
+    assess.add_argument("--suggested-improvement", default="")
+    assess.add_argument("--issue-json", action="append", default=[])
+    assess.add_argument("--finding-json", action="append", default=[])
+    assess.set_defaults(func=cmd_assess_agent)
 
     runner = subcommands.add_parser("runner", help="Manage the persistent Switchboard runner.")
     runner_subcommands = runner.add_subparsers(dest="runner_command", required=True)

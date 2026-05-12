@@ -62,6 +62,7 @@ RUNNER_EVENTS = {
     "worktree_created",
     "worktree_cleaned",
     "worktree_missing",
+    "agent_assessment",
 }
 UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -102,6 +103,79 @@ REQUEST_CHANGES_TRANSITIONS = {
 SOURCE_TYPES = {"manual", "watchtower", "github", "jira", "campaign", "sprintengine"}
 COMMENT_KINDS = {"comment", "status_change", "claim", "evidence", "import", "triage"}
 AUTHOR_TYPES = {"user", "agent", "system"}
+AGENT_ASSESSMENT_SCORE_FIELDS = {
+    "correctness_pct": ("correctnessPct", "correctness_pct"),
+    "evidence_quality_pct": ("evidenceQualityPct", "evidence_quality_pct"),
+    "instruction_following_pct": ("instructionFollowingPct", "instruction_following_pct"),
+    "context_fit_pct": ("contextFitPct", "context_fit_pct"),
+    "autonomy_pct": ("autonomyPct", "autonomy_pct"),
+    "role_fit_pct": ("roleFitPct", "role_fit_pct"),
+    "code_quality_pct": ("codeQualityPct", "code_quality_pct"),
+    "maintainability_pct": ("maintainabilityPct", "maintainability_pct"),
+    "test_quality_pct": ("testQualityPct", "test_quality_pct"),
+    "security_quality_pct": ("securityQualityPct", "security_quality_pct"),
+    "performance_quality_pct": ("performanceQualityPct", "performance_quality_pct"),
+    "frontend_functionality_pct": ("frontendFunctionalityPct", "frontend_functionality_pct"),
+    "frontend_aesthetic_quality_pct": ("frontendAestheticQualityPct", "frontend_aesthetic_quality_pct"),
+    "accessibility_pct": ("accessibilityPct", "accessibility_pct"),
+    "ux_competitiveness_pct": ("uxCompetitivenessPct", "ux_competitiveness_pct"),
+    "confidence_pct": ("confidencePct", "confidence_pct"),
+}
+AGENT_ASSESSMENT_COUNT_FIELDS = {
+    "claims_checked": ("claimsChecked", "claims_checked"),
+    "hallucinated_claims": ("hallucinatedClaims", "hallucinated_claims"),
+    "factual_errors": ("factualErrors", "factual_errors"),
+    "implementation_mistakes": ("implementationMistakes", "implementation_mistakes"),
+    "missed_requirements": ("missedRequirements", "missed_requirements"),
+    "regression_count": ("regressionCount", "regression_count"),
+    "test_failures_introduced": ("testFailuresIntroduced", "test_failures_introduced"),
+    "unsafe_changes": ("unsafeChanges", "unsafe_changes"),
+    "accessibility_issues": ("accessibilityIssues", "accessibility_issues"),
+    "design_issues": ("designIssues", "design_issues"),
+}
+AGENT_ASSESSMENT_ISSUE_CATEGORIES = {
+    "system_prompt",
+    "role_prompt",
+    "task_card",
+    "acceptance_criteria",
+    "context",
+    "tooling",
+    "coordination",
+    "validation",
+    "permissions",
+    "ui",
+    "other",
+}
+AGENT_ASSESSMENT_ISSUE_SEVERITIES = {"low", "medium", "high"}
+AGENT_ASSESSMENT_FINDING_KINDS = {
+    "code_bug",
+    "security_issue",
+    "product_requirement_violation",
+    "test_gap",
+    "accessibility_issue",
+    "performance_issue",
+    "reliability_issue",
+    "documentation_gap",
+    "other",
+}
+AGENT_ASSESSMENT_FINDING_SEVERITIES = {"critical", "high", "medium", "low"}
+AGENT_ASSESSMENT_FINDING_AREAS = {
+    "frontend",
+    "backend",
+    "database",
+    "networking",
+    "auth",
+    "security",
+    "filesystem",
+    "cli",
+    "ipc",
+    "mobile",
+    "testing",
+    "performance",
+    "docs",
+    "product",
+    "other",
+}
 STALE_LOCK_SECONDS = 5 * 60
 STALE_RUNNER_LOCK_SECONDS = 2 * 60
 EXECUTION_ID_RE = re.compile(r"^exec_[A-Za-z0-9_-]+$")
@@ -499,6 +573,22 @@ def append_runner_event(workspace: Path, event_type: str, *, message: str | None
         handle.write(json.dumps(event) + "\n")
 
 
+def switchboard_metrics_dir(workspace: Path) -> Path:
+    return switchboard_root(workspace) / "metrics"
+
+
+def agent_feedback_metrics_path(workspace: Path) -> Path:
+    return switchboard_metrics_dir(workspace) / "agent-feedback.jsonl"
+
+
+def append_agent_feedback_record(workspace: Path, record: dict[str, Any]) -> str:
+    path = agent_feedback_metrics_path(workspace)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    return relative_to_switchboard_root(workspace, path)
+
+
 def runner_public_payload(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
@@ -730,12 +820,14 @@ def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_
             "- Validate behavior against the task description, acceptance expectations, evidence, and full comment history.",
             "- Run focused tests or manual checks and record exactly what you ran.",
             "- Do not make implementation fixes. If the failure is in tests or test harness only, explain that clearly before changing test-only files.",
+            f"- Before publishing or requesting changes, assess the implementation attempt you reviewed: scripts/switchboard assess-agent --workspace {workspace_root} {task_id} --target-execution <execution-id-from-show> --reviewer-agent \"switchboard-{role}\" --reviewer-role \"{role}\" --summary \"...\" --correctness-pct 0-100 --evidence-quality-pct 0-100 --instruction-following-pct 0-100 --claims-checked <n> --hallucinated-claims <n>",
             f"- If validation passes, publish with evidence: scripts/switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --comment \"...\"",
             f"- If validation fails, request changes back to Ready: scripts/switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Expected ... but observed ... Repro: ...\"",
         ],
         "code_reviewer": [
             "- Review correctness, maintainability, security, reliability, and verification evidence against the task description and full comment history.",
             "- Do not make implementation fixes. Leave concrete requested changes for the next developer pass.",
+            f"- Before publishing or requesting changes, assess the implementation attempt you reviewed: scripts/switchboard assess-agent --workspace {workspace_root} {task_id} --target-execution <execution-id-from-show> --reviewer-agent \"switchboard-{role}\" --reviewer-role \"{role}\" --summary \"...\" --correctness-pct 0-100 --evidence-quality-pct 0-100 --instruction-following-pct 0-100 --code-quality-pct 0-100 --maintainability-pct 0-100 --claims-checked <n> --hallucinated-claims <n>",
             f"- If review passes, publish with a verdict: scripts/switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --comment \"...\"",
             f"- If review finds required changes, request changes back to Ready: scripts/switchboard request-changes --workspace {workspace_root} {task_id} --reason \"Required changes: ... Evidence: ...\"",
         ],
@@ -1907,6 +1999,7 @@ def build_task(
         "claim": None,
         "execution": {
             "attempts": [],
+            "assessments": [],
             "worktreePath": None,
             "worktreeBranch": None,
             "worktreeState": None,
@@ -1964,6 +2057,8 @@ def validate_task_shape(payload: Any) -> list[str]:
     else:
         if not isinstance(execution.get("attempts"), list):
             errors.append("execution.attempts must be an array.")
+        if "assessments" in execution and not isinstance(execution.get("assessments"), list):
+            errors.append("execution.assessments must be an array.")
         if execution.get("worktreePath") is not None and not isinstance(execution.get("worktreePath"), str):
             errors.append("execution.worktreePath must be a string or null.")
         if execution.get("worktreeBranch") is not None and not isinstance(execution.get("worktreeBranch"), str):
@@ -2875,6 +2970,236 @@ def request_changes_task(workspace: Path, task_id: str, *, reason: str) -> Locat
         atomic_write_json(located.path, task)
         os.replace(located.path, destination)
         return read_task_file(destination, target)
+
+
+def normalize_assessment_percent(value: Any, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 100:
+        raise SwitchboardError(f"{field_name} must be an integer from 0 to 100.")
+    return value
+
+
+def normalize_assessment_count(value: Any, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise SwitchboardError(f"{field_name} must be a non-negative integer.")
+    return value
+
+
+def normalize_assessment_text(value: Any, field_name: str, *, required: bool = False, limit: int = 1000) -> str:
+    if not isinstance(value, str):
+        if required:
+            raise SwitchboardError(f"{field_name} must be a string.")
+        return ""
+    text = value.strip()
+    if required and not text:
+        raise SwitchboardError(f"{field_name} cannot be empty.")
+    if len(text) > limit:
+        raise SwitchboardError(f"{field_name} must be {limit} characters or fewer.")
+    return text
+
+
+def normalize_assessment_issue(raw: Any, task_id: str, index: int) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise SwitchboardError("--issue-json entries must be JSON objects.")
+    category = normalize_assessment_text(raw.get("category"), "issue.category", required=True)
+    if category not in AGENT_ASSESSMENT_ISSUE_CATEGORIES:
+        raise SwitchboardError(f"issue.category must be one of: {', '.join(sorted(AGENT_ASSESSMENT_ISSUE_CATEGORIES))}.")
+    severity = normalize_assessment_text(raw.get("severity"), "issue.severity", required=True)
+    if severity not in AGENT_ASSESSMENT_ISSUE_SEVERITIES:
+        raise SwitchboardError(f"issue.severity must be one of: {', '.join(sorted(AGENT_ASSESSMENT_ISSUE_SEVERITIES))}.")
+    issue = {
+        "id": normalize_assessment_text(raw.get("id"), "issue.id") or f"{task_id}-AI{index + 1}",
+        "category": category,
+        "severity": severity,
+        "title": normalize_assessment_text(raw.get("title"), "issue.title", required=True),
+        "detail": normalize_assessment_text(raw.get("detail"), "issue.detail", required=True),
+        "status": normalize_assessment_text(raw.get("status"), "issue.status") or "new",
+    }
+    for key in ("target", "evidence", "suggestedPromptChange", "suggestedProcessChange"):
+        text = normalize_assessment_text(raw.get(key), f"issue.{key}")
+        if text:
+            issue[key] = text
+    return issue
+
+
+def normalize_assessment_finding(raw: Any, task_id: str, index: int) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise SwitchboardError("--finding-json entries must be JSON objects.")
+    kind = normalize_assessment_text(raw.get("kind"), "finding.kind", required=True)
+    if kind not in AGENT_ASSESSMENT_FINDING_KINDS:
+        raise SwitchboardError(f"finding.kind must be one of: {', '.join(sorted(AGENT_ASSESSMENT_FINDING_KINDS))}.")
+    severity = normalize_assessment_text(raw.get("severity"), "finding.severity", required=True)
+    if severity not in AGENT_ASSESSMENT_FINDING_SEVERITIES:
+        raise SwitchboardError(f"finding.severity must be one of: {', '.join(sorted(AGENT_ASSESSMENT_FINDING_SEVERITIES))}.")
+    area = normalize_assessment_text(raw.get("area"), "finding.area", required=True)
+    if area not in AGENT_ASSESSMENT_FINDING_AREAS:
+        raise SwitchboardError(f"finding.area must be one of: {', '.join(sorted(AGENT_ASSESSMENT_FINDING_AREAS))}.")
+    finding = {
+        "id": normalize_assessment_text(raw.get("id"), "finding.id") or f"{task_id}-AF{index + 1}",
+        "kind": kind,
+        "severity": severity,
+        "area": area,
+        "title": normalize_assessment_text(raw.get("title"), "finding.title", required=True),
+        "detail": normalize_assessment_text(raw.get("detail"), "finding.detail", required=True),
+        "status": normalize_assessment_text(raw.get("status"), "finding.status") or "open",
+    }
+    for key in ("recommendation", "requirementId", "file"):
+        text = normalize_assessment_text(raw.get(key), f"finding.{key}")
+        if text:
+            finding[key] = text
+    return finding
+
+
+def parse_assessment_json_entries(values: list[str], *, kind: str, task_id: str) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for index, raw_json in enumerate(values):
+        try:
+            raw = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise SwitchboardError(f"--{kind}-json must be valid JSON: {exc.msg}") from exc
+        normalizer = normalize_assessment_issue if kind == "issue" else normalize_assessment_finding
+        entries.append(normalizer(raw, task_id, index))
+    return entries
+
+
+def find_attempt_by_execution_id(task: dict[str, Any], execution_id: str) -> dict[str, Any] | None:
+    execution = task.get("execution") if isinstance(task.get("execution"), dict) else {}
+    attempts = execution.get("attempts") if isinstance(execution.get("attempts"), list) else []
+    for attempt in attempts:
+        if isinstance(attempt, dict) and attempt.get("id") == execution_id:
+            return attempt
+    return None
+
+
+def assess_agent(
+    workspace: Path,
+    task_id: str,
+    *,
+    target_execution_id: str,
+    reviewer_agent_id: str | None = None,
+    reviewer_role: str | None = None,
+    reviewer_execution_id: str | None = None,
+    target_agent_id: str | None = None,
+    summary: str,
+    scores: dict[str, int | None] | None = None,
+    counts: dict[str, int | None] | None = None,
+    top_friction: str | None = None,
+    suggested_improvement: str | None = None,
+    issue_json: list[str] | None = None,
+    finding_json: list[str] | None = None,
+) -> dict[str, Any]:
+    validate_execution_id(target_execution_id)
+    if reviewer_execution_id:
+        validate_execution_id(reviewer_execution_id)
+    summary_text = normalize_assessment_text(summary, "--summary", required=True, limit=2000)
+    init_workspace(workspace)
+    located = find_task(workspace, task_id)
+    with locked_folders(workspace, [located.folder_status], owner="switchboard-cli"):
+        located = find_task(workspace, task_id)
+        attempt = find_attempt_by_execution_id(located.task, target_execution_id)
+        if attempt is None:
+            raise SwitchboardError("Target execution was not found in this task's execution attempts.")
+        normalized_scores: dict[str, int] = {}
+        json_scores: dict[str, int] = {}
+        for input_key, value in (scores or {}).items():
+            if input_key not in AGENT_ASSESSMENT_SCORE_FIELDS:
+                continue
+            state_key, json_key = AGENT_ASSESSMENT_SCORE_FIELDS[input_key]
+            normalized = normalize_assessment_percent(value, f"--{input_key.replace('_', '-')}")
+            if normalized is not None:
+                normalized_scores[state_key] = normalized
+                json_scores[json_key] = normalized
+        normalized_counts: dict[str, int] = {}
+        json_counts: dict[str, int] = {}
+        for input_key, value in (counts or {}).items():
+            if input_key not in AGENT_ASSESSMENT_COUNT_FIELDS:
+                continue
+            state_key, json_key = AGENT_ASSESSMENT_COUNT_FIELDS[input_key]
+            normalized = normalize_assessment_count(value, f"--{input_key.replace('_', '-')}")
+            if normalized is not None:
+                normalized_counts[state_key] = normalized
+                json_counts[json_key] = normalized
+        now = now_iso()
+        claim = located.task.get("claim") if isinstance(located.task.get("claim"), dict) else {}
+        reviewer = reviewer_agent_id or (claim.get("owner") if isinstance(claim.get("owner"), str) else None) or "switchboard-reviewer"
+        target_agent = target_agent_id or (attempt.get("agentId") if isinstance(attempt.get("agentId"), str) else None) or "unknown"
+        assessment = {
+            "schemaVersion": 1,
+            "id": str(uuid.uuid4()),
+            "targetExecutionId": target_execution_id,
+            "targetAgentId": target_agent,
+            "reviewerAgentId": reviewer,
+            "reviewerRole": reviewer_role or "",
+            "capturedAt": now,
+            "source": "reviewer_assessment",
+            "summary": summary_text,
+        }
+        if reviewer_execution_id:
+            assessment["reviewerExecutionId"] = reviewer_execution_id
+        if normalized_scores:
+            assessment["scores"] = normalized_scores
+        if normalized_counts:
+            assessment["counts"] = normalized_counts
+        friction = normalize_assessment_text(top_friction, "--top-friction", limit=500) if top_friction else ""
+        if friction:
+            assessment["topFriction"] = friction
+        improvement = normalize_assessment_text(suggested_improvement, "--suggested-improvement", limit=500) if suggested_improvement else ""
+        if improvement:
+            assessment["suggestedImprovement"] = improvement
+        issues = parse_assessment_json_entries(issue_json or [], kind="issue", task_id=task_id)
+        findings = parse_assessment_json_entries(finding_json or [], kind="finding", task_id=task_id)
+        if issues:
+            assessment["issues"] = issues
+        if findings:
+            assessment["findings"] = findings
+
+        execution_state = dict(located.task.get("execution", {}))
+        assessments = list(execution_state.get("assessments", [])) if isinstance(execution_state.get("assessments"), list) else []
+        assessments.append(assessment)
+        task = {
+            **located.task,
+            "execution": {**execution_state, "assessments": assessments},
+            "updatedAt": now,
+        }
+        atomic_write_json(located.path, task)
+        record = {
+            "schema_version": 1,
+            "workspace_root": str(workspace.expanduser().resolve()),
+            "task_id": task_id,
+            "target_execution_id": target_execution_id,
+            "target_agent_id": target_agent,
+            "reviewer_agent_id": reviewer,
+            "reviewer_role": reviewer_role or "",
+            "reviewer_execution_id": reviewer_execution_id,
+            "captured_at": now,
+            "source": "reviewer_assessment",
+            "scores": json_scores,
+            "counts": json_counts,
+            "summary": summary_text,
+        }
+        if friction:
+            record["top_friction"] = friction
+        if improvement:
+            record["suggested_improvement"] = improvement
+        if issues:
+            record["issues"] = issues
+        if findings:
+            record["findings"] = findings
+        metrics_path = append_agent_feedback_record(workspace, record)
+        append_runner_event(
+            workspace,
+            "agent_assessment",
+            data={"taskId": task_id, "targetExecutionId": target_execution_id, "reviewerAgentId": reviewer, "assessmentId": assessment["id"]},
+        )
+        return {
+            "ok": True,
+            "record": record_for_output(read_task_file(located.path, located.folder_status)),
+            "assessment": assessment,
+            "metricsPath": metrics_path,
+        }
 
 
 def record_for_output(located: LocatedTask) -> dict[str, Any]:

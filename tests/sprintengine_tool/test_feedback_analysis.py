@@ -45,12 +45,18 @@ def test_feedback_summary_aggregates_scores_friction_issues_and_findings_without
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     records = [
         {
+            "source": "agent_self_report",
             "role": "developer",
             "task_id": "T1",
             "scores": {
                 "task_clarity_pct": 62,
                 "confidence_pct": 91,
                 "hallucination_risk_pct": 41,
+                "correctness_pct": 66,
+            },
+            "counts": {
+                "claims_checked": 8,
+                "hallucinated_claims": 2,
             },
             "top_friction": "pytest terminal output included TERMINAL_OUTPUT_SECRET",
             "issues": [
@@ -73,6 +79,7 @@ def test_feedback_summary_aggregates_scores_friction_issues_and_findings_without
             ],
         },
         {
+            "source": "reviewer_assessment",
             "role": "security",
             "task_id": "T2",
             "scores": {"task_clarity_pct": 82, "confidence_pct": 76},
@@ -83,10 +90,23 @@ def test_feedback_summary_aggregates_scores_friction_issues_and_findings_without
 
     summary = summarize_feedback_records(load_feedback_records(metrics_path), state)
 
-    assert summary["source"] == "agent_self_report"
+    assert summary["source"] == "agent_feedback"
+    assert summary["sourceCounts"] == {"agent_self_report": 1, "reviewer_assessment": 1}
     assert summary["privacy"] == "sanitized_aggregates_only"
     assert summary["aggregateScoresByRole"]["developer"]["task_clarity_pct"]["averagePct"] == 62
+    assert summary["aggregateCountsByRole"]["developer"]["claims_checked"] == 8
+    assert summary["aggregateCountsByRole"]["developer"]["hallucinated_claims"] == 2
+    assert summary["aggregateCountsByRole"]["developer"]["hallucination_rate_pct"] == 25.0
     assert summary["lowScoreDimensions"] == [
+        {
+            "role": "developer",
+            "dimension": "correctness_pct",
+            "label": "Correctness",
+            "averagePct": 66.0,
+            "sampleCount": 1,
+            "thresholdPct": 70,
+            "direction": "higher_is_better",
+        },
         {
             "role": "developer",
             "dimension": "hallucination_risk_pct",

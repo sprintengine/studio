@@ -58,8 +58,62 @@ export type SwitchboardExecutionAttempt = {
   worktreeState?: string | null
 }
 
+export type SwitchboardAgentAssessmentScores = Partial<Record<
+  | 'correctnessPct'
+  | 'evidenceQualityPct'
+  | 'instructionFollowingPct'
+  | 'contextFitPct'
+  | 'autonomyPct'
+  | 'roleFitPct'
+  | 'codeQualityPct'
+  | 'maintainabilityPct'
+  | 'testQualityPct'
+  | 'securityQualityPct'
+  | 'performanceQualityPct'
+  | 'frontendFunctionalityPct'
+  | 'frontendAestheticQualityPct'
+  | 'accessibilityPct'
+  | 'uxCompetitivenessPct'
+  | 'confidencePct',
+  number
+>>
+
+export type SwitchboardAgentAssessmentCounts = Partial<Record<
+  | 'claimsChecked'
+  | 'hallucinatedClaims'
+  | 'factualErrors'
+  | 'implementationMistakes'
+  | 'missedRequirements'
+  | 'regressionCount'
+  | 'testFailuresIntroduced'
+  | 'unsafeChanges'
+  | 'accessibilityIssues'
+  | 'designIssues',
+  number
+>>
+
+export type SwitchboardAgentAssessment = {
+  schemaVersion: 1
+  id: string
+  targetExecutionId: string
+  targetAgentId: string
+  reviewerExecutionId?: string | null
+  reviewerAgentId: string
+  reviewerRole?: string | null
+  capturedAt: string
+  source: 'reviewer_assessment'
+  scores?: SwitchboardAgentAssessmentScores
+  counts?: SwitchboardAgentAssessmentCounts
+  topFriction?: string
+  suggestedImprovement?: string
+  issues?: Record<string, unknown>[]
+  findings?: Record<string, unknown>[]
+  summary: string
+}
+
 export type SwitchboardExecution = {
   attempts: SwitchboardExecutionAttempt[]
+  assessments?: SwitchboardAgentAssessment[]
   worktreePath: string | null
   worktreeBranch?: string | null
   worktreeState?: string | null
@@ -492,6 +546,36 @@ export const SWITCHBOARD_STATUS_LABELS: Record<SwitchboardFolderStatus, string> 
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+const ASSESSMENT_SCORE_KEYS = new Set([
+  'correctnessPct',
+  'evidenceQualityPct',
+  'instructionFollowingPct',
+  'contextFitPct',
+  'autonomyPct',
+  'roleFitPct',
+  'codeQualityPct',
+  'maintainabilityPct',
+  'testQualityPct',
+  'securityQualityPct',
+  'performanceQualityPct',
+  'frontendFunctionalityPct',
+  'frontendAestheticQualityPct',
+  'accessibilityPct',
+  'uxCompetitivenessPct',
+  'confidencePct',
+])
+const ASSESSMENT_COUNT_KEYS = new Set([
+  'claimsChecked',
+  'hallucinatedClaims',
+  'factualErrors',
+  'implementationMistakes',
+  'missedRequirements',
+  'regressionCount',
+  'testFailuresIntroduced',
+  'unsafeChanges',
+  'accessibilityIssues',
+  'designIssues',
+])
 
 export function isSwitchboardTaskStatus(value: unknown): value is SwitchboardTaskStatus {
   return typeof value === 'string' && (SWITCHBOARD_TASK_STATUSES as readonly string[]).includes(value)
@@ -537,6 +621,58 @@ export function getSwitchboardMoveTarget(
   return legalTransitions[from]?.includes(to) ? to : null
 }
 
+function validateAssessmentNumberMap(
+  value: unknown,
+  allowedKeys: Set<string>,
+  label: string,
+  errors: string[],
+  validateValue: (numberValue: number) => boolean
+): void {
+  if (value === undefined) return
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${label} must be an object.`)
+    return
+  }
+  for (const [key, numberValue] of Object.entries(value)) {
+    if (!allowedKeys.has(key)) errors.push(`${label}.${key} is not a valid field.`)
+    if (typeof numberValue !== 'number' || !Number.isInteger(numberValue) || !validateValue(numberValue)) {
+      errors.push(`${label}.${key} must be a valid integer.`)
+    }
+  }
+}
+
+function validateAgentAssessmentShape(value: unknown, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push('execution.assessments must contain objects.')
+    return
+  }
+  const assessment = value as Partial<SwitchboardAgentAssessment>
+  if (assessment.schemaVersion !== 1) errors.push('execution.assessments.schemaVersion must be 1.')
+  if (typeof assessment.id !== 'string' || !assessment.id) errors.push('execution.assessments.id is required.')
+  if (typeof assessment.targetExecutionId !== 'string' || !assessment.targetExecutionId) {
+    errors.push('execution.assessments.targetExecutionId is required.')
+  }
+  if (typeof assessment.targetAgentId !== 'string' || !assessment.targetAgentId) {
+    errors.push('execution.assessments.targetAgentId is required.')
+  }
+  if (assessment.reviewerExecutionId !== undefined && assessment.reviewerExecutionId !== null && typeof assessment.reviewerExecutionId !== 'string') {
+    errors.push('execution.assessments.reviewerExecutionId must be a string or null.')
+  }
+  if (typeof assessment.reviewerAgentId !== 'string' || !assessment.reviewerAgentId) {
+    errors.push('execution.assessments.reviewerAgentId is required.')
+  }
+  if (assessment.reviewerRole !== undefined && assessment.reviewerRole !== null && typeof assessment.reviewerRole !== 'string') {
+    errors.push('execution.assessments.reviewerRole must be a string or null.')
+  }
+  if (typeof assessment.capturedAt !== 'string' || !assessment.capturedAt) errors.push('execution.assessments.capturedAt is required.')
+  if (assessment.source !== 'reviewer_assessment') errors.push('execution.assessments.source must be reviewer_assessment.')
+  if (typeof assessment.summary !== 'string' || !assessment.summary.trim()) errors.push('execution.assessments.summary is required.')
+  validateAssessmentNumberMap(assessment.scores, ASSESSMENT_SCORE_KEYS, 'execution.assessments.scores', errors, (score) => score >= 0 && score <= 100)
+  validateAssessmentNumberMap(assessment.counts, ASSESSMENT_COUNT_KEYS, 'execution.assessments.counts', errors, (count) => count >= 0)
+  if (assessment.issues !== undefined && !Array.isArray(assessment.issues)) errors.push('execution.assessments.issues must be an array.')
+  if (assessment.findings !== undefined && !Array.isArray(assessment.findings)) errors.push('execution.assessments.findings must be an array.')
+}
+
 export function validateSwitchboardTaskShape(task: unknown): string[] {
   const errors: string[] = []
   if (!task || typeof task !== 'object' || Array.isArray(task)) return ['Task file must contain a JSON object.']
@@ -569,6 +705,13 @@ export function validateSwitchboardTaskShape(task: unknown): string[] {
     errors.push('execution must be an object.')
   } else {
     if (!Array.isArray(record.execution.attempts)) errors.push('execution.attempts must be an array.')
+    if (record.execution.assessments !== undefined && !Array.isArray(record.execution.assessments)) {
+      errors.push('execution.assessments must be an array.')
+    } else if (Array.isArray(record.execution.assessments)) {
+      for (const assessment of record.execution.assessments) {
+        validateAgentAssessmentShape(assessment, errors)
+      }
+    }
     if (record.execution.worktreePath !== null && typeof record.execution.worktreePath !== 'string') {
       errors.push('execution.worktreePath must be a string or null.')
     }

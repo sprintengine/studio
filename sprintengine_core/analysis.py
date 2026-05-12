@@ -28,14 +28,23 @@ def summarize_feedback_records(
     """Summarize agent self-report feedback without emitting raw private content."""
 
     score_values: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+    count_totals: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    source_counts: dict[str, int] = {}
     friction: dict[str, dict[str, Any]] = {}
     issue_counts = _empty_issue_counts()
     finding_counts = _empty_finding_counts()
 
     for record in records:
+        source = str(record.get("source") or "unknown")
+        source_counts[source] = source_counts.get(source, 0) + 1
         role = str(record.get("role") or "unknown")
         for score_key, score in normalized_scores(record).items():
             score_values[role][score_key].append(score)
+        raw_counts = record.get("counts")
+        if isinstance(raw_counts, dict):
+            for key, value in raw_counts.items():
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    count_totals[role][str(key)] += value
 
         category = friction_category(record.get("top_friction"))
         if category != "unspecified":
@@ -51,16 +60,18 @@ def summarize_feedback_records(
     _finalize_affected_roles(finding_counts, "affectedRolesByKind")
     summary = {
         "schemaVersion": FEEDBACK_ANALYSIS_SCHEMA_VERSION,
-        "source": "agent_self_report",
+        "source": "agent_feedback",
+        "sourceCounts": dict(sorted(source_counts.items())),
         "privacy": PRIVATE_CONTENT_NOTICE,
         "feedbackRecordCount": len(records),
         "aggregateScoresByRole": aggregate_scores,
+        "aggregateCountsByRole": _aggregate_counts_by_role(count_totals),
         "lowScoreDimensions": _low_score_dimensions(aggregate_scores),
         "groupedFriction": _finalize_grouped_friction(friction),
         "issueCounts": issue_counts,
         "findingCounts": finding_counts,
         "objectiveEvidence": _objective_evidence(state or {}),
-        "note": "Feedback is subjective agent self-report and should be interpreted alongside objective task, artifact, and test evidence.",
+        "note": "Feedback includes subjective self-reports and reviewer assessments; interpret it alongside objective task, artifact, and test evidence.",
     }
     return summary
 
@@ -183,6 +194,19 @@ def _aggregate_scores_by_role(score_values: dict[str, dict[str, list[int]]]) -> 
     return output
 
 
+def _aggregate_counts_by_role(count_totals: dict[str, dict[str, int]]) -> dict[str, Any]:
+    output: dict[str, Any] = {}
+    for role, counts in sorted(count_totals.items()):
+        role_counts = {key: value for key, value in sorted(counts.items()) if value > 0}
+        claims_checked = int(role_counts.get("claims_checked") or 0)
+        hallucinated_claims = int(role_counts.get("hallucinated_claims") or 0)
+        if claims_checked > 0:
+            role_counts["hallucination_rate_pct"] = round((hallucinated_claims / claims_checked) * 100, 1)
+        if role_counts:
+            output[role] = role_counts
+    return output
+
+
 def _low_score_dimensions(aggregate_scores: dict[str, Any]) -> list[dict[str, Any]]:
     low_scores: list[dict[str, Any]] = []
     for role, scores in aggregate_scores.items():
@@ -252,6 +276,18 @@ def _dimension_category(dimension: str) -> str:
         return "validation"
     if dimension == "prompt_optimization_pct":
         return "prompting"
+    if dimension in {"correctness_pct", "code_quality_pct", "maintainability_pct"}:
+        return "code_bug"
+    if dimension in {"evidence_quality_pct", "test_quality_pct"}:
+        return "test_gap"
+    if dimension == "instruction_following_pct":
+        return "task_card"
+    if dimension == "security_quality_pct":
+        return "security_issue"
+    if dimension == "performance_quality_pct":
+        return "performance_issue"
+    if dimension in {"frontend_functionality_pct", "frontend_aesthetic_quality_pct", "accessibility_pct", "ux_competitiveness_pct"}:
+        return "product_requirement_violation"
     return "coordination"
 
 

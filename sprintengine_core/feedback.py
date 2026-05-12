@@ -23,6 +23,18 @@ SCORE_LABELS = {
     "role_fit_pct": "Role fit",
     "autonomy_pct": "Autonomy",
     "confidence_pct": "Confidence",
+    "correctness_pct": "Correctness",
+    "evidence_quality_pct": "Evidence quality",
+    "instruction_following_pct": "Instruction following",
+    "code_quality_pct": "Code quality",
+    "maintainability_pct": "Maintainability",
+    "test_quality_pct": "Test quality",
+    "security_quality_pct": "Security quality",
+    "performance_quality_pct": "Performance quality",
+    "frontend_functionality_pct": "Frontend functionality",
+    "frontend_aesthetic_quality_pct": "Frontend aesthetic quality",
+    "accessibility_pct": "Accessibility",
+    "ux_competitiveness_pct": "UX competitiveness",
 }
 
 PRIVATE_CONTENT_NOTICE = "sanitized_aggregates_only"

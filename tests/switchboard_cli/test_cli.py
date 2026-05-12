@@ -755,6 +755,112 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("Cannot request changes from todo", stderr_json(rejected)["message"])
 
+    def test_assess_agent_records_structured_metrics_and_jsonl(self) -> None:
+        task_id = self.create_task(title="Assess agent task")["id"]
+        path = self.task_file("todo", task_id)
+        task = json.loads(path.read_text(encoding="utf-8"))
+        task["execution"]["attempts"].append(
+            {
+                "id": "exec_reviewed",
+                "agentId": "switchboard-developer",
+                "startedAt": "2026-05-09T12:00:00Z",
+                "completedAt": "2026-05-09T12:05:00Z",
+                "summary": "Implemented the requested change.",
+            }
+        )
+        path.write_text(json.dumps(task, indent=2) + "\n", encoding="utf-8")
+
+        payload = stdout_json(
+            self.run_cli(
+                [
+                    "assess-agent",
+                    *self.workspace_args(),
+                    task_id,
+                    "--target-execution",
+                    "exec_reviewed",
+                    "--reviewer-agent",
+                    "switchboard-code_reviewer",
+                    "--reviewer-role",
+                    "code_reviewer",
+                    "--summary",
+                    "Review passed with focused evidence.",
+                    "--correctness-pct",
+                    "95",
+                    "--evidence-quality-pct",
+                    "88",
+                    "--claims-checked",
+                    "10",
+                    "--hallucinated-claims",
+                    "1",
+                ]
+            )
+        )
+
+        assessment = payload["assessment"]
+        self.assertEqual(assessment["targetExecutionId"], "exec_reviewed")
+        self.assertEqual(assessment["targetAgentId"], "switchboard-developer")
+        self.assertEqual(assessment["reviewerAgentId"], "switchboard-code_reviewer")
+        self.assertEqual(assessment["scores"]["correctnessPct"], 95)
+        self.assertEqual(assessment["scores"]["evidenceQualityPct"], 88)
+        self.assertEqual(assessment["counts"]["claimsChecked"], 10)
+        self.assertEqual(assessment["counts"]["hallucinatedClaims"], 1)
+        self.assertEqual(payload["metricsPath"], "metrics/agent-feedback.jsonl")
+
+        stored = stdout_json(self.run_cli(["show", *self.workspace_args(), task_id]))["record"]["task"]
+        self.assertEqual(stored["execution"]["assessments"][0]["id"], assessment["id"])
+
+        metrics_path = self.workspace / ".multi-code" / "switchboard" / "metrics" / "agent-feedback.jsonl"
+        records = [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        self.assertEqual(records[0]["scores"]["correctness_pct"], 95)
+        self.assertEqual(records[0]["counts"]["claims_checked"], 10)
+        self.assertNotIn("hallucination_pct", records[0])
+
+    def test_assess_agent_rejects_invalid_percent_and_missing_target_execution(self) -> None:
+        task_id = self.create_task(title="Reject assess agent task")["id"]
+        path = self.task_file("todo", task_id)
+        task = json.loads(path.read_text(encoding="utf-8"))
+        task["execution"]["attempts"].append(
+            {
+                "id": "exec_reviewed",
+                "agentId": "switchboard-developer",
+                "startedAt": "2026-05-09T12:00:00Z",
+                "summary": "Started implementation.",
+            }
+        )
+        path.write_text(json.dumps(task, indent=2) + "\n", encoding="utf-8")
+
+        invalid_percent = self.run_cli(
+            [
+                "assess-agent",
+                *self.workspace_args(),
+                task_id,
+                "--target-execution",
+                "exec_reviewed",
+                "--summary",
+                "Invalid score.",
+                "--correctness-pct",
+                "101",
+            ],
+            check=False,
+        )
+        self.assertNotEqual(invalid_percent.returncode, 0)
+        self.assertIn("--correctness-pct must be an integer from 0 to 100", stderr_json(invalid_percent)["message"])
+
+        missing_execution = self.run_cli(
+            [
+                "assess-agent",
+                *self.workspace_args(),
+                task_id,
+                "--target-execution",
+                "exec_missing",
+                "--summary",
+                "No matching execution.",
+            ],
+            check=False,
+        )
+        self.assertNotEqual(missing_execution.returncode, 0)
+        self.assertIn("Target execution was not found", stderr_json(missing_execution)["message"])
+
     def test_publish_rejects_missing_implementation_evidence(self) -> None:
         self.init_git_repo()
         task_id = self.create_task(title="Publish validation task")["id"]
@@ -1129,6 +1235,9 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIn("souls get tester", prompt)
         self.assertIn("full comment history", prompt)
         self.assertIn("Do not make implementation fixes", prompt)
+        self.assertIn("scripts/switchboard assess-agent", prompt)
+        self.assertIn("--claims-checked", prompt)
+        self.assertIn("--hallucinated-claims", prompt)
         self.assertIn("scripts/switchboard request-changes", prompt)
         self.assertIn("--to review", prompt)
 
@@ -1152,6 +1261,9 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIn("souls get code_reviewer", prompt)
         self.assertIn("full comment history", prompt)
         self.assertIn("Do not make implementation fixes", prompt)
+        self.assertIn("scripts/switchboard assess-agent", prompt)
+        self.assertIn("--claims-checked", prompt)
+        self.assertIn("--hallucinated-claims", prompt)
         self.assertIn("scripts/switchboard request-changes", prompt)
         self.assertIn("--to done", prompt)
 
