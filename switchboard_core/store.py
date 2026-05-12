@@ -598,6 +598,60 @@ def runner_tick_unlocked(workspace: Path) -> dict[str, Any]:
     return runner_public_payload(state)
 
 
+def runner_runtime_tick(
+    workspace: Path,
+    *,
+    app_instance_id: str,
+    workspace_id: str | None = None,
+    live_execution_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    from .watchtower_runner import prepare_pending_watchtower_executions_unlocked
+
+    live_ids = {value for value in (live_execution_ids or []) if isinstance(value, str)}
+    descriptors: list[dict[str, Any]] = []
+    with locked_runner(workspace):
+        state = reconcile_runner_state(
+            workspace,
+            read_runner_state(workspace),
+            app_instance_id=app_instance_id,
+            live_execution_ids=live_ids,
+        )
+        if not state["enabled"] or state["paused"]:
+            append_runner_event(workspace, "tick", data={"skipped": "paused" if state["paused"] else "disabled"})
+            return {"ok": True, "descriptors": descriptors, "runner": runner_public_payload(write_runner_state(workspace, state))}
+
+        state, watchtower_descriptors = prepare_pending_watchtower_executions_unlocked(
+            workspace,
+            state,
+            app_instance_id=app_instance_id,
+            workspace_id=workspace_id,
+        )
+        descriptors.extend(watchtower_descriptors)
+
+        while active_execution_count(state) < state["maxConcurrency"]:
+            prepared = prepare_electron_session_execution(
+                workspace,
+                state,
+                app_instance_id=app_instance_id,
+                workspace_id=workspace_id,
+                reconcile=False,
+            )
+            state = read_runner_state(workspace)
+            if not prepared.get("ok") or not prepared.get("prepared"):
+                break
+            descriptor = prepared.get("descriptor")
+            if isinstance(descriptor, dict):
+                descriptors.append(descriptor)
+
+        state = write_runner_state(workspace, state)
+        append_runner_event(
+            workspace,
+            "tick",
+            data={"activeExecutions": active_execution_count(state), "descriptors": len(descriptors)},
+        )
+        return {"ok": True, "descriptors": descriptors, "runner": runner_public_payload(state)}
+
+
 def execution_root(workspace: Path) -> Path:
     return switchboard_root(workspace) / "executions"
 
@@ -848,13 +902,24 @@ def reconcile_execution_worktree(workspace: Path, execution: dict[str, Any]) -> 
     return {**execution, "worktreePath": str(path), "worktreeState": next_state}
 
 
-def reconcile_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
+def reconcile_runner_state(
+    workspace: Path,
+    state: dict[str, Any],
+    *,
+    app_instance_id: str | None = None,
+    live_execution_ids: set[str] | None = None,
+) -> dict[str, Any]:
     tasks = {located.task["id"]: located for located in read_all(workspace)[0]}
     reconciled: list[dict[str, Any]] = []
     for execution in state.get("activeExecutions", []):
         kind = execution.get("kind", "switchboard_task")
         if kind in {"watchtower_review", "watchtower_triage"}:
-            reconciled_execution = reconcile_watchtower_execution(workspace, execution)
+            reconciled_execution = reconcile_watchtower_execution(
+                workspace,
+                execution,
+                app_instance_id=app_instance_id,
+                live_execution_ids=live_execution_ids,
+            )
             if reconciled_execution.get("status") in {"active", "stopped"}:
                 reconciled.append(reconciled_execution)
             continue
@@ -876,8 +941,35 @@ def reconcile_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, 
             continue
         provider_ref = execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}
         if execution.get("provider") == "electron-session" and execution.get("status") in {"launching", "active"}:
-            active = {**execution, "lastSeenAt": now_iso()}
-            update_execution_metadata(workspace, active, {"lastSeenAt": active["lastSeenAt"]})
+            execution_id = execution.get("executionId")
+            if (
+                app_instance_id
+                and live_execution_ids is not None
+                and isinstance(execution_id, str)
+                and execution_id not in live_execution_ids
+            ):
+                completed_at = now_iso()
+                if execution.get("status") == "launching":
+                    missing = {**execution, "status": "missing", "completedAt": completed_at}
+                    update_execution_metadata(workspace, missing, {"status": "missing", "completedAt": completed_at})
+                    mark_task_attempt_completed(workspace, missing, completed_at, None, summary="Terminal launch was not observed by Electron.")
+                    clear_task_active_execution_if_matches(workspace, missing)
+                    try:
+                        requeue_task(workspace, str(task_id), reason="Terminal launch was not observed by Electron.")
+                    except SwitchboardError:
+                        pass
+                    append_runner_event(workspace, "execution_missing", data={"executionId": execution_id, "taskId": task_id})
+                    continue
+                abandoned = {**execution, "status": "abandoned", "completedAt": completed_at, "exitCode": None}
+                update_execution_metadata(workspace, abandoned, {"status": "abandoned", "completedAt": completed_at, "exitCode": None})
+                mark_task_attempt_completed(workspace, abandoned, completed_at, None, summary="Electron no longer owns a live terminal for this execution.")
+                clear_task_active_execution_if_matches(workspace, abandoned)
+                reconciled.append(abandoned)
+                append_runner_event(workspace, "task_abandoned", data={"executionId": execution_id, "taskId": task_id})
+                continue
+
+            active = {**execution, "status": "active", "lastSeenAt": now_iso()}
+            update_execution_metadata(workspace, active, {"status": "active", "lastSeenAt": active["lastSeenAt"]})
             reconciled.append(active)
             continue
         exit_code = read_recorded_exit_code(workspace, execution)
@@ -909,13 +1001,44 @@ def reconcile_runner_state(workspace: Path, state: dict[str, Any]) -> dict[str, 
     return write_runner_state(workspace, state)
 
 
-def reconcile_watchtower_execution(workspace: Path, execution: dict[str, Any]) -> dict[str, Any]:
+def reconcile_watchtower_execution(
+    workspace: Path,
+    execution: dict[str, Any],
+    *,
+    app_instance_id: str | None = None,
+    live_execution_ids: set[str] | None = None,
+) -> dict[str, Any]:
     from .watchtower import update_watchtower_agent
 
     provider_ref = execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}
     if execution.get("provider") == "electron-session" and execution.get("status") in {"launching", "active"}:
-        active = {**execution, "lastSeenAt": now_iso()}
-        update_execution_metadata(workspace, active, {"lastSeenAt": active["lastSeenAt"]})
+        execution_id = execution.get("executionId")
+        if (
+            app_instance_id
+            and live_execution_ids is not None
+            and isinstance(execution_id, str)
+            and execution_id not in live_execution_ids
+        ):
+            completed_at = now_iso()
+            status = "missing" if execution.get("status") == "launching" else "abandoned"
+            error = "Terminal launch was not observed by Electron." if status == "missing" else "Electron no longer owns a live terminal for this execution."
+            completed = {**execution, "status": status, "completedAt": completed_at, "exitCode": None, "error": error}
+            update_execution_metadata(workspace, completed, {"status": status, "completedAt": completed_at, "exitCode": None, "error": error})
+            run_id = execution.get("watchtowerRunId")
+            agent_id = execution.get("watchtowerAgentId")
+            if isinstance(run_id, str) and isinstance(agent_id, str):
+                update_watchtower_agent(
+                    workspace,
+                    run_id,
+                    agent_id,
+                    status="pending" if status == "missing" else "failed",
+                    execution_id=None if status == "missing" else execution_id,
+                    error_message=None if status == "missing" else error,
+                )
+            append_runner_event(workspace, "execution_missing" if status == "missing" else "task_abandoned", data={"executionId": execution_id, "kind": execution.get("kind")})
+            return completed
+        active = {**execution, "status": "active", "lastSeenAt": now_iso()}
+        update_execution_metadata(workspace, active, {"status": "active", "lastSeenAt": active["lastSeenAt"]})
         return active
     exit_code = read_recorded_exit_code(workspace, execution)
     if exit_code is None:
@@ -953,8 +1076,16 @@ def reconcile_watchtower_execution(workspace: Path, execution: dict[str, Any]) -
     return completed
 
 
-def prepare_electron_session_execution(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
-    state = reconcile_runner_state(workspace, state)
+def prepare_electron_session_execution(
+    workspace: Path,
+    state: dict[str, Any],
+    *,
+    app_instance_id: str | None = None,
+    workspace_id: str | None = None,
+    reconcile: bool = True,
+) -> dict[str, Any]:
+    if reconcile:
+        state = reconcile_runner_state(workspace, state)
     if not state["enabled"] or state["paused"]:
         return {"ok": True, "prepared": False, "message": "Runner is paused or disabled.", "runner": runner_public_payload(state)}
     if active_execution_count(state) >= state["maxConcurrency"]:
@@ -1001,7 +1132,7 @@ def prepare_electron_session_execution(workspace: Path, state: dict[str, Any]) -
             prompt_path.write_text(prompt + "\n", encoding="utf-8")
             provider_ref = {
                 "cwd": str(run_workspace),
-                "sessionId": None,
+                "sessionId": execution_id,
                 "attachable": True,
                 **(worktree or {}),
             }
@@ -1013,6 +1144,10 @@ def prepare_electron_session_execution(workspace: Path, state: dict[str, Any]) -
                 "providerRef": provider_ref,
                 "startedAt": started_at,
                 "lastSeenAt": started_at,
+                "launchStartedAt": started_at,
+                "ownerAppInstanceId": app_instance_id,
+                "workspaceId": workspace_id,
+                "sessionId": execution_id,
                 "status": "launching",
                 "taskId": located.task["id"],
                 "claimedFrom": queue,

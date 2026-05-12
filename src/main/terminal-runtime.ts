@@ -36,6 +36,7 @@ type TerminalRuntimeOptions = {
   logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void
   onAgentSessionExit?(input: {
     workspaceRoot: string
+    workspaceId?: string
     executionId: string
     exitCode: number
   }): void | Promise<void>
@@ -54,7 +55,8 @@ type TerminalIpcHandlers = {
 type TerminalRuntime = {
   commandService: MobileSprintEngineCommandService
   ipcHandlers: TerminalIpcHandlers
-  shutdown(): void
+  shutdown(): Promise<void>
+  getLiveAgentExecutionIds(): string[]
   killAgentSession(input: {
     workspaceRoot: string
     executionId: string
@@ -83,6 +85,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   return {
     commandService: createMobileCommandService(),
     shutdown: disposeAllTerminals,
+    getLiveAgentExecutionIds,
     killAgentSession: killAgentSessionByExecutionId,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
     ipcHandlers: {
@@ -97,7 +100,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       },
       listTerminals() {
         return [...terminals.values()]
-          .filter((session) => !session.hasExited && !session.isDisposed)
+          .filter((session) => !session.isDisposed)
           .map(getTerminalSnapshot)
       },
       setTerminalVisible: setTerminalVisible,
@@ -109,6 +112,12 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
 const terminals = new Map<string, TerminalSession>()
+const pendingAgentSessionExitRecords = new Set<Promise<void>>()
+
+function descriptorPromptInput(prompt: string | undefined): string | undefined {
+  if (!prompt) return undefined
+  return process.platform === 'win32' ? `${prompt}\r\n\x1a\r\n` : `${prompt}\n\x04`
+}
 function sendTerminalEvent(
   sender: Electron.WebContents,
   channel: string,
@@ -129,7 +138,7 @@ const terminalOutput = createTerminalOutputBuffer({
 
 function broadcastTerminalSessionsChanged(): void {
   const snapshots = [...terminals.values()]
-    .filter((session) => !session.hasExited && !session.isDisposed)
+    .filter((session) => !session.isDisposed)
     .map(getTerminalSnapshot)
 
   for (const win of BrowserWindow.getAllWindows()) {
@@ -191,10 +200,65 @@ function disposeTerminal(sessionId: string): void {
   }
 }
 
-function disposeAllTerminals(): void {
-  for (const sessionId of [...terminals.keys()]) {
-    disposeTerminal(sessionId)
+async function waitForTerminalExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {
+  if (session.hasExited || session.isDisposed) return true
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      disposable.dispose()
+      resolve(false)
+    }, timeoutMs)
+    const disposable = session.process.onExit(() => {
+      clearTimeout(timer)
+      resolve(true)
+    })
+  })
+}
+
+async function disposeAllTerminals(): Promise<void> {
+  const sessions = [...terminals.values()].filter((session) => !session.isDisposed)
+  for (const session of sessions) {
+    cleanupTerminalStartupScript(session.startupScriptPath)
+    terminalOutput.flush(session.sessionId, 'dispose')
+    terminalDiagnostics.clear(session.sessionId)
+    try {
+      session.process.kill()
+    } catch {
+      // ignore kill errors if process died first
+    }
   }
+
+  const settled = await Promise.all(sessions.map((session) => waitForTerminalExit(session, 1_500)))
+  sessions.forEach((session, index) => {
+    if (!settled[index] && !session.hasExited && !session.isDisposed) {
+      try {
+        session.process.kill('SIGKILL')
+      } catch {
+        // node-pty kill is best-effort during app shutdown.
+      }
+    }
+  })
+  await Promise.all(sessions.map((session) => waitForTerminalExit(session, 500)))
+  await Promise.allSettled([...pendingAgentSessionExitRecords])
+
+  for (const session of sessions) {
+    if (terminals.get(session.sessionId) === session) {
+      session.isDisposed = true
+      session.hasExited = true
+      terminals.delete(session.sessionId)
+    }
+  }
+  broadcastTerminalSessionsChanged()
+}
+
+function getLiveAgentExecutionIds(): string[] {
+  return [...terminals.values()]
+    .filter((session) => (
+      !session.hasExited
+      && !session.isDisposed
+      && (session.agentSession?.system === 'switchboard' || session.agentSession?.system === 'watchtower')
+    ))
+    .map((session) => session.agentSession?.executionId)
+    .filter((executionId): executionId is string => Boolean(executionId))
 }
 
 function killAgentSessionByExecutionId(input: { workspaceRoot: string; executionId: string }): void {
@@ -276,15 +340,20 @@ function attachTerminalSession(
     terminalOutput.flush(sessionId, 'exit')
     terminalDiagnostics.clear(sessionId)
     terminalSession.hasExited = true
+    terminalSession.exitCode = event.exitCode
     if (terminalSession.agentSession?.system === 'switchboard' || terminalSession.agentSession?.system === 'watchtower') {
-      void onAgentSessionExit?.({
+      const exitRecord = Promise.resolve(onAgentSessionExit?.({
         workspaceRoot: terminalSession.agentSession.workspaceRoot,
+        workspaceId: terminalSession.agentSession.workspaceId,
         executionId: terminalSession.agentSession.executionId,
         exitCode: event.exitCode,
+      })).catch(() => {})
+      pendingAgentSessionExitRecords.add(exitRecord)
+      void exitRecord.finally(() => {
+        pendingAgentSessionExitRecords.delete(exitRecord)
       })
     }
     if (terminals.get(sessionId) === terminalSession) {
-      terminals.delete(sessionId)
       broadcastTerminalSessionsChanged()
     }
     if (!terminalSession.isDisposed) {
@@ -312,29 +381,74 @@ async function spawnAgentSessionFromDescriptor(input: {
     }
   }
 
-  return spawnTerminalFromIpc(sender, {
-    sessionId: input.descriptor.executionId,
-    cols: 120,
-    rows: 30,
-    cwd: input.descriptor.cwd,
-    resume: false,
-    cli: input.descriptor.cli ?? 'codex',
-    initialPrompt: input.descriptor.prompt,
-    shellOnly: false,
-    kind: 'agent',
-    workspaceId: input.workspaceId,
-    agentId: input.descriptor.executionId,
-    visible: false,
-    agentSession: {
-      executionId: input.descriptor.executionId,
-      system: input.descriptor.system,
-      workspaceId: input.workspaceId ?? '',
-      workspaceRoot: input.workspaceRoot,
-      workId: input.descriptor.workId,
-      role: input.descriptor.role,
-      displayName: input.descriptor.displayName,
-    },
-  })
+  const [command, ...args] = input.descriptor.command
+  if (!command) {
+    return {
+      ok: false,
+      sessionId: input.descriptor.executionId,
+      message: 'Agent descriptor did not include a command.',
+      exitCode: 1,
+    }
+  }
+
+  disposeTerminal(input.descriptor.executionId)
+
+  try {
+    const initialSize = getTerminalSize(120, 30)
+    const termProcess = pty.spawn(command, args, {
+      name: 'xterm-256color',
+      cols: initialSize.cols,
+      rows: initialSize.rows,
+      cwd: input.descriptor.cwd,
+      env: {
+        ...getTerminalEnv(),
+        ...(input.descriptor.env ?? {}),
+      },
+    })
+    const terminalSession: TerminalSession = {
+      sessionId: input.descriptor.executionId,
+      process: termProcess,
+      sender,
+      isReady: process.platform !== 'win32',
+      hasExited: false,
+      isDisposed: false,
+      outputChunks: [],
+      outputChunkBytes: [],
+      outputChunkStart: 0,
+      outputBytes: 0,
+      outputLength: 0,
+      kind: 'agent',
+      pathStyle: process.platform === 'win32' ? 'windows' : 'posix',
+      workspaceId: input.workspaceId,
+      agentId: input.descriptor.executionId,
+      cli: input.descriptor.cli,
+      cwd: input.descriptor.cwd,
+      agentSession: {
+        sessionId: input.descriptor.executionId,
+        executionId: input.descriptor.executionId,
+        system: input.descriptor.system,
+        workspaceId: input.workspaceId ?? '',
+        workspaceRoot: input.workspaceRoot,
+        workId: input.descriptor.workId,
+        role: input.descriptor.role,
+        displayName: input.descriptor.displayName,
+      },
+      visible: false,
+      startedAt: Date.now(),
+      lastOutputAt: null,
+      lastInputAt: null,
+    }
+
+    attachTerminalSession(input.descriptor.executionId, terminalSession, descriptorPromptInput(input.descriptor.prompt))
+    return { ok: true, sessionId: input.descriptor.executionId }
+  } catch (error) {
+    return {
+      ok: false,
+      sessionId: input.descriptor.executionId,
+      message: getTerminalErrorMessage(error),
+      exitCode: 1,
+    }
+  }
 }
 
 function createMobileCommandService(): MobileSprintEngineCommandService {
@@ -460,7 +574,7 @@ async function spawnTerminalFromIpc(
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
-    if (existingSession && !existingSession.hasExited && !existingSession.isDisposed) {
+    if (existingSession && !existingSession.isDisposed) {
       existingSession.sender = sender
       existingSession.workspaceId = workspaceId ?? existingSession.workspaceId
       existingSession.agentId = agentId ?? existingSession.agentId
@@ -471,10 +585,15 @@ async function spawnTerminalFromIpc(
       existingSession.worktreePath = worktreePath ?? existingSession.worktreePath
       existingSession.agentSession = materializeAgentSessionIdentity(sessionId, workspaceId, agentSession) ?? existingSession.agentSession
       existingSession.visible = visible
-      safeResizeTerminal(sessionId, cols, rows)
+      if (!existingSession.hasExited) {
+        safeResizeTerminal(sessionId, cols, rows)
+      }
       const replay = materializeTerminalReplay(existingSession)
       if (replay) {
         sendTerminalEvent(sender, `terminal:data:${sessionId}`, replay)
+      }
+      if (existingSession.hasExited) {
+        sendTerminalEvent(sender, `terminal:exit:${sessionId}`, existingSession.exitCode ?? 0)
       }
       broadcastTerminalSessionsChanged()
       return { ok: true, sessionId } satisfies TerminalSpawnResult

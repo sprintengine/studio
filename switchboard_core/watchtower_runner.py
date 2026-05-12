@@ -62,7 +62,13 @@ def watchtower_agent_record(agent_id: str, specialist_id: str, *, task_ids: list
     return record
 
 
-def start_watchtower_review(workspace: Path, *, preset: str) -> dict[str, Any]:
+def start_watchtower_review(
+    workspace: Path,
+    *,
+    preset: str,
+    app_instance_id: str | None = None,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
     with locked_runner(workspace):
         state = read_runner_state(workspace)
         ensure_runner_can_launch_watchtower(workspace, state)
@@ -74,11 +80,23 @@ def start_watchtower_review(workspace: Path, *, preset: str) -> dict[str, Any]:
         if not agents:
             raise SwitchboardError("Watchtower preset has no review agents.")
         run = create_watchtower_run_with_status(workspace, preset=preset, agents=agents, status="running")
-        state, descriptors = prepare_pending_watchtower_executions_unlocked(workspace, state)
+        state, descriptors = prepare_pending_watchtower_executions_unlocked(
+            workspace,
+            state,
+            app_instance_id=app_instance_id,
+            workspace_id=workspace_id,
+        )
         return {"ok": True, "run": run_for_response(workspace, run["runId"]), "runner": state, "descriptors": descriptors}
 
 
-def start_watchtower_triage(workspace: Path, *, scope: str = "all", task_id: str | None = None) -> dict[str, Any]:
+def start_watchtower_triage(
+    workspace: Path,
+    *,
+    scope: str = "all",
+    task_id: str | None = None,
+    app_instance_id: str | None = None,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
     with locked_runner(workspace):
         state = read_runner_state(workspace)
         ensure_runner_can_launch_watchtower(workspace, state)
@@ -106,7 +124,13 @@ def start_watchtower_triage(workspace: Path, *, scope: str = "all", task_id: str
             agents=[watchtower_agent_record(agent_id, "architect", task_ids=[record["task"]["id"] for record in scoped])],
             status="running",
         )
-        state, descriptors = prepare_pending_watchtower_executions_unlocked(workspace, state, triage_records=scoped)
+        state, descriptors = prepare_pending_watchtower_executions_unlocked(
+            workspace,
+            state,
+            triage_records=scoped,
+            app_instance_id=app_instance_id,
+            workspace_id=workspace_id,
+        )
         return {"ok": True, "run": run_for_response(workspace, run["runId"]), "runner": state, "descriptors": descriptors}
 
 
@@ -182,6 +206,8 @@ def prepare_pending_watchtower_executions_unlocked(
     state: dict[str, Any],
     *,
     triage_records: list[dict[str, Any]] | None = None,
+    app_instance_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     descriptors: list[dict[str, Any]] = []
     capability_errors = validate_runner_capability(workspace, state)
@@ -202,7 +228,17 @@ def prepare_pending_watchtower_executions_unlocked(
         run, agent = pending
         execution_id = f"exec_{uuid.uuid4().hex}"
         try:
-            execution, descriptor = prepare_watchtower_agent(workspace, state, command, execution_id, run, agent, triage_records=triage_records)
+            execution, descriptor = prepare_watchtower_agent(
+                workspace,
+                state,
+                command,
+                execution_id,
+                run,
+                agent,
+                triage_records=triage_records,
+                app_instance_id=app_instance_id,
+                workspace_id=workspace_id,
+            )
         except Exception as exc:
             update_watchtower_agent(workspace, run["runId"], agent["agentId"], status="failed", error_message=str(exc))
             state["lastError"] = str(exc)
@@ -259,6 +295,8 @@ def prepare_watchtower_agent(
     agent: dict[str, Any],
     *,
     triage_records: list[dict[str, Any]] | None = None,
+    app_instance_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     agent_id = str(agent["agentId"])
     specialist_id = str(agent.get("specialistId") or "")
@@ -297,7 +335,7 @@ def prepare_watchtower_agent(
     run_workspace = workspace.expanduser().resolve()
     provider_ref = {
         "cwd": str(run_workspace),
-        "sessionId": None,
+        "sessionId": execution_id,
         "attachable": True,
     }
     execution = {
@@ -308,6 +346,10 @@ def prepare_watchtower_agent(
         "providerRef": provider_ref,
         "startedAt": started_at,
         "lastSeenAt": started_at,
+        "launchStartedAt": started_at,
+        "ownerAppInstanceId": app_instance_id,
+        "workspaceId": workspace_id,
+        "sessionId": execution_id,
         "status": "launching",
         "watchtowerRunId": run["runId"],
         "watchtowerAgentId": agent_id,

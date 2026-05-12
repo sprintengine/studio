@@ -415,6 +415,17 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const sessionWorkId = sessionSystem === 'sprintengine'
         ? sprintEngineRuntimeAgent?.currentTaskId ?? agentId
         : agentId
+      const agentSession = attachedSessionId
+        ? undefined
+        : {
+            executionId: sessionId,
+            system: sessionSystem,
+            workspaceId,
+            workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
+            workId: sessionWorkId,
+            role: sessionRole,
+            displayName: agent?.name ?? agentId,
+          }
 
       const spawnResult = await window.api.terminalSpawn(
         sessionId,
@@ -438,15 +449,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
           visible: true,
-          agentSession: {
-            executionId: sessionId,
-            system: sessionSystem,
-            workspaceId,
-            workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
-            workId: sessionWorkId,
-            role: sessionRole,
-            displayName: agent?.name ?? agentId,
-          },
+          ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
           executionMode: AgentExecutionMode
           worktreeId?: string

@@ -20,6 +20,7 @@ export type TerminalSession = {
   sender: WebContents
   isReady: boolean
   hasExited: boolean
+  exitCode?: number
   isDisposed: boolean
   outputChunks: string[]
   outputChunkBytes: number[]

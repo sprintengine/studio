@@ -16,6 +16,7 @@ import type {
   SwitchboardRequeueTaskInput,
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
+  SwitchboardRunnerWorkspaceInput,
   SwitchboardExecutionLogsInput,
   SwitchboardExecutionLogsResult,
   SwitchboardExecutionStatusInput,
@@ -916,6 +917,7 @@ export type ElectronApi = {
   copyPath: (sourcePath: string, destinationDir: string) => Promise<string>
   deletePath: (targetPath: string) => Promise<void>
   showItemInFolder: (targetPath: string) => Promise<void>
+  openHtmlFileInBrowser: (targetPath: string) => Promise<void>
   watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
   openDir: () => Promise<string | null>
   saveFile: (options?: SaveDialogOptions) => Promise<string | null>
@@ -977,9 +979,9 @@ export type ElectronApi = {
   requeueSwitchboardTask: (input: SwitchboardRequeueTaskInput) => Promise<SwitchboardMutationResult>
   startSwitchboardRunner: (input: SwitchboardRunnerStartInput) => Promise<SwitchboardRunnerResult>
   pauseSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
-  resumeSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
+  resumeSwitchboardRunner: (input: SwitchboardRunnerWorkspaceInput) => Promise<SwitchboardRunnerResult>
   stopSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
-  tickSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
+  tickSwitchboardRunner: (input: SwitchboardRunnerWorkspaceInput) => Promise<SwitchboardRunnerResult>
   getSwitchboardRunnerState: (workspaceRoot?: string) => Promise<SwitchboardRunnerResult>
   stopSwitchboardExecution: (input: SwitchboardStopExecutionInput) => Promise<SwitchboardStopExecutionResult>
   getSwitchboardExecutionStatus: (input: SwitchboardExecutionStatusInput) => Promise<SwitchboardExecutionStatusResult>

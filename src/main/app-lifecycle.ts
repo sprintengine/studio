@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu } from 'electron'
 import { resolve } from 'path'
 import { createAppMenu } from './app-menu'
 import { createMainWindow } from './window-factory'
-import { stopAllSwitchboardRunnerLoops } from './switchboard-python'
+import { beginSwitchboardPythonRuntimeShutdown, shutdownSwitchboardPythonRuntime } from './switchboard-python'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import type { MulticodeUpdateService } from './update-service'
 
@@ -12,7 +12,7 @@ type RegisterAppLifecycleOptions = {
     shutdown(): void
   }
   terminalRuntime: {
-    shutdown(): void
+    shutdown(): Promise<void>
   }
   updateService: MulticodeUpdateService
   handleAuthCallback(argv: string[]): void
@@ -76,11 +76,15 @@ export function registerAppLifecycle({
     if (isShuttingDown) return
     event.preventDefault()
     isShuttingDown = true
-    stopAllSwitchboardRunnerLoops()
-    terminalRuntime.shutdown()
-    mobileBridge.shutdown()
+    beginSwitchboardPythonRuntimeShutdown()
+    const shutdown = async () => {
+      await terminalRuntime.shutdown()
+      await shutdownSwitchboardPythonRuntime()
+      mobileBridge.shutdown()
+      await releaseAllWorkspaceRunnerLocks()
+    }
 
-    void releaseAllWorkspaceRunnerLocks().finally(() => {
+    void shutdown().finally(() => {
       app.exit(0)
     })
   })

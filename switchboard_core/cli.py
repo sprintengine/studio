@@ -36,6 +36,7 @@ from .store import (
     runner_start,
     runner_status,
     runner_stop,
+    runner_runtime_tick,
     runner_tick,
     execution_logs,
     execution_record_session_exit,
@@ -349,6 +350,24 @@ def cmd_runner_prepare_session(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runner_runtime_tick(args: argparse.Namespace) -> int:
+    live_execution_ids: list[str] = []
+    if args.live_execution_ids_json:
+        parsed = json.loads(args.live_execution_ids_json)
+        if not isinstance(parsed, list):
+            raise SwitchboardError("--live-execution-ids-json must contain a JSON array.")
+        live_execution_ids = [item for item in parsed if isinstance(item, str)]
+    emit(
+        runner_runtime_tick(
+            workspace_path(args),
+            app_instance_id=args.app_instance_id,
+            workspace_id=args.workspace_id,
+            live_execution_ids=live_execution_ids,
+        )
+    )
+    return 0
+
+
 def cmd_execution_status(args: argparse.Namespace) -> int:
     emit(execution_status(workspace_path(args), args.execution_id))
     return 0
@@ -407,12 +426,27 @@ def cmd_watchtower_run_agent_status(args: argparse.Namespace) -> int:
 
 
 def cmd_watchtower_start_review(args: argparse.Namespace) -> int:
-    emit(start_watchtower_review(workspace_path(args), preset=args.preset))
+    emit(
+        start_watchtower_review(
+            workspace_path(args),
+            preset=args.preset,
+            app_instance_id=args.app_instance_id,
+            workspace_id=args.workspace_id,
+        )
+    )
     return 0
 
 
 def cmd_watchtower_start_triage(args: argparse.Namespace) -> int:
-    emit(start_watchtower_triage(workspace_path(args), scope=args.scope, task_id=args.task_id))
+    emit(
+        start_watchtower_triage(
+            workspace_path(args),
+            scope=args.scope,
+            task_id=args.task_id,
+            app_instance_id=args.app_instance_id,
+            workspace_id=args.workspace_id,
+        )
+    )
     return 0
 
 
@@ -576,6 +610,13 @@ Watchtower agents should create findings directly in the inbox:
     runner_prepare_session_cmd.add_argument("--workspace", required=True)
     runner_prepare_session_cmd.set_defaults(func=cmd_runner_prepare_session)
 
+    runner_runtime_tick_cmd = runner_subcommands.add_parser("runtime-tick", help=argparse.SUPPRESS)
+    runner_runtime_tick_cmd.add_argument("--workspace", required=True)
+    runner_runtime_tick_cmd.add_argument("--app-instance-id", required=True)
+    runner_runtime_tick_cmd.add_argument("--workspace-id")
+    runner_runtime_tick_cmd.add_argument("--live-execution-ids-json", default="[]")
+    runner_runtime_tick_cmd.set_defaults(func=cmd_runner_runtime_tick)
+
     execution = subcommands.add_parser("execution", help="Inspect Switchboard executions.")
     execution_subcommands = execution.add_subparsers(dest="execution_command", required=True)
 
@@ -638,12 +679,16 @@ Watchtower agents should create findings directly in the inbox:
     watchtower_start_review = watchtower_subcommands.add_parser("start-review", help="Start a runtime-owned Watchtower review run.")
     watchtower_start_review.add_argument("--workspace", required=True)
     watchtower_start_review.add_argument("--preset", required=True)
+    watchtower_start_review.add_argument("--app-instance-id")
+    watchtower_start_review.add_argument("--workspace-id")
     watchtower_start_review.set_defaults(func=cmd_watchtower_start_review)
 
     watchtower_start_triage = watchtower_subcommands.add_parser("start-triage", help="Start a runtime-owned Watchtower inbox triage run.")
     watchtower_start_triage.add_argument("--workspace", required=True)
     watchtower_start_triage.add_argument("--scope", choices=("all", "selected"), default="all")
     watchtower_start_triage.add_argument("--task-id")
+    watchtower_start_triage.add_argument("--app-instance-id")
+    watchtower_start_triage.add_argument("--workspace-id")
     watchtower_start_triage.set_defaults(func=cmd_watchtower_start_triage)
 
     return parser

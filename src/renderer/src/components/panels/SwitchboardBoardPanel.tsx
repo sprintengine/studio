@@ -83,7 +83,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
-  const runner = useSwitchboardRunner(folderPath)
+  const runner = useSwitchboardRunner(folderPath, workspaceId)
 
   const grouped = useMemo(() => groupTasksByStatus(tasks), [tasks])
   const boardTasks = useMemo(

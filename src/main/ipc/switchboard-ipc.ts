@@ -21,6 +21,7 @@ import type {
   SwitchboardRequeueTaskInput,
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
+  SwitchboardRunnerWorkspaceInput,
   SwitchboardStopExecutionInput,
   SwitchboardStopExecutionResult,
   SwitchboardUpdateTaskInput,
@@ -45,9 +46,9 @@ type SwitchboardIpcDependencies = {
   requeueTask(input: SwitchboardRequeueTaskInput): Promise<SwitchboardMutationResult>
   startRunner(input: SwitchboardRunnerStartInput): Promise<SwitchboardRunnerResult>
   pauseRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
-  resumeRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
+  resumeRunner(input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult>
   stopRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
-  tickRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult>
+  tickRunner(input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult>
   getRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult>
   stopExecution(input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult>
   getExecutionStatus(input: SwitchboardExecutionStatusInput): Promise<SwitchboardExecutionStatusResult>
@@ -120,16 +121,16 @@ export function registerSwitchboardIpc(ipcMain: IpcMain, deps: SwitchboardIpcDep
     return deps.pauseRunner(workspaceRoot)
   })
 
-  ipcMain.handle('switchboard:runner:resume', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
-    return deps.resumeRunner(workspaceRoot)
+  ipcMain.handle('switchboard:runner:resume', async (_, input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult> => {
+    return deps.resumeRunner(input)
   })
 
   ipcMain.handle('switchboard:runner:stop', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
     return deps.stopRunner(workspaceRoot)
   })
 
-  ipcMain.handle('switchboard:runner:tick', async (_, workspaceRoot: string): Promise<SwitchboardRunnerResult> => {
-    return deps.tickRunner(workspaceRoot)
+  ipcMain.handle('switchboard:runner:tick', async (_, input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult> => {
+    return deps.tickRunner(input)
   })
 
   ipcMain.handle('switchboard:runner:state', async (_, workspaceRoot?: string): Promise<SwitchboardRunnerResult> => {

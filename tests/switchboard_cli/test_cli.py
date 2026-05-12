@@ -348,6 +348,102 @@ class SwitchboardCliTests(unittest.TestCase):
         latest = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run["runId"]]))["run"]
         self.assertEqual(latest["agents"][0]["status"], "completed")
 
+    def test_runtime_tick_drains_pending_watchtower_agents_after_exit(self) -> None:
+        command = f"{sys.executable} -c \"import sys; sys.stdin.read()\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        started = stdout_json(
+            self.run_cli(
+                [
+                    "watchtower",
+                    "start-review",
+                    *self.workspace_args(),
+                    "--preset",
+                    "lean_code_review",
+                    "--app-instance-id",
+                    "app-test",
+                    "--workspace-id",
+                    "workspace-test",
+                ],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            )
+        )
+        first_execution_id = started["descriptors"][0]["executionId"]
+        first_metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), first_execution_id]))["execution"]
+        self.assertEqual(first_metadata["ownerAppInstanceId"], "app-test")
+        self.assertEqual(first_metadata["workspaceId"], "workspace-test")
+        self.assertEqual(first_metadata["sessionId"], first_execution_id)
+        self.assertEqual(first_metadata["providerRef"]["sessionId"], first_execution_id)
+
+        self.run_cli(["execution", "record-session-exit", *self.workspace_args(), first_execution_id, "--exit-code", "0"])
+        ticked = stdout_json(
+            self.run_cli(
+                [
+                    "runner",
+                    "runtime-tick",
+                    *self.workspace_args(),
+                    "--app-instance-id",
+                    "app-test",
+                    "--workspace-id",
+                    "workspace-test",
+                    "--live-execution-ids-json",
+                    "[]",
+                ],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            )
+        )
+
+        self.assertEqual(len(ticked["descriptors"]), 1)
+        self.assertNotEqual(ticked["descriptors"][0]["executionId"], first_execution_id)
+        latest = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), started["run"]["runId"]]))["run"]
+        running_agents = [agent for agent in latest["agents"] if agent["status"] == "running"]
+        self.assertEqual(len(running_agents), 1)
+
+    def test_runtime_tick_reconciles_stale_electron_owned_launching_execution_across_app_instances(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Runtime stale launch")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        command = f"{sys.executable} -c \"import sys; sys.stdin.read()\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+        prepared = stdout_json(
+            self.run_cli(
+                [
+                    "runner",
+                    "runtime-tick",
+                    *self.workspace_args(),
+                    "--app-instance-id",
+                    "app-restarted",
+                    "--workspace-id",
+                    "workspace-test",
+                    "--live-execution-ids-json",
+                    "[]",
+                ],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            )
+        )
+        execution_id = prepared["descriptors"][0]["executionId"]
+
+        reconciled = stdout_json(
+            self.run_cli(
+                [
+                    "runner",
+                    "runtime-tick",
+                    *self.workspace_args(),
+                    "--app-instance-id",
+                    "app-test",
+                    "--workspace-id",
+                    "workspace-test",
+                    "--live-execution-ids-json",
+                    "[]",
+                ],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            )
+        )
+
+        stale_metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution_id]))["execution"]
+        self.assertEqual(stale_metadata["status"], "missing")
+        self.assertEqual(len(reconciled["descriptors"]), 1)
+        self.assertNotEqual(reconciled["descriptors"][0]["executionId"], execution_id)
+
     def test_watchtower_start_review_requires_running_runner(self) -> None:
         rejected = self.run_cli(
             ["watchtower", "start-review", *self.workspace_args(), "--preset", "lean_code_review"],

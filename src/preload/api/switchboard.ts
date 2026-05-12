@@ -22,6 +22,7 @@ import type {
   SwitchboardRequeueTaskInput,
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
+  SwitchboardRunnerWorkspaceInput,
   SwitchboardStopExecutionInput,
   SwitchboardStopExecutionResult,
   SwitchboardUpdateTaskInput,
@@ -60,12 +61,12 @@ export const switchboardApi = {
     ipcRenderer.invoke('switchboard:runner:start', input),
   pauseSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:pause', workspaceRoot),
-  resumeSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
-    ipcRenderer.invoke('switchboard:runner:resume', workspaceRoot),
+  resumeSwitchboardRunner: (input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult> =>
+    ipcRenderer.invoke('switchboard:runner:resume', input),
   stopSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:stop', workspaceRoot),
-  tickSwitchboardRunner: (workspaceRoot: string): Promise<SwitchboardRunnerResult> =>
-    ipcRenderer.invoke('switchboard:runner:tick', workspaceRoot),
+  tickSwitchboardRunner: (input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult> =>
+    ipcRenderer.invoke('switchboard:runner:tick', input),
   getSwitchboardRunnerState: (workspaceRoot?: string): Promise<SwitchboardRunnerResult> =>
     ipcRenderer.invoke('switchboard:runner:state', workspaceRoot),
   stopSwitchboardExecution: (input: SwitchboardStopExecutionInput): Promise<SwitchboardStopExecutionResult> =>

@@ -1,7 +1,7 @@
-import { spawn } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 import { existsSync } from 'fs'
 import { dirname, join, resolve } from 'path'
-import { acquireWorkspaceRunnerLock, releaseWorkspaceRunnerLock } from './workspace-runner-lock'
+import { APP_INSTANCE_ID, acquireWorkspaceRunnerLock, releaseWorkspaceRunnerLock } from './workspace-runner-lock'
 import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
@@ -42,6 +42,8 @@ type SwitchboardSessionSpawner = (input: {
   workspaceRoot: string
   descriptor: SwitchboardAgentSpawnDescriptor
 }) => Promise<{ ok: true; sessionId: string } | { ok: false; message: string }>
+
+type SwitchboardRuntimeInventoryProvider = (workspaceRoot: string) => string[]
 
 type PythonCommandResult =
   | { ok: true; payload: Record<string, unknown> }
@@ -93,7 +95,7 @@ async function runSwitchboardCore(args: string[]): Promise<PythonCommandResult> 
 
   return new Promise((resolvePromise) => {
     const existingPythonPath = process.env['PYTHONPATH']
-    let child
+    let child: ChildProcess
     try {
       child = spawn(python, ['-m', 'switchboard_core', ...args], {
         cwd: repoRoot,
@@ -103,6 +105,7 @@ async function runSwitchboardCore(args: string[]): Promise<PythonCommandResult> 
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       })
+      inFlightPythonChildren.add(child)
     } catch (error) {
       resolvePromise({
         ok: false,
@@ -116,6 +119,7 @@ async function runSwitchboardCore(args: string[]): Promise<PythonCommandResult> 
       // Should never happen for stdio: ['ignore', 'pipe', 'pipe'], but
       // surface a clear error if some Electron/Node combination yields
       // null streams instead of a TypeError on the next .setEncoding.
+      inFlightPythonChildren.delete(child)
       resolvePromise({
         ok: false,
         message: `'${python}' was spawned without pipe streams (stdout=${Boolean(child.stdout)}, stderr=${Boolean(child.stderr)}).`,
@@ -133,9 +137,11 @@ async function runSwitchboardCore(args: string[]): Promise<PythonCommandResult> 
       stderr += chunk
     })
     child.on('error', (error) => {
+      inFlightPythonChildren.delete(child)
       resolvePromise({ ok: false, message: error.message })
     })
     child.on('close', (exitCode) => {
+      inFlightPythonChildren.delete(child)
       if (exitCode === 0) {
         try {
           resolvePromise({ ok: true, payload: parseJsonPayload(stdout) })
@@ -196,6 +202,10 @@ function stopElectronRunnerLoop(workspaceRoot: string): void {
   switchboardRunnerIntervals.delete(key)
 }
 
+function clearElectronRunnerWorkspace(workspaceRoot: string): void {
+  switchboardRunnerWorkspaceIds.delete(runnerKey(workspaceRoot))
+}
+
 export function stopAllSwitchboardRunnerLoops(): void {
   for (const interval of switchboardRunnerIntervals.values()) {
     clearInterval(interval)
@@ -203,8 +213,57 @@ export function stopAllSwitchboardRunnerLoops(): void {
   switchboardRunnerIntervals.clear()
 }
 
+let switchboardRuntimeShuttingDown = false
+
+export function beginSwitchboardPythonRuntimeShutdown(): void {
+  switchboardRuntimeShuttingDown = true
+  stopAllSwitchboardRunnerLoops()
+  inFlightWorkspaceTicks.clear()
+}
+
+async function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return true
+  return new Promise((resolvePromise) => {
+    const timer = setTimeout(() => {
+      child.off('close', onClose)
+      resolvePromise(false)
+    }, timeoutMs)
+    const onClose = () => {
+      clearTimeout(timer)
+      resolvePromise(true)
+    }
+    child.once('close', onClose)
+  })
+}
+
+export async function shutdownSwitchboardPythonRuntime(): Promise<void> {
+  beginSwitchboardPythonRuntimeShutdown()
+  const children = [...inFlightPythonChildren]
+  for (const child of children) {
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        child.kill('SIGTERM')
+      } catch {
+        // Process may have exited between snapshot and shutdown.
+      }
+    }
+  }
+  const settled = await Promise.all(children.map((child) => waitForChildExit(child, 1_500)))
+  children.forEach((child, index) => {
+    if (!settled[index] && child.exitCode === null && child.signalCode === null) {
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // Best effort during app shutdown.
+      }
+    }
+  })
+  await Promise.all(children.map((child) => waitForChildExit(child, 500)))
+}
+
 function startElectronRunnerLoop(workspaceRoot: string, workspaceId?: string): void {
   const key = runnerKey(workspaceRoot)
+  if (workspaceId) switchboardRunnerWorkspaceIds.set(key, workspaceId)
   if (switchboardRunnerIntervals.has(key)) return
   const interval = setInterval(() => {
     void prepareAndSpawnSwitchboardSession(workspaceRoot, workspaceId)
@@ -215,14 +274,38 @@ function startElectronRunnerLoop(workspaceRoot: string, workspaceId?: string): v
 }
 
 async function prepareAndSpawnSwitchboardSession(workspaceRoot: string, workspaceId?: string): Promise<void> {
+  if (switchboardRuntimeShuttingDown) return
+  const key = runnerKey(workspaceRoot)
+  if (inFlightWorkspaceTicks.has(key)) return
+  inFlightWorkspaceTicks.add(key)
+  try {
+    await runtimeTickAndSpawnSwitchboardSessions(workspaceRoot, workspaceId)
+  } finally {
+    inFlightWorkspaceTicks.delete(key)
+  }
+}
+
+async function runtimeTickAndSpawnSwitchboardSessions(workspaceRoot: string, workspaceId?: string): Promise<void> {
   if (!switchboardSessionSpawner) return
-  const result = await runSwitchboardCore(['runner', 'prepare-session', ...workspaceArgs(workspaceRoot)])
+  const result = await runSwitchboardCore([
+    'runner',
+    'runtime-tick',
+    ...workspaceArgs(workspaceRoot),
+    '--app-instance-id',
+    APP_INSTANCE_ID,
+    '--live-execution-ids-json',
+    JSON.stringify(switchboardRuntimeInventoryProvider?.(workspaceRoot) ?? []),
+    ...(workspaceId ? ['--workspace-id', workspaceId] : []),
+  ])
   if (!result.ok) return
-  const payload = result.payload as unknown as SwitchboardPrepareSessionResult
-  if (!payload.ok || !payload.prepared) return
-  const spawned = await switchboardSessionSpawner({ workspaceId, workspaceRoot, descriptor: payload.descriptor })
-  if (!spawned.ok) {
-    await stopPreparedSessionExecution(workspaceRoot, payload.descriptor.executionId, spawned.message)
+  const payload = result.payload as unknown as SwitchboardPrepareSessionResult & { descriptors?: SwitchboardAgentSpawnDescriptor[] }
+  if (!payload.ok) return
+  const descriptors = payload.descriptors ?? (payload.prepared ? [payload.descriptor] : [])
+  for (const descriptor of descriptors) {
+    const spawned = await switchboardSessionSpawner({ workspaceId, workspaceRoot, descriptor })
+    if (!spawned.ok) {
+      await stopPreparedSessionExecution(workspaceRoot, descriptor.executionId, spawned.message)
+    }
   }
 }
 
@@ -246,14 +329,23 @@ async function stopPreparedSessionExecution(
 
 const SWITCHBOARD_RUNNER_INTERVAL_MS = 5_000
 let switchboardSessionSpawner: SwitchboardSessionSpawner | null = null
+let switchboardRuntimeInventoryProvider: SwitchboardRuntimeInventoryProvider | null = null
 const switchboardRunnerIntervals = new Map<string, NodeJS.Timeout>()
+const switchboardRunnerWorkspaceIds = new Map<string, string>()
+const inFlightWorkspaceTicks = new Set<string>()
+const inFlightPythonChildren = new Set<ChildProcess>()
 
 export function configureSwitchboardSessionSpawner(spawner: SwitchboardSessionSpawner): void {
   switchboardSessionSpawner = spawner
 }
 
+export function configureSwitchboardRuntimeInventoryProvider(provider: SwitchboardRuntimeInventoryProvider): void {
+  switchboardRuntimeInventoryProvider = provider
+}
+
 export async function recordSwitchboardSessionExit(input: {
   workspaceRoot: string
+  workspaceId?: string
   executionId: string
   exitCode: number
 }): Promise<void> {
@@ -265,6 +357,9 @@ export async function recordSwitchboardSessionExit(input: {
     '--exit-code',
     String(input.exitCode),
   ])
+  if (!switchboardRuntimeShuttingDown) {
+    await prepareAndSpawnSwitchboardSession(input.workspaceRoot, input.workspaceId ?? switchboardRunnerWorkspaceIds.get(runnerKey(input.workspaceRoot)))
+  }
 }
 
 export async function initializeSwitchboard(input: { workspaceRoot: string }): Promise<SwitchboardInitApiResult> {
@@ -435,24 +530,32 @@ export async function pauseSwitchboardRunner(workspaceRoot: string): Promise<Swi
   return result.payload as SwitchboardRunnerResult
 }
 
-export async function resumeSwitchboardRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult> {
-  const result = await runSwitchboardCore(['runner', 'resume', ...workspaceArgs(workspaceRoot)])
-  if (!result.ok) return { ok: false, message: result.message || 'Unable to resume Switchboard runner.' }
-  startElectronRunnerLoop(workspaceRoot)
+export async function resumeSwitchboardRunner(input: { workspaceRoot: string; workspaceId?: string }): Promise<SwitchboardRunnerResult> {
+  const lock = await acquireWorkspaceRunnerLock(input.workspaceRoot)
+  if (!lock.ok) return { ok: false, message: lock.message }
+  const result = await runSwitchboardCore(['runner', 'resume', ...workspaceArgs(input.workspaceRoot)])
+  if (!result.ok) {
+    await releaseWorkspaceRunnerLock(input.workspaceRoot)
+    return { ok: false, message: result.message || 'Unable to resume Switchboard runner.' }
+  }
+  startElectronRunnerLoop(input.workspaceRoot, input.workspaceId ?? switchboardRunnerWorkspaceIds.get(runnerKey(input.workspaceRoot)))
   return result.payload as SwitchboardRunnerResult
 }
 
 export async function stopSwitchboardRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult> {
   stopElectronRunnerLoop(workspaceRoot)
+  clearElectronRunnerWorkspace(workspaceRoot)
   const result = await runSwitchboardCore(['runner', 'stop', ...workspaceArgs(workspaceRoot)])
   if (!result.ok) return { ok: false, message: result.message || 'Unable to stop Switchboard runner.' }
   await releaseWorkspaceRunnerLock(workspaceRoot)
   return result.payload as SwitchboardRunnerResult
 }
 
-export async function tickSwitchboardRunner(workspaceRoot: string): Promise<SwitchboardRunnerResult> {
-  await prepareAndSpawnSwitchboardSession(workspaceRoot)
-  return getSwitchboardRunnerState(workspaceRoot)
+export async function tickSwitchboardRunner(input: { workspaceRoot: string; workspaceId?: string }): Promise<SwitchboardRunnerResult> {
+  const lock = await acquireWorkspaceRunnerLock(input.workspaceRoot)
+  if (!lock.ok) return { ok: false, message: lock.message }
+  await prepareAndSpawnSwitchboardSession(input.workspaceRoot, input.workspaceId ?? switchboardRunnerWorkspaceIds.get(runnerKey(input.workspaceRoot)))
+  return getSwitchboardRunnerState(input.workspaceRoot)
 }
 
 export async function getSwitchboardRunnerState(workspaceRoot?: string): Promise<SwitchboardRunnerResult> {
@@ -513,7 +616,17 @@ export async function getSwitchboardExecutionLogs(
 }
 
 export async function startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> {
-  const result = await runSwitchboardCore(['watchtower', 'start-review', ...workspaceArgs(input.workspaceRoot), '--preset', input.preset])
+  const args = [
+    'watchtower',
+    'start-review',
+    ...workspaceArgs(input.workspaceRoot),
+    '--preset',
+    input.preset,
+    '--app-instance-id',
+    APP_INSTANCE_ID,
+  ]
+  if (input.workspaceId) args.push('--workspace-id', input.workspaceId)
+  const result = await runSwitchboardCore(args)
   if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower review.' }
   const payload = result.payload as WatchtowerRunResult
   if (payload.ok) {
@@ -529,7 +642,16 @@ export async function startWatchtowerReview(input: WatchtowerStartReviewInput): 
 }
 
 export async function startWatchtowerTriage(input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult> {
-  const args = ['watchtower', 'start-triage', ...workspaceArgs(input.workspaceRoot), '--scope', input.scope]
+  const args = [
+    'watchtower',
+    'start-triage',
+    ...workspaceArgs(input.workspaceRoot),
+    '--scope',
+    input.scope,
+    '--app-instance-id',
+    APP_INSTANCE_ID,
+  ]
+  if (input.workspaceId) args.push('--workspace-id', input.workspaceId)
   if (input.taskId?.trim()) args.push('--task-id', input.taskId.trim())
   const result = await runSwitchboardCore(args)
   if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower triage.' }

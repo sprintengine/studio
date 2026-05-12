@@ -28,7 +28,7 @@ export type SwitchboardRunner = {
 
 const POLL_INTERVAL_MS = 5_000
 
-export function useSwitchboardRunner(workspaceRoot: string | null | undefined): SwitchboardRunner {
+export function useSwitchboardRunner(workspaceRoot: string | null | undefined, workspaceId?: string): SwitchboardRunner {
   const [state, setState] = useState<SwitchboardRunnerState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -109,16 +109,16 @@ export function useSwitchboardRunner(workspaceRoot: string | null | undefined): 
     [runAction]
   )
   const resume = useCallback(
-    () => runAction((root) => window.api.resumeSwitchboardRunner(root)),
-    [runAction]
+    () => runAction((root) => window.api.resumeSwitchboardRunner({ workspaceRoot: root, workspaceId })),
+    [runAction, workspaceId]
   )
   const stop = useCallback(
     () => runAction((root) => window.api.stopSwitchboardRunner(root)),
     [runAction]
   )
   const tick = useCallback(
-    () => runAction((root) => window.api.tickSwitchboardRunner(root)),
-    [runAction]
+    () => runAction((root) => window.api.tickSwitchboardRunner({ workspaceRoot: root, workspaceId })),
+    [runAction, workspaceId]
   )
   const stopExecution = useCallback(
     async (executionId: string, reason?: string): Promise<boolean> => {

@@ -28,6 +28,7 @@ function session(input: Partial<TerminalSessionSnapshot>): TerminalSessionSnapsh
     lastOutputAt: null,
     outputBufferLength: 0,
     retainedOutputBytes: 0,
+    visible: true,
     ...input,
   }
 }

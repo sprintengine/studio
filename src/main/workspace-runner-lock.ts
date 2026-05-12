@@ -22,7 +22,7 @@ type RunnerLockAcquireResult =
   | { ok: true; lock: HeldRunnerLock }
   | { ok: false; message: string }
 
-const APP_INSTANCE_ID = randomUUID()
+export const APP_INSTANCE_ID = randomUUID()
 const HEARTBEAT_MS = 5_000
 const STALE_HEARTBEAT_MS = 20_000
 

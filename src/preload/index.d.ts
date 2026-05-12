@@ -105,6 +105,7 @@ import type {
   SwitchboardRunnerQueue as SharedSwitchboardRunnerQueue,
   SwitchboardRunnerResult as SharedSwitchboardRunnerResult,
   SwitchboardRunnerStartInput as SharedSwitchboardRunnerStartInput,
+  SwitchboardRunnerWorkspaceInput as SharedSwitchboardRunnerWorkspaceInput,
   SwitchboardRunnerState as SharedSwitchboardRunnerState,
   SwitchboardStopExecutionInput as SharedSwitchboardStopExecutionInput,
   SwitchboardStopExecutionResult as SharedSwitchboardStopExecutionResult,
@@ -222,6 +223,7 @@ declare global {
   type SwitchboardRunnerQueue = SharedSwitchboardRunnerQueue
   type SwitchboardRunnerState = SharedSwitchboardRunnerState
   type SwitchboardRunnerStartInput = SharedSwitchboardRunnerStartInput
+  type SwitchboardRunnerWorkspaceInput = SharedSwitchboardRunnerWorkspaceInput
   type SwitchboardRunnerResult = SharedSwitchboardRunnerResult
   type SwitchboardStopExecutionInput = SharedSwitchboardStopExecutionInput
   type SwitchboardStopExecutionResult = SharedSwitchboardStopExecutionResult

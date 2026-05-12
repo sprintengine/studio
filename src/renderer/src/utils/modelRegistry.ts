@@ -96,7 +96,6 @@ export async function focusOrAddAgentSessionTab(
   const sessions = await window.api.terminalList().catch(() => [])
   const session = sessions.find((candidate) =>
     candidate.kind === 'agent'
-    && candidate.running
     && candidate.workspaceId === workspaceId
     && candidate.agentSession?.executionId === args.executionId
   )

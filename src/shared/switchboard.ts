@@ -359,6 +359,11 @@ export type SwitchboardRunnerStartInput = {
   provider?: SwitchboardExecutionProviderKind
 }
 
+export type SwitchboardRunnerWorkspaceInput = {
+  workspaceRoot: string
+  workspaceId?: string
+}
+
 export type SwitchboardRunnerExecution = {
   executionId: string
   taskId: string
@@ -369,6 +374,10 @@ export type SwitchboardRunnerExecution = {
   providerRef: SwitchboardExecutionProviderRef
   startedAt: string
   lastSeenAt: string
+  launchStartedAt?: string
+  ownerAppInstanceId?: string | null
+  workspaceId?: string | null
+  sessionId?: string | null
   status?: SwitchboardExecutionStatus
 }
 

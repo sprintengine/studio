@@ -45,6 +45,7 @@ import {
   addSwitchboardComment,
   cancelSwitchboardTask,
   claimSwitchboardTask,
+  configureSwitchboardRuntimeInventoryProvider,
   configureSwitchboardSessionSpawner,
   createSwitchboardTask,
   getSwitchboardExecutionLogs,
@@ -81,9 +82,7 @@ const terminalRuntime = createTerminalRuntime({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
   logMainPerfEvent,
-  onAgentSessionExit: (input) => {
-    if (input.workspaceRoot) void recordSwitchboardSessionExit(input)
-  },
+  onAgentSessionExit: (input) => input.workspaceRoot ? recordSwitchboardSessionExit(input) : undefined,
 })
 const mobileSnapshotService = new MobileSprintEngineSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
@@ -98,6 +97,7 @@ const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
 })
 
 configureSwitchboardSessionSpawner(terminalRuntime.spawnAgentSession)
+configureSwitchboardRuntimeInventoryProvider(() => terminalRuntime.getLiveAgentExecutionIds())
 
 function getAuthenticatedMulticodeUserId(): string | null {
   const state = multicodeAuth.getState()
