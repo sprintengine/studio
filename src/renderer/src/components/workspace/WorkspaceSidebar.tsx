@@ -29,14 +29,19 @@ import {
   readTabDragPayload,
   type TabDragPayload,
 } from '../../utils/tabDragPayload'
+import { useRelativeNow } from '../../hooks/useRelativeNow'
+import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 
 type Activity = 'running' | 'needs-input' | 'idle'
+
+type TerminalRecency = { hasRunning: boolean; lastFinishedAt: number | null }
 
 type WorkspaceSidebarProps = {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   sidebarCollapsed: boolean
   activityByWorkspaceId: Record<WorkspaceId, Activity>
+  terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
   onSelectWorkspace: (id: WorkspaceId) => void
   onCloseWorkspace: (id: WorkspaceId) => void
   onDeleteWorkspaceWithState: (id: WorkspaceId) => Promise<void> | void
@@ -258,6 +263,7 @@ export default function WorkspaceSidebar({
   activeWorkspaceId,
   sidebarCollapsed,
   activityByWorkspaceId,
+  terminalRecencyByWorkspaceId,
   onSelectWorkspace,
   onCloseWorkspace,
   onDeleteWorkspaceWithState,
@@ -275,6 +281,7 @@ export default function WorkspaceSidebar({
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const moveAgentToWorkspace = useWorkspaceStore((s) => s.moveAgentToWorkspace)
   const moveOpenFileToWorkspace = useWorkspaceStore((s) => s.moveOpenFileToWorkspace)
+  const now = useRelativeNow()
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   const [starredCollapsed, setStarredCollapsed] = useState(false)
@@ -613,6 +620,13 @@ export default function WorkspaceSidebar({
     const active = workspace.id === activeWorkspaceId
     const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
     const tone = activityTone(activity)
+    const recency = terminalRecencyByWorkspaceId[workspace.id]
+    const showRecencyText =
+      !sidebarCollapsed
+      && activity === 'idle'
+      && !!recency
+      && !recency.hasRunning
+      && typeof recency.lastFinishedAt === 'number'
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     const highlighted = hasHighlightOverride(workspace.highlight)
@@ -752,6 +766,15 @@ export default function WorkspaceSidebar({
             ) : null}
 
             {tone ? <StatusDot tone={tone} label={activityLabel(activity)} className="ml-0.5" /> : null}
+            {showRecencyText ? (
+              <span
+                className="ml-1 shrink-0 text-[10px] tabular-nums text-[#5a5a63]"
+                title={`Last terminal exited ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
+                aria-label={`Last terminal exited ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
+              >
+                {formatRelativeMs(recency!.lastFinishedAt!, now)}
+              </span>
+            ) : null}
 
             <span className="ml-1 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
               <button
@@ -826,7 +849,7 @@ export default function WorkspaceSidebar({
     <aside
       aria-label="Workspaces"
       className={`flex shrink-0 flex-col border-r border-[#1f2025] bg-[#0b0c0f] transition-[width] duration-150 ease-out ${
-        sidebarCollapsed ? 'w-[44px]' : 'w-[264px]'
+        sidebarCollapsed ? 'w-[44px]' : 'w-[296px]'
       }`}
     >
       {/* Header */}

@@ -26,6 +26,7 @@ function session(input: Partial<TerminalSessionSnapshot>): TerminalSessionSnapsh
     kind: 'terminal',
     startedAt: 1,
     lastOutputAt: null,
+    exitedAt: null,
     outputBufferLength: 0,
     retainedOutputBytes: 0,
     visible: true,

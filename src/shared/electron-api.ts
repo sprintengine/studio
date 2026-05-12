@@ -285,6 +285,7 @@ export type TerminalSessionSnapshot = {
   visible: boolean
   startedAt: number
   lastOutputAt: number | null
+  exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number
 }

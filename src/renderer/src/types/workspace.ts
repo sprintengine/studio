@@ -776,4 +776,5 @@ export type Workspace = {
   multiloopAutoState: MultiloopAutoState
   highlight?: WorkspaceHighlight
   createdAt: number
+  lastTerminalActivityAt?: number | null
 }

@@ -12,6 +12,9 @@ import {
 import 'flexlayout-react/style/dark.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { useRelativeNow } from '../../hooks/useRelativeNow'
+import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { AgentState, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
@@ -143,8 +146,36 @@ function timedPanel(component: string, children: React.ReactNode) {
   )
 }
 
+function renderTerminalRecencyIndicator(
+  session: TerminalSessionSnapshot | undefined,
+  now: number
+): React.ReactNode {
+  if (!session) return null
+  if (session.running) {
+    return (
+      <span
+        className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#30d158]"
+        title="Running"
+        aria-label="Running"
+      />
+    )
+  }
+  if (typeof session.exitedAt !== 'number') return null
+  return (
+    <span
+      className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[#6f7078]"
+      title={`Exited ${formatRelativeMsAgo(session.exitedAt, now)} (${new Date(session.exitedAt).toLocaleString()})`}
+      aria-label={`Exited ${formatRelativeMsAgo(session.exitedAt, now)}`}
+    >
+      {formatRelativeMs(session.exitedAt, now)}
+    </span>
+  )
+}
+
 function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   const workspace    = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const terminalSessions = useTerminalSessions()
+  const now = useRelativeNow()
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
@@ -672,7 +703,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       if (node.getComponent() !== 'agent') {
         const componentId = node.getComponent()
         if (componentId === 'terminal') {
-          const config = node.getConfig() as { highlightColor?: HighlightColor } | undefined
+          const config = node.getConfig() as { highlightColor?: HighlightColor; terminalId?: string } | undefined
           if (config?.highlightColor) {
             const swatch = getHighlightSwatch(config.highlightColor)
             renderValues.leading = (
@@ -686,6 +717,18 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
                 title={`${swatch.label} terminal`}
               />
             )
+          }
+          const terminalId = config?.terminalId ?? node.getId()
+          const session = terminalSessions.find((s) => s.sessionId === `terminal-${terminalId}`)
+          const indicator = renderTerminalRecencyIndicator(session, now)
+          if (indicator) {
+            renderValues.content = (
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                {tabContent}
+                {indicator}
+              </span>
+            )
+            return
           }
         } else if (componentId === 'watchtower-panel' || componentId === 'switchboard-board') {
           const isWatchtower = componentId === 'watchtower-panel'
@@ -768,43 +811,38 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.leading = null
       }
 
-      const hideTerminalButton = (
-        <button
-          type="button"
-          className="interactive ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-[#2a2b31] text-[11px] leading-none text-[#9a9aa2] hover:bg-[#16171c] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/60"
-          title="Hide terminal"
-          aria-label="Hide terminal"
-          onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            hideTab(node)
-          }}
-          onDoubleClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.stopPropagation()}
-        >
-          _
-        </button>
-      )
+      const agentSession = terminalSessions.find((s) => s.sessionId === agentId)
+      const exitIndicator =
+        agentSession && !agentSession.running && typeof agentSession.exitedAt === 'number'
+          ? (
+              <span
+                className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[#6f7078]"
+                title={`Exited ${formatRelativeMsAgo(agentSession.exitedAt, now)} (${new Date(agentSession.exitedAt).toLocaleString()})`}
+                aria-label={`Exited ${formatRelativeMsAgo(agentSession.exitedAt, now)}`}
+              >
+                {formatRelativeMs(agentSession.exitedAt, now)}
+              </span>
+            )
+          : null
 
       if (activityDot) {
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1.5">
             {tabContent}
             <StatusDot tone={activityDot.tone} label={activityDot.label} />
-            {hideTerminalButton}
+            {exitIndicator}
           </span>
         )
       } else {
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1.5">
             {tabContent}
-            {hideTerminalButton}
+            {exitIndicator}
           </span>
         )
       }
     },
-    [commitRename, hideTab, renameValue, renamingTabId, showTabContextMenu, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.sprintEngineState, workspaceId]
+    [commitRename, hideTab, renameValue, renamingTabId, showTabContextMenu, startRename, terminalSessions, now, workspace.agents, workspace.editorState?.openFiles, workspace.sprintEngineState, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

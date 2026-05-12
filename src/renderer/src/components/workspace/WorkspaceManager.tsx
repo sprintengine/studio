@@ -304,6 +304,7 @@ export default function WorkspaceManager() {
   const sidebarCollapsed = useWorkspaceStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setSidebarCollapsed)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
+  const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setSprintEngineAutoEnabled = useWorkspaceStore((s) => s.setSprintEngineAutoEnabled)
   const authState = useWorkspaceStore((s) => s.authState)
@@ -391,6 +392,7 @@ export default function WorkspaceManager() {
   const accountRef = useRef<HTMLDivElement>(null)
   const handoffInputRef = useRef<HTMLInputElement>(null)
   const terminalSessionsSignatureRef = useRef('')
+  const reportedTerminalExitsRef = useRef<Set<string>>(new Set())
   const workspaceLayoutUnloadTimersRef = useRef<Record<string, number>>({})
   const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
   const sessions = getSessionItems(workspaces, terminalSessions)
@@ -617,6 +619,17 @@ export default function WorkspaceManager() {
 
     const applyTerminalSessions = (sessions: TerminalSessionSnapshot[]) => {
       if (disposed) return
+      for (const session of sessions) {
+        if (
+          !session.running
+          && typeof session.exitedAt === 'number'
+          && typeof session.workspaceId === 'string'
+          && !reportedTerminalExitsRef.current.has(session.sessionId)
+        ) {
+          reportedTerminalExitsRef.current.add(session.sessionId)
+          recordWorkspaceTerminalActivity(session.workspaceId, session.exitedAt)
+        }
+      }
       const signature = getTerminalSessionsSignature(sessions)
       if (signature === terminalSessionsSignatureRef.current) return
       terminalSessionsSignatureRef.current = signature
@@ -638,7 +651,7 @@ export default function WorkspaceManager() {
       unsubscribe()
       window.clearInterval(interval)
     }
-  }, [])
+  }, [recordWorkspaceTerminalActivity])
 
   useEffect(() => {
     if (window.api.platform === 'darwin') return
@@ -982,6 +995,27 @@ export default function WorkspaceManager() {
     const map: Record<string, 'running' | 'needs-input' | 'idle'> = {}
     for (const workspace of workspaces) {
       map[workspace.id] = getWorkspaceActivity(workspace, terminalSessions)
+    }
+    return map
+  }, [workspaces, terminalSessions])
+
+  const terminalRecencyByWorkspaceId = useMemo(() => {
+    const map: Record<string, { hasRunning: boolean; lastFinishedAt: number | null }> = {}
+    for (const workspace of workspaces) {
+      let hasRunning = false
+      let lastFinishedAt: number | null =
+        typeof workspace.lastTerminalActivityAt === 'number' ? workspace.lastTerminalActivityAt : null
+      for (const session of terminalSessions) {
+        if (session.workspaceId !== workspace.id) continue
+        if (session.running) {
+          hasRunning = true
+        } else if (typeof session.exitedAt === 'number') {
+          if (lastFinishedAt === null || session.exitedAt > lastFinishedAt) {
+            lastFinishedAt = session.exitedAt
+          }
+        }
+      }
+      map[workspace.id] = { hasRunning, lastFinishedAt }
     }
     return map
   }, [workspaces, terminalSessions])
@@ -1371,6 +1405,7 @@ export default function WorkspaceManager() {
         activeWorkspaceId={activeWorkspaceId}
         sidebarCollapsed={sidebarCollapsed}
         activityByWorkspaceId={activityByWorkspaceId}
+        terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
         onSelectWorkspace={(id) => {
           setShowNewWorkspacePanel(false)
           setActiveWorkspace(id)

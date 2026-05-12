@@ -104,6 +104,7 @@ interface WorkspaceStore {
   forgetFolder: (folderPath: string) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
+  recordWorkspaceTerminalActivity: (id: WorkspaceId, exitedAt: number) => void
   setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setLastSelectedCli: (cli: AgentCli) => void
@@ -1035,6 +1036,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set((state) => {
           const ws = state.workspaces.find((w) => w.id === id)
           if (ws) ws.highlight = undefined
+        }),
+
+      recordWorkspaceTerminalActivity: (id, exitedAt) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === id)
+          if (!ws) return
+          if (typeof ws.lastTerminalActivityAt !== 'number' || ws.lastTerminalActivityAt < exitedAt) {
+            ws.lastTerminalActivityAt = exitedAt
+          }
         }),
 
       forgetFolder: (folderPath) =>

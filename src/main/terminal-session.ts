@@ -20,6 +20,7 @@ export type TerminalSession = {
   sender: WebContents
   isReady: boolean
   hasExited: boolean
+  exitedAt: number | null
   exitCode?: number
   isDisposed: boolean
   outputChunks: string[]
@@ -109,6 +110,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     visible: session.visible,
     startedAt: session.startedAt,
     lastOutputAt: session.lastOutputAt,
+    exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,
     retainedOutputBytes: session.outputBytes,
   }

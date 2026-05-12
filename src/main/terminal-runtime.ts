@@ -170,6 +170,7 @@ function safeResizeTerminal(sessionId: string, cols: number, rows: number): void
   } catch {
     // node-pty can report resize-after-exit races before its exit event is delivered.
     session.hasExited = true
+    session.exitedAt ??= Date.now()
   }
 }
 
@@ -190,6 +191,7 @@ function disposeTerminal(sessionId: string): void {
   terminalDiagnostics.clear(sessionId)
   session.isDisposed = true
   session.hasExited = true
+  session.exitedAt ??= Date.now()
   terminals.delete(sessionId)
   broadcastTerminalSessionsChanged()
 
@@ -244,6 +246,7 @@ async function disposeAllTerminals(): Promise<void> {
     if (terminals.get(session.sessionId) === session) {
       session.isDisposed = true
       session.hasExited = true
+      session.exitedAt ??= Date.now()
       terminals.delete(session.sessionId)
     }
   }
@@ -340,6 +343,7 @@ function attachTerminalSession(
     terminalOutput.flush(sessionId, 'exit')
     terminalDiagnostics.clear(sessionId)
     terminalSession.hasExited = true
+    terminalSession.exitedAt ??= Date.now()
     terminalSession.exitCode = event.exitCode
     if (terminalSession.agentSession?.system === 'switchboard' || terminalSession.agentSession?.system === 'watchtower') {
       const exitRecord = Promise.resolve(onAgentSessionExit?.({
@@ -411,6 +415,7 @@ async function spawnAgentSessionFromDescriptor(input: {
       sender,
       isReady: process.platform !== 'win32',
       hasExited: false,
+      exitedAt: null,
       isDisposed: false,
       outputChunks: [],
       outputChunkBytes: [],
@@ -516,6 +521,7 @@ async function spawnMobileAgentTerminal(input: {
       sender,
       isReady: process.platform !== 'win32',
       hasExited: false,
+      exitedAt: null,
       isDisposed: false,
       outputChunks: [],
       outputChunkBytes: [],
@@ -650,6 +656,7 @@ async function spawnTerminalFromIpc(
         sender,
         isReady: process.platform !== 'win32',
         hasExited: false,
+        exitedAt: null,
         isDisposed: false,
         outputChunks: [],
         outputChunkBytes: [],
@@ -702,6 +709,7 @@ function writeTerminalInput(sessionId: string, data: string): void {
     terminalDiagnostics.recordInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, true)
   } catch {
     session.hasExited = true
+    session.exitedAt ??= Date.now()
     terminalDiagnostics.recordInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, false)
   }
 }
