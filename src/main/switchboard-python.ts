@@ -337,7 +337,11 @@ async function stopSpawnedWatchtowerSessions(
   descriptors: SwitchboardAgentSpawnDescriptor[],
   message: string,
 ): Promise<void> {
-  await Promise.all(descriptors.map(async (descriptor) => {
+  const uniqueDescriptors = new Map<string, SwitchboardAgentSpawnDescriptor>()
+  for (const descriptor of descriptors) {
+    uniqueDescriptors.set(descriptor.executionId, descriptor)
+  }
+  await Promise.all([...uniqueDescriptors.values()].map(async (descriptor) => {
     switchboardSessionStopper?.({ workspaceRoot, executionId: descriptor.executionId })
     await stopPreparedSessionExecution(workspaceRoot, descriptor.executionId, message)
   }))
@@ -651,19 +655,17 @@ export async function startWatchtowerReview(input: WatchtowerStartReviewInput): 
   if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower review.' }
   const payload = result.payload as WatchtowerRunResult
   if (payload.ok) {
-    const spawnedDescriptors: SwitchboardAgentSpawnDescriptor[] = []
+    const descriptors = payload.descriptors ?? []
     for (const descriptor of payload.descriptors ?? []) {
       const spawned = await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
       if (spawned && !spawned.ok) {
-        await stopPreparedSessionExecution(input.workspaceRoot, descriptor.executionId, spawned.message)
         await stopSpawnedWatchtowerSessions(
           input.workspaceRoot,
-          spawnedDescriptors,
+          descriptors,
           spawned.message || 'Watchtower review startup failed.',
         )
         return { ok: false, message: spawned.message || 'Unable to start Watchtower review terminal.' }
       }
-      if (spawned?.ok) spawnedDescriptors.push(descriptor)
     }
   }
   return payload
@@ -685,19 +687,17 @@ export async function startWatchtowerTriage(input: WatchtowerStartTriageInput): 
   if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower triage.' }
   const payload = result.payload as WatchtowerRunResult
   if (payload.ok) {
-    const spawnedDescriptors: SwitchboardAgentSpawnDescriptor[] = []
+    const descriptors = payload.descriptors ?? []
     for (const descriptor of payload.descriptors ?? []) {
       const spawned = await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
       if (spawned && !spawned.ok) {
-        await stopPreparedSessionExecution(input.workspaceRoot, descriptor.executionId, spawned.message)
         await stopSpawnedWatchtowerSessions(
           input.workspaceRoot,
-          spawnedDescriptors,
+          descriptors,
           spawned.message || 'Watchtower triage startup failed.',
         )
         return { ok: false, message: spawned.message || 'Unable to start Watchtower triage terminal.' }
       }
-      if (spawned?.ok) spawnedDescriptors.push(descriptor)
     }
   }
   return payload
