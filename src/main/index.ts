@@ -166,7 +166,16 @@ registerSwitchboardIpc(ipcMain, {
   stopRunner: stopSwitchboardRunner,
   tickRunner: tickSwitchboardRunner,
   getRunnerState: getSwitchboardRunnerState,
-  stopExecution: stopSwitchboardExecution,
+  stopExecution: async (input) => {
+    const result = await stopSwitchboardExecution(input)
+    if (result.ok !== false) {
+      terminalRuntime.killAgentSession({
+        workspaceRoot: input.workspaceRoot,
+        executionId: input.executionId,
+      })
+    }
+    return result
+  },
   getExecutionStatus: getSwitchboardExecutionStatus,
   getExecutionLogs: getSwitchboardExecutionLogs,
   startWatchtowerReview,

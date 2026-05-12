@@ -100,10 +100,11 @@ export async function focusOrAddAgentSessionTab(
     && candidate.workspaceId === workspaceId
     && candidate.agentSession?.executionId === args.executionId
   )
+  if (!session) return false
 
-  const agentId = session?.agentId ?? session?.agentSession?.executionId ?? args.executionId
-  const name = session?.agentSession?.displayName ?? args.fallbackName
-  return focusOrAddAgentTab(workspaceId, agentId, name, session ? { sessionId: session.sessionId } : undefined)
+  const agentId = session.agentId ?? session.agentSession?.executionId ?? args.executionId
+  const name = session.agentSession?.displayName ?? args.fallbackName
+  return focusOrAddAgentTab(workspaceId, agentId, name, { sessionId: session.sessionId })
 }
 
 function collectAgentTabIds(model: Model, agentId: string): string[] {

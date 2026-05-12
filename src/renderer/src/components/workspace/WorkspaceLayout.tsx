@@ -392,7 +392,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
 
   const cleanupNode = useCallback(
     (node: TabNode) => {
-      const config = node.getConfig() as { agentId?: string; terminalId?: string; filePath?: string } | undefined
+      const config = node.getConfig() as { agentId?: string; sessionId?: string; terminalId?: string; filePath?: string } | undefined
       if (node.getComponent() === 'file-editor') {
         if (config?.filePath) closeFile(workspaceId, config.filePath)
         return
@@ -401,15 +401,17 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       if (node.getComponent() === 'agent') {
         const agentId = config?.agentId ?? node.getId()
         const agent = workspace.agents[agentId]
-        const sessionId = agent?.cliSessionId
+        const sessionId = config?.sessionId ?? agent?.cliSessionId
         if (sessionId) void window.api.terminalKill(sessionId).catch(() => {})
-        if (agent?.kind === 'sprintengine') setSprintEngineAutoEnabled(workspaceId, false)
-        updateAgent(workspaceId, agentId, {
-          cliStartRequested: false,
-          cliHasLaunched: false,
-          cliOnboardingPromptSent: false,
-          cliResumeAvailable: false,
-        })
+        if (agent) {
+          if (agent.kind === 'sprintengine') setSprintEngineAutoEnabled(workspaceId, false)
+          updateAgent(workspaceId, agentId, {
+            cliStartRequested: false,
+            cliHasLaunched: false,
+            cliOnboardingPromptSent: false,
+            cliResumeAvailable: false,
+          })
+        }
         return
       }
 

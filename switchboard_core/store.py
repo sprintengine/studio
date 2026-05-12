@@ -1253,6 +1253,8 @@ def execution_record_session_exit(workspace: Path, execution_id: str, *, exit_co
             raise SwitchboardError("Switchboard execution was not found.")
         if metadata.get("provider") != "electron-session":
             return {"ok": True, "execution": metadata}
+        if metadata.get("status") in {"completed", "abandoned", "stopped"}:
+            return {"ok": True, "execution": metadata}
 
         if metadata.get("kind") in {"watchtower_review", "watchtower_triage"}:
             from .watchtower import update_watchtower_agent

@@ -886,6 +886,40 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertFalse(status["enabled"])
         self.assertTrue(status["paused"])
 
+    def test_stopped_electron_session_exit_does_not_overwrite_stopped_status(self) -> None:
+        self.init_git_repo()
+        task_id = self.create_task(title="Stop electron session task")["id"]
+        self.run_cli(["move", *self.workspace_args(), task_id, "--to", "ready"])
+        command = f"{sys.executable} -c \"pass\""
+        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
+
+        prepared = stdout_json(
+            self.run_cli(["runner", "prepare-session", *self.workspace_args()], env={"SWITCHBOARD_RUNNER_COMMAND": command})
+        )
+        self.assertTrue(prepared["prepared"])
+        execution_id = prepared["execution"]["executionId"]
+
+        stopped = stdout_json(
+            self.run_cli([
+                "execution",
+                "stop",
+                *self.workspace_args(),
+                execution_id,
+                "--reason",
+                "Stopped by test.",
+            ])
+        )
+        self.assertEqual(stopped["status"], "stopped")
+
+        recorded = stdout_json(
+            self.run_cli(["execution", "record-session-exit", *self.workspace_args(), execution_id, "--exit-code", "7"])
+        )
+
+        self.assertEqual(recorded["execution"]["status"], "stopped")
+        metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution_id]))["execution"]
+        self.assertEqual(metadata["status"], "stopped")
+        self.assertEqual(metadata["error"], "Stopped by test.")
+
 
 if __name__ == "__main__":
     unittest.main()

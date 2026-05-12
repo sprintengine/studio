@@ -55,6 +55,10 @@ type TerminalRuntime = {
   commandService: MobileSprintEngineCommandService
   ipcHandlers: TerminalIpcHandlers
   shutdown(): void
+  killAgentSession(input: {
+    workspaceRoot: string
+    executionId: string
+  }): void
   spawnAgentSession(input: {
     workspaceId?: string
     workspaceRoot: string
@@ -79,6 +83,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   return {
     commandService: createMobileCommandService(),
     shutdown: disposeAllTerminals,
+    killAgentSession: killAgentSessionByExecutionId,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
     ipcHandlers: {
       spawnTerminal: spawnTerminalFromIpc,
@@ -190,6 +195,21 @@ function disposeAllTerminals(): void {
   for (const sessionId of [...terminals.keys()]) {
     disposeTerminal(sessionId)
   }
+}
+
+function killAgentSessionByExecutionId(input: { workspaceRoot: string; executionId: string }): void {
+  const workspaceRoot = input.workspaceRoot
+  const executionId = input.executionId
+  const matchingSessionIds = [...terminals.values()]
+    .filter((session) => (
+      !session.hasExited
+      && !session.isDisposed
+      && session.agentSession?.workspaceRoot === workspaceRoot
+      && session.agentSession.executionId === executionId
+    ))
+    .map((session) => session.sessionId)
+
+  matchingSessionIds.forEach(disposeTerminal)
 }
 
 function disposeOtherAgentSessions(

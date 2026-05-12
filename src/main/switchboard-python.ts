@@ -220,7 +220,28 @@ async function prepareAndSpawnSwitchboardSession(workspaceRoot: string, workspac
   if (!result.ok) return
   const payload = result.payload as unknown as SwitchboardPrepareSessionResult
   if (!payload.ok || !payload.prepared) return
-  await switchboardSessionSpawner({ workspaceId, workspaceRoot, descriptor: payload.descriptor })
+  const spawned = await switchboardSessionSpawner({ workspaceId, workspaceRoot, descriptor: payload.descriptor })
+  if (!spawned.ok) {
+    await stopPreparedSessionExecution(workspaceRoot, payload.descriptor.executionId, spawned.message)
+  }
+}
+
+async function stopPreparedSessionExecution(
+  workspaceRoot: string,
+  executionId: string,
+  message: string,
+): Promise<void> {
+  const reason = message.trim()
+    ? `Terminal session did not start: ${message.trim()}`
+    : 'Terminal session did not start.'
+  await runSwitchboardCore([
+    'execution',
+    'stop',
+    ...workspaceArgs(workspaceRoot),
+    executionId,
+    '--reason',
+    reason,
+  ])
 }
 
 const SWITCHBOARD_RUNNER_INTERVAL_MS = 5_000
@@ -497,7 +518,11 @@ export async function startWatchtowerReview(input: WatchtowerStartReviewInput): 
   const payload = result.payload as WatchtowerRunResult
   if (payload.ok) {
     for (const descriptor of payload.descriptors ?? []) {
-      await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
+      const spawned = await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
+      if (spawned && !spawned.ok) {
+        await stopPreparedSessionExecution(input.workspaceRoot, descriptor.executionId, spawned.message)
+        return { ok: false, message: spawned.message || 'Unable to start Watchtower review terminal.' }
+      }
     }
   }
   return payload
@@ -511,7 +536,11 @@ export async function startWatchtowerTriage(input: WatchtowerStartTriageInput): 
   const payload = result.payload as WatchtowerRunResult
   if (payload.ok) {
     for (const descriptor of payload.descriptors ?? []) {
-      await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
+      const spawned = await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
+      if (spawned && !spawned.ok) {
+        await stopPreparedSessionExecution(input.workspaceRoot, descriptor.executionId, spawned.message)
+        return { ok: false, message: spawned.message || 'Unable to start Watchtower triage terminal.' }
+      }
     }
   }
   return payload
