@@ -36,8 +36,6 @@ from .watchtower_prompts import (
 
 
 def ensure_runner_can_launch_watchtower(workspace: Path, state: dict[str, Any]) -> list[str]:
-    if not state.get("enabled") or state.get("paused"):
-        raise SwitchboardError("Switchboard runner is paused or disabled.")
     errors = validate_runner_capability(workspace, state)
     if errors:
         raise SwitchboardError(" ".join(errors))
@@ -83,6 +81,8 @@ def start_watchtower_review(
         state, descriptors = prepare_pending_watchtower_executions_unlocked(
             workspace,
             state,
+            run_id=str(run["runId"]),
+            ignore_concurrency=True,
             app_instance_id=app_instance_id,
             workspace_id=workspace_id,
         )
@@ -127,7 +127,9 @@ def start_watchtower_triage(
         state, descriptors = prepare_pending_watchtower_executions_unlocked(
             workspace,
             state,
+            run_id=str(run["runId"]),
             triage_records=scoped,
+            ignore_concurrency=True,
             app_instance_id=app_instance_id,
             workspace_id=workspace_id,
         )
@@ -205,7 +207,9 @@ def prepare_pending_watchtower_executions_unlocked(
     workspace: Path,
     state: dict[str, Any],
     *,
+    run_id: str | None = None,
     triage_records: list[dict[str, Any]] | None = None,
+    ignore_concurrency: bool = False,
     app_instance_id: str | None = None,
     workspace_id: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -221,8 +225,8 @@ def prepare_pending_watchtower_executions_unlocked(
         state["lastError"] = f"Runner CLI executable was not found: {state.get('cli', 'codex')}"
         fail_pending_watchtower_agents(workspace, state["lastError"])
         return write_runner_state(workspace, state), descriptors
-    while active_execution_count(state) < state.get("maxConcurrency", 1):
-        pending = next_pending_watchtower_agent(workspace)
+    while ignore_concurrency or active_execution_count(state) < state.get("maxConcurrency", 1):
+        pending = next_pending_watchtower_agent(workspace, run_id=run_id)
         if not pending:
             break
         run, agent = pending
@@ -276,8 +280,10 @@ def fail_pending_watchtower_agents(workspace: Path, message: str) -> None:
                 )
 
 
-def next_pending_watchtower_agent(workspace: Path) -> tuple[dict[str, Any], dict[str, Any]] | None:
+def next_pending_watchtower_agent(workspace: Path, *, run_id: str | None = None) -> tuple[dict[str, Any], dict[str, Any]] | None:
     for run in sorted(list_watchtower_runs(workspace), key=lambda current: str(current.get("createdAt") or "")):
+        if run_id is not None and run.get("runId") != run_id:
+            continue
         if run.get("status") not in {"pending", "running"}:
             continue
         for agent in run.get("agents", []):

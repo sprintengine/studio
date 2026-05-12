@@ -1432,13 +1432,13 @@ function RunnerToolbar({
   }, [draft, runner, workspaceId])
 
   const handleStopRunner = useCallback(async () => {
-    const confirmed = window.confirm('Stop the Switchboard runner for this workspace? Active executions are not stopped.')
+    const confirmed = window.confirm('Stop the Switchboard runner for this workspace and stop all active Switchboard executions?')
     if (!confirmed) return
     const ok = await runner.stop()
     if (ok) {
       setSettingsOpen(false)
       await onRefresh()
-      onNotify('success', 'Runner stopped.')
+      onNotify('success', 'Runner and active executions stopped.')
     } else {
       onNotify('error', 'Runner did not stop. Check the runner error message and try again.')
     }
@@ -1531,7 +1531,7 @@ function RunnerToolbar({
               onClick={() => void handleStopRunner()}
               disabled={runner.busy}
               className="interactive h-7 rounded border border-[#4a2527] px-2.5 text-[11px] font-semibold text-[#ffb3b5] hover:bg-[#1c1414] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-50"
-              title="Stop the workspace runner backend"
+              title="Stop the workspace runner and active executions"
             >
               Stop runner
             </button>

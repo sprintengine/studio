@@ -194,9 +194,6 @@ function parseTriageImportance(comment: SwitchboardComment | null): TriageImport
 }
 
 function watchtowerStartErrorMessage(message: string): string {
-  if (message.toLowerCase().includes('runner is paused or disabled')) {
-    return 'Watchtower uses the Switchboard runner. Start or resume the runner from the Switchboard board, then try again.'
-  }
   return message
 }
 

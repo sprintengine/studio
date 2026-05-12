@@ -317,7 +317,6 @@ class SwitchboardCliTests(unittest.TestCase):
 
     def test_watchtower_start_review_launches_runtime_execution(self) -> None:
         command = f"{sys.executable} -c \"import sys; data=sys.stdin.read(); print('watchtower runtime'); print(data[:120])\""
-        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
 
         started = stdout_json(
             self.run_cli(
@@ -332,8 +331,9 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(run["preset"], "lean_code_review")
         running_agents = [agent for agent in run["agents"] if agent["status"] == "running"]
         pending_agents = [agent for agent in run["agents"] if agent["status"] == "pending"]
-        self.assertEqual(len(running_agents), 1)
-        self.assertGreaterEqual(len(pending_agents), 1)
+        self.assertEqual(len(running_agents), 3)
+        self.assertEqual(len(pending_agents), 0)
+        self.assertEqual(len(started["descriptors"]), 3)
         execution_id = running_agents[0]["executionId"]
         execution = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution_id]))["execution"]
         self.assertEqual(execution["kind"], "watchtower_review")
@@ -348,9 +348,8 @@ class SwitchboardCliTests(unittest.TestCase):
         latest = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), run["runId"]]))["run"]
         self.assertEqual(latest["agents"][0]["status"], "completed")
 
-    def test_runtime_tick_drains_pending_watchtower_agents_after_exit(self) -> None:
+    def test_watchtower_start_review_launches_all_agents_with_session_identity(self) -> None:
         command = f"{sys.executable} -c \"import sys; sys.stdin.read()\""
-        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
         started = stdout_json(
             self.run_cli(
                 [
@@ -367,36 +366,18 @@ class SwitchboardCliTests(unittest.TestCase):
                 env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
             )
         )
-        first_execution_id = started["descriptors"][0]["executionId"]
-        first_metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), first_execution_id]))["execution"]
-        self.assertEqual(first_metadata["ownerAppInstanceId"], "app-test")
-        self.assertEqual(first_metadata["workspaceId"], "workspace-test")
-        self.assertEqual(first_metadata["sessionId"], first_execution_id)
-        self.assertEqual(first_metadata["providerRef"]["sessionId"], first_execution_id)
+        self.assertEqual(len(started["descriptors"]), 3)
+        for descriptor in started["descriptors"]:
+            execution_id = descriptor["executionId"]
+            metadata = stdout_json(self.run_cli(["execution", "status", *self.workspace_args(), execution_id]))["execution"]
+            self.assertEqual(metadata["ownerAppInstanceId"], "app-test")
+            self.assertEqual(metadata["workspaceId"], "workspace-test")
+            self.assertEqual(metadata["sessionId"], execution_id)
+            self.assertEqual(metadata["providerRef"]["sessionId"], execution_id)
 
-        self.run_cli(["execution", "record-session-exit", *self.workspace_args(), first_execution_id, "--exit-code", "0"])
-        ticked = stdout_json(
-            self.run_cli(
-                [
-                    "runner",
-                    "runtime-tick",
-                    *self.workspace_args(),
-                    "--app-instance-id",
-                    "app-test",
-                    "--workspace-id",
-                    "workspace-test",
-                    "--live-execution-ids-json",
-                    "[]",
-                ],
-                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
-            )
-        )
-
-        self.assertEqual(len(ticked["descriptors"]), 1)
-        self.assertNotEqual(ticked["descriptors"][0]["executionId"], first_execution_id)
         latest = stdout_json(self.run_cli(["watchtower", "run-status", *self.workspace_args(), started["run"]["runId"]]))["run"]
         running_agents = [agent for agent in latest["agents"] if agent["status"] == "running"]
-        self.assertEqual(len(running_agents), 1)
+        self.assertEqual(len(running_agents), 3)
 
     def test_runtime_tick_reconciles_stale_electron_owned_launching_execution_across_app_instances(self) -> None:
         self.init_git_repo()
@@ -444,20 +425,23 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(len(reconciled["descriptors"]), 1)
         self.assertNotEqual(reconciled["descriptors"][0]["executionId"], execution_id)
 
-    def test_watchtower_start_review_requires_running_runner(self) -> None:
-        rejected = self.run_cli(
-            ["watchtower", "start-review", *self.workspace_args(), "--preset", "lean_code_review"],
-            env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": f"{sys.executable} -c \"pass\""},
-            check=False,
+    def test_watchtower_start_review_does_not_require_running_switchboard_runner(self) -> None:
+        started = stdout_json(
+            self.run_cli(
+                ["watchtower", "start-review", *self.workspace_args(), "--preset", "lean_code_review"],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": f"{sys.executable} -c \"pass\""},
+            )
         )
 
-        self.assertNotEqual(rejected.returncode, 0)
-        self.assertIn("paused or disabled", stderr_json(rejected)["message"])
+        self.assertTrue(started["ok"])
+        self.assertEqual(len(started["descriptors"]), 3)
+        runner_status = stdout_json(self.run_cli(["runner", "status", *self.workspace_args()]))
+        self.assertFalse(runner_status["enabled"])
+        self.assertTrue(runner_status["paused"])
 
     def test_watchtower_start_triage_rejects_while_review_is_active(self) -> None:
         created = self.create_task(inbox=True, title="Triage candidate")
         command = f"{sys.executable} -c \"import time; time.sleep(2)\""
-        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
 
         started = stdout_json(
             self.run_cli(
@@ -481,7 +465,6 @@ class SwitchboardCliTests(unittest.TestCase):
         created = self.create_task(inbox=True, title="Triage candidate")
         task_id = created["id"]
         command = f"{sys.executable} -c \"import sys; data=sys.stdin.read(); print('triage runtime'); print(data[:160])\""
-        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
 
         started = stdout_json(
             self.run_cli(
@@ -505,7 +488,6 @@ class SwitchboardCliTests(unittest.TestCase):
         created = self.create_task(inbox=True, title="Failing triage candidate")
         task_id = created["id"]
         command = f"{sys.executable} -c \"import sys; sys.exit(7)\""
-        self.run_cli(["runner", "start", *self.workspace_args(), "--queue", "ready", "--max-concurrency", "1"])
 
         started = stdout_json(
             self.run_cli(

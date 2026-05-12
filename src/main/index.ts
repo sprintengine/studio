@@ -20,6 +20,7 @@ import { registerSwitchboardIpc } from './ipc/switchboard-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
+import type { SwitchboardRunnerExecution } from '../shared/switchboard'
 import { initializeMultiloopState } from './multiloop-init'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
@@ -99,6 +100,42 @@ const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
 configureSwitchboardSessionSpawner(terminalRuntime.spawnAgentSession)
 configureSwitchboardRuntimeInventoryProvider(() => terminalRuntime.getLiveAgentExecutionIds())
 
+function isLiveSwitchboardExecution(execution: SwitchboardRunnerExecution): boolean {
+  return !execution.status || execution.status === 'active' || execution.status === 'launching'
+}
+
+async function stopSwitchboardRunnerAndExecutions(workspaceRoot: string) {
+  const stopResult = await stopSwitchboardRunner(workspaceRoot)
+  if (stopResult.ok === false) return stopResult
+
+  const failures: string[] = []
+  const executions = stopResult.activeExecutions.filter(isLiveSwitchboardExecution)
+  for (const execution of executions) {
+    const executionResult = await stopSwitchboardExecution({
+      workspaceRoot,
+      executionId: execution.executionId,
+      reason: 'Stopped with Switchboard runner.',
+    })
+    if (executionResult.ok === false) {
+      failures.push(`${execution.executionId}: ${executionResult.message}`)
+      continue
+    }
+    terminalRuntime.killAgentSession({
+      workspaceRoot,
+      executionId: execution.executionId,
+    })
+  }
+
+  if (failures.length > 0) {
+    return {
+      ok: false as const,
+      message: `Runner stopped, but ${failures.length} active execution${failures.length === 1 ? '' : 's'} could not be stopped. ${failures.join(' ')}`,
+    }
+  }
+
+  return getSwitchboardRunnerState(workspaceRoot)
+}
+
 function getAuthenticatedMulticodeUserId(): string | null {
   const state = multicodeAuth.getState()
   if (!state.authenticated) return null
@@ -163,7 +200,7 @@ registerSwitchboardIpc(ipcMain, {
   startRunner: startSwitchboardRunner,
   pauseRunner: pauseSwitchboardRunner,
   resumeRunner: resumeSwitchboardRunner,
-  stopRunner: stopSwitchboardRunner,
+  stopRunner: stopSwitchboardRunnerAndExecutions,
   tickRunner: tickSwitchboardRunner,
   getRunnerState: getSwitchboardRunnerState,
   stopExecution: async (input) => {
