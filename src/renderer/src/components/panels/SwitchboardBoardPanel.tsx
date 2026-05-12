@@ -944,8 +944,11 @@ function BoardDetailPane({
     Boolean(activeExecution?.executionId)
   const handleOpenTerminal = (): void => {
     if (!canOpenTerminal || !activeExecution) return
-    void import('../../utils/modelRegistry').then(({ focusOrAddAgentTab }) => {
-      focusOrAddAgentTab(workspaceId, activeExecution.executionId, task.title)
+    void import('../../utils/modelRegistry').then(({ focusOrAddAgentSessionTab }) => {
+      void focusOrAddAgentSessionTab(workspaceId, {
+        executionId: activeExecution.executionId,
+        fallbackName: task.title,
+      })
     })
   }
   return (

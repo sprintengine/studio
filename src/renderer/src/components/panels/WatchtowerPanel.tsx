@@ -972,8 +972,11 @@ function RunReviewSection({
               const canOpenTerminal = Boolean(agent.executionId && workspaceRoot)
               const handleOpenTerminal = (): void => {
                 if (!canOpenTerminal || !agent.executionId) return
-                void import('../../utils/modelRegistry').then(({ focusOrAddAgentTab }) => {
-                  focusOrAddAgentTab(workspaceId, agent.executionId!, specialistShortLabel(agent))
+                void import('../../utils/modelRegistry').then(({ focusOrAddAgentSessionTab }) => {
+                  void focusOrAddAgentSessionTab(workspaceId, {
+                    executionId: agent.executionId!,
+                    fallbackName: specialistShortLabel(agent),
+                  })
                 })
               }
               return (

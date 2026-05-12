@@ -88,6 +88,23 @@ export function focusOrAddAgentTab(
   return true
 }
 
+export async function focusOrAddAgentSessionTab(
+  workspaceId: string,
+  args: { executionId: string; fallbackName: string },
+): Promise<boolean> {
+  const sessions = await window.api.terminalList().catch(() => [])
+  const session = sessions.find((candidate) =>
+    candidate.kind === 'agent'
+    && candidate.running
+    && candidate.workspaceId === workspaceId
+    && candidate.agentSession?.executionId === args.executionId
+  )
+
+  const agentId = session?.agentId ?? session?.agentSession?.workId ?? args.executionId
+  const name = session?.agentSession?.displayName ?? args.fallbackName
+  return focusOrAddAgentTab(workspaceId, agentId, name)
+}
+
 function collectAgentTabIds(model: Model, agentId: string): string[] {
   const tabIds: string[] = []
   model.visitNodes((node) => {
