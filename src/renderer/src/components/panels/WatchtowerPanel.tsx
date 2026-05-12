@@ -37,10 +37,8 @@ import {
   sourceLabel,
   useSwitchboardData,
 } from '../../utils/switchboardBoard'
-import { useSwitchboardRunner } from '../../utils/switchboardRunner'
 import { filterInboxTasks } from '../../utils/watchtower'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { ExecutionLogsView } from './ExecutionLogsView'
 
 const PANEL_BG = 'bg-[#08090b]'
 const SECTION_DIVIDER = 'border-t border-[#1f2025]'
@@ -210,16 +208,6 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
-  const runner = useSwitchboardRunner(folderPath)
-
-  const attachableExecutionIds = useMemo(() => {
-    const set = new Set<string>()
-    const executions = runner.state?.activeExecutions ?? []
-    for (const execution of executions) {
-      if (execution.providerRef?.attachable === true) set.add(execution.executionId)
-    }
-    return set
-  }, [runner.state])
 
   const inbox = useMemo(() => filterInboxTasks(tasks), [tasks])
   const [runs, setRuns] = useState<WatchtowerRun[]>([])
@@ -625,7 +613,6 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           onDismissStatus={feedback.dismiss}
           workspaceRoot={folderPath}
           workspaceId={workspaceId}
-          attachableExecutionIds={attachableExecutionIds}
         />
 
         <FetchExternalSection
@@ -865,7 +852,6 @@ function RunReviewSection({
   onDismissStatus,
   workspaceRoot,
   workspaceId,
-  attachableExecutionIds,
 }: {
   preset: WatchtowerReviewPresetId
   onPresetChange: (next: WatchtowerReviewPresetId) => void
@@ -882,9 +868,7 @@ function RunReviewSection({
   onDismissStatus: (key: string) => void
   workspaceRoot: string | null
   workspaceId: string
-  attachableExecutionIds: Set<string>
 }) {
-  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null)
   const selectedPreset = WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
   const presetAgents = Object.entries(selectedPreset.agents)
   const runStatus = statuses.runReview ?? null
@@ -985,24 +969,11 @@ function RunReviewSection({
               const outcome = selectedRunAgentOutcomes.get(agent.agentId) ?? { count: 0 }
               const pill = agentPillState(agent, outcome, triageRun)
               const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
-              const canShowLogs = Boolean(agent.executionId && workspaceRoot)
-              const isExpanded = canShowLogs && expandedAgentId === agent.agentId
-              const canAttach = Boolean(
-                agent.executionId &&
-                workspaceRoot &&
-                agent.status === 'running' &&
-                agent.executionId &&
-                attachableExecutionIds.has(agent.executionId),
-              )
-              const handleAttach = (): void => {
-                if (!canAttach || !agent.executionId || !workspaceRoot) return
-                void import('../../utils/modelRegistry').then(({ focusOrAddBackendSessionTab }) => {
-                  focusOrAddBackendSessionTab(workspaceId, {
-                    executionId: agent.executionId!,
-                    workspaceRoot,
-                    title: `${specialistShortLabel(agent)} · live`,
-                    role: specialistShortLabel(agent),
-                  })
+              const canOpenTerminal = Boolean(agent.executionId && workspaceRoot)
+              const handleOpenTerminal = (): void => {
+                if (!canOpenTerminal || !agent.executionId) return
+                void import('../../utils/modelRegistry').then(({ focusOrAddAgentTab }) => {
+                  focusOrAddAgentTab(workspaceId, agent.executionId!, specialistShortLabel(agent))
                 })
               }
               return (
@@ -1014,34 +985,14 @@ function RunReviewSection({
                     <div className="flex min-w-0 items-center justify-between gap-2">
                       <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        {canAttach ? (
+                        {canOpenTerminal ? (
                           <button
                             type="button"
-                            onClick={handleAttach}
+                            onClick={handleOpenTerminal}
                             className="interactive inline-flex h-5 items-center gap-1 rounded border border-[#3a2820] bg-[#241513] px-1.5 text-[10.5px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
-                            title="Open live terminal"
+                            title="Open terminal"
                           >
-                            <span className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse" style={{ background: '#30d158' }} />
-                            Live
-                          </button>
-                        ) : null}
-                        {canShowLogs ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedAgentId((current) =>
-                                current === agent.agentId ? null : agent.agentId,
-                              )
-                            }
-                            aria-expanded={isExpanded}
-                            aria-controls={`agent-logs-${agent.agentId}`}
-                            className="interactive inline-flex h-5 items-center gap-1 rounded border border-[#2a2b31] px-1.5 text-[10.5px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
-                            title={isExpanded ? 'Hide logs' : 'Show logs'}
-                          >
-                            <ChevronDownIcon
-                              className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                            />
-                            <span>Logs</span>
+                            Open terminal
                           </button>
                         ) : null}
                         <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] transition-colors ${PILL_TONE_CLASSES[pill.tone]}`}>
@@ -1056,16 +1007,6 @@ function RunReviewSection({
                     {agent.errorMessage ? (
                       <div className="max-h-8 overflow-hidden text-[11px] leading-4 text-[#ffb3b5]">
                         {agent.errorMessage}
-                      </div>
-                    ) : null}
-                    {isExpanded && agent.executionId && workspaceRoot ? (
-                      <div id={`agent-logs-${agent.agentId}`} className="mt-1">
-                        <ExecutionLogsView
-                          workspaceRoot={workspaceRoot}
-                          executionId={agent.executionId}
-                          accent="copper"
-                          compact
-                        />
                       </div>
                     ) : null}
                   </div>

@@ -3,7 +3,6 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ArrowRightIcon, CommentIcon, PlusIcon, PriorityIcon, StatusDot, StatusIcon } from '../AppIcons'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
-import { ExecutionLogsView } from './ExecutionLogsView'
 import {
   ActionStatusChip,
   useActionFeedback,
@@ -939,19 +938,14 @@ function BoardDetailPane({
 }) {
   const task = record.task
   const targets = legalMoveTargets(record.location.folderStatus)
-  const attachable =
+  const canOpenTerminal =
     Boolean(activeExecution) &&
     Boolean(workspaceRoot) &&
-    activeExecution?.providerRef?.attachable === true
-  const handleViewLive = (): void => {
-    if (!attachable || !activeExecution || !workspaceRoot) return
-    void import('../../utils/modelRegistry').then(({ focusOrAddBackendSessionTab }) => {
-      focusOrAddBackendSessionTab(workspaceId, {
-        executionId: activeExecution.executionId,
-        workspaceRoot,
-        title: `${task.title} · live`,
-        role: activeExecution.role,
-      })
+    Boolean(activeExecution?.executionId)
+  const handleOpenTerminal = (): void => {
+    if (!canOpenTerminal || !activeExecution) return
+    void import('../../utils/modelRegistry').then(({ focusOrAddAgentTab }) => {
+      focusOrAddAgentTab(workspaceId, activeExecution.executionId, task.title)
     })
   }
   return (
@@ -973,15 +967,16 @@ function BoardDetailPane({
           />
         </div>
         <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[#ececee]">{task.title}</h3>
-        {attachable ? (
+        {canOpenTerminal ? (
           <div className="mt-3 flex flex-wrap gap-1.5">
             <button
               type="button"
-              onClick={handleViewLive}
+              onClick={handleOpenTerminal}
               className="interactive inline-flex h-7 items-center gap-1.5 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60"
+              title="Open terminal"
             >
               <span className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse" style={{ background: '#30d158' }} />
-              View live
+              Open terminal
             </button>
           </div>
         ) : null}
@@ -1112,16 +1107,6 @@ function BoardDetailPane({
           <PropertyRow label="Worktree state">
             <span className="text-[12px] text-[#d7d7dc]">{task.execution.worktreeState}</span>
           </PropertyRow>
-        ) : null}
-
-        {task.execution.activeExecutionId && workspaceRoot ? (
-          <Section title="Logs">
-            <ExecutionLogsView
-              workspaceRoot={workspaceRoot}
-              executionId={task.execution.activeExecutionId}
-              accent="violet"
-            />
-          </Section>
         ) : null}
 
         {task.execution.attempts.length > 0 ? (

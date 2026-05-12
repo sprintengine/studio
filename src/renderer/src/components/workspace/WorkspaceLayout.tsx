@@ -765,18 +765,43 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.leading = null
       }
 
+      const hideTerminalButton = (
+        <button
+          type="button"
+          className="interactive ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-[#2a2b31] text-[11px] leading-none text-[#9a9aa2] hover:bg-[#16171c] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c7cff]/60"
+          title="Hide terminal"
+          aria-label="Hide terminal"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            hideTab(node)
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.stopPropagation()}
+        >
+          _
+        </button>
+      )
+
       if (activityDot) {
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1.5">
             {tabContent}
             <StatusDot tone={activityDot.tone} label={activityDot.label} />
+            {hideTerminalButton}
           </span>
         )
       } else {
-        renderValues.content = tabContent
+        renderValues.content = (
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            {tabContent}
+            {hideTerminalButton}
+          </span>
+        )
       }
     },
-    [commitRename, renameValue, renamingTabId, showTabContextMenu, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.sprintEngineState, workspaceId]
+    [commitRename, hideTab, renameValue, renamingTabId, showTabContextMenu, startRename, workspace.agents, workspace.editorState?.openFiles, workspace.sprintEngineState, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {
