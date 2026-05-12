@@ -392,7 +392,7 @@ export default function WorkspaceManager() {
   const accountRef = useRef<HTMLDivElement>(null)
   const handoffInputRef = useRef<HTMLInputElement>(null)
   const terminalSessionsSignatureRef = useRef('')
-  const reportedTerminalExitsRef = useRef<Set<string>>(new Set())
+  const reportedTerminalExitsRef = useRef<Map<string, number>>(new Map())
   const workspaceLayoutUnloadTimersRef = useRef<Record<string, number>>({})
   const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
   const sessions = getSessionItems(workspaces, terminalSessions)
@@ -619,16 +619,25 @@ export default function WorkspaceManager() {
 
     const applyTerminalSessions = (sessions: TerminalSessionSnapshot[]) => {
       if (disposed) return
+      const liveSessionIds = new Set<string>()
       for (const session of sessions) {
-        if (
-          !session.running
-          && typeof session.exitedAt === 'number'
-          && typeof session.workspaceId === 'string'
-          && !reportedTerminalExitsRef.current.has(session.sessionId)
-        ) {
-          reportedTerminalExitsRef.current.add(session.sessionId)
-          recordWorkspaceTerminalActivity(session.workspaceId, session.exitedAt)
+        liveSessionIds.add(session.sessionId)
+        if (session.running) {
+          // Re-arm reporting if a sessionId is reused after a prior exit.
+          reportedTerminalExitsRef.current.delete(session.sessionId)
+          continue
         }
+        if (
+          typeof session.exitedAt !== 'number'
+          || typeof session.workspaceId !== 'string'
+        ) continue
+        const lastReported = reportedTerminalExitsRef.current.get(session.sessionId)
+        if (lastReported !== undefined && lastReported >= session.exitedAt) continue
+        reportedTerminalExitsRef.current.set(session.sessionId, session.exitedAt)
+        recordWorkspaceTerminalActivity(session.workspaceId, session.exitedAt)
+      }
+      for (const trackedId of reportedTerminalExitsRef.current.keys()) {
+        if (!liveSessionIds.has(trackedId)) reportedTerminalExitsRef.current.delete(trackedId)
       }
       const signature = getTerminalSessionsSignature(sessions)
       if (signature === terminalSessionsSignatureRef.current) return

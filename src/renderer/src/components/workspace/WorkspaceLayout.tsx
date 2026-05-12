@@ -811,19 +811,26 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.leading = null
       }
 
-      const agentSession = terminalSessions.find((s) => s.sessionId === agentId)
-      const exitIndicator =
+      const agentSession = agent?.cliSessionId
+        ? terminalSessions.find((s) => s.sessionId === agent.cliSessionId)
+        : undefined
+      const agentExitedAt =
         agentSession && !agentSession.running && typeof agentSession.exitedAt === 'number'
-          ? (
-              <span
-                className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[#6f7078]"
-                title={`Exited ${formatRelativeMsAgo(agentSession.exitedAt, now)} (${new Date(agentSession.exitedAt).toLocaleString()})`}
-                aria-label={`Exited ${formatRelativeMsAgo(agentSession.exitedAt, now)}`}
-              >
-                {formatRelativeMs(agentSession.exitedAt, now)}
-              </span>
-            )
-          : null
+          ? agentSession.exitedAt
+          : typeof agent?.cliLastExitedAt === 'number' && (!agentSession || !agentSession.running)
+            ? agent.cliLastExitedAt
+            : null
+      const exitIndicator = agentExitedAt !== null
+        ? (
+            <span
+              className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[#6f7078]"
+              title={`Exited ${formatRelativeMsAgo(agentExitedAt, now)} (${new Date(agentExitedAt).toLocaleString()})`}
+              aria-label={`Exited ${formatRelativeMsAgo(agentExitedAt, now)}`}
+            >
+              {formatRelativeMs(agentExitedAt, now)}
+            </span>
+          )
+        : null
 
       if (activityDot) {
         renderValues.content = (
