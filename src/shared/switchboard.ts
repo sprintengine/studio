@@ -187,17 +187,19 @@ export type WatchtowerRun = {
 
 export type WatchtowerStartReviewInput = {
   workspaceRoot: string
+  workspaceId?: string
   preset: string
 }
 
 export type WatchtowerStartTriageInput = {
   workspaceRoot: string
+  workspaceId?: string
   scope: 'all' | 'selected'
   taskId?: string | null
 }
 
 export type WatchtowerRunResult =
-  | { ok: true; run: WatchtowerRun }
+  | { ok: true; run: WatchtowerRun; descriptors?: SwitchboardAgentSpawnDescriptor[] }
   | { ok: false; message: string }
 
 export type WatchtowerRunListResult =

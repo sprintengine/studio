@@ -327,6 +327,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       try {
         const started = await window.api.startWatchtowerReview({
           workspaceRoot: folderPath,
+          workspaceId,
           preset,
         })
         if (!started.ok) {
@@ -340,7 +341,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         notifyStartFailure('review', caught instanceof Error ? caught.message : 'Watchtower review did not start.')
       }
     })
-  }, [feedback, folderPath, notifyStartFailure, preset, refreshRuns, runAction, selectedPreset.agents])
+  }, [feedback, folderPath, notifyStartFailure, preset, refreshRuns, runAction, selectedPreset.agents, workspaceId])
 
   const handleStartTriage = useCallback(
     async (scope: 'all' | 'selected') => {
@@ -361,6 +362,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         try {
           const started = await window.api.startWatchtowerTriage({
             workspaceRoot: folderPath,
+            workspaceId,
             scope: scope === 'selected' ? 'selected' : 'all',
             taskId: scope === 'selected' ? scopedTasks[0]?.task.id : undefined,
           })
@@ -385,7 +387,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         }
       })
     },
-    [feedback, folderPath, inbox, notifyStartFailure, refreshRuns, runAction, selected]
+    [feedback, folderPath, inbox, notifyStartFailure, refreshRuns, runAction, selected, workspaceId]
   )
 
   const handleImportGitHub = useCallback(async () => {

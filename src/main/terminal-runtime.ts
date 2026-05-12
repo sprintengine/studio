@@ -256,7 +256,7 @@ function attachTerminalSession(
     terminalOutput.flush(sessionId, 'exit')
     terminalDiagnostics.clear(sessionId)
     terminalSession.hasExited = true
-    if (terminalSession.agentSession?.system === 'switchboard') {
+    if (terminalSession.agentSession?.system === 'switchboard' || terminalSession.agentSession?.system === 'watchtower') {
       void onAgentSessionExit?.({
         workspaceRoot: terminalSession.agentSession.workspaceRoot,
         executionId: terminalSession.agentSession.executionId,

@@ -597,11 +597,6 @@ def runner_tick_unlocked(workspace: Path) -> dict[str, Any]:
         return runner_public_payload(write_runner_state(workspace, state))
 
     while active_execution_count(state) < state["maxConcurrency"]:
-        from .watchtower_runner import launch_pending_watchtower_executions_unlocked
-
-        state = launch_pending_watchtower_executions_unlocked(workspace, state)
-        if active_execution_count(state) >= state["maxConcurrency"]:
-            break
         launched = runner_claim_and_launch(workspace, state)
         if not launched:
             break
@@ -929,6 +924,10 @@ def reconcile_watchtower_execution(workspace: Path, execution: dict[str, Any]) -
     from .watchtower import update_watchtower_agent
 
     provider_ref = execution.get("providerRef") if isinstance(execution.get("providerRef"), dict) else {}
+    if execution.get("provider") == "electron-session" and execution.get("status") in {"launching", "active"}:
+        active = {**execution, "lastSeenAt": now_iso()}
+        update_execution_metadata(workspace, active, {"lastSeenAt": active["lastSeenAt"]})
+        return active
     exit_code = read_recorded_exit_code(workspace, execution)
     if exit_code is None:
         exit_code = reap_process_exit(provider_ref.get("pid"))
@@ -1403,6 +1402,45 @@ def execution_record_session_exit(workspace: Path, execution_id: str, *, exit_co
             raise SwitchboardError("Switchboard execution was not found.")
         if metadata.get("provider") != "electron-session":
             return {"ok": True, "execution": metadata}
+
+        if metadata.get("kind") in {"watchtower_review", "watchtower_triage"}:
+            from .watchtower import update_watchtower_agent
+
+            completed_at = now_iso()
+            status = "completed" if exit_code == 0 else "abandoned"
+            error = None if exit_code == 0 else f"Terminal exited with code {exit_code}."
+            updates = {
+                "status": status,
+                "completedAt": completed_at,
+                "exitCode": exit_code,
+                "error": error,
+            }
+            completed = {**metadata, **updates}
+            update_execution_metadata(workspace, metadata, updates)
+            run_id = metadata.get("watchtowerRunId")
+            agent_id = metadata.get("watchtowerAgentId")
+            if isinstance(run_id, str) and isinstance(agent_id, str):
+                update_watchtower_agent(
+                    workspace,
+                    run_id,
+                    agent_id,
+                    status="completed" if exit_code == 0 else "failed",
+                    error_message=error,
+                )
+            state = read_runner_state(workspace)
+            state["activeExecutions"] = [
+                {**execution, **updates}
+                if isinstance(execution, dict) and execution.get("executionId") == execution_id
+                else execution
+                for execution in state.get("activeExecutions", [])
+            ]
+            write_runner_state(workspace, state)
+            append_runner_event(
+                workspace,
+                "execution_exit",
+                data={"executionId": execution_id, "kind": metadata.get("kind"), "exitCode": exit_code, "status": status},
+            )
+            return {"ok": True, "execution": completed}
 
         completed_at = now_iso()
         task_id = metadata.get("taskId")

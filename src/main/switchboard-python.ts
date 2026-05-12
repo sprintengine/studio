@@ -1,7 +1,6 @@
 import { spawn } from 'child_process'
 import { existsSync, readFileSync, unlinkSync } from 'fs'
 import { dirname, join, resolve } from 'path'
-import { rememberBackendWorkspace } from './backend-session-bridge'
 import { acquireWorkspaceRunnerLock, releaseWorkspaceRunnerLock } from './workspace-runner-lock'
 import type {
   SwitchboardAddCommentInput,
@@ -299,49 +298,6 @@ export function forceTerminateSwitchboardBackend(workspaceRoot: string): void {
   terminateServerDescriptorProcess(workspaceRoot, descriptor)
 }
 
-function descriptorProcessIsRunning(descriptor: SwitchboardServerDescriptor | null): boolean {
-  if (!descriptor?.pid || descriptor.pid <= 0) return false
-  try {
-    process.kill(descriptor.pid, 0)
-    return true
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH') return false
-    return true
-  }
-}
-
-async function terminateStaleServerDescriptorProcess(
-  workspaceRoot: string,
-  descriptor: SwitchboardServerDescriptor | null,
-): Promise<void> {
-  if (!descriptor?.pid || descriptor.pid <= 0) {
-    removeServerDescriptor(workspaceRoot)
-    return
-  }
-
-  try {
-    process.kill(descriptor.pid, 'SIGTERM')
-  } catch {
-    removeServerDescriptor(workspaceRoot)
-    return
-  }
-
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100))
-    if (!descriptorProcessIsRunning(descriptor)) {
-      removeServerDescriptor(workspaceRoot)
-      return
-    }
-  }
-
-  try {
-    process.kill(descriptor.pid, 'SIGKILL')
-  } catch {
-    // The process may have exited after the final liveness check.
-  }
-  removeServerDescriptor(workspaceRoot)
-}
-
 async function backendHealthy(descriptor: SwitchboardServerDescriptor): Promise<boolean> {
   try {
     const response = await fetch(`http://${descriptor.host}:${descriptor.port}/health`, {
@@ -353,85 +309,6 @@ async function backendHealthy(descriptor: SwitchboardServerDescriptor): Promise<
   } catch {
     return false
   }
-}
-
-async function ensureSwitchboardBackend(
-  workspaceRoot: string
-): Promise<{ ok: true; descriptor: SwitchboardServerDescriptor } | { ok: false; message: string }> {
-  rememberBackendWorkspace(workspaceRoot)
-  const existing = readServerDescriptor(workspaceRoot)
-  if (existing && (await backendHealthy(existing))) return { ok: true, descriptor: existing }
-  if (existing) await terminateStaleServerDescriptorProcess(workspaceRoot, existing)
-
-  const repoRoot = findRepositoryRoot()
-  const python = findPythonExecutable(repoRoot)
-  const existingPythonPath = process.env['PYTHONPATH']
-  let child: ReturnType<typeof spawn>
-  try {
-    child = spawn(python, ['-m', 'switchboard_core', 'runner', 'run', ...workspaceArgs(workspaceRoot)], {
-      cwd: repoRoot,
-      detached: true,
-      stdio: 'ignore',
-      env: {
-        ...process.env,
-        PYTHONPATH: existingPythonPath ? `${repoRoot}${process.platform === 'win32' ? ';' : ':'}${existingPythonPath}` : repoRoot,
-      },
-    })
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error
-        ? `Failed to spawn Switchboard backend ('${python}'): ${error.message}`
-        : `Failed to spawn Switchboard backend ('${python}').`,
-    }
-  }
-  child.unref()
-
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100))
-    const descriptor = readServerDescriptor(workspaceRoot)
-    if (descriptor && (await backendHealthy(descriptor))) return { ok: true, descriptor }
-  }
-  return { ok: false, message: 'Switchboard backend did not become healthy.' }
-}
-
-async function requestSwitchboardBackend(
-  workspaceRoot: string,
-  pathName: string,
-  body?: Record<string, unknown>
-): Promise<PythonCommandResult> {
-  const backend = await ensureSwitchboardBackend(workspaceRoot)
-  if (!backend.ok) return backend
-  try {
-    const response = await fetch(`http://${backend.descriptor.host}:${backend.descriptor.port}${pathName}`, {
-      method: body ? 'POST' : 'GET',
-      headers: {
-        Authorization: `Bearer ${backend.descriptor.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    })
-    const payload = parseJsonPayload(await response.text())
-    if (!response.ok || payload.ok === false) {
-      return { ok: false, message: typeof payload.message === 'string' ? payload.message : 'Switchboard backend request failed.' }
-    }
-    return { ok: true, payload }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'Switchboard backend request failed.' }
-  }
-}
-
-async function requestSwitchboardBackendReplacingNotFound(
-  workspaceRoot: string,
-  pathName: string,
-  body?: Record<string, unknown>
-): Promise<PythonCommandResult> {
-  const first = await requestSwitchboardBackend(workspaceRoot, pathName, body)
-  if (first.ok || first.message.toLowerCase() !== 'not found.') return first
-
-  const descriptor = readServerDescriptor(workspaceRoot)
-  terminateServerDescriptorProcess(workspaceRoot, descriptor)
-  return requestSwitchboardBackend(workspaceRoot, pathName, body)
 }
 
 async function requestExistingSwitchboardBackend(
@@ -718,19 +595,29 @@ export async function getSwitchboardExecutionLogs(
 }
 
 export async function startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult> {
-  const result = await requestSwitchboardBackendReplacingNotFound(input.workspaceRoot, '/watchtower/start-review', {
-    preset: input.preset,
-  })
+  const result = await runSwitchboardCore(['watchtower', 'start-review', ...workspaceArgs(input.workspaceRoot), '--preset', input.preset])
   if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower review.' }
-  return result.payload as WatchtowerRunResult
+  const payload = result.payload as WatchtowerRunResult
+  if (payload.ok) {
+    for (const descriptor of payload.descriptors ?? []) {
+      await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
+    }
+  }
+  return payload
 }
 
 export async function startWatchtowerTriage(input: WatchtowerStartTriageInput): Promise<WatchtowerRunResult> {
-  const body: Record<string, unknown> = { scope: input.scope }
-  if (input.taskId?.trim()) body.taskId = input.taskId.trim()
-  const result = await requestSwitchboardBackendReplacingNotFound(input.workspaceRoot, '/watchtower/start-triage', body)
+  const args = ['watchtower', 'start-triage', ...workspaceArgs(input.workspaceRoot), '--scope', input.scope]
+  if (input.taskId?.trim()) args.push('--task-id', input.taskId.trim())
+  const result = await runSwitchboardCore(args)
   if (!result.ok) return { ok: false, message: result.message || 'Unable to start Watchtower triage.' }
-  return result.payload as WatchtowerRunResult
+  const payload = result.payload as WatchtowerRunResult
+  if (payload.ok) {
+    for (const descriptor of payload.descriptors ?? []) {
+      await switchboardSessionSpawner?.({ workspaceId: input.workspaceId, workspaceRoot: input.workspaceRoot, descriptor })
+    }
+  }
+  return payload
 }
 
 export async function getWatchtowerRun(input: { workspaceRoot: string; runId: string }): Promise<WatchtowerRunResult> {

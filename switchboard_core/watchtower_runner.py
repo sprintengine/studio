@@ -8,12 +8,16 @@ from .store import (
     SwitchboardError,
     active_execution_count,
     append_runner_event,
+    atomic_write_json,
+    execution_dir,
+    execution_metadata_path,
     locked_runner,
+    now_iso,
     read_all,
     read_runner_state,
     record_for_output,
+    relative_to_switchboard_root,
     runner_command_for,
-    start_local_process_agent_execution,
     validate_runner_capability,
     write_runner_state,
 )
@@ -70,8 +74,8 @@ def start_watchtower_review(workspace: Path, *, preset: str) -> dict[str, Any]:
         if not agents:
             raise SwitchboardError("Watchtower preset has no review agents.")
         run = create_watchtower_run_with_status(workspace, preset=preset, agents=agents, status="running")
-        state = launch_pending_watchtower_executions_unlocked(workspace, state)
-        return {"ok": True, "run": run_for_response(workspace, run["runId"]), "runner": state}
+        state, descriptors = prepare_pending_watchtower_executions_unlocked(workspace, state)
+        return {"ok": True, "run": run_for_response(workspace, run["runId"]), "runner": state, "descriptors": descriptors}
 
 
 def start_watchtower_triage(workspace: Path, *, scope: str = "all", task_id: str | None = None) -> dict[str, Any]:
@@ -102,8 +106,8 @@ def start_watchtower_triage(workspace: Path, *, scope: str = "all", task_id: str
             agents=[watchtower_agent_record(agent_id, "architect", task_ids=[record["task"]["id"] for record in scoped])],
             status="running",
         )
-        state = launch_pending_watchtower_executions_unlocked(workspace, state, triage_records=scoped)
-        return {"ok": True, "run": run_for_response(workspace, run["runId"]), "runner": state}
+        state, descriptors = prepare_pending_watchtower_executions_unlocked(workspace, state, triage_records=scoped)
+        return {"ok": True, "run": run_for_response(workspace, run["runId"]), "runner": state, "descriptors": descriptors}
 
 
 def triage_scope_records(workspace: Path, *, scope: str, task_id: str | None) -> list[dict[str, Any]]:
@@ -169,17 +173,28 @@ def launch_pending_watchtower_executions_unlocked(
     *,
     triage_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    state, _descriptors = prepare_pending_watchtower_executions_unlocked(workspace, state, triage_records=triage_records)
+    return state
+
+
+def prepare_pending_watchtower_executions_unlocked(
+    workspace: Path,
+    state: dict[str, Any],
+    *,
+    triage_records: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    descriptors: list[dict[str, Any]] = []
     capability_errors = validate_runner_capability(workspace, state)
     if capability_errors:
         message = " ".join(capability_errors)
         state["lastError"] = message
         fail_pending_watchtower_agents(workspace, message)
-        return write_runner_state(workspace, state)
+        return write_runner_state(workspace, state), descriptors
     command = runner_command_for(state)
     if not command:
         state["lastError"] = f"Runner CLI executable was not found: {state.get('cli', 'codex')}"
         fail_pending_watchtower_agents(workspace, state["lastError"])
-        return write_runner_state(workspace, state)
+        return write_runner_state(workspace, state), descriptors
     while active_execution_count(state) < state.get("maxConcurrency", 1):
         pending = next_pending_watchtower_agent(workspace)
         if not pending:
@@ -187,7 +202,7 @@ def launch_pending_watchtower_executions_unlocked(
         run, agent = pending
         execution_id = f"exec_{uuid.uuid4().hex}"
         try:
-            execution = launch_watchtower_agent(workspace, state, command, execution_id, run, agent, triage_records=triage_records)
+            execution, descriptor = prepare_watchtower_agent(workspace, state, command, execution_id, run, agent, triage_records=triage_records)
         except Exception as exc:
             update_watchtower_agent(workspace, run["runId"], agent["agentId"], status="failed", error_message=str(exc))
             state["lastError"] = str(exc)
@@ -197,8 +212,9 @@ def launch_pending_watchtower_executions_unlocked(
                 message=str(exc),
                 data={"runId": run["runId"], "agentId": agent["agentId"], "executionId": execution_id},
             )
-            return write_runner_state(workspace, state)
+            return write_runner_state(workspace, state), descriptors
         state["activeExecutions"].append(execution)
+        descriptors.append(descriptor)
         state["lastError"] = None
         append_runner_event(
             workspace,
@@ -206,7 +222,7 @@ def launch_pending_watchtower_executions_unlocked(
             data={"executionId": execution_id, "kind": execution["kind"], "runId": run["runId"], "agentId": agent["agentId"]},
         )
         state = write_runner_state(workspace, state)
-    return write_runner_state(workspace, state)
+    return write_runner_state(workspace, state), descriptors
 
 
 def fail_pending_watchtower_agents(workspace: Path, message: str) -> None:
@@ -234,7 +250,7 @@ def next_pending_watchtower_agent(workspace: Path) -> tuple[dict[str, Any], dict
     return None
 
 
-def launch_watchtower_agent(
+def prepare_watchtower_agent(
     workspace: Path,
     state: dict[str, Any],
     command: list[str],
@@ -243,7 +259,7 @@ def launch_watchtower_agent(
     agent: dict[str, Any],
     *,
     triage_records: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     agent_id = str(agent["agentId"])
     specialist_id = str(agent.get("specialistId") or "")
     run_dir = watchtower_run_dir(workspace, run["runId"])
@@ -272,22 +288,57 @@ def launch_watchtower_agent(
         )
         kind = "watchtower_review"
 
-    execution = start_local_process_agent_execution(
-        workspace=workspace,
-        command=command,
-        execution_id=execution_id,
-        kind=kind,
-        role=specialist_short_label(specialist_id),
-        prompt=prompt,
-        run_workspace=workspace.expanduser().resolve(),
-        metadata={
-            "watchtowerRunId": run["runId"],
-            "watchtowerAgentId": agent_id,
-            "specialistId": specialist_id,
+    started_at = now_iso()
+    current_dir = execution_dir(workspace, execution_id)
+    current_dir.mkdir(parents=True, exist_ok=False)
+    prompt_path = current_dir / "prompt.txt"
+    prompt_path.write_text(prompt + "\n", encoding="utf-8")
+    role = specialist_short_label(specialist_id)
+    run_workspace = workspace.expanduser().resolve()
+    provider_ref = {
+        "cwd": str(run_workspace),
+        "sessionId": None,
+        "attachable": True,
+    }
+    execution = {
+        "executionId": execution_id,
+        "kind": kind,
+        "role": role,
+        "provider": "electron-session",
+        "providerRef": provider_ref,
+        "startedAt": started_at,
+        "lastSeenAt": started_at,
+        "status": "launching",
+        "watchtowerRunId": run["runId"],
+        "watchtowerAgentId": agent_id,
+        "specialistId": specialist_id,
+    }
+    atomic_write_json(
+        execution_metadata_path(workspace, execution_id),
+        {
+            "schemaVersion": 1,
+            **execution,
+            "command": command,
+            "cwd": str(run_workspace),
+            "prompt": prompt,
+            "promptFile": relative_to_switchboard_root(workspace, prompt_path),
+            "exitCode": None,
+            "completedAt": None,
+            "error": None,
         },
     )
     update_watchtower_agent(workspace, run["runId"], agent_id, status="running", execution_id=execution_id)
-    return execution
+    return execution, {
+        "executionId": execution_id,
+        "system": "watchtower",
+        "workId": run["runId"],
+        "role": role,
+        "displayName": role,
+        "command": command,
+        "cwd": str(run_workspace),
+        "prompt": prompt,
+        "cli": state.get("cli", "codex"),
+    }
 
 
 def run_for_response(workspace: Path, run_id: str) -> dict[str, Any]:
