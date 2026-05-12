@@ -1,5 +1,7 @@
 import { shell } from 'electron'
-import { access, readdir, readFile } from 'fs/promises'
+import { access, readdir, readFile, stat } from 'fs/promises'
+import { extname } from 'path'
+import { pathToFileURL } from 'url'
 import { imageMimeType } from './filesystem-image'
 import { checkWorkspaceFolder, pathExists } from './filesystem-workspace'
 
@@ -23,6 +25,19 @@ export function createFilesystemReadHandlers() {
     async showItemInFolder(targetPath: string) {
       await access(targetPath)
       shell.showItemInFolder(targetPath)
+    },
+    async openHtmlFileInBrowser(targetPath: string) {
+      const extension = extname(targetPath).toLowerCase()
+      if (extension !== '.html' && extension !== '.htm') {
+        throw new Error('Only HTML files can be opened in the browser.')
+      }
+
+      const targetStats = await stat(targetPath)
+      if (!targetStats.isFile()) {
+        throw new Error('Only files can be opened in the browser.')
+      }
+
+      await shell.openExternal(pathToFileURL(targetPath).toString())
     },
   }
 }

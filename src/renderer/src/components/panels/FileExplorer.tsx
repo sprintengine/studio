@@ -10,6 +10,8 @@ import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
 import type { FuturePlanWorkspaceSource } from '../../types/workspace'
 
+const EMPTY_SEARCH_EXCLUDES: string[] = []
+
 type Entry = {
   name: string
   isDir: boolean
@@ -370,6 +372,10 @@ function markdownSourceRelativePath(rootPath: string, entry: Entry): string | nu
   if (!relativePath) return null
 
   return relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+}
+
+function isHtmlFile(entry: Entry): boolean {
+  return !entry.isDir && !entry.gitDeleted && /\.html?$/i.test(entry.name)
 }
 
 function titleCasePlanName(value: string): string {
@@ -1019,6 +1025,7 @@ function ExplorerTree({
         : 'Delete (restart app)'
     const command = await window.api.showContextMenu([
       ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
+      ...(isSingleSelection && entry && isHtmlFile(entry) && canUsePathCommands ? [{ id: 'open-in-browser', label: 'Open in Browser' }] : []),
       ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
       ...(canStartFuturePlan ? [{ id: 'create-markdown-sprintengine', label: 'Start Future Plan...' }] : []),
       ...(isSingleSelection && entry?.isDir && !isSearching && canUsePathCommands
@@ -1038,6 +1045,14 @@ function ExplorerTree({
 
     if (!command) return
     if (command === 'open' && entry) return void activateEntry(entry)
+    if (command === 'open-in-browser' && entry && isHtmlFile(entry)) {
+      try {
+        await window.api.openHtmlFileInBrowser(entry.path)
+      } catch (error) {
+        alert(error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
     if (command === 'open-in-explorer' && entry && !entry.isDir) {
       try {
         await window.api.showItemInFolder(entry.path)
@@ -1501,7 +1516,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
   } = useWorkspaceFolderStatus(workspaceId)
   const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
   const openFile = useWorkspaceStore((s) => s.openFile)
-  const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
+  const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
   const activeFilePath = useWorkspaceStore(
     (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.editorState?.activeFilePath ?? null
   )

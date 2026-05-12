@@ -55,6 +55,7 @@ export const filesystemApi = {
   copyPath: (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:copy', sourcePath, destinationDir),
   deletePath: (targetPath: string) => ipcRenderer.invoke('fs:delete', targetPath),
   showItemInFolder: (targetPath: string) => ipcRenderer.invoke('fs:show-item-in-folder', targetPath),
+  openHtmlFileInBrowser: (targetPath: string) => ipcRenderer.invoke('fs:open-html-file-in-browser', targetPath),
   watchPath: async (path: string, cb: (event: FileWatchEvent) => void) => {
     const watchId = await ipcRenderer.invoke('fs:watch-start', path)
     if (!watchId) {
@@ -98,6 +99,7 @@ export const filesystemApi = {
   | 'copyPath'
   | 'deletePath'
   | 'showItemInFolder'
+  | 'openHtmlFileInBrowser'
   | 'watchPath'
   | 'openDir'
   | 'saveFile'

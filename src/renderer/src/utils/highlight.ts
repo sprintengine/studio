@@ -36,9 +36,9 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'bg-[#1a0a0c]',
     text: 'text-[#ffd5d6]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.22),0_0_24px_-4px_rgba(255,90,95,0.45)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.24),0_0_10px_-6px_rgba(255,90,95,0.20)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.18),0_0_10px_-3px_rgba(255,90,95,0.22)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.22),0_0_6px_-4px_rgba(255,90,95,0.14)]',
     chip: 'bg-[#ff5a5f]/15',
     ringRgba: (a) => `rgba(255, 90, 95, ${a})`,
   },
@@ -50,9 +50,9 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'bg-[#1a0e07]',
     text: 'text-[#ffd9b8]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.22),0_0_24px_-4px_rgba(255,140,66,0.42)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.24),0_0_10px_-6px_rgba(255,140,66,0.18)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.18),0_0_10px_-3px_rgba(255,140,66,0.20)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.22),0_0_6px_-4px_rgba(255,140,66,0.13)]',
     chip: 'bg-[#ff8c42]/15',
     ringRgba: (a) => `rgba(255, 140, 66, ${a})`,
   },
@@ -64,9 +64,9 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'bg-[#1a1408]',
     text: 'text-[#ffe7b3]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.20),0_0_24px_-4px_rgba(255,191,47,0.42)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.22),0_0_10px_-6px_rgba(255,191,47,0.18)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.18),0_0_10px_-3px_rgba(255,191,47,0.20)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.22),0_0_6px_-4px_rgba(255,191,47,0.13)]',
     chip: 'bg-[#ffbf2f]/15',
     ringRgba: (a) => `rgba(255, 191, 47, ${a})`,
   },
@@ -78,9 +78,9 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'bg-[#0a1a0e]',
     text: 'text-[#bdfbd0]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.22),0_0_24px_-4px_rgba(48,209,88,0.40)]',
+      'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.24),0_0_10px_-6px_rgba(48,209,88,0.18)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.18),0_0_10px_-3px_rgba(48,209,88,0.20)]',
+      'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.22),0_0_6px_-4px_rgba(48,209,88,0.13)]',
     chip: 'bg-[#30d158]/15',
     ringRgba: (a) => `rgba(48, 209, 88, ${a})`,
   },
@@ -92,9 +92,9 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'bg-[#15203c]',
     text: 'text-[#dfe6ff]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.25),0_0_24px_-4px_rgba(92,124,255,0.45)]',
+      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.26),0_0_10px_-6px_rgba(92,124,255,0.20)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.20),0_0_10px_-3px_rgba(92,124,255,0.22)]',
+      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.24),0_0_6px_-4px_rgba(92,124,255,0.14)]',
     chip: 'bg-[#5c7cff]/18',
     ringRgba: (a) => `rgba(92, 124, 255, ${a})`,
   },
@@ -106,9 +106,9 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'bg-[#150f2c]',
     text: 'text-[#efe5ff]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.28),0_0_24px_-4px_rgba(167,139,250,0.48)]',
+      'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.28),0_0_10px_-6px_rgba(167,139,250,0.22)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.22),0_0_10px_-3px_rgba(167,139,250,0.24)]',
+      'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.26),0_0_6px_-4px_rgba(167,139,250,0.16)]',
     chip: 'bg-[#a78bfa]/18',
     ringRgba: (a) => `rgba(167, 139, 250, ${a})`,
   },
@@ -120,9 +120,9 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'bg-[#1a0c14]',
     text: 'text-[#ffd6e5]',
     shadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.25),0_0_24px_-4px_rgba(255,126,179,0.45)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.26),0_0_10px_-6px_rgba(255,126,179,0.20)]',
     collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.20),0_0_10px_-3px_rgba(255,126,179,0.22)]',
+      'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.24),0_0_6px_-4px_rgba(255,126,179,0.14)]',
     chip: 'bg-[#ff7eb3]/15',
     ringRgba: (a) => `rgba(255, 126, 179, ${a})`,
   },

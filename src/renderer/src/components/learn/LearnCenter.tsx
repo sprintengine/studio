@@ -13,6 +13,8 @@ type LearnCenterProps = {
   onSettingsTab?: (tabId: string) => void
 }
 
+const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
+
 type CategoryFilter = LearningCategory | 'all'
 
 const CATEGORY_FILTERS: ReadonlyArray<{ id: CategoryFilter; label: string }> = [
@@ -29,7 +31,7 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
   )
-  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? {})
+  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const learning = useWorkspaceStore((s) => s.appSettings.learning)
   const setLearningShowTipsOnStartup = useWorkspaceStore((s) => s.setLearningShowTipsOnStartup)
   const markLearningLessonCompleted = useWorkspaceStore((s) => s.markLearningLessonCompleted)

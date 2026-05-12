@@ -13,6 +13,7 @@ type FilesystemReadIpcDependencies = {
   pathExists(targetPath: string): Promise<boolean>
   checkWorkspaceFolder(targetPath: string): Promise<WorkspaceFolderCheckResult>
   showItemInFolder(targetPath: string): Promise<void>
+  openHtmlFileInBrowser(targetPath: string): Promise<void>
 }
 
 export function registerFilesystemReadIpc(ipcMain: IpcMain, deps: FilesystemReadIpcDependencies): void {
@@ -38,5 +39,9 @@ export function registerFilesystemReadIpc(ipcMain: IpcMain, deps: FilesystemRead
 
   ipcMain.handle('fs:show-item-in-folder', async (_, targetPath: string): Promise<void> => {
     await deps.showItemInFolder(targetPath)
+  })
+
+  ipcMain.handle('fs:open-html-file-in-browser', async (_, targetPath: string): Promise<void> => {
+    await deps.openHtmlFileInBrowser(targetPath)
   })
 }
