@@ -163,11 +163,32 @@ samp,
   animation: skeleton-shimmer 1400ms linear infinite;
 }
 
+/* Status dot pulse — shared keyframe for live indicators.
+ * Color is overridden inline by the consuming element. Brand semantics
+ * (knowledge/brand/BRAND.md): emerald #30d158 = running/live, amber
+ * #ffbf2f or #f2c45f = needs-input/pending, red #ff787c = failed.
+ * Brand allows this animation explicitly under "what communicates state". */
+@keyframes status-dot-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.78);
+  }
+}
+
+.status-dot-pulse {
+  animation: status-dot-pulse 1800ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chip-enter,
   .toast-enter,
   .popover-enter,
-  .skeleton-shimmer {
+  .skeleton-shimmer,
+  .status-dot-pulse {
     animation: none;
   }
   .interactive:active:not(:disabled):not([aria-disabled="true"]) {

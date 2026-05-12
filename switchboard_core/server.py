@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
+import queue as _queue
 import secrets
+import signal
 import threading
 import urllib.parse
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import pty_session
+from .pty_session import get_registry
 from .store import (
+    acquire_runner_process_lock,
+    append_runner_event,
     atomic_write_json,
     now_iso,
     read_runner_state,
@@ -27,12 +33,21 @@ from .store import (
     execution_status,
     execution_worktree_cleanup,
     switchboard_root,
-    SwitchboardError,
 )
 from .watchtower_runner import start_watchtower_review, start_watchtower_triage
 
-SERVER_LOCK_STALE_SECONDS = 5 * 60
 SERVER_API_VERSION = 2
+
+SSE_KEEPALIVE_SECONDS = 15.0
+# Bounded queue so a slow SSE consumer can't grow memory without limit. Each
+# entry is at most one PTY_READ_CHUNK (~4 KB) so the worst-case is ~2 MB.
+SSE_QUEUE_MAX = 512
+
+SIGNAL_MAP: dict[str, int] = {}
+for _sig_name in ("TERM", "INT", "KILL", "HUP", "QUIT"):
+    _resolved = getattr(signal, f"SIG{_sig_name}", None)
+    if _resolved is not None:
+        SIGNAL_MAP[_sig_name] = int(_resolved)
 
 
 class SwitchboardServer(ThreadingHTTPServer):
@@ -55,12 +70,26 @@ class SwitchboardServer(ThreadingHTTPServer):
 def serve(workspace: Path) -> dict[str, Any]:
     root = switchboard_root(workspace)
     server_path = root / "runner" / "server.json"
-    server_lock = acquire_server_lock(root)
+    runner_lock = acquire_runner_process_lock(workspace)
+    pty_session.enable_pty_mode()
+    if not pty_session.pty_mode_enabled():
+        append_runner_event(
+            workspace,
+            "warning",
+            message=(
+                "Live attach is disabled: ptyprocess is not installed. "
+                "Run `.venv/bin/pip install -r requirements.txt` to enable it."
+            ),
+        )
 
     try:
-        stale_descriptor = read_descriptor(server_path)
-        if stale_descriptor and descriptor_server_healthy(stale_descriptor):
-            raise SwitchboardError("Switchboard backend already appears to be running for this workspace.")
+        # We hold the singleton; any leftover descriptor is from a crashed
+        # process. Clear it so clients don't try to attach to a dead server.
+        if read_descriptor(server_path) is not None:
+            try:
+                server_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
         token = secrets.token_urlsafe(24)
         started_at = now_iso()
@@ -86,40 +115,7 @@ def serve(workspace: Path) -> dict[str, Any]:
             remove_descriptor_if_current(server_path, os.getpid())
         return {"ok": True, "server": descriptor}
     finally:
-        release_server_lock(server_lock)
-
-
-def acquire_server_lock(root: Path) -> Path:
-    lock_dir = root / "runner" / ".server.lock"
-    lock_dir.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        lock_dir.mkdir()
-    except FileExistsError as exc:
-        try:
-            metadata = read_descriptor(lock_dir / "metadata.json") or {}
-            age = __import__("time").time() - lock_dir.stat().st_mtime
-        except OSError:
-            metadata = {}
-            age = 0
-        has_pid = isinstance(metadata.get("pid"), int) and metadata.get("pid") > 0
-        if descriptor_process_alive(metadata) or (not has_pid and age <= SERVER_LOCK_STALE_SECONDS):
-            raise SwitchboardError("Switchboard backend already appears to be starting or running for this workspace.") from exc
-        try:
-            (lock_dir / "metadata.json").unlink(missing_ok=True)
-            lock_dir.rmdir()
-            lock_dir.mkdir()
-        except OSError as stale_exc:
-            raise SwitchboardError("Switchboard backend startup lock is held by another process.") from stale_exc
-    atomic_write_json(lock_dir / "metadata.json", {"pid": os.getpid(), "startedAt": now_iso()})
-    return lock_dir
-
-
-def release_server_lock(lock_dir: Path) -> None:
-    try:
-        (lock_dir / "metadata.json").unlink(missing_ok=True)
-        lock_dir.rmdir()
-    except OSError:
-        pass
+        runner_lock.release()
 
 
 def read_descriptor(path: Path) -> dict[str, Any] | None:
@@ -139,38 +135,6 @@ def remove_descriptor_if_current(path: Path, pid: int) -> None:
             pass
 
 
-def descriptor_process_alive(descriptor: dict[str, Any]) -> bool:
-    pid = descriptor.get("pid")
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
-def descriptor_server_healthy(descriptor: dict[str, Any]) -> bool:
-    if not descriptor_process_alive(descriptor):
-        return False
-    host = descriptor.get("host")
-    port = descriptor.get("port")
-    token = descriptor.get("token")
-    if not isinstance(host, str) or not isinstance(port, int) or not isinstance(token, str):
-        return False
-    request = urllib.request.Request(f"http://{host}:{port}/health", headers={"Authorization": f"Bearer {token}"})
-    try:
-        with urllib.request.urlopen(request, timeout=1) as response:
-            if response.status != 200:
-                return False
-            payload = json.loads(response.read().decode("utf-8"))
-            return isinstance(payload, dict) and payload.get("apiVersion") == SERVER_API_VERSION
-    except OSError:
-        return False
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return False
-
-
 class SwitchboardRequestHandler(BaseHTTPRequestHandler):
     server: SwitchboardServer
 
@@ -179,11 +143,19 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path != "/health" and not parsed.path.startswith("/execution/"):
+        if (
+            parsed.path != "/health"
+            and not parsed.path.startswith("/execution/")
+            and parsed.path != "/sessions"
+        ):
             self.respond({"ok": False, "message": "Not found."}, status=404)
             return
         if not self.authorized():
             self.respond({"ok": False, "message": "Unauthorized."}, status=401)
+            return
+        if parsed.path == "/sessions":
+            sessions = [s.snapshot() for s in get_registry().all_sessions()]
+            self.respond({"ok": True, "sessions": sessions})
             return
         if parsed.path.startswith("/execution/"):
             parts = parsed.path.strip("/").split("/")
@@ -199,6 +171,9 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     tail = 200
                 self.respond_or_error(lambda: execution_logs(self.server.workspace, parts[1], stream=stream, tail=tail))
+                return
+            if len(parts) == 3 and parts[2] == "stream":
+                self.handle_session_stream(parts[1])
                 return
             self.respond({"ok": False, "message": "Not found."}, status=404)
             return
@@ -228,6 +203,15 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[2] == "stop":
                 self.respond_or_error(lambda: execution_stop(self.server.workspace, parts[1], reason=payload.get("reason") if isinstance(payload.get("reason"), str) else None))
                 return
+            if len(parts) == 3 and parts[2] == "write":
+                self.respond(self.handle_session_write(parts[1], payload))
+                return
+            if len(parts) == 3 and parts[2] == "resize":
+                self.respond(self.handle_session_resize(parts[1], payload))
+                return
+            if len(parts) == 3 and parts[2] == "signal":
+                self.respond(self.handle_session_signal(parts[1], payload))
+                return
             self.respond({"ok": False, "message": "Not found."}, status=404)
             return
         if parsed.path == "/runner/start":
@@ -248,10 +232,18 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             self.respond(runner_resume(self.server.workspace))
             return
         if parsed.path == "/runner/stop":
-            payload = runner_stop(self.server.workspace)
-            self.respond(payload)
+            response = runner_stop(self.server.workspace)
+            self.respond(response)
             self.server.stop_event.set()
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            grace = payload.get("graceSeconds") if isinstance(payload.get("graceSeconds"), (int, float)) else 3.0
+
+            def _shutdown() -> None:
+                try:
+                    get_registry().shutdown_all(grace_seconds=float(grace))
+                finally:
+                    self.server.shutdown()
+
+            threading.Thread(target=_shutdown, daemon=True).start()
             return
         if parsed.path == "/runner/tick":
             self.respond(runner_tick(self.server.workspace))
@@ -299,3 +291,120 @@ class SwitchboardRequestHandler(BaseHTTPRequestHandler):
             self.respond(fn())
         except Exception as exc:
             self.respond({"ok": False, "message": str(exc)}, status=400)
+
+    def handle_session_write(self, execution_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        session = get_registry().get(execution_id)
+        if not session:
+            return {"ok": False, "message": "Session not found."}
+        data = payload.get("data")
+        if not isinstance(data, str):
+            return {"ok": False, "message": "Missing base64 'data'."}
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except Exception as exc:
+            return {"ok": False, "message": f"Invalid base64: {exc}"}
+        session.write(raw)
+        return {"ok": True}
+
+    def handle_session_resize(self, execution_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        session = get_registry().get(execution_id)
+        if not session:
+            return {"ok": False, "message": "Session not found."}
+        cols = payload.get("cols")
+        rows = payload.get("rows")
+        if not isinstance(cols, int) or not isinstance(rows, int) or cols <= 0 or rows <= 0:
+            return {"ok": False, "message": "Positive integer cols and rows are required."}
+        session.resize(cols, rows)
+        return {"ok": True}
+
+    def handle_session_signal(self, execution_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        session = get_registry().get(execution_id)
+        if not session:
+            return {"ok": False, "message": "Session not found."}
+        name = payload.get("signal", "TERM")
+        if not isinstance(name, str):
+            return {"ok": False, "message": "Invalid signal."}
+        sig = SIGNAL_MAP.get(name.upper())
+        if sig is None:
+            return {"ok": False, "message": f"Unknown signal: {name}"}
+        session.send_signal(int(sig))
+        return {"ok": True}
+
+    def handle_session_stream(self, execution_id: str) -> None:
+        session = get_registry().get(execution_id)
+        if not session:
+            self.respond({"ok": False, "message": "Session not found."}, status=404)
+            return
+
+        events: _queue.Queue[tuple[str, bytes | None]] = _queue.Queue(maxsize=SSE_QUEUE_MAX)
+        overflow_event = threading.Event()
+
+        def on_event(name: str, data: bytes | None) -> None:
+            try:
+                events.put_nowait((name, data))
+            except _queue.Full:
+                # Slow consumer: drop further data and signal a controlled
+                # close. The handler loop will detect this and end the SSE
+                # stream so the bounded queue can't pin memory.
+                overflow_event.set()
+
+        replay, already_closed, unsubscribe = session.attach(on_event)
+
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+        except OSError:
+            unsubscribe()
+            return
+
+        try:
+            if replay:
+                if not self._sse_write("replay", base64.b64encode(replay).decode("ascii")):
+                    return
+            if already_closed:
+                self._sse_write(
+                    "exit",
+                    json.dumps({"exitCode": session.exit_code, "exitedAt": session.exited_at}),
+                )
+                return
+
+            while True:
+                if overflow_event.is_set():
+                    self._sse_write(
+                        "overflow",
+                        json.dumps({"message": "SSE consumer fell behind; closing stream."}),
+                    )
+                    return
+                try:
+                    name, data = events.get(timeout=SSE_KEEPALIVE_SECONDS)
+                except _queue.Empty:
+                    try:
+                        self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                    except OSError:
+                        return
+                    continue
+                if name == "data" and data is not None:
+                    if not self._sse_write("data", base64.b64encode(data).decode("ascii")):
+                        return
+                elif name == "exit":
+                    self._sse_write(
+                        "exit",
+                        json.dumps({"exitCode": session.exit_code, "exitedAt": session.exited_at}),
+                    )
+                    return
+        finally:
+            unsubscribe()
+
+    def _sse_write(self, event_name: str, data_str: str) -> bool:
+        body = f"event: {event_name}\ndata: {data_str}\n\n".encode("utf-8")
+        try:
+            self.wfile.write(body)
+            self.wfile.flush()
+            return True
+        except OSError:
+            return False

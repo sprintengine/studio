@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { ArrowRightIcon, CommentIcon, PlusIcon, PriorityIcon, StatusIcon } from '../AppIcons'
+import { ArrowRightIcon, CommentIcon, PlusIcon, PriorityIcon, StatusDot, StatusIcon } from '../AppIcons'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { ExecutionLogsView } from './ExecutionLogsView'
@@ -12,7 +12,10 @@ import {
   type ActionTone,
 } from '../ui/ActionFeedback'
 import {
+  attentionReasonDescription,
+  attentionReasonLabel,
   BOARD_STATUS_ORDER,
+  deriveAttentionInfo,
   formatRelativeTime,
   groupTasksByStatus,
   legalMoveTargets,
@@ -21,6 +24,7 @@ import {
   sourceLabel,
   statusLabel,
   useSwitchboardData,
+  type SwitchboardAttentionInfo,
 } from '../../utils/switchboardBoard'
 import {
   providerLabel,
@@ -50,6 +54,7 @@ type PendingKey =
   | 'move'
   | 'addComment'
   | 'refresh'
+  | 'retry'
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -91,6 +96,17 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     const executions = runner.state?.activeExecutions ?? []
     for (const execution of executions) {
       if (execution.status) map.set(execution.taskId, execution.status)
+    }
+    return map
+  }, [runner.state])
+
+  const activeExecutionByTaskId = useMemo(() => {
+    const map = new Map<string, SwitchboardRunnerExecution>()
+    const executions = runner.state?.activeExecutions ?? []
+    for (const execution of executions) {
+      if (!execution.status || execution.status === 'active') {
+        map.set(execution.taskId, execution)
+      }
     }
     return map
   }, [runner.state])
@@ -173,6 +189,27 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         setRecentlyMovedId(record.task.id)
         await refresh()
         feedback.notify('detail', 'success', `Moved to ${statusLabel(to)}.`)
+      })
+    },
+    [feedback, folderPath, refresh, runAction]
+  )
+
+  const handleRetry = useCallback(
+    async (record: SwitchboardTaskRecord) => {
+      if (!folderPath) return
+      await runAction('retry', async () => {
+        const result = await window.api.requeueSwitchboardTask({
+          workspaceRoot: folderPath,
+          id: record.task.id,
+          reason: 'retry-from-attention-surface',
+        })
+        if (!result.ok) {
+          feedback.notify('detail', 'error', result.message)
+          return
+        }
+        setRecentlyMovedId(record.task.id)
+        await refresh()
+        feedback.notify('detail', 'success', 'Requeued for another attempt.')
       })
     },
     [feedback, folderPath, refresh, runAction]
@@ -424,14 +461,22 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         {selected ? (
           <BoardDetailPane
             record={selected}
+            workspaceId={workspaceId}
             workspaceRoot={folderPath}
             executionStatus={executionStatusByTaskId.get(selected.task.id) ?? null}
+            activeExecution={activeExecutionByTaskId.get(selected.task.id) ?? null}
+            attentionInfo={deriveAttentionInfo(
+              selected,
+              executionStatusByTaskId.get(selected.task.id) ?? null
+            )}
             commentBody={commentBody}
             onCommentChange={setCommentBody}
             onAddComment={handleAddComment}
             onMove={(to) => void handleMove(selected, to)}
+            onRetry={() => void handleRetry(selected)}
             isMoving={isPending('move')}
             isCommenting={isPending('addComment')}
+            isRetrying={isPending('retry')}
             detailStatus={feedback.statuses.detail ?? null}
             commentStatus={feedback.statuses.comment ?? null}
             onDismissDetailStatus={() => feedback.dismiss('detail')}
@@ -586,8 +631,9 @@ function BoardCard({
   const labels = task.labels.slice(0, 2)
   const commentCount = task.comments.length
   const hasActiveExecutionPointer = Boolean(task.execution.activeExecutionId)
-  const effectiveStatus: SwitchboardExecutionStatus | null = executionStatus
-    ?? (hasActiveExecutionPointer ? 'active' : null)
+  const attentionInfo = deriveAttentionInfo(record, executionStatus)
+  const effectiveStatus: SwitchboardExecutionStatus | null =
+    executionStatus ?? (hasActiveExecutionPointer && !attentionInfo ? 'active' : null)
   const [dragging, setDragging] = useState(false)
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLLIElement>) => {
@@ -648,6 +694,12 @@ function BoardCard({
             <CommentIcon className="h-3 w-3 shrink-0" />
             <span className="tabular-nums">{commentCount}</span>
           </span>
+        ) : null}
+        {attentionInfo ? (
+          <StatusDot
+            tone="needs-input"
+            label={`Needs your input · ${attentionReasonLabel(attentionInfo.reason)}`}
+          />
         ) : null}
         {effectiveStatus ? (
           <ExecutionStatusBadge status={effectiveStatus} title={executionTitle(record)} />
@@ -723,6 +775,44 @@ function ExecutionStatusBadge({ status, title }: { status: SwitchboardExecutionS
     >
       {EXECUTION_STATUS_LABELS[status]}
     </span>
+  )
+}
+
+function AttentionStrip({
+  info,
+  onRetry,
+  isRetrying,
+}: {
+  info: SwitchboardAttentionInfo
+  onRetry: () => void
+  isRetrying: boolean
+}) {
+  const attemptsLabel = info.attempts === 1 ? '1 attempt' : `${info.attempts} attempts`
+  return (
+    <div
+      role="status"
+      className="flex items-center gap-3 border-b border-[#1f2025] bg-[#1d1714] px-5 py-2 text-[11.5px] leading-5 text-[#f2c45f]"
+    >
+      <StatusDot tone="needs-input" label="Needs your input" />
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="font-semibold uppercase tracking-[0.08em] text-[#ffd58a]">Needs your input</span>
+        <span className="text-[#9a8456]">·</span>
+        <span className="text-[#f2c45f]">{attentionReasonLabel(info.reason)}</span>
+        <span className="text-[#9a8456] tabular-nums">
+          · {attemptsLabel}
+          {info.lastAttemptAt ? ` · ${formatRelativeTime(info.lastAttemptAt)}` : ''}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={isRetrying}
+        title={attentionReasonDescription(info.reason)}
+        className="interactive inline-flex h-6 shrink-0 items-center rounded border border-[#3a3426] bg-[#221a10] px-2 text-[11px] font-medium text-[#ffe0a3] hover:bg-[#2a210f] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ffbf2f]/60 disabled:opacity-50"
+      >
+        {isRetrying ? 'Retrying…' : 'Retry now'}
+      </button>
+    </div>
   )
 }
 
@@ -810,28 +900,38 @@ function EmptyDetail() {
 
 function BoardDetailPane({
   record,
+  workspaceId,
   workspaceRoot,
   executionStatus,
+  activeExecution,
+  attentionInfo,
   commentBody,
   onCommentChange,
   onAddComment,
   onMove,
+  onRetry,
   isMoving,
   isCommenting,
+  isRetrying,
   detailStatus,
   commentStatus,
   onDismissDetailStatus,
   onDismissCommentStatus,
 }: {
   record: SwitchboardTaskRecord
+  workspaceId: string
   workspaceRoot: string | null
   executionStatus: SwitchboardExecutionStatus | null
+  activeExecution: SwitchboardRunnerExecution | null
+  attentionInfo: SwitchboardAttentionInfo | null
   commentBody: string
   onCommentChange: (next: string) => void
   onAddComment: () => void
   onMove: (to: SwitchboardTaskStatus) => void
+  onRetry: () => void
   isMoving: boolean
   isCommenting: boolean
+  isRetrying: boolean
   detailStatus: ActionStatus | null
   commentStatus: ActionStatus | null
   onDismissDetailStatus: () => void
@@ -839,6 +939,21 @@ function BoardDetailPane({
 }) {
   const task = record.task
   const targets = legalMoveTargets(record.location.folderStatus)
+  const attachable =
+    Boolean(activeExecution) &&
+    Boolean(workspaceRoot) &&
+    activeExecution?.providerRef?.attachable === true
+  const handleViewLive = (): void => {
+    if (!attachable || !activeExecution || !workspaceRoot) return
+    void import('../../utils/modelRegistry').then(({ focusOrAddBackendSessionTab }) => {
+      focusOrAddBackendSessionTab(workspaceId, {
+        executionId: activeExecution.executionId,
+        workspaceRoot,
+        title: `${task.title} · live`,
+        role: activeExecution.role,
+      })
+    })
+  }
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-[#1f2025] px-5 py-4">
@@ -858,6 +973,18 @@ function BoardDetailPane({
           />
         </div>
         <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[#ececee]">{task.title}</h3>
+        {attachable ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={handleViewLive}
+              className="interactive inline-flex h-7 items-center gap-1.5 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60"
+            >
+              <span className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse" style={{ background: '#30d158' }} />
+              View live
+            </button>
+          </div>
+        ) : null}
         {targets.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Move task">
             {targets.map((target) => (
@@ -892,6 +1019,14 @@ function BoardDetailPane({
             <div key={idx}>{warning}</div>
           ))}
         </div>
+      ) : null}
+
+      {attentionInfo ? (
+        <AttentionStrip
+          info={attentionInfo}
+          onRetry={onRetry}
+          isRetrying={isRetrying}
+        />
       ) : null}
 
       <div className="flex-1 overflow-auto px-5 py-4">

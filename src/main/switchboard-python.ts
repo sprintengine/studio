@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import { existsSync, readFileSync, unlinkSync } from 'fs'
 import { dirname, join, resolve } from 'path'
+import { rememberBackendWorkspace } from './backend-session-bridge'
 import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
@@ -161,6 +162,12 @@ function serverDescriptorPath(workspaceRoot: string): string {
 type SwitchboardServerDescriptor = { host: string; port: number; token: string; pid?: number }
 const SWITCHBOARD_SERVER_API_VERSION = 2
 
+export function readSwitchboardServerDescriptor(workspaceRoot: string): SwitchboardServerDescriptor | null {
+  return readServerDescriptor(workspaceRoot)
+}
+
+export type { SwitchboardServerDescriptor }
+
 function readServerDescriptor(workspaceRoot: string): SwitchboardServerDescriptor | null {
   try {
     const parsed = JSON.parse(readFileSync(serverDescriptorPath(workspaceRoot), 'utf-8')) as unknown
@@ -196,6 +203,11 @@ function terminateServerDescriptorProcess(workspaceRoot: string, descriptor: Swi
   removeServerDescriptor(workspaceRoot)
 }
 
+export function forceTerminateSwitchboardBackend(workspaceRoot: string): void {
+  const descriptor = readServerDescriptor(workspaceRoot)
+  terminateServerDescriptorProcess(workspaceRoot, descriptor)
+}
+
 async function backendHealthy(descriptor: SwitchboardServerDescriptor): Promise<boolean> {
   try {
     const response = await fetch(`http://${descriptor.host}:${descriptor.port}/health`, {
@@ -212,6 +224,7 @@ async function backendHealthy(descriptor: SwitchboardServerDescriptor): Promise<
 async function ensureSwitchboardBackend(
   workspaceRoot: string
 ): Promise<{ ok: true; descriptor: SwitchboardServerDescriptor } | { ok: false; message: string }> {
+  rememberBackendWorkspace(workspaceRoot)
   const existing = readServerDescriptor(workspaceRoot)
   if (existing && (await backendHealthy(existing))) return { ok: true, descriptor: existing }
 

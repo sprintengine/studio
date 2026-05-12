@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   SWITCHBOARD_STATUS_LABELS,
+  type SwitchboardExecutionStatus,
   type SwitchboardFileProblem,
   type SwitchboardFolderStatus,
   type SwitchboardReadAllResult,
@@ -214,4 +215,87 @@ export function sourceLabel(record: SwitchboardTaskRecord): string {
 
 export function shortIdentifier(record: SwitchboardTaskRecord): string {
   return record.task.identifier || record.task.id.slice(0, 8)
+}
+
+const CLAIMED_LANE_STATUSES: ReadonlySet<SwitchboardFolderStatus> = new Set([
+  'in_progress',
+  'testing_in_progress',
+  'review_in_progress',
+])
+
+const ABANDONED_EXECUTION_STATUSES: ReadonlySet<SwitchboardExecutionStatus> = new Set([
+  'abandoned',
+  'stopped',
+  'stale',
+  'missing',
+])
+
+export type SwitchboardAttentionReason =
+  | SwitchboardExecutionStatus
+  | 'lost-track'
+
+export type SwitchboardAttentionInfo = {
+  reason: SwitchboardAttentionReason
+  attempts: number
+  lastAttemptAt: string | null
+}
+
+/**
+ * Returns attention info iff the task sits in a claimed lane but its
+ * latest execution is no longer running. Used to flag tasks that the
+ * runner has abandoned (e.g., Electron quit, process crash) so the
+ * user can decide to retry, cancel, or investigate.
+ */
+export function deriveAttentionInfo(
+  record: SwitchboardTaskRecord,
+  liveExecutionStatus: SwitchboardExecutionStatus | null
+): SwitchboardAttentionInfo | null {
+  if (!CLAIMED_LANE_STATUSES.has(record.location.folderStatus)) return null
+  const attempts = record.task.execution.attempts
+  const latest = attempts.length > 0 ? attempts[attempts.length - 1] : null
+  const lastAttemptAt = latest?.completedAt ?? latest?.startedAt ?? null
+
+  if (liveExecutionStatus && ABANDONED_EXECUTION_STATUSES.has(liveExecutionStatus)) {
+    return { reason: liveExecutionStatus, attempts: attempts.length, lastAttemptAt }
+  }
+  // No active execution record, but the task was claimed and the latest
+  // attempt already completed — the runner lost track of it.
+  if (!liveExecutionStatus && latest?.completedAt) {
+    return { reason: 'lost-track', attempts: attempts.length, lastAttemptAt }
+  }
+  return null
+}
+
+export function attentionReasonLabel(reason: SwitchboardAttentionReason): string {
+  switch (reason) {
+    case 'abandoned':
+      return 'Abandoned'
+    case 'stopped':
+      return 'Stopped'
+    case 'stale':
+      return 'Stale'
+    case 'missing':
+      return 'Missing'
+    case 'lost-track':
+      return 'No active execution'
+    default:
+      return reason
+  }
+}
+
+export function attentionReasonDescription(reason: SwitchboardAttentionReason): string {
+  switch (reason) {
+    case 'abandoned':
+      return 'The runner exited before this task completed. Retry to move it back to the queue.'
+    case 'stopped':
+      return 'The execution was stopped before completing. Retry to start a new attempt.'
+    case 'stale':
+      return 'The runner has not heard from this execution recently. Retry or investigate.'
+    case 'missing':
+      return 'The execution disappeared from the runner. Retry to start a new attempt.'
+    case 'lost-track':
+      return 'The task is claimed but no execution is active. Retry to move it back to the queue.'
+    default:
+      return ''
+  }
 }

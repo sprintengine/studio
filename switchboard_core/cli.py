@@ -19,6 +19,7 @@ from .store import (
     PUBLISH_TARGETS,
     SOURCE_TYPES,
     TASK_STATUSES,
+    RunnerAlreadyRunningError,
     SwitchboardError,
     add_comment,
     cancel_task,
@@ -695,6 +696,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.func(args))
+    except RunnerAlreadyRunningError as exc:
+        payload: dict[str, Any] = {
+            "ok": False,
+            "reason": "runner-already-running",
+            "message": str(exc),
+        }
+        if exc.pid is not None:
+            payload["pid"] = exc.pid
+        print(json.dumps(payload, indent=2), file=sys.stderr)
+        return 1
     except SwitchboardError as exc:
         print(json.dumps({"ok": False, "message": str(exc)}, indent=2), file=sys.stderr)
         return 1

@@ -1122,7 +1122,8 @@ class SwitchboardCliTests(unittest.TestCase):
                 timeout=5,
             )
             self.assertNotEqual(duplicate.returncode, 0)
-            self.assertIn("already appears", duplicate.stderr)
+            self.assertIn("already running", duplicate.stderr)
+            self.assertIn("runner-already-running", duplicate.stderr)
         finally:
             process.terminate()
             try:
@@ -1228,17 +1229,33 @@ class SwitchboardCliTests(unittest.TestCase):
             for _ in range(2)
         ]
         try:
+            # Wait until exactly one process has exited. With the
+            # process-level fcntl/msvcrt singleton in place, one of the
+            # two must fail to acquire the lock and exit non-zero; the
+            # other keeps serving. Polling descriptor_path is racy
+            # because the winner can write the descriptor before the
+            # loser's Python interpreter has finished tearing down.
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                exit_codes = [process.poll() for process in processes]
+                if sum(code is not None for code in exit_codes) >= 1:
+                    break
+                time.sleep(0.05)
+            running = [process for process in processes if process.poll() is None]
+            exited = [process for process in processes if process.poll() is not None]
+            self.assertEqual(len(running), 1)
+            self.assertEqual(len(exited), 1)
+            self.assertNotEqual(exited[0].returncode, 0)
+            stderr = exited[0].stderr.read() if exited[0].stderr else ""
+            self.assertIn("Switchboard backend", stderr)
+            self.assertIn("runner-already-running", stderr)
+            self.assertIn(f"\"pid\": {running[0].pid}", stderr)
             descriptor_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "server.json"
             for _ in range(60):
                 if descriptor_path.exists():
                     break
                 time.sleep(0.1)
-            running = [process for process in processes if process.poll() is None]
-            exited = [process for process in processes if process.poll() is not None]
-            self.assertEqual(len(running), 1)
-            self.assertEqual(len(exited), 1)
-            stderr = exited[0].stderr.read() if exited[0].stderr else ""
-            self.assertIn("Switchboard backend", stderr)
+            self.assertTrue(descriptor_path.exists())
         finally:
             for process in processes:
                 if process.poll() is None:
@@ -1299,12 +1316,19 @@ class SwitchboardCliTests(unittest.TestCase):
 
     def test_health_does_not_wait_for_runner_lock(self) -> None:
         self.run_cli(["init", *self.workspace_args()])
+        # Push the supervisor's tick interval far out so it doesn't race the
+        # test for the per-tick lock dir. Without this the supervisor's
+        # first tick (which immediately enters locked_runner) sometimes
+        # holds .runner.lock when the test tries to grab it.
+        env = os.environ.copy()
+        env["SWITCHBOARD_RUNNER_INTERVAL_SECONDS"] = "3600"
         process = subprocess.Popen(
             switchboard_command(["runner", "run", *self.workspace_args()]),
             cwd=REPO_ROOT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
         try:
             descriptor_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "server.json"
@@ -1317,6 +1341,12 @@ class SwitchboardCliTests(unittest.TestCase):
             self.assertIsNotNone(descriptor)
             assert descriptor is not None
             lock_dir = self.workspace / ".multi-code" / "switchboard" / "runner" / ".runner.lock"
+            # Wait for the supervisor's first tick to release the lock
+            # before the test re-acquires it.
+            for _ in range(60):
+                if not lock_dir.exists():
+                    break
+                time.sleep(0.05)
             lock_dir.mkdir()
             try:
                 request = urllib.request.Request(
