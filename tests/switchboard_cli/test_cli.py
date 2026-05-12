@@ -14,7 +14,19 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from switchboard_core.store import runner_command_for
+from switchboard_core.store import (
+    active_github_claim_for_issue,
+    create_execution_worktree,
+    github_issue_branch_for_task,
+    github_issue_ref_for_task,
+    prepare_github_remote_claim,
+    read_github_issue_comments,
+    retire_github_remote_claim,
+    runner_command_for,
+    switchboard_markers_from_body,
+    try_github_sync,
+    SwitchboardError,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -149,6 +161,163 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("Switchboard", completed.stdout)
+
+    def test_github_issue_source_identity_parses_external_key_and_url(self) -> None:
+        from_key = {
+            "id": "task-1",
+            "source": {
+                "type": "github",
+                "externalKey": "owner/repo#123",
+                "externalUrl": None,
+            },
+        }
+        from_url = {
+            "id": "task-2",
+            "source": {
+                "type": "github",
+                "externalKey": None,
+                "externalUrl": "https://github.com/owner/repo/issues/456",
+            },
+        }
+
+        self.assertEqual(github_issue_ref_for_task(from_key), {"owner": "owner", "repo": "repo", "number": 123})
+        self.assertEqual(github_issue_branch_for_task(from_key), "switchboard/issue-123")
+        self.assertEqual(github_issue_ref_for_task(from_url), {"owner": "owner", "repo": "repo", "number": 456})
+
+    def test_switchboard_github_marker_parser_extracts_claim_metadata(self) -> None:
+        body = (
+            "Switchboard claimed this issue.\n\n"
+            "<!-- multicode:switchboard event=claim task=550e8400-e29b-41d4-a716-446655440000 "
+            "state=active owner=switchboard-developer branch=switchboard/issue-123 -->"
+        )
+
+        markers = switchboard_markers_from_body(body)
+
+        self.assertEqual(len(markers), 1)
+        self.assertEqual(markers[0]["event"], "claim")
+        self.assertEqual(markers[0]["task"], "550e8400-e29b-41d4-a716-446655440000")
+        self.assertEqual(markers[0]["state"], "active")
+        self.assertEqual(markers[0]["branch"], "switchboard/issue-123")
+
+    def test_active_github_claim_ignores_same_task_and_returns_conflict(self) -> None:
+        ref = {"owner": "owner", "repo": "repo", "number": 123}
+        own_comments = [
+            {
+                "id": 1,
+                "body": "<!-- multicode:switchboard event=claim task=same-task state=active owner=agent-a branch=switchboard/issue-123 -->",
+            },
+        ]
+        conflict_comments = [
+            {
+                "id": 2,
+                "body": "<!-- multicode:switchboard event=claim task=other-task state=active owner=agent-b branch=switchboard/issue-123 -->",
+            },
+        ]
+
+        with patch("switchboard_core.store.read_github_issue_comments", return_value=own_comments):
+            self.assertIsNone(active_github_claim_for_issue(self.workspace, ref, task_id="same-task"))
+        with patch("switchboard_core.store.read_github_issue_comments", return_value=conflict_comments):
+            conflict = active_github_claim_for_issue(self.workspace, ref, task_id="new-task")
+
+        self.assertIsNotNone(conflict)
+        self.assertEqual(conflict["marker"]["task"], "other-task")
+
+    def test_read_github_issue_comments_flattens_paginated_slurp_output(self) -> None:
+        ref = {"owner": "owner", "repo": "repo", "number": 123}
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps([[{"id": 1, "body": "first"}], [{"id": 2, "body": "second"}]]),
+            stderr="",
+        )
+
+        with patch("switchboard_core.store.require_gh"), patch("switchboard_core.store.run_gh_checked", return_value=completed) as run_gh:
+            comments = read_github_issue_comments(self.workspace, ref)
+
+        self.assertEqual([comment["id"] for comment in comments], [1, 2])
+        self.assertIn("--paginate", run_gh.call_args.args[1])
+        self.assertIn("--slurp", run_gh.call_args.args[1])
+
+    def test_try_github_sync_records_failure_without_raising(self) -> None:
+        task = {
+            "id": "task-1",
+            "comments": [],
+            "updatedAt": "2026-05-12T12:00:00Z",
+        }
+
+        next_task, failure = try_github_sync(task, lambda: (_ for _ in ()).throw(SwitchboardError("gh unavailable")))
+
+        self.assertEqual(failure, "gh unavailable")
+        self.assertEqual(len(next_task["comments"]), 1)
+        self.assertIn("GitHub sync failed", next_task["comments"][0]["body"])
+
+    def test_retire_github_remote_claim_updates_claim_marker_state(self) -> None:
+        task = {
+            "id": "task-1",
+            "branchName": "switchboard/issue-123",
+            "source": {
+                "type": "github",
+                "externalKey": "owner/repo#123",
+            },
+        }
+
+        with patch("switchboard_core.store.post_or_update_github_issue_comment") as post:
+            retire_github_remote_claim(self.workspace, task, state="testing", body="Published to testing.")
+
+        self.assertEqual(post.call_args.kwargs["event"], "claim")
+        self.assertEqual(post.call_args.kwargs["marker_fields"]["state"], "testing")
+        self.assertEqual(post.call_args.kwargs["marker_fields"]["branch"], "switchboard/issue-123")
+
+    def test_prepare_github_remote_claim_reuses_canonical_branch_without_active_claim(self) -> None:
+        task = {
+            "id": "task-1",
+            "source": {
+                "type": "github",
+                "externalKey": "owner/repo#123",
+            },
+        }
+
+        with (
+            patch("switchboard_core.store.active_github_claim_for_issue", return_value=None),
+            patch("switchboard_core.store.has_active_github_claim_for_task", return_value=False),
+            patch("switchboard_core.store.remote_branch_exists", return_value=True),
+            patch("switchboard_core.store.post_or_update_github_issue_comment") as post,
+        ):
+            prepare_github_remote_claim(self.workspace, task, owner="developer-1", branch="switchboard/issue-123")
+
+        self.assertEqual(post.call_args.kwargs["event"], "claim")
+        self.assertEqual(post.call_args.kwargs["marker_fields"]["state"], "active")
+
+    def test_create_execution_worktree_uses_remote_canonical_branch_when_local_missing(self) -> None:
+        remote = self.workspace / "remote.git"
+        seed = self.workspace / "seed"
+        clone = self.workspace / "clone"
+
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(["git", "clone", str(remote), str(seed)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(["git", "config", "user.email", "switchboard@example.test"], cwd=seed, check=True)
+        subprocess.run(["git", "config", "user.name", "Switchboard Test"], cwd=seed, check=True)
+        (seed / "README.md").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=seed, check=True)
+        subprocess.run(["git", "commit", "-m", "base"], cwd=seed, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(["git", "push", "origin", "HEAD:main"], cwd=seed, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(["git", "checkout", "-b", "switchboard/issue-123"], cwd=seed, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        (seed / "feature.txt").write_text("remote branch work\n", encoding="utf-8")
+        subprocess.run(["git", "add", "feature.txt"], cwd=seed, check=True)
+        subprocess.run(["git", "commit", "-m", "remote branch"], cwd=seed, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(["git", "push", "origin", "switchboard/issue-123"], cwd=seed, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        subprocess.run(["git", "clone", str(remote), str(clone)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(["git", "checkout", "main"], cwd=clone, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.assertNotEqual(
+            subprocess.run(["git", "show-ref", "--verify", "--quiet", "refs/heads/switchboard/issue-123"], cwd=clone).returncode,
+            0,
+        )
+
+        worktree = create_execution_worktree(clone, "550e8400-e29b-41d4-a716-446655440000", "exec_remote123", branch_name="switchboard/issue-123")
+
+        self.assertEqual(worktree["worktreeBranch"], "switchboard/issue-123")
+        self.assertEqual((Path(worktree["worktreePath"]) / "feature.txt").read_text(encoding="utf-8"), "remote branch work\n")
 
     def test_init_creates_full_folder_model_and_locks(self) -> None:
         payload = stdout_json(self.run_cli(["init", *self.workspace_args()]))

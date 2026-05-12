@@ -334,6 +334,9 @@ MVP shortcut:
 - Source metadata on every task: Manual, Watchtower, GitHub, Jira, Campaign,
   Sprint Engine follow-up.
 - Human vs agent ownership metadata.
+- GitHub-sourced task claim coordination through visible issue comments and
+  canonical branches so separate local clones do not silently work the same
+  external issue.
 - Basic duplicate detection for Watchtower findings.
 - A task detail view showing linked finding, linked run, evidence, and artifacts.
 - Notes comparing Switchboard to OpenAI Symphony without claiming direct
@@ -349,6 +352,8 @@ MVP shortcut:
 - Separate Watchtower Kanban board.
 - Separate Campaign Kanban board.
 - Full bidirectional GitHub/Jira sync.
+- Private/internal-only comment sync controls for GitHub-sourced Switchboard
+  work.
 - Complex multi-board routing.
 - Removing Sprint Engine's internal run board.
 - Rewriting Sprint Engine as a generic board column system.

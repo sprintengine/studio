@@ -997,6 +997,10 @@ def branch_for_execution(task_id: str, execution_id: str) -> str:
     return f"switchboard/{sanitized_branch_component(task_id)[:12]}/{sanitized_branch_component(execution_id)[:18]}"
 
 
+def github_issue_branch(issue_number: int) -> str:
+    return f"switchboard/issue-{issue_number}"
+
+
 def relative_to_switchboard_root(workspace: Path, path: Path) -> str:
     return str(path.resolve().relative_to(switchboard_root(workspace).resolve()))
 
@@ -1009,7 +1013,7 @@ def validate_worktree_path(workspace: Path, path: Path) -> Path:
     return resolved
 
 
-def create_execution_worktree(workspace: Path, task_id: str, execution_id: str) -> dict[str, str]:
+def create_execution_worktree(workspace: Path, task_id: str, execution_id: str, *, branch_name: str | None = None) -> dict[str, str]:
     errors = validate_worktree_capability(workspace)
     if errors:
         raise SwitchboardError(" ".join(errors))
@@ -1017,9 +1021,21 @@ def create_execution_worktree(workspace: Path, task_id: str, execution_id: str) 
     validate_worktree_path(workspace, target)
     if target.exists():
         raise SwitchboardError("Switchboard execution worktree already exists.")
-    branch = branch_for_execution(task_id, execution_id)
+    branch = branch_name.strip() if isinstance(branch_name, str) and branch_name.strip() else branch_for_execution(task_id, execution_id)
+    existing_branch = run_git_checked(workspace, ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], allow_failure=True)
+    existing_remote_branch = run_git_checked(workspace, ["ls-remote", "--heads", "origin", branch], allow_failure=True)
+    remote_branch_exists_for_worktree = existing_remote_branch.returncode == 0 and bool(existing_remote_branch.stdout.strip())
+    if existing_branch.returncode != 0 and remote_branch_exists_for_worktree:
+        run_git_checked(workspace, ["fetch", "origin", f"{branch}:refs/remotes/origin/{branch}"])
+    command = ["git", "-C", str(workspace.expanduser().resolve()), "worktree", "add"]
+    if existing_branch.returncode == 0:
+        command.extend([str(target), branch])
+    elif remote_branch_exists_for_worktree:
+        command.extend(["-b", branch, str(target), f"origin/{branch}"])
+    else:
+        command.extend(["-b", branch, str(target), "HEAD"])
     completed = subprocess.run(
-        ["git", "-C", str(workspace.expanduser().resolve()), "worktree", "add", "-b", branch, str(target), "HEAD"],
+        command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -1336,7 +1352,14 @@ def prepare_electron_session_execution(
         execution_id = f"exec_{uuid.uuid4().hex}"
         worktree: dict[str, str] | None = None
         try:
-            worktree = create_execution_worktree(workspace, located.task["id"], execution_id) if queue == "ready" else None
+            worktree = create_execution_worktree(
+                workspace,
+                located.task["id"],
+                execution_id,
+                branch_name=located.task.get("branchName") if isinstance(located.task.get("branchName"), str) else None,
+            ) if queue == "ready" else None
+            if worktree and github_issue_ref_for_task(located.task):
+                push_github_coordination_branch(Path(worktree["worktreePath"]), worktree["worktreeBranch"])
             run_workspace = Path(worktree["worktreePath"]) if worktree else workspace.expanduser().resolve()
             prompt = build_runner_prompt(
                 workspace=workspace,
@@ -1397,6 +1420,10 @@ def prepare_electron_session_execution(
                     remove_worktree_path(workspace, Path(worktree["worktreePath"]), force=True)
                 except SwitchboardError:
                     pass
+            try:
+                requeue_task(workspace, located.task["id"], reason="Switchboard runner could not prepare the execution after claiming the task.")
+            except SwitchboardError:
+                pass
             raise
 
         state["activeExecutions"].append(execution)
@@ -2477,7 +2504,24 @@ def add_comment(
             "updatedAt": now,
         }
         atomic_write_json(located.path, task)
-        return read_task_file(located.path, located.folder_status)
+        synced = read_task_file(located.path, located.folder_status)
+        if github_issue_ref_for_task(synced.task):
+            next_task, failure = try_github_sync(
+                synced.task,
+                lambda: sync_github_lifecycle_comment(
+                    workspace,
+                    synced.task,
+                    event=f"comment-{comment['id']}",
+                    body=(
+                        f"Switchboard comment from {author_name}:\n\n"
+                        f"{body.strip()}"
+                    ),
+                ),
+            )
+            if failure:
+                atomic_write_json(located.path, next_task)
+                synced = read_task_file(located.path, located.folder_status)
+        return synced
 
 
 def lock_metadata(lock_file: Path) -> dict[str, Any] | None:
@@ -2615,7 +2659,29 @@ def move_task(workspace: Path, task_id: str, to_status: str, *, owner: str = "sw
         atomic_write_json(located.path, task)
         if destination != located.path:
             os.replace(located.path, destination)
-        return read_task_file(destination, target)
+        moved = read_task_file(destination, target)
+        if github_issue_ref_for_task(moved.task) and located.folder_status != target:
+            def sync_move() -> None:
+                if located.folder_status == "in_progress" and target != "in_progress":
+                    retire_github_remote_claim(
+                        workspace,
+                        moved.task,
+                        state=target,
+                        body=f"Switchboard moved this task from {located.folder_status} to {target}.",
+                    )
+                sync_github_lifecycle_comment(
+                    workspace,
+                    moved.task,
+                    event=f"status-{target}",
+                    state=target,
+                    body=f"Switchboard moved this task from {located.folder_status} to {target}.",
+                )
+
+            next_task, failure = try_github_sync(moved.task, sync_move)
+            if failure:
+                atomic_write_json(destination, next_task)
+                moved = read_task_file(destination, target)
+        return moved
 
 
 def promote_task(workspace: Path, task_id: str) -> LocatedTask:
@@ -2666,7 +2732,27 @@ def cancel_task(workspace: Path, task_id: str, *, reason: str | None = None) -> 
         atomic_write_json(located.path, task)
         if destination != located.path:
             os.replace(located.path, destination)
-        return read_task_file(destination, target)
+        canceled = read_task_file(destination, target)
+        if github_issue_ref_for_task(canceled.task):
+            cancel_body = (
+                f"Switchboard canceled this task."
+                + (f"\n\nReason: {reason.strip()}" if reason and reason.strip() else "")
+            )
+            def sync_cancel() -> None:
+                retire_github_remote_claim(workspace, canceled.task, state=target, body=cancel_body)
+                sync_github_lifecycle_comment(
+                    workspace,
+                    canceled.task,
+                    event="canceled",
+                    state=target,
+                    body=cancel_body,
+                )
+
+            next_task, failure = try_github_sync(canceled.task, sync_cancel)
+            if failure:
+                atomic_write_json(destination, next_task)
+                canceled = read_task_file(destination, target)
+        return canceled
 
 
 def claim_task(workspace: Path, *, from_status: str, agent: str) -> LocatedTask | None:
@@ -2685,8 +2771,14 @@ def claim_task(workspace: Path, *, from_status: str, agent: str) -> LocatedTask 
             return None
         located = candidates[0]
         now = now_iso()
+        branch_name = located.task.get("branchName") if isinstance(located.task.get("branchName"), str) else None
+        if from_status == "ready":
+            branch_name = github_issue_branch_for_task(located.task) or branch_name
+        if from_status == "ready" and branch_name and github_issue_ref_for_task(located.task):
+            prepare_github_remote_claim(workspace, located.task, owner=agent.strip(), branch=branch_name)
         task = {
             **located.task,
+            "branchName": branch_name or located.task.get("branchName"),
             "claim": {
                 "owner": agent.strip(),
                 "sessionId": None,
@@ -2871,6 +2963,238 @@ def require_gh() -> None:
         raise SwitchboardError("GitHub CLI executable 'gh' was not found; cannot create a pull request.")
 
 
+GITHUB_ISSUE_URL_RE = re.compile(r"^https://github\.com/([^/]+)/([^/]+)/issues/(\d+)(?:[/?#].*)?$")
+GITHUB_EXTERNAL_KEY_RE = re.compile(r"^([^/\s]+)/([^#\s]+)#(\d+)$")
+SWITCHBOARD_GITHUB_MARKER_RE = re.compile(r"<!--\s*multicode:switchboard\s+([^>]*)-->")
+
+
+def parse_marker_attributes(raw: str) -> dict[str, str]:
+    attributes: dict[str, str] = {}
+    for match in re.finditer(r"([A-Za-z][A-Za-z0-9_-]*)=([^\s>]+)", raw):
+        attributes[match.group(1)] = match.group(2).strip("\"'")
+    return attributes
+
+
+def switchboard_markers_from_body(body: str) -> list[dict[str, str]]:
+    markers: list[dict[str, str]] = []
+    for match in SWITCHBOARD_GITHUB_MARKER_RE.finditer(body):
+        attributes = parse_marker_attributes(match.group(1))
+        if attributes:
+            markers.append(attributes)
+    return markers
+
+
+def github_issue_ref_for_task(task: dict[str, Any]) -> dict[str, Any] | None:
+    source = task.get("source") if isinstance(task.get("source"), dict) else {}
+    if source.get("type") != "github":
+        return None
+    external_key = source.get("externalKey")
+    if isinstance(external_key, str):
+        match = GITHUB_EXTERNAL_KEY_RE.match(external_key.strip())
+        if match:
+            return {"owner": match.group(1), "repo": match.group(2), "number": int(match.group(3))}
+    external_url = source.get("externalUrl")
+    if isinstance(external_url, str):
+        match = GITHUB_ISSUE_URL_RE.match(external_url.strip())
+        if match:
+            return {"owner": match.group(1), "repo": match.group(2), "number": int(match.group(3))}
+    return None
+
+
+def github_issue_api_path(ref: dict[str, Any], suffix: str = "") -> str:
+    return f"repos/{ref['owner']}/{ref['repo']}/issues/{ref['number']}{suffix}"
+
+
+def github_issue_branch_for_task(task: dict[str, Any]) -> str | None:
+    ref = github_issue_ref_for_task(task)
+    if not ref:
+        return None
+    return github_issue_branch(int(ref["number"]))
+
+
+def github_issue_related_line(task: dict[str, Any]) -> str | None:
+    ref = github_issue_ref_for_task(task)
+    if not ref:
+        return None
+    return f"Related to #{ref['number']}"
+
+
+def read_github_issue_comments(workspace: Path, ref: dict[str, Any]) -> list[dict[str, Any]]:
+    require_gh()
+    completed = run_gh_checked(workspace, ["api", "--paginate", "--slurp", f"{github_issue_api_path(ref, '/comments')}?per_page=100"])
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise SwitchboardError("GitHub issue comments returned invalid JSON.") from exc
+    if not isinstance(payload, list):
+        raise SwitchboardError("GitHub issue comments returned an unexpected response shape.")
+    if payload and all(isinstance(page, list) for page in payload):
+        return [item for page in payload for item in page if isinstance(item, dict)]
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def marker_matches_comment(comment: dict[str, Any], *, task_id: str | None = None, event: str | None = None) -> dict[str, str] | None:
+    body = comment.get("body")
+    if not isinstance(body, str):
+        return None
+    for marker in switchboard_markers_from_body(body):
+        if task_id is not None and marker.get("task") != task_id:
+            continue
+        if event is not None and marker.get("event") != event:
+            continue
+        return marker
+    return None
+
+
+def active_github_claim_for_issue(workspace: Path, ref: dict[str, Any], *, task_id: str) -> dict[str, Any] | None:
+    for comment in read_github_issue_comments(workspace, ref):
+        marker = marker_matches_comment(comment, event="claim")
+        if not marker:
+            continue
+        state = marker.get("state", "active")
+        if state not in {"active", "claimed", "in_progress"}:
+            continue
+        if marker.get("task") == task_id:
+            continue
+        return {"comment": comment, "marker": marker}
+    return None
+
+
+def has_active_github_claim_for_task(workspace: Path, ref: dict[str, Any], *, task_id: str) -> bool:
+    for comment in read_github_issue_comments(workspace, ref):
+        marker = marker_matches_comment(comment, task_id=task_id, event="claim")
+        if not marker:
+            continue
+        if marker.get("state", "active") in {"active", "claimed", "in_progress"}:
+            return True
+    return False
+
+
+def remote_branch_exists(workspace: Path, branch: str) -> bool:
+    completed = run_git_checked(workspace, ["ls-remote", "--heads", "origin", branch], allow_failure=True)
+    return completed.returncode == 0 and bool(completed.stdout.strip())
+
+
+def push_github_coordination_branch(worktree: Path, branch: str) -> None:
+    run_git_checked(worktree, ["push", "-u", "origin", branch])
+
+
+def post_or_update_github_issue_comment(
+    workspace: Path,
+    task: dict[str, Any],
+    *,
+    event: str,
+    body: str,
+    marker_fields: dict[str, str],
+) -> None:
+    ref = github_issue_ref_for_task(task)
+    if not ref:
+        return
+    require_gh()
+    marker = " ".join([f"{key}={value}" for key, value in marker_fields.items()])
+    full_body = f"{body.strip()}\n\n<!-- multicode:switchboard {marker} -->"
+    existing_comment_id: str | None = None
+    for comment in read_github_issue_comments(workspace, ref):
+        if marker_matches_comment(comment, task_id=str(task.get("id")), event=event):
+            comment_id = comment.get("id")
+            if isinstance(comment_id, int):
+                existing_comment_id = str(comment_id)
+            elif isinstance(comment_id, str) and comment_id:
+                existing_comment_id = comment_id
+            break
+    if existing_comment_id:
+        run_gh_checked(workspace, ["api", f"repos/{ref['owner']}/{ref['repo']}/issues/comments/{existing_comment_id}", "-X", "PATCH", "-f", f"body={full_body}"])
+    else:
+        run_gh_checked(workspace, ["api", github_issue_api_path(ref, "/comments"), "-f", f"body={full_body}"])
+
+
+def append_github_sync_failure_comment(task: dict[str, Any], message: str) -> dict[str, Any]:
+    now = now_iso()
+    return {
+        **task,
+        "updatedAt": now,
+        "comments": [
+            *task.get("comments", []),
+            {
+                "id": str(uuid.uuid4()),
+                "author": {"type": "system", "id": "switchboard-github", "name": "Switchboard GitHub Sync"},
+                "kind": "comment",
+                "body": f"GitHub sync failed after the local Switchboard update: {message}",
+                "createdAt": now,
+            },
+        ],
+    }
+
+
+def try_github_sync(task: dict[str, Any], sync: Any) -> tuple[dict[str, Any], str | None]:
+    try:
+        sync()
+        return task, None
+    except SwitchboardError as exc:
+        return append_github_sync_failure_comment(task, str(exc)), str(exc)
+
+
+def prepare_github_remote_claim(workspace: Path, task: dict[str, Any], *, owner: str, branch: str) -> None:
+    ref = github_issue_ref_for_task(task)
+    if not ref:
+        return
+    conflict = active_github_claim_for_issue(workspace, ref, task_id=str(task["id"]))
+    own_active_claim = has_active_github_claim_for_task(workspace, ref, task_id=str(task["id"]))
+    if conflict:
+        marker = conflict["marker"]
+        claimed_by = marker.get("owner") or "another Switchboard user"
+        claimed_branch = marker.get("branch")
+        details = f" Branch: {claimed_branch}." if claimed_branch else ""
+        raise SwitchboardError(f"GitHub issue already has an active Switchboard claim by {claimed_by}.{details}")
+    if remote_branch_exists(workspace, branch) and not (own_active_claim or branch == github_issue_branch_for_task(task)):
+        raise SwitchboardError(f"GitHub branch {branch} already exists for this issue.")
+    post_or_update_github_issue_comment(
+        workspace,
+        task,
+        event="claim",
+        body=(
+            f"Switchboard claimed this issue for {owner}.\n\n"
+            f"Task: {task['id']}\n"
+            f"Branch: `{branch}`"
+        ),
+        marker_fields={
+            "event": "claim",
+            "task": str(task["id"]),
+            "state": "active",
+            "owner": sanitized_branch_component(owner),
+            "branch": branch,
+        },
+    )
+
+
+def retire_github_remote_claim(workspace: Path, task: dict[str, Any], *, state: str, body: str) -> None:
+    ref = github_issue_ref_for_task(task)
+    if not ref:
+        return
+    branch = task.get("branchName") if isinstance(task.get("branchName"), str) and task.get("branchName").strip() else github_issue_branch_for_task(task)
+    fields = {
+        "event": "claim",
+        "task": str(task["id"]),
+        "state": state,
+    }
+    if branch:
+        fields["branch"] = branch
+    post_or_update_github_issue_comment(workspace, task, event="claim", body=body, marker_fields=fields)
+
+
+def sync_github_lifecycle_comment(workspace: Path, task: dict[str, Any], *, event: str, body: str, state: str | None = None) -> None:
+    ref = github_issue_ref_for_task(task)
+    if not ref:
+        return
+    marker = {
+        "event": event,
+        "task": str(task["id"]),
+    }
+    if state:
+        marker["state"] = state
+    post_or_update_github_issue_comment(workspace, task, event=event, body=body, marker_fields=marker)
+
+
 def create_or_reuse_pull_request(workspace: Path, task: dict[str, Any], evidence: dict[str, Any]) -> str | None:
     execution = task.get("execution") if isinstance(task.get("execution"), dict) else {}
     execution_id = execution.get("activeExecutionId")
@@ -2893,12 +3217,13 @@ def create_or_reuse_pull_request(workspace: Path, task: dict[str, Any], evidence
     title = compact_commit_subject(str(task.get("title") or task.get("identifier") or task.get("id") or "Switchboard task"))
     summary = evidence.get("summary") if isinstance(evidence.get("summary"), str) else ""
     body = "\n".join(
-        [
+        [item for item in [
+            github_issue_related_line(task),
             f"Switchboard task: {task.get('id')}",
             f"Execution: {execution_id}",
             "",
             summary,
-        ]
+        ] if item is not None]
     ).strip()
     created = run_gh_checked(worktree, ["pr", "create", "--head", branch, "--base", base, "--title", title, "--body", body])
     pr_url = parse_url_from_output(created.stdout) or parse_url_from_output(created.stderr)
@@ -2978,7 +3303,29 @@ def publish_task(
         }
         atomic_write_json(located.path, task)
         os.replace(located.path, destination)
-        return read_task_file(destination, to_status)
+        published = read_task_file(destination, to_status)
+        if github_issue_ref_for_task(published.task):
+            publish_body = (
+                f"Switchboard published this task from {located.folder_status} to {to_status}.\n\n"
+                + (f"Pull request: {pull_request_url}\n" if pull_request_url else "")
+                + f"Task: {task_id}"
+            )
+            def sync_publish() -> None:
+                if located.folder_status == "in_progress" and to_status != "in_progress":
+                    retire_github_remote_claim(workspace, published.task, state=to_status, body=publish_body)
+                sync_github_lifecycle_comment(
+                    workspace,
+                    published.task,
+                    event=f"published-{to_status}",
+                    state=to_status,
+                    body=publish_body,
+                )
+
+            next_task, failure = try_github_sync(published.task, sync_publish)
+            if failure:
+                atomic_write_json(destination, next_task)
+                published = read_task_file(destination, to_status)
+        return published
 
 
 def requeue_task(workspace: Path, task_id: str, *, reason: str | None = None) -> LocatedTask:
@@ -3017,7 +3364,28 @@ def requeue_task(workspace: Path, task_id: str, *, reason: str | None = None) ->
             raise SwitchboardError("A Switchboard task already exists in the destination folder.")
         atomic_write_json(located.path, task)
         os.replace(located.path, destination)
-        return read_task_file(destination, target)
+        requeued = read_task_file(destination, target)
+        if github_issue_ref_for_task(requeued.task):
+            requeue_body = (
+                f"Switchboard requeued this task from {located.folder_status} to {target}."
+                + (f"\n\nReason: {reason.strip()}" if reason and reason.strip() else "")
+            )
+            def sync_requeue() -> None:
+                if located.folder_status == "in_progress":
+                    retire_github_remote_claim(workspace, requeued.task, state="requeued", body=requeue_body)
+                sync_github_lifecycle_comment(
+                    workspace,
+                    requeued.task,
+                    event="requeued",
+                    state=target,
+                    body=requeue_body,
+                )
+
+            next_task, failure = try_github_sync(requeued.task, sync_requeue)
+            if failure:
+                atomic_write_json(destination, next_task)
+                requeued = read_task_file(destination, target)
+        return requeued
 
 
 def request_changes_task(workspace: Path, task_id: str, *, reason: str) -> LocatedTask:
@@ -3066,7 +3434,25 @@ def request_changes_task(workspace: Path, task_id: str, *, reason: str) -> Locat
             raise SwitchboardError("A Switchboard task already exists in the destination folder.")
         atomic_write_json(located.path, task)
         os.replace(located.path, destination)
-        return read_task_file(destination, target)
+        requested = read_task_file(destination, target)
+        if github_issue_ref_for_task(requested.task):
+            request_body = f"Switchboard requested changes and moved this task back to {target}.\n\n{reason.strip()}"
+            def sync_request_changes() -> None:
+                if located.folder_status == "in_progress":
+                    retire_github_remote_claim(workspace, requested.task, state="changes_requested", body=request_body)
+                sync_github_lifecycle_comment(
+                    workspace,
+                    requested.task,
+                    event="changes-requested",
+                    state=target,
+                    body=request_body,
+                )
+
+            next_task, failure = try_github_sync(requested.task, sync_request_changes)
+            if failure:
+                atomic_write_json(destination, next_task)
+                requested = read_task_file(destination, target)
+        return requested
 
 
 def normalize_assessment_percent(value: Any, field_name: str) -> int | None:
