@@ -683,7 +683,7 @@ export default function WorkspaceSidebar({
         className={`group relative mx-1.5 my-[1px] flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md text-[13px] transition-colors ${
           sidebarCollapsed
             ? 'justify-center px-0'
-            : 'border-l-[3px] border-l-transparent pl-[19px] pr-2'
+            : 'border-l-[3px] border-l-transparent pl-[30px] pr-1.5'
         } ${
           active
             ? sidebarCollapsed
@@ -767,52 +767,55 @@ export default function WorkspaceSidebar({
               </svg>
             ) : null}
 
-            {tone ? <StatusDot tone={tone} label={activityLabel(activity)} className="ml-0.5" /> : null}
-            {showRecencyText ? (
-              <span
-                className="ml-1 shrink-0 text-[10px] tabular-nums text-[#5a5a63]"
-                title={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
-                aria-label={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
-              >
-                {formatRelativeMs(recency!.lastFinishedAt!, now)}
+            <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end">
+              <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0">
+                {tone ? <StatusDot tone={tone} label={activityLabel(activity)} /> : null}
+                {showRecencyText ? (
+                  <span
+                    className="text-[10px] tabular-nums text-[#5a5a63]"
+                    title={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
+                    aria-label={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
+                  >
+                    {formatRelativeMs(recency!.lastFinishedAt!, now)}
+                  </span>
+                ) : null}
               </span>
-            ) : null}
-
-            <span className="ml-1 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setContextMenu({
-                    workspaceId: workspace.id,
-                    x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
-                    y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
-                  })
-                }}
-                className="inline-flex h-5 w-5 items-center justify-center rounded text-[#5a5a63] hover:bg-[#17181d] hover:text-[#d7d7dc]"
-                aria-label="Workspace actions"
-                title="More actions"
-              >
-                <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                  <circle cx="3.5" cy="8" r="1.2" />
-                  <circle cx="8" cy="8" r="1.2" />
-                  <circle cx="12.5" cy="8" r="1.2" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  handleClose(workspace.id)
-                }}
-                className="inline-flex h-5 w-5 items-center justify-center rounded text-[#5a5a63] hover:bg-[#17181d] hover:text-[#d7d7dc]"
-                aria-label={`Close ${workspace.name}`}
-                title="Close workspace"
-              >
-                <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
-                  <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </button>
+              <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setContextMenu({
+                      workspaceId: workspace.id,
+                      x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
+                      y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
+                    })
+                  }}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded text-[#5a5a63] hover:bg-[#17181d] hover:text-[#d7d7dc]"
+                  aria-label="Workspace actions"
+                  title="More actions"
+                >
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                    <circle cx="3.5" cy="8" r="1.2" />
+                    <circle cx="8" cy="8" r="1.2" />
+                    <circle cx="12.5" cy="8" r="1.2" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleClose(workspace.id)
+                  }}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded text-[#5a5a63] hover:bg-[#17181d] hover:text-[#d7d7dc]"
+                  aria-label={`Close ${workspace.name}`}
+                  title="Close workspace"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+                    <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </span>
             </span>
           </>
         )}
@@ -943,7 +946,6 @@ export default function WorkspaceSidebar({
               <span className="min-w-0 flex-1 truncate text-[12px] font-semibold tracking-[0.02em]">
                 Starred
               </span>
-              <span className="text-[10px] tabular-nums text-[#5a5a63]">{starredWorkspaces.length}</span>
             </header>
             {!starredCollapsed
               ? starredWorkspaces.map((workspace) =>
@@ -1011,7 +1013,6 @@ export default function WorkspaceSidebar({
                   >
                     {group.displayName}
                   </span>
-                  <span className="text-[10px] tabular-nums text-[#5a5a63]">{group.workspaces.length}</span>
                   {group.missing ? (
                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#ffb04a]">
                       Missing
