@@ -15,6 +15,9 @@ type RegisterAppLifecycleOptions = {
   mobileBridge: {
     shutdown(): void
   }
+  terminalRuntime: {
+    shutdown(): void
+  }
   updateService: MulticodeUpdateService
   handleAuthCallback(argv: string[]): void
 }
@@ -22,6 +25,7 @@ type RegisterAppLifecycleOptions = {
 export function registerAppLifecycle({
   diagnosticsEnabled,
   mobileBridge,
+  terminalRuntime,
   updateService,
   handleAuthCallback,
 }: RegisterAppLifecycleOptions): void {
@@ -77,6 +81,7 @@ export function registerAppLifecycle({
     event.preventDefault()
     isShuttingDown = true
     stopAllSwitchboardRunnerLoops()
+    terminalRuntime.shutdown()
     mobileBridge.shutdown()
 
     let settled = false

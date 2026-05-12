@@ -221,6 +221,7 @@ registerMenuDialogIpc(ipcMain)
 registerAppLifecycle({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   mobileBridge,
+  terminalRuntime,
   updateService,
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(multicodeAuth, argv)

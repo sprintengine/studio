@@ -54,6 +54,7 @@ type TerminalIpcHandlers = {
 type TerminalRuntime = {
   commandService: MobileSprintEngineCommandService
   ipcHandlers: TerminalIpcHandlers
+  shutdown(): void
   spawnAgentSession(input: {
     workspaceId?: string
     workspaceRoot: string
@@ -77,6 +78,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
 
   return {
     commandService: createMobileCommandService(),
+    shutdown: disposeAllTerminals,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
     ipcHandlers: {
       spawnTerminal: spawnTerminalFromIpc,
@@ -181,6 +183,12 @@ function disposeTerminal(sessionId: string): void {
     session.process.kill()
   } catch {
     // ignore kill errors if process died first
+  }
+}
+
+function disposeAllTerminals(): void {
+  for (const sessionId of [...terminals.keys()]) {
+    disposeTerminal(sessionId)
   }
 }
 
