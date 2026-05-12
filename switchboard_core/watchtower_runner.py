@@ -347,6 +347,8 @@ def prepare_watchtower_agent(
     execution = {
         "executionId": execution_id,
         "kind": kind,
+        "system": "watchtower",
+        "workId": run["runId"],
         "role": role,
         "provider": "electron-session",
         "providerRef": provider_ref,

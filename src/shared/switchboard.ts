@@ -390,6 +390,7 @@ export type SwitchboardRunnerQueue = 'ready' | 'testing' | 'review'
 export type SwitchboardExecutionProviderKind = 'electron-session'
 export type SwitchboardExecutionStatus = 'launching' | 'active' | 'missing' | 'stale' | 'abandoned' | 'completed' | 'stopped'
 export type SwitchboardExecutionProviderRef = Record<string, string | number | boolean | null>
+export type SwitchboardRunnerExecutionKind = 'switchboard_task' | 'watchtower_review' | 'watchtower_triage'
 
 export type SwitchboardAgentSpawnDescriptor = {
   executionId: string
@@ -418,12 +419,9 @@ export type SwitchboardRunnerWorkspaceInput = {
   workspaceId?: string
 }
 
-export type SwitchboardRunnerExecution = {
+type SwitchboardRunnerExecutionBase = {
   executionId: string
-  taskId: string
   role: string
-  claimedFrom: SwitchboardRunnerQueue
-  claimedStatus: 'in_progress' | 'testing_in_progress' | 'review_in_progress'
   provider: SwitchboardExecutionProviderKind
   providerRef: SwitchboardExecutionProviderRef
   startedAt: string
@@ -433,7 +431,29 @@ export type SwitchboardRunnerExecution = {
   workspaceId?: string | null
   sessionId?: string | null
   status?: SwitchboardExecutionStatus
+  system?: 'switchboard' | 'watchtower'
+  workId?: string
 }
+
+export type SwitchboardTaskRunnerExecution = SwitchboardRunnerExecutionBase & {
+  kind: 'switchboard_task'
+  system?: 'switchboard'
+  taskId: string
+  claimedFrom: SwitchboardRunnerQueue
+  claimedStatus: 'in_progress' | 'testing_in_progress' | 'review_in_progress'
+}
+
+export type SwitchboardWatchtowerRunnerExecution = SwitchboardRunnerExecutionBase & {
+  kind: 'watchtower_review' | 'watchtower_triage'
+  system?: 'watchtower'
+  watchtowerRunId?: string | null
+  watchtowerAgentId?: string | null
+  specialistId?: string | null
+}
+
+export type SwitchboardRunnerExecution =
+  | SwitchboardTaskRunnerExecution
+  | SwitchboardWatchtowerRunnerExecution
 
 export type SwitchboardRunnerState = {
   ok: true

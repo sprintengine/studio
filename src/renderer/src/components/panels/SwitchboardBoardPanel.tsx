@@ -31,6 +31,9 @@ import {
   providerLabel,
   RUNNER_PROVIDERS,
   RUNNER_QUEUES,
+  executionRouteLabel,
+  executionSubjectLabel,
+  isSwitchboardTaskExecution,
   runnerQueueLabel,
   useSwitchboardRunner,
   type RunnerStatusKind,
@@ -96,7 +99,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     const map = new Map<string, SwitchboardExecutionStatus>()
     const executions = runner.state?.activeExecutions ?? []
     for (const execution of executions) {
-      if (execution.status) map.set(execution.taskId, execution.status)
+      if (isSwitchboardTaskExecution(execution) && execution.status) map.set(execution.taskId, execution.status)
     }
     return map
   }, [runner.state])
@@ -105,7 +108,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     const map = new Map<string, SwitchboardRunnerExecution>()
     const executions = runner.state?.activeExecutions ?? []
     for (const execution of executions) {
-      if (!execution.status || execution.status === 'active') {
+      if (isSwitchboardTaskExecution(execution) && (!execution.status || execution.status === 'active')) {
         map.set(execution.taskId, execution)
       }
     }
@@ -1641,11 +1644,9 @@ function ExecutionsSection({
             key={execution.executionId}
             className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#16171b] px-3 py-1.5 text-[11.5px]"
           >
-            <span className="font-mono tabular-nums text-[11px] text-[#8a8a92]">{execution.taskId.slice(0, 8)}</span>
+            <span className="font-mono tabular-nums text-[11px] text-[#8a8a92]">{executionSubjectLabel(execution)}</span>
             <span className="text-[#d7d7dc]">{execution.role || 'unknown role'}</span>
-            <span className="text-[#9a9aa2]">
-              {runnerQueueLabel(execution.claimedFrom)} → {execution.claimedStatus.replace(/_/g, ' ')}
-            </span>
+            <span className="text-[#9a9aa2]">{executionRouteLabel(execution)}</span>
             <span className="text-[#6f7078]">{providerLabel(execution.provider)}</span>
             <span className="text-[#6f7078] tabular-nums">started {formatRelativeTime(execution.startedAt)}</span>
             {tone === 'inactive' && execution.status ? (

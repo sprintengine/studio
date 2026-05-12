@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   SwitchboardExecutionProviderKind,
+  SwitchboardRunnerExecution,
   SwitchboardRunnerQueue,
   SwitchboardRunnerResult,
   SwitchboardRunnerStartInput,
   SwitchboardRunnerState,
+  SwitchboardTaskRunnerExecution,
 } from '../../../shared/switchboard'
 
 export const RUNNER_QUEUES: SwitchboardRunnerQueue[] = ['ready', 'testing', 'review']
@@ -174,4 +176,34 @@ export function providerLabel(provider: SwitchboardExecutionProviderKind): strin
     case 'electron-session':
       return 'session manager'
   }
+}
+
+export function isSwitchboardTaskExecution(execution: SwitchboardRunnerExecution): execution is SwitchboardTaskRunnerExecution {
+  return (
+    execution.kind === 'switchboard_task'
+    && typeof execution.taskId === 'string'
+    && execution.taskId.length > 0
+    && (execution.claimedFrom === 'ready' || execution.claimedFrom === 'testing' || execution.claimedFrom === 'review')
+    && (
+      execution.claimedStatus === 'in_progress'
+      || execution.claimedStatus === 'testing_in_progress'
+      || execution.claimedStatus === 'review_in_progress'
+    )
+  )
+}
+
+export function executionSubjectLabel(execution: SwitchboardRunnerExecution): string {
+  if (isSwitchboardTaskExecution(execution)) return execution.taskId.slice(0, 8)
+  if (execution.watchtowerAgentId) return execution.watchtowerAgentId
+  if (execution.watchtowerRunId) return execution.watchtowerRunId
+  return execution.executionId.slice(0, 8)
+}
+
+export function executionRouteLabel(execution: SwitchboardRunnerExecution): string {
+  if (isSwitchboardTaskExecution(execution)) {
+    return `${runnerQueueLabel(execution.claimedFrom)} -> ${execution.claimedStatus.replace(/_/g, ' ')}`
+  }
+  if (execution.kind === 'watchtower_review') return 'Watchtower review'
+  if (execution.kind === 'watchtower_triage') return 'Watchtower triage'
+  return 'Tracked execution'
 }

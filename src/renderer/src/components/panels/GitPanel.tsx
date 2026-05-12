@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils/gitStatusAppearance'
@@ -64,6 +64,7 @@ type ReviewDiffTarget = {
 }
 
 const MAX_RENDERED_GIT_CHANGES_PER_GROUP = 500
+const GIT_PANEL_AUTO_REFRESH_MS = 10_000
 
 function RefreshGitIcon() {
   return (
@@ -228,6 +229,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const [commitMessage, setCommitMessage] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<GitPanelView>('changes')
+  const refreshAllInFlightRef = useRef(false)
+  const refreshAllQueuedHistoryLoadingRef = useRef<boolean | null>(null)
 
   const refreshWorktreeScopes = useCallback(async () => {
     if (!mainRepoRoot || typeof window.api.listGitWorktrees !== 'function') {
@@ -318,7 +321,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }, [repoRoot])
 
-  const refreshHistory = useCallback(async () => {
+  const refreshHistory = useCallback(async (showLoading = true) => {
     if (!repoRoot || typeof window.api.getGitHistory !== 'function') {
       setHistory({
         status: 'error',
@@ -327,7 +330,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       return
     }
 
-    setHistory({ status: 'loading' })
+    if (showLoading) setHistory({ status: 'loading' })
     try {
       setHistory({ status: 'ready', snapshot: await window.api.getGitHistory(repoRoot, 50) })
     } catch (error) {
@@ -341,14 +344,43 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }, [repoRoot])
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([refresh(), refreshBranches(), refreshHistory(), refreshWorktreeScopes()])
+  const refreshAll = useCallback(async (showHistoryLoading = true) => {
+    if (refreshAllInFlightRef.current) {
+      refreshAllQueuedHistoryLoadingRef.current = Boolean(refreshAllQueuedHistoryLoadingRef.current) || showHistoryLoading
+      return
+    }
+
+    refreshAllInFlightRef.current = true
+    try {
+      let shouldShowHistoryLoading = showHistoryLoading
+      while (true) {
+        refreshAllQueuedHistoryLoadingRef.current = null
+        await Promise.all([refresh(), refreshBranches(), refreshHistory(shouldShowHistoryLoading), refreshWorktreeScopes()])
+
+        const queuedShowHistoryLoading = refreshAllQueuedHistoryLoadingRef.current
+        if (queuedShowHistoryLoading === null) break
+        shouldShowHistoryLoading = queuedShowHistoryLoading
+      }
+    } finally {
+      refreshAllInFlightRef.current = false
+    }
   }, [refresh, refreshBranches, refreshHistory, refreshWorktreeScopes])
 
   useEffect(() => {
     void refreshBranches()
     void refreshHistory()
   }, [refreshBranches, refreshHistory])
+
+  useEffect(() => {
+    if (!repoRoot) return
+
+    const interval = window.setInterval(() => {
+      if (document.hidden) return
+      void refreshAll(false)
+    }, GIT_PANEL_AUTO_REFRESH_MS)
+
+    return () => window.clearInterval(interval)
+  }, [refreshAll, repoRoot])
 
   const statusEntries = useMemo(() => Object.values(status?.files ?? {}), [status])
   const conflictEntries = useMemo(

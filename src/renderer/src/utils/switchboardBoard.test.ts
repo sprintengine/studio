@@ -4,9 +4,15 @@ import {
   attentionReasonLabel,
   deriveAttentionInfo,
 } from './switchboardBoard'
+import {
+  executionRouteLabel,
+  executionSubjectLabel,
+  isSwitchboardTaskExecution,
+} from './switchboardRunner'
 import type {
   SwitchboardExecutionStatus,
   SwitchboardFolderStatus,
+  SwitchboardRunnerExecution,
   SwitchboardTaskRecord,
 } from '../../../shared/switchboard'
 
@@ -131,6 +137,44 @@ run('attentionReasonLabel returns human-readable labels for each reason', () => 
     assert.ok(label.length > 0, `${reason} should have a label`)
     assert.ok(attentionReasonDescription(reason).length > 0, `${reason} should have a description`)
   }
+})
+
+run('runner execution labels handle switchboard task executions', () => {
+  const execution: SwitchboardRunnerExecution = {
+    executionId: 'exec_1234567890',
+    kind: 'switchboard_task',
+    taskId: '11111111-2222-4333-8444-555555555555',
+    role: 'Developer',
+    claimedFrom: 'ready',
+    claimedStatus: 'in_progress',
+    provider: 'electron-session',
+    providerRef: {},
+    startedAt: '2026-05-11T00:00:00Z',
+    lastSeenAt: '2026-05-11T00:00:01Z',
+  }
+
+  assert.equal(isSwitchboardTaskExecution(execution), true)
+  assert.equal(executionSubjectLabel(execution), '11111111')
+  assert.equal(executionRouteLabel(execution), 'Ready -> in progress')
+})
+
+run('runner execution labels handle watchtower executions without task fields', () => {
+  const execution: SwitchboardRunnerExecution = {
+    executionId: 'exec_abcdef1234567890',
+    kind: 'watchtower_review',
+    role: 'Performance Engineer',
+    provider: 'electron-session',
+    providerRef: {},
+    startedAt: '2026-05-11T00:00:00Z',
+    lastSeenAt: '2026-05-11T00:00:01Z',
+    status: 'active',
+    watchtowerRunId: 'watchtower_20260511T223057Z_89e921cf',
+    watchtowerAgentId: 'watchtower-0a097cf8-performance',
+  }
+
+  assert.equal(isSwitchboardTaskExecution(execution), false)
+  assert.equal(executionSubjectLabel(execution), 'watchtower-0a097cf8-performance')
+  assert.equal(executionRouteLabel(execution), 'Watchtower review')
 })
 
 console.log('switchboardBoard attention tests passed')
