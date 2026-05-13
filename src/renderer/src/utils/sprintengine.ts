@@ -30,9 +30,11 @@ import type {
   SprintEngineTaskSourceType,
   SprintEngineTaskTriage,
   SprintEngineTaskComment,
+  SprintEngineTaskNeedsInput,
   SprintEngineState,
   SprintEngineTask,
   SprintEngineTaskStatus,
+  SprintEngineNeedsInputKind,
 } from '../types/workspace'
 
 export type SprintEngineAgentRosterItem = {
@@ -172,6 +174,7 @@ const sprintEngineTaskSourceSyncStatuses: readonly SprintEngineTaskSourceSyncSta
 const sprintEngineTaskDispatchModes: readonly SprintEngineTaskDispatchMode[] = ['dependency', 'manual']
 const sprintEngineTaskDispatchStatuses: readonly SprintEngineTaskDispatchStatus[] = ['todo', 'ready']
 const sprintEngineTaskDispatchTriagedByValues: readonly SprintEngineTaskDispatchTriagedBy[] = ['none', 'user', 'architect']
+const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user', 'artifact', 'tooling', 'verification', 'other']
 
 const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
   'architect_plan',
@@ -305,6 +308,10 @@ function isSprintEngineTaskDispatchTriagedBy(value: unknown): value is SprintEng
   return sprintEngineTaskDispatchTriagedByValues.includes(value as SprintEngineTaskDispatchTriagedBy)
 }
 
+function isSprintEngineNeedsInputKind(value: unknown): value is SprintEngineNeedsInputKind {
+  return sprintEngineNeedsInputKinds.includes(value as SprintEngineNeedsInputKind)
+}
+
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
@@ -352,6 +359,24 @@ function normalizeSprintEngineTaskDispatch(value: unknown): SprintEngineTaskDisp
     ...(status ? { status } : {}),
     ...(triagedBy ? { triagedBy } : {}),
     ...(readyAt ? { readyAt } : {}),
+  }
+}
+
+function normalizeSprintEngineTaskNeedsInput(value: unknown): SprintEngineTaskNeedsInput | undefined {
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  if (!isSprintEngineNeedsInputKind(record.kind)) return undefined
+  const suggestedResolution = optionalTrimmedString(record.suggestedResolution)
+  const reportedBy = optionalTrimmedString(record.reportedBy)
+  const reportedAt = optionalTrimmedString(record.reportedAt)
+
+  return {
+    kind: record.kind,
+    question: typeof record.question === 'string' ? record.question : '',
+    ...(suggestedResolution ? { suggestedResolution } : {}),
+    ...(reportedBy ? { reportedBy } : {}),
+    ...(reportedAt ? { reportedAt } : {}),
   }
 }
 
@@ -971,6 +996,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const triage = normalizeSprintEngineTaskTriage(task.triage)
     const source = normalizeSprintEngineTaskSource(task.source)
     const dispatch = normalizeSprintEngineTaskDispatch(task.dispatch)
+    const needsInput = normalizeSprintEngineTaskNeedsInput(task.needsInput)
     return {
       id: task.id ?? `task-${index + 1}`,
       title: task.title ?? `Task ${index + 1}`,
@@ -989,6 +1015,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       evidence: task.evidence ?? emptyEvidence(),
       ...(feedback ? { feedback } : {}),
       ...(triage ? { triage } : {}),
+      ...(needsInput ? { needsInput } : {}),
       notes: Array.isArray(task.notes) ? task.notes : [],
       comments: normalizeSprintEngineTaskComments(task.comments),
       startedAt: task.startedAt ?? null,

@@ -37,6 +37,8 @@ export type SprintEngineTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'd
 
 export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done'
 
+export type SprintEngineNeedsInputKind = 'architect' | 'user' | 'artifact' | 'tooling' | 'verification' | 'other'
+
 export type SprintEngineArtifactKind =
   | 'architect_plan'
   | 'product_strategy'
@@ -242,6 +244,14 @@ export type SprintEngineTaskDispatch = {
   status?: SprintEngineTaskDispatchStatus
   triagedBy?: SprintEngineTaskDispatchTriagedBy
   readyAt?: string
+}
+
+export type SprintEngineTaskNeedsInput = {
+  kind: SprintEngineNeedsInputKind
+  question: string
+  suggestedResolution?: string
+  reportedBy?: string
+  reportedAt?: string
 }
 
 export type SprintEngineRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'
@@ -512,6 +522,7 @@ export type SprintEngineTask = {
   evidence: SprintEngineTaskEvidence
   feedback?: SprintEngineTaskFeedback
   triage?: SprintEngineTaskTriage
+  needsInput?: SprintEngineTaskNeedsInput
   notes: string[]
   comments: SprintEngineTaskComment[]
   startedAt: string | null

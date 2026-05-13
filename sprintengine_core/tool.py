@@ -36,6 +36,7 @@ VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "
 VALID_TASK_DISPATCH_MODES = {"dependency", "manual"}
 VALID_TASK_DISPATCH_STATUSES = {"todo", "ready"}
 VALID_TASK_DISPATCH_TRIAGED_BY = {"none", "user", "architect"}
+VALID_NEEDS_INPUT_KINDS = {"architect", "user", "artifact", "tooling", "verification", "other"}
 VALID_ARTIFACT_KINDS = {
     "architect_plan",
     "product_strategy",
@@ -1101,6 +1102,26 @@ def normalize_task_dispatch(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
     return dispatch
 
 
+def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise SystemExit(f"Task {task_id} needsInput must be an object.")
+
+    kind = optional_non_empty_string(raw, "kind")
+    if kind not in VALID_NEEDS_INPUT_KINDS:
+        raise SystemExit(
+            f"Task {task_id} needsInput.kind must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_KINDS))}."
+        )
+
+    needs_input: Dict[str, Any] = {"kind": kind}
+    for key in ("question", "suggestedResolution", "reportedBy", "reportedAt"):
+        value = optional_non_empty_string(raw, key)
+        if value is not None:
+            needs_input[key] = value
+    return needs_input
+
+
 def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         raise SystemExit("Each task must be an object.")
@@ -1144,6 +1165,9 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     dispatch = normalize_task_dispatch(raw.get("dispatch"), task_id)
     if dispatch is not None:
         task["dispatch"] = dispatch
+    needs_input = normalize_task_needs_input(raw.get("needsInput"), task_id)
+    if needs_input is not None:
+        task["needsInput"] = needs_input
     if isinstance(raw.get("triage"), dict):
         task["triage"] = raw["triage"]
     return task
@@ -2616,7 +2640,11 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             )
         return (
             "When complete: if you produced findings, issues, or changes_requested, move the task back to "
-            "`needs_input` so the implementer/author can address them. Otherwise, mark it done. "
+            "`needs_input` so the implementer/author can address them. If you move a task to `needs_input`, "
+            "classify it with `--needs-input-kind`: use `architect` for stale plans, impossible acceptance criteria, "
+            "wrong paths, or architectural scope mismatches; use `user` for product decisions or approvals; use "
+            "`tooling` for missing commands/dependencies; use `verification` when real validation cannot be completed. "
+            "Include `--needs-input-question` and, when useful, `--needs-input-suggested-resolution`. Otherwise, mark it done. "
         )
 
     def role_boundary_instruction() -> str:
@@ -2861,7 +2889,24 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         if feedback_args_present(args) and args.status != "done":
             raise SystemExit("Feedback flags on `sprintengine task status` are only supported with --status done.")
+        if args.status != "needs_input" and (
+            getattr(args, "needs_input_kind", None)
+            or getattr(args, "needs_input_question", None)
+            or getattr(args, "needs_input_suggested_resolution", None)
+        ):
+            raise SystemExit("Needs-input fields are only supported with --status needs_input.")
         task["status"] = args.status
+        if args.status == "needs_input":
+            needs_input = {
+                "kind": args.needs_input_kind or "user",
+                "question": (args.needs_input_question or "").strip(),
+                "suggestedResolution": (args.needs_input_suggested_resolution or "").strip(),
+                "reportedBy": actor,
+                "reportedAt": now_iso(),
+            }
+            task["needsInput"] = {key: value for key, value in needs_input.items() if value}
+        elif "needsInput" in task:
+            task.pop("needsInput", None)
         if args.status == "in_progress" and not task.get("startedAt"):
             task["startedAt"] = now_iso()
         if args.status == "done":
@@ -2903,6 +2948,82 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         result["feedbackRecorded"] = True
         result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
     return result
+
+
+def architect_actionable_needs_input_tasks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    tasks = []
+    for task in state.get("tasks", []):
+        if task.get("status") != "needs_input":
+            continue
+        needs_input = task.get("needsInput")
+        if not isinstance(needs_input, dict):
+            continue
+        if needs_input.get("kind") == "architect":
+            tasks.append(task)
+    return tasks
+
+
+def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        ensure_agent_in_roster(state, args.id, "architect")
+        tasks = architect_actionable_needs_input_tasks(state)
+        prompt_lines = [
+            "You are the Sprint Engine architect triaging architect-actionable needs_input tasks.",
+            "",
+            "Goal:",
+            str(state.get("sprintengine", {}).get("goal") or state.get("goal") or ""),
+            "",
+            "Rules:",
+            "- Inspect the blocked task card, notes, evidence, owned paths, and current code before changing the plan.",
+            "- Resolve planning defects by updating task cards or adding follow-up tasks; do not edit application source in this triage mode.",
+            "- Use `sprintengine plan update-task --force` for active task-card corrections.",
+            "- Use `sprintengine plan add-task`, `sprintengine plan add-dependency`, or `sprintengine plan remove-dependency` only when the task graph really needs repair.",
+            "- Add a task note explaining the resolution for the original worker.",
+            "- Leave human-owned decisions as `needs_input` with kind=user; do not guess product intent.",
+            "- When the worker can continue, say so clearly in the note. The original worker still owns implementation and completion evidence.",
+            "",
+        ]
+        if not tasks:
+            prompt_lines.extend([
+                "No architect-actionable needs_input tasks are currently queued.",
+                "Stop now.",
+            ])
+            return {"ok": True, "tasks": [], "prompt": "\n".join(prompt_lines), "write": False}
+
+        prompt_lines.append("Architect-actionable blockers:")
+        for task in tasks:
+            needs_input = task.get("needsInput") if isinstance(task.get("needsInput"), dict) else {}
+            evidence = task.get("evidence") if isinstance(task.get("evidence"), dict) else {}
+            prompt_lines.extend([
+                "",
+                f"- Task: {task.get('id')} - {task.get('title')}",
+                f"  Role/owner: {task.get('role')} / {task.get('ownerAgentId') or 'unowned'}",
+                f"  Question: {needs_input.get('question') or '(not provided)'}",
+                f"  Suggested resolution: {needs_input.get('suggestedResolution') or '(not provided)'}",
+                f"  Description: {task.get('description') or ''}",
+                f"  Owned paths: {', '.join(task.get('ownedPaths') or []) or '(none)'}",
+                f"  Acceptance: {' | '.join(task.get('acceptanceCriteria') or []) or '(none)'}",
+                f"  Notes: {' | '.join(task.get('notes') or []) or '(none)'}",
+                f"  Evidence summary: {evidence.get('summary') or '(none)'}",
+            ])
+
+        return {
+            "ok": True,
+            "tasks": [
+                {
+                    "id": task.get("id"),
+                    "title": task.get("title"),
+                    "role": task.get("role"),
+                    "ownerAgentId": task.get("ownerAgentId"),
+                    "needsInput": task.get("needsInput"),
+                }
+                for task in tasks
+            ],
+            "prompt": "\n".join(prompt_lines),
+            "write": False,
+        }
+
+    return with_locked_state(args.state, run)
 
 
 def cmd_task_ready(args: argparse.Namespace) -> Dict[str, Any]:
@@ -3364,6 +3485,7 @@ Entry points (return full system prompt for the agent):
   sprintengine init [--goal "..."]                                # bootstraps the board; agents claim ready tasks separately
   sprintengine recover
   sprintengine join --role developer --id developer-1
+  sprintengine triage needs-input --id architect
   sprintengine merge start --id architect --target main
 
 Roster commands:
@@ -3374,6 +3496,7 @@ Task commands:
   sprintengine task next   --role developer --id developer-1
   sprintengine task claim  --task-id T3 --id developer-1
   sprintengine task status --task-id T3 --status done --id developer-1
+  sprintengine task status --task-id T3 --status needs_input --id developer-1 --needs-input-kind architect --needs-input-question "Acceptance conflicts with scoped paths"
   sprintengine task status --task-id T3 --status done --id developer-1 --confidence-pct 85 --hallucination-risk-pct 10
   sprintengine task log    --task-id T3 --id developer-1 --summary "..." --file src/foo.ts --command "npm test" --result "Passed"
   sprintengine task note   --task-id T3 --id developer-1 --note "Blocked on X"
@@ -3533,6 +3656,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", required=True, help="Stable agent id, e.g. developer-1.")
     p.set_defaults(handler=cmd_join)
 
+    # triage
+    triage_p = sub.add_parser("triage", help="Architect triage operations.")
+    triage_sub = triage_p.add_subparsers(dest="action", required=True)
+
+    p = triage_sub.add_parser("needs-input", help="Return architect prompt for architect-actionable needs_input blockers.")
+    p.add_argument("--id", default="architect", help="Architect agent id.")
+    p.set_defaults(handler=cmd_triage_needs_input)
+
     # task
     task_p = sub.add_parser("task", help="Task operations.")
     task_sub = task_p.add_subparsers(dest="action", required=True)
@@ -3552,6 +3683,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--status", required=True, choices=sorted(VALID_TASK_STATUSES))
     p.add_argument("--id", help="Agent id.")
     p.add_argument("--summary", help="Completion summary (used when status=done).")
+    p.add_argument("--needs-input-kind", choices=sorted(VALID_NEEDS_INPUT_KINDS), help="Classify a needs_input blocker for routing.")
+    p.add_argument("--needs-input-question", help="Question or blocker that requires input.")
+    p.add_argument("--needs-input-suggested-resolution", help="Optional proposed unblock path.")
     add_feedback_arguments(p)
     p.set_defaults(handler=cmd_task_status)
 

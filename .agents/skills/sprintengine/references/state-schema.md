@@ -98,6 +98,12 @@ The app uses narrow IPC to request artifact review mutations through the Python 
     - `file` (optional)
     - `status` (optional): `open`, `accepted`, `fixed`, `rejected`, or `deferred`; omitted values are treated as `open`
 - `notes`
+- `needsInput` (optional; set when a task is in `needs_input` and needs routed attention)
+  - `kind`: `architect`, `user`, `artifact`, `tooling`, `verification`, or `other`
+  - `question`
+  - `suggestedResolution` (optional)
+  - `reportedBy` (optional)
+  - `reportedAt` (optional)
 - `startedAt`
 - `completedAt`
 

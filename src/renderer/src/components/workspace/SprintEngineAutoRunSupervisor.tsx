@@ -48,6 +48,7 @@ type AutoRunCandidate = {
   label: string
   role: SprintEngineRole
   taskId: string
+  startupPromptOverride?: string
 }
 
 type RoleContinuationGrace = {
@@ -70,6 +71,10 @@ const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
   cliPermissionPreset: 'default',
   maxConcurrentAgents: 3,
   pendingSpawns: [],
+}
+
+function quoteShellArg(value: string): string {
+  return JSON.stringify(value)
 }
 
 function getSprintEngineAutoState(workspace: Workspace | null | undefined): SprintEngineAutoState {
@@ -296,6 +301,29 @@ function describeNeedsInputAutoApprovalState(sprintEngineState: SprintEngineStat
     `Needs-input tasks: ${needsInputTasks.join(', ') || 'none'}`,
     `Ready artifacts: ${readyArtifacts.join(', ') || 'none'}`,
   ]
+}
+
+function getArchitectActionableNeedsInputTasks(sprintEngineState: SprintEngineState): SprintEngineTask[] {
+  return sprintEngineState.tasks.filter((task) =>
+    task.status === 'needs_input' && task.needsInput?.kind === 'architect'
+  )
+}
+
+function buildArchitectNeedsInputTriagePrompt(input: {
+  workspaceFolderPath: string
+  sprintEngineStatePath: string
+  taskIds: string[]
+}): string {
+  const command = `sprintengine --state ${quoteShellArg(input.sprintEngineStatePath)} triage needs-input --id architect`
+  return [
+    'Fetch the canonical Sprint Engine architect triage instructions from the Python tool.',
+    `Worker cwd: ${input.workspaceFolderPath}`,
+    `Shared Sprint Engine state: ${input.sprintEngineStatePath}`,
+    `Architect-actionable needs_input tasks detected: ${input.taskIds.join(', ')}.`,
+    'Run:',
+    `\`\`\`bash\n${command}\n\`\`\``,
+    'Follow the returned prompt. Resolve planning or task-card blockers only; do not edit application source in this triage mode. When the original worker can continue, add a clear task note and stop.',
+  ].join('\n\n')
 }
 
 function getAutoApprovalIntentArtifacts(sprintEngineState: SprintEngineState): SprintEngineArtifact[] {
@@ -1051,7 +1079,7 @@ async function spawnAutoRunCandidate(
       sprintEngineRoleLabels[nextRun.role]
     )
     const startupPrompt = [
-      storedStartupPrompt || generatedStartupPrompt,
+      nextRun.startupPromptOverride ?? storedStartupPrompt ?? generatedStartupPrompt,
       memoryPrompt,
     ].filter(Boolean).join('\n\n')
 
@@ -1071,7 +1099,7 @@ async function spawnAutoRunCandidate(
       cliLastExitCode: undefined,
       cliLastExitedAt: undefined,
       cli: selectedCli,
-      cliStartupPrompt: storedStartupPrompt ? latestAgent?.cliStartupPrompt : undefined,
+      cliStartupPrompt: nextRun.startupPromptOverride || storedStartupPrompt ? latestAgent?.cliStartupPrompt : undefined,
       kind: 'sprintengine',
     })
 
@@ -1241,6 +1269,55 @@ async function startMissingRosterAgents(
   return started ? 'started' : 'none'
 }
 
+async function signalArchitectForNeedsInputTriage(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  pendingSpawns: SprintEngineAutoPendingSpawn[],
+  runningAgentIds: Set<string>,
+  cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  mcpSettings: McpSettings,
+  inFlightSpawns: MutableRefObject<Set<string>>
+): Promise<'started' | 'failed' | 'none'> {
+  if (!workspace.folderPath || !workspace.sprintEngineContext) return 'none'
+
+  const architectBlockers = getArchitectActionableNeedsInputTasks(sprintEngineState)
+  if (architectBlockers.length === 0) return 'none'
+
+  const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
+  const architect = roster.find((candidate) => candidate.role === 'architect')
+  if (!architect) return 'none'
+
+  const spawnKey = `${workspace.id}:${architect.id}`
+  const architectPending = pendingSpawns.some((pending) => pending.agentId === architect.id)
+  if (architectPending || runningAgentIds.has(architect.id) || inFlightSpawns.current.has(spawnKey)) return 'none'
+
+  const result = await spawnAutoRunCandidate(
+    workspace,
+    sprintEngineState,
+    {
+      agentId: architect.id,
+      label: workspace.agents[architect.id]?.name ?? architect.label,
+      role: 'architect',
+      taskId: architectBlockers[0].id,
+      startupPromptOverride: buildArchitectNeedsInputTriagePrompt({
+        workspaceFolderPath: workspace.folderPath,
+        sprintEngineStatePath: workspace.sprintEngineContext.statePath,
+        taskIds: architectBlockers.map((task) => task.id),
+      }),
+    },
+    cliRuntimes,
+    mcpSettings,
+    inFlightSpawns,
+    { trackPendingSpawn: false }
+  )
+  if (result === 'failed') return 'failed'
+  if (result === 'started') {
+    runningAgentIds.add(architect.id)
+    return 'started'
+  }
+  return 'none'
+}
+
 async function superviseWorkspace(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
@@ -1329,10 +1406,42 @@ async function superviseWorkspace(
     continuationCapacity: Object.fromEntries(continuationCapacity.capacityByRole),
   })
 
+  const architectTriageSignal = await signalArchitectForNeedsInputTriage(
+    workspace,
+    sprintEngineState,
+    pendingSpawns,
+    runningAgentIds,
+    cliRuntimes,
+    mcpSettings,
+    inFlightSpawns
+  )
+  if (architectTriageSignal === 'failed') return
+  if (architectTriageSignal === 'started') {
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'architect-needs-input-triage-started',
+      taskIds: getArchitectActionableNeedsInputTasks(sprintEngineState).map((task) => task.id),
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
+  }
+
+  const hasArchitectOnRoster = buildSprintEngineAgentRosterForState(sprintEngineState)
+    .some((candidate) => candidate.role === 'architect')
+  const architectActionableNeedsInputOwnerIds = new Set(
+    hasArchitectOnRoster
+      ? getArchitectActionableNeedsInputTasks(sprintEngineState)
+        .map((task) => task.ownerAgentId)
+        .filter(Boolean) as string[]
+      : []
+  )
+
   const runningNeedsInputAgentIds = Object.entries(sprintEngineState.sprintEngineAgents)
     .filter(([, agent]) => agent.status === 'needs_input')
     .map(([agentId]) => agentId)
     .filter((agentId) => runningAgentIds.has(agentId))
+    .filter((agentId) => !architectActionableNeedsInputOwnerIds.has(agentId))
   if (runningNeedsInputAgentIds.length > 0) {
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
@@ -1349,6 +1458,7 @@ async function superviseWorkspace(
       task.status === 'needs_input'
       && Boolean(task.ownerAgentId)
       && runningAgentIds.has(task.ownerAgentId!)
+      && (!hasArchitectOnRoster || task.needsInput?.kind !== 'architect')
     )
     .map((task) => task.id)
   if (runningNeedsInputTaskIds.length > 0) {

@@ -48,6 +48,10 @@ field order.
 - `implementationNotes`: task-scoped guidance.
 - `evidence`: summary, touched files, commands, and results.
 - `notes`: human or agent notes.
+- `needsInput`: optional routing metadata for `needs_input` tasks.
+  `kind` is one of `architect`, `user`, `artifact`, `tooling`,
+  `verification`, or `other`; `question` records the blocker;
+  `suggestedResolution`, `reportedBy`, and `reportedAt` are optional.
 - `learnedFacts`: execution facts discovered while doing the task.
 - `blockers`: concrete unresolved or resolved execution blockers.
 - `startedAt`, `completedAt`: UTC ISO timestamps or null.

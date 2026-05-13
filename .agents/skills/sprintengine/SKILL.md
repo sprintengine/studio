@@ -22,9 +22,11 @@ API discovery:
 - On Windows, if `.\scripts\sprintengine.cmd` cannot run, immediately retry with the repo venv command: `& ".\.venv\Scripts\python.exe" ".\scripts\sprintengine_tool.py" --help`.
 - For Verify Progress / recovery audits, run `sprintengine recover` and follow the returned prompt. Recovery is an integrity pass: it must keep implementation work stopped, but it may tighten acceptance criteria, add missing real-integration/verification tasks, or fix dependencies when the existing plan would let fake product behavior count as done.
 - Before using a command group or action for the first time, run its `--help` and follow the exact flags shown by the tool.
-- Current command groups are `handover`, `init`, `recover`, `join`, `task`, `plan`, `artifact`, and `summary`.
+- Current command groups are `handover`, `init`, `recover`, `join`, `triage`, `task`, `plan`, `artifact`, and `summary`.
 - Worker commands live under `sprintengine task`: use `task next`, `task claim`, `task status`, `task log`, `task note`, and `task list`.
 - `sprintengine task log` uses repeatable `--file`, `--command`, and `--result` flags.
+- When moving a task to `needs_input`, classify the blocker with `--needs-input-kind` (`architect`, `user`, `artifact`, `tooling`, `verification`, or `other`) plus `--needs-input-question`; use `architect` for stale plans, impossible acceptance criteria, wrong paths, or architectural scope mismatches so the UI can route the blocker to the architect.
+- Architects can triage architect-actionable blockers with `sprintengine triage needs-input --id architect`; this returns a bounded prompt for task-card or task-graph repair, not application-source implementation.
 - `sprintengine task status --status done` and `sprintengine artifact ready` accept optional `0`-`100` agent feedback flags such as `--confidence-pct`, `--task-clarity-pct`, and `--hallucination-risk-pct`, short text fields such as `--top-friction`, repeatable `--issue-json` prompt/process improvement signals, and repeatable `--finding-json` role-specific review findings. Omit them when unavailable; existing completion commands remain valid.
 - Agent identity is the stable sprintengine slot id such as `frontend`, `product`, `developer-1`, or `developer-2`, not the Claude session id. If Claude restarts, reuse the same `--id` to continue that slot's active work.
 - If calling the Python script directly instead of the `sprintengine` function, put global `--state <path>` before the subcommand.
