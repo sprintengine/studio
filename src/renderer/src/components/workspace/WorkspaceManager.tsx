@@ -5,7 +5,7 @@ import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIco
 import CliIcon from '../CliIcon'
 import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
-import SettingsPanel from '../settings/SettingsPanel'
+import SettingsOverlay from '../settings/SettingsOverlay'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
@@ -348,6 +348,9 @@ export default function WorkspaceManager() {
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const sidebarCollapsed = useWorkspaceStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setSidebarCollapsed)
+  const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
+  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
+  const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -395,9 +398,6 @@ export default function WorkspaceManager() {
 
   const [showNewWorkspacePanel, setShowNewWorkspacePanel] = useState(false)
   const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
-  const [checkForUpdatesOnSettingsOpen, setCheckForUpdatesOnSettingsOpen] = useState(false)
-  const [initialSettingsTab, setInitialSettingsTab] = useState<string | null>(null)
   const [tipModalOpen, setTipModalOpen] = useState(false)
   const tipModalDecidedRef = useRef(false)
   const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
@@ -448,7 +448,7 @@ export default function WorkspaceManager() {
     [workspaces]
   )
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
-  const settingsOpen = showSettings || Boolean(activeWorkspaceId && hasComponentTab(activeWorkspaceId, 'settings'))
+  const settingsOpen = settingsOverlayOpen
   const renderedWorkspaceIds = workspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === activeWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
@@ -456,7 +456,7 @@ export default function WorkspaceManager() {
   const openNewWorkspacePanel = () => {
     setNewWorkspacePanelInitialState(null)
     setShowNewWorkspacePanel(true)
-    setShowSettings(false)
+    closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setHandoffOpen(false)
@@ -465,58 +465,14 @@ export default function WorkspaceManager() {
   const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
     setNewWorkspacePanelInitialState({ folderPath })
     setShowNewWorkspacePanel(true)
-    setShowSettings(false)
+    closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setHandoffOpen(false)
-  }, [])
+  }, [closeSettingsOverlay])
 
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
-    if (activeWorkspaceId) {
-      const model = getModel(activeWorkspaceId)
-      if (model) {
-        let settingsTabId: string | null = null
-        model.visitNodes((node) => {
-          if (settingsTabId || !(node instanceof TabNode) || node.getComponent() !== 'settings') return
-          settingsTabId = node.getId()
-        })
-
-        if (settingsTabId) {
-          const nextConfig: Record<string, unknown> = {}
-          if (checkForUpdates) nextConfig.checkForUpdatesRequestId = Date.now()
-          if (targetTab) nextConfig.initialTab = targetTab
-          if (Object.keys(nextConfig).length > 0) {
-            model.doAction(Actions.updateNodeAttributes(settingsTabId, { config: nextConfig }))
-          }
-          model.doAction(Actions.selectTab(settingsTabId))
-        } else {
-          const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-          if (targetTabset) {
-            const config: Record<string, unknown> = {}
-            if (checkForUpdates) config.checkForUpdatesRequestId = Date.now()
-            if (targetTab) config.initialTab = targetTab
-            model.doAction(
-              Actions.addNode(
-                {
-                  type: 'tab',
-                  name: 'Settings',
-                  component: 'settings',
-                  config,
-                },
-                targetTabset.getId(),
-                DockLocation.CENTER,
-                -1,
-                true
-              )
-            )
-          }
-        }
-      }
-    }
-
-    setCheckForUpdatesOnSettingsOpen(checkForUpdates)
-    setInitialSettingsTab(targetTab)
-    setShowSettings(!activeWorkspaceId)
+    openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
     setShowNewWorkspacePanel(false)
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
@@ -524,7 +480,7 @@ export default function WorkspaceManager() {
     setNotificationsOpen(false)
     setAccountOpen(false)
     setHandoffOpen(false)
-  }, [activeWorkspaceId])
+  }, [openSettingsOverlay])
 
   const openLearnCenter = useCallback(() => {
     openSettings(false, 'learn')
@@ -537,7 +493,7 @@ export default function WorkspaceManager() {
       futurePlanSource: source,
     })
     setShowNewWorkspacePanel(true)
-    setShowSettings(false)
+    closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setHandoffOpen(false)
@@ -2199,46 +2155,41 @@ export default function WorkspaceManager() {
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {showSettings ? (
-          <SettingsPanel
-            checkForUpdatesOnOpen={checkForUpdatesOnSettingsOpen}
-            initialTab={initialSettingsTab}
-            onOpenSettingsTab={(tabId) => openSettings(false, tabId)}
-            onClose={() => {
-              setShowSettings(false)
-              setCheckForUpdatesOnSettingsOpen(false)
-              setInitialSettingsTab(null)
-              if (workspaces.length === 0) setShowNewWorkspacePanel(true)
-            }}
-          />
-        ) : showNewWorkspacePanel ? (
-          <NewWorkspacePanel
-            onCreate={handleCreate}
-            onClose={() => {
-              setShowNewWorkspacePanel(false)
-              setNewWorkspacePanelInitialState(null)
-            }}
-            allowClose={workspaces.length > 0}
-            initialState={newWorkspacePanelInitialState}
-          />
-        ) : (
-          <>
-            {workspaces.length === 0 && <EmptyState onNew={openNewWorkspacePanel} />}
-            {renderedWorkspaceIds.map((workspaceId) => {
-              const active = workspaceId === activeWorkspaceId
-              return (
-                <div
-                  key={workspaceId}
-                  className={`absolute inset-0 ${active ? 'z-10 visible' : 'z-0 invisible'}`}
-                  style={{ pointerEvents: active ? 'auto' : 'none' }}
-                  aria-hidden={!active}
-                >
-                  <WorkspaceLayout workspaceId={workspaceId} onStartFuturePlan={openFuturePlanWorkspace} />
-                </div>
-              )
-            })}
-          </>
-        )}
+        <div
+          className="absolute inset-0"
+          aria-hidden={settingsOverlayOpen || undefined}
+          {...(settingsOverlayOpen ? ({ inert: '' } as Record<string, string>) : {})}
+        >
+          {showNewWorkspacePanel ? (
+            <NewWorkspacePanel
+              onCreate={handleCreate}
+              onClose={() => {
+                setShowNewWorkspacePanel(false)
+                setNewWorkspacePanelInitialState(null)
+              }}
+              allowClose={workspaces.length > 0}
+              initialState={newWorkspacePanelInitialState}
+            />
+          ) : (
+            <>
+              {workspaces.length === 0 && <EmptyState onNew={openNewWorkspacePanel} />}
+              {renderedWorkspaceIds.map((workspaceId) => {
+                const active = workspaceId === activeWorkspaceId
+                return (
+                  <div
+                    key={workspaceId}
+                    className={`absolute inset-0 ${active ? 'z-10 visible' : 'z-0 invisible'}`}
+                    style={{ pointerEvents: active ? 'auto' : 'none' }}
+                    aria-hidden={!active}
+                  >
+                    <WorkspaceLayout workspaceId={workspaceId} onStartFuturePlan={openFuturePlanWorkspace} />
+                  </div>
+                )
+              })}
+            </>
+          )}
+        </div>
+        <SettingsOverlay />
       </div>
       </div>
       </div>

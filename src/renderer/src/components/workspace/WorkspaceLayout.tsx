@@ -32,7 +32,6 @@ import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIco
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
 import FileExplorer from '../panels/FileExplorer'
-import SettingsPanel from '../settings/SettingsPanel'
 import SprintEngineRunSummaryPanel from '../panels/SprintEngineRunSummaryPanel'
 import SprintEnginePlanReaderPanel from '../panels/SprintEnginePlanReaderPanel'
 
@@ -406,21 +405,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('SwitchboardBoardPanel', <SwitchboardBoardPanel workspaceId={workspaceId} />)
         case 'memory-graph':
           return timedPanel('MemoryGraphPanel', <MemoryGraphPanel workspaceId={workspaceId} />)
-        case 'settings':
-          return (
-            <SettingsPanel
-              checkForUpdatesRequestId={config?.checkForUpdatesRequestId}
-              initialTab={config?.initialTab ?? null}
-              onOpenSettingsTab={(tabId) => {
-                modelRef.current?.doAction(
-                  Actions.updateNodeAttributes(node.getId(), { config: { initialTab: tabId } })
-                )
-              }}
-              onClose={() => {
-                modelRef.current?.doAction(Actions.deleteTab(node.getId()))
-              }}
-            />
-          )
         case 'sprintengine-run-summary':
           return (
             <SprintEngineRunSummaryPanel

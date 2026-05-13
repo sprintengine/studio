@@ -225,6 +225,19 @@ samp,
   animation: popover-enter 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+.settings-overlay-panel {
+  transform: translate3d(100%, 0, 0);
+  will-change: transform;
+}
+.settings-overlay-panel[data-state="open"] {
+  transform: translate3d(0, 0, 0);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .settings-overlay-panel {
+    transition: transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+}
+
 @keyframes skeleton-shimmer {
   0% {
     background-position: -200px 0;

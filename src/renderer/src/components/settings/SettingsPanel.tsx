@@ -14,6 +14,12 @@ interface Props {
   checkForUpdatesRequestId?: number
   initialTab?: string | null
   onOpenSettingsTab?: (tabId: string) => void
+  /**
+   * `'panel'` (default) wraps the content in `WorkspacePanel` chrome.
+   * `'overlay'` renders the bare sidebar + content layout so a surrounding overlay
+   * can supply its own header and container.
+   */
+  chrome?: 'panel' | 'overlay'
 }
 
 type UpdateAction = 'check' | 'download' | 'restart'
@@ -384,6 +390,7 @@ export default function SettingsPanel({
   checkForUpdatesRequestId,
   initialTab = null,
   onOpenSettingsTab,
+  chrome = 'panel',
 }: Props) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeWorkspace = useWorkspaceStore((s) =>
@@ -906,35 +913,30 @@ export default function SettingsPanel({
     window.requestAnimationFrame(() => tabRefs.current[nextTab.id]?.focus())
   }, [])
 
-  return (
-    <WorkspacePanel
-      title="Settings"
-      subtitle="Configure local CLIs, workspace paths, updates, and telemetry."
-      titleId="settings-panel-title"
-      onClose={closeSettings}
-      closeLabel="Close settings"
-      sidebar={
-        <div
-          role="tablist"
-          aria-label="Settings categories"
-          aria-orientation="vertical"
-          className="grid grid-cols-2 gap-1 md:grid-cols-1"
-        >
-          {settingsTabs.map((tab, index) => (
-            <SettingsTabButton
-              key={tab.id}
-              ref={(node) => {
-                tabRefs.current[tab.id] = node
-              }}
-              tab={tab}
-              active={activeSettingsTab === tab.id}
-              onClick={() => selectSettingsTab(tab.id)}
-              onKeyDown={(event) => onSettingsTabKeyDown(event, index)}
-            />
-          ))}
-        </div>
-      }
+  const sidebarNode = (
+    <div
+      role="tablist"
+      aria-label="Settings categories"
+      aria-orientation="vertical"
+      className="grid grid-cols-2 gap-1 md:grid-cols-1"
     >
+      {settingsTabs.map((tab, index) => (
+        <SettingsTabButton
+          key={tab.id}
+          ref={(node) => {
+            tabRefs.current[tab.id] = node
+          }}
+          tab={tab}
+          active={activeSettingsTab === tab.id}
+          onClick={() => selectSettingsTab(tab.id)}
+          onKeyDown={(event) => onSettingsTabKeyDown(event, index)}
+        />
+      ))}
+    </div>
+  )
+
+  const bodyContent = (
+    <>
       <div className="mb-4 border-b border-[#24252b] pb-3">
         <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
           {activeTab.label}
@@ -1554,15 +1556,45 @@ export default function SettingsPanel({
         </div>
         ) : null}
 
-        <div className="mt-6 flex justify-end border-t border-[#24252b] pt-4">
-          <button
-            type="button"
-            onClick={closeSettings}
-            className="rounded-md px-3.5 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-          >
-            Done
-          </button>
+        {chrome === 'panel' ? (
+          <div className="mt-6 flex justify-end border-t border-[#24252b] pt-4">
+            <button
+              type="button"
+              onClick={closeSettings}
+              className="rounded-md px-3.5 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            >
+              Done
+            </button>
+          </div>
+        ) : null}
+    </>
+  )
+
+  if (chrome === 'overlay') {
+    return (
+      <div className="flex h-full min-h-0 flex-col md:flex-row">
+        <aside className="shrink-0 border-b border-[#1f2025] bg-[#0a0b0e] p-1.5 md:w-48 md:border-b-0 md:border-r">
+          {sidebarNode}
+        </aside>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="w-full max-w-[760px] px-4 py-5">
+            {bodyContent}
+          </div>
         </div>
+      </div>
+    )
+  }
+
+  return (
+    <WorkspacePanel
+      title="Settings"
+      subtitle="Configure local CLIs, workspace paths, updates, and telemetry."
+      titleId="settings-panel-title"
+      onClose={closeSettings}
+      closeLabel="Close settings"
+      sidebar={sidebarNode}
+    >
+      {bodyContent}
     </WorkspacePanel>
   )
 }

@@ -102,6 +102,13 @@ interface WorkspaceStore {
   authState: MulticodeAuthState
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean) => void
+  settingsOverlay: {
+    open: boolean
+    initialTab: string | null
+    checkForUpdatesRequestId: number | null
+  }
+  openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
+  closeSettingsOverlay: () => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   forgetFolder: (folderPath: string) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
@@ -1042,6 +1049,41 @@ function migrateSprintEngineAgentNames(ws: Workspace): Workspace {
   }
 }
 
+function stripSettingsTabsFromLayoutNode(node: unknown): unknown {
+  if (!node || typeof node !== 'object') return node
+  const record = node as Record<string, unknown>
+
+  if (record.type === 'tab' && record.component === 'settings') return null
+
+  const rawChildren = record.children
+  if (!Array.isArray(rawChildren)) return record
+
+  const nextChildren = rawChildren
+    .map((child) => stripSettingsTabsFromLayoutNode(child))
+    .filter((child) => child !== null && child !== undefined)
+
+  if ((record.type === 'tabset' || record.type === 'row') && nextChildren.length === 0) {
+    return null
+  }
+
+  const next: Record<string, unknown> = { ...record, children: nextChildren }
+  if (record.type === 'tabset' && typeof record.selected === 'number') {
+    next.selected = nextChildren.length === 0
+      ? 0
+      : Math.max(0, Math.min(record.selected, nextChildren.length - 1))
+  }
+  return next
+}
+
+function stripSettingsTabsFromLayout(layoutModel: unknown): unknown {
+  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
+  const model = layoutModel as Record<string, unknown>
+  const layout = model.layout
+  if (!layout || typeof layout !== 'object') return layoutModel
+  const nextLayout = stripSettingsTabsFromLayoutNode(layout)
+  return { ...model, layout: nextLayout ?? layout }
+}
+
 function isPathOrChild(path: string, parentPath: string): boolean {
   if (path === parentPath) return true
   const separator = parentPath.includes('\\') && !parentPath.includes('/') ? '\\' : '/'
@@ -1097,10 +1139,25 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       appSettings: defaultAppSettings(),
       authState: defaultAuthState(),
       sidebarCollapsed: false,
+      settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
 
       setSidebarCollapsed: (collapsed) =>
         set((state) => {
           state.sidebarCollapsed = collapsed
+        }),
+
+      openSettingsOverlay: (opts) =>
+        set((state) => {
+          state.settingsOverlay.open = true
+          state.settingsOverlay.initialTab = opts?.initialTab ?? null
+          state.settingsOverlay.checkForUpdatesRequestId = opts?.checkForUpdates ? Date.now() : null
+        }),
+
+      closeSettingsOverlay: () =>
+        set((state) => {
+          state.settingsOverlay.open = false
+          state.settingsOverlay.initialTab = null
+          state.settingsOverlay.checkForUpdatesRequestId = null
         }),
 
       reorderWorkspaces: (orderedIds) =>
@@ -2047,7 +2104,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 42,
+      version: 43,
       // Migrate older persisted state that lacks editorState / folderPath / sprintEngineState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Partial<WorkspaceMigrationState> | undefined
@@ -2434,6 +2491,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         if (version < 42) {
           const current = migrationState
           current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
+        }
+        if (version < 43) {
+          mapMigrationWorkspaces(migrationState, (ws) => ({
+            ...ws,
+            layoutModel: stripSettingsTabsFromLayout(ws.layoutModel) as Workspace['layoutModel'],
+          }))
         }
         return state as never
       },
