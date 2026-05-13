@@ -1,0 +1,152 @@
+import React, { useState } from 'react'
+import { StatusDot } from './StatusDot'
+import { FOCUS_RING_CLASS, type Tone } from './tokens'
+
+/**
+ * TaskCard — the canonical primitive for board-card and inbox-row task surfaces.
+ *
+ * Two documented variants for the same anatomy. Both consume identical tokens
+ * (StatusDot size, identifier font and color, title font weight) so the four
+ * panels read as one family even when their layouts differ:
+ *
+ * - `variant="row"` — single line; identifier and title share a baseline; title
+ *   truncates to one line; no glyph slot. Used by Switchboard backlog rows.
+ * - `variant="card"` — identifier sits above the title; title clamps to two
+ *   lines; optional trailing glyph slot. Used by Sprint Engine kanban cards
+ *   where role information is load-bearing and architect-generated titles are
+ *   often descriptive sentences.
+ *
+ * The variance is deliberate: detail-pane vs scan-without-selecting workflows
+ * have different content shapes. The shared primitive keeps the anatomy locked.
+ *
+ * Family-resemblance contract — documented in
+ * `knowledge/brand/panel-design-system.md`:
+ *   - StatusDot leading at 6 px.
+ *   - Identifier: `font-mono tabular-nums text-[11px] text-[color:var(--text-subtle)]`.
+ *   - Title: `text-[12px] font-medium`.
+ *   - Selected state: `--accent-primary` border-l + `--accent-primary-soft` fill.
+ *   - Hover: `--bg-hover` only — no shadow, no scale, no glow.
+ */
+export type TaskCardVariant = 'row' | 'card'
+
+export type TaskCardProps = {
+  tone: Tone
+  /** Streaming pulse on the dot — use only for live-running indicators. */
+  pulse?: boolean
+  identifier: React.ReactNode
+  title: React.ReactNode
+  /** Trailing slot (priority icon, role glyph). Display-only — must not host
+   *  interactive elements; the card itself is the interactive surface. */
+  trailing?: React.ReactNode
+  selected?: boolean
+  /** Variant of the card layout. Defaults to `row`. */
+  variant?: TaskCardVariant
+  onSelect?: () => void
+  /** Drag-and-drop opt-in. When provided, the card becomes a drag source. */
+  draggable?: boolean
+  onDragStart?: (event: React.DragEvent<HTMLLIElement>) => void
+  onDragEnd?: (event: React.DragEvent<HTMLLIElement>) => void
+  /** FLIP reorder key for `useFlipReorder`. */
+  flipKey?: string
+  /** Apply the just-moved highlight keyframe. Pass the desired class:
+   *  Switchboard uses `card-just-moved`; Sprint Engine uses
+   *  `card-just-moved-gold`. */
+  justMovedClassName?: string
+  ariaLabel?: string
+}
+
+export function TaskCard({
+  tone,
+  pulse,
+  identifier,
+  title,
+  trailing,
+  selected = false,
+  variant = 'row',
+  onSelect,
+  draggable = false,
+  onDragStart,
+  onDragEnd,
+  flipKey,
+  justMovedClassName,
+  ariaLabel,
+}: TaskCardProps) {
+  const [dragging, setDragging] = useState(false)
+  const isCard = variant === 'card'
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLLIElement>) => {
+    if (event.target !== event.currentTarget) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onSelect?.()
+    }
+  }
+
+  const className = [
+    'group relative flex items-start gap-2 rounded-[5px] border-l-2 px-2.5 py-1.5 text-left transition-colors',
+    isCard ? 'w-full' : '',
+    FOCUS_RING_CLASS,
+    draggable ? (dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab') : 'cursor-pointer',
+    justMovedClassName ?? '',
+    selected
+      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+      : `border-transparent ${isCard ? 'bg-[color:var(--bg-surface)]' : ''} text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return (
+    <li
+      data-task-card={variant}
+      data-flip-key={flipKey}
+      draggable={draggable}
+      tabIndex={onSelect ? 0 : undefined}
+      role={onSelect ? 'button' : undefined}
+      aria-pressed={onSelect ? selected : undefined}
+      aria-label={ariaLabel}
+      onClick={onSelect}
+      onKeyDown={onSelect ? handleKeyDown : undefined}
+      onDragStart={
+        draggable
+          ? (event) => {
+              setDragging(true)
+              onDragStart?.(event)
+            }
+          : undefined
+      }
+      onDragEnd={
+        draggable
+          ? (event) => {
+              setDragging(false)
+              onDragEnd?.(event)
+            }
+          : undefined
+      }
+      className={className}
+    >
+      <StatusDot tone={tone} pulse={pulse} className={isCard ? 'mt-1' : 'mt-[5px]'} />
+      <div className="min-w-0 flex-1">
+        {isCard ? (
+          <>
+            <div className="font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+              {identifier}
+            </div>
+            <div className="mt-0.5 line-clamp-2 text-[12px] font-medium leading-[1.35] text-[color:var(--text-strong)]">
+              {title}
+            </div>
+          </>
+        ) : (
+          <div className="flex items-baseline gap-2">
+            <span className="font-mono tabular-nums text-[11px] text-[color:var(--text-subtle)]">
+              {identifier}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-[1.4]">
+              {title}
+            </span>
+          </div>
+        )}
+      </div>
+      {trailing ? <div className="shrink-0">{trailing}</div> : null}
+    </li>
+  )
+}

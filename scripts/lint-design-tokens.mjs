@@ -61,6 +61,18 @@ const RADIAL_GRADIENT = /radial-gradient\s*\(/g
 // `bg-gradient-to-br`, etc.). The redesign uses solid backgrounds only.
 const BG_GRADIENT_TO = /\bbg-gradient-to-[a-z]{1,3}\b/g
 
+// Hand-rolled status-dot regression: any `h-2 w-2 rounded-full` or smaller
+// inline dot pattern is a signal someone re-implemented StatusDot. The
+// canonical primitive is `src/renderer/src/components/ui/StatusDot.tsx`.
+const INLINE_STATUS_DOT = /\bh-(?:1\.5|2)\s+w-(?:1\.5|2)\s+(?:shrink-0\s+)?rounded-full\b/g
+
+// `shadow-[0_*]` with a non-zero blur radius applied to a primary CTA is the
+// "glow CTA" anti-pattern the redesign banned. Popover elevation reusing the
+// OverflowMenu shadow is allowed via `design-tokens-allow:` markers.
+// We match any non-zero-blur shadow string here; per-element classification
+// (button vs popover) is delegated to manual review via the allow marker.
+const GLOW_SHADOW = /shadow-\[0_[0-9]+(?:px)?_[0-9]+(?:px)?_/g
+
 const args = new Set(process.argv.slice(2))
 const REPORT_ONLY = args.has('--report')
 const QUIET = args.has('--quiet')
@@ -80,10 +92,19 @@ for (const relativePath of TARGET_FILES) {
   let trackingCount = 0
   let radialCount = 0
   let gradientCount = 0
+  let inlineDotCount = 0
+  let glowShadowCount = 0
   const findings = []
 
   lines.forEach((line, index) => {
     if (line.includes(ALLOW_MARKER)) return
+    // Accept a marker within the immediately preceding 2 lines — JSX className
+    // strings cannot host `//` comments inline, so the conventional placement
+    // is a JS comment one or two lines above the violating attribute (often
+    // directly above the opening tag of a multi-line element). Two lines is
+    // tight enough to keep markers visually adjacent to the violation.
+    if (index > 0 && lines[index - 1].includes(ALLOW_MARKER)) return
+    if (index > 1 && lines[index - 2].includes(ALLOW_MARKER)) return
     const lineNumber = index + 1
     let match
     HEX_LITERAL.lastIndex = 0
@@ -126,6 +147,26 @@ for (const relativePath of TARGET_FILES) {
         text: match[0],
       })
     }
+    INLINE_STATUS_DOT.lastIndex = 0
+    while ((match = INLINE_STATUS_DOT.exec(line))) {
+      inlineDotCount += 1
+      findings.push({
+        rule: 'no-inline-status-dot',
+        line: lineNumber,
+        column: match.index + 1,
+        text: match[0],
+      })
+    }
+    GLOW_SHADOW.lastIndex = 0
+    while ((match = GLOW_SHADOW.exec(line))) {
+      glowShadowCount += 1
+      findings.push({
+        rule: 'no-glow-shadow',
+        line: lineNumber,
+        column: match.index + 1,
+        text: match[0],
+      })
+    }
   })
 
   perFile.push({
@@ -135,8 +176,11 @@ for (const relativePath of TARGET_FILES) {
     tracking: trackingCount,
     radial: radialCount,
     gradient: gradientCount,
+    inlineDot: inlineDotCount,
+    glowShadow: glowShadowCount,
   })
-  totalViolations += hexCount + trackingCount + radialCount + gradientCount
+  totalViolations +=
+    hexCount + trackingCount + radialCount + gradientCount + inlineDotCount + glowShadowCount
 
   if (!QUIET && findings.length > 0) {
     findings.sort((a, b) => a.line - b.line || a.column - b.column)
@@ -158,7 +202,7 @@ for (const entry of perFile) {
     continue
   }
   process.stdout.write(
-    `  ${entry.path}: hex=${entry.hex} uppercase-tracking=${entry.tracking} radial-gradient=${entry.radial} bg-gradient-to=${entry.gradient}\n`,
+    `  ${entry.path}: hex=${entry.hex} uppercase-tracking=${entry.tracking} radial-gradient=${entry.radial} bg-gradient-to=${entry.gradient} inline-status-dot=${entry.inlineDot} glow-shadow=${entry.glowShadow}\n`,
   )
 }
 process.stdout.write(`Total violations: ${totalViolations}\n`)

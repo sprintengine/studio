@@ -21,6 +21,7 @@ import {
   PrimaryButton,
   Section,
   StatusDot,
+  TaskCard,
   type DefinitionItem,
   type OverflowMenuItem,
   type Tone,
@@ -736,15 +737,6 @@ function BoardCard({
   const attentionInfo = deriveAttentionInfo(record, executionStatus)
   const effectiveStatus: SwitchboardExecutionStatus | null =
     executionStatus ?? (hasActiveExecutionPointer && !attentionInfo ? 'active' : null)
-  const [dragging, setDragging] = useState(false)
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLLIElement>) => {
-    if (event.target !== event.currentTarget) return
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      onSelect()
-    }
-  }
 
   const cardTone: Tone = attentionInfo
     ? 'warn'
@@ -753,50 +745,30 @@ function BoardCard({
       : 'neutral'
 
   return (
-    <li
-      data-card="true"
-      data-flip-key={record.task.id}
+    <TaskCard
+      variant="row"
+      tone={cardTone}
+      identifier={shortIdentifier(record)}
+      title={task.title}
+      ariaLabel={`${task.title} (${statusLabel(record.location.folderStatus)})`}
+      selected={selected}
+      onSelect={onSelect}
       draggable
-      tabIndex={0}
-      role="button"
-      aria-pressed={selected}
-      aria-label={`${task.title} (${statusLabel(record.location.folderStatus)})`}
-      onClick={onSelect}
-      onKeyDown={handleKeyDown}
+      flipKey={record.task.id}
+      justMovedClassName={justMoved ? 'card-just-moved' : undefined}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'move'
         event.dataTransfer.setData('text/plain', task.id)
-        setDragging(true)
         onDragStart()
       }}
-      onDragEnd={() => {
-        setDragging(false)
-        onDragEnd()
-      }}
-      className={[
-        'interactive flex items-start gap-2 rounded-[5px] border-l-2 px-2.5 py-1.5',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]',
-        dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab',
-        justMoved ? 'card-just-moved' : '',
-        selected
-          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-          : 'border-transparent text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]',
-      ].join(' ')}
-    >
-      <StatusDot tone={cardTone} className="mt-[5px]" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono tabular-nums text-[11px] text-[color:var(--text-subtle)]">
-            {shortIdentifier(record)}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-[1.4]">{task.title}</span>
-        </div>
-      </div>
-      <PriorityIcon
-        priority={task.priority}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]"
-      />
-    </li>
+      onDragEnd={onDragEnd}
+      trailing={
+        <PriorityIcon
+          priority={task.priority}
+          className="mt-0.5 h-3.5 w-3.5 text-[color:var(--text-muted)]"
+        />
+      }
+    />
   )
 }
 
@@ -1593,6 +1565,7 @@ function RunnerDrawer({
         aria-modal="false"
         aria-label="Switchboard runner"
         tabIndex={-1}
+        // design-tokens-allow: drawer elevation reuses the canonical popover shadow.
         className="popover-enter flex w-[420px] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)] focus:outline-none"
       >
         <header className="flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-4 py-3">

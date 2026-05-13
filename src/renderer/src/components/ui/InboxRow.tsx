@@ -52,7 +52,7 @@ export function InboxRow({
         ) : null}
       </div>
       {trailing ? (
-        <div className="shrink-0 text-[11px] text-[color:var(--text-muted)]">{trailing}</div>
+        <div className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">{trailing}</div>
       ) : null}
     </>
   )

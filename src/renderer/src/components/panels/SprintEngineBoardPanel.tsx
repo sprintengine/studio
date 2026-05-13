@@ -8,6 +8,7 @@ import {
  GhostButton,
  StatusDot,
  Section,
+ TaskCard,
  type OverflowMenuItem,
  type TabItem,
  type Tone,
@@ -72,6 +73,8 @@ const columnMeta: { key: SprintEngineTaskBoardColumn; label: string }[] = [
  { key: 'todo', label: 'Todo' },
  { key: 'ready', label: 'Ready' },
  { key: 'in_progress', label: 'In Progress' },
+ { key: 'review', label: 'Review' },
+ { key: 'testing', label: 'Testing' },
  { key: 'needs_input', label: 'Needs Input' },
  { key: 'done', label: 'Done' },
 ]
@@ -91,24 +94,25 @@ function KanbanCardList({
  children: React.ReactNode
  animateKey: string
 }) {
- const ref = useRef<HTMLDivElement | null>(null)
+ const ref = useRef<HTMLOListElement | null>(null)
  useFlipReorder(ref, animateKey)
  return (
- <div ref={ref} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2">
+ <ol ref={ref} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2">
  {children}
- </div>
+ </ol>
  )
 }
 
 const taskStateLabel: Record<SprintEngineTaskStatus, string> = {
  todo: 'Todo',
  in_progress: 'In Progress',
+ review: 'Review',
+ testing: 'Testing',
  needs_input: 'Needs Input',
  done: 'Done',
 }
 
 const addableRoles: SprintEngineRole[] = ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
-const SPRINTENGINE_PANEL_ACCENT = 'var(--accent-primary)'
 const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
  { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
  { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
@@ -1631,6 +1635,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  })
  items.push({ kind: 'separator', id: 'sep-3' })
  items.push({
+ id: 'read-plan',
+ label: 'Read plan',
+ onSelect: () => focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan'),
+ })
+ items.push({
  id: 'open-settings',
  label: 'Sprint Engine settings',
  onSelect: () => setSettingsOpen(true),
@@ -1821,7 +1830,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  onAddRole={(role) => {
  void confirmAddMember(role)
  }}
- onReadPlan={() => focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan')}
  onOpenArtifact={(artifact) => void openArtifact(artifact)}
  onApproveArtifact={(artifact) => void approveArtifact(artifact)}
  onRequestArtifactChanges={requestArtifactChanges}
@@ -1903,49 +1911,27 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  ? 'good'
  : task.status === 'needs_input'
  ? 'warn'
- : task.status === 'in_progress' || boardColumn === 'ready'
+ : task.status === 'in_progress' || task.status === 'review' || task.status === 'testing' || boardColumn === 'ready'
  ? 'accent'
  : 'neutral'
  const taskSelected = selectedTaskId === task.id
  const justMoved = recentlyMovedTaskIds.has(task.id)
+ const isLive =
+ task.status === 'in_progress' || task.status === 'review' || task.status === 'testing'
  return (
- <article
+ <TaskCard
  key={task.id}
- data-flip-key={task.id}
- onClick={() => setSelectedTaskId(task.id)}
- role="button"
- tabIndex={0}
- aria-pressed={taskSelected}
- onKeyDown={(event) => {
- if (event.key === 'Enter' || event.key === ' ') {
- event.preventDefault()
- setSelectedTaskId(task.id)
- }
- }}
- className={`group relative w-full cursor-pointer rounded-[5px] border-l-2 px-2.5 py-1.5 text-left interactive transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
- justMoved ? 'card-just-moved-gold' : ''
- } ${
- taskSelected
- ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
- : 'border-transparent bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
- }`}
- >
- <div className="flex items-start gap-2">
- <StatusDot
+ variant="card"
  tone={cardTone}
- pulse={task.status === 'in_progress'}
- className="mt-1"
- />
- <div className="min-w-0 flex-1">
- <div className="font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
- {task.id}
- </div>
- <div className="mt-0.5 line-clamp-2 text-[12px] font-medium leading-[1.35] text-[color:var(--text-strong)]">
- {task.title}
- </div>
- </div>
+ pulse={isLive}
+ identifier={task.id}
+ title={task.title}
+ selected={taskSelected}
+ onSelect={() => setSelectedTaskId(task.id)}
+ flipKey={task.id}
+ justMovedClassName={justMoved ? 'card-just-moved-gold' : undefined}
+ trailing={
  <span
- className="mt-0.5 shrink-0"
  // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
  style={{ color: sprintEngineRoleAccent[task.role] }}
  aria-label={`Role: ${sprintEngineRoleLabels[task.role]}`}
@@ -1953,8 +1939,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  >
  <SprintEngineRoleIcon role={task.role} className="h-3.5 w-3.5" />
  </span>
- </div>
- </article>
+ }
+ />
  )
  })}
 
@@ -2054,6 +2040,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  {cliPickerOpen ? (
  <div
  role="listbox"
+ // design-tokens-allow: CLI picker popover elevation reuses the canonical shadow.
  className="popover-enter absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[color:var(--bg-surface)] p-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
  >
  {cliOptions.map((option) => {
@@ -2226,6 +2213,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  {cliPickerOpen ? (
  <div
  role="listbox"
+ // design-tokens-allow: CLI picker popover elevation reuses the canonical shadow.
  className="popover-enter absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[color:var(--bg-surface)] p-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
  >
  {cliOptions.map((option) => {
@@ -2512,10 +2500,7 @@ function SprintEngineInspectorPanel({
  <span>{sprintEngineRoleLabels[agent.role]}</span>
  <span>·</span>
  <span className="flex items-center gap-1.5">
- <span
- className="h-2 w-2 rounded-full"
- style={{ backgroundColor: statusColor(runtime?.status ?? 'idle') }}
- />
+ <StatusDot tone={runtimeStatusTone(runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle'))} />
  {runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')}
  </span>
  </div>
@@ -2822,7 +2807,6 @@ function SprintEngineProjectView({
  onSelectAgent,
  onSelectTask,
  onAddRole,
- onReadPlan,
  onOpenArtifact,
  onApproveArtifact,
  onRequestArtifactChanges,
@@ -2842,7 +2826,6 @@ function SprintEngineProjectView({
  onSelectAgent: (agentId: string) => void
  onSelectTask: (taskId: string) => void
  onAddRole: (role: SprintEngineRole) => void
- onReadPlan: () => void
  onOpenArtifact: (artifact: SprintEngineArtifact) => void
  onApproveArtifact: (artifact: SprintEngineArtifact) => void
  onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
@@ -2857,10 +2840,6 @@ function SprintEngineProjectView({
  : runPhase === 'Tasked'
  ? 'neutral'
  : 'neutral'
- const [goalExpanded, setGoalExpanded] = useState(false)
- const fullGoal = formatSprintEngineGoal(sprintEngineState.goal)
- const goalPreview = formatSprintEngineGoalPreview(sprintEngineState.goal)
- const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 260
  const totalTasks = sprintEngineState.tasks.length
  const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
  const dispatchRoleAdd = (role: SprintEngineRole) => {
@@ -2912,44 +2891,21 @@ function SprintEngineProjectView({
  </div>
  </Section>
  ) : null}
- <header className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3">
- <div className="flex flex-wrap items-start justify-between gap-3">
- <div className="min-w-0 flex-1">
- <div className="flex min-w-0 items-center gap-2">
+ {/* Project hero collapsed to: status dot + project name + count + 2 px
+ progress hairline overlaid on the header's bottom border. Goal text and
+ plan reader live in the outer panel overflow (Read plan), not the hero. */}
+ <header className="relative shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2.5">
+ <div className="flex items-center gap-2">
  <StatusDot tone={runPhaseTone} label={`Run phase: ${runPhase}`} />
- <h2 className="min-w-0 truncate text-[15px] font-semibold leading-tight text-[color:var(--text-strong)]">
+ <h2 className="min-w-0 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
  {sprintEngineState.name}
  </h2>
- </div>
- <button
- type="button"
- onClick={() => {
- if (canExpandGoal) setGoalExpanded((current) => !current)
- }}
- aria-expanded={goalExpanded}
- className={`mt-1.5 block w-full max-w-3xl text-left text-[12px] leading-5 text-[color:var(--text-muted)] interactive transition-colors ${
- canExpandGoal ? 'cursor-pointer hover:text-[color:var(--text-default)]' : 'cursor-default'
- }`}
- >
- <span className={`whitespace-pre-wrap ${goalExpanded ? 'block max-h-72 overflow-y-auto pr-2' : 'block line-clamp-2'}`}>
- {goalExpanded ? fullGoal : goalPreview}
+ <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
+ {doneCount}/{totalTasks}
  </span>
- {canExpandGoal ? (
- <span className="mt-1 inline-block text-[11px] text-[color:var(--accent-primary)]">
- {goalExpanded ? 'Show less' : 'Show more'}
- </span>
- ) : null}
- </button>
  </div>
- <GhostButton onClick={onReadPlan}>Read plan</GhostButton>
- </div>
-
- {/* 2 px hairline progress filled with --accent-primary. The duplicate
- running/needs-input/on-roster metric line was removed because the
- inspector aside already surfaces those values. */}
- <div className="mt-3 flex items-center gap-3">
  <div
- className="relative h-0.5 flex-1 overflow-hidden bg-[color:var(--border-default)]"
+ className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-[2px]"
  role="progressbar"
  aria-valuemin={0}
  aria-valuemax={totalTasks}
@@ -2957,14 +2913,9 @@ function SprintEngineProjectView({
  aria-label={`${doneCount} of ${totalTasks} tasks done`}
  >
  <div
- className="h-full bg-[color:var(--accent-primary)] transition-[width]"
+ className="absolute inset-y-0 left-0 bg-[color:var(--accent-primary)] transition-[width]"
  style={{ width: `${progressPct}%` }}
  />
- </div>
- <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-muted)]">
- <span className="text-[color:var(--text-default)]">{doneCount}</span>
- <span className="text-[color:var(--text-disabled)]"> / {totalTasks}</span>
- </span>
  </div>
  </header>
 
@@ -2975,11 +2926,7 @@ function SprintEngineProjectView({
  >
  <header className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2.5">
  <div className="flex min-w-0 items-center gap-2">
- <span
- className="h-2 w-2 shrink-0 rounded-full"
- style={{ background: SPRINTENGINE_PANEL_ACCENT }}
- aria-hidden="true"
- />
+ <StatusDot tone="accent" />
  <h2 className="truncate text-[11px] font-semibold text-[color:var(--text-strong)]">
  Inbox
  </h2>
@@ -3003,34 +2950,26 @@ function SprintEngineProjectView({
  />
 
  {blockedByArtifacts.length > 0 ? (
- <section aria-label="Tasks blocked by review" className="border-t border-[color:var(--border-default)]">
- <header className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
- <div className="flex min-w-0 items-center gap-2">
- <span
- className="h-2 w-2 shrink-0 rounded-full bg-[color:var(--tone-warn)]"
- aria-hidden="true"
- />
- <h2 className="truncate text-[11px] font-semibold text-[color:var(--text-strong)]">
- Blocked by review
- </h2>
- <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
- {blockedByArtifacts.length}
- </span>
- </div>
- </header>
+ <Section
+ title="Blocked by review"
+ count={blockedByArtifacts.length}
+ level={3}
+ inset={false}
+ className="border-t border-[color:var(--border-default)]"
+ >
  <ol className="divide-y divide-[color:var(--border-default)]">
  {blockedByArtifacts.map(({ task, blockers }) => (
  <li key={task.id}>
  <button
  type="button"
  onClick={() => onSelectTask(task.id)}
- className="interactive flex w-full min-w-0 flex-col gap-0.5 px-3 py-2.5 text-left transition-colors hover:bg-[color:var(--bg-surface)]"
+ className="interactive flex w-full min-w-0 flex-col gap-0.5 px-3 py-2 text-left transition-colors hover:bg-[color:var(--bg-surface)]"
  >
  <div className="flex min-w-0 items-baseline gap-2">
  <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
  {task.id}
  </span>
- <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+ <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
  {task.title}
  </span>
  </div>
@@ -3041,7 +2980,7 @@ function SprintEngineProjectView({
  </li>
  ))}
  </ol>
- </section>
+ </Section>
  ) : null}
  </div>
  </section>
@@ -3052,11 +2991,7 @@ function SprintEngineProjectView({
  >
  <header className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2.5">
  <div className="flex min-w-0 items-center gap-2">
- <span
- className="h-2 w-2 shrink-0 rounded-full"
- style={{ background: SPRINTENGINE_PANEL_ACCENT }}
- aria-hidden="true"
- />
+ <StatusDot tone="accent" />
  <h2 className="truncate text-[11px] font-semibold text-[color:var(--text-strong)]">
  Roster
  </h2>
@@ -3115,11 +3050,7 @@ function SprintEngineProjectView({
  </span>
  <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
  <span className="flex shrink-0 items-center gap-1.5">
- <span
- className="h-1.5 w-1.5 rounded-full"
- style={{ background: statusColor(statusKey) }}
- aria-hidden="true"
- />
+ <StatusDot tone={runtimeStatusTone(statusKey)} />
  <span className="capitalize">{statusKey}</span>
  </span>
  {currentTask ? (
@@ -3691,6 +3622,7 @@ function SprintEngineTaskGraphView({
  <div className="line-clamp-2 text-sm font-semibold leading-5 text-[color:var(--text-strong)]">{task.title}</div>
  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-[color:var(--text-disabled)]">
  <span>{task.id}</span>
+ {/* design-tokens-allow: role accent swatch on the task-graph node label — role color is the documented exception. */}
  <span
  className="h-1.5 w-1.5 shrink-0 rounded-full"
  style={{
@@ -3759,6 +3691,7 @@ function SprintEngineTaskGraphView({
  </svg>
  </button>
  {legendOpen ? (
+ // design-tokens-allow: legend popover elevation reuses the canonical shadow.
  <div className="popover-enter mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-[11px] backdrop-blur shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]">
  <div className="text-[9px] font-bold text-[color:var(--text-disabled)]">
  Status
@@ -3800,6 +3733,7 @@ function SprintEngineTaskGraphView({
  </svg>
  </button>
  {minimapOpen ? (
+ // design-tokens-allow: minimap popover elevation reuses the canonical shadow.
  <div className="popover-enter mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 backdrop-blur shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]">
  <div
  className="relative cursor-crosshair overflow-hidden rounded bg-[color:var(--bg-app)]"
@@ -3872,6 +3806,7 @@ function TaskGraphLegendDot({ color, label }: { color: string; label: string }) 
  <span className="flex items-center gap-1.5">
  <span
  aria-hidden="true"
+ // design-tokens-allow: legend swatch displays a caller-provided role color, not a status tone.
  className="inline-block h-2 w-2 rounded-full"
  style={{ backgroundColor: color }}
  />
@@ -4202,22 +4137,19 @@ function taskGraphEndEdgeStyle(
  }
 }
 
-function statusColor(status: string): string {
+function runtimeStatusTone(status: string): Tone {
  switch (status) {
  case 'running':
- return 'var(--tone-warn)'
  case 'needs_input':
- return 'var(--tone-warn)'
- case 'planning':
- return 'var(--text-muted)'
+ return 'warn'
  case 'complete':
- return 'var(--tone-good)'
- case 'exited':
- return 'var(--text-disabled)'
+ return 'good'
  case 'error':
- return 'var(--tone-error)'
+ return 'error'
+ case 'planning':
+ case 'exited':
  default:
- return 'var(--text-disabled)'
+ return 'neutral'
  }
 }
 
@@ -4737,6 +4669,10 @@ function emptyKanbanColumnLabel(column: SprintEngineTaskBoardColumn): string {
  return 'No ready work. Waiting on dependencies or active workers.'
  case 'in_progress':
  return 'No workers are actively claiming tasks.'
+ case 'review':
+ return 'No tasks are waiting for review.'
+ case 'testing':
+ return 'No tasks are waiting for testing.'
  case 'needs_input':
  return 'No blocked tasks or worker questions.'
  case 'done':
@@ -4782,6 +4718,26 @@ function SprintEngineTaskStatusIcon({
  <title>{label}</title>
  <circle cx="12" cy="12" r="6.4" stroke="var(--tone-good)" strokeWidth="1.7" />
  <circle cx="12" cy="12" r="2" fill="var(--tone-good)" />
+ </svg>
+ )
+ }
+
+ if (column === 'review') {
+ return (
+ <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+ <title>{label}</title>
+ <circle cx="12" cy="12" r="6.4" stroke="var(--accent-primary)" strokeWidth="1.7" />
+ <path d="M8.8 12.2L10.8 14.2L15.4 9.8" stroke="var(--accent-primary)" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+ </svg>
+ )
+ }
+
+ if (column === 'testing') {
+ return (
+ <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
+ <title>{label}</title>
+ <circle cx="12" cy="12" r="6.4" stroke="var(--tone-warn)" strokeWidth="1.7" />
+ <path d="M9.2 9.2L14.8 14.8M14.8 9.2L9.2 14.8" stroke="var(--tone-warn)" strokeWidth="1.6" strokeLinecap="round" />
  </svg>
  )
  }

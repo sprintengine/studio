@@ -1,6 +1,17 @@
 import React from 'react'
 import { TOOL_COLOR_VAR, type ToolIdentity } from './tokens'
 
+type ProgressIndicator = {
+  /** Completed units, capped to `total` for layout safety. */
+  value: number
+  /** Total units. When 0 or missing the indicator is hidden. */
+  total: number
+  /** Optional second-tone segment (e.g. blocked) drawn after the accent fill. */
+  warnValue?: number
+  /** Accessible label, e.g. "3 of 7 milestones accepted". */
+  ariaLabel?: string
+}
+
 type PanelHeaderProps = {
   /** Small identity dot only — the rest of the panel should stay accent-neutral. */
   tool?: ToolIdentity
@@ -13,6 +24,10 @@ type PanelHeaderProps = {
   /** At most one. Move secondary controls into overflow. */
   primaryAction?: React.ReactNode
   overflow?: React.ReactNode
+  /** Optional 2px progress hairline overlaid on the header's bottom border.
+   *  Use when the panel has a canonical completion metric (accepted/total) so
+   *  the indicator earns its place; do not use as decoration. */
+  progress?: ProgressIndicator
 }
 
 export function PanelHeader({
@@ -23,10 +38,19 @@ export function PanelHeader({
   titleId,
   primaryAction,
   overflow,
+  progress,
 }: PanelHeaderProps) {
+  const acceptedPct =
+    progress && progress.total > 0
+      ? Math.min(Math.max(progress.value, 0), progress.total) / progress.total
+      : 0
+  const warnPct =
+    progress && progress.total > 0 && progress.warnValue
+      ? Math.min(Math.max(progress.warnValue, 0), progress.total) / progress.total
+      : 0
   return (
     <header
-      className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2"
+      className="relative flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2"
     >
       <div className="flex min-w-0 items-center gap-2">
         {tool ? (
@@ -58,6 +82,27 @@ export function PanelHeader({
         {primaryAction}
         {overflow}
       </div>
+      {progress && progress.total > 0 ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-[2px]"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={progress.total}
+          aria-valuenow={progress.value}
+          aria-label={progress.ariaLabel}
+        >
+          <div
+            className="absolute inset-y-0 left-0 bg-[color:var(--accent-primary)] transition-[width] duration-200"
+            style={{ width: `${acceptedPct * 100}%` }}
+          />
+          {warnPct > 0 ? (
+            <div
+              className="absolute inset-y-0 bg-[color:var(--tone-warn)] transition-[width,left] duration-200"
+              style={{ left: `${acceptedPct * 100}%`, width: `${warnPct * 100}%` }}
+            />
+          ) : null}
+        </div>
+      ) : null}
     </header>
   )
 }

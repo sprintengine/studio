@@ -1040,6 +1040,7 @@ function ActiveReviewDrawer({
       aria-modal="false"
       aria-label="Active review"
       tabIndex={-1}
+      // design-tokens-allow: drawer elevation reuses the canonical popover shadow.
       className="popover-enter absolute right-0 top-0 z-20 flex h-full w-[360px] flex-col border-l border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)] focus:outline-none"
     >
       <header className="flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
@@ -1583,6 +1584,7 @@ function ConfidenceChip({ value, compact = false, title }: { value: number; comp
       title={title ? `${title}: ${label}` : label}
       aria-label={title ? `${title}: ${label}` : label}
     >
+      {/* design-tokens-allow: decorative bullet inheriting the chip text color; not a status dot. */}
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
       {compact ? `${value}%` : label}
     </span>

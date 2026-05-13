@@ -811,6 +811,12 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         titleId={titleId}
         subtitle={multiloopState.loop.displayName}
         count={progress.total > 0 ? `${progress.accepted}/${progress.total}` : undefined}
+        progress={progress.total > 0 ? {
+          value: progress.accepted,
+          warnValue: progress.blocked,
+          total: progress.total,
+          ariaLabel: `${progress.accepted} of ${progress.total} milestones accepted, ${progress.blocked} blocked`,
+        } : undefined}
         primaryAction={(
           <PrimaryButton
             type="button"
@@ -863,19 +869,6 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         launchError={roleLaunchState.status === 'error' ? roleLaunchState : null}
       />
 
-      <ProgressBar accepted={progress.accepted} total={progress.total} blocked={progress.blocked} />
-
-      <CampaignTimeline
-        ref={timelineRef}
-        milestones={multiloopState.roadmap}
-        activeMilestoneId={activeMilestone?.id ?? null}
-        selectedMilestoneId={selectedMilestone?.id ?? null}
-        onSelect={(id) => {
-          setSelectedMilestoneId(id)
-          setSelectedTaskId(null)
-        }}
-      />
-
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_22rem]">
         <main className="min-h-0 min-w-0 overflow-y-auto">
           <div className="flex flex-col gap-2 py-2">
@@ -915,8 +908,18 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
 
         <aside
           className="min-h-0 overflow-y-auto border-t border-[color:var(--border-default)] xl:border-l xl:border-t-0"
-          aria-label="Loop reassessment"
+          aria-label="Loop timeline and reassessment"
         >
+          <CampaignTimeline
+            ref={timelineRef}
+            milestones={multiloopState.roadmap}
+            activeMilestoneId={activeMilestone?.id ?? null}
+            selectedMilestoneId={selectedMilestone?.id ?? null}
+            onSelect={(id) => {
+              setSelectedMilestoneId(id)
+              setSelectedTaskId(null)
+            }}
+          />
           <ReassessmentColumn
             milestone={selectedMilestone}
             iteration={multiloopState.loop.iteration}
@@ -933,7 +936,10 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
 }
 
 // ===========================================================================
-// CAMPAIGN SUMMARY — quiet one-line summary directly under PanelHeader.
+// CAMPAIGN SUMMARY — one-line meta crumb under PanelHeader with on-demand
+// details disclosure. The crumb keeps first content (TaskBoard) close to the
+// top; the full DefinitionList only renders when the user opens it or expands
+// the goal.
 // ===========================================================================
 
 function CampaignSummary({
@@ -969,6 +975,11 @@ function CampaignSummary({
   onToggleGoal: () => void
   launchError: { role: MultiloopRole; message: string } | null
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const sprintLabel = activeMilestone
+    ? `M${activeMilestoneIndex + 1} · ${activeMilestone.title}`
+    : 'No active sprint'
+
   const items: DefinitionItem[] = [
     {
       term: 'Active sprint',
@@ -1011,54 +1022,61 @@ function CampaignSummary({
 
   return (
     <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
-      <DefinitionList items={items} />
-      <div className="mt-2 max-w-3xl">
-        <p
-          className={`text-[12px] leading-[1.5] text-[color:var(--text-default)] ${
-            goalExpanded ? 'whitespace-pre-wrap' : 'line-clamp-2'
-          }`}
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-[color:var(--text-muted)]">
+        <span className="truncate text-[color:var(--text-default)]">{sprintLabel}</span>
+        <span aria-hidden="true">·</span>
+        <span>Iteration {iteration}</span>
+        <span aria-hidden="true">·</span>
+        <span>Owner {ownership}</span>
+        <span aria-hidden="true">·</span>
+        <span className="inline-flex items-center gap-1">
+          <StatusDot tone={readinessToneValue} />
+          <span>{readiness}</span>
+        </span>
+        <span aria-hidden="true">·</span>
+        <span className="inline-flex items-center gap-1">
+          <StatusDot tone={blockersCount > 0 ? 'warn' : 'neutral'} />
+          <span>{blockersCount > 0 ? formatCount(blockersCount, 'blocker') : 'No blockers'}</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => setDetailsOpen((current) => !current)}
+          aria-expanded={detailsOpen}
+          className="ml-auto text-[11px] text-[color:var(--accent-primary)] underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
         >
-          <span className="text-[color:var(--text-muted)]">Final goal: </span>
-          {goalExpanded ? fullGoal : goalPreview}
-        </p>
-        {canExpandGoal ? (
-          <button
-            type="button"
-            onClick={onToggleGoal}
-            aria-expanded={goalExpanded}
-            className="mt-1 text-[12px] text-[color:var(--accent-primary)] underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-          >
-            {goalExpanded ? 'Show less' : 'Show more'}
-          </button>
-        ) : null}
+          {detailsOpen ? 'Hide details' : 'Show details'}
+        </button>
       </div>
+      {detailsOpen ? (
+        <div className="mt-2 max-w-3xl">
+          <DefinitionList items={items} />
+          <div className="mt-2">
+            <p
+              className={`text-[12px] leading-[1.5] text-[color:var(--text-default)] ${
+                goalExpanded ? 'whitespace-pre-wrap' : 'line-clamp-2'
+              }`}
+            >
+              <span className="text-[color:var(--text-muted)]">Final goal: </span>
+              {goalExpanded ? fullGoal : goalPreview}
+            </p>
+            {canExpandGoal ? (
+              <button
+                type="button"
+                onClick={onToggleGoal}
+                aria-expanded={goalExpanded}
+                className="mt-1 text-[12px] text-[color:var(--accent-primary)] underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+              >
+                {goalExpanded ? 'Show less' : 'Show more'}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {launchError ? (
         <p className="mt-2 text-[12px] text-[color:var(--tone-error)]" role="status">
           {getMultiloopRole(launchError.role).label}: {launchError.message}
         </p>
       ) : null}
-    </div>
-  )
-}
-
-function ProgressBar({ accepted, total, blocked }: { accepted: number; total: number; blocked: number }) {
-  if (total === 0) return null
-  const acceptedPct = (accepted / total) * 100
-  const blockedPct = (blocked / total) * 100
-  return (
-    <div className="shrink-0 px-3 pb-2" aria-hidden="true">
-      <div className="relative h-0.5 overflow-hidden bg-[color:var(--border-default)]">
-        <div
-          className="absolute inset-y-0 left-0 bg-[color:var(--accent-primary)] transition-[width] duration-200"
-          style={{ width: `${acceptedPct}%` }}
-        />
-        {blockedPct > 0 ? (
-          <div
-            className="absolute inset-y-0 bg-[color:var(--tone-warn)] transition-[width,left] duration-200"
-            style={{ left: `${acceptedPct}%`, width: `${blockedPct}%` }}
-          />
-        ) : null}
-      </div>
     </div>
   )
 }
@@ -1792,6 +1810,7 @@ function MultiloopSettingsPopover({
       aria-labelledby={labelId}
       tabIndex={-1}
       onKeyDown={onPanelKey}
+      // design-tokens-allow: settings popover elevation reuses the canonical shadow.
       className="popover-enter absolute right-0 top-full z-30 mt-1 w-80 rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
     >
       <div className="flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
