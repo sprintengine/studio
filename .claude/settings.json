@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run typecheck)",
+      "Bash(npm run typecheck:app)",
+      "Bash(npm run typecheck:all)",
+      "Bash(npm run typecheck:tests)",
+      "Bash(npm run lint)",
+      "Bash(npx tsc -b --noEmit *)",
+      "Bash(npx tsc --noEmit *)",
+      "Bash(souls get *)",
+      "Bash(node scripts/lint-design-tokens.mjs)",
+      "Bash(node scripts/lint-design-tokens.mjs *)"
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
@@ -6,7 +6,6 @@ import {
   useActionFeedback,
   usePendingActions,
   type ActionStatus,
-  type ActionStatusMap,
 } from '../ui/ActionFeedback'
 import {
   WATCHTOWER_REVIEW_PRESETS,
@@ -22,14 +21,7 @@ import type {
   WatchtowerRun,
   WatchtowerRunAgent,
 } from '../../../../shared/switchboard'
-import {
-  ChevronDownIcon,
-  CommentIcon,
-  MinusIcon,
-  PlusIcon,
-  PriorityIcon,
-  SpecialistActionIcon,
-} from '../AppIcons'
+import { CommentIcon, PriorityIcon, SpecialistActionIcon } from '../AppIcons'
 import {
   confidenceLabel,
   confidenceToneClass,
@@ -43,11 +35,21 @@ import { filterInboxTasks } from '../../utils/watchtower'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasAgentTab } from '../../utils/modelRegistry'
+import {
+  DefinitionList,
+  GhostButton,
+  InboxRow,
+  OverflowMenu,
+  PanelHeader,
+  PrimaryButton,
+  Section,
+  StatusDot,
+  type OverflowMenuItem,
+  type Tone,
+} from '../ui'
 
-const PANEL_BG = 'bg-[#08090b]'
-const SECTION_DIVIDER = 'border-t border-[#1f2025]'
-const ACCENT = '#d97757'
 const ARCHITECT_AUTHOR_ID = 'watchtower-architect'
+const INBOX_TITLE_ID = 'watchtower-inbox-title'
 
 type FeedbackKey =
   | 'runReview'
@@ -126,15 +128,7 @@ function isTriageRun(run: WatchtowerRun): boolean {
 }
 
 export type AgentTaskOutcome = {
-  /**
-   * For review runs: number of new inbox tasks created by the agent.
-   * For triage runs: number of triage comments authored by the architect on scoped tasks.
-   */
   count: number
-  /**
-   * For triage runs: total scoped tasks the agent was asked to triage.
-   * For review runs: undefined.
-   */
   total?: number
 }
 
@@ -199,10 +193,12 @@ function watchtowerStartErrorMessage(message: string): string {
   return message
 }
 
-function triageImportanceDotClass(importance: TriageImportance): string {
-  if (importance === 'critical') return 'bg-[#ff787c]'
-  if (importance === 'high') return 'bg-[#ffbf2f]'
-  return 'bg-[#6f7078]'
+function inboxRowTone(record: SwitchboardTaskRecord): Tone {
+  const triageImportance = parseTriageImportance(latestTriageComment(record))
+  if (triageImportance === 'critical') return 'error'
+  if (triageImportance === 'high') return 'warn'
+  if (record.task.source.type === 'watchtower') return 'accent'
+  return 'neutral'
 }
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
@@ -220,11 +216,12 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const [preset, setPreset] = useState<WatchtowerReviewPresetId>('lean_code_review')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [draft, setDraft] = useState<DraftTask>(emptyDraft)
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState<DraftTask>(emptyDraft)
   const [commentBody, setCommentBody] = useState('')
-  const [fetchOpen, setFetchOpen] = useState(false)
   const { isPending, run: runAction } = usePendingActions<PendingKey>()
   const feedback = useActionFeedback()
 
@@ -249,14 +246,6 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     () => (selectedRun ? countAgentOutcomes(selectedRun, tasks) : new Map<string, AgentTaskOutcome>()),
     [selectedRun, tasks]
   )
-  const inboxAttribution = useMemo(() => {
-    const map = new Map<string, { run: WatchtowerRun; agent: WatchtowerRunAgent }>()
-    for (const record of inbox) {
-      const attribution = findTaskAttribution(record, runs)
-      if (attribution) map.set(record.task.id, attribution)
-    }
-    return map
-  }, [inbox, runs])
 
   const notifyStartFailure = useCallback(
     (kind: WatchtowerStartKind, message: string) => {
@@ -341,6 +330,8 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         }
         setSelectedRunId(started.run.runId)
         await refreshRuns()
+        setReviewOpen(false)
+        setDrawerOpen(true)
         feedback.notify('runReview', 'success', 'Review started.')
       } catch (caught) {
         notifyStartFailure('review', caught instanceof Error ? caught.message : 'Watchtower review did not start.')
@@ -378,6 +369,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           }
           setSelectedRunId(started.run.runId)
           await refreshRuns()
+          if (scope === 'all') setDrawerOpen(true)
           feedback.notify(
             feedbackKey,
             'success',
@@ -406,6 +398,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         return
       }
       await refresh()
+      setDrawerOpen(true)
       feedback.notify(
         'fetchExternal',
         'success',
@@ -421,6 +414,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       setImportResult(result)
       if (result.ok) {
         await refresh()
+        setDrawerOpen(true)
         feedback.notify(
           'fetchExternal',
           'success',
@@ -431,6 +425,36 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       }
     })
   }, [feedback, folderPath, refresh, runAction])
+
+  // CommandPalette → panel-command bridge. Mirrors the overflow item ids.
+  useEffect(() => {
+    const onCommand = (event: Event) => {
+      const id = (event as CustomEvent).detail?.id
+      if (typeof id !== 'string') return
+      switch (id) {
+        case 'watchtower.run.review':
+          setReviewOpen(true)
+          break
+        case 'watchtower.triage.inbox':
+          void handleStartTriage('all')
+          break
+        case 'watchtower.open.active-review':
+          setDrawerOpen(true)
+          break
+        case 'watchtower.import.github':
+          void handleImportGitHub()
+          break
+        case 'watchtower.import.jira':
+          void handleImportJira()
+          break
+        case 'watchtower.refresh.board':
+          void handleRefreshAll()
+          break
+      }
+    }
+    window.addEventListener('multicode:panel-command', onCommand)
+    return () => window.removeEventListener('multicode:panel-command', onCommand)
+  }, [handleImportGitHub, handleImportJira, handleRefreshAll, handleStartTriage])
 
   const handleCreate = useCallback(async () => {
     if (!folderPath || !draft.title.trim()) return
@@ -585,94 +609,90 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     })
   }, [editForm, feedback, folderPath, refresh, runAction, selected])
 
+  const overflowItems = useMemo<OverflowMenuItem[]>(() => {
+    return [
+      {
+        id: 'watchtower.triage.inbox',
+        label: isPending('startTriageAll') ? 'Starting triage…' : 'Triage inbox',
+        disabled: inbox.length === 0 || isPending('startTriageAll'),
+        onSelect: () => void handleStartTriage('all'),
+      },
+      {
+        id: 'watchtower.open.active-review',
+        label: 'Active review',
+        onSelect: () => setDrawerOpen(true),
+      },
+      { kind: 'separator', id: 'sep-1' },
+      {
+        id: 'watchtower.import.github',
+        label: isPending('importGitHub') ? 'Importing GitHub…' : 'Import from GitHub',
+        disabled: isPending('importGitHub'),
+        onSelect: () => void handleImportGitHub(),
+      },
+      {
+        id: 'watchtower.import.jira',
+        label: isPending('importJira') ? 'Importing Jira…' : 'Import from Jira',
+        disabled: isPending('importJira'),
+        onSelect: () => void handleImportJira(),
+      },
+      { kind: 'separator', id: 'sep-2' },
+      {
+        id: 'watchtower.refresh.board',
+        label: isPending('refresh') ? 'Refreshing…' : 'Refresh',
+        disabled: isPending('refresh'),
+        onSelect: () => void handleRefreshAll(),
+      },
+    ]
+  }, [
+    handleImportGitHub,
+    handleImportJira,
+    handleRefreshAll,
+    handleStartTriage,
+    inbox.length,
+    isPending,
+  ])
+
   if (!workspace) {
-    return <div className={`h-full ${PANEL_BG} p-4 text-sm text-[#8a8a92]`}>Workspace not found.</div>
+    return (
+      <div className="h-full bg-[color:var(--bg-app)] p-4 text-[12px] text-[color:var(--text-muted)]">
+        Workspace not found.
+      </div>
+    )
   }
 
   if (!folderPath) {
     return (
-      <div className={`h-full ${PANEL_BG} p-6 text-sm text-[#8a8a92]`}>
+      <div className="h-full bg-[color:var(--bg-app)] p-6 text-[12px] text-[color:var(--text-muted)]">
         Choose a workspace folder to use Watchtower.
       </div>
     )
   }
 
+  const inboxStatus = feedback.statuses.inboxList ?? null
+  const inboxEmptyText = inboxEmptyMessage(state.kind, runs)
+
   return (
-    <div className={`relative flex h-full min-h-0 ${PANEL_BG} text-[#d7d7dc]`}>
+    <div className="relative flex h-full min-h-0 bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
       <section
-        tabIndex={0}
-        onKeyDown={handleInboxKeyDown}
-        className="flex w-[44%] min-w-[320px] max-w-[560px] flex-col border-r border-[#1f2025] focus:outline-none"
-        aria-label="Inbox"
+        className="flex w-[44%] min-w-[320px] max-w-[560px] flex-col border-r border-[color:var(--border-default)]"
+        aria-labelledby={INBOX_TITLE_ID}
       >
-        <RunReviewSection
-          preset={preset}
-          onPresetChange={setPreset}
-          runs={runs}
-          selectedRun={selectedRun}
-          selectedRunAgentOutcomes={selectedRunAgentOutcomes}
-          onSelectRun={setSelectedRunId}
-          onStartTriage={() => void handleStartTriage('all')}
-          onStartReview={handleStartReview}
-          triageDisabled={inbox.length === 0}
-          isStartingReview={isPending('startReview')}
-          isStartingTriage={isPending('startTriageAll')}
-          statuses={feedback.statuses}
-          onDismissStatus={feedback.dismiss}
-          workspaceRoot={folderPath}
-          workspaceId={workspaceId}
-        />
-
-        <FetchExternalSection
-          open={fetchOpen}
-          onToggle={() => setFetchOpen((current) => !current)}
-          importResult={importResult}
-          onImportGitHub={handleImportGitHub}
-          onImportJira={handleImportJira}
-          isImportingGitHub={isPending('importGitHub')}
-          isImportingJira={isPending('importJira')}
-          status={feedback.statuses.fetchExternal ?? null}
-          onDismissStatus={() => feedback.dismiss('fetchExternal')}
-        />
-
-        <header className="flex items-center justify-between gap-3 border-b border-t border-[#1f2025] bg-[#0b0c0f] px-3 py-2.5">
-          <div className="flex min-w-0 items-center gap-2">
-            <span
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ background: ACCENT }}
-              aria-hidden="true"
-            />
-            <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#ececee]">
-              Inbox
-            </h2>
-            <span className="shrink-0 tabular-nums text-[11px] text-[#6f7078]">{inbox.length}</span>
-            <ActionStatusChip
-              status={feedback.statuses.inboxList ?? null}
-              onDismiss={feedback.statuses.inboxList?.tone === 'error' ? () => feedback.dismiss('inboxList') : undefined}
-              className="ml-1"
-            />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => void handleRefreshAll()}
-              disabled={isPending('refresh')}
-              className="interactive h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] disabled:opacity-50"
-              aria-label="Refresh inbox and runs"
-              title="Refresh inbox and runs"
+        <PanelHeader
+          tool="watchtower"
+          title="Inbox"
+          titleId={INBOX_TITLE_ID}
+          count={inbox.length}
+          primaryAction={
+            <PrimaryButton
+              onClick={() => setReviewOpen(true)}
+              disabled={isPending('startReview')}
+              aria-label="Open review preset chooser"
             >
-              {isPending('refresh') ? 'Refreshing…' : 'Refresh'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="interactive inline-flex h-7 items-center gap-1 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
-            >
-              <PlusIcon className="h-3 w-3" />
-              New
-            </button>
-          </div>
-        </header>
+              {isPending('startReview') ? 'Starting…' : 'Review'}
+            </PrimaryButton>
+          }
+          overflow={<OverflowMenu ariaLabel="Watchtower overflow" items={overflowItems} />}
+        />
 
         {state.kind === 'error' ? (
           <Banner tone="error" message={state.message} onRetry={refresh} />
@@ -683,29 +703,44 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             message={`${problems.length} task file${problems.length === 1 ? '' : 's'} could not be parsed. Folder reads continue.`}
           />
         ) : null}
+        {inboxStatus ? (
+          <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-1.5">
+            <ActionStatusChip
+              status={inboxStatus}
+              onDismiss={inboxStatus.tone === 'error' ? () => feedback.dismiss('inboxList') : undefined}
+            />
+          </div>
+        ) : null}
 
-        <ol className="flex-1 overflow-auto" aria-label="Inbox tasks">
+        <div
+          tabIndex={0}
+          onKeyDown={handleInboxKeyDown}
+          className="flex-1 overflow-auto focus:outline-none"
+          aria-label="Inbox tasks"
+        >
           {state.kind === 'loading' && inbox.length === 0 ? (
             <InboxSkeleton />
           ) : inbox.length === 0 ? (
-            <li className="px-3 py-6 text-[12px] leading-5 text-[#6f7078]">
-              {inboxEmptyMessage(state.kind, runs)}
-            </li>
+            <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
+              {inboxEmptyText}
+            </div>
           ) : (
-            inbox.map((record) => (
-              <InboxRow
-                key={record.task.id}
-                record={record}
-                attribution={inboxAttribution.get(record.task.id) ?? null}
-                selected={selectedId === record.task.id}
-                onSelect={() => {
-                  setSelectedId(record.task.id)
-                  setEditing(false)
-                }}
-              />
-            ))
+            <ul>
+              {inbox.map((record) => (
+                <li key={record.task.id}>
+                  <WatchtowerInboxRow
+                    record={record}
+                    selected={selectedId === record.task.id}
+                    onSelect={() => {
+                      setSelectedId(record.task.id)
+                      setEditing(false)
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
           )}
-        </ol>
+        </div>
       </section>
 
       <section className="flex min-w-0 flex-1 flex-col" aria-label="Selected task detail">
@@ -739,6 +774,33 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         )}
       </section>
 
+      {drawerOpen ? (
+        <ActiveReviewDrawer
+          onClose={() => setDrawerOpen(false)}
+          runs={runs}
+          selectedRun={selectedRun}
+          onSelectRun={(runId) => setSelectedRunId(runId)}
+          agentOutcomes={selectedRunAgentOutcomes}
+          importResult={importResult}
+          workspaceId={workspaceId}
+          workspaceRoot={folderPath}
+          runStatus={feedback.statuses.runReview ?? null}
+          onDismissRunStatus={() => feedback.dismiss('runReview')}
+          fetchStatus={feedback.statuses.fetchExternal ?? null}
+          onDismissFetchStatus={() => feedback.dismiss('fetchExternal')}
+        />
+      ) : null}
+
+      {reviewOpen ? (
+        <ReviewPresetChooser
+          preset={preset}
+          onPresetChange={setPreset}
+          onClose={() => setReviewOpen(false)}
+          onStart={handleStartReview}
+          starting={isPending('startReview')}
+        />
+      ) : null}
+
       {createOpen ? (
         <CreateInboxDialog
           draft={draft}
@@ -767,7 +829,7 @@ function inboxEmptyMessage(stateKind: 'idle' | 'loading' | 'ready' | 'error', ru
   if (lastRun && failedAgents.length > 0) {
     const verb = isTriageRun(lastRun) ? 'triage' : 'review'
     const names = failedAgents.map((agent) => specialistShortLabel(agent)).join(', ')
-    return `Last ${verb}: ${names} failed. See the run row above for details.`
+    return `Last ${verb}: ${names} failed. Open Active review to see details.`
   }
   if (lastRun && isTriageRun(lastRun)) return 'Last triage finished. Run a review or fetch issues to add new work.'
   return 'Last review found nothing actionable. Run another review or fetch issues.'
@@ -786,56 +848,54 @@ function shortExecutionId(executionId: string): string {
   return executionId.startsWith('exec_') ? `exec_${executionId.slice(-8)}` : executionId
 }
 
-function agentPillState(
-  agent: WatchtowerRunAgent,
-  outcome: AgentTaskOutcome,
-  triage: boolean
-): { label: string; tone: 'running' | 'done' | 'idle' | 'failed' } {
+function agentRowTone(agent: WatchtowerRunAgent, outcome: AgentTaskOutcome, triage: boolean): {
+  tone: Tone
+  pulse: boolean
+  label: string
+} {
   const { count, total } = outcome
   if (triage) {
     const scope = total ?? agent.taskIds?.length ?? 0
     switch (agent.status) {
       case 'running':
         return {
-          label: scope > 0 ? `triaging… ${count}/${scope}` : 'triaging…',
-          tone: 'running',
+          tone: 'warn',
+          pulse: true,
+          label: scope > 0 ? `Triaging ${count}/${scope}` : 'Triaging…',
         }
       case 'pending':
-        return { label: 'queued', tone: 'idle' }
+        return { tone: 'neutral', pulse: false, label: 'Queued' }
       case 'completed':
-        if (scope === 0) return { label: 'nothing to triage', tone: 'idle' }
-        if (count === 0) return { label: `0 of ${scope} triaged`, tone: 'failed' }
-        if (count < scope) return { label: `triaged ${count} of ${scope}`, tone: 'done' }
-        return { label: `triaged ${count} item${count === 1 ? '' : 's'}`, tone: 'done' }
+        if (scope === 0) return { tone: 'neutral', pulse: false, label: 'Nothing to triage' }
+        if (count === 0) return { tone: 'warn', pulse: false, label: `0 of ${scope} triaged` }
+        if (count < scope) return { tone: 'good', pulse: false, label: `Triaged ${count} of ${scope}` }
+        return { tone: 'good', pulse: false, label: `Triaged ${count} item${count === 1 ? '' : 's'}` }
       case 'failed':
-        return { label: scope > 0 ? `failed after ${count}/${scope}` : 'failed', tone: 'failed' }
+        return { tone: 'error', pulse: false, label: scope > 0 ? `Failed after ${count}/${scope}` : 'Failed' }
       case 'canceled':
-        return { label: 'canceled', tone: 'idle' }
+        return { tone: 'neutral', pulse: false, label: 'Canceled' }
       default:
-        return { label: agent.status, tone: 'idle' }
+        return { tone: 'neutral', pulse: false, label: agent.status }
     }
   }
   switch (agent.status) {
     case 'running':
-      return { label: count > 0 ? `reviewing… ${count} added` : 'reviewing…', tone: 'running' }
+      return {
+        tone: 'warn',
+        pulse: true,
+        label: count > 0 ? `Reviewing · ${count} added` : 'Reviewing…',
+      }
     case 'pending':
-      return { label: 'queued', tone: 'idle' }
+      return { tone: 'neutral', pulse: false, label: 'Queued' }
     case 'completed':
-      return { label: count === 0 ? 'no findings' : `${count} added`, tone: 'done' }
+      return { tone: 'good', pulse: false, label: count === 0 ? 'No findings' : `${count} added` }
     case 'failed':
-      return { label: 'failed', tone: 'failed' }
+      return { tone: 'error', pulse: false, label: 'Failed' }
     case 'canceled':
-      return { label: 'canceled', tone: 'idle' }
+      return { tone: 'neutral', pulse: false, label: 'Canceled' }
     default:
-      return { label: agent.status, tone: 'idle' }
+      return { tone: 'neutral', pulse: false, label: agent.status }
   }
-}
-
-const PILL_TONE_CLASSES: Record<'running' | 'done' | 'idle' | 'failed', string> = {
-  running: 'border-[#3a3426] bg-[#1d1714] text-[#f2c45f]',
-  done: 'border-[#234d27] bg-[#0f1d10] text-[#9be39e]',
-  idle: 'border-[#2a2b31] bg-[#111216] text-[#9a9aa2]',
-  failed: 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]',
 }
 
 function runHistoryLabel(run: WatchtowerRun, index: number): string {
@@ -844,440 +904,398 @@ function runHistoryLabel(run: WatchtowerRun, index: number): string {
   return `${verb} ${index + 1} · ${when}`
 }
 
-function RunReviewSection({
-  preset,
-  onPresetChange,
-  runs,
-  selectedRun,
-  selectedRunAgentOutcomes,
-  onSelectRun,
-  onStartTriage,
-  onStartReview,
-  triageDisabled,
-  isStartingReview,
-  isStartingTriage,
-  statuses,
-  onDismissStatus,
-  workspaceRoot,
-  workspaceId,
-}: {
-  preset: WatchtowerReviewPresetId
-  onPresetChange: (next: WatchtowerReviewPresetId) => void
-  runs: WatchtowerRun[]
-  selectedRun: WatchtowerRun | null
-  selectedRunAgentOutcomes: Map<string, AgentTaskOutcome>
-  onSelectRun: (runId: string) => void
-  onStartTriage: () => void
-  onStartReview: () => void
-  triageDisabled: boolean
-  isStartingReview: boolean
-  isStartingTriage: boolean
-  statuses: ActionStatusMap
-  onDismissStatus: (key: string) => void
-  workspaceRoot: string | null
-  workspaceId: string
-}) {
-  const selectedPreset = WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
-  const presetAgents = Object.entries(selectedPreset.agents)
-  const runStatus = statuses.runReview ?? null
-  const triageRun = selectedRun ? isTriageRun(selectedRun) : false
-  const terminalSessions = useTerminalSessions()
-  return (
-    <div className="border-b border-[#1f2025] bg-[#0b0c0f] px-3 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ background: ACCENT }}
-            aria-hidden="true"
-          />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#ececee]">
-            Run a review
-          </span>
-          <ActionStatusChip
-            status={runStatus}
-            onDismiss={runStatus?.tone === 'error' ? () => onDismissStatus('runReview') : undefined}
-            className="ml-1"
-          />
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            onClick={onStartTriage}
-            disabled={triageDisabled || isStartingTriage}
-            className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
-            title="Run architect triage on every inbox task"
-          >
-            {isStartingTriage ? 'Starting…' : 'Triage inbox'}
-          </button>
-          <button
-            type="button"
-            onClick={onStartReview}
-            disabled={isStartingReview || presetAgents.length === 0}
-            className="interactive h-7 rounded border border-[#3a2820] bg-[#241513] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
-            title="Start a review using the selected preset"
-          >
-            {isStartingReview ? 'Starting…' : 'Start'}
-          </button>
-        </div>
-      </div>
-      <div className="mt-3 grid gap-2">
-        <select
-          value={preset}
-          onChange={(event) => onPresetChange(event.target.value as WatchtowerReviewPresetId)}
-          className="h-8 rounded border border-[#2a2b31] bg-[#0d0e11] px-2 text-[12px] text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
-          aria-label="Review preset"
-        >
-          {WATCHTOWER_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => (
-            <option key={item.id} value={item.id}>{item.label}</option>
-          ))}
-        </select>
-        {presetAgents.length > 0 && !selectedRun ? (
-          <div className="flex flex-wrap gap-1.5">
-            {presetAgents.map(([specialistId, sectors]) => {
-              const specialist = getSpecialistAction(specialistId as SpecialistActionId)
-              const labels = (sectors ?? []).map((sector) => getWatchtowerReviewSector(sector).label)
-              return (
-                <span key={specialistId} className="rounded border border-[#2a2b31] bg-[#111216] px-2 py-1 text-[11px] text-[#d7d7dc]">
-                  {specialist.shortLabel}: {labels.join(', ')}
-                </span>
-              )
-            })}
-          </div>
-        ) : null}
-      </div>
-      {selectedRun ? (
-        <div className="mt-3 border-t border-[#1f2025] pt-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">
-              {selectedRun.status === 'running' || selectedRun.status === 'pending'
-                ? triageRun ? 'Active triage' : 'Active review'
-                : triageRun ? 'Last triage' : 'Last review'}
-            </div>
-            {runs.length > 1 ? (
-              <label className="relative inline-flex items-center">
-                <span className="sr-only">Switch run</span>
-                <select
-                  value={selectedRun.runId}
-                  onChange={(event) => onSelectRun(event.target.value)}
-                  className="interactive h-6 max-w-[200px] truncate rounded border border-[#2a2b31] bg-[#0d0e11] py-0 pl-2 pr-6 text-[11px] tabular-nums text-[#c8c8cf] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
-                  aria-label="Switch run"
-                >
-                  {runs.slice(0, 8).map((run, index) => (
-                    <option key={run.runId} value={run.runId}>
-                      {runHistoryLabel(run, index)}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[#6f7078]" />
-              </label>
-            ) : null}
-          </div>
-          <ul className="mt-2 space-y-1">
-            {selectedRun.agents.map((agent) => {
-              const outcome = selectedRunAgentOutcomes.get(agent.agentId) ?? { count: 0 }
-              const pill = agentPillState(agent, outcome, triageRun)
-              const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
-              const terminalState = describeExecutionTerminal(
-                terminalSessions,
-                workspaceId,
-                agent.executionId
-              )
-              const canOpenTerminal =
-                terminalState.kind !== 'missing' && Boolean(workspaceRoot) && Boolean(agent.executionId)
-              const terminalTabOpen =
-                terminalState.kind !== 'missing'
-                  ? hasAgentTab(workspaceId, terminalState.agentId)
-                  : false
-              const terminalButtonLabel = terminalTabOpen ? 'Focus terminal' : 'Open terminal'
-              const handleOpenTerminal = (): void => {
-                if (!canOpenTerminal || !agent.executionId) return
-                void import('../../utils/modelRegistry').then(({ focusOrAddAgentSessionTab }) => {
-                  void focusOrAddAgentSessionTab(workspaceId, {
-                    executionId: agent.executionId!,
-                    fallbackName: specialistShortLabel(agent),
-                  })
-                })
-              }
-              return (
-                <li key={agent.agentId}>
-                  <div
-                    className="grid min-w-0 gap-1 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5"
-                    title={agent.executionId ?? undefined}
-                  >
-                    <div className="flex min-w-0 items-center justify-between gap-2">
-                      <span className="min-w-0 truncate text-[12px] text-[#d7d7dc]">{specialistShortLabel(agent)}</span>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {canOpenTerminal ? (
-                          <button
-                            type="button"
-                            onClick={handleOpenTerminal}
-                            className="interactive inline-flex h-5 items-center gap-1 rounded border border-[#3a2820] bg-[#241513] px-1.5 text-[10.5px] font-semibold text-[#ffe2d4] hover:bg-[#2c1a18] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70"
-                            title={terminalButtonLabel}
-                          >
-                            {terminalState.kind === 'running' ? (
-                              <span
-                                className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse"
-                                style={{ background: '#30d158' }}
-                                aria-hidden="true"
-                              />
-                            ) : terminalState.kind === 'exited' ? (
-                              <span
-                                className="inline-block h-1.5 w-1.5 rounded-full"
-                                style={{ background: '#5a5a63' }}
-                                aria-hidden="true"
-                              />
-                            ) : null}
-                            {terminalButtonLabel}
-                          </button>
-                        ) : null}
-                        <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] transition-colors ${PILL_TONE_CLASSES[pill.tone]}`}>
-                          {pill.label}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex min-w-0 items-center gap-2 text-[11px] text-[#6f7078]">
-                      <span className="shrink-0">Runtime</span>
-                      <span className="min-w-0 truncate font-mono tabular-nums">{executionLabel}</span>
-                    </div>
-                    {agent.errorMessage ? (
-                      <div className="max-h-8 overflow-hidden text-[11px] leading-4 text-[#ffb3b5]">
-                        {agent.errorMessage}
-                      </div>
-                    ) : null}
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      ) : runs.length === 0 ? null : (
-        <div className="mt-3 border-t border-[#1f2025] pt-3 text-[12px] text-[#6f7078]">
-          No active review.
-        </div>
-      )}
-    </div>
-  )
-}
-
-function FetchExternalSection({
-  open,
-  onToggle,
-  importResult,
-  onImportGitHub,
-  onImportJira,
-  isImportingGitHub,
-  isImportingJira,
-  status,
-  onDismissStatus,
-}: {
-  open: boolean
-  onToggle: () => void
-  importResult: SwitchboardImportResult | null
-  onImportGitHub: () => void
-  onImportJira: () => void
-  isImportingGitHub: boolean
-  isImportingJira: boolean
-  status: ActionStatus | null
-  onDismissStatus: () => void
-}) {
-  return (
-    <div className="border-b border-[#1f2025] bg-[#0b0c0f]">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="interactive flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#0e0f12]"
-      >
-        <span className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Fetch external</span>
-          {!open && status ? (
-            <ActionStatusChip
-              status={status}
-              onDismiss={status.tone === 'error' ? onDismissStatus : undefined}
-            />
-          ) : null}
-        </span>
-        {open ? <MinusIcon className="h-3 w-3 text-[#6f7078]" /> : <PlusIcon className="h-3 w-3 text-[#6f7078]" />}
-      </button>
-      {open ? (
-        <div className="px-3 pb-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onImportGitHub}
-              disabled={isImportingGitHub}
-              className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#c8c8cf] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
-            >
-              {isImportingGitHub ? 'Fetching…' : 'Fetch GitHub'}
-            </button>
-            <button
-              type="button"
-              onClick={onImportJira}
-              disabled={isImportingJira}
-              className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#c8c8cf] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
-            >
-              {isImportingJira ? 'Fetching…' : 'Fetch Jira'}
-            </button>
-            <ActionStatusChip
-              status={status}
-              onDismiss={status?.tone === 'error' ? onDismissStatus : undefined}
-              className="ml-1"
-            />
-          </div>
-          {importResult ? (
-            <div className="mt-2 rounded border border-[#202128] bg-[#0d0e11] px-2 py-1.5 text-[11px] text-[#8a8a92]">
-              {importResult.ok ? (
-                <>
-                  <div className="tabular-nums">
-                    {importResult.provider}: created {importResult.summary.created}, updated {importResult.summary.updated}, skipped {importResult.summary.skipped}, errors {importResult.summary.errors}
-                  </div>
-                  {importResult.items.length > 0 ? (
-                    <div className="mt-1 max-h-24 overflow-auto border-t border-[#202128] pt-1">
-                      {importResult.items.slice(0, 8).map((item, index) => (
-                        <div key={`${item.externalKey ?? item.externalUrl ?? index}:${index}`} className="flex min-w-0 items-center gap-2 py-0.5">
-                          <span className={
-                            item.status === 'created'
-                              ? 'shrink-0 text-[#8fd49c]'
-                              : item.status === 'error'
-                                ? 'shrink-0 text-[#ff9ea0]'
-                                : 'shrink-0 text-[#d8b56d]'
-                          }>
-                            {item.status}
-                          </span>
-                          <span className="truncate font-mono text-[#a1a1aa]">
-                            {item.externalKey ?? item.externalUrl ?? 'unknown source'}
-                          </span>
-                          {item.message ? <span className="truncate text-[#6f7078]">{item.message}</span> : null}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <span>{importResult.provider}: {importResult.message}</span>
-              )}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function InboxRow({
+function WatchtowerInboxRow({
   record,
-  attribution,
   selected,
   onSelect,
 }: {
   record: SwitchboardTaskRecord
-  attribution: { run: WatchtowerRun; agent: WatchtowerRunAgent } | null
   selected: boolean
   onSelect: () => void
 }) {
   const task = record.task
-  const commentCount = task.comments.length
-  const labels = task.labels.slice(0, 2)
-  const triageComment = latestTriageComment(record)
-  const triageImportance = parseTriageImportance(triageComment)
-  const provenanceLabel = attribution
-    ? `review · ${specialistShortLabel(attribution.agent)}`
-    : record.task.source.type !== 'manual'
-      ? sourceLabel(record)
-      : null
+  const tone = inboxRowTone(record)
   const descriptionPreview = task.description
-    ? task.description.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim()
+    ? task.description.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? null
     : null
-  const triageLabel = triageImportance
-    ? `Triaged · ${triageImportance.charAt(0).toUpperCase()}${triageImportance.slice(1)}`
-    : triageComment ? 'Triaged' : null
+  const fallbackSupporting = task.labels.length > 0 ? task.labels.join(' · ') : null
+  const title = (
+    <>
+      <span className="mr-2 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+        {shortIdentifier(record)}
+      </span>
+      {task.title}
+    </>
+  )
   return (
-    <li>
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-pressed={selected}
-        className={`interactive relative flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left border-b border-[#13141a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/60 focus-visible:ring-inset ${
-          selected
-            ? 'bg-[#17181d] pl-[9px] text-[#ececee] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-[#d97757]'
-            : 'hover:bg-[#0e0f12] text-[#c8c8cf]'
-        }`}
-      >
-        <span className="min-w-0 flex-1 space-y-0.5">
-          <span className="flex min-w-0 items-baseline gap-2">
-            <span className="shrink-0 font-mono tabular-nums text-[11px] text-[#8a8a92]">
-              {shortIdentifier(record)}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{task.title}</span>
-            {provenanceLabel ? (
-              <span className="shrink-0 rounded border border-[#2a2b31] bg-[#0d0e11] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em] text-[#9a9aa2]">
-                {provenanceLabel}
-              </span>
-            ) : null}
-            {typeof task.creationConfidencePct === 'number' ? (
-              <ConfidenceChip value={task.creationConfidencePct} compact title="Legitimacy confidence" />
-            ) : null}
-          </span>
-          {descriptionPreview ? (
-            <span className="block truncate text-[12px] leading-5 text-[#8a8a92]">{descriptionPreview}</span>
-          ) : null}
-          <span className="flex min-w-0 items-center gap-2 text-[11px] text-[#6f7078]">
-            <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
-            {labels.length > 0 ? (
-              <span className="truncate">{labels.join(' · ')}</span>
-            ) : null}
-            {commentCount > 0 ? (
-              <span className="ml-auto flex items-center gap-1 text-[#9a9aa2]">
-                <CommentIcon className="h-3 w-3 shrink-0" />
-                <span className="tabular-nums">{commentCount}</span>
-              </span>
-            ) : null}
-            {triageLabel ? (
-              <span className="flex shrink-0 items-center gap-1 rounded border border-[#2a2b31] bg-[#0d0e11] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[#9a9aa2]">
-                <span className={`h-1.5 w-1.5 rounded-full ${triageImportanceDotClass(triageImportance)}`} aria-hidden="true" />
-                {triageLabel}
-              </span>
-            ) : null}
-            <span className={`shrink-0 tabular-nums ${commentCount > 0 || triageLabel ? '' : 'ml-auto'}`}>
-              {formatRelativeTime(task.createdAt)}
-            </span>
-          </span>
-        </span>
-      </button>
-    </li>
+    <InboxRow
+      tone={tone}
+      title={title}
+      supporting={descriptionPreview ?? fallbackSupporting ?? undefined}
+      trailing={formatRelativeTime(task.createdAt)}
+      selected={selected}
+      onSelect={onSelect}
+      ariaLabel={`${shortIdentifier(record)} ${task.title}`}
+    />
   )
 }
 
 function InboxSkeleton() {
   return (
-    <li aria-busy="true" aria-label="Loading inbox">
-      <ul className="space-y-0">
+    <div aria-busy="true" aria-label="Loading inbox">
+      <ul>
         {Array.from({ length: 5 }).map((_, idx) => (
-          <li key={idx} className="border-b border-[#13141a] px-3 py-2.5">
+          <li key={idx} className="border-b border-[color:var(--border-subtle)] px-3 py-2">
             <div className="flex items-baseline gap-2">
-              <div className="skeleton-shimmer h-2.5 w-12 rounded bg-[#13141a]" />
-              <div className="skeleton-shimmer h-3 flex-1 rounded bg-[#13141a]" />
-              <div className="skeleton-shimmer h-2.5 w-10 rounded bg-[#13141a]" />
+              <div className="skeleton-shimmer h-2.5 w-12 rounded bg-[color:var(--bg-surface-raised)]" />
+              <div className="skeleton-shimmer h-3 flex-1 rounded bg-[color:var(--bg-surface-raised)]" />
+              <div className="skeleton-shimmer h-2.5 w-10 rounded bg-[color:var(--bg-surface-raised)]" />
             </div>
-            <div className="skeleton-shimmer mt-1.5 h-2.5 w-[70%] rounded bg-[#13141a]" />
-            <div className="mt-1.5 flex items-center gap-2">
-              <div className="skeleton-shimmer h-2.5 w-14 rounded bg-[#13141a]" />
-              <div className="skeleton-shimmer ml-auto h-2.5 w-10 rounded bg-[#13141a]" />
-            </div>
+            <div className="skeleton-shimmer mt-1.5 h-2.5 w-[70%] rounded bg-[color:var(--bg-surface-raised)]" />
           </li>
         ))}
       </ul>
-    </li>
+    </div>
   )
 }
 
 function EmptyDetail() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-[#6f7078]">
-      <div className="text-[12px] uppercase tracking-[0.08em] text-[#5a5a63]">Triage</div>
-      <div className="text-[13px] text-[#8a8a92]">Select an inbox task to inspect, edit, comment, or promote.</div>
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <div className="text-[12px] font-semibold text-[color:var(--text-default)]">Triage</div>
+      <div className="text-[12px] text-[color:var(--text-muted)]">
+        Select an inbox task to inspect, edit, comment, or promote.
+      </div>
     </div>
+  )
+}
+
+function ActiveReviewDrawer({
+  onClose,
+  runs,
+  selectedRun,
+  onSelectRun,
+  agentOutcomes,
+  importResult,
+  workspaceId,
+  workspaceRoot,
+  runStatus,
+  onDismissRunStatus,
+  fetchStatus,
+  onDismissFetchStatus,
+}: {
+  onClose: () => void
+  runs: WatchtowerRun[]
+  selectedRun: WatchtowerRun | null
+  onSelectRun: (runId: string) => void
+  agentOutcomes: Map<string, AgentTaskOutcome>
+  importResult: SwitchboardImportResult | null
+  workspaceId: string
+  workspaceRoot: string | null
+  runStatus: ActionStatus | null
+  onDismissRunStatus: () => void
+  fetchStatus: ActionStatus | null
+  onDismissFetchStatus: () => void
+}) {
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  const restoreFocusElementRef = useRef<HTMLElement | null>(null)
+  const terminalSessions = useTerminalSessions()
+  const triageRun = selectedRun ? isTriageRun(selectedRun) : false
+
+  useEffect(() => {
+    restoreFocusElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    surfaceRef.current?.focus()
+    return () => {
+      const trigger = document.querySelector<HTMLElement>('[aria-label="Watchtower overflow"]')
+      ;(trigger ?? restoreFocusElementRef.current)?.focus()
+    }
+  }, [])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const importItems = useMemo(() => {
+    if (!importResult) return []
+    return importResult.ok ? importResult.items.slice(0, 8) : []
+  }, [importResult])
+
+  const runLabel = selectedRun
+    ? selectedRun.status === 'running' || selectedRun.status === 'pending'
+      ? triageRun ? 'Active triage' : 'Active review'
+      : triageRun ? 'Last triage' : 'Last review'
+    : null
+
+  return (
+    <div
+      ref={surfaceRef}
+      role="dialog"
+      aria-modal="false"
+      aria-label="Active review"
+      tabIndex={-1}
+      className="popover-enter absolute right-0 top-0 z-20 flex h-full w-[360px] flex-col border-l border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)] focus:outline-none"
+    >
+      <header className="flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+            Active review
+          </h3>
+          {selectedRun ? (
+            <span className="tabular-nums text-[11px] text-[color:var(--text-muted)]">
+              {runs.length} run{runs.length === 1 ? '' : 's'}
+            </span>
+          ) : null}
+        </div>
+        <GhostButton onClick={onClose} aria-label="Close active review">
+          Close
+        </GhostButton>
+      </header>
+
+      <div className="flex-1 overflow-auto">
+        {runStatus ? (
+          <div className="px-3 pt-3">
+            <ActionStatusChip
+              status={runStatus}
+              onDismiss={runStatus.tone === 'error' ? onDismissRunStatus : undefined}
+            />
+          </div>
+        ) : null}
+
+        {selectedRun ? (
+          <Section
+            title={runLabel ?? 'Active review'}
+            level={4}
+            action={
+              runs.length > 1 ? (
+                <label className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+                  <span className="sr-only">Switch run</span>
+                  <select
+                    value={selectedRun.runId}
+                    onChange={(event) => onSelectRun(event.target.value)}
+                    className="h-6 max-w-[180px] truncate rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] py-0 pl-2 pr-1.5 text-[11px] tabular-nums text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+                    aria-label="Switch run"
+                  >
+                    {runs.slice(0, 8).map((run, index) => (
+                      <option key={run.runId} value={run.runId}>
+                        {runHistoryLabel(run, index)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null
+            }
+          >
+            <ul className="flex flex-col gap-1.5">
+              {selectedRun.agents.map((agent) => {
+                const outcome = agentOutcomes.get(agent.agentId) ?? { count: 0 }
+                const tone = agentRowTone(agent, outcome, triageRun)
+                const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
+                const terminalState = describeExecutionTerminal(
+                  terminalSessions,
+                  workspaceId,
+                  agent.executionId
+                )
+                const canOpenTerminal =
+                  terminalState.kind !== 'missing' && Boolean(workspaceRoot) && Boolean(agent.executionId)
+                const terminalTabOpen =
+                  terminalState.kind !== 'missing'
+                    ? hasAgentTab(workspaceId, terminalState.agentId)
+                    : false
+                const terminalButtonLabel = terminalTabOpen ? 'Focus terminal' : 'Open terminal'
+                const handleOpenTerminal = (): void => {
+                  if (!canOpenTerminal || !agent.executionId) return
+                  void import('../../utils/modelRegistry').then(({ focusOrAddAgentSessionTab }) => {
+                    void focusOrAddAgentSessionTab(workspaceId, {
+                      executionId: agent.executionId!,
+                      fallbackName: specialistShortLabel(agent),
+                    })
+                  })
+                }
+                return (
+                  <li
+                    key={agent.agentId}
+                    className="rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <StatusDot tone={tone.tone} pulse={tone.pulse} />
+                      <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-strong)]">
+                        {specialistShortLabel(agent)}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
+                        {tone.label}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
+                      <span className="shrink-0">Runtime</span>
+                      <span className="min-w-0 truncate font-mono tabular-nums">{executionLabel}</span>
+                      {canOpenTerminal ? (
+                        <GhostButton
+                          size="sm"
+                          className="ml-auto !h-6"
+                          onClick={handleOpenTerminal}
+                        >
+                          {terminalButtonLabel}
+                        </GhostButton>
+                      ) : null}
+                    </div>
+                    {agent.errorMessage ? (
+                      <div className="mt-1 max-h-12 overflow-hidden text-[11px] leading-4 text-[color:var(--tone-error)]">
+                        {agent.errorMessage}
+                      </div>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ul>
+          </Section>
+        ) : (
+          <Section title="No active review" level={4}>
+            <div className="text-[12px] text-[color:var(--text-muted)]">
+              Start a review or fetch issues to populate this drawer.
+            </div>
+          </Section>
+        )}
+
+        {importResult ? (
+          <Section
+            title={`Last import · ${importResult.provider}`}
+            level={4}
+            action={
+              fetchStatus ? (
+                <ActionStatusChip
+                  status={fetchStatus}
+                  onDismiss={fetchStatus.tone === 'error' ? onDismissFetchStatus : undefined}
+                />
+              ) : null
+            }
+          >
+            {importResult.ok ? (
+              <>
+                <DefinitionList
+                  layout="two-column"
+                  items={[
+                    { term: 'Created', description: <span className="tabular-nums">{importResult.summary.created}</span> },
+                    { term: 'Updated', description: <span className="tabular-nums">{importResult.summary.updated}</span> },
+                    { term: 'Skipped', description: <span className="tabular-nums">{importResult.summary.skipped}</span> },
+                    { term: 'Errors', description: <span className="tabular-nums">{importResult.summary.errors}</span> },
+                  ]}
+                />
+                {importItems.length > 0 ? (
+                  <ul className="mt-2 max-h-32 overflow-auto border-t border-[color:var(--border-default)] pt-2">
+                    {importItems.map((item, index) => {
+                      const itemTone: Tone =
+                        item.status === 'created' ? 'good' : item.status === 'error' ? 'error' : 'neutral'
+                      return (
+                        <li
+                          key={`${item.externalKey ?? item.externalUrl ?? index}:${index}`}
+                          className="flex min-w-0 items-center gap-2 py-0.5 text-[11px]"
+                        >
+                          <StatusDot tone={itemTone} />
+                          <span className="shrink-0 text-[color:var(--text-muted)]">{item.status}</span>
+                          <span className="truncate font-mono text-[color:var(--text-default)]">
+                            {item.externalKey ?? item.externalUrl ?? 'unknown source'}
+                          </span>
+                          {item.message ? (
+                            <span className="truncate text-[color:var(--text-subtle)]">{item.message}</span>
+                          ) : null}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : null}
+              </>
+            ) : (
+              <div className="text-[12px] text-[color:var(--tone-error)]">{importResult.message}</div>
+            )}
+          </Section>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function ReviewPresetChooser({
+  preset,
+  onPresetChange,
+  onClose,
+  onStart,
+  starting,
+}: {
+  preset: WatchtowerReviewPresetId
+  onPresetChange: (next: WatchtowerReviewPresetId) => void
+  onClose: () => void
+  onStart: () => void
+  starting: boolean
+}) {
+  const selectedPreset =
+    WATCHTOWER_REVIEW_PRESETS.find((item) => item.id === preset) ?? WATCHTOWER_REVIEW_PRESETS[0]
+  const presetAgents = Object.entries(selectedPreset.agents)
+  const hasAgents = presetAgents.some(([, sectors]) => (sectors ?? []).length > 0)
+
+  return (
+    <Modal open onClose={onClose} contained labelledBy="watchtower-review-title" width={520}>
+      <ModalHeader title="Run a review" titleId="watchtower-review-title" onClose={onClose} />
+      <ModalBody className="space-y-3">
+        <Field label="Preset">
+          <select
+            value={preset}
+            onChange={(event) => onPresetChange(event.target.value as WatchtowerReviewPresetId)}
+            className="h-9 w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[13px] text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            aria-label="Review preset"
+          >
+            {WATCHTOWER_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => (
+              <option key={item.id} value={item.id}>{item.label}</option>
+            ))}
+          </select>
+        </Field>
+        <div className="flex flex-col gap-1.5">
+          <div className="text-[11px] text-[color:var(--text-muted)]">Agents</div>
+          {hasAgents ? (
+            <ul className="flex flex-col gap-1">
+              {presetAgents.map(([specialistId, sectors]) => {
+                const specialist = getSpecialistAction(specialistId as SpecialistActionId)
+                const labels = (sectors ?? []).map((sector) => getWatchtowerReviewSector(sector).label)
+                return (
+                  <li
+                    key={specialistId}
+                    className="flex min-w-0 items-baseline gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1.5 text-[12px]"
+                  >
+                    <span className="shrink-0 font-medium text-[color:var(--text-strong)]">
+                      {specialist.shortLabel}
+                    </span>
+                    <span className="min-w-0 truncate text-[color:var(--text-muted)]">
+                      {labels.join(', ') || 'No sectors'}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <div className="text-[12px] text-[color:var(--text-muted)]">
+              This preset has no agents. Pick another preset to start a review.
+            </div>
+          )}
+        </div>
+      </ModalBody>
+      <ModalFooter>
+        <ModalButton onClick={onClose}>Cancel</ModalButton>
+        <ModalButton
+          variant="primary"
+          accent="brand"
+          onClick={onStart}
+          disabled={starting || !hasAgents}
+        >
+          {starting ? 'Starting…' : 'Start review'}
+        </ModalButton>
+      </ModalFooter>
+    </Modal>
   )
 }
 
@@ -1331,94 +1349,74 @@ function DetailPane({
   const task = record.task
   const triageComment = latestTriageComment(record)
   const triageImportance = parseTriageImportance(triageComment)
+  const triageTone: Tone =
+    triageImportance === 'critical' ? 'error' :
+    triageImportance === 'high' ? 'warn' :
+    triageImportance === 'medium' ? 'neutral' :
+    'neutral'
   const anyDetailMutation = isEditing || isPromoting || isCanceling || isTriaging
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#1f2025] px-5 py-4">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[color:var(--border-default)] px-5 py-4">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
-            <span className="font-mono tabular-nums text-[12px] text-[#9a9aa2]">{shortIdentifier(record)}</span>
-            <span>·</span>
+          <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+            <span className="font-mono tabular-nums text-[12px] text-[color:var(--text-default)]">
+              {shortIdentifier(record)}
+            </span>
+            <span aria-hidden="true">·</span>
             <span>Inbox</span>
-            <span>·</span>
+            <span aria-hidden="true">·</span>
             <span className="tabular-nums">{formatRelativeTime(task.createdAt)}</span>
           </div>
           {editing ? (
             <input
               value={editForm.title}
               onChange={(event) => onEditFormChange({ ...editForm, title: event.target.value })}
-              className="mt-2 block w-full bg-transparent text-[18px] font-semibold text-[#ececee] outline-none focus:border-b focus:border-[#ececee]/40"
+              className="mt-2 block w-full bg-transparent text-[15px] font-semibold text-[color:var(--text-strong)] outline-none focus:border-b focus:border-[color:var(--border-strong)]"
             />
           ) : (
-            <h3 className="mt-2 truncate text-[18px] font-semibold text-[#ececee]">{task.title}</h3>
+            <h3 className="mt-2 text-[15px] font-semibold leading-5 text-[color:var(--text-strong)]">
+              {task.title}
+            </h3>
           )}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          <ActionStatusChip
-            status={detailStatus}
-            onDismiss={detailStatus?.tone === 'error' ? onDismissDetailStatus : undefined}
-          />
+          {detailStatus ? (
+            <ActionStatusChip
+              status={detailStatus}
+              onDismiss={detailStatus.tone === 'error' ? onDismissDetailStatus : undefined}
+            />
+          ) : null}
           {editing ? (
             <>
-              <button
-                type="button"
-                onClick={onCancelEdit}
-                disabled={isEditing}
-                className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
-              >
+              <GhostButton onClick={onCancelEdit} disabled={isEditing}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onSaveEdit}
-                disabled={isEditing}
-                className="interactive h-7 rounded border border-[#ececee] bg-[#ececee] px-2.5 text-[11px] font-semibold text-[#08090b] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ececee]/60 disabled:opacity-50"
-              >
+              </GhostButton>
+              <PrimaryButton onClick={onSaveEdit} disabled={isEditing}>
                 {isEditing ? 'Saving…' : 'Save'}
-              </button>
+              </PrimaryButton>
             </>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={onStartEdit}
-                disabled={anyDetailMutation}
-                className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
-              >
+              <GhostButton onClick={onStartEdit} disabled={anyDetailMutation}>
                 Edit
-              </button>
-              <button
-                type="button"
-                onClick={onCancelTask}
-                disabled={anyDetailMutation}
-                className="interactive h-7 rounded border border-[#3a2222] px-2.5 text-[11px] font-medium text-[#ffb3b5] hover:bg-[#1c1414] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-50"
-              >
+              </GhostButton>
+              <GhostButton onClick={onCancelTask} disabled={anyDetailMutation}>
                 {isCanceling ? 'Canceling…' : 'Cancel task'}
-              </button>
-              <button
-                type="button"
-                onClick={onTriageTask}
-                disabled={anyDetailMutation}
-                className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
-                title="Run architect triage on this task"
-              >
+              </GhostButton>
+              <GhostButton onClick={onTriageTask} disabled={anyDetailMutation}>
                 {isTriaging ? 'Starting…' : 'Triage task'}
-              </button>
-              <button
-                type="button"
-                onClick={onPromote}
-                disabled={anyDetailMutation}
-                className="interactive h-7 rounded border border-[#3a2820] bg-[#2c1a18] px-2.5 text-[11px] font-semibold text-[#ffe2d4] hover:bg-[#3a2421] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
-              >
+              </GhostButton>
+              <PrimaryButton onClick={onPromote} disabled={anyDetailMutation}>
                 {isPromoting ? 'Promoting…' : 'Promote to Switchboard'}
-              </button>
+              </PrimaryButton>
             </>
           )}
         </div>
       </header>
 
       {record.warnings.length > 0 ? (
-        <div className="border-b border-[#1f2025] bg-[#1d1714] px-5 py-2 text-[11.5px] leading-5 text-[#f2c45f]">
+        <div className="border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
           {record.warnings.map((warning, idx) => (
             <div key={idx}>{warning}</div>
           ))}
@@ -1426,119 +1424,132 @@ function DetailPane({
       ) : null}
 
       <div className="flex-1 overflow-auto px-5 py-4">
-        <PropertyRow label="Identifier">
-          {editing ? (
-            <input
-              value={editForm.identifier}
-              onChange={(event) => onEditFormChange({ ...editForm, identifier: event.target.value })}
-              className="block w-48 rounded border border-[#2a2b31] bg-[#0d0e11] px-2 py-1 font-mono tabular-nums text-[12px] text-[#ececee]"
-            />
-          ) : (
-            <span className="font-mono tabular-nums text-[12px] text-[#d7d7dc]">{task.identifier}</span>
-          )}
-        </PropertyRow>
-        <PropertyRow label="Priority">
-          {editing ? (
-            <select
-              value={editForm.priority == null ? '' : String(editForm.priority)}
-              onChange={(event) => {
-                const v = event.target.value
-                onEditFormChange({ ...editForm, priority: v === '' ? null : Number(v) })
-              }}
-              className="rounded border border-[#2a2b31] bg-[#0d0e11] px-2 py-1 text-[12px] text-[#ececee]"
-            >
-              <option value="">No priority</option>
-              <option value="0">Urgent</option>
-              <option value="1">High</option>
-              <option value="2">Medium</option>
-              <option value="3">Low</option>
-            </select>
-          ) : (
-            <span className="flex items-center gap-2 text-[12px] text-[#d7d7dc]">
-              <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
-              {priorityLabel(task.priority)}
-            </span>
-          )}
-        </PropertyRow>
-        <PropertyRow label="Labels">
-          {editing ? (
-            <input
-              value={editForm.labels}
-              onChange={(event) => onEditFormChange({ ...editForm, labels: event.target.value })}
-              placeholder="bug, auth"
-              className="block w-full max-w-md rounded border border-[#2a2b31] bg-[#0d0e11] px-2 py-1 text-[12px] text-[#ececee]"
-            />
-          ) : task.labels.length > 0 ? (
-            <span className="flex flex-wrap gap-1.5">
-              {task.labels.map((label) => (
-                <span key={label} className="rounded border border-[#2a2b31] bg-[#111216] px-2 py-0.5 text-[11px] text-[#d7d7dc]">
-                  {label}
+        <DefinitionList
+          layout="two-column"
+          items={[
+            {
+              term: 'Identifier',
+              description: editing ? (
+                <input
+                  value={editForm.identifier}
+                  onChange={(event) => onEditFormChange({ ...editForm, identifier: event.target.value })}
+                  className="block w-48 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 font-mono tabular-nums text-[12px] text-[color:var(--text-strong)]"
+                />
+              ) : (
+                <span className="font-mono tabular-nums">{task.identifier}</span>
+              ),
+            },
+            {
+              term: 'Priority',
+              description: editing ? (
+                <select
+                  value={editForm.priority == null ? '' : String(editForm.priority)}
+                  onChange={(event) => {
+                    const v = event.target.value
+                    onEditFormChange({ ...editForm, priority: v === '' ? null : Number(v) })
+                  }}
+                  className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-strong)]"
+                >
+                  <option value="">No priority</option>
+                  <option value="0">Urgent</option>
+                  <option value="1">High</option>
+                  <option value="2">Medium</option>
+                  <option value="3">Low</option>
+                </select>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
+                  {priorityLabel(task.priority)}
                 </span>
-              ))}
-            </span>
-          ) : (
-            <span className="text-[12px] text-[#6f7078]">None</span>
-          )}
-        </PropertyRow>
-        <PropertyRow label="Source">
-          <span className="text-[12px] text-[#d7d7dc]">{sourceLabel(record)}</span>
-        </PropertyRow>
-        {typeof task.creationConfidencePct === 'number' ? (
-          <PropertyRow label="Legitimacy confidence">
-            <ConfidenceChip value={task.creationConfidencePct} />
-          </PropertyRow>
-        ) : null}
-        <PropertyRow label="Created">
-          <span className="text-[12px] text-[#9a9aa2]">{task.createdAt}</span>
-        </PropertyRow>
+              ),
+            },
+            {
+              term: 'Labels',
+              description: editing ? (
+                <input
+                  value={editForm.labels}
+                  onChange={(event) => onEditFormChange({ ...editForm, labels: event.target.value })}
+                  placeholder="bug, auth"
+                  className="block w-full max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 text-[12px] text-[color:var(--text-strong)]"
+                />
+              ) : task.labels.length > 0 ? (
+                <span className="flex flex-wrap gap-1.5">{task.labels.join(' · ')}</span>
+              ) : (
+                <span className="text-[color:var(--text-muted)]">None</span>
+              ),
+            },
+            {
+              term: 'Source',
+              description: sourceLabel(record),
+            },
+            ...(typeof task.creationConfidencePct === 'number'
+              ? [{
+                  term: 'Legitimacy confidence',
+                  description: <ConfidenceChip value={task.creationConfidencePct} />,
+                }]
+              : []),
+            {
+              term: 'Created',
+              description: <span className="tabular-nums text-[color:var(--text-muted)]">{task.createdAt}</span>,
+            },
+          ]}
+        />
 
         {triageComment ? (
-          <div className="mt-4 rounded border border-[#2a2b31] bg-[#0d0e11] px-3 py-3">
+          <div className="mt-4 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#d7d7dc]">
-                <SpecialistActionIcon icon="architecture" className="h-3.5 w-3.5 text-[#9a9aa2]" />
+              <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--text-strong)]">
+                <SpecialistActionIcon icon="architecture" className="h-3.5 w-3.5 text-[color:var(--text-muted)]" />
                 Architect triage
               </span>
-              <span className="flex items-center gap-1 rounded border border-[#2a2b31] bg-[#111216] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[#9a9aa2]">
-                <span className={`h-1.5 w-1.5 rounded-full ${triageImportanceDotClass(triageImportance)}`} aria-hidden="true" />
-                {triageImportance ?? 'triaged'}
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+                <StatusDot tone={triageTone} />
+                {triageImportance ?? 'Triaged'}
               </span>
               {typeof triageComment.confidencePct === 'number' ? (
                 <ConfidenceChip value={triageComment.confidencePct} compact title="Triage confidence" />
               ) : null}
-              <span className="ml-auto text-[11px] tabular-nums text-[#6f7078]">{formatRelativeTime(triageComment.createdAt)}</span>
+              <span className="ml-auto text-[11px] tabular-nums text-[color:var(--text-muted)]">
+                {formatRelativeTime(triageComment.createdAt)}
+              </span>
             </div>
-            <div className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{triageComment.body}</div>
+            <div className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">
+              {triageComment.body}
+            </div>
           </div>
         ) : null}
 
-        <div className={`mt-4 ${SECTION_DIVIDER} pt-4`}>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">Description</div>
+        <div className="mt-4 border-t border-[color:var(--border-default)] pt-4">
+          <div className="mb-2 text-[12px] font-semibold text-[color:var(--text-strong)]">Description</div>
           {editing ? (
             <textarea
               value={editForm.description}
               onChange={(event) => onEditFormChange({ ...editForm, description: event.target.value })}
-              className="min-h-[140px] w-full rounded border border-[#2a2b31] bg-[#0d0e11] p-2 text-[13px] leading-6 text-[#ececee] outline-none focus:border-[#ececee]/40"
+              className="min-h-[140px] w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-[13px] leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)]"
             />
           ) : task.description.trim() ? (
-            <div className="whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{task.description}</div>
+            <div className="whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">
+              {task.description}
+            </div>
           ) : (
-            <div className="text-[12px] text-[#6f7078]">No description provided.</div>
+            <div className="text-[12px] text-[color:var(--text-muted)]">No description provided.</div>
           )}
         </div>
 
         <CommentsSection record={record} />
       </div>
 
-      <footer className="border-t border-[#1f2025] px-5 py-3">
+      <footer className="border-t border-[color:var(--border-default)] px-5 py-3">
         <div className="flex items-center justify-between gap-2">
-          <label htmlFor="watchtower-comment-input" className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">
+          <label htmlFor="watchtower-comment-input" className="block text-[12px] font-semibold text-[color:var(--text-strong)]">
             Add comment
           </label>
-          <ActionStatusChip
-            status={commentStatus}
-            onDismiss={commentStatus?.tone === 'error' ? onDismissCommentStatus : undefined}
-          />
+          {commentStatus ? (
+            <ActionStatusChip
+              status={commentStatus}
+              onDismiss={commentStatus.tone === 'error' ? onDismissCommentStatus : undefined}
+            />
+          ) : null}
         </div>
         <div className="mt-2 flex gap-2">
           <textarea
@@ -1547,27 +1558,17 @@ function DetailPane({
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Note for triage, link a finding, or capture context..."
             rows={2}
-            className="min-h-[44px] flex-1 rounded border border-[#2a2b31] bg-[#0d0e11] p-2 text-[13px] leading-6 text-[#ececee] outline-none focus:border-[#ececee]/40"
+            className="min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-[13px] leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)]"
           />
-          <button
-            type="button"
+          <PrimaryButton
             onClick={onAddComment}
             disabled={isCommenting || !commentBody.trim()}
-            className="interactive h-9 self-end rounded border border-[#2a2b31] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d97757]/70 disabled:opacity-50"
+            className="self-end !h-8"
           >
             {isCommenting ? 'Sending…' : 'Comment'}
-          </button>
+          </PrimaryButton>
         </div>
       </footer>
-    </div>
-  )
-}
-
-function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)] items-center gap-3 border-b border-[#16171b] py-1.5">
-      <div className="text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">{label}</div>
-      <div className="min-w-0">{children}</div>
     </div>
   )
 }
@@ -1576,8 +1577,8 @@ function ConfidenceChip({ value, compact = false, title }: { value: number; comp
   const label = confidenceLabel(value)
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-medium tabular-nums ${confidenceToneClass(value)} ${
-        compact ? 'text-[10px]' : 'text-[11px]'
+      className={`inline-flex shrink-0 items-center gap-1 rounded-[5px] border px-1.5 py-0.5 font-medium tabular-nums ${confidenceToneClass(value)} ${
+        compact ? 'text-[10.5px]' : 'text-[11px]'
       }`}
       title={title ? `${title}: ${label}` : label}
       aria-label={title ? `${title}: ${label}` : label}
@@ -1591,30 +1592,38 @@ function ConfidenceChip({ value, compact = false, title }: { value: number; comp
 function CommentsSection({ record }: { record: SwitchboardTaskRecord }) {
   const comments = record.task.comments
   return (
-    <div className={`mt-4 ${SECTION_DIVIDER} pt-4`}>
-      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">
-        Activity ({comments.length})
+    <div className="mt-4 border-t border-[color:var(--border-default)] pt-4">
+      <div className="mb-2 flex items-baseline gap-1.5">
+        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">Activity</span>
+        <span className="tabular-nums text-[11px] text-[color:var(--text-muted)]">{comments.length}</span>
       </div>
       {comments.length === 0 ? (
-        <div className="text-[12px] text-[#6f7078]">No comments yet.</div>
+        <div className="text-[12px] text-[color:var(--text-muted)]">No comments yet.</div>
       ) : (
         <ul className="space-y-3">
           {comments.map((comment) => (
-            <li key={comment.id} className="border-l border-[#2a2b31] pl-3">
-              <div className="flex items-baseline gap-2 text-[11.5px] text-[#9a9aa2]">
-                <span className="font-medium text-[#d7d7dc]">{comment.author.name ?? comment.author.type}</span>
-                <span className="text-[#6f7078]">·</span>
-                <span className="uppercase tracking-[0.06em] text-[#6f7078]">{comment.kind}</span>
+            <li key={comment.id} className="border-l border-[color:var(--border-default)] pl-3">
+              <div className="flex items-baseline gap-2 text-[11px] text-[color:var(--text-muted)]">
+                <span className="font-medium text-[color:var(--text-default)]">
+                  {comment.author.name ?? comment.author.type}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>{comment.kind}</span>
                 {typeof comment.confidencePct === 'number' ? (
                   <>
-                    <span className="text-[#6f7078]">·</span>
+                    <span aria-hidden="true">·</span>
                     <ConfidenceChip value={comment.confidencePct} compact />
                   </>
                 ) : null}
-                <span className="text-[#6f7078]">·</span>
+                <span aria-hidden="true">·</span>
                 <span className="tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
+                {comment.kind === 'comment' ? (
+                  <CommentIcon className="ml-1 h-3 w-3 shrink-0 text-[color:var(--text-muted)]" />
+                ) : null}
               </div>
-              <div className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{comment.body}</div>
+              <div className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">
+                {comment.body}
+              </div>
             </li>
           ))}
         </ul>
@@ -1636,7 +1645,8 @@ function CreateInboxDialog({
   onSubmit: () => void
   busy: boolean
 }) {
-  const inputClass = 'block w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#d97757]/70'
+  const inputClass =
+    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[13px] text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-strong)]'
   return (
     <Modal open onClose={onClose} contained labelledBy="watchtower-create-title" width={540}>
       <ModalHeader title="New inbox task" titleId="watchtower-create-title" onClose={onClose} />
@@ -1698,7 +1708,7 @@ function CreateInboxDialog({
         <ModalButton onClick={onClose}>Cancel</ModalButton>
         <ModalButton
           variant="primary"
-          accent="copper"
+          accent="brand"
           onClick={onSubmit}
           disabled={busy || !draft.title.trim()}
         >
@@ -1718,19 +1728,19 @@ function Banner({
   message: string
   onRetry?: () => void
 }) {
-  const toneClass =
-    tone === 'error'
-      ? 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]'
-      : 'border-[#3a3426] bg-[#1d1714] text-[#f2c45f]'
-  const retryRing = tone === 'error' ? 'focus-visible:ring-[#ff787c]/50' : 'focus-visible:ring-[#f2c45f]/50'
+  const toneVar = tone === 'error' ? '--tone-error' : '--tone-warn'
+  const softVar = tone === 'error' ? '--tone-error-soft' : '--tone-warn-soft'
   return (
-    <div className={`flex items-center justify-between gap-3 border-b ${toneClass} px-3 py-2 text-[12px]`}>
+    <div
+      className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2 text-[12px]"
+      style={{ backgroundColor: `var(${softVar})`, color: `var(${toneVar})` }}
+    >
       <span className="min-w-0 truncate">{message}</span>
       {onRetry ? (
         <button
           type="button"
           onClick={onRetry}
-          className={`interactive shrink-0 rounded border border-current bg-transparent px-2 py-0.5 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-1 ${retryRing}`}
+          className="interactive shrink-0 rounded-[5px] border border-current bg-transparent px-2 py-0.5 text-[11px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
         >
           Retry
         </button>

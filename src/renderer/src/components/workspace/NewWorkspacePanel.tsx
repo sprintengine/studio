@@ -151,12 +151,13 @@ export default function NewWorkspacePanel({
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const initialMode: CreationMode =
     initialState?.mode ?? (initialFuturePlan ? 'sprintengine' : 'standard')
+  const initialFolderPath = initialState?.folderPath ?? initialFuturePlan?.folderPath ?? null
+  const initialWorkspaceName =
+    initialFuturePlan ? '' : initialFolderPath ? basename(initialFolderPath) || 'workspace' : ''
 
   const [mode, setMode] = useState<CreationMode>(initialMode)
-  const [folderPath, setFolderPath] = useState<string | null>(
-    initialState?.folderPath ?? initialFuturePlan?.folderPath ?? null,
-  )
-  const [name, setName] = useState('')
+  const [folderPath, setFolderPath] = useState<string | null>(initialFolderPath)
+  const [name, setName] = useState(initialWorkspaceName)
   const [nameTouched, setNameTouched] = useState(false)
   const [layoutId, setLayoutId] = useState<string>(
     LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id,

@@ -15,6 +15,7 @@ import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
+import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import type { McpSettings } from '../../types/workspace'
 
 interface Props {
@@ -150,20 +151,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   )
   const cliPermissionPreset = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
-    const currentAgent = workspace?.agents[agentId]
-    if (currentAgent?.kind !== 'sprintengine' && currentAgent?.cliPermissionPreset) {
-      return currentAgent.cliPermissionPreset
-    }
-
-    if (
-      workspace?.mode !== 'sprintengine'
-      || !workspace.sprintEngineAutoState.enabled
-      || currentAgent?.kind !== 'sprintengine'
-    ) {
-      return undefined
-    }
-
-    return workspace.sprintEngineAutoState.cliPermissionPreset
+    return resolveAgentCliPermissionPreset(workspace, agentId)
   })
   const storedExecutionWorktreePath = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)

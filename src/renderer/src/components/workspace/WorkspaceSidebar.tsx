@@ -47,6 +47,7 @@ type WorkspaceSidebarProps = {
   onDeleteWorkspaceWithState: (id: WorkspaceId) => Promise<void> | void
   onForgetFolder: (folderPath: string) => void
   onNewWorkspace: () => void
+  onNewWorkspaceInFolder: (folderPath: string) => void
   onRevealFolder: (folderPath: string) => void
   onSetSidebarCollapsed: (collapsed: boolean) => void
 }
@@ -271,6 +272,7 @@ export default function WorkspaceSidebar({
   onDeleteWorkspaceWithState,
   onForgetFolder,
   onNewWorkspace,
+  onNewWorkspaceInFolder,
   onRevealFolder,
   onSetSidebarCollapsed,
 }: WorkspaceSidebarProps) {
@@ -1074,6 +1076,11 @@ export default function WorkspaceSidebar({
               setContextMenu(null)
               return
             }
+            if (action === 'new-workspace' && workspace.folderPath && !workspace.folderMissing) {
+              onNewWorkspaceInFolder(workspace.folderPath)
+              setContextMenu(null)
+              return
+            }
             if (action === 'reveal' && workspace.folderPath) {
               onRevealFolder(workspace.folderPath)
               setContextMenu(null)
@@ -1122,6 +1129,9 @@ export default function WorkspaceSidebar({
             const group = groups.find((g) => g.key === folderMenu.folderKey)
             setFolderMenu(null)
             if (!group) return
+            if (action === 'new-workspace' && group.fullPath && !group.missing) {
+              onNewWorkspaceInFolder(group.fullPath)
+            }
             if (action === 'reveal' && group.fullPath) onRevealFolder(group.fullPath)
             if (action === 'forget' && group.fullPath) setConfirmForget(group.fullPath)
           }}
@@ -1274,7 +1284,15 @@ export default function WorkspaceSidebar({
   )
 }
 
-type ContextMenuAction = 'open' | 'rename' | 'reveal' | 'close' | 'delete' | 'toggle-star' | 'clear-color'
+type ContextMenuAction =
+  | 'open'
+  | 'rename'
+  | 'new-workspace'
+  | 'reveal'
+  | 'close'
+  | 'delete'
+  | 'toggle-star'
+  | 'clear-color'
 
 function ContextMenu({
   x,
@@ -1318,6 +1336,9 @@ function ContextMenu({
       <MenuItem onClick={() => onSelect('rename')} shortcut="F2">
         Rename
       </MenuItem>
+      {folderPathExists ? (
+        <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>
+      ) : null}
       {folderPathExists ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
       <MenuDivider />
       <button
@@ -1388,7 +1409,7 @@ function ContextMenu({
   )
 }
 
-type FolderMenuAction = 'reveal' | 'forget'
+type FolderMenuAction = 'new-workspace' | 'reveal' | 'forget'
 
 function FolderContextMenu({
   x,
@@ -1415,6 +1436,7 @@ function FolderContextMenu({
   if (!group) return null
   const canReveal = Boolean(group.fullPath) && !group.missing
   const canForget = Boolean(group.fullPath)
+  const canCreateWorkspace = Boolean(group.fullPath) && !group.missing
 
   return (
     <div
@@ -1424,7 +1446,11 @@ function FolderContextMenu({
       style={{ position: 'fixed', left: x, top: y, zIndex: 60 }}
       className="min-w-[220px] rounded-md border border-[#303139] bg-[#0d0e11] p-1 text-[13px] text-[#d7d7dc] shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
     >
+      {canCreateWorkspace ? (
+        <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>
+      ) : null}
       {canReveal ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
+      {canCreateWorkspace && canForget ? <MenuDivider /> : null}
       {canForget ? (
         <MenuItem variant="danger" onClick={() => onSelect('forget')}>
           Forget folder…

@@ -696,6 +696,121 @@ export function buildSprintEngineAgentRosterForState(
   return buildSprintEngineAgentRoster(sprintEngineState?.roleCounts ?? createDefaultSprintEngineRoleCounts())
 }
 
+// Worker roles that surface their own role-task launch button on the Sprint
+// Engine panel. When one of these has an active or ready task, the role-task
+// launch supersedes a generic focus-agent action for the same role.
+const SPRINT_ENGINE_FOCUS_WORKER_ROLES: SprintEngineRole[] = [
+  'developer',
+  'frontend',
+  'product',
+  'code_reviewer',
+  'spec_reviewer',
+  'performance',
+  'tester',
+  'security',
+]
+
+export type SprintEngineRuntimeAgentEffectiveStatus =
+  | SprintEngineRuntimeAgent['status']
+  | 'idle'
+  | 'exited'
+
+export type SprintEngineFocusAgent = {
+  agentId: AgentId
+  role: SprintEngineRole
+  status: SprintEngineRuntimeAgentEffectiveStatus
+  currentTaskId: string | null
+}
+
+export type SprintEngineFocusAgentAvailability = {
+  /** The first needs_input or running agent after the local-exit override. */
+  focusAgent: SprintEngineFocusAgent | null
+  /** True only when the panel would surface the generic focus-agent action.
+   *  Mirrors SprintEngineBoardPanel: hidden when the focus agent's role has a
+   *  dedicated role-task launch (which supersedes the generic action). */
+  showFocusAgentAction: boolean
+}
+
+/** Subset of the renderer's AgentState used to compute the localExited override
+ *  without coupling this utility to the full AgentState type. */
+export type SprintEngineLocalAgentLike = {
+  kind?: string
+  cliLastExitedAt?: number | null
+  cliStartRequested?: boolean
+  cliHasLaunched?: boolean
+}
+
+/**
+ * Compute the effective focus-agent availability used by both the Sprint
+ * Engine panel and the command palette. Applies the same three filters the
+ * panel applies:
+ *   1. Roster-derived runtime agents only (orphan sprintEngineAgents entries
+ *      that are not on the roster are ignored).
+ *   2. localExited override: if the renderer agent state shows the CLI has
+ *      exited and no fresh start has been requested, treat the agent as
+ *      exited regardless of what state.yaml claims.
+ *   3. showFocusAgentAction: hidden when the focus agent's role already has a
+ *      dedicated role-task launch surfaced by the panel.
+ */
+export function computeSprintEngineFocusAgentAvailability(
+  sprintEngineState: SprintEngineState | null | undefined,
+  agents: Record<string, SprintEngineLocalAgentLike | undefined>
+): SprintEngineFocusAgentAvailability {
+  if (!sprintEngineState) return { focusAgent: null, showFocusAgentAction: false }
+
+  const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
+  const rosterById = new Map(roster.map((agent) => [agent.id, agent]))
+
+  const runtimeAgents: SprintEngineFocusAgent[] = roster.map((agent) => {
+    const runtime = sprintEngineState.sprintEngineAgents[agent.id]
+    const local = agents[agent.id]
+    const localExited = Boolean(
+      local?.kind === 'sprintengine'
+      && local.cliLastExitedAt
+      && !local.cliStartRequested
+      && !local.cliHasLaunched
+    )
+    const status: SprintEngineRuntimeAgentEffectiveStatus = localExited
+      ? 'exited'
+      : (runtime?.status ?? 'idle')
+    return {
+      agentId: agent.id,
+      role: runtime?.role ?? agent.role,
+      status,
+      currentTaskId: runtime?.currentTaskId ?? null,
+    }
+  })
+
+  const needsInput = runtimeAgents.find((agent) => agent.status === 'needs_input')
+  const running = runtimeAgents.find((agent) => agent.status === 'running')
+  const focusAgent = needsInput ?? running ?? null
+
+  if (!focusAgent) return { focusAgent: null, showFocusAgentAction: false }
+
+  const readyTasks = sprintEngineState.tasks.filter(
+    (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
+  )
+  const roleTaskLaunchSet = new Set<SprintEngineRole>()
+  for (const role of SPRINT_ENGINE_FOCUS_WORKER_ROLES) {
+    const activeTask = sprintEngineState.tasks.find(
+      (task) =>
+        task.role === role
+        && (task.status === 'in_progress' || task.status === 'needs_input')
+    )
+    const readyTask = readyTasks.find((task) => task.role === role && !task.ownerAgentId)
+    if (activeTask ?? readyTask) roleTaskLaunchSet.add(role)
+  }
+
+  const focusAgentRosterRole = rosterById.get(focusAgent.agentId)?.role
+  const focusAgentRole = focusAgentRosterRole ?? focusAgent.role
+  const showFocusAgentAction =
+    !focusAgentRole
+    || focusAgentRole === 'architect'
+    || !roleTaskLaunchSet.has(focusAgentRole)
+
+  return { focusAgent, showFocusAgentAction }
+}
+
 export function buildSprintEngineRosterCommandArgs(
   sprintEngineState: Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents' | 'rosterConfigured'> | SprintEngineRoleCounts | null | undefined
 ): string[] {

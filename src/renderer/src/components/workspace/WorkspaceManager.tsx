@@ -462,6 +462,15 @@ export default function WorkspaceManager() {
     setHandoffOpen(false)
   }
 
+  const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
+    setNewWorkspacePanelInitialState({ folderPath })
+    setShowNewWorkspacePanel(true)
+    setShowSettings(false)
+    setSpecialistMenuOpen(false)
+    setNotificationsOpen(false)
+    setHandoffOpen(false)
+  }, [])
+
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     if (activeWorkspaceId) {
       const model = getModel(activeWorkspaceId)
@@ -1428,6 +1437,7 @@ export default function WorkspaceManager() {
         onDeleteWorkspaceWithState={deleteWorkspaceWithState}
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
+        onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
       />

@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { ArrowRightIcon, CommentIcon, PlusIcon, PriorityIcon, StatusDot, StatusIcon } from '../AppIcons'
+import { ArrowRightIcon, PlusIcon, PriorityIcon, StatusIcon } from '../AppIcons'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasAgentTab } from '../../utils/modelRegistry'
@@ -13,12 +13,24 @@ import {
   type ActionTone,
 } from '../ui/ActionFeedback'
 import {
+  DefinitionList,
+  GhostButton,
+  IconButton,
+  OverflowMenu,
+  PanelHeader,
+  PrimaryButton,
+  Section,
+  StatusDot,
+  type DefinitionItem,
+  type OverflowMenuItem,
+  type Tone,
+} from '../ui'
+import {
   attentionReasonDescription,
   attentionReasonLabel,
   BOARD_STATUS_ORDER,
   deriveAttentionInfo,
   confidenceLabel,
-  confidenceToneClass,
   formatRelativeTime,
   groupTasksByStatus,
   legalMoveTargets,
@@ -53,15 +65,7 @@ import type {
 } from '../../../../shared/switchboard'
 import type { McpSettings } from '../../types/workspace'
 
-const PANEL_BG = 'bg-[#08090b]'
-const ACCENT = '#7c5cf2'
-
-type PendingKey =
-  | 'create'
-  | 'move'
-  | 'addComment'
-  | 'refresh'
-  | 'retry'
+type PendingKey = 'create' | 'move' | 'addComment' | 'refresh' | 'retry'
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -88,6 +92,47 @@ const emptyDraft: DraftTask = {
 }
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
+
+const EXECUTION_TONES: Record<SwitchboardExecutionStatus, Tone> = {
+  launching: 'accent',
+  active: 'accent',
+  abandoned: 'error',
+  stale: 'warn',
+  missing: 'error',
+  completed: 'good',
+  stopped: 'error',
+}
+
+const EXECUTION_LABELS: Record<SwitchboardExecutionStatus, string> = {
+  launching: 'Launching',
+  active: 'Active',
+  abandoned: 'Abandoned',
+  stale: 'Stale',
+  missing: 'Missing',
+  completed: 'Completed',
+  stopped: 'Stopped',
+}
+
+const RUNNER_TONE: Record<RunnerStatusKind, Tone> = {
+  running: 'good',
+  paused: 'warn',
+  stopped: 'neutral',
+  unconfigured: 'neutral',
+}
+
+const RUNNER_LABEL: Record<RunnerStatusKind, string> = {
+  running: 'Running',
+  paused: 'Paused',
+  stopped: 'Stopped',
+  unconfigured: 'Not started',
+}
+
+function confidenceTone(value: number): Tone {
+  if (value >= 80) return 'good'
+  if (value >= 50) return 'accent'
+  if (value >= 25) return 'warn'
+  return 'error'
+}
 
 export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
@@ -123,6 +168,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [runnerOpen, setRunnerOpen] = useState(false)
   const [draft, setDraft] = useState<DraftTask>(emptyDraft)
   const [commentBody, setCommentBody] = useState('')
   const [dragSource, setDragSource] = useState<{ taskId: string; from: SwitchboardFolderStatus } | null>(null)
@@ -136,6 +182,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     const handle = window.setTimeout(() => setRecentlyMovedId(null), 700)
     return () => window.clearTimeout(handle)
   }, [recentlyMovedId])
+
   const dragLegalTargets = useMemo(
     () => (dragSource ? new Set<SwitchboardTaskStatus>(legalMoveTargets(dragSource.from)) : new Set<SwitchboardTaskStatus>()),
     [dragSource]
@@ -153,7 +200,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
   )
 
   const notifyToolbar = useCallback(
-    (tone: ActionTone, message: string) => feedback.notify('toolbar', tone, message),
+    (tone: ActionTone, message: string) => feedback.notify('runner', tone, message),
     [feedback]
   )
 
@@ -349,66 +396,83 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     })
   }, [refresh, runAction])
 
+  // CommandPalette → panel-command bridge. Mirrors the overflow/settings ids.
+  useEffect(() => {
+    const onCommand = (event: Event) => {
+      const id = (event as CustomEvent).detail?.id
+      if (typeof id !== 'string') return
+      switch (id) {
+        case 'switchboard.refresh.board':
+          void handleRefreshBoard()
+          break
+        case 'switchboard.open.runner':
+          setRunnerOpen(true)
+          break
+      }
+    }
+    window.addEventListener('multicode:panel-command', onCommand)
+    return () => window.removeEventListener('multicode:panel-command', onCommand)
+  }, [handleRefreshBoard])
+
   if (!workspace) {
-    return <div className={`h-full ${PANEL_BG} p-4 text-sm text-[#8a8a92]`}>Workspace not found.</div>
+    return (
+      <div className="h-full bg-[color:var(--bg-app)] p-4 text-[12px] text-[color:var(--text-muted)]">
+        Workspace not found.
+      </div>
+    )
   }
 
   if (!folderPath) {
     return (
-      <div className={`h-full ${PANEL_BG} p-6 text-sm text-[#8a8a92]`}>
+      <div className="h-full bg-[color:var(--bg-app)] p-6 text-[12px] text-[color:var(--text-muted)]">
         Choose a workspace folder to use the Switchboard board.
       </div>
     )
   }
 
+  const overflowItems: OverflowMenuItem[] = [
+    {
+      id: 'switchboard.refresh.board',
+      label: isPending('refresh') ? 'Refreshing…' : 'Refresh board',
+      disabled: isPending('refresh'),
+      onSelect: () => void handleRefreshBoard(),
+    },
+    {
+      id: 'switchboard.open.runner',
+      label: 'Open runner',
+      onSelect: () => setRunnerOpen(true),
+    },
+  ]
+
   return (
-    <div className={`relative flex h-full min-h-0 ${PANEL_BG} text-[#d7d7dc]`}>
+    <div className="relative flex h-full min-h-0 bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
       <section
         tabIndex={0}
         onKeyDown={handleBoardKeyDown}
         aria-label="Switchboard board"
+        aria-labelledby="switchboard-panel-title"
         className="flex min-w-0 flex-1 flex-col focus:outline-none"
       >
-        <header className="flex items-center justify-between gap-3 border-b border-[#1f2025] px-3 py-2.5">
-          <div className="flex min-w-0 items-center gap-2">
-            <span
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ background: ACCENT }}
-              aria-hidden="true"
-            />
-            <span className="shrink-0 text-[11px] tabular-nums text-[#6f7078]">{boardTasks.length} tasks</span>
-            <ActionStatusChip
-              status={feedback.statuses.board ?? null}
-              onDismiss={feedback.statuses.board?.tone === 'error' ? () => feedback.dismiss('board') : undefined}
-              className="ml-1"
-            />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => void handleRefreshBoard()}
-              disabled={isPending('refresh')}
-              className="interactive h-7 rounded border border-[#2a2b31] px-2 text-[11px] font-medium text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
-            >
-              {isPending('refresh') ? 'Refreshing…' : 'Refresh'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="interactive inline-flex h-7 items-center gap-1 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60"
-            >
+        <PanelHeader
+          tool="switchboard"
+          title="Board"
+          titleId="switchboard-panel-title"
+          count={boardTasks.length}
+          primaryAction={
+            <PrimaryButton onClick={() => setCreateOpen(true)}>
               <PlusIcon className="h-3 w-3" />
               New task
-            </button>
-          </div>
-        </header>
+            </PrimaryButton>
+          }
+          overflow={<OverflowMenu ariaLabel="Switchboard overflow" items={overflowItems} />}
+        />
 
-        <RunnerToolbar runner={runner} workspaceId={workspaceId} onRefresh={refresh} onNotify={notifyToolbar} toolbarStatus={feedback.statuses.toolbar ?? null} onDismissToolbarStatus={() => feedback.dismiss('toolbar')} />
+        <BoardStatusBanner status={feedback.statuses.board ?? null} onDismiss={() => feedback.dismiss('board')} />
 
         {state.kind === 'error' ? <Banner tone="error" message={state.message} onRetry={refresh} /> : null}
         {problems.length > 0 ? (
           <Banner
-            tone="warning"
+            tone="warn"
             message={`${problems.length} task file${problems.length === 1 ? '' : 's'} could not be parsed and was skipped.`}
           />
         ) : null}
@@ -465,7 +529,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
       </section>
 
       <aside
-        className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[#13141a]"
+        className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[color:var(--border-default)]"
         aria-label="Selected task detail"
       >
         {selected ? (
@@ -497,6 +561,18 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         )}
       </aside>
 
+      {runnerOpen ? (
+        <RunnerDrawer
+          runner={runner}
+          workspaceId={workspaceId}
+          onRefresh={refresh}
+          onNotify={notifyToolbar}
+          runnerStatus={feedback.statuses.runner ?? null}
+          onDismissRunnerStatus={() => feedback.dismiss('runner')}
+          onClose={() => setRunnerOpen(false)}
+        />
+      ) : null}
+
       {createOpen ? (
         <CreateTaskDialog
           draft={draft}
@@ -506,6 +582,24 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
           busy={isPending('create')}
         />
       ) : null}
+    </div>
+  )
+}
+
+function BoardStatusBanner({
+  status,
+  onDismiss,
+}: {
+  status: ActionStatus | null
+  onDismiss: () => void
+}) {
+  if (!status) return null
+  return (
+    <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-1.5">
+      <ActionStatusChip
+        status={status}
+        onDismiss={status.tone === 'error' ? onDismiss : undefined}
+      />
     </div>
   )
 }
@@ -547,10 +641,10 @@ function BoardLane({
   useFlipReorder(listRef, records.map((record) => record.task.id).join(','))
   const dimmed = dragActive && !isLegalDropTarget && !isSourceLane
   const laneClass = [
-    'flex h-full w-[260px] shrink-0 flex-col rounded-md transition-colors',
+    'flex h-full w-[260px] shrink-0 flex-col rounded-[7px] transition-colors',
     isLegalDropTarget
-      ? 'bg-[#0c0d11] ring-1 ring-[#2a2350]'
-      : 'bg-[#0a0b0e]',
+      ? 'bg-[color:var(--bg-surface)] ring-1 ring-[color:var(--accent-primary)]'
+      : 'bg-[color:var(--bg-surface)]',
     dimmed ? 'opacity-40' : '',
   ].filter(Boolean).join(' ')
   const computeDropIndex = (clientY: number): number => {
@@ -586,16 +680,16 @@ function BoardLane({
     >
       <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
         <span className="flex min-w-0 items-center gap-1.5">
-          <StatusIcon status={status} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
-          <span className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2]">
+          <StatusIcon status={status} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
+          <span className="truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
             {statusLabel(status)}
           </span>
         </span>
-        <span className="text-[11px] tabular-nums text-[#6f7078]">{records.length}</span>
+        <span className="tabular-nums text-[11px] text-[color:var(--text-subtle)]">{records.length}</span>
       </div>
       <ol ref={listRef} className="flex-1 space-y-2 overflow-auto px-2 py-2">
         {records.length === 0 ? (
-          <li className="px-1 py-2 text-[11px] text-[#5a5a63]">
+          <li className="px-1 py-2 text-[11px] text-[color:var(--text-disabled)]">
             {dropIndex === 0 ? <DropIndicator /> : 'Empty'}
           </li>
         ) : (
@@ -638,8 +732,6 @@ function BoardCard({
   onDragEnd: () => void
 }) {
   const task = record.task
-  const labels = task.labels.slice(0, 2)
-  const commentCount = task.comments.length
   const hasActiveExecutionPointer = Boolean(task.execution.activeExecutionId)
   const attentionInfo = deriveAttentionInfo(record, executionStatus)
   const effectiveStatus: SwitchboardExecutionStatus | null =
@@ -653,6 +745,12 @@ function BoardCard({
       onSelect()
     }
   }
+
+  const cardTone: Tone = attentionInfo
+    ? 'warn'
+    : effectiveStatus
+      ? EXECUTION_TONES[effectiveStatus]
+      : 'neutral'
 
   return (
     <li
@@ -675,54 +773,29 @@ function BoardCard({
         setDragging(false)
         onDragEnd()
       }}
-      className={`interactive relative rounded-md border px-2.5 py-2 shadow-[0_1px_0_rgba(0,0,0,0.4)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2] ${
-        dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab'
-      } ${justMoved ? 'card-just-moved' : ''} ${
+      className={[
+        'interactive flex items-start gap-2 rounded-[5px] border-l-2 px-2.5 py-1.5',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]',
+        dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab',
+        justMoved ? 'card-just-moved' : '',
         selected
-          ? 'border-[#16171c] border-l-[3px] border-l-[#7c5cf2] bg-[#100c1e] pl-[7px] text-[#ececee]'
-          : 'border-[#16171c] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#111216]'
-      }`}
+          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+          : 'border-transparent text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]',
+      ].join(' ')}
     >
-      <div className="flex items-baseline justify-between gap-2 text-[11px]">
-        <span className="font-mono tabular-nums text-[#8a8a92]">
-          {shortIdentifier(record)}
-        </span>
-        <PriorityIcon
-          priority={task.priority}
-          className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]"
-        />
+      <StatusDot tone={cardTone} className="mt-[5px]" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono tabular-nums text-[11px] text-[color:var(--text-subtle)]">
+            {shortIdentifier(record)}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-[1.4]">{task.title}</span>
+        </div>
       </div>
-      <div className="mt-1 line-clamp-2 text-[12.5px] font-medium leading-5">{task.title}</div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-[#6f7078]">
-        {labels.map((label) => (
-          <span key={label} className="rounded border border-[#2a2b31] bg-[#08090b] px-1.5 py-0.5 text-[#a8a8b0]">
-            {label}
-          </span>
-        ))}
-        {commentCount > 0 ? (
-          <span className="flex items-center gap-1 text-[#9a9aa2]">
-            <CommentIcon className="h-3 w-3 shrink-0" />
-            <span className="tabular-nums">{commentCount}</span>
-          </span>
-        ) : null}
-        {typeof task.creationConfidencePct === 'number' ? (
-          <ConfidenceChip value={task.creationConfidencePct} compact title="Legitimacy confidence" />
-        ) : null}
-        {attentionInfo ? (
-          <StatusDot
-            tone="needs-input"
-            label={`Needs your input · ${attentionReasonLabel(attentionInfo.reason)}`}
-          />
-        ) : null}
-        {effectiveStatus ? (
-          <ExecutionStatusBadge status={effectiveStatus} title={executionTitle(record)} />
-        ) : null}
-        {record.warnings.length > 0 ? (
-          <span className="text-[#f2c45f]" title={record.warnings.join('; ')}>
-            ⚠
-          </span>
-        ) : null}
-      </div>
+      <PriorityIcon
+        priority={task.priority}
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]"
+      />
     </li>
   )
 }
@@ -730,7 +803,7 @@ function BoardCard({
 function DropIndicator() {
   return (
     <li aria-hidden="true" className="-my-1 list-none">
-      <div className="h-[2px] rounded-full bg-[#7c5cf2] shadow-[0_0_6px_rgba(124,92,242,0.6)]" />
+      <div className="h-[2px] rounded-full bg-[color:var(--accent-primary)]" />
     </li>
   )
 }
@@ -739,20 +812,16 @@ function BoardSkeleton() {
   return (
     <div aria-busy="true" aria-label="Loading board" className="flex h-full w-full gap-1.5">
       {BOARD_STATUS_ORDER.slice(0, 5).map((status, laneIdx) => (
-        <div key={status} className="flex h-full w-[260px] shrink-0 flex-col rounded-md bg-[#0a0b0e]">
+        <div key={status} className="flex h-full w-[260px] shrink-0 flex-col rounded-[7px] bg-[color:var(--bg-surface)]">
           <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
-            <div className="skeleton-shimmer h-3 w-20 rounded bg-[#13141a]" />
-            <div className="skeleton-shimmer h-3 w-5 rounded bg-[#13141a]" />
+            <div className="skeleton-shimmer h-3 w-20 rounded bg-[color:var(--bg-hover)]" />
+            <div className="skeleton-shimmer h-3 w-5 rounded bg-[color:var(--bg-hover)]" />
           </div>
           <ol className="flex-1 space-y-2 px-2 py-2">
             {Array.from({ length: 3 - (laneIdx % 2) }).map((_, cardIdx) => (
-              <li key={cardIdx} className="rounded-md border border-[#16171c] bg-[#0d0e11] px-2.5 py-2">
-                <div className="flex items-baseline justify-between gap-2">
-                  <div className="skeleton-shimmer h-2.5 w-12 rounded bg-[#13141a]" />
-                  <div className="skeleton-shimmer h-2.5 w-3.5 rounded bg-[#13141a]" />
-                </div>
-                <div className="skeleton-shimmer mt-2 h-3 w-[85%] rounded bg-[#13141a]" />
-                <div className="skeleton-shimmer mt-1.5 h-2.5 w-[60%] rounded bg-[#13141a]" />
+              <li key={cardIdx} className="rounded-[5px] border-l-2 border-transparent px-2.5 py-1.5">
+                <div className="skeleton-shimmer h-3 w-[85%] rounded bg-[color:var(--bg-hover)]" />
+                <div className="skeleton-shimmer mt-1.5 h-2.5 w-[60%] rounded bg-[color:var(--bg-hover)]" />
               </li>
             ))}
           </ol>
@@ -762,33 +831,11 @@ function BoardSkeleton() {
   )
 }
 
-const EXECUTION_STATUS_LABELS: Record<SwitchboardExecutionStatus, string> = {
-  launching: 'launching',
-  active: 'exec',
-  abandoned: 'abandoned',
-  stale: 'stale',
-  missing: 'missing',
-  completed: 'completed',
-  stopped: 'stopped',
-}
-
-const EXECUTION_STATUS_TONES: Record<SwitchboardExecutionStatus, string> = {
-  launching: 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff]',
-  active: 'border-[#1f3949] bg-[#0d1922] text-[#9fd8ff]',
-  abandoned: 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]',
-  stale: 'border-[#3a3426] bg-[#1d1714] text-[#f2c45f]',
-  missing: 'border-[#3a2222] bg-[#1c1414] text-[#ff9ea0]',
-  completed: 'border-[#234d27] bg-[#0f1d10] text-[#9be39e]',
-  stopped: 'border-[#4a2527] bg-[#1c1414] text-[#ffb3b5]',
-}
-
-function ExecutionStatusBadge({ status, title }: { status: SwitchboardExecutionStatus; title?: string }) {
+function ExecutionStatusInline({ status, title }: { status: SwitchboardExecutionStatus; title?: string }) {
   return (
-    <span
-      title={title}
-      className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] ${EXECUTION_STATUS_TONES[status]}`}
-    >
-      {EXECUTION_STATUS_LABELS[status]}
+    <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-default)]" title={title}>
+      <StatusDot tone={EXECUTION_TONES[status]} />
+      <span>{EXECUTION_LABELS[status]}</span>
     </span>
   )
 }
@@ -806,39 +853,27 @@ function AttentionStrip({
   return (
     <div
       role="status"
-      className="flex items-center gap-3 border-b border-[#1f2025] bg-[#1d1714] px-5 py-2 text-[11.5px] leading-5 text-[#f2c45f]"
+      className="flex items-center gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-[12px] leading-5 text-[color:var(--text-strong)]"
     >
-      <StatusDot tone="needs-input" label="Needs your input" />
+      <StatusDot tone="warn" label="Needs your input" />
       <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="font-semibold uppercase tracking-[0.08em] text-[#ffd58a]">Needs your input</span>
-        <span className="text-[#9a8456]">·</span>
-        <span className="text-[#f2c45f]">{attentionReasonLabel(info.reason)}</span>
-        <span className="text-[#9a8456] tabular-nums">
+        <span className="font-medium">Needs your input</span>
+        <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+        <span className="text-[color:var(--text-muted)]">{attentionReasonLabel(info.reason)}</span>
+        <span className="tabular-nums text-[color:var(--text-subtle)]">
           · {attemptsLabel}
           {info.lastAttemptAt ? ` · ${formatRelativeTime(info.lastAttemptAt)}` : ''}
         </span>
       </div>
-      <button
-        type="button"
+      <GhostButton
         onClick={onRetry}
         disabled={isRetrying}
         title={attentionReasonDescription(info.reason)}
-        className="interactive inline-flex h-6 shrink-0 items-center rounded border border-[#3a3426] bg-[#221a10] px-2 text-[11px] font-medium text-[#ffe0a3] hover:bg-[#2a210f] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ffbf2f]/60 disabled:opacity-50"
       >
         {isRetrying ? 'Retrying…' : 'Retry now'}
-      </button>
+      </GhostButton>
     </div>
   )
-}
-
-const ATTEMPT_DOT_TONES: Record<SwitchboardExecutionStatus, string> = {
-  launching: 'bg-[#a78bfa]',
-  active: 'bg-[#9fd8ff]',
-  abandoned: 'bg-[#ffb3b5]',
-  stale: 'bg-[#f2c45f]',
-  missing: 'bg-[#ff9ea0]',
-  completed: 'bg-[#9be39e]',
-  stopped: 'bg-[#9a9aa2]',
 }
 
 function inferAttemptStatus(
@@ -867,38 +902,39 @@ function AttemptRow({
   status: SwitchboardExecutionStatus
 }) {
   return (
-    <li className="grid grid-cols-[10px_1fr] items-start gap-3">
-      <span
-        aria-hidden="true"
-        className={`mt-1.5 h-2 w-2 rounded-full ${ATTEMPT_DOT_TONES[status]}`}
-      />
+    <li className="grid grid-cols-[12px_1fr] items-start gap-3">
+      <span className="mt-[5px]">
+        <StatusDot tone={EXECUTION_TONES[status]} />
+      </span>
       <div className="min-w-0 space-y-0.5">
         <div className="flex min-w-0 items-baseline justify-between gap-2">
-          <span className="min-w-0 truncate font-mono text-[12px] text-[#d7d7dc]">
+          <span className="min-w-0 truncate font-mono text-[12px] text-[color:var(--text-default)]">
             {attempt.agentId ?? attempt.id}
           </span>
-          <ExecutionStatusBadge status={status} />
+          <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
+            {EXECUTION_LABELS[status]}
+          </span>
         </div>
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[#9a9aa2] tabular-nums">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] tabular-nums text-[color:var(--text-muted)]">
           <span>started {formatRelativeTime(attempt.startedAt)}</span>
           {attempt.completedAt ? (
             <>
-              <span className="text-[#5a5a63]">·</span>
+              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
               <span>ended {formatRelativeTime(attempt.completedAt)}</span>
             </>
           ) : null}
         </div>
         {attempt.worktreeBranch || attempt.worktreeState ? (
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[#6f7078]">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-subtle)]">
             {attempt.worktreeBranch ? (
-              <span className="font-mono text-[#a1a1aa]">{attempt.worktreeBranch}</span>
+              <span className="font-mono text-[color:var(--text-muted)]">{attempt.worktreeBranch}</span>
             ) : null}
             {attempt.worktreeBranch && attempt.worktreeState ? <span>·</span> : null}
             {attempt.worktreeState ? <span>{attempt.worktreeState}</span> : null}
           </div>
         ) : null}
         {attempt.summary ? (
-          <div className="text-[11.5px] leading-5 text-[#9a9aa2]">{attempt.summary}</div>
+          <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">{attempt.summary}</div>
         ) : null}
       </div>
     </li>
@@ -907,9 +943,11 @@ function AttemptRow({
 
 function EmptyDetail() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[#6f7078]">
-      <div className="text-[12px] uppercase tracking-[0.08em] text-[#5a5a63]">Detail</div>
-      <div className="text-[13px] text-[#8a8a92]">Select a task to inspect its description, comments, and source.</div>
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[color:var(--text-subtle)]">
+      <div className="text-[12px] text-[color:var(--text-muted)]">Detail</div>
+      <div className="text-[12px] text-[color:var(--text-muted)]">
+        Select a task to inspect its description, comments, and source.
+      </div>
     </div>
   )
 }
@@ -975,17 +1013,136 @@ function BoardDetailPane({
       })
     })
   }
+
+  const properties: DefinitionItem[] = useMemo(() => {
+    const items: DefinitionItem[] = []
+    items.push({
+      term: 'Identifier',
+      description: (
+        <span className="font-mono text-[12px] text-[color:var(--text-strong)]">{task.identifier}</span>
+      ),
+    })
+    items.push({
+      term: 'Status',
+      description: (
+        <span className="flex items-center gap-2">
+          <StatusIcon status={record.location.folderStatus} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
+          {statusLabel(record.location.folderStatus)}
+        </span>
+      ),
+    })
+    items.push({
+      term: 'Owner',
+      description: (
+        <span className="text-[color:var(--text-strong)]">
+          {task.claim?.owner ?? 'Unassigned'}
+        </span>
+      ),
+    })
+    items.push({
+      term: 'Priority',
+      description: (
+        <span className="flex items-center gap-2">
+          <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
+          {priorityLabel(task.priority)}
+        </span>
+      ),
+    })
+    items.push({
+      term: 'Source',
+      description: <span>{sourceLabel(record)}</span>,
+    })
+    if (typeof task.creationConfidencePct === 'number') {
+      items.push({
+        term: 'Legitimacy',
+        description: <ConfidenceInline value={task.creationConfidencePct} />,
+      })
+    }
+    items.push({
+      term: 'Opened',
+      description: <span className="tabular-nums">{formatRelativeTime(task.createdAt)}</span>,
+    })
+    items.push({
+      term: 'Last move',
+      description: <span className="tabular-nums">{formatRelativeTime(task.updatedAt)}</span>,
+    })
+    if (task.url) {
+      items.push({
+        term: 'Link',
+        description: (
+          <span className="truncate text-[color:var(--accent-primary)]">{task.url}</span>
+        ),
+      })
+    }
+    if (task.execution.activeExecutionId || executionStatus) {
+      items.push({
+        term: 'Execution',
+        description: (
+          <span className="block space-y-1">
+            <span className="flex items-center gap-2">
+              {executionStatus ? (
+                <ExecutionStatusInline status={executionStatus} />
+              ) : task.execution.activeExecutionId ? (
+                <ExecutionStatusInline status="active" />
+              ) : null}
+              {task.execution.activeExecutionId ? (
+                <span className="truncate font-mono text-[color:var(--text-muted)]">{task.execution.activeExecutionId}</span>
+              ) : null}
+            </span>
+            {task.execution.activeProvider || task.execution.activeSessionId ? (
+              <span className="block text-[color:var(--text-muted)]">
+                {task.execution.activeProvider ?? 'unknown provider'}
+                {task.execution.activeSessionId ? ` · session ${task.execution.activeSessionId}` : ''}
+              </span>
+            ) : null}
+          </span>
+        ),
+      })
+    }
+    if (task.execution.worktreePath) {
+      items.push({
+        term: 'Worktree',
+        description: (
+          <span className="block font-mono text-[12px] text-[color:var(--text-strong)]">{task.execution.worktreePath}</span>
+        ),
+      })
+    }
+    if (task.execution.worktreeBranch) {
+      items.push({
+        term: 'Branch',
+        description: (
+          <span className="font-mono text-[12px] text-[color:var(--text-strong)]">{task.execution.worktreeBranch}</span>
+        ),
+      })
+    }
+    if (task.execution.worktreeState) {
+      items.push({
+        term: 'Worktree state',
+        description: <span>{task.execution.worktreeState}</span>,
+      })
+    }
+    if (task.labels.length > 0) {
+      items.push({
+        term: 'Labels',
+        description: <span>{task.labels.join(', ')}</span>,
+      })
+    }
+    return items
+  }, [executionStatus, record, task])
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="border-b border-[#1f2025] px-5 py-4">
-        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">
-          <span className="font-mono tabular-nums text-[12px] text-[#9a9aa2]">{shortIdentifier(record)}</span>
-          <span>·</span>
+      <header className="border-b border-[color:var(--border-default)] px-5 py-4">
+        <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+          <span className="font-mono tabular-nums text-[12px] text-[color:var(--text-default)]">
+            {shortIdentifier(record)}
+          </span>
+          <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
           <span className="flex items-center gap-1.5">
-            <StatusIcon status={record.location.folderStatus} className="h-3 w-3 text-[#9a9aa2]" />
+            <StatusIcon status={record.location.folderStatus} className="h-3 w-3 text-[color:var(--text-muted)]" />
             {statusLabel(record.location.folderStatus)}
           </span>
-          <span>·</span>
+          <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
           <span className="tabular-nums">{formatRelativeTime(task.updatedAt)}</span>
           <ActionStatusChip
             status={detailStatus}
@@ -993,45 +1150,24 @@ function BoardDetailPane({
             className="ml-auto"
           />
         </div>
-        <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[#ececee]">{task.title}</h3>
-        {canOpenTerminal ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={handleOpenTerminal}
-              className="interactive inline-flex h-7 items-center gap-1.5 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60"
-              title={terminalButtonLabel}
-            >
-              {terminalState.kind === 'running' ? (
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full status-dot-pulse"
-                  style={{ background: '#30d158' }}
-                  aria-hidden="true"
-                />
-              ) : terminalState.kind === 'exited' ? (
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ background: '#5a5a63' }}
-                  aria-hidden="true"
-                />
-              ) : null}
-              {terminalButtonLabel}
-            </button>
-          </div>
-        ) : null}
-        {targets.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Move task">
+        <h3 className="mt-2 text-[15px] font-semibold leading-6 text-[color:var(--text-strong)]">{task.title}</h3>
+        {canOpenTerminal || targets.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Task actions">
+            {canOpenTerminal ? (
+              <PrimaryButton onClick={handleOpenTerminal} title={terminalButtonLabel}>
+                {terminalState.kind === 'running' ? (
+                  <StatusDot tone="good" pulse />
+                ) : terminalState.kind === 'exited' ? (
+                  <StatusDot tone="neutral" />
+                ) : null}
+                {terminalButtonLabel}
+              </PrimaryButton>
+            ) : null}
             {targets.map((target) => (
-              <button
+              <GhostButton
                 key={target}
-                type="button"
                 onClick={() => onMove(target)}
                 disabled={isMoving}
-                className={`interactive inline-flex h-7 items-center gap-1 rounded border px-2.5 text-[11px] font-medium focus-visible:outline-none focus-visible:ring-1 ${
-                  target === 'canceled'
-                    ? 'border-[#3a2222] text-[#ffb3b5] hover:bg-[#1c1414] focus-visible:ring-[#ff787c]/60'
-                    : 'border-[#2a2b31] text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:ring-[#7c5cf2]/60'
-                } disabled:opacity-50`}
               >
                 {target === 'canceled' ? (
                   'Cancel'
@@ -1041,14 +1177,14 @@ function BoardDetailPane({
                     {statusLabel(target)}
                   </>
                 )}
-              </button>
+              </GhostButton>
             ))}
           </div>
         ) : null}
       </header>
 
       {record.warnings.length > 0 ? (
-        <div className="border-b border-[#1f2025] bg-[#1d1714] px-5 py-2 text-[11.5px] leading-5 text-[#f2c45f]">
+        <div className="border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-[12px] leading-5 text-[color:var(--text-strong)]">
           {record.warnings.map((warning, idx) => (
             <div key={idx}>{warning}</div>
           ))}
@@ -1063,98 +1199,13 @@ function BoardDetailPane({
         />
       ) : null}
 
-      <div className="flex-1 overflow-auto px-5 py-4">
-        <PropertyRow label="Identifier">
-          <span className="font-mono text-[12px] text-[#d7d7dc]">{task.identifier}</span>
-        </PropertyRow>
-        <PropertyRow label="Status">
-          <span className="flex items-center gap-2 text-[12px] text-[#d7d7dc]">
-            <StatusIcon status={record.location.folderStatus} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
-            {statusLabel(record.location.folderStatus)}
-          </span>
-        </PropertyRow>
-        <PropertyRow label="Priority">
-          <span className="flex items-center gap-2 text-[12px] text-[#d7d7dc]">
-            <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[#9a9aa2]" />
-            {priorityLabel(task.priority)}
-          </span>
-        </PropertyRow>
-        <PropertyRow label="Labels">
-          {task.labels.length > 0 ? (
-            <span className="flex flex-wrap gap-1.5">
-              {task.labels.map((label) => (
-                <span
-                  key={label}
-                  className="rounded border border-[#2a2b31] bg-[#111216] px-2 py-0.5 text-[11px] text-[#d7d7dc]"
-                >
-                  {label}
-                </span>
-              ))}
-            </span>
-          ) : (
-            <span className="text-[12px] text-[#6f7078]">None</span>
-          )}
-        </PropertyRow>
-        <PropertyRow label="Source">
-          <span className="text-[12px] text-[#d7d7dc]">{sourceLabel(record)}</span>
-        </PropertyRow>
-        {typeof task.creationConfidencePct === 'number' ? (
-          <PropertyRow label="Legitimacy confidence">
-            <ConfidenceChip value={task.creationConfidencePct} />
-          </PropertyRow>
-        ) : null}
-        {task.url ? (
-          <PropertyRow label="Link">
-            <span className="truncate text-[12px] text-[#cdbcff]">{task.url}</span>
-          </PropertyRow>
-        ) : null}
-        <PropertyRow label="Updated">
-          <span className="text-[12px] text-[#9a9aa2]">{task.updatedAt}</span>
-        </PropertyRow>
-        <PropertyRow label="Execution">
-          {task.execution.activeExecutionId || executionStatus ? (
-            <span className="block space-y-1 text-[12px] text-[#d7d7dc]">
-              <span className="flex items-center gap-2">
-                {executionStatus ? (
-                  <ExecutionStatusBadge status={executionStatus} />
-                ) : task.execution.activeExecutionId ? (
-                  <ExecutionStatusBadge status="active" />
-                ) : null}
-                {task.execution.activeExecutionId ? (
-                  <span className="truncate font-mono text-[#d7d7dc]">{task.execution.activeExecutionId}</span>
-                ) : null}
-              </span>
-              {task.execution.activeProvider || task.execution.activeSessionId ? (
-                <span className="block text-[#9a9aa2]">
-                  {task.execution.activeProvider ?? 'unknown provider'}
-                  {task.execution.activeSessionId ? ` · session ${task.execution.activeSessionId}` : ''}
-                </span>
-              ) : null}
-            </span>
-          ) : (
-            <span className="text-[12px] text-[#6f7078]">None</span>
-          )}
-        </PropertyRow>
-        <PropertyRow label="Worktree">
-          {task.execution.worktreePath ? (
-            <span className="block font-mono text-[12px] text-[#d7d7dc]">{task.execution.worktreePath}</span>
-          ) : (
-            <span className="text-[12px] text-[#6f7078]">None</span>
-          )}
-        </PropertyRow>
-        {task.execution.worktreeBranch ? (
-          <PropertyRow label="Worktree branch">
-            <span className="font-mono text-[12px] text-[#d7d7dc]">{task.execution.worktreeBranch}</span>
-          </PropertyRow>
-        ) : null}
-        {task.execution.worktreeState ? (
-          <PropertyRow label="Worktree state">
-            <span className="text-[12px] text-[#d7d7dc]">{task.execution.worktreeState}</span>
-          </PropertyRow>
-        ) : null}
+      <div className="flex-1 overflow-auto">
+        <Section title="Properties">
+          <DefinitionList items={properties} />
+        </Section>
 
         {task.execution.attempts.length > 0 ? (
-          <Section title={`Attempts (${task.execution.attempts.length})`}>
+          <Section title="Attempts" count={task.execution.attempts.length}>
             <ol className="space-y-3">
               {[...task.execution.attempts]
                 .reverse()
@@ -1175,40 +1226,62 @@ function BoardDetailPane({
 
         <Section title="Description">
           {task.description.trim() ? (
-            <div className="whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{task.description}</div>
+            <div className="whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">{task.description}</div>
           ) : (
-            <div className="text-[12px] text-[#6f7078]">No description.</div>
+            <div className="text-[12px] text-[color:var(--text-subtle)]">No description.</div>
           )}
         </Section>
 
         <Section title="Evidence">
-          <EvidenceRow label="Summary" value={task.evidence.summary} />
-          <EvidenceList label="Touched files" items={task.evidence.touchedFiles} />
-          <EvidenceList label="Commands" items={task.evidence.commandsRun} />
-          <EvidenceList label="Artifacts" items={task.evidence.artifacts} />
+          <DefinitionList
+            items={[
+              {
+                term: 'Summary',
+                description: task.evidence.summary.trim() ? (
+                  <span>{task.evidence.summary}</span>
+                ) : (
+                  <span className="text-[color:var(--text-subtle)]">—</span>
+                ),
+              },
+              {
+                term: 'Touched files',
+                description: <EvidenceItems items={task.evidence.touchedFiles} mono />,
+              },
+              {
+                term: 'Commands',
+                description: <EvidenceItems items={task.evidence.commandsRun} mono />,
+              },
+              {
+                term: 'Artifacts',
+                description: <EvidenceItems items={task.evidence.artifacts} mono />,
+              },
+            ]}
+          />
         </Section>
 
-        <Section title={`Activity (${task.comments.length})`}>
+        <Section title="Activity" count={task.comments.length}>
           {task.comments.length === 0 ? (
-            <div className="text-[12px] text-[#6f7078]">No comments yet.</div>
+            <div className="text-[12px] text-[color:var(--text-subtle)]">No comments yet.</div>
           ) : (
             <ul className="space-y-3">
               {task.comments.map((comment) => (
-                <li key={comment.id} className="border-l border-[#2a2b31] pl-3">
-                  <div className="flex items-baseline gap-2 text-[11.5px] text-[#9a9aa2]">
-                    <span className="font-medium text-[#d7d7dc]">{comment.author.name ?? comment.author.type}</span>
-                    <span className="text-[#6f7078]">·</span>
-                    <span className="uppercase tracking-[0.06em] text-[#6f7078]">{comment.kind}</span>
+                <li key={comment.id} className="border-l border-[color:var(--border-default)] pl-3">
+                  <div className="flex items-baseline gap-2 text-[12px] text-[color:var(--text-muted)]">
+                    <span className="font-medium text-[color:var(--text-strong)]">
+                      {comment.author.name ?? comment.author.type}
+                    </span>
+                    <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+                    <span>{comment.kind}</span>
                     {typeof comment.confidencePct === 'number' ? (
                       <>
-                        <span className="text-[#6f7078]">·</span>
-                        <ConfidenceChip value={comment.confidencePct} compact />
+                        <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+                        <ConfidenceInline value={comment.confidencePct} compact />
                       </>
                     ) : null}
-                    <span className="text-[#6f7078]">·</span>
+                    <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
                     <span className="tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
                   </div>
-                  <div className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-[#d7d7dc]">{comment.body}</div>
+                  <div className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">{comment.body}</div>
                 </li>
               ))}
             </ul>
@@ -1216,9 +1289,12 @@ function BoardDetailPane({
         </Section>
       </div>
 
-      <footer className="border-t border-[#1f2025] px-5 py-3">
+      <footer className="border-t border-[color:var(--border-default)] px-5 py-3">
         <div className="flex items-center justify-between gap-2">
-          <label htmlFor="switchboard-comment-input" className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">
+          <label
+            htmlFor="switchboard-comment-input"
+            className="block text-[11px] font-medium text-[color:var(--text-muted)]"
+          >
             Add comment
           </label>
           <ActionStatusChip
@@ -1233,93 +1309,47 @@ function BoardDetailPane({
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Plan, ask, or note an enrichment for the next claimer..."
             rows={2}
-            className="min-h-[44px] flex-1 rounded border border-[#2a2b31] bg-[#0d0e11] p-2 text-[13px] leading-6 text-[#ececee] outline-none focus:border-[#ececee]/40"
+            className="min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-[13px] leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-focus)]"
           />
-          <button
-            type="button"
+          <PrimaryButton
+            size="md"
             onClick={onAddComment}
             disabled={isCommenting || !commentBody.trim()}
-            className="interactive h-9 self-end rounded border border-[#2a2b31] px-3 text-[12px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
+            className="self-end"
           >
             {isCommenting ? 'Sending…' : 'Comment'}
-          </button>
+          </PrimaryButton>
         </div>
       </footer>
     </div>
   )
 }
 
-function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
+function EvidenceItems({ items, mono = false }: { items: string[]; mono?: boolean }) {
+  if (items.length === 0) {
+    return <span className="text-[color:var(--text-subtle)]">—</span>
+  }
   return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)] items-center gap-3 border-b border-[#16171b] py-1.5">
-      <div className="text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">{label}</div>
-      <div className="min-w-0">{children}</div>
-    </div>
+    <ul className={`space-y-0.5 ${mono ? 'font-mono text-[11.5px]' : 'text-[12px]'} text-[color:var(--text-strong)]`}>
+      {items.map((item, idx) => (
+        <li key={`${item}-${idx}`} className="truncate">{item}</li>
+      ))}
+    </ul>
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="mt-4 border-t border-[#1f2025] pt-4">
-      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a92]">{title}</div>
-      {children}
-    </div>
-  )
-}
-
-function ConfidenceChip({ value, compact = false, title }: { value: number; compact?: boolean; title?: string }) {
+function ConfidenceInline({ value, compact = false }: { value: number; compact?: boolean }) {
+  const tone = confidenceTone(value)
   const label = confidenceLabel(value)
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-medium tabular-nums ${confidenceToneClass(value)} ${
-        compact ? 'text-[10px]' : 'text-[11px]'
-      }`}
-      title={title ? `${title}: ${label}` : label}
-      aria-label={title ? `${title}: ${label}` : label}
+      className={`inline-flex shrink-0 items-center gap-1.5 ${compact ? 'text-[11px]' : 'text-[12px]'} text-[color:var(--text-default)]`}
+      aria-label={`Legitimacy confidence: ${label}`}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
-      {compact ? `${value}%` : label}
+      <StatusDot tone={tone} />
+      <span className="tabular-nums">{compact ? `${value}%` : label}</span>
     </span>
   )
-}
-
-function EvidenceRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-3 py-1">
-      <div className="text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">{label}</div>
-      <div className="min-w-0 text-[12.5px] leading-5 text-[#d7d7dc]">
-        {value.trim() ? value : <span className="text-[#6f7078]">—</span>}
-      </div>
-    </div>
-  )
-}
-
-function EvidenceList({ label, items }: { label: string; items: string[] }) {
-  return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-3 py-1">
-      <div className="text-[11px] uppercase tracking-[0.08em] text-[#6f7078]">{label}</div>
-      <div className="min-w-0">
-        {items.length === 0 ? (
-          <span className="text-[12px] text-[#6f7078]">—</span>
-        ) : (
-          <ul className="space-y-0.5 font-mono text-[11.5px] text-[#d7d7dc]">
-            {items.map((item, idx) => (
-              <li key={`${label}-${idx}`} className="truncate">{item}</li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function executionTitle(record: SwitchboardTaskRecord): string {
-  const execution = record.task.execution
-  return [
-    execution.activeExecutionId ? `Execution ${execution.activeExecutionId}` : null,
-    execution.activeProvider ? `Provider ${execution.activeProvider}` : null,
-    execution.activeSessionId ? `Session ${execution.activeSessionId}` : null,
-  ].filter(Boolean).join(' · ')
 }
 
 function CreateTaskDialog({
@@ -1335,7 +1365,8 @@ function CreateTaskDialog({
   onSubmit: () => void
   busy: boolean
 }) {
-  const inputClass = 'block w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 text-[13px] text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#7c5cf2]/70'
+  const inputClass =
+    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[13px] text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-focus)]'
   return (
     <Modal open onClose={onClose} contained labelledBy="switchboard-create-title" width={540}>
       <ModalHeader title="New Switchboard task" titleId="switchboard-create-title" onClose={onClose} />
@@ -1432,50 +1463,71 @@ function settingsFromState(state: SwitchboardRunnerState | null): RunnerSettings
   }
 }
 
-function RunnerToolbar({
+function RunnerDrawer({
   runner,
   workspaceId,
   onRefresh,
   onNotify,
-  toolbarStatus,
-  onDismissToolbarStatus,
+  runnerStatus,
+  onDismissRunnerStatus,
+  onClose,
 }: {
   runner: SwitchboardRunner
   workspaceId: string
   onRefresh: () => Promise<void> | void
   onNotify: (tone: ActionTone, message: string) => void
-  toolbarStatus: ActionStatus | null
-  onDismissToolbarStatus: () => void
+  runnerStatus: ActionStatus | null
+  onDismissRunnerStatus: () => void
+  onClose: () => void
 }) {
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [draft, setDraft] = useState<RunnerSettings>(() => settingsFromState(runner.state))
+  const containerRef = useRef<HTMLDivElement>(null)
+  const restoreFocusElementRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
-    if (!settingsOpen) {
-      setDraft(settingsFromState(runner.state))
+    setDraft(settingsFromState(runner.state))
+  }, [runner.state])
+
+  useEffect(() => {
+    restoreFocusElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    containerRef.current?.focus()
+    return () => {
+      const trigger = document.querySelector<HTMLElement>('[aria-label="Switchboard overflow"]')
+      ;(trigger ?? restoreFocusElementRef.current)?.focus()
     }
-  }, [runner.state, settingsOpen])
+  }, [])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   const isStarted = runner.status === 'running' || runner.status === 'paused'
   const canEdit = !isStarted
 
   const handleStart = useCallback(async () => {
-    const ok = await runner.start({
+    await runner.start({
       workspaceId,
       queues: draft.queues,
       maxConcurrency: draft.maxConcurrency,
       provider: draft.provider,
       cli: draft.cli,
     })
-    if (ok) setSettingsOpen(false)
   }, [draft, runner, workspaceId])
 
   const handleStopRunner = useCallback(async () => {
-    const confirmed = window.confirm('Stop the Switchboard runner for this workspace and stop all active Switchboard executions?')
+    const confirmed = window.confirm(
+      'Stop the Switchboard runner for this workspace and stop all active Switchboard executions?'
+    )
     if (!confirmed) return
     const ok = await runner.stop()
     if (ok) {
-      setSettingsOpen(false)
       await onRefresh()
       onNotify('success', 'Runner and active executions stopped.')
     } else {
@@ -1498,12 +1550,6 @@ function RunnerToolbar({
     [onNotify, onRefresh, runner]
   )
 
-  const summaryQueues = runner.state ? runner.state.queues : draft.queues
-  const queuesLabel =
-    summaryQueues.length > 0 ? summaryQueues.map(runnerQueueLabel).join(' · ') : 'No queues'
-  const summaryProvider = runner.state ? runner.state.provider : draft.provider
-  const summaryCli = runner.state ? runner.state.cli : draft.cli
-  const summaryConcurrency = runner.state ? runner.state.maxConcurrency : draft.maxConcurrency
   const allExecutions = runner.state?.activeExecutions ?? []
   const activeExecutions = allExecutions.filter(
     (execution) => !execution.status || execution.status === 'active'
@@ -1511,335 +1557,277 @@ function RunnerToolbar({
   const inactiveExecutions = allExecutions.filter(
     (execution) => execution.status && execution.status !== 'active'
   )
-  const activeCount = activeExecutions.length
-  const updatedAt = runner.state?.updatedAt
-    ? formatRelativeTime(runner.state.updatedAt)
-    : null
+  const updatedAt = runner.state?.updatedAt ? formatRelativeTime(runner.state.updatedAt) : null
+  const queuesLabel =
+    draft.queues.length > 0 ? draft.queues.map(runnerQueueLabel).join(', ') : 'No queues'
+
+  const stateItems: DefinitionItem[] = [
+    {
+      term: 'Status',
+      description: (
+        <span className="flex items-center gap-2">
+          <StatusDot tone={RUNNER_TONE[runner.status]} pulse={runner.status === 'running'} />
+          {RUNNER_LABEL[runner.status]}
+        </span>
+      ),
+    },
+    { term: 'Provider', description: providerLabel(draft.provider) },
+    { term: 'CLI', description: draft.cli },
+    { term: 'Concurrency', description: String(draft.maxConcurrency) },
+    { term: 'Queues', description: queuesLabel },
+    { term: 'Active executions', description: String(activeExecutions.length) },
+    ...(updatedAt ? [{ term: 'Updated', description: updatedAt }] : []),
+  ]
 
   return (
-    <div className="border-b border-[#1f2025]">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[#9a9aa2]">
-          <RunnerStatusPill status={runner.status} />
-          <ToolbarFact label="Provider" value={providerLabel(summaryProvider)} />
-          <ToolbarFact label="CLI" value={summaryCli} />
-          <ToolbarFact label="Concurrency" value={String(summaryConcurrency)} />
-          <ToolbarFact label="Queues" value={queuesLabel} />
-          <ToolbarFact label="Active" value={String(activeCount)} />
-          {updatedAt ? <span className="text-[11px] tabular-nums text-[#6f7078]">Updated {updatedAt}</span> : null}
-          <ActionStatusChip
-            status={toolbarStatus}
-            onDismiss={toolbarStatus?.tone === 'error' ? onDismissToolbarStatus : undefined}
-          />
-        </div>
-        <div className="relative flex items-center gap-1.5">
-          {runner.status === 'running' ? (
-            <button
-              type="button"
-              onClick={() => void runner.pause()}
-              disabled={runner.busy}
-              className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-semibold text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
-            >
-              Pause
-            </button>
-          ) : null}
-          {runner.status === 'paused' ? (
-            <button
-              type="button"
-              onClick={() => void runner.resume()}
-              disabled={runner.busy}
-              className="interactive h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
-            >
-              Resume
-            </button>
-          ) : null}
-          {isStarted ? (
-            <button
-              type="button"
-              onClick={() => void runner.tick()}
-              disabled={runner.busy}
-              className="interactive h-7 rounded border border-[#2a2b31] px-2.5 text-[11px] font-medium text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
-              title="Run one runner tick now"
-            >
-              Tick
-            </button>
-          ) : null}
-          {isStarted ? (
-            <button
-              type="button"
-              onClick={() => void handleStopRunner()}
-              disabled={runner.busy}
-              className="interactive h-7 rounded border border-[#4a2527] px-2.5 text-[11px] font-semibold text-[#ffb3b5] hover:bg-[#1c1414] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-50"
-              title="Stop the workspace runner and active executions"
-            >
-              Stop runner
-            </button>
-          ) : null}
-          <button
-            type="button"
-            aria-pressed={settingsOpen}
-            onClick={() => setSettingsOpen((value) => !value)}
-            className={`interactive h-7 rounded border px-2.5 text-[11px] font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 ${
-              settingsOpen
-                ? 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff]'
-                : 'border-[#2a2b31] text-[#d7d7dc] hover:bg-[#111216] hover:text-[#ececee]'
-            }`}
-          >
-            {canEdit ? 'Configure' : 'Settings'}
-          </button>
-          {!isStarted ? (
-            <button
-              type="button"
-              onClick={() => void handleStart()}
-              disabled={runner.busy || draft.queues.length === 0}
-              className="interactive h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-2.5 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
-            >
-              {runner.busy ? 'Starting…' : 'Start runner'}
-            </button>
-          ) : null}
-          {settingsOpen ? (
-            <RunnerSettingsPopover
-              draft={draft}
-              onChange={setDraft}
-              canEdit={canEdit}
-              onClose={() => setSettingsOpen(false)}
-              onStart={handleStart}
-              busy={runner.busy}
-              isStarted={isStarted}
+    <div
+      className="fixed inset-0 z-30 flex items-stretch justify-end"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div
+        ref={containerRef}
+        role="dialog"
+        aria-modal="false"
+        aria-label="Switchboard runner"
+        tabIndex={-1}
+        className="popover-enter flex w-[420px] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)] focus:outline-none"
+      >
+        <header className="flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <StatusDot tone={RUNNER_TONE[runner.status]} pulse={runner.status === 'running'} />
+            <h2 className="text-[13px] font-semibold text-[color:var(--text-strong)]">Runner</h2>
+            <ActionStatusChip
+              status={runnerStatus}
+              onDismiss={runnerStatus?.tone === 'error' ? onDismissRunnerStatus : undefined}
             />
+          </div>
+          <IconButton aria-label="Close runner" onClick={onClose}>
+            <span aria-hidden="true">×</span>
+          </IconButton>
+        </header>
+
+        <div className="flex-1 overflow-auto">
+          <Section title="State">
+            <DefinitionList items={stateItems} />
+          </Section>
+
+          <Section title="Controls">
+            <div className="flex flex-wrap gap-1.5">
+              {!isStarted ? (
+                <PrimaryButton
+                  onClick={() => void handleStart()}
+                  disabled={runner.busy || draft.queues.length === 0}
+                >
+                  {runner.busy ? 'Starting…' : 'Start runner'}
+                </PrimaryButton>
+              ) : null}
+              {runner.status === 'running' ? (
+                <GhostButton onClick={() => void runner.pause()} disabled={runner.busy}>
+                  Pause
+                </GhostButton>
+              ) : null}
+              {runner.status === 'paused' ? (
+                <PrimaryButton onClick={() => void runner.resume()} disabled={runner.busy}>
+                  Resume
+                </PrimaryButton>
+              ) : null}
+              {isStarted ? (
+                <GhostButton
+                  onClick={() => void runner.tick()}
+                  disabled={runner.busy}
+                  title="Run one runner tick now"
+                >
+                  Tick
+                </GhostButton>
+              ) : null}
+              {isStarted ? (
+                <GhostButton
+                  onClick={() => void handleStopRunner()}
+                  disabled={runner.busy}
+                  title="Stop the workspace runner and active executions"
+                >
+                  Stop runner
+                </GhostButton>
+              ) : null}
+            </div>
+          </Section>
+
+          <Section title="Configuration">
+            <RunnerSettingsFields draft={draft} onChange={setDraft} canEdit={canEdit} />
+            {!canEdit ? (
+              <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+                Runner is {isStarted ? 'started' : 'unavailable'}; configuration is read-only until stopped.
+              </p>
+            ) : null}
+          </Section>
+
+          {runner.error ? (
+            <Section title="Last error">
+              <div className="rounded-[5px] border border-[color:var(--tone-error-soft)] bg-[color:var(--tone-error-soft)] px-3 py-2 text-[12px] text-[color:var(--text-strong)]">
+                {runner.error}
+              </div>
+            </Section>
+          ) : null}
+
+          {activeExecutions.length > 0 ? (
+            <Section title="Active executions" count={activeExecutions.length}>
+              <ExecutionsList
+                executions={activeExecutions}
+                tone="active"
+                busy={runner.busy}
+                onStopExecution={handleStopExecution}
+              />
+            </Section>
+          ) : null}
+
+          {inactiveExecutions.length > 0 ? (
+            <Section title="Other tracked executions" count={inactiveExecutions.length}>
+              <ExecutionsList executions={inactiveExecutions} tone="inactive" />
+            </Section>
           ) : null}
         </div>
       </div>
-      {runner.error ? (
-        <div className="border-t border-[#3a2222] bg-[#1c1414] px-3 py-1.5 text-[11.5px] text-[#ffb3b5]">
-          Runner error: {runner.error}
-        </div>
-      ) : null}
-      {activeExecutions.length > 0 ? (
-        <ExecutionsSection
-          title="Active executions"
-          executions={activeExecutions}
-          tone="active"
-          busy={runner.busy}
-          onStopExecution={handleStopExecution}
-        />
-      ) : null}
-      {inactiveExecutions.length > 0 ? (
-        <ExecutionsSection title="Other tracked executions" executions={inactiveExecutions} tone="inactive" />
-      ) : null}
     </div>
   )
 }
 
-function RunnerStatusPill({ status }: { status: RunnerStatusKind }) {
-  const map = {
-    running: { dot: 'bg-[#30d158]', label: 'Running', cls: 'text-[#a8e6b3]' },
-    paused: { dot: 'bg-[#f2c45f]', label: 'Paused', cls: 'text-[#f2d690]' },
-    stopped: { dot: 'bg-[#5a5a63]', label: 'Stopped', cls: 'text-[#9a9aa2]' },
-    unconfigured: { dot: 'bg-[#3a3b42]', label: 'Not started', cls: 'text-[#6f7078]' },
-  }[status]
+function RunnerSettingsFields({
+  draft,
+  onChange,
+  canEdit,
+}: {
+  draft: RunnerSettings
+  onChange: (next: RunnerSettings) => void
+  canEdit: boolean
+}) {
+  const selectClass =
+    'h-7 w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5 text-[12px] text-[color:var(--text-strong)] disabled:opacity-50'
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[11.5px] font-semibold ${map.cls}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${map.dot}`} aria-hidden="true" />
-      {map.label}
-    </span>
+    <div className="space-y-3">
+      <div>
+        <div className="text-[11px] text-[color:var(--text-muted)]">Queues</div>
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {RUNNER_QUEUES.map((queue) => {
+            const active = draft.queues.includes(queue)
+            return (
+              <button
+                key={queue}
+                type="button"
+                aria-pressed={active}
+                disabled={!canEdit}
+                onClick={() => {
+                  const next = active
+                    ? draft.queues.filter((q) => q !== queue)
+                    : [...draft.queues, queue]
+                  onChange({ ...draft, queues: next })
+                }}
+                className={`interactive h-6 rounded-[5px] border px-2 text-[11px] font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+                  active
+                    ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                    : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
+                } disabled:opacity-50`}
+              >
+                {runnerQueueLabel(queue)}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-[11px] text-[color:var(--text-muted)]">Concurrency</span>
+          <input
+            type="number"
+            min={1}
+            max={16}
+            value={draft.maxConcurrency}
+            disabled={!canEdit}
+            onChange={(event) => {
+              const parsed = Number.parseInt(event.target.value, 10)
+              if (!Number.isFinite(parsed) || parsed < 1) return
+              onChange({ ...draft, maxConcurrency: Math.min(parsed, 16) })
+            }}
+            className={`mt-1 ${selectClass}`}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] text-[color:var(--text-muted)]">CLI</span>
+          <select
+            value={draft.cli}
+            disabled={!canEdit}
+            onChange={(event) => onChange({ ...draft, cli: event.target.value as 'codex' | 'claude' })}
+            className={`mt-1 ${selectClass}`}
+          >
+            <option value="codex">Codex</option>
+            <option value="claude">Claude</option>
+          </select>
+        </label>
+      </div>
+      <label className="block">
+        <span className="text-[11px] text-[color:var(--text-muted)]">Provider</span>
+        <select
+          value={draft.provider}
+          disabled={!canEdit}
+          onChange={(event) =>
+            onChange({ ...draft, provider: event.target.value as SwitchboardExecutionProviderKind })
+          }
+          className={`mt-1 ${selectClass}`}
+        >
+          {RUNNER_PROVIDERS.map((provider) => (
+            <option key={provider} value={provider}>
+              {providerLabel(provider)}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
   )
 }
 
-function ToolbarFact({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="inline-flex items-baseline gap-1 text-[11.5px]">
-      <span className="text-[#6f7078]">{label}</span>
-      <span className="text-[#d7d7dc]">{value}</span>
-    </span>
-  )
-}
-
-function ExecutionsSection({
-  title,
+function ExecutionsList({
   executions,
   tone,
   busy = false,
   onStopExecution,
 }: {
-  title: string
   executions: SwitchboardRunnerExecution[]
   tone: 'active' | 'inactive'
   busy?: boolean
   onStopExecution?: (execution: SwitchboardRunnerExecution) => void
 }) {
   return (
-    <div className="border-t border-[#16171b]">
-      <div className="flex items-baseline justify-between gap-3 px-3 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[#6f7078]">
-        <span>{title}</span>
-        <span className="font-normal normal-case tracking-normal text-[#5a5a63]">{executions.length}</span>
-      </div>
-      <ul className="max-h-40 overflow-auto">
-        {executions.map((execution) => (
-          <li
-            key={execution.executionId}
-            className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#16171b] px-3 py-1.5 text-[11.5px]"
-          >
-            <span className="font-mono tabular-nums text-[11px] text-[#8a8a92]">{executionSubjectLabel(execution)}</span>
-            <span className="text-[#d7d7dc]">{execution.role || 'unknown role'}</span>
-            <span className="text-[#9a9aa2]">{executionRouteLabel(execution)}</span>
-            <span className="text-[#6f7078]">{providerLabel(execution.provider)}</span>
-            <span className="text-[#6f7078] tabular-nums">started {formatRelativeTime(execution.startedAt)}</span>
-            {tone === 'inactive' && execution.status ? (
-              <span className="rounded border border-[#3a3426] bg-[#1d1714] px-1.5 py-0.5 text-[10.5px] text-[#f2c45f]">
-                {execution.status}
-              </span>
-            ) : null}
-            {tone === 'active' && onStopExecution ? (
-              <button
-                type="button"
-                onClick={() => onStopExecution(execution)}
-                disabled={busy}
-                className="interactive ml-auto h-6 rounded border border-[#4a2527] px-2 text-[10.5px] font-semibold text-[#ffb3b5] hover:bg-[#1c1414] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff787c]/60 disabled:opacity-50"
-              >
-                Stop
-              </button>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function RunnerSettingsPopover({
-  draft,
-  onChange,
-  canEdit,
-  onClose,
-  onStart,
-  busy,
-  isStarted,
-}: {
-  draft: RunnerSettings
-  onChange: (next: RunnerSettings) => void
-  canEdit: boolean
-  onClose: () => void
-  onStart: () => void
-  busy: boolean
-  isStarted: boolean
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-label="Runner settings"
-      className="popover-enter absolute right-0 top-9 z-30 w-[320px] rounded-md border border-[#2a2b31] bg-[#0d0e11] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose()
-      }}
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#efe5ff]">
-          Runner settings
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="interactive h-6 rounded border border-[#2a2b31] px-1.5 text-[10.5px] text-[#9a9aa2] hover:bg-[#111216] hover:text-[#ececee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60"
+    <ul className="divide-y divide-[color:var(--border-default)]">
+      {executions.map((execution) => (
+        <li
+          key={execution.executionId}
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-[12px]"
         >
-          Close
-        </button>
-      </div>
-      <div className="space-y-3">
-        <div>
-          <div className="text-[10.5px] uppercase tracking-[0.08em] text-[#6f7078]">Queues</div>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {RUNNER_QUEUES.map((queue) => {
-              const active = draft.queues.includes(queue)
-              return (
-                <button
-                  key={queue}
-                  type="button"
-                  aria-pressed={active}
-                  disabled={!canEdit}
-                  onClick={() => {
-                    const next = active
-                      ? draft.queues.filter((q) => q !== queue)
-                      : [...draft.queues, queue]
-                    onChange({ ...draft, queues: next })
-                  }}
-                  className={`interactive h-6 rounded border px-2 text-[10.5px] font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 ${
-                    active
-                      ? 'border-[#3b2f63] bg-[#1a1530] text-[#efe5ff]'
-                      : 'border-[#2a2b31] text-[#9a9aa2] hover:text-[#d7d7dc]'
-                  } disabled:opacity-50`}
-                >
-                  {runnerQueueLabel(queue)}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block">
-            <span className="text-[10.5px] uppercase tracking-[0.08em] text-[#6f7078]">Concurrency</span>
-            <input
-              type="number"
-              min={1}
-              max={16}
-              value={draft.maxConcurrency}
-              disabled={!canEdit}
-              onChange={(event) => {
-                const parsed = Number.parseInt(event.target.value, 10)
-                if (!Number.isFinite(parsed) || parsed < 1) return
-                onChange({ ...draft, maxConcurrency: Math.min(parsed, 16) })
-              }}
-              className="mt-1 h-7 w-full rounded border border-[#2a2b31] bg-[#08090b] px-2 text-[12px] text-[#ececee] disabled:opacity-50"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10.5px] uppercase tracking-[0.08em] text-[#6f7078]">CLI</span>
-            <select
-              value={draft.cli}
-              disabled={!canEdit}
-              onChange={(event) => onChange({ ...draft, cli: event.target.value as 'codex' | 'claude' })}
-              className="mt-1 h-7 w-full rounded border border-[#2a2b31] bg-[#08090b] px-1.5 text-[12px] text-[#ececee] disabled:opacity-50"
+          <span className="font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+            {executionSubjectLabel(execution)}
+          </span>
+          <span className="text-[color:var(--text-strong)]">{execution.role || 'unknown role'}</span>
+          <span className="text-[color:var(--text-muted)]">{executionRouteLabel(execution)}</span>
+          <span className="text-[color:var(--text-subtle)]">{providerLabel(execution.provider)}</span>
+          <span className="tabular-nums text-[color:var(--text-subtle)]">started {formatRelativeTime(execution.startedAt)}</span>
+          {tone === 'inactive' && execution.status ? (
+            <span className="text-[11px] text-[color:var(--text-muted)]">{execution.status}</span>
+          ) : null}
+          {tone === 'active' && onStopExecution ? (
+            <GhostButton
+              size="sm"
+              onClick={() => onStopExecution(execution)}
+              disabled={busy}
+              className="ml-auto"
             >
-              <option value="codex">Codex</option>
-              <option value="claude">Claude</option>
-            </select>
-          </label>
-        </div>
-        <label className="block">
-          <span className="text-[10.5px] uppercase tracking-[0.08em] text-[#6f7078]">Provider</span>
-          <select
-            value={draft.provider}
-            disabled={!canEdit}
-            onChange={(event) =>
-              onChange({ ...draft, provider: event.target.value as SwitchboardExecutionProviderKind })
-            }
-            className="mt-1 h-7 w-full rounded border border-[#2a2b31] bg-[#08090b] px-1.5 text-[12px] text-[#ececee] disabled:opacity-50"
-          >
-            {RUNNER_PROVIDERS.map((provider) => (
-              <option key={provider} value={provider}>
-                {providerLabel(provider)}
-              </option>
-            ))}
-          </select>
-        </label>
-        {!canEdit ? (
-          <div className="text-[10.5px] leading-4 text-[#6f7078]">
-            Runner is {isStarted ? 'started' : 'unavailable'}; settings are read-only.
-          </div>
-        ) : (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={onStart}
-              disabled={busy || draft.queues.length === 0}
-              className="interactive h-7 rounded border border-[#3b2f63] bg-[#1a1530] px-3 text-[11px] font-semibold text-[#efe5ff] hover:bg-[#221a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7c5cf2]/60 disabled:opacity-50"
-            >
-              {busy ? 'Starting…' : 'Start runner'}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+              Stop
+            </GhostButton>
+          ) : null}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -1848,26 +1836,22 @@ function Banner({
   message,
   onRetry,
 }: {
-  tone: 'error' | 'warning'
+  tone: 'error' | 'warn'
   message: string
   onRetry?: () => void
 }) {
-  const toneClass =
-    tone === 'error'
-      ? 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]'
-      : 'border-[#3a3426] bg-[#1d1714] text-[#f2c45f]'
-  const retryRing = tone === 'error' ? 'focus-visible:ring-[#ff787c]/50' : 'focus-visible:ring-[#f2c45f]/50'
+  const bgVar = tone === 'error' ? 'var(--tone-error-soft)' : 'var(--tone-warn-soft)'
   return (
-    <div className={`flex items-center justify-between gap-3 border-b ${toneClass} px-3 py-2 text-[12px]`}>
-      <span className="min-w-0 truncate">{message}</span>
+    <div
+      className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2 text-[12px] text-[color:var(--text-strong)]"
+      style={{ backgroundColor: bgVar }}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <StatusDot tone={tone === 'error' ? 'error' : 'warn'} />
+        <span className="min-w-0 truncate">{message}</span>
+      </span>
       {onRetry ? (
-        <button
-          type="button"
-          onClick={onRetry}
-          className={`interactive shrink-0 rounded border border-current bg-transparent px-2 py-0.5 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-1 ${retryRing}`}
-        >
-          Retry
-        </button>
+        <GhostButton onClick={onRetry}>Retry</GhostButton>
       ) : null}
     </div>
   )

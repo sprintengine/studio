@@ -12,6 +12,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -138,6 +140,7 @@ VALID_FEEDBACK_FINDING_AREAS = {
     "other",
 }
 VALID_FEEDBACK_FINDING_STATUSES = {"open", "accepted", "fixed", "rejected", "deferred"}
+VALID_VCS_STATUSES = {"not_created", "ready", "dirty", "committed", "pushed", "pr_opened", "failed"}
 
 
 def parse_bool(value: str) -> bool:
@@ -167,6 +170,25 @@ def worker_plan_worktree_block() -> str:
         "- Do not create Sprint Engine worktrees.",
         "- Edit only task-owned paths and log evidence before marking your task done.",
         "- Do not merge or push.",
+    ])
+
+
+def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) -> str:
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return worker_plan_worktree_block()
+    worktree_path = str(vcs.get("worktreePath") or "")
+    branch = str(vcs.get("branchName") or "")
+    return "\n".join([
+        "## Execution Workspace Discipline",
+        "- Read only the active team's approved `architect_plan` artifact path from state.yaml before claiming work.",
+        "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
+        f"- Work in the Sprint Engine run worktree `{worktree_path}` on branch `{branch}`.",
+        f"- Shared Sprint Engine state remains `{project_relative_path(workspace_root_for_state_path(state_path), state_path)}`; mutate it only through the Sprint Engine tool.",
+        "- Do not create additional Sprint Engine worktrees.",
+        "- Edit only task-owned paths and log evidence before marking your task done.",
+        "- Marking an implementation task done may commit dirty run-worktree changes through the Sprint Engine tool.",
+        "- Do not merge or push unless you are explicitly running Sprint Engine finalization.",
     ])
 
 
@@ -246,6 +268,29 @@ def sprintengine_root_for(workspace_root: Path) -> Path:
 
 def sprintengine_state_path_for(workspace_root: Path, team_slug: str) -> Path:
     return sprintengine_root_for(workspace_root) / team_slug / "state.yaml"
+
+
+def workspace_root_for_state_path(state_path: Path) -> Path:
+    resolved = state_path.resolve()
+    parts = resolved.parts
+    for index in range(len(parts) - 2):
+        if parts[index] == MULTICODE_DIR_NAME and parts[index + 1] == SPRINTENGINE_DIR_NAME:
+            return Path(*parts[:index])
+    return resolved.parent.parent.parent.parent
+
+
+def project_relative_path(workspace_root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(workspace_root.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def resolve_vcs_path(workspace_root: Path, value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return workspace_root / path
 
 
 # ---------------------------------------------------------------------------
@@ -655,6 +700,162 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
     with path.open("w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
         f.write("\n")
+
+
+def run_command_checked(cwd: Path, args: List[str], *, allow_failure: bool = False, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=str(cwd),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=timeout,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(f"Command timed out after {timeout}s: {' '.join(args)}") from exc
+    if completed.returncode != 0 and not allow_failure:
+        message = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
+        raise SystemExit(f"Command failed: {' '.join(args)}: {message}")
+    return completed
+
+
+def run_git_checked(cwd: Path, args: List[str], *, allow_failure: bool = False) -> subprocess.CompletedProcess[str]:
+    return run_command_checked(cwd, ["git", *args], allow_failure=allow_failure)
+
+
+def run_gh_checked(cwd: Path, args: List[str], *, allow_failure: bool = False) -> subprocess.CompletedProcess[str]:
+    gh = shutil.which("gh")
+    if not gh:
+        raise SystemExit("GitHub CLI executable 'gh' was not found; cannot create a pull request.")
+    return run_command_checked(cwd, [gh, *args], allow_failure=allow_failure, timeout=60)
+
+
+def parse_url_from_output(output: str) -> Optional[str]:
+    match = re.search(r"https?://\S+", output)
+    return match.group(0).rstrip(".,)") if match else None
+
+
+def git_branch_exists(repo_root: Path, branch: str) -> bool:
+    result = run_git_checked(repo_root, ["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], allow_failure=True)
+    return result.returncode == 0
+
+
+def current_git_branch(repo_root: Path) -> str:
+    result = run_git_checked(repo_root, ["branch", "--show-current"])
+    branch = result.stdout.strip()
+    if not branch:
+        raise SystemExit("Cannot operate on a detached HEAD worktree.")
+    return branch
+
+
+def default_base_ref(repo_root: Path) -> str:
+    current = run_git_checked(repo_root, ["branch", "--show-current"], allow_failure=True).stdout.strip()
+    if current:
+        return current
+    return "HEAD"
+
+
+def compact_commit_subject(value: str, *, limit: int = 72) -> str:
+    compact = re.sub(r"\s+", " ", value.strip()) or "Sprint Engine changes"
+    return compact if len(compact) <= limit else compact[: limit - 3].rstrip() + "..."
+
+
+def safe_branch_component(value: str) -> str:
+    component = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip().lower()).strip("-._")
+    return component or "run"
+
+
+def get_run_vcs(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    vcs = state.get("sprintengine", {}).get("vcs")
+    return vcs if isinstance(vcs, dict) and vcs.get("mode") == "run_worktree" else None
+
+
+def ensure_run_worktree(state: Dict[str, Any], state_path: Path, *, base_ref: Optional[str] = None, branch_name: Optional[str] = None) -> Dict[str, Any]:
+    workspace_root = workspace_root_for_state_path(state_path)
+    sprintengine = state.setdefault("sprintengine", {})
+    team_slug = safe_branch_component(str(sprintengine.get("name") or default_swarm_name_for_state(state_path)))
+    branch = branch_name.strip() if branch_name and branch_name.strip() else f"sprintengine/{team_slug}"
+    base = base_ref.strip() if base_ref and base_ref.strip() else default_base_ref(workspace_root)
+    worktree_path = state_path.parent / "worktree"
+    rel_worktree = project_relative_path(workspace_root, worktree_path)
+    vcs = sprintengine.setdefault("vcs", {})
+    vcs.update({
+        "mode": "run_worktree",
+        "repoRoot": ".",
+        "worktreePath": rel_worktree,
+        "branchName": branch,
+        "baseRef": base,
+        "status": vcs.get("status") if vcs.get("status") in VALID_VCS_STATUSES else "not_created",
+        "pullRequestUrl": vcs.get("pullRequestUrl") if isinstance(vcs.get("pullRequestUrl"), str) else None,
+        "lastCommitSha": vcs.get("lastCommitSha") if isinstance(vcs.get("lastCommitSha"), str) else None,
+    })
+
+    existing = run_git_checked(workspace_root, ["worktree", "list", "--porcelain"])
+    if str(worktree_path.resolve()) not in existing.stdout:
+        worktree_path.parent.mkdir(parents=True, exist_ok=True)
+        if git_branch_exists(workspace_root, branch):
+            run_git_checked(workspace_root, ["worktree", "add", str(worktree_path), branch])
+        else:
+            run_git_checked(workspace_root, ["worktree", "add", "-b", branch, str(worktree_path), base])
+    if not worktree_path.exists():
+        raise SystemExit(f"Sprint Engine worktree was not created: {rel_worktree}")
+    actual_branch = current_git_branch(worktree_path)
+    if actual_branch != branch:
+        raise SystemExit(f"Sprint Engine worktree is on {actual_branch}, expected {branch}.")
+    vcs["status"] = "ready"
+    append_event(state, "run_worktree_ready", "sprintengine", f"Sprint Engine run worktree is ready at {rel_worktree} on {branch}.")
+    return vcs
+
+
+def worktree_for_vcs(state: Dict[str, Any], state_path: Path) -> Optional[Path]:
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return None
+    value = vcs.get("worktreePath")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return resolve_vcs_path(workspace_root_for_state_path(state_path), value)
+
+
+def git_status_short(worktree: Path) -> str:
+    return run_git_checked(worktree, ["status", "--porcelain"]).stdout.strip()
+
+
+def commit_task_changes_if_needed(state: Dict[str, Any], state_path: Path, task: Dict[str, Any], actor: str) -> Optional[str]:
+    worktree = worktree_for_vcs(state, state_path)
+    if not worktree:
+        return None
+    if not worktree.exists():
+        raise SystemExit(f"Sprint Engine worktree is missing: {worktree}")
+    status = git_status_short(worktree)
+    vcs = get_run_vcs(state)
+    if vcs is not None:
+        vcs["status"] = "dirty" if status else "ready"
+    if not status:
+        return None
+    run_git_checked(worktree, ["add", "-A"])
+    staged = run_git_checked(worktree, ["diff", "--cached", "--quiet"], allow_failure=True)
+    if staged.returncode == 0:
+        return None
+    task_id = str(task.get("id") or "task")
+    title = str(task.get("title") or "Sprint Engine task")
+    message = compact_commit_subject(f"SprintEngine {task_id}: {title}")
+    body = "\n".join([f"Task: {task_id}", f"Agent: {actor}"]).strip()
+    run_git_checked(worktree, ["commit", "-m", message, "-m", body])
+    sha = run_git_checked(worktree, ["rev-parse", "--short", "HEAD"]).stdout.strip()
+    if vcs is not None:
+        vcs["status"] = "committed"
+        vcs["lastCommitSha"] = sha
+    ensure_evidence(task).setdefault("commits", [])
+    commits = task["evidence"].setdefault("commits", [])
+    if isinstance(commits, list) and sha not in commits:
+        commits.append(sha)
+    append_event(state, "task_changes_committed", actor, f"{actor} committed Sprint Engine changes for {task_id}: {sha}.")
+    return sha
 
 
 def with_locked_state(path: Path, handler) -> Dict[str, Any]:
@@ -2298,6 +2499,8 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
             "actor": args.actor,
             "message": f"{args.actor} registered root handoff artifact {source_artifact['id']}.",
         })
+    if getattr(args, "use_worktrees", False):
+        ensure_run_worktree(initial, state_path)
     save_state(state_path, initial)
 
     init_command = f"sprintengine --state {json.dumps(str(state_path))} init"
@@ -2339,9 +2542,13 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             "roles": {},
         }
         save_state(state_path, initial)
+        if getattr(args, "use_worktrees", False):
+            with_locked_state(state_path, lambda state: {"ok": True, "vcs": ensure_run_worktree(state, state_path)})
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         apply_agent_specs(state, getattr(args, "agent", None))
+        if getattr(args, "use_worktrees", False):
+            ensure_run_worktree(state, state_path)
         sprintengine = state.setdefault("sprintengine", {})
         if not sprintengine.get("name"):
             sprintengine["name"] = default_name
@@ -2401,13 +2608,11 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         if args.role in {"code_reviewer", "spec_reviewer"}:
             review_kind = "specification conformance" if args.role == "spec_reviewer" else "code quality"
             return (
-                "When complete: follow the claimed task's review mode. For review-and-fix tasks, make targeted "
-                "source or test changes inside the owned paths when the fix is clear and bounded, log changed files "
-                "and verification evidence, then mark the task done if acceptance is met. For review-only tasks, "
-                f"produce the requested {review_kind} review evidence or artifact. If unresolved findings remain, record them with "
-                "repeatable `--finding-json` and, when an artifact is requested, `--recommended-task`; move the task "
-                "to `needs_input` only when the review output requires approval or the task is blocked from meeting "
-                "acceptance. "
+                f"When complete: produce the requested {review_kind} review evidence or artifact. Work read-only: "
+                "do not edit application or test code. If findings remain, record them with repeatable `--finding-json` and, when an "
+                "artifact is requested, `--recommended-task`; include severity, impact, recommended fix, owner role, "
+                "and verification steps. Move the task to `needs_input` only when the review output requires approval "
+                "or the task is blocked from meeting acceptance. "
             )
         return (
             "When complete: if you produced findings, issues, or changes_requested, move the task back to "
@@ -2448,7 +2653,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"This reconnects you to your existing active task instead of claiming a new one. "
                 f"Continue the task and log evidence.\n\n"
                 f"{role_boundary_instruction()}\n\n"
-                f"{worker_plan_worktree_block()}\n\n"
+                f"{worker_execution_workspace_block(state, args.state)}\n\n"
                 f"{artifact_registration_instruction(args.id)}\n\n"
                 f"{completion_reality_instruction()}"
                 f"{completion_instruction()}"
@@ -2468,7 +2673,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"Run:\n```\nsprintengine task next --role {args.role} --id {args.id}\n```\n\n"
             f"Complete the claimed task and log evidence.\n\n"
             f"{role_boundary_instruction()}\n\n"
-            f"{worker_plan_worktree_block()}\n\n"
+            f"{worker_execution_workspace_block(state, args.state)}\n\n"
             f"{artifact_registration_instruction(args.id)}\n\n"
             f"{completion_reality_instruction()}"
             f"{completion_instruction()}"
@@ -2663,6 +2868,9 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             task["completedAt"] = now_iso()
         if getattr(args, "summary", None):
             ensure_evidence(task)["summary"] = args.summary
+        commit_sha = None
+        if args.status == "done":
+            commit_sha = commit_task_changes_if_needed(state, args.state, task, str(actor))
         if task.get("ownerAgentId"):
             agent = ensure_agent(state, task["ownerAgentId"], task.get("role"))
             if args.status == "in_progress":
@@ -2686,6 +2894,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             "task": task,
             "event": event,
             "clearedAgents": cleared,
+            "commitSha": commit_sha,
             "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
         }
     result = with_locked_state(args.state, run)
@@ -3172,7 +3381,7 @@ Task commands:
 
 Plan commands (architect only):
   sprintengine plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
-  sprintengine plan add-task --title "Review and fix implementation quality" --role code_reviewer --depends-on T3 --path src/foo --description "Review-and-fix the completed implementation for correctness, modularity, maintainability, and verification gaps. Make targeted source or test changes when the fix is clear and bounded; record unresolved findings for the architect." --acceptance "Reviewer logs changed files and verification commands" --acceptance "Clear bounded issues are fixed directly or recorded with severity and recommended follow-up"
+  sprintengine plan add-task --title "Review implementation quality" --role code_reviewer --depends-on T3 --path src/foo --path .multi-code/sprintengine/team/reviews/code-review.md --description "Review-only the completed implementation for correctness, modularity, maintainability, and verification gaps. Produce direct review evidence or a code_review artifact with concrete findings and recommended follow-up work; do not edit application or test code." --acceptance "Reviewer logs review evidence and verification commands inspected or run" --acceptance "Findings include severity, impact, recommended fix, owner role, and verification steps"
   sprintengine plan add-task --title "Spec review implementation" --role spec_reviewer --depends-on T3 --path .multi-code/sprintengine/team/reviews/spec-review.md --description "Review-only the completed implementation against approved requirements, acceptance criteria, implementation evidence, and tests." --acceptance "Spec review records requirement coverage, behavioral gaps, test gaps, and verdict"
   sprintengine plan add-task --title "Review performance" --role performance --depends-on T4 --path src/foo --acceptance "Performance review artifact documents measured evidence, findings, or approval"
   sprintengine plan update-task --task-id T1 --title "..." --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."

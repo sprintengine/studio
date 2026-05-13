@@ -413,6 +413,22 @@ function testRendererPromptContextRedactsSensitiveStateText() {
   state.roadmap[1].title = 'Render from PASSWORD=hunter2 without leaks'
   state.roadmap[1].goal = 'Use redis://default:secret@localhost:6379/0 and access_token: abc123'
 
+  const activeMilestone = getActiveMultiloopMilestone(state)
+  // The redaction test exercises the linked Sprint Engine prompt branch — that
+  // is the path real developer/frontend workers take in production loops where
+  // execution is delegated to Sprint Engine. Augment the active milestone with
+  // a Sprint Engine link inline so the prompt builder emits the sprintengine
+  // task next / task log / task status commands the assertions below verify.
+  const currentMilestoneWithLink = activeMilestone
+    ? {
+        ...activeMilestone,
+        sprintEngine: {
+          teamSlug: 'fixture-loop-m2',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
+        },
+      }
+    : null
   const lines = buildMultiloopLaunchContextLines({
     roleLabel: 'Developer',
     role: 'developer',
@@ -420,7 +436,7 @@ function testRendererPromptContextRedactsSensitiveStateText() {
     readyTaskIdsForRole: ['T2'],
     loopName: state.loop.displayName,
     finalGoal: state.loop.finalGoal,
-    currentMilestone: getActiveMultiloopMilestone(state),
+    currentMilestone: currentMilestoneWithLink,
     statePath: 'multiloop/fixture-loop/state.json',
   })
   const promptContext = lines.join('\n')
@@ -430,7 +446,7 @@ function testRendererPromptContextRedactsSensitiveStateText() {
   assert.match(promptContext, /Ready tasks for this role: T2/)
   assert.match(promptContext, /task next --role developer --id developer-1/)
   assert.match(promptContext, /task log --task-id <task-id> --id developer-1/)
-  assert.match(promptContext, /continue ready developer tasks until none remain/)
+  assert.match(promptContext, /task status --task-id <task-id> --status done --id developer-1/)
   assert.doesNotMatch(promptContext, /live-token-123/)
   assert.doesNotMatch(promptContext, /API_KEY=super-secret/)
   assert.doesNotMatch(promptContext, /postgres:\/\/app:secret@localhost:5432\/app/)

@@ -196,6 +196,24 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
     assert "continuation-prompt-sent" in supervisor_source
 
 
+def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    prompt_sources = [
+        (repo_root / "src/renderer/src/utils/agentPrompt.ts").read_text(encoding="utf-8"),
+        (repo_root / "src/renderer/src/components/panels/SprintEngineBoardPanel.tsx").read_text(encoding="utf-8"),
+        (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
+            encoding="utf-8"
+        ),
+    ]
+    combined_source = "\n".join(prompt_sources)
+
+    assert "Keep polling for ready" not in combined_source
+    assert "then poll again" not in combined_source
+    assert "Do not leave a background polling loop running" in combined_source
+    assert "stop all idle retrying as soon as a task is returned" in combined_source
+    assert "After you claim one task, focus only on that task" in combined_source
+
+
 def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(

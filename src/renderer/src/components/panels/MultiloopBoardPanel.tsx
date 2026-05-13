@@ -1,6 +1,31 @@
-import { Fragment, forwardRef, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  Fragment,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
 import { nanoid } from 'nanoid'
 import { SpecialistActionIcon } from '../AppIcons'
+import {
+  DefinitionList,
+  GhostButton,
+  IconButton,
+  InboxRow,
+  OverflowMenu,
+  PanelHeader,
+  PrimaryButton,
+  Section,
+  StatusDot,
+  type DefinitionItem,
+  type OverflowMenuItem,
+  type Tone,
+} from '../ui'
 import {
   MULTILOOP_STATE_SYNC_EVENT,
   getMultiloopStateSyncSnapshot,
@@ -57,28 +82,32 @@ type ReadState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; error: MultiloopStateDisplayError }
+
 type RoleLaunchState =
   | { status: 'idle' }
   | { status: 'loading'; role: MultiloopRole }
   | { status: 'error'; role: MultiloopRole; message: string }
+
 type LinkedExecutionReadState =
   | { status: 'idle' }
   | { status: 'loading'; path: string }
   | { status: 'error'; path: string; message: string }
 
-type TaskColumn = {
-  key: MultiloopTaskStatus
+type TaskGroupKey = MultiloopTaskStatus
+
+type TaskGroup = {
+  key: TaskGroupKey
   label: string
-  hint: string
+  tone: Tone
 }
 
-const taskColumns: TaskColumn[] = [
-  { key: 'ready', label: 'Ready', hint: 'Can start' },
-  { key: 'in_progress', label: 'In Progress', hint: 'Owned now' },
-  { key: 'needs_input', label: 'Needs Input', hint: 'Waiting' },
-  { key: 'blocked', label: 'Blocked', hint: 'Stopped' },
-  { key: 'todo', label: 'Todo', hint: 'Queued' },
-  { key: 'done', label: 'Done', hint: 'Accepted' },
+const TASK_GROUPS: TaskGroup[] = [
+  { key: 'in_progress', label: 'In progress', tone: 'accent' },
+  { key: 'ready', label: 'Ready', tone: 'good' },
+  { key: 'needs_input', label: 'Needs input', tone: 'warn' },
+  { key: 'blocked', label: 'Blocked', tone: 'warn' },
+  { key: 'todo', label: 'Todo', tone: 'neutral' },
+  { key: 'done', label: 'Done', tone: 'neutral' },
 ]
 
 const milestoneStatusLabels: Record<MultiloopMilestoneStatus, string> = {
@@ -88,36 +117,36 @@ const milestoneStatusLabels: Record<MultiloopMilestoneStatus, string> = {
   planned: 'Planned',
 }
 
+const milestoneStatusTone: Record<MultiloopMilestoneStatus, Tone> = {
+  accepted: 'good',
+  active: 'accent',
+  blocked: 'warn',
+  planned: 'neutral',
+}
+
 const taskStatusLabels: Record<MultiloopTaskStatus, string> = {
   blocked: 'Blocked',
   done: 'Done',
-  in_progress: 'In Progress',
-  needs_input: 'Needs Input',
+  in_progress: 'In progress',
+  needs_input: 'Needs input',
   ready: 'Ready',
   todo: 'Todo',
 }
 
-const milestoneStatusClass: Record<MultiloopMilestoneStatus, string> = {
-  accepted: 'border-[#2f5f3f] bg-[#112318] text-[#bff7ce]',
-  active: 'border-[#3b62cc] bg-[#101a36] text-[#cdd9ff]',
-  blocked: 'border-[#755337] bg-[#271a10] text-[#ffd39a]',
-  planned: 'border-[#32343b] bg-[#101116] text-[#b6b7bf]',
+const taskStatusTone: Record<MultiloopTaskStatus, Tone> = {
+  blocked: 'warn',
+  done: 'good',
+  in_progress: 'accent',
+  needs_input: 'warn',
+  ready: 'good',
+  todo: 'neutral',
 }
 
-const taskStatusClass: Record<MultiloopTaskStatus, string> = {
-  blocked: 'bg-[#3a2415] text-[#ffd39a]',
-  done: 'bg-[#14321f] text-[#c8f7d2]',
-  in_progress: 'bg-[#172342] text-[#c5d4ff]',
-  needs_input: 'bg-[#3a3115] text-[#ffe19b]',
-  ready: 'bg-[#163021] text-[#c6f5d2]',
-  todo: 'bg-[#191a20] text-[#b6b7bf]',
-}
-
-const verdictClass: Record<MultiloopMilestoneReviewVerdict['verdict'], string> = {
-  accepted: 'border-[#2f5f3f] bg-[#112318] text-[#bff7ce]',
-  needs_follow_up: 'border-[#755337] bg-[#271a10] text-[#ffd39a]',
-  blocked: 'border-[#6f3131] bg-[#1d1012] text-[#ffb5b8]',
-  revise_scope: 'border-[#3b62cc] bg-[#101a36] text-[#cdd9ff]',
+const verdictTone: Record<MultiloopMilestoneReviewVerdict['verdict'], Tone> = {
+  accepted: 'good',
+  needs_follow_up: 'warn',
+  blocked: 'error',
+  revise_scope: 'accent',
 }
 
 const multiloopCliPermissionOptions: Array<{
@@ -140,6 +169,12 @@ const multiloopCliPermissionOptions: Array<{
     label: 'Bypass permissions',
     title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
   },
+]
+
+const TERMINAL_GROUPS: Array<{ label: string; roles: MultiloopRole[] }> = [
+  { label: 'Coordinator', roles: ['coordinator'] },
+  { label: 'Workers', roles: ['architect', 'developer', 'frontend'] },
+  { label: 'Reviewers', roles: ['product', 'tester', 'security', 'code_reviewer', 'performance'] },
 ]
 
 function hasEvidence(task: MultiloopTask): boolean {
@@ -286,10 +321,12 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [goalExpanded, setGoalExpanded] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [linkedSprintEngineStatesByPath, setLinkedSprintEngineStatesByPath] = useState<Record<string, SprintEngineState>>({})
   const [linkedExecutionReadStatesByPath, setLinkedExecutionReadStatesByPath] = useState<Record<string, LinkedExecutionReadState>>({})
   const [linkedExecutionReadRevision, setLinkedExecutionReadRevision] = useState(0)
   const timelineRef = useRef<HTMLOListElement | null>(null)
+  const titleId = useId()
 
   const multiloopState = workspace?.multiloopState ?? null
   const statePath = workspace?.multiloopContext?.statePath ?? null
@@ -613,8 +650,9 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const canExpandGoal = fullGoal !== goalPreview || fullGoal.length > 260
   const autoRunEnabled = Boolean(multiloopAutoState?.enabled)
   const autoRunReasonLabel = autoRunSelection ? autoRunReasonToLabel(autoRunSelection.reason) : 'no active milestone'
+  const autoRunPaused = autoRunSelection?.reason === 'blocked' || autoRunSelection?.reason === 'needs-input'
   const runStateLabel = autoRunEnabled
-    ? autoRunSelection?.reason === 'blocked' || autoRunSelection?.reason === 'needs-input'
+    ? autoRunPaused
       ? `paused (${autoRunReasonLabel})`
       : 'on'
     : 'off'
@@ -647,10 +685,83 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     setLinkedExecutionReadRevision((current) => current + 1)
   }
 
+  // CommandPalette → panel-command bridge. Mirrors the overflow item ids.
+  // Listeners are registered once with a latest-handler ref pattern so normal
+  // re-renders don't churn global window listeners and so the captured closure
+  // (in particular openRoleAgent, which reads multiloopState / workspace /
+  // linked Sprint Engine state) stays fresh. Refs are reassigned synchronously
+  // each render with the live closures.
+  const commandHandlerRef = useRef<(detail: { id: unknown }) => void>(() => {})
+  const settingsChordHandlerRef = useRef<(event: globalThis.KeyboardEvent) => void>(() => {})
+  commandHandlerRef.current = (detail) => {
+    if (!detail || typeof detail.id !== 'string') return
+    switch (detail.id) {
+      case 'multiloop.toggle.auto-run':
+        setMultiloopAutoEnabled(workspaceId, !autoRunEnabled)
+        break
+      case 'multiloop.open.coordinator':
+        void openRoleAgent('coordinator')
+        break
+      case 'multiloop.open.settings':
+      case 'open.settings':
+        setSettingsOpen(true)
+        break
+    }
+  }
+  settingsChordHandlerRef.current = (event) => {
+    const target = event.target
+    const isEditable =
+      target instanceof HTMLElement &&
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable)
+    if (isEditable) return
+    if ((event.metaKey || event.ctrlKey) && event.key === ',' && !event.shiftKey && !event.altKey) {
+      event.preventDefault()
+      setSettingsOpen(true)
+    }
+  }
+  useEffect(() => {
+    const onCommand = (event: Event) => {
+      commandHandlerRef.current((event as CustomEvent).detail)
+    }
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      settingsChordHandlerRef.current(event)
+    }
+    window.addEventListener('multicode:panel-command', onCommand)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('multicode:panel-command', onCommand)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [])
+
   const openLinkedStateFile = async (link: NonNullable<MultiloopMilestone['sprintEngine']>) => {
     const path = resolveProjectPath(link.statePath, workspaceRoot)
     const content = await window.api.readfile(path)
     openFile(workspaceId, path, link.statePath.split(/[\\/]/u).pop() || 'state.yaml', content)
+  }
+
+  const overflowItems: OverflowMenuItem[] = []
+  if (multiloopState) {
+    overflowItems.push({
+      id: 'multiloop.toggle.auto-run',
+      label: autoRunEnabled ? 'Pause auto-run' : 'Resume auto-run',
+      onSelect: () => setMultiloopAutoEnabled(workspaceId, !autoRunEnabled),
+    })
+    overflowItems.push({
+      id: 'multiloop.open.coordinator',
+      label: 'Open coordinator',
+      onSelect: () => void openRoleAgent('coordinator'),
+    })
+    overflowItems.push({ kind: 'separator', id: 'sep-1' })
+    overflowItems.push({
+      id: 'multiloop.open.settings',
+      label: 'Multiloop settings',
+      shortcut: '⌘ ,',
+      onSelect: () => setSettingsOpen(true),
+    })
   }
 
   if (!workspace) return null
@@ -683,36 +794,76 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     )
   }
 
+  const ownership = getOwnershipLabel(activeMilestone, activeLinkedExecutionReadState)
+  const readinessText = readinessLabel(activeReadiness)
+  const primaryLabel = getPrimaryActionLabel(primaryAction, activeReadiness)
+  const primaryLoading = roleLaunchState.status === 'loading' && primaryAction.kind === 'open_role' && roleLaunchState.role === primaryAction.role
+  const primaryDisabled = activeReadiness === 'loading_execution' || primaryLoading
+
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#08090b] text-[#ececee] [overflow-wrap:anywhere]" aria-label="Multiloop campaign board">
-      <CampaignHero
-        loopName={multiloopState.loop.displayName}
+    <section
+      className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-default)] [overflow-wrap:anywhere]"
+      aria-labelledby={titleId}
+    >
+      <PanelHeader
+        tool="multiloop"
+        title="Campaign"
+        titleId={titleId}
+        subtitle={multiloopState.loop.displayName}
+        count={progress.total > 0 ? `${progress.accepted}/${progress.total}` : undefined}
+        primaryAction={(
+          <PrimaryButton
+            type="button"
+            onClick={handlePrimaryAction}
+            disabled={primaryDisabled}
+            aria-label={primaryLoading ? 'Opening agent' : primaryLabel}
+          >
+            {primaryLoading ? 'Opening…' : primaryLabel}
+          </PrimaryButton>
+        )}
+        overflow={(
+          <div className="relative inline-flex">
+            <OverflowMenu ariaLabel="Multiloop overflow" items={overflowItems} />
+            {settingsOpen ? (
+              <MultiloopSettingsPopover
+                autoRunEnabled={autoRunEnabled}
+                runStateLabel={runStateLabel}
+                autoRunReasonLabel={autoRunReasonLabel}
+                cliPermissionPreset={multiloopAutoState?.cliPermissionPreset ?? 'default'}
+                agents={workspace.agents}
+                launchState={roleLaunchState}
+                hasSprintEngineLink={Boolean(activeMilestone?.sprintEngine)}
+                linkedSprintEngineState={activeLinkedSprintEngineState}
+                linkedExecutionReadState={activeLinkedExecutionReadState}
+                onToggleAutoRun={() => setMultiloopAutoEnabled(workspaceId, !autoRunEnabled)}
+                onPermissionPresetChange={(preset) => setMultiloopCliPermissionPreset(workspaceId, preset)}
+                onOpenRole={(role) => void openRoleAgent(role)}
+                onClose={() => setSettingsOpen(false)}
+              />
+            ) : null}
+          </div>
+        )}
+      />
+
+      <CampaignSummary
         iteration={multiloopState.loop.iteration}
+        activeMilestone={activeMilestone}
+        activeMilestoneIndex={activeMilestoneIndex}
+        ownership={ownership}
+        readiness={readinessText}
+        readinessTone={readinessTone(activeReadiness)}
+        blockersCount={activeBlockers.length}
+        autoRunLabel={runStateLabel}
+        autoRunPaused={autoRunPaused}
         fullGoal={fullGoal}
         goalPreview={goalPreview}
         canExpandGoal={canExpandGoal}
         goalExpanded={goalExpanded}
         onToggleGoal={() => setGoalExpanded((current) => !current)}
-        progress={progress}
-        activeMilestone={activeMilestone}
-        activeMilestoneIndex={activeMilestoneIndex}
-        readiness={activeReadiness}
-        blockersCount={activeBlockers.length}
-        runStateLabel={runStateLabel}
-        autoRunEnabled={autoRunEnabled}
-        autoRunReasonLabel={autoRunReasonLabel}
-        cliPermissionPreset={multiloopAutoState?.cliPermissionPreset ?? 'default'}
-        primaryAction={primaryAction}
-        primaryActionDisabled={activeReadiness === 'loading_execution'}
-        launchState={roleLaunchState}
-        agents={workspace.agents}
-        linkedSprintEngineState={activeLinkedSprintEngineState}
-        linkedExecutionReadState={activeLinkedExecutionReadState}
-        onToggleAutoRun={() => setMultiloopAutoEnabled(workspaceId, !autoRunEnabled)}
-        onPermissionPresetChange={(preset) => setMultiloopCliPermissionPreset(workspaceId, preset)}
-        onOpenRole={(role) => void openRoleAgent(role)}
-        onPrimaryAction={handlePrimaryAction}
+        launchError={roleLaunchState.status === 'error' ? roleLaunchState : null}
       />
+
+      <ProgressBar accepted={progress.accepted} total={progress.total} blocked={progress.blocked} />
 
       <CampaignTimeline
         ref={timelineRef}
@@ -726,8 +877,8 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
       />
 
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <main className="min-h-0 min-w-0 overflow-y-auto px-5 py-4">
-          <div className="space-y-4">
+        <main className="min-h-0 min-w-0 overflow-y-auto">
+          <div className="flex flex-col gap-2 py-2">
             <SprintConsole
               milestone={selectedMilestone}
               milestoneIndex={selectedMilestoneIndex}
@@ -762,7 +913,10 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
           </div>
         </main>
 
-        <aside className="min-h-0 overflow-y-auto border-t border-[#202127] xl:border-l xl:border-t-0" aria-label="Loop reassessment">
+        <aside
+          className="min-h-0 overflow-y-auto border-t border-[color:var(--border-default)] xl:border-l xl:border-t-0"
+          aria-label="Loop reassessment"
+        >
           <ReassessmentColumn
             milestone={selectedMilestone}
             iteration={multiloopState.loop.iteration}
@@ -779,172 +933,111 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
 }
 
 // ===========================================================================
-// CAMPAIGN HERO — surfaces mission, goal, progress, and the primary action.
+// CAMPAIGN SUMMARY — quiet one-line summary directly under PanelHeader.
 // ===========================================================================
 
-function CampaignHero({
-  loopName,
+function CampaignSummary({
   iteration,
+  activeMilestone,
+  activeMilestoneIndex,
+  ownership,
+  readiness,
+  readinessTone: readinessToneValue,
+  blockersCount,
+  autoRunLabel,
+  autoRunPaused,
   fullGoal,
   goalPreview,
   canExpandGoal,
   goalExpanded,
   onToggleGoal,
-  progress,
-  activeMilestone,
-  activeMilestoneIndex,
-  readiness,
-  blockersCount,
-  runStateLabel,
-  autoRunEnabled,
-  autoRunReasonLabel,
-  cliPermissionPreset,
-  primaryAction,
-  primaryActionDisabled,
-  launchState,
-  agents,
-  linkedSprintEngineState,
-  linkedExecutionReadState,
-  onToggleAutoRun,
-  onPermissionPresetChange,
-  onOpenRole,
-  onPrimaryAction,
+  launchError,
 }: {
-  loopName: string
   iteration: number
+  activeMilestone: MultiloopMilestone | null
+  activeMilestoneIndex: number
+  ownership: string
+  readiness: string
+  readinessTone: Tone
+  blockersCount: number
+  autoRunLabel: string
+  autoRunPaused: boolean
   fullGoal: string
   goalPreview: string
   canExpandGoal: boolean
   goalExpanded: boolean
   onToggleGoal: () => void
-  progress: { accepted: number; total: number; blocked: number; percent: number }
-  activeMilestone: MultiloopMilestone | null
-  activeMilestoneIndex: number
-  readiness: MultiloopExecutionReadiness
-  blockersCount: number
-  runStateLabel: string
-  autoRunEnabled: boolean
-  autoRunReasonLabel: string
-  cliPermissionPreset: SprintEngineCliPermissionPreset
-  primaryAction: MultiloopPrimaryNextAction
-  primaryActionDisabled: boolean
-  launchState: RoleLaunchState
-  agents: Record<string, AgentState>
-  linkedSprintEngineState: SprintEngineState | null
-  linkedExecutionReadState: LinkedExecutionReadState
-  onToggleAutoRun: () => void
-  onPermissionPresetChange: (preset: SprintEngineCliPermissionPreset) => void
-  onOpenRole: (role: MultiloopRole) => void
-  onPrimaryAction: () => void
+  launchError: { role: MultiloopRole; message: string } | null
 }) {
-  const primaryLabel = getPrimaryActionLabel(primaryAction, readiness)
-  const primaryLoading = launchState.status === 'loading' && primaryAction.kind === 'open_role' && launchState.role === primaryAction.role
-  const ownership = getOwnershipLabel(activeMilestone, linkedExecutionReadState)
-  const tone = readinessTone(readiness)
+  const items: DefinitionItem[] = [
+    {
+      term: 'Active sprint',
+      description: activeMilestone
+        ? `M${activeMilestoneIndex + 1} · ${activeMilestone.title}`
+        : 'None',
+    },
+    { term: 'Iteration', description: String(iteration) },
+    { term: 'Owner', description: ownership },
+    {
+      term: 'Readiness',
+      description: (
+        <span className="inline-flex items-center gap-1.5">
+          <StatusDot tone={readinessToneValue} />
+          <span>{readiness}</span>
+        </span>
+      ),
+    },
+    {
+      term: 'Blockers',
+      description: blockersCount > 0
+        ? (
+          <span className="inline-flex items-center gap-1.5">
+            <StatusDot tone="warn" />
+            <span>{formatCount(blockersCount, 'blocker')}</span>
+          </span>
+        )
+        : 'None',
+    },
+    {
+      term: 'Auto-run',
+      description: (
+        <span className="inline-flex items-center gap-1.5">
+          <StatusDot tone={autoRunPaused ? 'warn' : autoRunLabel === 'on' ? 'accent' : 'neutral'} />
+          <span>{autoRunLabel}</span>
+        </span>
+      ),
+    },
+  ]
 
   return (
-    <header
-      className="relative shrink-0 overflow-hidden border-b border-[#202127] px-5 pb-4 pt-5"
-      style={{
-        background:
-          'radial-gradient(1100px 240px at 12% -40%, rgba(92,124,255,0.18), transparent 70%), radial-gradient(900px 220px at 88% -50%, rgba(92,124,255,0.10), transparent 75%), #08090b',
-      }}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7e93d1]">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#5c7cff] shadow-[0_0_10px_rgba(92,124,255,0.7)]" aria-hidden="true" />
-              Multiloop campaign
-            </span>
-            <span className="text-[#41435a]">·</span>
-            <span className="text-[#9aa6cd]">Iteration {iteration}</span>
-            <span className="text-[#41435a]">·</span>
-            <span className="text-[#9aa6cd]">{progress.accepted} / {progress.total} milestones accepted</span>
-            {progress.blocked > 0 ? (
-              <>
-                <span className="text-[#41435a]">·</span>
-                <span className="text-[#ffd39a]">{progress.blocked} blocked</span>
-              </>
-            ) : null}
-          </div>
-          <h1 className="mt-1.5 truncate text-[22px] font-semibold leading-7 text-[#f5f5f6]">{loopName}</h1>
-          <div className="mt-2 max-w-4xl">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#5d6f9a]">Final goal</div>
-            <p className={`mt-1 text-[15px] leading-6 text-[#cfd5e8] ${goalExpanded ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>
-              {goalExpanded ? fullGoal : goalPreview}
-            </p>
-            {canExpandGoal ? (
-              <button
-                type="button"
-                onClick={onToggleGoal}
-                aria-expanded={goalExpanded}
-                className="mt-1 rounded-[4px] text-[12px] font-semibold text-[#9fb4ff] underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-[#5c7cff]"
-              >
-                {goalExpanded ? 'Collapse goal' : 'Expand goal'}
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <RunSettingsPopover
-            autoRunEnabled={autoRunEnabled}
-            runStateLabel={runStateLabel}
-            autoRunReasonLabel={autoRunReasonLabel}
-            cliPermissionPreset={cliPermissionPreset}
-            onToggleAutoRun={onToggleAutoRun}
-            onPermissionPresetChange={onPermissionPresetChange}
-          />
-          <MoreTerminalsPopover
-            agents={agents}
-            launchState={launchState}
-            hasSprintEngineLink={Boolean(activeMilestone?.sprintEngine)}
-            linkedSprintEngineState={linkedSprintEngineState}
-            linkedExecutionReadState={linkedExecutionReadState}
-            onOpenRole={onOpenRole}
-          />
+    <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
+      <DefinitionList items={items} />
+      <div className="mt-2 max-w-3xl">
+        <p
+          className={`text-[12px] leading-[1.5] text-[color:var(--text-default)] ${
+            goalExpanded ? 'whitespace-pre-wrap' : 'line-clamp-2'
+          }`}
+        >
+          <span className="text-[color:var(--text-muted)]">Final goal: </span>
+          {goalExpanded ? fullGoal : goalPreview}
+        </p>
+        {canExpandGoal ? (
           <button
             type="button"
-            onClick={onPrimaryAction}
-            disabled={primaryActionDisabled || primaryLoading}
-            className="inline-flex h-9 items-center rounded-[7px] bg-[#4f6bff] px-4 text-[12.5px] font-semibold text-white shadow-[0_8px_24px_-10px_rgba(92,124,255,0.65),inset_0_1px_0_rgba(255,255,255,0.18)] transition hover:bg-[#5e7bff] focus:outline-none focus:ring-2 focus:ring-[#9fb4ff] disabled:cursor-default disabled:opacity-55"
+            onClick={onToggleGoal}
+            aria-expanded={goalExpanded}
+            className="mt-1 text-[12px] text-[color:var(--accent-primary)] underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
           >
-            {primaryLoading ? 'Opening…' : primaryLabel}
+            {goalExpanded ? 'Show less' : 'Show more'}
           </button>
-        </div>
+        ) : null}
       </div>
-
-      <ProgressBar accepted={progress.accepted} total={progress.total} blocked={progress.blocked} />
-
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <HeroStat
-          label={activeMilestone ? `Active sprint M${activeMilestoneIndex + 1}` : 'Active sprint'}
-          value={activeMilestone?.title ?? 'None'}
-        />
-        <HeroStat
-          label="Owned by"
-          value={ownership}
-          tone={activeMilestone?.sprintEngine ? 'sprintengine' : 'multiloop'}
-        />
-        <HeroStat
-          label="Readiness"
-          value={readinessLabel(readiness)}
-          tone={tone}
-        />
-        <HeroStat
-          label="Blockers"
-          value={String(blockersCount)}
-          tone={blockersCount > 0 ? 'warn' : 'normal'}
-        />
-      </div>
-
-      {launchState.status === 'error' ? (
-        <p className="mt-3 truncate text-[12px] text-[#ffb5b8]" role="status">
-          {getMultiloopRole(launchState.role).label}: {launchState.message}
+      {launchError ? (
+        <p className="mt-2 text-[12px] text-[color:var(--tone-error)]" role="status">
+          {getMultiloopRole(launchError.role).label}: {launchError.message}
         </p>
       ) : null}
-    </header>
+    </div>
   )
 }
 
@@ -953,15 +1046,15 @@ function ProgressBar({ accepted, total, blocked }: { accepted: number; total: nu
   const acceptedPct = (accepted / total) * 100
   const blockedPct = (blocked / total) * 100
   return (
-    <div className="mt-4" aria-hidden="true">
-      <div className="relative h-1.5 overflow-hidden rounded-full bg-[#16171c]">
+    <div className="shrink-0 px-3 pb-2" aria-hidden="true">
+      <div className="relative h-0.5 overflow-hidden bg-[color:var(--border-default)]">
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[#3b62cc] to-[#5c7cff] shadow-[0_0_18px_rgba(92,124,255,0.55)] transition-[width] duration-500"
+          className="absolute inset-y-0 left-0 bg-[color:var(--accent-primary)] transition-[width] duration-200"
           style={{ width: `${acceptedPct}%` }}
         />
         {blockedPct > 0 ? (
           <div
-            className="absolute inset-y-0 rounded-full bg-[#a76b3a]/70 transition-[width,left] duration-500"
+            className="absolute inset-y-0 bg-[color:var(--tone-warn)] transition-[width,left] duration-200"
             style={{ left: `${acceptedPct}%`, width: `${blockedPct}%` }}
           />
         ) : null}
@@ -970,27 +1063,8 @@ function ProgressBar({ accepted, total, blocked }: { accepted: number; total: nu
   )
 }
 
-function HeroStat({ label, value, tone = 'normal' }: { label: string; value: string; tone?: 'normal' | 'warn' | 'error' | 'good' | 'multiloop' | 'sprintengine' }) {
-  const valueClass = tone === 'warn'
-    ? 'text-[#ffd39a]'
-    : tone === 'error'
-      ? 'text-[#ffb5b8]'
-      : tone === 'good'
-        ? 'text-[#bff7ce]'
-        : tone === 'sprintengine'
-          ? 'text-[#b8ccff]'
-          : 'text-[#ececee]'
-  const accent = tone === 'sprintengine' ? 'before:bg-[#3b62cc]' : 'before:bg-[#2a2c34]'
-  return (
-    <div className={`relative rounded-[7px] border border-[#1d1e25] bg-[#0e0f14] px-3 py-2 before:absolute before:inset-y-2 before:left-0 before:w-[2px] before:rounded-r-full ${accent}`}>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#65677a]">{label}</div>
-      <div className={`mt-0.5 truncate text-[13px] font-semibold ${valueClass}`}>{value}</div>
-    </div>
-  )
-}
-
 // ===========================================================================
-// CAMPAIGN TIMELINE — horizontal milestone stations connected by progress lines.
+// CAMPAIGN TIMELINE — horizontal milestone stations on a hairline rail.
 // ===========================================================================
 
 type CampaignTimelineProps = {
@@ -1022,15 +1096,11 @@ function CampaignTimelineImpl(
   return (
     <nav
       aria-label="Campaign timeline"
-      className="shrink-0 border-b border-[#202127] bg-[#0a0b0f] px-5 py-3"
+      className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-3 py-2"
     >
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#5d6f9a]">Roadmap</span>
-        <span className="text-[10px] uppercase tracking-[0.16em] text-[#4d4f5e]">← Past · Now · Next →</span>
-      </div>
       <ol
         ref={ref}
-        className="flex min-w-0 items-stretch gap-0 overflow-x-auto scroll-smooth pb-1"
+        className="flex min-w-0 items-stretch gap-0 overflow-x-auto scroll-smooth"
       >
         {milestones.map((milestone, index) => {
           const isSelected = milestone.id === selectedMilestoneId
@@ -1043,7 +1113,7 @@ function CampaignTimelineImpl(
                   toStatus={milestone.status}
                 />
               ) : null}
-              <li className="flex min-w-[10.5rem] max-w-[14rem] flex-1 flex-col">
+              <li className="flex min-w-[10rem] max-w-[14rem] flex-1 flex-col">
                 <TimelineStation
                   ref={(node) => {
                     buttonRefs.current[milestone.id] = node
@@ -1068,16 +1138,14 @@ const CampaignTimeline = forwardRef<HTMLOListElement, CampaignTimelineProps>(Cam
 CampaignTimeline.displayName = 'CampaignTimeline'
 
 function TimelineConnector({ fromStatus, toStatus }: { fromStatus: MultiloopMilestoneStatus; toStatus: MultiloopMilestoneStatus }) {
-  const lineClass = fromStatus === 'accepted'
-    ? 'bg-gradient-to-r from-[#3b8a4f] to-[#3b62cc]'
-    : fromStatus === 'active' || toStatus === 'active'
-      ? 'bg-gradient-to-r from-[#3b62cc] to-[#2a2c34]'
-      : fromStatus === 'blocked'
-        ? 'bg-gradient-to-r from-[#a76b3a] to-[#2a2c34]'
-        : 'bg-[#22232c]'
+  const colorVar = fromStatus === 'accepted' || toStatus === 'accepted'
+    ? 'var(--accent-primary)'
+    : fromStatus === 'blocked' || toStatus === 'blocked'
+      ? 'var(--tone-warn)'
+      : 'var(--border-default)'
   return (
-    <div aria-hidden="true" className="relative flex min-w-[1.25rem] flex-1 items-center">
-      <div className={`h-px w-full ${lineClass}`} />
+    <div aria-hidden="true" className="relative flex min-w-[1.25rem] flex-1 items-center px-1">
+      <div className="h-px w-full" style={{ backgroundColor: colorVar }} />
     </div>
   )
 }
@@ -1095,22 +1163,10 @@ function TimelineStationImpl(
   { milestone, index, isSelected, isActive, onSelect, onKeyDown }: TimelineStationProps,
   ref: React.ForwardedRef<HTMLButtonElement>
 ) {
-  const dotInner = (() => {
-    if (milestone.status === 'accepted') return 'bg-[#3b8a4f] shadow-[0_0_0_2px_#0a0b0f,0_0_0_3px_#3b8a4f]'
-    if (isActive) return 'bg-[#5c7cff] shadow-[0_0_0_2px_#0a0b0f,0_0_0_3px_#5c7cff,0_0_22px_rgba(92,124,255,0.7)]'
-    if (milestone.status === 'blocked') return 'bg-[#a76b3a] shadow-[0_0_0_2px_#0a0b0f,0_0_0_3px_#a76b3a]'
-    return 'bg-[#3a3c45] shadow-[0_0_0_2px_#0a0b0f,0_0_0_3px_#3a3c45]'
-  })()
-
-  const ringClass = isSelected
-    ? 'border-[#5c7cff] bg-[#0f1530]'
-    : isActive
-      ? 'border-[#3b62cc] bg-[#0c1024]'
-      : milestone.status === 'accepted'
-        ? 'border-[#1d2c20] bg-[#0c1310]'
-        : milestone.status === 'blocked'
-          ? 'border-[#3a2820] bg-[#15100c]'
-          : 'border-[#22232c] bg-[#0c0d12] hover:border-[#3a3c45]'
+  const tone: Tone = milestoneStatusTone[milestone.status]
+  const containerClass = isSelected
+    ? 'bg-[color:var(--accent-primary-soft)] border-l-2 border-[color:var(--accent-primary)]'
+    : 'border-l-2 border-transparent hover:bg-[color:var(--bg-hover)]'
 
   return (
     <button
@@ -1120,22 +1176,25 @@ function TimelineStationImpl(
       onKeyDown={onKeyDown}
       aria-pressed={isSelected}
       aria-current={isActive ? 'step' : undefined}
-      className={`group relative flex w-full flex-col items-stretch gap-1.5 rounded-[8px] border px-2.5 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-[#5c7cff] ${ringClass}`}
+      className={`group flex w-full items-start gap-2 px-2 py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${containerClass}`}
     >
-      <div className="flex items-center gap-2">
-        <span className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">
-          {isActive ? (
-            <span aria-hidden="true" className="absolute h-2.5 w-2.5 animate-ping rounded-full bg-[#5c7cff]/45 motion-reduce:hidden" />
+      <StatusDot tone={tone} pulse={isActive} className="mt-1" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+          <span className="tabular-nums">M{index + 1}</span>
+          <span>·</span>
+          <span>{milestoneStatusLabels[milestone.status]}</span>
+          {milestone.sprintEngine ? (
+            <>
+              <span>·</span>
+              <span>Sprint Engine</span>
+            </>
           ) : null}
-          <span className={`relative h-2 w-2 rounded-full ${dotInner}`} />
-        </span>
-        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7c8090]">M{index + 1}</span>
-        {milestone.sprintEngine ? (
-          <span className="ml-auto rounded-[4px] border border-[#3b62cc] bg-[#101a36] px-1 py-0 text-[9px] font-semibold tracking-[0.08em] text-[#cdd9ff]" title="Sprint Engine execution linked">SE</span>
-        ) : null}
+        </div>
+        <div className="line-clamp-2 text-[12px] font-medium leading-[1.3] text-[color:var(--text-strong)]">
+          {milestone.title}
+        </div>
       </div>
-      <div className="line-clamp-2 text-[12.5px] font-medium leading-[1.25] text-[#e7e7ea]">{milestone.title}</div>
-      <div className="text-[10px] uppercase tracking-[0.12em] text-[#65677a]">{milestoneStatusLabels[milestone.status]}</div>
     </button>
   )
 }
@@ -1170,109 +1229,96 @@ function SprintConsole({
 }) {
   if (!milestone) {
     return (
-      <section className="rounded-[10px] border border-[#1d1e25] bg-[#0d0e12] p-5" aria-label="Sprint console">
-        <p className="text-sm text-[#8e8f98]">No milestone selected. Pick a station from the timeline.</p>
-      </section>
+      <Section title="Sprint">
+        <p className="text-[12px] text-[color:var(--text-muted)]">
+          No milestone selected. Pick a station from the timeline.
+        </p>
+      </Section>
     )
   }
 
   const isActive = milestone.id === activeMilestoneId
-  const accentBorder = isActive ? 'border-[#3b62cc]' : 'border-[#1d1e25]'
-  const accentBg = isActive ? 'bg-[#0c1024]' : 'bg-[#0d0e12]'
   const tone = readinessTone(readiness)
+  const sprintLabel = `${isActive ? 'Active sprint' : 'Sprint'} M${milestoneIndex + 1}`
+  const sourceLabel = milestone.sprintEngine ? 'Sprint Engine' : 'Multiloop'
+  const linkedRelativePath = milestone.sprintEngine
+    ? toProjectRelativePath(milestone.sprintEngine.statePath, workspaceRoot)
+    : null
 
-  return (
-    <section
-      aria-label={`Sprint M${milestoneIndex + 1} ${milestone.title}`}
-      className={`relative overflow-hidden rounded-[10px] border ${accentBorder} ${accentBg}`}
-    >
-      {isActive ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#5c7cff]/80 to-transparent"
-        />
-      ) : null}
-      <div className="flex flex-wrap items-start justify-between gap-3 p-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em]">
-            <span className={isActive ? 'text-[#9fb4ff]' : 'text-[#65677a]'}>
-              {isActive ? 'Active sprint' : 'Sprint'} M{milestoneIndex + 1}
-            </span>
-            <StatusPill label={milestoneStatusLabels[milestone.status]} className={milestoneStatusClass[milestone.status]} />
-            <span className={`rounded-[999px] border px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] ${tone === 'warn' ? 'border-[#755337] bg-[#271a10] text-[#ffd39a]' : tone === 'error' ? 'border-[#6f3131] bg-[#1d1012] text-[#ffb5b8]' : tone === 'good' ? 'border-[#2f5f3f] bg-[#112318] text-[#bff7ce]' : 'border-[#22232c] bg-[#0e0f14] text-[#9aa0b3]'}`}>
-              {readinessLabel(readiness)}
-            </span>
-            {blockersCount > 0 ? (
-              <span className="rounded-[999px] border border-[#755337] bg-[#271a10] px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-[#ffd39a]">
-                {formatCount(blockersCount, 'blocker')}
-              </span>
-            ) : null}
-          </div>
-          <h2 className="mt-2 text-[18px] font-semibold leading-7 text-[#f4f4f5]">{milestone.title}</h2>
-          <p className="mt-1 text-[13.5px] leading-[1.55] text-[#b8b9c1]">{milestone.goal || 'No milestone goal recorded.'}</p>
-        </div>
-      </div>
-
-      <ExecutionSourceStrip
-        milestone={milestone}
-        linkedSprintEngineState={linkedSprintEngineState}
-        linkedExecutionReadState={linkedExecutionReadState}
-        workspaceRoot={workspaceRoot}
-        onOpenStateFile={onOpenStateFile}
-      />
-
-      <div className="grid gap-3 border-t border-[#1d1e25] p-4 md:grid-cols-2">
-        <ListBlock title="Entry criteria" items={milestone.entryCriteria} />
-        <ListBlock title="Acceptance criteria" items={milestone.acceptanceCriteria} />
-      </div>
-
-      {milestone.finalGoalContribution ? (
-        <div className="border-t border-[#1d1e25] px-4 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#5d6f9a]">Final goal contribution</div>
-          <p className="mt-1 text-[13.5px] leading-[1.55] text-[#cfd5e8]">{milestone.finalGoalContribution}</p>
-        </div>
-      ) : null}
-    </section>
-  )
-}
-
-function ExecutionSourceStrip({
-  milestone,
-  linkedSprintEngineState,
-  linkedExecutionReadState,
-  workspaceRoot,
-  onOpenStateFile,
-}: {
-  milestone: MultiloopMilestone
-  linkedSprintEngineState: SprintEngineState | null
-  linkedExecutionReadState: LinkedExecutionReadState
-  workspaceRoot: string | null
-  onOpenStateFile: (link: NonNullable<MultiloopMilestone['sprintEngine']>) => void
-}) {
-  if (!milestone.sprintEngine) {
-    return (
-      <div className="flex flex-wrap items-center gap-2 border-t border-[#1d1e25] px-4 py-2.5 text-[12.5px] leading-5 text-[#9a9ba4]">
-        <span className="rounded-[4px] border border-[#22232c] bg-[#0e0f14] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9aa6cd]">Multiloop</span>
-        <span>Coordinated and executed by Multiloop.</span>
-      </div>
-    )
+  const details: DefinitionItem[] = [
+    { term: 'Sprint', description: sprintLabel },
+    {
+      term: 'Status',
+      description: (
+        <span className="inline-flex items-center gap-1.5">
+          <StatusDot tone={milestoneStatusTone[milestone.status]} />
+          <span>{milestoneStatusLabels[milestone.status]}</span>
+        </span>
+      ),
+    },
+    {
+      term: 'Readiness',
+      description: (
+        <span className="inline-flex items-center gap-1.5">
+          <StatusDot tone={tone} />
+          <span>{readinessLabel(readiness)}</span>
+        </span>
+      ),
+    },
+    { term: 'Source', description: sourceLabel },
+  ]
+  if (blockersCount > 0) {
+    details.push({
+      term: 'Blockers',
+      description: (
+        <span className="inline-flex items-center gap-1.5">
+          <StatusDot tone="warn" />
+          <span>{formatCount(blockersCount, 'blocker')}</span>
+        </span>
+      ),
+    })
   }
 
-  const relativePath = toProjectRelativePath(milestone.sprintEngine.statePath, workspaceRoot)
   return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-[#1d1e25] border-l-2 border-l-[#3b62cc] bg-[#0a0d18] px-4 py-2.5 text-[12.5px] leading-5 text-[#b8b9c1]">
-      <span className="rounded-[4px] border border-[#3b62cc] bg-[#101a36] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#cdd9ff]">Sprint Engine</span>
-      <span className="font-medium text-[#cdd9ff]">{linkedSprintEngineState?.name || milestone.sprintEngine.teamSlug}</span>
-      <span className="text-[#41435a]">·</span>
-      <button
-        type="button"
-        onClick={() => onOpenStateFile(milestone.sprintEngine!)}
-        className="break-all font-mono text-[11px] text-[#9fb4ff] underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-[#5c7cff]"
-      >
-        {relativePath}
-      </button>
-      {linkedExecutionReadState.status === 'loading' ? <span className="text-[11px] text-[#8e8f98]">Reading state…</span> : null}
-    </div>
+    <Section title={milestone.title} headingId={`sprint-${milestone.id}`}>
+      <DefinitionList items={details} />
+      {milestone.goal ? (
+        <p className="mt-2 text-[12px] leading-[1.5] text-[color:var(--text-default)]">
+          {milestone.goal}
+        </p>
+      ) : null}
+      {linkedRelativePath && milestone.sprintEngine ? (
+        <p className="mt-2 text-[12px] text-[color:var(--text-muted)]">
+          <span>{linkedSprintEngineState?.name || milestone.sprintEngine.teamSlug}</span>
+          <span aria-hidden="true" className="mx-1.5">·</span>
+          <button
+            type="button"
+            onClick={() => onOpenStateFile(milestone.sprintEngine!)}
+            className="break-all font-mono text-[11px] text-[color:var(--accent-primary)] underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            {linkedRelativePath}
+          </button>
+          {linkedExecutionReadState.status === 'loading' ? (
+            <>
+              <span aria-hidden="true" className="mx-1.5">·</span>
+              <span>Reading state…</span>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+      {(milestone.entryCriteria.length > 0 || milestone.acceptanceCriteria.length > 0) ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <ListBlock title="Entry criteria" items={milestone.entryCriteria} />
+          <ListBlock title="Acceptance criteria" items={milestone.acceptanceCriteria} />
+        </div>
+      ) : null}
+      {milestone.finalGoalContribution ? (
+        <div className="mt-3">
+          <div className="text-[11px] text-[color:var(--text-muted)]">Final goal contribution</div>
+          <p className="mt-1 text-[12px] leading-[1.5] text-[color:var(--text-default)]">{milestone.finalGoalContribution}</p>
+        </div>
+      ) : null}
+    </Section>
   )
 }
 
@@ -1292,22 +1338,32 @@ function ExecutionUnavailable({
   onOpenCoordinator: () => void
 }) {
   return (
-    <section className="rounded-[10px] border border-[#6f3131] bg-[#130d0f] p-4" aria-label="Execution unavailable">
-      <h2 className="text-base font-semibold text-[#f2f2f4]">Execution unavailable</h2>
-      <p className="mt-2 text-sm leading-6 text-[#d6b5b8]">Sprint Engine state for {link.teamSlug} is not readable.</p>
-      <p className="mt-2 break-all font-mono text-[11px] leading-5 text-[#ffb5b8]">{toProjectRelativePath(readState.path || link.statePath, workspaceRoot)}</p>
-      <p className="mt-2 text-sm leading-6 text-[#c9a5a8]">{readState.message}</p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" onClick={onRetry} className="h-8 rounded-[6px] bg-[#4f6bff] px-3 text-[12px] font-semibold text-white transition hover:bg-[#5e7bff] focus:outline-none focus:ring-2 focus:ring-[#9fb4ff]">Retry</button>
-        <button type="button" onClick={onOpenStateFile} className="h-8 rounded-[6px] border border-[#303139] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition hover:border-[#444751] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]">Open state file</button>
-        <button type="button" onClick={onOpenCoordinator} className="h-8 rounded-[6px] border border-[#303139] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition hover:border-[#444751] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]">Open Coordinator</button>
+    <Section title="Execution unavailable">
+      <div className="flex items-start gap-2">
+        <StatusDot tone="error" className="mt-1" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] leading-[1.5] text-[color:var(--text-default)]">
+            Sprint Engine state for {link.teamSlug} is not readable.
+          </p>
+          <p className="mt-1 break-all font-mono text-[11px] leading-[1.4] text-[color:var(--tone-error)]">
+            {toProjectRelativePath(readState.path || link.statePath, workspaceRoot)}
+          </p>
+          <p className="mt-1 text-[12px] leading-[1.5] text-[color:var(--text-muted)]">
+            {readState.message}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <PrimaryButton type="button" onClick={onRetry}>Retry</PrimaryButton>
+            <GhostButton type="button" onClick={onOpenStateFile}>Open state file</GhostButton>
+            <GhostButton type="button" onClick={onOpenCoordinator}>Open coordinator</GhostButton>
+          </div>
+        </div>
       </div>
-    </section>
+    </Section>
   )
 }
 
 // ===========================================================================
-// TASK BOARD
+// TASK BOARD — grouped by status using InboxRow primitives.
 // ===========================================================================
 
 function TaskBoard({
@@ -1325,93 +1381,104 @@ function TaskBoard({
   readiness: MultiloopExecutionReadiness
   onPlanExecution: () => void
 }) {
+  const sourceLabel = source === 'sprintengine' ? 'Sprint Engine' : 'Multiloop'
+
   if (tasks.length === 0) {
     return (
-      <section className={`rounded-[10px] border border-[#1d1e25] bg-[#0d0e12] p-4 ${source === 'sprintengine' ? 'border-l-2 border-l-[#3b62cc]' : ''}`} aria-label="Sprint task board">
-        <h2 className="text-[13px] font-semibold text-[#f0f0f2]">Sprint tasks</h2>
-        <p className="mt-2 text-sm leading-6 text-[#8e8f98]">{readinessLabel(readiness)}.</p>
-        <button type="button" onClick={onPlanExecution} className="mt-3 h-8 rounded-[6px] bg-[#4f6bff] px-3 text-[12px] font-semibold text-white transition hover:bg-[#5e7bff] focus:outline-none focus:ring-2 focus:ring-[#9fb4ff]">Plan execution</button>
-      </section>
+      <Section title="Sprint tasks" action={<span className="text-[11px] text-[color:var(--text-muted)]">Source: {sourceLabel}</span>}>
+        <p className="text-[12px] text-[color:var(--text-muted)]">{readinessLabel(readiness)}.</p>
+        <div className="mt-2">
+          <PrimaryButton type="button" onClick={onPlanExecution}>Plan execution</PrimaryButton>
+        </div>
+      </Section>
     )
   }
 
+  const groups = TASK_GROUPS.map((group) => ({
+    ...group,
+    tasks: tasks.filter((task) => task.status === group.key),
+  })).filter((group) => group.tasks.length > 0)
+
   return (
-    <section className={`rounded-[10px] border border-[#1d1e25] bg-[#0d0e12] p-4 ${source === 'sprintengine' ? 'border-l-2 border-l-[#3b62cc]' : ''}`} aria-label="Sprint task board">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[13px] font-semibold text-[#f0f0f2]">Sprint tasks</h2>
-          <p className="mt-0.5 text-[11px] text-[#65677a]">Source: {source === 'sprintengine' ? 'Sprint Engine' : 'Multiloop'}</p>
-        </div>
-        <span className="text-[11px] text-[#65677a]">{formatCount(tasks.length, 'task')}</span>
-      </div>
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-3">
-        {taskColumns.map((column) => {
-          const columnTasks = tasks.filter((task) => task.status === column.key)
-          const emphasized = (readiness === 'blocked' && column.key === 'blocked') || (readiness === 'needs_input' && column.key === 'needs_input')
-          return (
-            <div key={column.key} className={`min-h-[9rem] rounded-[8px] bg-[#0a0b10] p-3 ring-1 ring-inset ${emphasized ? 'ring-[#755337]' : 'ring-[#16171c]'}`}>
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-semibold text-[#ececee]">{column.label}</h3>
-                  <p className="text-[11px] text-[#65677a]">{column.hint}</p>
-                </div>
-                <span className="text-[11px] font-semibold text-[#9a9ba4]">{columnTasks.length}</span>
-              </div>
-              <div className="space-y-2">
-                {columnTasks.length === 0 ? <p className="text-xs text-[#52535f]">—</p> : columnTasks.map((task) => (
-                  <button
-                    key={task.id}
-                    type="button"
-                    className={`w-full rounded-[7px] border p-2.5 text-left transition focus:outline-none focus:ring-2 focus:ring-[#5c7cff] ${selectedTaskId === task.id ? 'border-[#5c7cff] bg-[#10162d]' : 'border-[#1f2028] bg-[#0a0b10] hover:border-[#3d3f48]'}`}
-                    aria-pressed={selectedTaskId === task.id}
-                    onClick={() => onSelectTask(task.id)}
-                  >
-                    <span className="flex items-start justify-between gap-2">
-                      <span className="min-w-0 text-sm font-medium leading-5 text-[#e7e7ea]">{task.title}</span>
-                      <span className="shrink-0 text-[10px] text-[#52535f]">{task.id}</span>
-                    </span>
-                    <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-[#7c8090]">
-                      <span className="rounded-[3px] bg-[#16171c] px-1.5 py-0.5">{task.role}</span>
-                      {task.ownerAgentId ? <span className="text-[#9aa0b3]">{task.ownerAgentId}</span> : null}
-                      {hasEvidence(task) ? <span className="text-[#9fb4ff]">● Evidence</span> : null}
-                    </span>
-                  </button>
-                ))}
+    <Section
+      title="Sprint tasks"
+      count={tasks.length}
+      action={<span className="text-[11px] text-[color:var(--text-muted)]">Source: {sourceLabel}</span>}
+      inset={false}
+    >
+      <div className="flex flex-col">
+        {groups.map((group) => (
+          <div key={group.key}>
+            <div className="flex items-baseline justify-between gap-2 px-3 pt-2 pb-1">
+              <div className="flex items-baseline gap-1.5">
+                <h4 className="text-[11px] font-semibold text-[color:var(--text-muted)]">{group.label}</h4>
+                <span className="tabular-nums text-[11px] text-[color:var(--text-disabled)]">
+                  {group.tasks.length}
+                </span>
               </div>
             </div>
-          )
-        })}
+            <div className="flex flex-col">
+              {group.tasks.map((task) => {
+                const selected = selectedTaskId === task.id
+                const owner = task.ownerAgentId
+                const supporting = (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span>{task.role}</span>
+                    {owner ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>{owner}</span>
+                      </>
+                    ) : null}
+                    {hasEvidence(task) ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>Evidence</span>
+                      </>
+                    ) : null}
+                  </span>
+                )
+                return (
+                  <InboxRow
+                    key={task.id}
+                    tone={taskStatusTone[task.status]}
+                    title={task.title || task.id}
+                    supporting={supporting}
+                    trailing={<span className="font-mono">{task.id}</span>}
+                    selected={selected}
+                    onSelect={() => onSelectTask(task.id)}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </div>
-    </section>
+    </Section>
   )
 }
 
 function BlockersPanel({ blockers }: { blockers: MultiloopBlocker[] }) {
   if (blockers.length === 0) return null
   return (
-    <section className="rounded-[10px] border border-[#3a2820] bg-[#150d0a] p-4" aria-label="Active blockers">
-      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#caa07a]">
-        <span aria-hidden="true">⚠</span>
-        Active blockers
-        <span className="ml-auto text-[#a07854]">{formatCount(blockers.length, 'blocker')}</span>
-      </div>
-      <div className="space-y-2">
+    <Section title="Active blockers" count={blockers.length} inset={false}>
+      <div className="flex flex-col">
         {blockers.map((blocker) => (
-          <div key={blocker.id} className="rounded-[7px] bg-[#0d0905] p-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-[#ffd39a]">{blocker.summary}</span>
-              <span className="shrink-0 text-[11px] uppercase tracking-[0.1em] text-[#b99568]">{blocker.scope}</span>
-            </div>
-            {blocker.detail ? <p className="mt-1 text-sm leading-5 text-[#d7c2a4]">{blocker.detail}</p> : null}
-          </div>
+          <InboxRow
+            key={blocker.id}
+            tone="warn"
+            title={blocker.summary}
+            supporting={blocker.detail || undefined}
+            trailing={<span>{blocker.scope}</span>}
+          />
         ))}
       </div>
-    </section>
+    </Section>
   )
 }
 
 // ===========================================================================
-// REASSESSMENT COLUMN — the loop-closing panel: verdicts, recommendation,
+// REASSESSMENT COLUMN — loop-closing context: verdicts, recommendation,
 // learned facts, decisions, evidence, artifacts, optional task detail.
 // ===========================================================================
 
@@ -1445,61 +1512,50 @@ function ReassessmentColumn({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div
-        className="relative shrink-0 overflow-hidden border-b border-[#202127] px-4 py-3"
-        style={{ background: 'linear-gradient(180deg, rgba(92,124,255,0.08), transparent 75%), #0a0b0f' }}
-      >
-        <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7e93d1]">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#5c7cff] shadow-[0_0_10px_rgba(92,124,255,0.7)]" aria-hidden="true" />
-            Reassessment
-          </span>
-          <span className="text-[#5d6f9a]">Iteration {iteration}</span>
+      <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
+        <div className="flex items-center justify-between gap-2 text-[12px] text-[color:var(--text-muted)]">
+          <span className="font-semibold text-[color:var(--text-strong)]">Reassessment</span>
+          <span>Iteration {iteration}</span>
         </div>
         {latestRecommendation ? (
           <>
-            <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5d6f9a]">Next recommendation</div>
-            <p className="mt-1 text-[13.5px] leading-[1.55] text-[#dfe6ff]">{latestRecommendation}</p>
+            <div className="mt-2 text-[11px] text-[color:var(--text-muted)]">Next recommendation</div>
+            <p className="mt-1 text-[12px] leading-[1.5] text-[color:var(--text-default)]">{latestRecommendation}</p>
           </>
         ) : (
-          <p className="mt-2 text-[12.5px] leading-5 text-[#7c8090]">
+          <p className="mt-2 text-[12px] leading-[1.5] text-[color:var(--text-muted)]">
             The loop is waiting for the next reassessment. After a sprint completes, reviewers post verdicts that shape the next milestone.
           </p>
         )}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {selectedTask ? (
           <SelectedTaskCard task={selectedTask} onClear={onClearTaskSelection} />
         ) : null}
 
         <ReassessSection title="Latest verdicts" emptyText="No reviewer verdicts yet for this milestone.">
-          {verdicts.length === 0 ? null : verdicts.map((verdict) => (
-            <article key={verdict.id} className="rounded-[7px] border border-[#1d1e25] bg-[#0d0e12] p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className={`inline-flex items-center rounded-[999px] border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${verdictClass[verdict.verdict]}`}>
-                  {verdictTitle(verdict)}
-                </span>
-                <span className="text-[10px] uppercase tracking-[0.12em] text-[#5d6f9a]">{verdict.role}</span>
-              </div>
-              {verdict.nextRecommendation ? (
-                <p className="mt-2 text-[12.5px] leading-[1.5] text-[#cfd5e8]">{verdict.nextRecommendation}</p>
-              ) : null}
-              {verdict.finalGoalImplications.length ? (
-                <p className="mt-1.5 text-[11px] leading-5 text-[#9aa0b3]">
-                  Implication: {verdict.finalGoalImplications[0]}
-                </p>
-              ) : null}
-            </article>
-          ))}
+          {verdicts.length === 0 ? null : (
+            <div className="flex flex-col">
+              {verdicts.map((verdict) => (
+                <InboxRow
+                  key={verdict.id}
+                  tone={verdictTone[verdict.verdict]}
+                  title={verdictTitle(verdict)}
+                  supporting={verdict.nextRecommendation || verdict.finalGoalImplications[0] || undefined}
+                  trailing={<span>{verdict.role}</span>}
+                />
+              ))}
+            </div>
+          )}
         </ReassessSection>
 
         <ReassessSection title="Learned facts" emptyText="No facts learned yet — they accumulate as sprints complete.">
           {learnedFacts.length === 0 ? null : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-1 px-3 pb-2">
               {learnedFacts.map((fact) => (
-                <li key={fact} className="flex gap-2 text-[12.5px] leading-[1.5] text-[#cfd5e8]">
-                  <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#5c7cff]" />
+                <li key={fact} className="flex gap-2 text-[12px] leading-[1.5] text-[color:var(--text-default)]">
+                  <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[color:var(--accent-primary)]" />
                   <span>{fact}</span>
                 </li>
               ))}
@@ -1508,23 +1564,26 @@ function ReassessmentColumn({
         </ReassessSection>
 
         <ReassessSection title="Recent evidence" emptyText="No task evidence captured yet.">
-          {evidenceTasks.length === 0 ? null : evidenceTasks.map((task) => (
-            <div key={task.id} className="border-b border-[#1d1e25] pb-2.5 last:border-b-0 last:pb-0">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-[12.5px] font-medium text-[#e7e7ea]">{task.title || task.id}</span>
-                <span className="shrink-0 text-[10px] text-[#5d6f9a]">{formatDate(task.updatedAt ?? task.completedAt ?? task.startedAt ?? task.createdAt)}</span>
-              </div>
-              {task.evidence.summary ? <p className="mt-1 text-[12px] leading-[1.5] text-[#9aa0b3]">{task.evidence.summary}</p> : null}
-              {task.evidence.results.length ? <p className="mt-1 text-[11px] leading-5 text-[#7e93d1]">{task.evidence.results[0]}</p> : null}
+          {evidenceTasks.length === 0 ? null : (
+            <div className="flex flex-col">
+              {evidenceTasks.map((task) => (
+                <InboxRow
+                  key={task.id}
+                  tone={taskStatusTone[task.status]}
+                  title={task.title || task.id}
+                  supporting={task.evidence.summary || task.evidence.results[0] || undefined}
+                  trailing={<span>{formatDate(task.updatedAt ?? task.completedAt ?? task.startedAt ?? task.createdAt)}</span>}
+                />
+              ))}
             </div>
-          ))}
+          )}
         </ReassessSection>
 
         <ReassessSection title="Decisions" emptyText="No decisions recorded.">
           {recentDecisions.length === 0 ? null : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-1 px-3 pb-2">
               {recentDecisions.map((decision) => (
-                <li key={decision.id} className="text-[12.5px] leading-[1.5] text-[#cfd5e8]">
+                <li key={decision.id} className="text-[12px] leading-[1.5] text-[color:var(--text-default)]">
                   {decision.summary || 'Decision recorded without summary.'}
                 </li>
               ))}
@@ -1534,15 +1593,15 @@ function ReassessmentColumn({
 
         <ReassessSection title="Artifacts" emptyText="No artifacts linked to this milestone yet.">
           {artifacts.length === 0 ? null : (
-            <div className="space-y-2">
+            <div className="flex flex-col">
               {artifacts.map((artifact) => (
-                <div key={artifact.id} className="border-b border-[#1d1e25] pb-2 last:border-b-0 last:pb-0">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[12.5px] font-medium text-[#e7e7ea]">{artifact.title}</span>
-                    <span className="shrink-0 text-[10px] uppercase tracking-[0.1em] text-[#5d6f9a]">{artifact.kind || 'artifact'}</span>
-                  </div>
-                  {artifact.path ? <p className="mt-1 break-all font-mono text-[10.5px] text-[#7e93d1]">{artifact.path}</p> : null}
-                </div>
+                <InboxRow
+                  key={artifact.id}
+                  tone="neutral"
+                  title={artifact.title}
+                  supporting={artifact.path ? <span className="break-all font-mono text-[11px]">{artifact.path}</span> : undefined}
+                  trailing={<span>{artifact.kind || 'artifact'}</span>}
+                />
               ))}
             </div>
           )}
@@ -1555,50 +1614,59 @@ function ReassessmentColumn({
 function ReassessSection({ title, emptyText, children }: { title: string; emptyText: string; children: ReactNode }) {
   const hasChildren = Boolean(children) && (Array.isArray(children) ? children.some(Boolean) : true)
   return (
-    <section>
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#5d6f9a]">{title}</h3>
-      <div className="mt-2 space-y-2">
-        {hasChildren ? children : <p className="text-[12px] leading-[1.5] text-[#65677a]">{emptyText}</p>}
-      </div>
-    </section>
+    <Section title={title} inset={false}>
+      {hasChildren ? children : (
+        <p className="px-3 pb-2 text-[12px] leading-[1.5] text-[color:var(--text-muted)]">{emptyText}</p>
+      )}
+    </Section>
   )
 }
 
 function SelectedTaskCard({ task, onClear }: { task: MultiloopTask; onClear: () => void }) {
+  const items: DefinitionItem[] = [
+    {
+      term: 'Status',
+      description: (
+        <span className="inline-flex items-center gap-1.5">
+          <StatusDot tone={taskStatusTone[task.status]} />
+          <span>{taskStatusLabels[task.status]}</span>
+        </span>
+      ),
+    },
+    { term: 'Role', description: task.role },
+  ]
+  if (task.ownerAgentId) items.push({ term: 'Owner', description: task.ownerAgentId })
+
   return (
-    <section
-      aria-label={`Task ${task.id}`}
-      className="relative overflow-hidden rounded-[10px] border border-[#3b62cc] bg-[#0c1024] p-4"
-    >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#5c7cff]/80 to-transparent"
-      />
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusPill label={taskStatusLabels[task.status]} className={`border-transparent ${taskStatusClass[task.status]}`} />
-            <span className="text-[10px] uppercase tracking-[0.12em] text-[#5d6f9a]">{task.id}</span>
-          </div>
-          <h3 className="mt-1.5 text-[14px] font-semibold leading-5 text-[#ededf0]">{task.title}</h3>
-          {task.description ? <p className="mt-1 text-[12.5px] leading-[1.5] text-[#b9bac2]">{task.description}</p> : null}
-        </div>
-        <button
-          type="button"
-          onClick={onClear}
+    <Section
+      title={task.title || task.id}
+      action={(
+        <IconButton
           aria-label="Clear task selection"
-          className="rounded-[4px] px-1.5 py-0.5 text-[11px] text-[#7c8090] transition hover:bg-[#10162d] hover:text-[#cfd5e8] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]"
+          onClick={onClear}
         >
-          Clear
-        </button>
-      </div>
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+            <path
+              d="M3 3L9 9M9 3L3 9"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
+          </svg>
+        </IconButton>
+      )}
+    >
+      <DefinitionList items={items} />
+      {task.description ? (
+        <p className="mt-2 text-[12px] leading-[1.5] text-[color:var(--text-default)]">{task.description}</p>
+      ) : null}
       {task.acceptanceCriteria.length ? (
         <div className="mt-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5d6f9a]">Acceptance</div>
+          <div className="text-[11px] text-[color:var(--text-muted)]">Acceptance</div>
           <ul className="mt-1 space-y-1">
             {task.acceptanceCriteria.map((item) => (
-              <li key={item} className="flex gap-2 text-[12.5px] leading-[1.5] text-[#cfd5e8]">
-                <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#5c7cff]" />
+              <li key={item} className="flex gap-2 text-[12px] leading-[1.5] text-[color:var(--text-default)]">
+                <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[color:var(--accent-primary)]" />
                 <span>{item}</span>
               </li>
             ))}
@@ -1607,202 +1675,106 @@ function SelectedTaskCard({ task, onClear }: { task: MultiloopTask; onClear: () 
       ) : null}
       {task.blockers.length ? (
         <div className="mt-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#caa07a]">Blockers</div>
+          <div className="text-[11px] text-[color:var(--tone-warn)]">Blockers</div>
           <ul className="mt-1 space-y-1">
             {task.blockers.map((item) => (
-              <li key={item} className="text-[12.5px] leading-[1.5] text-[#ffd39a]">{item}</li>
+              <li key={item} className="flex gap-2 text-[12px] leading-[1.5] text-[color:var(--text-default)]">
+                <StatusDot tone="warn" className="mt-1.5" />
+                <span>{item}</span>
+              </li>
             ))}
           </ul>
         </div>
       ) : null}
-    </section>
+    </Section>
   )
 }
 
 // ===========================================================================
-// POPOVERS — Run settings (auto-run + permission preset) and More terminals.
+// SETTINGS POPOVER — combines Run settings (auto-run + permission preset) and
+// Terminals (per-role agent launchers) into one popover surface anchored to
+// the panel header overflow trigger.
 // ===========================================================================
 
-function RunSettingsPopover({
+function MultiloopSettingsPopover({
   autoRunEnabled,
   runStateLabel,
   autoRunReasonLabel,
   cliPermissionPreset,
-  onToggleAutoRun,
-  onPermissionPresetChange,
-}: {
-  autoRunEnabled: boolean
-  runStateLabel: string
-  autoRunReasonLabel: string
-  cliPermissionPreset: SprintEngineCliPermissionPreset
-  onToggleAutoRun: () => void
-  onPermissionPresetChange: (preset: SprintEngineCliPermissionPreset) => void
-}) {
-  const popover = usePopoverFocus('multiloop-run-popover')
-  return (
-    <div className="relative">
-      <button
-        ref={popover.triggerRef}
-        type="button"
-        onClick={popover.toggle}
-        aria-haspopup="menu"
-        aria-expanded={popover.open}
-        aria-controls={popover.id}
-        className={`inline-flex h-9 items-center rounded-[7px] border px-3 text-[12px] font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#5c7cff] ${autoRunEnabled ? 'border-[#3b62cc] bg-[#101a36] text-[#cdd9ff]' : 'border-[#26272f] bg-[#0e0f14] text-[#c8c9d0] hover:border-[#3a3c45]'}`}
-      >
-        <span aria-hidden="true" className={`mr-2 h-1.5 w-1.5 rounded-full ${autoRunEnabled ? 'bg-[#5c7cff] shadow-[0_0_10px_rgba(92,124,255,0.7)]' : 'bg-[#3a3c45]'}`} />
-        Run: {runStateLabel}
-      </button>
-      {popover.open ? (
-        <div
-          ref={popover.panelRef}
-          id={popover.id}
-          role="menu"
-          tabIndex={-1}
-          onKeyDown={popover.onKeyDown}
-          className="absolute right-0 top-11 z-30 w-72 rounded-[8px] border border-[#26272f] bg-[#0d0e12] p-3 shadow-[0_24px_64px_-20px_rgba(0,0,0,0.85)]"
-        >
-          <label className="flex items-center justify-between gap-3 text-sm text-[#ececee]">
-            <span>Autonomous loop</span>
-            <input type="checkbox" checked={autoRunEnabled} onChange={onToggleAutoRun} className="h-4 w-4 accent-[#5c7cff] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]" />
-          </label>
-          <p className="mt-2 text-[11.5px] leading-[1.5] text-[#9a9ba4]">When on, Multiloop spawns the next role agent as soon as a sprint task is ready. Engine reason: {autoRunReasonLabel}.</p>
-          <label className="mt-3 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5d6f9a]">
-            CLI permission preset
-            <select
-              value={cliPermissionPreset}
-              onChange={(event) => onPermissionPresetChange(event.currentTarget.value as SprintEngineCliPermissionPreset)}
-              title={multiloopCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title}
-              className="mt-2 h-8 w-full rounded-[6px] border border-[#26272f] bg-[#0a0b10] px-2 text-[12px] font-medium text-[#d7d7dc] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]"
-            >
-              {multiloopCliPermissionOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function MoreTerminalsPopover({
   agents,
   launchState,
   hasSprintEngineLink,
   linkedSprintEngineState,
   linkedExecutionReadState,
+  onToggleAutoRun,
+  onPermissionPresetChange,
   onOpenRole,
+  onClose,
 }: {
+  autoRunEnabled: boolean
+  runStateLabel: string
+  autoRunReasonLabel: string
+  cliPermissionPreset: SprintEngineCliPermissionPreset
   agents: Record<string, AgentState>
   launchState: RoleLaunchState
   hasSprintEngineLink: boolean
   linkedSprintEngineState: SprintEngineState | null
   linkedExecutionReadState: LinkedExecutionReadState
+  onToggleAutoRun: () => void
+  onPermissionPresetChange: (preset: SprintEngineCliPermissionPreset) => void
   onOpenRole: (role: MultiloopRole) => void
+  onClose: () => void
 }) {
-  const popover = usePopoverFocus('multiloop-terminals-popover')
-  const groups: Array<{ label: string; roles: MultiloopRole[] }> = [
-    { label: 'Coordinator', roles: ['coordinator'] },
-    { label: 'Workers', roles: ['architect', 'developer', 'frontend'] },
-    { label: 'Reviewers', roles: ['product', 'tester', 'security', 'code_reviewer', 'performance'] },
-  ]
-  return (
-    <div className="relative">
-      <button
-        ref={popover.triggerRef}
-        type="button"
-        onClick={popover.toggle}
-        aria-haspopup="menu"
-        aria-expanded={popover.open}
-        aria-controls={popover.id}
-        className="inline-flex h-9 items-center rounded-[7px] border border-[#26272f] bg-[#0e0f14] px-3 text-[12px] font-semibold text-[#d7d7dc] transition hover:border-[#3a3c45] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]"
-      >
-        Open agent
-      </button>
-      {popover.open ? (
-        <div
-          ref={popover.panelRef}
-          id={popover.id}
-          role="menu"
-          tabIndex={-1}
-          onKeyDown={popover.onKeyDown}
-          className="absolute right-0 top-11 z-30 w-80 rounded-[8px] border border-[#26272f] bg-[#0d0e12] p-2 shadow-[0_24px_64px_-20px_rgba(0,0,0,0.85)]"
-        >
-          {groups.map((group) => (
-            <div key={group.label} className="py-1">
-              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5d6f9a]">{group.label}</div>
-              {group.roles.map((role) => {
-                const soul = getMultiloopRole(role)
-                const isLinkedWorker = hasSprintEngineLink && isSprintEngineRole(role)
-                const agentId = isLinkedWorker && linkedSprintEngineState ? getLinkedSprintEngineAgentId(role, linkedSprintEngineState) : `multiloop-${role}`
-                const exists = Boolean(agents[agentId])
-                const loading = launchState.status === 'loading' && launchState.role === role
-                const disabledReason = isLinkedWorker && !linkedSprintEngineState
-                  ? linkedExecutionReadState.status === 'error'
-                    ? 'Sprint Engine state is unreadable.'
-                    : 'Sprint Engine state is still loading.'
-                  : null
-                const terminalKind = isLinkedWorker ? 'Sprint Engine' : 'Multiloop'
-                return (
-                  <button
-                    key={role}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      if (disabledReason) return
-                      popover.close()
-                      onOpenRole(role)
-                    }}
-                    disabled={loading || Boolean(disabledReason)}
-                    className="flex w-full items-center gap-2 rounded-[6px] px-2 py-2 text-left text-[12px] text-[#d7d7dc] transition hover:bg-[#10162d] hover:text-[#ececee] focus:outline-none focus:ring-2 focus:ring-[#5c7cff] disabled:cursor-default disabled:opacity-55"
-                    title={disabledReason ?? `${exists ? 'Focus' : 'Create'} ${terminalKind} ${soul.label} role terminal`}
-                  >
-                    <SpecialistActionIcon icon={soul.icon} className="h-4 w-4 shrink-0 text-[#9a9aa2]" />
-                    <span className="min-w-0 flex-1 truncate">{loading ? 'Opening…' : `${soul.label} (${terminalKind})`}</span>
-                    {exists ? <span className="h-1.5 w-1.5 rounded-full bg-[#5c7cff]" aria-label="Created" /> : null}
-                  </button>
-                )
-              })}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function usePopoverFocus(id: string) {
-  const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
-  const close = useCallback(() => {
-    setOpen(false)
-    window.requestAnimationFrame(() => triggerRef.current?.focus())
+  const labelId = useId()
+  const restoreFocusElementRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    restoreFocusElementRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    window.requestAnimationFrame(() => {
+      const first = panelRef.current?.querySelector<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'
+      )
+      ;(first ?? panelRef.current)?.focus()
+    })
+    return () => {
+      const trigger = document.querySelector<HTMLElement>('[aria-label="Multiloop overflow"]')
+      ;(trigger ?? restoreFocusElementRef.current)?.focus()
+    }
   }, [])
 
   useEffect(() => {
-    if (!open) return
-    window.requestAnimationFrame(() => {
-      const focusable = getFocusable(panelRef.current)
-      ;(focusable[0] ?? panelRef.current)?.focus()
-    })
-  }, [open])
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      }
+    }
+    const onPointer = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (!target) return
+      if (panelRef.current?.contains(target)) return
+      onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onPointer)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', onPointer)
+    }
+  }, [onClose])
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      close()
-      return
-    }
+  const onPanelKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Tab') return
-    const focusable = getFocusable(panelRef.current)
-    if (focusable.length === 0) {
-      event.preventDefault()
-      return
-    }
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
+    const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'
+    )
+    if (!focusable || focusable.length === 0) return
+    const list = Array.from(focusable)
+    const first = list[0]
+    const last = list[list.length - 1]
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault()
       last.focus()
@@ -1812,20 +1784,103 @@ function usePopoverFocus(id: string) {
     }
   }
 
-  return {
-    id,
-    open,
-    triggerRef,
-    panelRef,
-    toggle: () => setOpen((current) => !current),
-    close,
-    onKeyDown,
-  }
-}
+  return (
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby={labelId}
+      tabIndex={-1}
+      onKeyDown={onPanelKey}
+      className="popover-enter absolute right-0 top-full z-30 mt-1 w-80 rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
+        <h3 id={labelId} className="text-[13px] font-semibold text-[color:var(--text-strong)]">
+          Multiloop settings
+        </h3>
+        <IconButton aria-label="Close settings" onClick={onClose}>
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+            <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </IconButton>
+      </div>
 
-function getFocusable(root: HTMLElement | null): HTMLElement[] {
-  if (!root) return []
-  return Array.from(root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'))
+      <Section title="Run" level={4}>
+        <label className="flex items-center justify-between gap-3 text-[12px] text-[color:var(--text-default)]">
+          <span>Autonomous loop</span>
+          <input
+            type="checkbox"
+            checked={autoRunEnabled}
+            onChange={onToggleAutoRun}
+            className="h-4 w-4 accent-[color:var(--accent-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          />
+        </label>
+        <p className="mt-1.5 text-[11px] leading-[1.5] text-[color:var(--text-muted)]">
+          When on, Multiloop spawns the next role agent as soon as a sprint task is ready.
+          Current: {runStateLabel}. Engine reason: {autoRunReasonLabel}.
+        </p>
+        <label className="mt-3 block text-[11px] text-[color:var(--text-muted)]">
+          CLI permission preset
+          <select
+            value={cliPermissionPreset}
+            onChange={(event) => onPermissionPresetChange(event.currentTarget.value as SprintEngineCliPermissionPreset)}
+            title={multiloopCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title}
+            className="mt-1 h-7 w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            {multiloopCliPermissionOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+      </Section>
+
+      <Section title="Terminals" level={4}>
+        <div className="flex flex-col gap-3">
+          {TERMINAL_GROUPS.map((group) => (
+            <div key={group.label}>
+              <div className="mb-1 text-[11px] text-[color:var(--text-muted)]">{group.label}</div>
+              <div className="flex flex-col">
+                {group.roles.map((role) => {
+                  const soul = getMultiloopRole(role)
+                  const isLinkedWorker = hasSprintEngineLink && isSprintEngineRole(role)
+                  const agentId = isLinkedWorker && linkedSprintEngineState
+                    ? getLinkedSprintEngineAgentId(role, linkedSprintEngineState)
+                    : `multiloop-${role}`
+                  const exists = Boolean(agents[agentId])
+                  const loading = launchState.status === 'loading' && launchState.role === role
+                  const disabledReason = isLinkedWorker && !linkedSprintEngineState
+                    ? linkedExecutionReadState.status === 'error'
+                      ? 'Sprint Engine state is unreadable.'
+                      : 'Sprint Engine state is still loading.'
+                    : null
+                  const terminalKind = isLinkedWorker ? 'Sprint Engine' : 'Multiloop'
+                  return (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => {
+                        if (disabledReason) return
+                        onOpenRole(role)
+                      }}
+                      disabled={loading || Boolean(disabledReason)}
+                      className="interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-45"
+                      title={disabledReason ?? `${exists ? 'Focus' : 'Create'} ${terminalKind} ${soul.label} role terminal`}
+                    >
+                      <SpecialistActionIcon icon={soul.icon} className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {loading ? 'Opening…' : `${soul.label} (${terminalKind})`}
+                      </span>
+                      {exists ? <StatusDot tone="accent" label="Created" /> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+    </div>
+  )
 }
 
 // ===========================================================================
@@ -1855,17 +1910,17 @@ function readinessLabel(readiness: MultiloopExecutionReadiness): string {
   }
 }
 
-function readinessTone(readiness: MultiloopExecutionReadiness): 'normal' | 'warn' | 'error' | 'good' {
+function readinessTone(readiness: MultiloopExecutionReadiness): Tone {
   if (readiness === 'ready' || readiness === 'all_done') return 'good'
   if (readiness === 'blocked' || readiness === 'needs_input') return 'warn'
   if (readiness === 'execution_unavailable') return 'error'
-  return 'normal'
+  return 'neutral'
 }
 
 function getOwnershipLabel(milestone: MultiloopMilestone | null, linkedExecutionReadState: LinkedExecutionReadState): string {
   if (!milestone?.sprintEngine) return 'Multiloop'
-  if (linkedExecutionReadState.status === 'loading') return 'Sprint Engine loading'
-  if (linkedExecutionReadState.status === 'error') return 'Sprint Engine unavailable'
+  if (linkedExecutionReadState.status === 'loading') return 'Sprint Engine (loading)'
+  if (linkedExecutionReadState.status === 'error') return 'Sprint Engine (unavailable)'
   return 'Sprint Engine'
 }
 
@@ -1876,42 +1931,41 @@ function getPrimaryActionLabel(action: MultiloopPrimaryNextAction, readiness: Mu
     if (readiness === 'blocked') return 'Resolve blocker'
     if (readiness === 'all_done') return 'Reassess loop'
     if (readiness === 'no_tasks' || readiness === 'multiloop_no_tasks') return 'Plan execution'
-    return 'Open Coordinator'
+    return 'Open coordinator'
   }
   return `Open ${getMultiloopRole(action.role).label}`
 }
 
 function StateMessage({ title, message, tone }: { title: string; message: string; tone: 'empty' | 'error' | 'loading' }) {
-  const toneClass = tone === 'error' ? 'border-[#6f3131] text-[#ffb5b8]' : 'border-[#1d1e25] text-[#b9bac2]'
+  const dotTone: Tone = tone === 'error' ? 'error' : tone === 'loading' ? 'accent' : 'neutral'
   return (
-    <section className="flex h-full min-w-0 items-center justify-center bg-[#08090b] px-6 text-center text-[#ececee] [overflow-wrap:anywhere]" role={tone === 'loading' ? 'status' : 'region'} aria-live="polite">
-      <div className={`min-w-0 max-w-md rounded-[10px] border ${toneClass} bg-[#0d0e12] p-5`}>
-        <h1 className="text-base font-semibold text-[#f2f2f4]">{title}</h1>
-        <p className="mt-2 text-sm leading-6 text-[#a9aab2]">{message}</p>
+    <section
+      className="flex h-full min-w-0 items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-[color:var(--text-default)] [overflow-wrap:anywhere]"
+      role={tone === 'loading' ? 'status' : 'region'}
+      aria-live="polite"
+    >
+      <div className="min-w-0 max-w-md rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4">
+        <div className="flex items-center justify-center gap-2">
+          <StatusDot tone={dotTone} pulse={tone === 'loading'} />
+          <h1 className="text-[13px] font-semibold text-[color:var(--text-strong)]">{title}</h1>
+        </div>
+        <p className="mt-2 text-[12px] leading-[1.5] text-[color:var(--text-muted)]">{message}</p>
       </div>
     </section>
-  )
-}
-
-function StatusPill({ label, className }: { label: string; className: string }) {
-  return (
-    <span className={`inline-flex shrink-0 items-center rounded-[999px] border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${className}`}>
-      {label}
-    </span>
   )
 }
 
 function ListBlock({ title, items }: { title: string; items: string[] }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#5d6f9a]">{title}</div>
+      <div className="text-[11px] text-[color:var(--text-muted)]">{title}</div>
       {items.length === 0 ? (
-        <p className="mt-1.5 text-[12.5px] text-[#65677a]">None recorded.</p>
+        <p className="mt-1 text-[12px] text-[color:var(--text-muted)]">None recorded.</p>
       ) : (
-        <ul className="mt-1.5 space-y-1">
+        <ul className="mt-1 space-y-1">
           {items.map((item) => (
-            <li key={item} className="flex gap-2 text-[12.5px] leading-[1.5] text-[#cfd5e8]">
-              <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#5c7cff]" />
+            <li key={item} className="flex gap-2 text-[12px] leading-[1.5] text-[color:var(--text-default)]">
+              <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[color:var(--accent-primary)]" />
               <span>{item}</span>
             </li>
           ))}

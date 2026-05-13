@@ -1,6 +1,88 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
+/* Shared UI tokens — shared by Switchboard, Watchtower, Sprint Engine, and
+ * Multiloop panel rebuilds. Existing tool-identity / theme variables are kept
+ * intact below; these tokens add a semantic layer that primitives consume.
+ * Source of truth: future-plans/2026-05-12-linear-grade-ui-redesign.md and
+ * .multi-code/sprintengine/2026-05-12-linear-grade-ui-redesign2/plan.md.
+ * Color literals live here intentionally — the design-token lint guard scopes
+ * forbidden inline hex usage to the four target panel files, not this file. */
+:root {
+  /* Surfaces. Match the existing zinc-950/900/800 chrome so legacy panels keep
+     working while rebuilt panels read from the same token. */
+  --bg-app: #08090b;
+  --bg-surface: #0d0e11;
+  --bg-surface-raised: #111216;
+  --bg-hover: #17181d;
+  --bg-active: #1d1e24;
+  --bg-selected: #24252b;
+
+  /* Text. */
+  --text-strong: #ececee;
+  --text-default: #c7c8cf;
+  --text-muted: #9a9aa2;
+  --text-subtle: #6f7078;
+  --text-disabled: #5a5a63;
+  --text-on-accent: #08090b;
+
+  /* Hairlines. */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-focus: rgba(92, 124, 255, 0.6);
+
+  /* One product accent for active selection and primary action across the
+     four target panels. Tool color is limited to header identity dots. */
+  --accent-primary: #5c7cff;
+  --accent-primary-hover: #6e8eff;
+  --accent-primary-soft: rgba(92, 124, 255, 0.14);
+  --accent-primary-soft-strong: rgba(92, 124, 255, 0.22);
+
+  /* Semantic tones for StatusDot and inline status copy. */
+  --tone-neutral: #9a9aa2;
+  --tone-accent: #5c7cff;
+  --tone-good: #30d158;
+  --tone-warn: #ffbf2f;
+  --tone-error: #ff787c;
+  --tone-neutral-soft: rgba(154, 154, 162, 0.18);
+  --tone-accent-soft: rgba(92, 124, 255, 0.16);
+  --tone-good-soft: rgba(48, 209, 88, 0.18);
+  --tone-warn-soft: rgba(255, 191, 47, 0.18);
+  --tone-error-soft: rgba(255, 120, 124, 0.18);
+
+  /* Tool identity dots only — header chrome, never row chrome. */
+  --tool-switchboard: #7c5cf2;
+  --tool-watchtower: #d97757;
+  --tool-sprintengine: #ffbf2f;
+  --tool-multiloop: #39d7ff;
+
+  /* Type scale. Body is 12 px to match existing flexlayout chrome. */
+  --text-size-2xs: 10.5px;
+  --text-size-xs: 11px;
+  --text-size-sm: 12px;
+  --text-size-md: 13px;
+  --text-size-lg: 15px;
+  --text-line-tight: 1.25;
+  --text-line-default: 1.4;
+  --text-line-relaxed: 1.5;
+
+  /* Radius. */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 9px;
+
+  /* Motion. */
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+  --motion-deliberate: 260ms;
+  --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Focus ring helper for primitives. */
+  --focus-ring: 0 0 0 2px var(--border-focus);
+}
+
 * {
   box-sizing: border-box;
 }

@@ -761,7 +761,7 @@ function buildSprintEngineContinuationPrompt(task: SprintEngineTask, agentId: st
   return [
     `Sprint Engine roster runner found a ready ${task.role} task for this idle terminal.`,
     `Task: ${task.id} - ${task.title}`,
-    `Run \`sprintengine join --role ${task.role} --id ${agentId}\` to receive the current directive, then claim and work the next ready ${task.role} task with this same agent id. If no task is returned, wait briefly and keep polling while this Sprint Engine roster session remains active.`,
+    `Run \`sprintengine join --role ${task.role} --id ${agentId}\` to receive the current directive, then claim and work the next ready ${task.role} task with this same agent id. If no task is returned, wait briefly with a foreground sleep/backoff and retry while this Sprint Engine roster session remains active. Do not leave a background polling loop running, and stop all idle retrying as soon as a task is returned.`,
   ].join('\n')
 }
 
