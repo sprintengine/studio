@@ -513,6 +513,7 @@ export default function NewWorkspacePanel({
 
   const handleCreate = async () => {
     if (!sprintEngineRosterReady && mode === 'sprintengine') return
+    if (mode === 'sprintengine') setSePlanError(null)
     if (mode === 'multiloop') {
       if (!folderPath) return
       setIsCreating(true)
@@ -590,8 +591,27 @@ export default function NewWorkspacePanel({
       }
 
       if (sePath === 'plan' && sePlanPath) {
+        if (!folderPath) {
+          setSePlanError('Pick a folder before creating from a plan.')
+          return
+        }
         const option = folderScan.result.plans.find((candidate) => candidate.path === sePlanPath)
-        if (!folderPath || !option || sePlanContent == null) return
+        if (!option) {
+          setSePlanError('Selected plan is no longer available. Pick it again on the previous step.')
+          return
+        }
+        if (sePlanContent == null) {
+          setSePlanError('Plan content was not loaded. Re-select the plan on the previous step.')
+          return
+        }
+        if (!seTeamName.trim()) {
+          setSePlanError('Add a team name on the previous step.')
+          return
+        }
+        if (!seGoal.trim()) {
+          setSePlanError('Add an objective on the previous step.')
+          return
+        }
         setIsCreating(true)
         try {
           if (!(await window.api.pathExists(option.path))) {
@@ -912,6 +932,7 @@ export default function NewWorkspacePanel({
               totalAgents={totalAgents}
               hasExistingTeam={seExistingTeam != null}
               existingTeamName={seExistingTeam?.displayName ?? null}
+              createError={sePlanError}
             />
           ) : null}
 
@@ -1458,6 +1479,7 @@ function SprintEngineRosterStep(props: {
   totalAgents: number
   hasExistingTeam: boolean
   existingTeamName: string | null
+  createError: string | null
 }) {
   const {
     access,
@@ -1476,6 +1498,7 @@ function SprintEngineRosterStep(props: {
     totalAgents,
     hasExistingTeam,
     existingTeamName,
+    createError,
   } = props
 
   if (!access.allowed) {
@@ -1488,6 +1511,12 @@ function SprintEngineRosterStep(props: {
         <p className="rounded-md border border-[#3a3426] bg-[#1a1408] px-3 py-2 text-[12px] leading-5 text-[#ffe0a3]">
           Loading <span className="font-semibold">{existingTeamName}</span> — roster is read-only.
         </p>
+      ) : null}
+
+      {createError ? (
+        <div className="border-l-2 border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+          {createError}
+        </div>
       ) : null}
 
       <div className="flex flex-col gap-2">
