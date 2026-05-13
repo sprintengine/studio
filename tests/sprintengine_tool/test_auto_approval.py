@@ -191,7 +191,7 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
 
     assert "function sendContinuationPromptsToIdleAgents" in supervisor_source
     assert "Sprint Engine roster runner found a ready" in supervisor_source
-    assert "sprintengine join --role ${task.role} --id ${agentId}" in supervisor_source
+    assert "sprintengine join --role ${role} --id ${agentId}" in supervisor_source
     assert "await sendContinuationPromptsToIdleAgents(" in supervisor_source
     assert "continuation-prompt-sent" in supervisor_source
 

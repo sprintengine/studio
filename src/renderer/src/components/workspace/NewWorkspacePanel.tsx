@@ -10,7 +10,9 @@ import type {
   AgentCli,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
+  MultiloopAutoState,
   SprintEngineAutoState,
+  SprintEngineCliPermissionPreset,
   SprintEngineMockConfig,
   SprintEngineRole,
   SprintEngineRoleCliDefaults,
@@ -113,6 +115,28 @@ const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> 
   security: 'codex',
 }
 
+const cliPermissionOptions: Array<{
+  value: SprintEngineCliPermissionPreset
+  label: string
+  hint: string
+}> = [
+  {
+    value: 'default',
+    label: 'Default permissions',
+    hint: 'Use the CLI default permission behavior. Agents will prompt before sensitive actions.',
+  },
+  {
+    value: 'auto_workspace',
+    label: 'Auto in workspace',
+    hint: 'Reduce prompts while keeping workspace-scoped guardrails where the CLI supports them.',
+  },
+  {
+    value: 'bypass_all',
+    label: 'Bypass permissions',
+    hint: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
+  },
+]
+
 export type NewWorkspacePanelInitialState = {
   mode?: CreationMode
   folderPath?: string | null
@@ -147,6 +171,12 @@ export default function NewWorkspacePanel({
     (s) => s.appSettings.recentWorkspaceFolders ?? [],
   )
   const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const lastSpawnPermissionPreset = useWorkspaceStore(
+    (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? 'default',
+  )
+  const setLastAgentSpawnPermissionPreset = useWorkspaceStore(
+    (s) => s.setLastAgentSpawnPermissionPreset,
+  )
 
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const initialMode: CreationMode =
@@ -180,6 +210,10 @@ export default function NewWorkspacePanel({
   )
   const [seStartRunner, setSeStartRunner] = useState(true)
   const [sePlanError, setSePlanError] = useState<string | null>(null)
+  const [cliPermissionPreset, setCliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
+    lastSpawnPermissionPreset,
+  )
+  const [seAutoApproveArtifacts, setSeAutoApproveArtifacts] = useState(false)
 
   const [mlName, setMlName] = useState('')
   const [mlGoal, setMlGoal] = useState('')
@@ -473,6 +507,10 @@ export default function NewWorkspacePanel({
     [seGoal, seRoleCounts, seTeamName],
   )
 
+  const persistLastPermissionPreset = () => {
+    setLastAgentSpawnPermissionPreset(cliPermissionPreset)
+  }
+
   const handleCreate = async () => {
     if (!sprintEngineRosterReady && mode === 'sprintengine') return
     if (mode === 'multiloop') {
@@ -488,12 +526,17 @@ export default function NewWorkspacePanel({
           initializeState: window.api.initializeMultiloopState,
           readFile: window.api.readfile,
         })
+        const multiloopAutoState: Partial<MultiloopAutoState> = {
+          cliPermissionPreset,
+        }
         addWorkspace(createMultiloopTemplate(), {
           name: loopName,
           folderPath,
           multiloopState: created.state,
           multiloopContext: created.context,
+          multiloopAutoState,
         })
+        persistLastPermissionPreset()
         onClose()
       } catch (error) {
         setMlError(
@@ -537,9 +580,12 @@ export default function NewWorkspacePanel({
           sprintEngineRoleCliDefaults: seRoleCliDefaults,
           sprintEngineAutoState: {
             enabled: seStartRunner,
+            autoApproveArtifacts: seAutoApproveArtifacts,
+            cliPermissionPreset,
             maxConcurrentAgents: Math.max(1, countSprintEngineAgents(loadedState.roleCounts)),
           },
         })
+        persistLastPermissionPreset()
         return
       }
 
@@ -562,10 +608,13 @@ export default function NewWorkspacePanel({
             roleCliDefaults: seRoleCliDefaults,
             sprintEngineAutoState: {
               enabled: seStartRunner,
+              autoApproveArtifacts: seAutoApproveArtifacts,
+              cliPermissionPreset,
               maxConcurrentAgents: Math.max(1, totalAgents),
             },
             pathExists: window.api.pathExists,
           })
+          persistLastPermissionPreset()
           onClose()
         } catch (error) {
           if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {
@@ -599,9 +648,12 @@ export default function NewWorkspacePanel({
         sprintEngineRoleCliDefaults: seRoleCliDefaults,
         sprintEngineAutoState: {
           enabled: seStartRunner,
+          autoApproveArtifacts: seAutoApproveArtifacts,
+          cliPermissionPreset,
           maxConcurrentAgents: Math.max(1, totalAgents),
         },
       })
+      persistLastPermissionPreset()
       return
     }
 
@@ -797,6 +849,8 @@ export default function NewWorkspacePanel({
                 setMlGoal(value)
                 setMlError(null)
               }}
+              cliPermissionPreset={cliPermissionPreset}
+              onChangeCliPermissionPreset={setCliPermissionPreset}
               error={mlError}
             />
           ) : null}
@@ -851,6 +905,10 @@ export default function NewWorkspacePanel({
               onSetRoleCli={setRoleCli}
               startRunner={seStartRunner}
               onChangeStartRunner={setSeStartRunner}
+              autoApproveArtifacts={seAutoApproveArtifacts}
+              onChangeAutoApproveArtifacts={setSeAutoApproveArtifacts}
+              cliPermissionPreset={cliPermissionPreset}
+              onChangeCliPermissionPreset={setCliPermissionPreset}
               totalAgents={totalAgents}
               hasExistingTeam={seExistingTeam != null}
               existingTeamName={seExistingTeam?.displayName ?? null}
@@ -1108,10 +1166,14 @@ function StandardLayoutStep({
 function MultiloopGoalStep({
   goal,
   onChangeGoal,
+  cliPermissionPreset,
+  onChangeCliPermissionPreset,
   error,
 }: {
   goal: string
   onChangeGoal: (value: string) => void
+  cliPermissionPreset: SprintEngineCliPermissionPreset
+  onChangeCliPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   error: string | null
 }) {
   return (
@@ -1131,6 +1193,15 @@ function MultiloopGoalStep({
           "
         />
       </label>
+      <div className="flex flex-col gap-2">
+        <FieldLabel>Run settings</FieldLabel>
+        <div className="overflow-hidden rounded-md border border-[#1f2025] bg-[#0d0e11]">
+          <CliPermissionPresetRow
+            preset={cliPermissionPreset}
+            onChange={onChangeCliPermissionPreset}
+          />
+        </div>
+      </div>
       {error ? (
         <div className="border-l-2 border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
           {error}
@@ -1380,6 +1451,10 @@ function SprintEngineRosterStep(props: {
   onSetRoleCli: (role: SprintEngineRole, cli: AgentCli) => void
   startRunner: boolean
   onChangeStartRunner: (value: boolean) => void
+  autoApproveArtifacts: boolean
+  onChangeAutoApproveArtifacts: (value: boolean) => void
+  cliPermissionPreset: SprintEngineCliPermissionPreset
+  onChangeCliPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   totalAgents: number
   hasExistingTeam: boolean
   existingTeamName: string | null
@@ -1394,6 +1469,10 @@ function SprintEngineRosterStep(props: {
     onSetRoleCli,
     startRunner,
     onChangeStartRunner,
+    autoApproveArtifacts,
+    onChangeAutoApproveArtifacts,
+    cliPermissionPreset,
+    onChangeCliPermissionPreset,
     totalAgents,
     hasExistingTeam,
     existingTeamName,
@@ -1443,6 +1522,102 @@ function SprintEngineRosterStep(props: {
           className="mt-0.5 h-4 w-4 shrink-0 accent-[#5c7cff] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]"
         />
       </label>
+
+      <div className="flex flex-col gap-2">
+        <FieldLabel>Run settings</FieldLabel>
+        <div className="overflow-hidden rounded-md border border-[#1f2025] bg-[#0d0e11]">
+          <CliPermissionPresetRow
+            preset={cliPermissionPreset}
+            onChange={onChangeCliPermissionPreset}
+          />
+          <label
+            className={`flex items-start justify-between gap-3 border-t border-[#1f2025] px-3.5 py-3 ${
+              startRunner ? '' : 'opacity-60'
+            }`}
+          >
+            <span className="min-w-0">
+              <span className="block text-[13px] font-semibold text-[#ececee]">
+                Approve all artifacts
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-[#9a9aa2]">
+                Auto-approve artifacts as agents publish them so the runner does not stall.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={autoApproveArtifacts}
+              disabled={!startRunner}
+              onChange={(event) => onChangeAutoApproveArtifacts(event.currentTarget.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[#5c7cff] focus:outline-none focus:ring-2 focus:ring-[#5c7cff] disabled:cursor-not-allowed"
+            />
+          </label>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CliPermissionPresetRow({
+  preset,
+  onChange,
+}: {
+  preset: SprintEngineCliPermissionPreset
+  onChange: (preset: SprintEngineCliPermissionPreset) => void
+}) {
+  const current = cliPermissionOptions.find((option) => option.value === preset) ?? cliPermissionOptions[0]
+  const isBypass = preset === 'bypass_all'
+  return (
+    <div className="flex flex-col gap-2 px-3.5 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0">
+          <span className="block text-[13px] font-semibold text-[#ececee]">Agent permissions</span>
+          <span className="mt-0.5 block text-[11px] leading-4 text-[#9a9aa2]">
+            How spawned agents handle CLI permission prompts.
+          </span>
+        </span>
+        <label className="relative shrink-0">
+          <span className="sr-only">CLI permission preset</span>
+          <select
+            value={preset}
+            onChange={(event) =>
+              onChange(event.currentTarget.value as SprintEngineCliPermissionPreset)
+            }
+            className="
+              h-8 appearance-none rounded-md border border-[#303139] bg-[#111216] py-0 pl-3 pr-7
+              text-[12px] font-semibold text-[#d7d7dc] outline-none transition-colors
+              hover:bg-[#17181d] focus:border-[#ececee]/70
+              focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+            "
+          >
+            {cliPermissionOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <svg
+            className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#5a5a63]"
+            viewBox="0 0 20 20"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M5 7.5L10 12.5L15 7.5"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </label>
+      </div>
+      <p
+        className={`text-[11px] leading-4 ${
+          isBypass ? 'text-[#ffd28a]' : 'text-[#8a8a92]'
+        }`}
+      >
+        {current.hint}
+      </p>
     </div>
   )
 }

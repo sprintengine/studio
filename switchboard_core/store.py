@@ -887,6 +887,8 @@ def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_
         "tester": [
             "- Validate behavior against the task description, acceptance expectations, evidence, and full comment history.",
             "- Run focused tests or manual checks and record exactly what you ran.",
+            "- For UI, renderer, browser-visible, or end-to-end behavior, check available MCP tools in the current client session when practical, for example with `/mcp`. If a Playwright or browser automation MCP is available, use it for interaction checks, screenshots, navigation flows, and rendered evidence before relying only on static inspection.",
+            "- If browser MCP tools are not available, use the strongest local alternative and record the gap in your evidence.",
             "- Do not make implementation fixes. If the failure is in tests or test harness only, explain that clearly before changing test-only files.",
             f"- Before publishing or requesting changes, assess the implementation attempt you reviewed: switchboard assess-agent --workspace {workspace_root} {task_id} --target-execution <execution-id-from-show> --reviewer-agent \"switchboard-{role}\" --reviewer-role \"{role}\" --summary \"...\" --correctness-pct 0-100 --evidence-quality-pct 0-100 --instruction-following-pct 0-100 --claims-checked <n> --hallucinated-claims <n>",
             f"- If validation passes, publish with evidence: switchboard publish --workspace {workspace_root} {task_id} --to {pass_target} --summary \"...\" --command \"...\" --comment \"...\"",

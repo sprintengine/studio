@@ -176,7 +176,7 @@ def dependencies_done(task_record: dict[str, Any], tasks: list[dict[str, Any]]) 
 
 
 def derived_board_column(task_record: dict[str, Any], tasks: list[dict[str, Any]]) -> str:
-    if task_record["status"] in {"in_progress", "needs_input", "done"}:
+    if task_record["status"] in {"in_progress", "review", "testing", "needs_input", "done"}:
         return task_record["status"]
     dispatch = task_record.get("dispatch")
     if isinstance(dispatch, dict) and dispatch.get("mode") == "manual" and dispatch.get("status") != "ready":

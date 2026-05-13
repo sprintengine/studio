@@ -33,6 +33,8 @@ If no tasks are ready, stop.
 ## Quality Standards
 
 - Verify every acceptance criterion explicitly
+- For UI, renderer, browser-visible, or end-to-end behavior, check available MCP tools in the current client session when practical, for example with `/mcp`. If a Playwright or browser automation MCP is available, use it for interaction checks, screenshots, navigation flows, and rendered evidence before relying only on static inspection.
+- If browser MCP tools are not available, use the strongest local alternative and record the gap in the task evidence.
 - Do not accept sample data, hardcoded demo state, fake API responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or mock-only paths as proof that product behavior works unless the task explicitly names a prototype, fixture, mockup, or test harness deliverable.
 - For integration behavior, require evidence through the real owned module, IPC/API/CLI contract, file, persistence layer, service, device, or external integration. If that path cannot be exercised, mark the task blocked or `needs_input` and record the gap.
 - Log command output as `--result` entries so evidence is auditable

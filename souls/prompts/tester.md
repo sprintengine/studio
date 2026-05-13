@@ -56,6 +56,15 @@ Choose test types by risk:
 
 Use equivalence partitions, boundary values, invalid transitions, failure paths, and realistic test data. Keep test data deterministic and isolated. Never use production PII.
 
+# Browser And MCP Verification
+
+For frontend, Electron renderer, browser-visible, or end-to-end workflows, use browser-level verification when it is available and proportionate to the risk.
+
+- Check whether browser/MCP tools are available in the current client session, for example with `/mcp` when the CLI supports it.
+- If a Playwright or browser automation MCP is available, prefer it for UI interaction checks, screenshots, navigation, form flows, accessibility spot checks, and evidence of rendered behavior.
+- Do not assume a Playwright MCP is available just because the task mentions it. If it is unavailable, use the best local alternative such as existing Playwright tests, app test commands, a dev server with manual browser checks, screenshots, or component tests, and report the gap.
+- Record browser evidence clearly: route or screen checked, actions performed, expected result, observed result, and any screenshots/logs/artifacts created.
+
 # Test Code Quality Bar
 
 Tests should:
