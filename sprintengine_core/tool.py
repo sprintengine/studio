@@ -1832,9 +1832,21 @@ def build_artifact_from_args(args: argparse.Namespace, state: Dict[str, Any], st
     }
 
 
-def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, Any]) -> None:
+def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, Any], artifact: Optional[Dict[str, Any]] = None) -> None:
     task["status"] = "needs_input"
     task["completedAt"] = None
+    artifact_id = str(artifact.get("id") or "").strip() if isinstance(artifact, dict) else ""
+    artifact_title = str(artifact.get("title") or "").strip() if isinstance(artifact, dict) else ""
+    task["needsInput"] = {
+        "kind": "artifact",
+        "question": (
+            f"Artifact {artifact_id} ({artifact_title}) is ready for review."
+            if artifact_id and artifact_title
+            else "A linked artifact is ready for review."
+        ),
+        "reportedBy": str((artifact or {}).get("createdBy") or task.get("ownerAgentId") or task.get("role") or "agent"),
+        "reportedAt": now_iso(),
+    }
     owner_id = task.get("ownerAgentId")
     if owner_id:
         agent = ensure_agent(state, owner_id, task.get("role"))
@@ -1848,6 +1860,7 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
         return False
 
     task["status"] = "done"
+    task.pop("needsInput", None)
     task["completedAt"] = now_iso()
     cleared = clear_task_refs(state, str(task.get("id")))
     owner_id = task.get("ownerAgentId")
@@ -1872,6 +1885,7 @@ def reopen_task_for_artifact_changes(state: Dict[str, Any], task: Dict[str, Any]
 
     if owner_still_active:
         task["status"] = "in_progress"
+        task.pop("needsInput", None)
         agent = ensure_agent(state, str(owner_id), task.get("role"))
         agent["status"] = "running"
         agent["currentTaskId"] = task.get("id")
@@ -1880,6 +1894,7 @@ def reopen_task_for_artifact_changes(state: Dict[str, Any], task: Dict[str, Any]
     clear_task_refs(state, str(task.get("id")))
     task["ownerAgentId"] = None
     task["status"] = "todo"
+    task.pop("needsInput", None)
     return "todo"
 
 
@@ -3374,7 +3389,7 @@ def set_artifact_ready(
     artifact.pop("changesRequestedBy", None)
     artifact.pop("changesRequestedAt", None)
     append_artifact_history(artifact, "ready_for_review", actor)
-    mark_task_needs_input_for_artifact(state, task)
+    mark_task_needs_input_for_artifact(state, task, artifact)
     return {"taskId": task.get("id"), "taskStatus": task.get("status"), "artifactStatus": artifact.get("status")}
 
 

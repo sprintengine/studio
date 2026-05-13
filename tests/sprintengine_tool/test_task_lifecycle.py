@@ -107,6 +107,64 @@ def test_task_ready_rejects_dependency_dispatched_task(tmp_path) -> None:
     assert "dispatch" not in get_task(state, "T1")
 
 
+def test_task_status_needs_input_records_routing_metadata_and_triage_prompt(tmp_path) -> None:
+    fixture = create_team(tmp_path, "needs-input-routing", [
+        task("T1", "Fix stale task card", "frontend", "in_progress", owner="frontend-1"),
+    ])
+
+    payload = fixture.cli.run(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "needs_input",
+        "--id",
+        "frontend-1",
+        "--needs-input-kind",
+        "architect",
+        "--needs-input-question",
+        "Task card points at a file that no longer exists.",
+        "--needs-input-suggested-resolution",
+        "Architect should update ownedPaths and acceptance criteria.",
+    )
+
+    assert payload["ok"] is True
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["needsInput"]["kind"] == "architect"
+    assert task_record["needsInput"]["question"] == "Task card points at a file that no longer exists."
+    assert task_record["needsInput"]["suggestedResolution"] == "Architect should update ownedPaths and acceptance criteria."
+    assert task_record["needsInput"]["reportedBy"] == "frontend-1"
+
+    triage = fixture.cli.run("triage", "needs-input", "--id", "architect")
+    assert triage["ok"] is True
+    assert [entry["id"] for entry in triage["tasks"]] == ["T1"]
+    assert "Task card points at a file that no longer exists." in triage["prompt"]
+    assert "sprintengine plan update-task --force" in triage["prompt"]
+
+
+def test_task_status_rejects_needs_input_fields_for_other_statuses(tmp_path) -> None:
+    fixture = create_team(tmp_path, "needs-input-field-rejection", [
+        task("T1", "Normal task", "developer", "in_progress", owner="developer-1"),
+    ])
+
+    rejected = fixture.cli.run_failure(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "done",
+        "--id",
+        "developer-1",
+        "--needs-input-kind",
+        "architect",
+    )
+
+    assert "Needs-input fields are only supported with --status needs_input" in rejected.stderr
+
+
 def test_manual_dispatch_ready_task_is_claimable_after_dependencies_complete(tmp_path) -> None:
     gate = task("T1", "Approval gate", "architect", "done")
     manual_task = task("T2", "Imported issue ready for work", "developer", depends_on=["T1"])

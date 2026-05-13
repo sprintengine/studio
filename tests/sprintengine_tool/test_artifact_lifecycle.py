@@ -55,6 +55,9 @@ def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses
     ready_state = read_state(fixture.state_path)
     assert_artifact_status(ready_state, "A1", "ready_for_review")
     assert_task_status(ready_state, "T1", "needs_input")
+    ready_task = get_task(ready_state, "T1")
+    assert ready_task["needsInput"]["kind"] == "artifact"
+    assert ready_task["needsInput"]["question"] == "Artifact A1 (Requirements) is ready for review."
 
     feedback = "Tighten the requirement language."
     changes = fixture.cli.run(
@@ -71,6 +74,7 @@ def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses
     changes_state = read_state(fixture.state_path)
     assert_artifact_status(changes_state, "A1", "changes_requested")
     assert_task_status(changes_state, "T1", "in_progress")
+    assert "needsInput" not in get_task(changes_state, "T1")
     assert any(feedback in note for note in get_task(changes_state, "T1")["notes"])
 
     fixture.cli.run("artifact", "ready", "--artifact-id", "A1", "--id", "product-fixture")
@@ -79,6 +83,7 @@ def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses
     approved_state = read_state(fixture.state_path)
     assert_artifact_status(approved_state, "A1", "approved")
     assert_task_status(approved_state, "T1", "done")
+    assert "needsInput" not in get_task(approved_state, "T1")
     assert_event_type(approved_state, "artifact_approved")
 
     history_actions = [entry["action"] for entry in get_artifact(approved_state, "A1")["reviewHistory"]]

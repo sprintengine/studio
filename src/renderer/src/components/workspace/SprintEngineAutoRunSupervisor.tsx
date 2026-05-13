@@ -26,6 +26,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
+import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 
 const AUTO_RUN_POLL_MS = 2000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
@@ -61,6 +62,10 @@ type RunningContinuationCapacity = {
 }
 
 type RoleContinuationMessage = {
+  sentAt: number
+}
+
+type ArchitectTriageMessage = {
   sentAt: number
 }
 
@@ -324,6 +329,15 @@ function buildArchitectNeedsInputTriagePrompt(input: {
     `\`\`\`bash\n${command}\n\`\`\``,
     'Follow the returned prompt. Resolve planning or task-card blockers only; do not edit application source in this triage mode. When the original worker can continue, add a clear task note and stop.',
   ].join('\n\n')
+}
+
+function architectTriageMessageKey(workspace: Workspace, taskIds: string[], agentId: string): string {
+  return [
+    workspace.id,
+    workspace.sprintEngineContext?.statePath ?? '',
+    agentId,
+    taskIds.slice().sort().join(','),
+  ].join(':')
 }
 
 function getAutoApprovalIntentArtifacts(sprintEngineState: SprintEngineState): SprintEngineArtifact[] {
@@ -1112,7 +1126,7 @@ async function spawnAutoRunCandidate(
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
       mcpSettings,
-      visible: false,
+      visible: Boolean(nextRun.startupPromptOverride),
       agentSession: {
         executionId: sessionId,
         system: 'sprintengine',
@@ -1192,6 +1206,9 @@ async function spawnAutoRunCandidate(
     currentState.updateAgent(workspace.id, nextRun.agentId, {
       cliStartupPrompt: undefined,
     })
+    if (nextRun.startupPromptOverride) {
+      focusOrAddAgentTab(workspace.id, nextRun.agentId, nextRun.label, { sessionId })
+    }
     return 'started'
   } finally {
     inFlightSpawns.current.delete(spawnKey)
@@ -1276,8 +1293,9 @@ async function signalArchitectForNeedsInputTriage(
   runningAgentIds: Set<string>,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
-  inFlightSpawns: MutableRefObject<Set<string>>
-): Promise<'started' | 'failed' | 'none'> {
+  inFlightSpawns: MutableRefObject<Set<string>>,
+  sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>
+): Promise<'started' | 'sent' | 'failed' | 'none'> {
   if (!workspace.folderPath || !workspace.sprintEngineContext) return 'none'
 
   const architectBlockers = getArchitectActionableNeedsInputTasks(sprintEngineState)
@@ -1289,7 +1307,36 @@ async function signalArchitectForNeedsInputTriage(
 
   const spawnKey = `${workspace.id}:${architect.id}`
   const architectPending = pendingSpawns.some((pending) => pending.agentId === architect.id)
-  if (architectPending || runningAgentIds.has(architect.id) || inFlightSpawns.current.has(spawnKey)) return 'none'
+  const taskIds = architectBlockers.map((task) => task.id)
+  const triagePrompt = buildArchitectNeedsInputTriagePrompt({
+    workspaceFolderPath: workspace.folderPath,
+    sprintEngineStatePath: workspace.sprintEngineContext.statePath,
+    taskIds,
+  })
+  const messageKey = architectTriageMessageKey(workspace, taskIds, architect.id)
+  const previous = sentArchitectTriageMessages.current.get(messageKey)
+  const retryPending = previous && Date.now() - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS
+
+  if (runningAgentIds.has(architect.id)) {
+    focusOrAddAgentTab(workspace.id, architect.id, workspace.agents[architect.id]?.name ?? architect.label)
+    if (retryPending) return 'none'
+
+    const session = await findRunningAgentSession(workspace, architect.id)
+    if (!session) return 'none'
+
+    await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(triagePrompt))
+    sentArchitectTriageMessages.current.set(messageKey, { sentAt: Date.now() })
+    logPerfEvent('SprintEngineAutoRun', 'architect-triage-prompt-sent', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId: architect.id,
+      taskIds,
+      sessionId: session.sessionId,
+    })
+    return 'sent'
+  }
+
+  if (architectPending || inFlightSpawns.current.has(spawnKey)) return 'none'
 
   const result = await spawnAutoRunCandidate(
     workspace,
@@ -1299,11 +1346,7 @@ async function signalArchitectForNeedsInputTriage(
       label: workspace.agents[architect.id]?.name ?? architect.label,
       role: 'architect',
       taskId: architectBlockers[0].id,
-      startupPromptOverride: buildArchitectNeedsInputTriagePrompt({
-        workspaceFolderPath: workspace.folderPath,
-        sprintEngineStatePath: workspace.sprintEngineContext.statePath,
-        taskIds: architectBlockers.map((task) => task.id),
-      }),
+      startupPromptOverride: triagePrompt,
     },
     cliRuntimes,
     mcpSettings,
@@ -1326,6 +1369,7 @@ async function superviseWorkspace(
   sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
+  sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>,
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
@@ -1413,14 +1457,17 @@ async function superviseWorkspace(
     runningAgentIds,
     cliRuntimes,
     mcpSettings,
-    inFlightSpawns
+    inFlightSpawns,
+    sentArchitectTriageMessages
   )
   if (architectTriageSignal === 'failed') return
-  if (architectTriageSignal === 'started') {
+  if (architectTriageSignal === 'started' || architectTriageSignal === 'sent') {
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
-      reason: 'architect-needs-input-triage-started',
+      reason: architectTriageSignal === 'started'
+        ? 'architect-needs-input-triage-started'
+        : 'architect-needs-input-triage-sent',
       taskIds: getArchitectActionableNeedsInputTasks(sprintEngineState).map((task) => task.id),
       elapsedMs: Math.round(performance.now() - superviseStartedAt),
     })
@@ -1627,6 +1674,7 @@ export default function SprintEngineAutoRunSupervisor() {
   const sentArtifactApprovalMessages = useRef(new Map<string, number>())
   const autoApprovalDiagnostics = useRef(new Map<string, number>())
   const sentContinuationMessages = useRef(new Map<string, RoleContinuationMessage>())
+  const sentArchitectTriageMessages = useRef(new Map<string, ArchitectTriageMessage>())
   const continuationGraceByTask = useRef(new Map<string, RoleContinuationGrace>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
   const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
@@ -1701,6 +1749,7 @@ export default function SprintEngineAutoRunSupervisor() {
             sentArtifactApprovalMessages,
             autoApprovalDiagnostics,
             sentContinuationMessages,
+            sentArchitectTriageMessages,
             continuationGraceByTask,
             lastContentByWorkspace
           )
