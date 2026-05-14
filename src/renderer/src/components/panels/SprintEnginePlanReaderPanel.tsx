@@ -1,8 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { WorkspacePanel } from '../ui/WorkspacePanel'
 import { renderMarkdown } from '../../utils/markdown'
 import { focusOrAddFileTab } from '../../utils/modelRegistry'
+import {
+  GhostButton,
+  OverflowMenu,
+  PanelHeader,
+  type OverflowMenuItem,
+} from '../ui'
 import {
   getSprintEnginePlanFilePath,
   getSprintEngineRootDirectoryPath,
@@ -15,6 +20,8 @@ type Props = {
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 type ViewMode = 'preview' | 'source'
+
+const TITLE_ID = 'sprintengine-plan-reader-title'
 
 export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Props) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
@@ -96,68 +103,74 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
     onClose()
   }, [content, onClose, openFile, planFilePath, workspaceId])
 
-  const toolbar = (
-    <>
-      <button
-        type="button"
-        onClick={() => setMode((current) => (current === 'preview' ? 'source' : 'preview'))}
-        className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-      >
-        {mode === 'preview' ? 'Source' : 'Preview'}
-      </button>
-      <button
-        type="button"
-        onClick={() => void loadPlan()}
-        className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-      >
-        Refresh
-      </button>
-      {planFilePath ? (
-        <button
-          type="button"
-          onClick={() => void openInEditor()}
-          className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] interactive transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-        >
-          Open in editor
-        </button>
-      ) : null}
-    </>
-  )
+  const overflowItems = useMemo<OverflowMenuItem[]>(() => {
+    const items: OverflowMenuItem[] = [
+      {
+        id: 'toggle-mode',
+        label: mode === 'preview' ? 'Show source' : 'Show preview',
+        onSelect: () => setMode((current) => (current === 'preview' ? 'source' : 'preview')),
+      },
+    ]
+    if (planFilePath) {
+      items.push({
+        id: 'open-editor',
+        label: 'Open in editor',
+        onSelect: () => void openInEditor(),
+      })
+    }
+    items.push({ kind: 'separator', id: 'sep' })
+    items.push({ id: 'close', label: 'Close', onSelect: onClose })
+    return items
+  }, [mode, openInEditor, planFilePath, onClose])
 
   return (
-    <WorkspacePanel
-      title="Architect Plan"
-      subtitle={planFilePath ?? '.multicode/sprintengine/<team>/plan.md'}
-      titleId="sprintengine-plan-reader-title"
-      onClose={onClose}
-      closeLabel="Close plan reader"
-      toolbar={toolbar}
-      contentClassName="w-full max-w-[1040px] px-5 py-5"
+    <section
+      aria-labelledby={TITLE_ID}
+      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
     >
-      {status === 'loading' ? (
-        <div className="text-[13px] text-[#9a9aa2]">Loading plan...</div>
-      ) : null}
-      {status === 'error' ? (
-        <div className="rounded-md border-l-2 border-[#ff787c] bg-[#1c1414] px-3 py-2 text-[13px] leading-6 text-[#ffb3b5]">
-          {error ?? 'Failed to load plan.'}
+      <div className="relative shrink-0 bg-[color:var(--bg-surface)]">
+        <PanelHeader
+          tool="sprintengine"
+          title="Architect plan"
+          titleId={TITLE_ID}
+          subtitle={planFilePath ?? '.multi-code/sprintengine/<team>/plan.md'}
+          primaryAction={
+            <GhostButton onClick={() => void loadPlan()} disabled={status === 'loading'}>
+              {status === 'loading' ? 'Loading…' : 'Refresh'}
+            </GhostButton>
+          }
+          overflow={<OverflowMenu ariaLabel="Plan reader overflow" items={overflowItems} />}
+        />
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[1040px] px-5 py-5">
+          {status === 'loading' ? (
+            <div className="text-[13px] text-[color:var(--text-muted)]">Loading plan…</div>
+          ) : null}
+          {status === 'error' ? (
+            <div className="rounded-md border-l-2 border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] px-3 py-2 text-[13px] leading-6 text-[color:var(--tone-error)]">
+              {error ?? 'Failed to load plan.'}
+            </div>
+          ) : null}
+          {status === 'ready' && mode === 'preview' ? (
+            <div className="mx-auto max-w-4xl text-[13px] leading-6 text-[color:var(--text-default)]">
+              {content ? (
+                renderMarkdown(content)
+              ) : (
+                <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[color:var(--text-muted)]">
+                  No architect plan has been written yet.
+                </div>
+              )}
+            </div>
+          ) : null}
+          {status === 'ready' && mode === 'source' ? (
+            <pre className="min-h-[420px] overflow-x-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+              <code>{content}</code>
+            </pre>
+          ) : null}
         </div>
-      ) : null}
-      {status === 'ready' && mode === 'preview' ? (
-        <div className="mx-auto max-w-4xl text-[13px] leading-6 text-[#d7d7dc]">
-          {content
-            ? renderMarkdown(content)
-            : (
-              <div className="border-l-2 border-[#303139] pl-3 text-[#9a9aa2]">
-                No architect plan has been written yet.
-              </div>
-            )}
-        </div>
-      ) : null}
-      {status === 'ready' && mode === 'source' ? (
-        <pre className="min-h-[420px] overflow-x-auto rounded-md border border-[#24252b] bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]">
-          <code>{content}</code>
-        </pre>
-      ) : null}
-    </WorkspacePanel>
+      </div>
+    </section>
   )
 }

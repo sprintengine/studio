@@ -1256,7 +1256,6 @@ function ReviewPresetChooser({
         <ModalButton onClick={onClose}>Cancel</ModalButton>
         <ModalButton
           variant="primary"
-          accent="brand"
           onClick={onStart}
           disabled={starting || !hasAgents}
         >
@@ -1677,7 +1676,6 @@ function CreateInboxDialog({
         <ModalButton onClick={onClose}>Cancel</ModalButton>
         <ModalButton
           variant="primary"
-          accent="brand"
           onClick={onSubmit}
           disabled={busy || !draft.title.trim()}
         >

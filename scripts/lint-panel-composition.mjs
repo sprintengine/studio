@@ -23,7 +23,11 @@ const PANELS_DIR = resolve(process.cwd(), 'src/renderer/src/components/panels')
 // Files exempt from the rule with reasons. Keep this list small and
 // justified — when the surface is rebuilt, remove the entry.
 const ALLOW_LIST = new Map([
-  ['AgentPanel.tsx', 'Sidebar-style placeholder panel; no operational chrome.'],
+  ['AgentPanel.tsx', 'Hosts an agent terminal (TerminalView); chrome is the terminal surround, not a PanelHeader.'],
+  // Note: LearnCenter lives at src/renderer/src/components/learn/LearnCenter.tsx
+  // and falls outside this script's PANELS_DIR scope. Recorded here so future
+  // relocations into panels/ inherit the rationale instead of being flagged.
+  ['LearnCenter.tsx', 'Settings tab body (mounted inside SettingsPanel); chrome is provided by the parent settings shell, not a PanelHeader. Currently lives at components/learn/LearnCenter.tsx, outside this guard\'s scope.'],
   ['EditorPanel.tsx', 'Hosts Monaco; chrome is the editor surround, not a PanelHeader.'],
   ['TerminalView.tsx', 'Hosts xterm; chrome is the terminal surround, not a PanelHeader.'],
   ['PlainTerminalPanel.tsx', 'Hosts xterm; chrome is the terminal surround, not a PanelHeader.'],
@@ -32,8 +36,6 @@ const ALLOW_LIST = new Map([
   ['GitConflictResolverPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 7).'],
   ['ContentSearchPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 8).'],
   ['MemoryGraphPanel.tsx', 'Graph canvas surface; rebuild scheduled in the app-wide audit plan.'],
-  ['SprintEnginePlanReaderPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 10).'],
-  ['SprintEngineRunSummaryPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 10).'],
 ])
 
 const args = new Set(process.argv.slice(2))

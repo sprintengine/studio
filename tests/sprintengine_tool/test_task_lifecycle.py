@@ -557,5 +557,83 @@ def test_task_log_records_evidence_without_changing_lifecycle_state(tmp_path) ->
         "touchedFiles": ["tests/sprintengine_tool/test_task_lifecycle.py"],
         "commandsRan": ["pytest tests/sprintengine_tool/test_task_lifecycle.py"],
         "results": ["Passed"],
+        "scopeExpansions": [],
     }
     assert_event_type(state, "task_evidence_appended")
+
+
+def test_task_log_records_scope_expansions_and_summary_surfaces_them(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "task-scope-expansion",
+        [
+            task(
+                "T1",
+                "Implementation with companion test",
+                "developer",
+                "in_progress",
+                owner="developer-fixture",
+                owned_paths=["sprintengine_core/tool.py"],
+            )
+        ],
+    )
+
+    payload = fixture.cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Added companion regression coverage.",
+        "--file",
+        "sprintengine_core/tool.py",
+        "--file",
+        "tests/sprintengine_tool/test_task_lifecycle.py",
+        "--scope-expansion-json",
+        '{"path":"tests/sprintengine_tool/test_task_lifecycle.py","reason":"colocated regression coverage for task log evidence","risk":"low; test-only"}',
+    )
+    assert payload["ok"] is True
+
+    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
+
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["evidence"]["scopeExpansions"] == [
+        {
+            "path": "tests/sprintengine_tool/test_task_lifecycle.py",
+            "reason": "colocated regression coverage for task log evidence",
+            "risk": "low; test-only",
+        }
+    ]
+    summary = fixture.cli.run("summary")["summary"]
+    assert summary["scopeExpansions"] == [
+        {
+            "taskId": "T1",
+            "path": "tests/sprintengine_tool/test_task_lifecycle.py",
+            "reason": "colocated regression coverage for task log evidence",
+            "risk": "low; test-only",
+        }
+    ]
+
+
+def test_task_log_rejects_absolute_scope_expansion_path(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "task-scope-expansion-absolute",
+        [task("T1", "Invalid companion edit path", "developer", "in_progress", owner="developer-fixture")],
+    )
+
+    rejected = fixture.cli.run_failure(
+        "task",
+        "log",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--scope-expansion-json",
+        '{"path":"/tmp/outside.py","reason":"bad absolute path"}',
+    )
+
+    assert "must use project-root-relative paths" in rejected.stderr

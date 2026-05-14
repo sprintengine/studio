@@ -3,10 +3,21 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli, McpCatalogServer, McpServerConfig, McpSettings } from '../../types/workspace'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
+import {
+  Field,
+  GhostButton,
+  PrimaryButton,
+  Select,
+  type SelectItem,
+  StatusDot,
+  Switch,
+  type Tone,
+} from '../ui'
 import LearnCenter from '../learn/LearnCenter'
 import MobileSettingsTab from './MobileSettingsTab'
-import { MetaCell, SettingToggle, formatNullableDate } from './SettingsAtoms'
+import { MetaCell, formatNullableDate } from './SettingsAtoms'
 import MulticodeMark from '../brand/MulticodeMark'
+import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 
 interface Props {
   onClose: () => void
@@ -30,6 +41,11 @@ const EMPTY_SEARCH_EXCLUDES: string[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
 
+const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
+  { value: 'stdio', label: 'stdio' },
+  { value: 'http', label: 'http' },
+]
+
 type SettingsTabId =
   | 'updates'
   | 'github'
@@ -46,8 +62,8 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
   { id: 'mcps', label: 'MCPs', description: 'Agent tool integrations' },
-  { id: 'file-search', label: 'File Search', description: 'Index exclude patterns' },
-  { id: 'knowledge-graph', label: 'Knowledge Graph', description: 'Project knowledge' },
+  { id: 'file-search', label: 'File search', description: 'Index exclude patterns' },
+  { id: 'knowledge-graph', label: 'Knowledge graph', description: 'Project knowledge' },
   { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
   { id: 'mobile', label: 'Mobile', description: 'Phone pairing and relay' },
   { id: 'telemetry', label: 'Telemetry', description: 'Usage and diagnostics' },
@@ -146,7 +162,7 @@ function McpBrandIcon({
       <span
         aria-hidden
         style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
-        className="grid place-items-center rounded-md bg-[#1c1d25] font-mono font-semibold text-[#d7d7dc]"
+        className="grid place-items-center rounded-md bg-[color:var(--bg-active)] font-mono font-semibold text-[color:var(--text-default)]"
       >
         {mcpMonogram(name)}
       </span>
@@ -181,10 +197,10 @@ function McpCatalogTile({
   onInfo: () => void
 }) {
   const tileClass = installed
-    ? 'border-[#5c7cff]/55 bg-[#100f1c] shadow-[0_0_0_1px_rgba(92,124,255,0.18),0_0_24px_-12px_rgba(92,124,255,0.55)]'
+    ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
     : selected
-      ? 'border-[#3a3b42] bg-[#11121a]'
-      : 'border-[#24252b] bg-[#0d0e11] hover:border-[#3a3b42] hover:bg-[#11121a]'
+      ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)]'
+      : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]'
   return (
     <div className="relative aspect-square">
       <button
@@ -192,13 +208,13 @@ function McpCatalogTile({
         onClick={onToggle}
         aria-pressed={installed}
         aria-label={installed ? `Remove ${server.name}` : `Add ${server.name}`}
-        className={`flex h-full w-full flex-col items-start justify-between rounded-lg border p-3 text-left transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 ${tileClass}`}
+        className={`interactive flex h-full w-full flex-col items-start justify-between rounded-md border p-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${tileClass}`}
       >
         <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} size={36} />
         {installed ? (
           <span
             aria-hidden
-            className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[#5c7cff] text-[#08090b]"
+            className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]"
           >
             <svg
               viewBox="0 0 10 10"
@@ -215,8 +231,12 @@ function McpCatalogTile({
           </span>
         ) : null}
         <div className="w-full min-w-0 pr-6">
-          <div className="truncate text-[13px] font-semibold leading-5 text-[#ececee]">{server.name}</div>
-          <div className="mt-0.5 truncate font-mono text-[10px] leading-3 text-[#6f7078]">{server.transport}</div>
+          <div className="truncate text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]">
+            {server.name}
+          </div>
+          <div className="mt-0.5 truncate font-mono text-[10px] leading-3 text-[color:var(--text-subtle)]">
+            {server.transport}
+          </div>
         </div>
       </button>
       <button
@@ -224,10 +244,10 @@ function McpCatalogTile({
         onClick={onInfo}
         aria-label={`Show details for ${server.name}`}
         aria-expanded={selected}
-        className={`absolute bottom-2 right-2 z-10 grid h-5 w-5 place-items-center rounded-full transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 ${
+        className={`interactive absolute bottom-2 right-2 z-10 grid h-5 w-5 place-items-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
           selected
-            ? 'bg-[#5c7cff]/20 text-[#b8ccff]'
-            : 'text-[#5f6068] hover:bg-[#1c1d25] hover:text-[#d7d7dc]'
+            ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+            : 'text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-default)]'
         }`}
       >
         <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
@@ -265,21 +285,25 @@ function McpInfoPanel({
   return (
     <aside
       aria-label={`${server.name} details`}
-      className="sticky top-2 w-72 shrink-0 self-start rounded-lg border border-[#24252b] bg-[#0d0e11] p-4"
+      className="sticky top-2 w-72 shrink-0 self-start rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-4"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} size={32} />
           <div className="min-w-0">
-            <h5 className="truncate text-[14px] font-semibold leading-5 text-[#ececee]">{server.name}</h5>
-            <div className="mt-0.5 truncate font-mono text-[11px] text-[#7f8088]">{server.transport}</div>
+            <h5 className="truncate text-[14px] font-semibold leading-5 text-[color:var(--text-strong)]">
+              {server.name}
+            </h5>
+            <div className="mt-0.5 truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
+              {server.transport}
+            </div>
           </div>
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close details"
-          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[#7f8088] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+          className="interactive grid h-6 w-6 shrink-0 place-items-center rounded-md text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
         >
           <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
             <path d="M3 3l6 6M9 3l-6 6" />
@@ -287,21 +311,21 @@ function McpInfoPanel({
         </button>
       </div>
       {server.description ? (
-        <p className="mt-3 text-[12px] leading-5 text-[#9a9aa2]">{server.description}</p>
+        <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-muted)]">{server.description}</p>
       ) : null}
       {hasAuth ? (
         <div className="mt-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5f6068]">Auth</div>
-          <div className="mt-1 text-[12px] text-[#d5a868]">{server.auth}</div>
+          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Auth</div>
+          <div className="mt-1 text-[12px] text-[color:var(--tone-warn)]">{server.auth}</div>
         </div>
       ) : null}
       {server.capabilities?.length ? (
         <div className="mt-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5f6068]">Capabilities</div>
-          <ul className="mt-1 space-y-0.5 text-[12px] text-[#9a9aa2]">
+          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Capabilities</div>
+          <ul className="mt-1 space-y-0.5 text-[12px] text-[color:var(--text-muted)]">
             {server.capabilities.map((capability) => (
               <li key={capability} className="flex gap-1.5">
-                <span aria-hidden className="text-[#5f6068]">·</span>
+                <span aria-hidden className="text-[color:var(--text-subtle)]">·</span>
                 <span>{capability}</span>
               </li>
             ))}
@@ -309,7 +333,7 @@ function McpInfoPanel({
         </div>
       ) : null}
       {server.setupNotes ? (
-        <p className="mt-3 border-l-2 border-[rgba(255,255,255,0.10)] pl-2 text-[11px] leading-4 text-[#7f8088]">
+        <p className="mt-3 border-l-2 border-[color:var(--border-strong)] pl-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
           {server.setupNotes}
         </p>
       ) : null}
@@ -318,22 +342,26 @@ function McpInfoPanel({
           href={server.sourceUrl}
           target="_blank"
           rel="noreferrer"
-          className="mt-3 inline-flex text-[12px] font-semibold text-[#9fb4ff] transition-colors hover:text-[#c5d0ff] focus:outline-none focus-visible:underline"
+          className="mt-3 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:underline"
         >
           Source docs
         </a>
       ) : null}
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`mt-4 h-9 w-full rounded-md text-[13px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 ${
-          installed
-            ? 'border border-[#3a3b42] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#17181d]'
-            : 'bg-[#5c7cff] text-[#08090b] hover:bg-[#6e8eff]'
-        }`}
-      >
-        {installed ? 'Remove' : 'Add to active'}
-      </button>
+      <div className="mt-4">
+        {installed ? (
+          <GhostButton
+            onClick={onToggle}
+            size="md"
+            className="h-9 w-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            Remove
+          </GhostButton>
+        ) : (
+          <PrimaryButton onClick={onToggle} size="md" className="h-9 w-full">
+            Add to active
+          </PrimaryButton>
+        )}
+      </div>
     </aside>
   )
 }
@@ -382,6 +410,136 @@ function relativePathBetween(fromPath: string, toPath: string): string | null {
     ...from.parts.slice(common).map(() => '..'),
     ...to.parts.slice(common),
   ].join('/') || '.'
+}
+
+const INPUT_CLASS =
+  'h-9 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+
+const TEXTAREA_CLASS =
+  'min-h-[96px] w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]'
+
+type MessageTone = 'neutral' | 'accent' | 'warn' | 'error'
+
+const MESSAGE_BORDER: Record<MessageTone, string> = {
+  neutral: 'border-[color:var(--border-strong)]',
+  accent: 'border-[color:var(--accent-primary)]',
+  warn: 'border-[color:var(--tone-warn)]',
+  error: 'border-[color:var(--tone-error)]',
+}
+
+const MESSAGE_TEXT: Record<MessageTone, string> = {
+  neutral: 'text-[color:var(--text-muted)]',
+  accent: 'text-[color:var(--accent-primary)]',
+  warn: 'text-[color:var(--tone-warn)]',
+  error: 'text-[color:var(--tone-error)]',
+}
+
+function MessageBlock({
+  tone,
+  children,
+}: {
+  tone: MessageTone
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      className={`border-l-2 pl-3 text-[12px] leading-5 ${MESSAGE_BORDER[tone]} ${MESSAGE_TEXT[tone]}`}
+    >
+      {children}
+    </div>
+  )
+}
+
+function StatusTag({
+  tone,
+  label,
+}: {
+  tone: Tone
+  label: string
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+      <StatusDot tone={tone} label={label} />
+      <span className="font-medium text-[color:var(--text-default)]">{label}</span>
+    </span>
+  )
+}
+
+function RegistrySwitchRow({
+  descriptor,
+  checked,
+  onChange,
+  disabled,
+}: {
+  descriptor: SettingDescriptor
+  checked: boolean
+  onChange: (next: boolean) => void
+  disabled?: boolean
+}) {
+  if (descriptor.field.type !== 'switch') return null
+  const labelId = `setting-${descriptor.id}-label`
+  const helpId = descriptor.help ? `setting-${descriptor.id}-help` : undefined
+  return (
+    <div className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+      <div className="min-w-0">
+        <span id={labelId} className="block text-[13px] font-medium text-[color:var(--text-strong)]">
+          {descriptor.label}
+        </span>
+        {descriptor.help ? (
+          <p id={helpId} className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+            {descriptor.help}
+          </p>
+        ) : null}
+      </div>
+      <Switch
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        ariaLabelledBy={labelId}
+        ariaDescribedBy={helpId}
+        className="mt-0.5"
+      />
+    </div>
+  )
+}
+
+function CompoundSwitchRow({
+  label,
+  description,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string
+  description?: string
+  checked: boolean
+  onChange: (next: boolean) => void
+  disabled?: boolean
+}) {
+  const labelId = React.useId()
+  const helpId = description ? `${labelId}-help` : undefined
+  return (
+    <div className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+      <div className="min-w-0">
+        <span id={labelId} className="block text-[13px] font-medium text-[color:var(--text-strong)]">
+          {label}
+        </span>
+        {description ? (
+          <p id={helpId} className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <Switch
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        ariaLabelledBy={labelId}
+        ariaDescribedBy={helpId}
+        className="mt-0.5"
+      />
+    </div>
+  )
 }
 
 export default function SettingsPanel({
@@ -879,6 +1037,12 @@ export default function SettingsPanel({
     : null
   const activeMcpServers = Object.values(mcpSettings.servers).filter((server) => server.enabled)
 
+  const mcpSyncDescriptor = getSettingDescriptor('mcp-sync-enabled')
+  const searchExcludesDescriptor = getSettingDescriptor('search-excludes')
+  const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
+  const telemetryLocalDescriptor = getSettingDescriptor('usage-telemetry-local-export')
+  const telemetryDiagnosticsDescriptor = getSettingDescriptor('usage-telemetry-export-diagnostics')
+
   const toggleCatalogServer = useCallback((server: McpCatalogServer) => {
     const existing = mcpSettings.servers[server.id]
     if (existing?.enabled) {
@@ -937,16 +1101,16 @@ export default function SettingsPanel({
 
   const bodyContent = (
     <>
-      <div className="mb-4 border-b border-[#24252b] pb-3">
-        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
+      <header className="mb-4 border-b border-[color:var(--border-subtle)] pb-3">
+        <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">
           {activeTab.label}
-        </div>
-        <h3 className="mt-1 text-[18px] font-semibold tracking-tight text-[#ececee]">
-          {activeTab.description}
         </h3>
-      </div>
+        <p className="mt-1 text-[12px] text-[color:var(--text-muted)]">
+          {activeTab.description}
+        </p>
+      </header>
 
-        {activeSettingsTab === 'updates' ? (
+      {activeSettingsTab === 'updates' ? (
         <div
           role="tabpanel"
           id="settings-panel-updates"
@@ -954,32 +1118,30 @@ export default function SettingsPanel({
           className="space-y-4"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#ececee]">
+            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[color:var(--text-strong)]">
               <MulticodeMark className="h-4 w-4 shrink-0" />
               <span>multicode {updateState?.version ?? '...'}</span>
             </div>
-            <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${updateChannelClass(updateState?.channel)}`}>
-              {formatUpdateChannel(updateState?.channel)}
-            </div>
+            <StatusTag tone={updateChannelTone(updateState?.channel)} label={formatUpdateChannel(updateState?.channel)} />
           </div>
 
-          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${updateStatusClass(updateState?.status)}`}>
+          <MessageBlock tone={updateMessageTone(updateState?.status)}>
             {formatUpdateStatus(updateState)}
             {updateState?.progress ? (
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#24252b]">
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[color:var(--bg-active)]">
                 <div
-                  className="h-full rounded-full bg-[#5c7cff]"
+                  className="h-full rounded-full bg-[color:var(--accent-primary)]"
                   style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
                 />
               </div>
             ) : null}
-          </div>
+          </MessageBlock>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
             <button
               type="button"
               onClick={() => void window.api.updateOpenReleaseNotes()}
-              className="text-sm font-semibold text-[#b8ccff] transition-colors hover:text-[#d4ddff] focus:outline-none focus-visible:underline"
+              className="text-sm font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:underline"
             >
               Release notes
             </button>
@@ -1003,14 +1165,14 @@ export default function SettingsPanel({
             />
           </div>
 
-          <div className="grid gap-x-6 gap-y-3 border-t border-[#24252b] pt-4 text-sm sm:grid-cols-2">
+          <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-sm sm:grid-cols-2">
             <MetaCell label="Update version" value={updateState?.updateVersion ?? 'None'} />
             <MetaCell label="Last checked" value={formatNullableDate(updateState?.lastCheckedAt)} />
           </div>
         </div>
-        ) : null}
+      ) : null}
 
-        {activeSettingsTab === 'github' ? (
+      {activeSettingsTab === 'github' ? (
         <div
           role="tabpanel"
           id="settings-panel-github"
@@ -1018,18 +1180,13 @@ export default function SettingsPanel({
           className="space-y-4"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 text-sm font-semibold text-[#ececee]">
+            <div className="min-w-0 text-sm font-semibold text-[color:var(--text-strong)]">
               GitHub access token
             </div>
-            <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${githubTokenStatusClass(githubTokenStatus)}`}>
-              {formatGitHubTokenStatus(githubTokenStatus)}
-            </div>
+            <StatusTag tone={githubTokenTone(githubTokenStatus)} label={formatGitHubTokenStatus(githubTokenStatus)} />
           </div>
 
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-              Token
-            </span>
+          <Field label="Token" htmlFor="github-token-input">
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 type="password"
@@ -1037,41 +1194,37 @@ export default function SettingsPanel({
                 onChange={(event) => setGithubTokenDraft(event.target.value)}
                 placeholder={githubTokenStatus?.configured ? 'Token saved' : 'Fine-grained GitHub token'}
                 autoComplete="off"
-                className="h-9 min-w-0 flex-1 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                className={`${INPUT_CLASS} min-w-0 flex-1`}
               />
               <div className="flex gap-2">
-                <button
-                  type="button"
+                <PrimaryButton
+                  size="md"
                   onClick={() => void saveGitHubToken()}
                   disabled={githubTokenPending || !githubTokenDraft.trim()}
-                  className="h-9 rounded-md bg-[#5c7cff] px-3 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
+                  className="h-9"
                 >
                   Save
-                </button>
-                <button
-                  type="button"
+                </PrimaryButton>
+                <GhostButton
+                  size="md"
                   onClick={() => void clearGitHubToken()}
                   disabled={githubTokenPending || githubTokenStatus?.source !== 'settings'}
-                  className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
+                  className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                 >
                   Clear
-                </button>
+                </GhostButton>
               </div>
             </div>
-          </label>
+          </Field>
 
-          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${
-            githubTokenMessage
-              ? 'border-[#5c7cff]/70 text-[#b8ccff]'
-              : 'border-[rgba(255,255,255,0.10)] text-[#9a9aa2]'
-          }`}>
+          <MessageBlock tone={githubTokenMessage ? 'accent' : 'neutral'}>
             {githubTokenMessage || 'Switchboard uses this token to import private GitHub issues. The token is stored on this device and is not saved in workspace files.'}
             {githubTokenStatus && !githubTokenStatus.encryptionAvailable ? ' Secure storage is unavailable, so the token is kept for this app session only.' : ''}
-          </div>
+          </MessageBlock>
         </div>
-        ) : null}
+      ) : null}
 
-        {activeSettingsTab === 'agents' ? (
+      {activeSettingsTab === 'agents' ? (
         <div
           role="tabpanel"
           id="settings-panel-agents"
@@ -1083,36 +1236,33 @@ export default function SettingsPanel({
             ['claude', 'Claude command'],
           ] as Array<[AgentCli, string]>).map(([cli, label]) => (
             <div key={cli} className="space-y-2">
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-                  {label}
-                </span>
+              <Field label={label} htmlFor={`cli-command-${cli}`}>
                 <input
                   value={cliRuntimes[cli].command}
                   onChange={(event) => setCliRuntime(cli, { command: event.target.value })}
                   placeholder={cli}
-                  className="w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                  className={INPUT_CLASS}
                 />
-              </label>
+              </Field>
 
               {isWindows && (
-                <SettingToggle
+                <CompoundSwitchRow
                   label={`Run ${cli === 'codex' ? 'Codex' : 'Claude'} through WSL`}
-                  enabled={cliRuntimes[cli].useWsl}
+                  checked={cliRuntimes[cli].useWsl}
                   onChange={(enabled) => setCliRuntime(cli, { useWsl: enabled })}
                 />
               )}
             </div>
           ))}
-          <p className="text-[12px] leading-5 text-[#5a5a63]">
-            Defaults are <span className="font-mono text-[#d7d7dc]">codex</span> native and{' '}
-            <span className="font-mono text-[#d7d7dc]">claude</span>{isWindows ? ' through WSL' : ''}.
+          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            Defaults are <span className="font-mono text-[color:var(--text-default)]">codex</span> native and{' '}
+            <span className="font-mono text-[color:var(--text-default)]">claude</span>{isWindows ? ' through WSL' : ''}.
             Use a full executable path if your CLI is not on PATH.
           </p>
         </div>
-        ) : null}
+      ) : null}
 
-        {activeSettingsTab === 'mcps' ? (
+      {activeSettingsTab === 'mcps' ? (
         <div
           role="tabpanel"
           id="settings-panel-mcps"
@@ -1121,40 +1271,41 @@ export default function SettingsPanel({
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <SettingToggle
-                label="Sync MCPs for new agent terminals"
-                description="Multicode writes enabled MCPs to Codex and Claude workspace config before launching a new agent terminal."
-                enabled={mcpSettings.syncEnabled}
-                onChange={setMcpSyncEnabled}
-              />
+              {mcpSyncDescriptor ? (
+                <RegistrySwitchRow
+                  descriptor={mcpSyncDescriptor}
+                  checked={mcpSettings.syncEnabled}
+                  onChange={setMcpSyncEnabled}
+                />
+              ) : null}
             </div>
-            <button
-              type="button"
+            <PrimaryButton
+              size="md"
               onClick={() => void syncMcps()}
               disabled={mcpPending || !activeProjectRoot}
-              className="mt-3 h-9 shrink-0 rounded-md bg-[#5c7cff] px-3 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
+              className="mt-3 h-9 shrink-0"
             >
               {mcpPending ? 'Syncing' : 'Sync now'}
-            </button>
+            </PrimaryButton>
           </div>
 
-          <section className="space-y-2 border-t border-[#24252b] pt-4">
+          <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
             <div className="flex items-baseline justify-between gap-3">
-              <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">
                 Active
               </h4>
               {activeMcpServers.length ? (
-                <span className="text-[11px] font-medium text-[#5f6068]">
+                <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
                   {activeMcpServers.length} active
                 </span>
               ) : null}
             </div>
             {activeMcpServers.length === 0 ? (
-              <div className="border-l-2 border-[rgba(255,255,255,0.10)] pl-3 text-[12px] leading-5 text-[#9a9aa2]">
+              <MessageBlock tone="neutral">
                 Nothing selected yet. Click a tile in the catalog below to add it.
-              </div>
+              </MessageBlock>
             ) : (
-              <ul className="divide-y divide-[#24252b]">
+              <ul className="divide-y divide-[color:var(--border-subtle)]">
                 {activeMcpServers.map((server) => (
                   <li key={server.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -1164,8 +1315,8 @@ export default function SettingsPanel({
                         size={24}
                       />
                       <div className="min-w-0">
-                        <div className="truncate text-[13px] font-semibold text-[#ececee]">{server.name}</div>
-                        <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[#7f8088]">
+                        <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{server.name}</div>
+                        <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
                           {server.id} · {server.transport} · {server.clients.join(', ')}
                         </div>
                       </div>
@@ -1176,7 +1327,7 @@ export default function SettingsPanel({
                         removeMcpServer(server.id)
                         setMcpMessage(`${server.name} removed.`)
                       }}
-                      className="text-[12px] font-semibold text-[#7f8088] transition-colors hover:text-[#ececee] focus:outline-none focus-visible:underline"
+                      className="text-[12px] font-semibold text-[color:var(--text-subtle)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
                     >
                       Remove
                     </button>
@@ -1186,14 +1337,14 @@ export default function SettingsPanel({
             )}
           </section>
 
-          <div className="flex gap-4 border-t border-[#24252b] pt-4">
+          <div className="flex gap-4 border-t border-[color:var(--border-subtle)] pt-4">
             <section className="min-w-0 flex-1 space-y-4">
               <div className="flex items-baseline justify-between gap-3">
-                <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+                <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">
                   Bundled catalog
                 </h4>
                 {mcpCatalog.length ? (
-                  <span className="text-[11px] font-medium text-[#5f6068]">
+                  <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
                     {mcpCatalog.length} servers
                   </span>
                 ) : null}
@@ -1202,9 +1353,9 @@ export default function SettingsPanel({
                 {groupedMcpCatalog.map(([category, servers]) => (
                   <div key={category} className="space-y-2">
                     <div className="flex items-center gap-3">
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8a8a92]">{category}</span>
-                      <span className="h-px flex-1 bg-[#24252b]" />
-                      <span className="font-mono text-[10px] text-[#5f6068]">{servers.length}</span>
+                      <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{category}</span>
+                      <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
+                      <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">{servers.length}</span>
                     </div>
                     <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${selectedCatalogServer ? '' : 'lg:grid-cols-4'}`}>
                       {servers.map((server) => (
@@ -1232,126 +1383,127 @@ export default function SettingsPanel({
             ) : null}
           </div>
 
-          <details className="group space-y-3 border-t border-[#24252b] pt-4 [&[open]]:space-y-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2] transition-colors hover:text-[#d7d7dc] focus:outline-none focus-visible:underline">
+          <details className="group space-y-3 border-t border-[color:var(--border-subtle)] pt-4 [&[open]]:space-y-3">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:underline">
               <span>Custom MCP</span>
-              <span aria-hidden className="text-[10px] font-medium tracking-normal text-[#5f6068] transition-transform group-open:rotate-180">▾</span>
+              <span aria-hidden className="text-[10px] font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
             </summary>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Server id</span>
+              <Field label="Server id" htmlFor="custom-mcp-id">
                 <input
                   value={customMcpId}
                   onChange={(event) => setCustomMcpId(event.target.value)}
                   placeholder="server-id"
-                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                  className={INPUT_CLASS}
                 />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Display name</span>
+              </Field>
+              <Field label="Display name" htmlFor="custom-mcp-name">
                 <input
                   value={customMcpName}
                   onChange={(event) => setCustomMcpName(event.target.value)}
                   placeholder="Display name"
-                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                  className={`${INPUT_CLASS} font-sans`}
                 />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Transport</span>
-                <select
+              </Field>
+              <Field label="Transport" htmlFor="custom-mcp-transport">
+                <Select
+                  ariaLabel="Transport"
+                  items={MCP_TRANSPORT_ITEMS}
                   value={customMcpTransport}
-                  onChange={(event) => setCustomMcpTransport(event.target.value === 'http' ? 'http' : 'stdio')}
-                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm text-[#ececee] outline-none transition-colors focus:border-[#5c7cff]/70"
-                >
-                  <option value="stdio">stdio</option>
-                  <option value="http">http</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-                  {customMcpTransport === 'stdio' ? 'Command' : 'URL'}
-                </span>
+                  onChange={setCustomMcpTransport}
+                  className="h-9 w-full"
+                />
+              </Field>
+              <Field
+                label={customMcpTransport === 'stdio' ? 'Command' : 'URL'}
+                htmlFor="custom-mcp-endpoint"
+              >
                 {customMcpTransport === 'stdio' ? (
                   <input
                     value={customMcpCommand}
                     onChange={(event) => setCustomMcpCommand(event.target.value)}
                     placeholder="e.g. npx"
-                    className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                    className={INPUT_CLASS}
                   />
                 ) : (
                   <input
                     value={customMcpUrl}
                     onChange={(event) => setCustomMcpUrl(event.target.value)}
                     placeholder="https://example.com/mcp"
-                    className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+                    className={INPUT_CLASS}
                   />
                 )}
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Args (space separated)</span>
-                <input
-                  value={customMcpArgs}
-                  onChange={(event) => setCustomMcpArgs(event.target.value)}
-                  placeholder="e.g. -y @vendor/server"
-                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
-                />
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">Required env vars (comma separated)</span>
-                <input
-                  value={customMcpEnv}
-                  onChange={(event) => setCustomMcpEnv(event.target.value)}
-                  placeholder="API_KEY, ANOTHER_VAR"
-                  className="h-9 w-full rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
-                />
-              </label>
+              </Field>
+              <div className="sm:col-span-2">
+                <Field label="Args (space separated)" htmlFor="custom-mcp-args">
+                  <input
+                    value={customMcpArgs}
+                    onChange={(event) => setCustomMcpArgs(event.target.value)}
+                    placeholder="e.g. -y @vendor/server"
+                    className={INPUT_CLASS}
+                  />
+                </Field>
+              </div>
+              <div className="sm:col-span-2">
+                <Field label="Required env vars (comma separated)" htmlFor="custom-mcp-env">
+                  <input
+                    value={customMcpEnv}
+                    onChange={(event) => setCustomMcpEnv(event.target.value)}
+                    placeholder="API_KEY, ANOTHER_VAR"
+                    className={INPUT_CLASS}
+                  />
+                </Field>
+              </div>
             </div>
             <div className="flex justify-end">
-              <button
-                type="button"
+              <GhostButton
+                size="md"
                 onClick={addCustomMcp}
-                className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d]"
+                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 Add custom MCP
-              </button>
+              </GhostButton>
             </div>
           </details>
 
-          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${mcpMessage ? 'border-[#5c7cff]/70 text-[#b8ccff]' : 'border-[rgba(255,255,255,0.10)] text-[#9a9aa2]'}`}>
+          <MessageBlock tone={mcpMessage ? 'accent' : 'neutral'}>
             {mcpMessage || 'Workspace-scoped sync writes Codex config to .codex/config.toml and Claude config to .mcp.json. Existing terminals are unchanged.'}
-          </div>
+          </MessageBlock>
         </div>
-        ) : null}
+      ) : null}
 
-        {activeSettingsTab === 'file-search' ? (
+      {activeSettingsTab === 'file-search' ? (
         <div
           role="tabpanel"
           id="settings-panel-file-search"
           aria-labelledby="settings-tab-file-search"
           className="space-y-4"
         >
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-              Additional exclude patterns
-            </span>
-            <textarea
-              value={searchExcludesDraft}
-              onChange={(event) => setSearchExcludesDraft(event.target.value)}
-              onBlur={(event) => setSearchExcludes(parseSearchExcludeText(event.target.value))}
-              rows={4}
-              placeholder={'generated\n*.snap\nfixtures/large/**'}
-              className="min-h-[96px] w-full resize-y rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-2 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
-            />
-          </label>
-          <p className="text-[12px] leading-5 text-[#5a5a63]">
-            Defaults still exclude heavy folders like <span className="font-mono text-[#d7d7dc]">.git</span>,{' '}
-            <span className="font-mono text-[#d7d7dc]">node_modules</span>, and{' '}
-            <span className="font-mono text-[#d7d7dc]">dist</span>. Add one pattern per line or separate entries with commas.
+          {searchExcludesDescriptor && searchExcludesDescriptor.field.type === 'multiline' ? (
+            <Field
+              label={searchExcludesDescriptor.label}
+              htmlFor="search-excludes-textarea"
+              help={searchExcludesDescriptor.help}
+            >
+              <textarea
+                value={searchExcludesDraft}
+                onChange={(event) => setSearchExcludesDraft(event.target.value)}
+                onBlur={(event) => setSearchExcludes(parseSearchExcludeText(event.target.value))}
+                rows={searchExcludesDescriptor.field.rows ?? 4}
+                placeholder={searchExcludesDescriptor.field.placeholder}
+                className={TEXTAREA_CLASS}
+              />
+            </Field>
+          ) : null}
+          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            Defaults still exclude heavy folders like <span className="font-mono text-[color:var(--text-default)]">.git</span>,{' '}
+            <span className="font-mono text-[color:var(--text-default)]">node_modules</span>, and{' '}
+            <span className="font-mono text-[color:var(--text-default)]">dist</span>. Add one pattern per line or separate entries with commas.
           </p>
         </div>
-        ) : null}
+      ) : null}
 
-        {activeSettingsTab === 'knowledge-graph' ? (
+      {activeSettingsTab === 'knowledge-graph' ? (
         <div
           role="tabpanel"
           id="settings-panel-knowledge-graph"
@@ -1359,20 +1511,17 @@ export default function SettingsPanel({
           className="space-y-4"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 text-sm font-semibold text-[#ececee]">
+            <div className="min-w-0 text-sm font-semibold text-[color:var(--text-strong)]">
               Markdown knowledge graph
             </div>
             {activeWorkspace ? (
-              <div className="max-w-[260px] truncate rounded-md border border-[#303139] bg-[#0d0e11] px-2.5 py-1 text-[11px] font-semibold text-[#b8ccff]">
+              <div className="max-w-[260px] truncate rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--accent-primary)]">
                 {activeWorkspace.name}
               </div>
             ) : null}
           </div>
 
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
-              Knowledge folder
-            </span>
+          <Field label="Knowledge folder" htmlFor="knowledge-folder-input">
             <div className="flex gap-2">
               <input
                 value={memoryDraft}
@@ -1385,26 +1534,20 @@ export default function SettingsPanel({
                 }}
                 placeholder="../ecosystem-knowledge"
                 disabled={!activeWorkspace}
-                className="h-9 min-w-0 flex-1 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70 disabled:opacity-45"
+                className={`${INPUT_CLASS} min-w-0 flex-1`}
               />
-              <button
-                type="button"
+              <GhostButton
+                size="md"
                 onClick={() => void chooseMemoryFolder()}
                 disabled={!activeProjectRoot}
-                className="h-9 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
+                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 Choose
-              </button>
+              </GhostButton>
             </div>
-          </label>
+          </Field>
 
-          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${
-            memoryStatus?.ok
-              ? 'border-[#5c7cff]/70 text-[#b8ccff]'
-              : memoryStatus
-                ? 'border-[#ffbf2f]/75 text-[#ffd58a]'
-                : 'border-[rgba(255,255,255,0.10)] text-[#9a9aa2]'
-          }`}>
+          <MessageBlock tone={memoryStatusTone(memoryStatus)}>
             {memoryStatus?.ok
               ? `Ready: ${memoryStatus.relativeRoot}`
               : memoryStatus
@@ -1412,15 +1555,15 @@ export default function SettingsPanel({
                 : activeProjectRoot
                   ? 'Set a relative path from the project folder. Workspaces under this project inherit the Knowledge Graph.'
                   : 'Open a workspace folder before configuring the Knowledge Graph.'}
-          </div>
+          </MessageBlock>
 
-          <div className="border-t border-[#24252b] pt-4">
-            <div className="mb-4 border-l-2 border-[#24252b] pl-3">
+          <div className="border-t border-[color:var(--border-subtle)] pt-4">
+            <div className="mb-4 border-l-2 border-[color:var(--border-subtle)] pl-3">
               <div className="mb-3 min-w-0">
-                <div className="text-sm font-semibold text-[#ececee]">
+                <div className="text-sm font-semibold text-[color:var(--text-strong)]">
                   Built-in agent skills
                 </div>
-                <div className="mt-1 text-[12px] leading-5 text-[#9a9aa2]">
+                <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
                   {activeKnowledgeConfig?.relativeRoot
                     ? `Install workflow skills into .agents/skills. Knowledge-aware skills will use the configured graph: ${activeKnowledgeConfig.relativeRoot}.`
                     : ' Configure a knowledge folder so agents know which graph to read and update.'}
@@ -1439,67 +1582,67 @@ export default function SettingsPanel({
                   return (
                     <div
                       key={skill.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#24252b] bg-[#0d0e11]/55 px-3 py-2"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-semibold text-[#ececee]">{skill.name}</div>
-                        <div className="mt-0.5 text-[12px] leading-5 text-[#9a9aa2]">{skill.description}</div>
-                        <div className="mt-1 text-[11px] leading-4 text-[#6f7078]">
+                        <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{skill.name}</div>
+                        <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">{skill.description}</div>
+                        <div className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">
                           {formatBuiltinSkillStatus(status, skill.id)}
                         </div>
                       </div>
-                      <button
-                        type="button"
+                      <GhostButton
+                        size="md"
                         onClick={() => void installBuiltinSkill(skill)}
                         disabled={builtinSkillPendingId !== null || installBlocked}
-                        className="h-8 rounded-md border border-[#303139] bg-[#0d0e11] px-3 text-sm font-semibold text-[#d7d7dc] transition-colors hover:bg-[#17181d] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#0d0e11]"
+                        className="h-8 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                       >
                         {status?.ok && status.status === 'update-available' ? 'Update' : 'Install'}
-                      </button>
+                      </GhostButton>
                     </div>
                   )
                 }) : (
-                  <div className="rounded-md border border-[#24252b] bg-[#0d0e11]/55 px-3 py-2 text-[12px] leading-5 text-[#9a9aa2]">
+                  <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
                     Built-in skills have not loaded yet.
                   </div>
                 )}
               </div>
               {builtinSkillMessage ? (
-                <div className="basis-full border-l-2 border-[#ffbf2f]/75 pl-3 text-[12px] leading-5 text-[#ffd58a]">
-                  {builtinSkillMessage}
+                <div className="basis-full">
+                  <MessageBlock tone="warn">{builtinSkillMessage}</MessageBlock>
                 </div>
               ) : null}
             </div>
 
-            <SettingToggle
+            <CompoundSwitchRow
               label="Activity tracking (Claude Code)"
               description="Record which knowledge files Claude touches in this project and animate the graph as files are read. Adds a project-local hook to .claude/settings.local.json. Only files under the knowledge folder are recorded."
-              enabled={activityInstalled}
+              checked={activityInstalled}
               disabled={activityPending || !activeProjectRoot || !activeKnowledgeConfig?.relativeRoot}
               onChange={(next) => void toggleActivityTracking(next)}
             />
             {activityMessage ? (
-              <div className="mt-2 border-l-2 border-[#ffbf2f]/75 pl-3 text-[12px] leading-5 text-[#ffd58a]">
-                {activityMessage}
+              <div className="mt-2">
+                <MessageBlock tone="warn">{activityMessage}</MessageBlock>
               </div>
             ) : null}
           </div>
         </div>
-        ) : null}
+      ) : null}
 
-        {activeSettingsTab === 'learn' ? (
-          <div
-            role="tabpanel"
-            id="settings-panel-learn"
-            aria-labelledby="settings-tab-learn"
-          >
-            <LearnCenter onSettingsTab={onOpenSettingsTab} />
-          </div>
-        ) : null}
+      {activeSettingsTab === 'learn' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-learn"
+          aria-labelledby="settings-tab-learn"
+        >
+          <LearnCenter onSettingsTab={onOpenSettingsTab} />
+        </div>
+      ) : null}
 
-        {activeSettingsTab === 'mobile' ? <MobileSettingsTab /> : null}
+      {activeSettingsTab === 'mobile' ? <MobileSettingsTab /> : null}
 
-        {activeSettingsTab === 'telemetry' ? (
+      {activeSettingsTab === 'telemetry' ? (
         <div
           role="tabpanel"
           id="settings-panel-telemetry"
@@ -1507,45 +1650,45 @@ export default function SettingsPanel({
           className="space-y-4"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 text-sm font-semibold text-[#ececee]">
+            <div className="min-w-0 text-sm font-semibold text-[color:var(--text-strong)]">
               SprintEngine usage data and diagnostics
             </div>
-            <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
-              import.meta.env.DEV
-                ? 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#ffe0a3]'
-                : 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2]'
-            }`}>
-              {import.meta.env.DEV ? 'Development build' : 'Production build'}
-            </div>
-          </div>
-
-          <div className="divide-y divide-[#24252b]">
-            <SettingToggle
-              label="Send usage data"
-              description="Upload sanitized SprintEngine usage records only after explicit consent. This stays off by default for production builds."
-              enabled={usageTelemetry.sendUsageData}
-              onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
-            />
-            <SettingToggle
-              label="Local dev export"
-              description="Write sanitized JSONL records to the sibling admin portal during local development. This can default on only in development builds."
-              enabled={usageTelemetry.localDevExportEnabled}
-              onChange={(enabled) => setUsageTelemetrySettings({ localDevExportEnabled: enabled })}
-            />
-            <SettingToggle
-              label="Export diagnostics"
-              description="Include privacy-safe exporter and upload diagnostics so missing, rejected, or duplicated records can be investigated."
-              enabled={usageTelemetry.exportDiagnostics}
-              onChange={(enabled) => setUsageTelemetrySettings({ exportDiagnostics: enabled })}
+            <StatusTag
+              tone={import.meta.env.DEV ? 'warn' : 'neutral'}
+              label={import.meta.env.DEV ? 'Development build' : 'Production build'}
             />
           </div>
 
-          <p className="text-[12px] leading-5 text-[#9a9aa2]">
+          <div className="divide-y divide-[color:var(--border-subtle)]">
+            {telemetrySendDescriptor ? (
+              <RegistrySwitchRow
+                descriptor={telemetrySendDescriptor}
+                checked={usageTelemetry.sendUsageData}
+                onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
+              />
+            ) : null}
+            {telemetryLocalDescriptor ? (
+              <RegistrySwitchRow
+                descriptor={telemetryLocalDescriptor}
+                checked={usageTelemetry.localDevExportEnabled}
+                onChange={(enabled) => setUsageTelemetrySettings({ localDevExportEnabled: enabled })}
+              />
+            ) : null}
+            {telemetryDiagnosticsDescriptor ? (
+              <RegistrySwitchRow
+                descriptor={telemetryDiagnosticsDescriptor}
+                checked={usageTelemetry.exportDiagnostics}
+                onChange={(enabled) => setUsageTelemetrySettings({ exportDiagnostics: enabled })}
+              />
+            ) : null}
+          </div>
+
+          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
             Raw source, prompts, transcripts, artifact bodies, descriptions, notes, and file contents are not collected by default.
-            Production upload is separate from local export and remains disabled until you turn on Send usage data.
+            Production upload is separate from local export and remains disabled until you turn on Send anonymous usage data.
           </p>
 
-          <div className="grid gap-x-6 gap-y-3 border-t border-[#24252b] pt-4 text-sm sm:grid-cols-2">
+          <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-sm sm:grid-cols-2">
             <MetaCell label="Last local export" value={formatNullableDate(usageTelemetry.lastExportAt)} />
             <MetaCell
               label="Upload consent"
@@ -1554,26 +1697,22 @@ export default function SettingsPanel({
             />
           </div>
         </div>
-        ) : null}
+      ) : null}
 
-        {chrome === 'panel' ? (
-          <div className="mt-6 flex justify-end border-t border-[#24252b] pt-4">
-            <button
-              type="button"
-              onClick={closeSettings}
-              className="rounded-md px-3.5 py-2 text-sm font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
-            >
-              Done
-            </button>
-          </div>
-        ) : null}
+      {chrome === 'panel' ? (
+        <div className="mt-6 flex justify-end border-t border-[color:var(--border-subtle)] pt-4">
+          <GhostButton size="md" onClick={closeSettings}>
+            Done
+          </GhostButton>
+        </div>
+      ) : null}
     </>
   )
 
   if (chrome === 'overlay') {
     return (
       <div className="flex h-full min-h-0 flex-col md:flex-row">
-        <aside className="shrink-0 border-b border-[#1f2025] bg-[#0a0b0e] p-1.5 md:w-48 md:border-b-0 md:border-r">
+        <aside className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] p-1.5 md:w-48 md:border-b-0 md:border-r">
           {sidebarNode}
         </aside>
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1616,14 +1755,14 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
       tabIndex={active ? 0 : -1}
       onClick={onClick}
       onKeyDown={onKeyDown}
-      className={`group min-h-12 rounded-md border-l-[3px] px-2.5 py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 ${
+      className={`interactive group min-h-12 rounded-md border-l-[3px] px-2.5 py-1.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
         active
-          ? 'border-l-[#5c7cff] bg-[#100f1c] text-[#ececee]'
-          : 'border-l-transparent text-[#8a8a92] hover:bg-[#111216] hover:text-[#d7d7dc]'
+          ? 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+          : 'border-l-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
       }`}
     >
       <span className="block text-[13px] font-semibold leading-5">{tab.label}</span>
-      <span className={`mt-0.5 block truncate text-[11px] leading-4 ${active ? 'text-[#b8ccff]' : 'text-[#5f6068] group-hover:text-[#8a8a92]'}`}>
+      <span className={`mt-0.5 block truncate text-[11px] leading-4 ${active ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-muted)]'}`}>
         {tab.description}
       </span>
     </button>
@@ -1641,14 +1780,22 @@ function UpdateActionButton({
   onClick: () => void
   disabled?: boolean
 }) {
-  const base = 'rounded-md px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-default disabled:opacity-45 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60'
-  const tone = primary
-    ? 'bg-[#5c7cff] text-[#08090b] hover:bg-[#6e8eff] disabled:hover:bg-[#5c7cff]'
-    : 'border border-[#303139] bg-[#0d0e11] text-[#d7d7dc] hover:bg-[#17181d] disabled:hover:bg-[#0d0e11]'
+  if (primary) {
+    return (
+      <PrimaryButton size="md" onClick={onClick} disabled={disabled}>
+        {label}
+      </PrimaryButton>
+    )
+  }
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${tone}`}>
+    <GhostButton
+      size="md"
+      onClick={onClick}
+      disabled={disabled}
+      className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+    >
       {label}
-    </button>
+    </GhostButton>
   )
 }
 
@@ -1685,16 +1832,16 @@ function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): st
   }
 }
 
-function updateChannelClass(channel: AppUpdateState['channel'] | undefined): string {
+function updateChannelTone(channel: AppUpdateState['channel'] | undefined): Tone {
   switch (channel) {
     case 'stable':
-      return 'border-[#5c7cff]/35 bg-[#5c7cff]/10 text-[#b8ccff]'
+      return 'accent'
     case 'preview':
-      return 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#ffe0a3]'
+      return 'warn'
     case 'dev':
-      return 'border-[#7785ff]/35 bg-[#7785ff]/10 text-[#d7dcff]'
+      return 'accent'
     default:
-      return 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2]'
+      return 'neutral'
   }
 }
 
@@ -1705,23 +1852,29 @@ function formatGitHubTokenStatus(status: GitHubTokenUiStatus | null): string {
   return 'Not set'
 }
 
-function githubTokenStatusClass(status: GitHubTokenUiStatus | null): string {
-  if (status?.configured) return 'border-[#5c7cff]/35 bg-[#5c7cff]/10 text-[#b8ccff]'
-  return 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2]'
+function githubTokenTone(status: GitHubTokenUiStatus | null): Tone {
+  if (status?.configured) return 'accent'
+  return 'neutral'
 }
 
-function updateStatusClass(status: AppUpdateState['status'] | undefined): string {
+function memoryStatusTone(status: MemoryRootStatus | null): MessageTone {
+  if (!status) return 'neutral'
+  if (status.ok) return 'accent'
+  return 'warn'
+}
+
+function updateMessageTone(status: AppUpdateState['status'] | undefined): MessageTone {
   switch (status) {
     case 'available':
     case 'downloaded':
-      return 'border-[#5c7cff]/70 text-[#b8ccff]'
+      return 'accent'
     case 'checking':
     case 'downloading':
-      return 'border-[#ffbf2f]/75 text-[#ffd58a]'
+      return 'warn'
     case 'error':
-      return 'border-[#ff787c] text-[#ffb3b5]'
+      return 'error'
     default:
-      return 'border-[#303139] text-[#9a9aa2]'
+      return 'neutral'
   }
 }
 

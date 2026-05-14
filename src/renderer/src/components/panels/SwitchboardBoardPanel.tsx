@@ -1405,7 +1405,6 @@ function CreateTaskDialog({
         <ModalButton onClick={onClose}>Cancel</ModalButton>
         <ModalButton
           variant="primary"
-          accent="violet"
           onClick={onSubmit}
           disabled={busy || !draft.title.trim()}
         >
@@ -1549,78 +1548,78 @@ function RunnerDrawer({
           <DefinitionList items={stateItems} />
         </Section>
 
-          <Section title="Controls">
-            <div className="flex flex-wrap gap-1.5">
-              {!isStarted ? (
-                <PrimaryButton
-                  onClick={() => void handleStart()}
-                  disabled={runner.busy || draft.queues.length === 0}
-                >
-                  {runner.busy ? 'Starting…' : 'Start runner'}
-                </PrimaryButton>
-              ) : null}
-              {runner.status === 'running' ? (
-                <GhostButton onClick={() => void runner.pause()} disabled={runner.busy}>
-                  Pause
-                </GhostButton>
-              ) : null}
-              {runner.status === 'paused' ? (
-                <PrimaryButton onClick={() => void runner.resume()} disabled={runner.busy}>
-                  Resume
-                </PrimaryButton>
-              ) : null}
-              {isStarted ? (
-                <GhostButton
-                  onClick={() => void runner.tick()}
-                  disabled={runner.busy}
-                  title="Run one runner tick now"
-                >
-                  Tick
-                </GhostButton>
-              ) : null}
-              {isStarted ? (
-                <GhostButton
-                  onClick={() => void handleStopRunner()}
-                  disabled={runner.busy}
-                  title="Stop the workspace runner and active executions"
-                >
-                  Stop runner
-                </GhostButton>
-              ) : null}
+        <Section title="Controls">
+          <div className="flex flex-wrap gap-1.5">
+            {!isStarted ? (
+              <PrimaryButton
+                onClick={() => void handleStart()}
+                disabled={runner.busy || draft.queues.length === 0}
+              >
+                {runner.busy ? 'Starting…' : 'Start runner'}
+              </PrimaryButton>
+            ) : null}
+            {runner.status === 'running' ? (
+              <GhostButton onClick={() => void runner.pause()} disabled={runner.busy}>
+                Pause
+              </GhostButton>
+            ) : null}
+            {runner.status === 'paused' ? (
+              <PrimaryButton onClick={() => void runner.resume()} disabled={runner.busy}>
+                Resume
+              </PrimaryButton>
+            ) : null}
+            {isStarted ? (
+              <GhostButton
+                onClick={() => void runner.tick()}
+                disabled={runner.busy}
+                title="Run one runner tick now"
+              >
+                Tick
+              </GhostButton>
+            ) : null}
+            {isStarted ? (
+              <GhostButton
+                onClick={() => void handleStopRunner()}
+                disabled={runner.busy}
+                title="Stop the workspace runner and active executions"
+              >
+                Stop runner
+              </GhostButton>
+            ) : null}
+          </div>
+        </Section>
+
+        <Section title="Configuration">
+          <RunnerSettingsFields draft={draft} onChange={setDraft} canEdit={canEdit} />
+          {!canEdit ? (
+            <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+              Runner is {isStarted ? 'started' : 'unavailable'}; configuration is read-only until stopped.
+            </p>
+          ) : null}
+        </Section>
+
+        {runner.error ? (
+          <Section title="Last error">
+            <div className="rounded-[5px] border border-[color:var(--tone-error-soft)] bg-[color:var(--tone-error-soft)] px-3 py-2 text-[12px] text-[color:var(--text-strong)]">
+              {runner.error}
             </div>
           </Section>
+        ) : null}
 
-          <Section title="Configuration">
-            <RunnerSettingsFields draft={draft} onChange={setDraft} canEdit={canEdit} />
-            {!canEdit ? (
-              <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
-                Runner is {isStarted ? 'started' : 'unavailable'}; configuration is read-only until stopped.
-              </p>
-            ) : null}
+        {activeExecutions.length > 0 ? (
+          <Section title="Active executions" count={activeExecutions.length}>
+            <ExecutionsList
+              executions={activeExecutions}
+              tone="active"
+              busy={runner.busy}
+              onStopExecution={handleStopExecution}
+            />
           </Section>
+        ) : null}
 
-          {runner.error ? (
-            <Section title="Last error">
-              <div className="rounded-[5px] border border-[color:var(--tone-error-soft)] bg-[color:var(--tone-error-soft)] px-3 py-2 text-[12px] text-[color:var(--text-strong)]">
-                {runner.error}
-              </div>
-            </Section>
-          ) : null}
-
-          {activeExecutions.length > 0 ? (
-            <Section title="Active executions" count={activeExecutions.length}>
-              <ExecutionsList
-                executions={activeExecutions}
-                tone="active"
-                busy={runner.busy}
-                onStopExecution={handleStopExecution}
-              />
-            </Section>
-          ) : null}
-
-          {inactiveExecutions.length > 0 ? (
-            <Section title="Other tracked executions" count={inactiveExecutions.length}>
-              <ExecutionsList executions={inactiveExecutions} tone="inactive" />
+        {inactiveExecutions.length > 0 ? (
+          <Section title="Other tracked executions" count={inactiveExecutions.length}>
+            <ExecutionsList executions={inactiveExecutions} tone="inactive" />
           </Section>
         ) : null}
       </Drawer.Body>

@@ -105,6 +105,7 @@ expectIncludes(drawer, 'role="dialog"', 'Drawer surface exposes the dialog role'
 expectIncludes(drawer, 'aria-label={ariaLabel}', 'Drawer requires an accessible name on the dialog surface')
 expectIncludes(drawer, 'aria-labelledby={titleId}', 'Drawer wires aria-labelledby to its visible title')
 expectIncludes(drawer, "event.key === 'Escape'", 'Drawer closes on Escape')
+expectIncludes(drawer, 'event.preventDefault()', 'Drawer cancels default behaviour on Escape to match prior consumer contract')
 expectIncludes(drawer, 'restoreFocusRef.current', 'Drawer captures the opener for focus restoration')
 expectIncludes(drawer, 'target.focus()', 'Drawer restores focus to the opener on close')
 expectIncludes(drawer, "document.body.style.overflow = 'hidden'", 'Drawer locks body scroll while open')

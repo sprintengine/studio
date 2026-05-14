@@ -92,13 +92,13 @@ export default function MemoryPreviewPane({
       ref={paneRef}
       role="complementary"
       aria-label="Knowledge node preview"
-      className="absolute inset-y-0 right-0 z-20 flex w-[min(560px,90%)] flex-col border-l border-[#1f2025] bg-[#0d0e11] text-[#ececee] shadow-[-16px_0_40px_rgba(0,0,0,0.45)]"
+      className="absolute inset-y-0 right-0 z-20 flex w-[min(560px,90%)] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-strong)] shadow-[var(--shadow-drawer)]"
     >
-      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[#1f2025] px-5 py-4">
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[color:var(--border-default)] px-5 py-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <span
-              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
+              className="inline-flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 text-[11px] font-medium"
               style={{
                 borderColor: hexWithAlpha(color, 0.35),
                 background: hexWithAlpha(color, 0.10),
@@ -106,7 +106,7 @@ export default function MemoryPreviewPane({
               }}
             >
               <span
-                className="h-1.5 w-1.5 rounded-full"
+                className="h-[6px] w-[6px] rounded-full"
                 style={{ background: color }}
                 aria-hidden
               />
@@ -115,16 +115,16 @@ export default function MemoryPreviewPane({
             {node.tags?.slice(0, 4).map((tag) => (
               <span
                 key={tag}
-                className="rounded-md border border-[#24252b] bg-[#111216] px-1.5 py-0.5 text-[10px] text-[#9a9aa2]"
+                className="rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)]"
               >
                 {tag}
               </span>
             ))}
           </div>
-          <h2 className="mt-2 truncate text-[18px] font-semibold leading-6 tracking-tight text-[#ececee]">
+          <h2 className="mt-2 truncate text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
             {title}
           </h2>
-          <div className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-[#5a5a63]">
+          <div className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-[color:var(--text-disabled)]">
             {path}
           </div>
         </div>
@@ -133,7 +133,7 @@ export default function MemoryPreviewPane({
             <button
               type="button"
               onClick={onOpenInEditor}
-              className="h-8 rounded-md border border-[#24252b] bg-[#111216] px-3 text-[12px] font-semibold text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              className="h-8 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             >
               Open in editor
             </button>
@@ -143,7 +143,7 @@ export default function MemoryPreviewPane({
             onClick={onClose}
             aria-label="Close preview"
             title="Close (Esc)"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
           >
             <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -156,7 +156,7 @@ export default function MemoryPreviewPane({
         {!preview ? (
           <PaneNotice message="Loading preview…" />
         ) : !preview.ok ? (
-          <div className="rounded-md border-l-2 border-[#ff787c] bg-[#1c1414] px-4 py-3 text-[13px] leading-6 text-[#ffb3b5]">
+          <div className="rounded-[5px] border-l-2 border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] px-4 py-3 text-[13px] leading-6 text-[color:var(--tone-error)]">
             {preview.message}
           </div>
         ) : preview.previewKind === 'markdown' ? (
@@ -164,7 +164,7 @@ export default function MemoryPreviewPane({
             {renderMarkdown(preview.content)}
           </article>
         ) : preview.previewKind === 'text' ? (
-          <pre className="m-0 overflow-x-auto rounded-md border border-[#24252b] bg-[#08090b] p-4 font-mono text-[12px] leading-5 text-[#d7d7dc]">
+          <pre className="m-0 overflow-x-auto rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-4 font-mono text-[12px] leading-5 text-[color:var(--text-default)]">
             {preview.content}
           </pre>
         ) : preview.previewKind === 'image' ? (
@@ -182,8 +182,8 @@ export default function MemoryPreviewPane({
       </div>
 
       {related.length > 0 ? (
-        <footer className="shrink-0 border-t border-[#1f2025] px-5 py-4">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
+        <footer className="shrink-0 border-t border-[color:var(--border-default)] px-5 py-4">
+          <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-disabled)]">
             Related
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -196,10 +196,10 @@ export default function MemoryPreviewPane({
                   key={target.id}
                   type="button"
                   onClick={() => onNavigate(target)}
-                  className="group inline-flex items-center gap-1.5 rounded-md border border-[#24252b] bg-[#111216] px-2 py-1 text-[11px] text-[#d7d7dc] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+                  className="group inline-flex items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
                 >
                   <span
-                    className="h-1.5 w-1.5 rounded-full"
+                    className="h-[6px] w-[6px] rounded-full"
                     style={{ background: targetColor }}
                     aria-hidden
                   />
@@ -216,7 +216,7 @@ export default function MemoryPreviewPane({
 
 function PaneNotice({ message }: { message: string }) {
   return (
-    <div className="flex h-32 items-center justify-center text-[13px] text-[#8a8a92]">
+    <div className="flex h-32 items-center justify-center text-[13px] text-[color:var(--text-muted)]">
       {message}
     </div>
   )

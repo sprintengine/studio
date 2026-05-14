@@ -1,14 +1,6 @@
 import React from 'react'
 import { TYPE_COLORS, bucketForNode } from './MemoryGraphCanvas'
 
-const PANEL_STYLE: React.CSSProperties = {
-  background: 'rgba(10, 10, 30, 0.85)',
-  backdropFilter: 'blur(12px)',
-  WebkitBackdropFilter: 'blur(12px)',
-  border: '1px solid rgba(255, 255, 255, 0.08)',
-  color: '#e0e0e0',
-}
-
 type LegendProps = {
   nodes: MemoryGraphNode[]
 }
@@ -27,10 +19,10 @@ export function MemoryGraphLegend({ nodes }: LegendProps) {
   if (entries.length === 0) return null
   return (
     <div
-      className="pointer-events-none absolute bottom-3 left-3 rounded-lg px-3 py-2 text-[11px]"
-      style={PANEL_STYLE}
+      className="pointer-events-none absolute bottom-3 left-3 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]/85 px-3 py-2 text-[11px] text-[color:var(--text-default)] backdrop-blur-md"
+      style={{ WebkitBackdropFilter: 'blur(12px)' }}
     >
-      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">
+      <div className="mb-1.5 text-[11px] font-semibold text-[color:var(--text-disabled)]">
         Types
       </div>
       <ul className="space-y-1">
@@ -39,12 +31,12 @@ export function MemoryGraphLegend({ nodes }: LegendProps) {
           return (
             <li key={bucket} className="flex items-center gap-2">
               <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ background: color, boxShadow: `0 0 8px ${color}` }}
+                className="h-[7px] w-[7px] rounded-full"
+                style={{ background: color }}
                 aria-hidden
               />
               <span className="capitalize">{bucket}</span>
-              <span className="text-white/40 tabular-nums">{count}</span>
+              <span className="tabular-nums text-[color:var(--text-disabled)]">{count}</span>
             </li>
           )
         })}
@@ -65,18 +57,20 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
   const title = node.title?.trim() || node.name
   return (
     <div
-      className="pointer-events-none absolute z-10 max-w-[280px] rounded-md px-3 py-2 text-[11px]"
-      style={{ ...PANEL_STYLE, left: x + 16, top: y + 16 }}
+      className="pointer-events-none absolute z-10 max-w-[280px] rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]/85 px-3 py-2 text-[11px] text-[color:var(--text-muted)] backdrop-blur-md"
+      style={{ left: x + 16, top: y + 16, WebkitBackdropFilter: 'blur(12px)' }}
     >
       <div className="flex items-center gap-2">
         <span
-          className="h-2 w-2 shrink-0 rounded-full"
-          style={{ background: color, boxShadow: `0 0 6px ${color}` }}
+          className="h-[6px] w-[6px] shrink-0 rounded-full"
+          style={{ background: color }}
           aria-hidden
         />
-        <span className="truncate text-[12px] font-semibold text-white">{title}</span>
+        <span className="truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
+          {title}
+        </span>
       </div>
-      <div className="mt-0.5 truncate text-white/50">
+      <div className="mt-0.5 truncate text-[color:var(--text-disabled)]">
         <span className="capitalize">{bucket}</span>
         {node.inboundDegree > 0 ? (
           <span> · {node.inboundDegree} inbound</span>
@@ -87,8 +81,7 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
           {node.tags.slice(0, 6).map((tag) => (
             <span
               key={tag}
-              className="rounded-full px-1.5 py-0.5 text-[10px] text-white/70"
-              style={{ background: 'rgba(255,255,255,0.07)' }}
+              className="rounded-[5px] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[10px] text-[color:var(--text-muted)]"
             >
               {tag}
             </span>

@@ -133,6 +133,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
     if (lifecycle === 'closed') return undefined
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        event.preventDefault()
         event.stopPropagation()
         onClose()
       }

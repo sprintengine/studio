@@ -208,6 +208,7 @@ class SprintEngineMcpServer:
                 file=list(payload.get("file") or []),
                 command=list(payload.get("command") or []),
                 result=list(payload.get("result") or []),
+                scope_expansion_json=list(payload.get("scopeExpansionJson") or payload.get("scopeExpansion") or []),
             )
         elif tool_name == "sprintengine.task.note":
             base.update(task_id=payload["taskId"], id=payload["id"], note=payload["note"])

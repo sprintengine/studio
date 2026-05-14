@@ -117,6 +117,10 @@ const PULSE_DURATION_MS = 600
 const SPARK_DURATION_MS = 800
 const SYNAPSE_COLOR = '#22d3ee'
 const PULSE_COLOR = '#22d3ee'
+const CANVAS_ATMOSPHERE_VAR = {
+  '--memory-graph-atmosphere':
+    'radial-gradient(circle at 50% 45%, rgba(92, 124, 255, 0.08), transparent 48%)',
+} as React.CSSProperties
 
 const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(function MemoryGraphCanvas(
   {
@@ -727,7 +731,8 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
   return (
     <canvas
       ref={canvasRef}
-      className="block h-full w-full cursor-grab select-none active:cursor-grabbing"
+      className="block h-full w-full cursor-grab select-none bg-[image:var(--memory-graph-atmosphere)] active:cursor-grabbing"
+      style={CANVAS_ATMOSPHERE_VAR}
       onMouseDown={(event) => {
         const target = hitTest(event.clientX, event.clientY)
         if (target) {

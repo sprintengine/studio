@@ -129,6 +129,8 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
             ".venv\\Scripts\\python.exe -m pip install <package>",
             "## Execution Workspace Discipline",
             "Do not create Sprint Engine worktrees.",
+            "Treat task-owned paths as the primary edit surface and collision boundary.",
+            "scope expansion with the path, reason, and risk.",
             "Do not edit .multi-code/sprintengine/state.yaml directly",
         ],
     )
@@ -162,13 +164,12 @@ def test_code_reviewer_join_prompt_allows_review_and_fix_tasks(tmp_path) -> None
     assert_prompt_includes(
         payload["prompt"],
         [
-            "For review-and-fix tasks, make targeted code or test changes",
-            "You may edit application or test code only within the task's owned paths",
-            "When complete: follow the claimed task's review mode.",
-            "For review-and-fix tasks, make targeted source or test changes inside the owned paths",
-            "For review-only tasks, produce the requested code quality review evidence or artifact.",
-            "move the task to `needs_input` only when the review output requires approval or the task is blocked from meeting acceptance",
+            "produce the requested code quality review evidence or artifact",
+            "Work read-only: do not edit application or test code.",
+            "Move the task to `needs_input` only when the review output requires approval or the task is blocked from meeting acceptance",
             "Do not mutate the task graph; the architect decides whether to add follow-up work.",
+            "Treat task-owned paths as the primary edit surface and collision boundary.",
+            "scope expansion with the path, reason, and risk.",
         ],
     )
 
@@ -195,7 +196,8 @@ def test_spec_reviewer_join_prompt_uses_spec_soul_and_skill_standards(tmp_path) 
             "Use `diagnose` principles",
             "Use the `prototype` boundary",
             "Apply the bundled workflow skills as review standards when relevant",
-            "For review-only tasks, produce the requested specification conformance review evidence or artifact.",
+            "produce the requested specification conformance review evidence or artifact",
+            "Work read-only: do not edit application or test code.",
             "Do not mutate the task graph; the architect decides whether to add follow-up work.",
         ],
     )

@@ -1,6 +1,13 @@
 import React, { useMemo } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { WorkspacePanel } from '../ui/WorkspacePanel'
+import {
+  DefinitionList,
+  OverflowMenu,
+  PanelHeader,
+  Section,
+  type DefinitionItem,
+  type OverflowMenuItem,
+} from '../ui'
 import {
   buildRunSummary,
   formatSprintEngineGoal,
@@ -10,6 +17,8 @@ type Props = {
   workspaceId: string
   onClose: () => void
 }
+
+const TITLE_ID = 'sprintengine-run-summary-title'
 
 export default function SprintEngineRunSummaryPanel({ workspaceId, onClose }: Props) {
   const sprintEngineState = useWorkspaceStore((s) =>
@@ -21,62 +30,133 @@ export default function SprintEngineRunSummaryPanel({ workspaceId, onClose }: Pr
     [sprintEngineState?.tasks]
   )
 
+  const overflowItems = useMemo<OverflowMenuItem[]>(
+    () => [{ id: 'close', label: 'Close', onSelect: onClose }],
+    [onClose]
+  )
+
   if (!sprintEngineState) {
     return (
-      <WorkspacePanel
-        title="Run Summary"
-        subtitle="Sprint Engine state is not available for this workspace."
-        titleId="sprintengine-run-summary-title"
-        onClose={onClose}
-        closeLabel="Close run summary"
+      <section
+        aria-labelledby={TITLE_ID}
+        className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
       >
-        <div className="border-l-2 border-[#303139] pl-3 text-[13px] leading-6 text-[#9a9aa2]">
-          Open a Sprint Engine workspace to see its run summary.
+        <div className="relative shrink-0 bg-[color:var(--bg-surface)]">
+          <PanelHeader
+            tool="sprintengine"
+            title="Run summary"
+            titleId={TITLE_ID}
+            subtitle="Sprint Engine state is not available for this workspace."
+            overflow={<OverflowMenu ariaLabel="Run summary overflow" items={overflowItems} />}
+          />
         </div>
-      </WorkspacePanel>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[960px] px-5 py-5">
+            <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
+              Open a Sprint Engine workspace to see its run summary.
+            </div>
+          </div>
+        </div>
+      </section>
     )
   }
 
+  const metrics: DefinitionItem[] = [
+    {
+      id: 'tasks-done',
+      term: 'Tasks done',
+      description: (
+        <span className="tabular-nums">
+          {`${runSummary.completedTasks}/${runSummary.totalTasks}`}
+        </span>
+      ),
+    },
+    {
+      id: 'files-touched',
+      term: 'Files touched',
+      description: <span className="tabular-nums">{runSummary.touchedFiles.length}</span>,
+    },
+    {
+      id: 'commands',
+      term: 'Commands',
+      description: <span className="tabular-nums">{runSummary.commandsRan.length}</span>,
+    },
+    {
+      id: 'results',
+      term: 'Results',
+      description: <span className="tabular-nums">{runSummary.results.length}</span>,
+    },
+  ]
+
   return (
-    <WorkspacePanel
-      title="Run Summary"
-      subtitle={formatSprintEngineGoal(sprintEngineState.goal)}
-      titleId="sprintengine-run-summary-title"
-      onClose={onClose}
-      closeLabel="Close run summary"
-      contentClassName="w-full max-w-[960px] px-5 py-5"
+    <section
+      aria-labelledby={TITLE_ID}
+      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
     >
-      <div className="space-y-5 text-[13px] leading-6 text-[#d7d7dc]">
-        <div className="grid gap-x-6 gap-y-3 border-b border-[#1f2025] pb-5 sm:grid-cols-2 md:grid-cols-4">
-          <RunSummaryMeta label="Tasks Done" value={`${runSummary.completedTasks}/${runSummary.totalTasks}`} />
-          <RunSummaryMeta label="Files Touched" value={String(runSummary.touchedFiles.length)} />
-          <RunSummaryMeta label="Commands" value={String(runSummary.commandsRan.length)} />
-          <RunSummaryMeta label="Results" value={String(runSummary.results.length)} />
-        </div>
+      <div className="relative shrink-0 bg-[color:var(--bg-surface)]">
+        <PanelHeader
+          tool="sprintengine"
+          title="Run summary"
+          titleId={TITLE_ID}
+          subtitle={formatSprintEngineGoal(sprintEngineState.goal)}
+          overflow={<OverflowMenu ariaLabel="Run summary overflow" items={overflowItems} />}
+        />
+      </div>
 
-        <RunSummarySection title="Completed Tasks" items={runSummary.taskSummaries} emptyLabel="No completed tasks recorded." />
-        <RunSummarySection title="Agent Feedback" items={runSummary.feedbackSummaries} emptyLabel="No agent feedback recorded." />
-        <RunSummarySection title="Prompt Improvement Signals" items={runSummary.promptImprovementSignals} emptyLabel="No prompt improvement signals recorded." />
-        <RunSummarySection title="Role Findings" items={runSummary.findingSummaries} emptyLabel="No role findings recorded." />
-        <RunSummarySection title="Touched Files" items={runSummary.touchedFiles} emptyLabel="No touched files recorded." />
-        <RunSummarySection title="Commands Run" items={runSummary.commandsRan} emptyLabel="No commands recorded." />
-        <RunSummarySection title="Validation Results" items={runSummary.results} emptyLabel="No validation results recorded." />
-        <RunSummarySection title="Remaining Questions" items={runSummary.openQuestions} emptyLabel="No open questions remain." />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[960px] px-5 py-5">
+          <div className="border-b border-[color:var(--border-default)] pb-4">
+            <DefinitionList items={metrics} layout="two-column" />
+          </div>
 
-        <div className="border-l-2 border-[#ffbf2f]/70 bg-[#151106] px-3 py-2 text-[13px] leading-6 text-[#ffe0a3]">
-          Next step: manually test the uncommitted changes in the workspace before committing or reverting.
+          <RunSummarySection
+            title="Completed tasks"
+            items={runSummary.taskSummaries}
+            emptyLabel="No completed tasks recorded."
+          />
+          <RunSummarySection
+            title="Agent feedback"
+            items={runSummary.feedbackSummaries}
+            emptyLabel="No agent feedback recorded."
+          />
+          <RunSummarySection
+            title="Prompt improvement signals"
+            items={runSummary.promptImprovementSignals}
+            emptyLabel="No prompt improvement signals recorded."
+          />
+          <RunSummarySection
+            title="Role findings"
+            items={runSummary.findingSummaries}
+            emptyLabel="No role findings recorded."
+          />
+          <RunSummarySection
+            title="Touched files"
+            items={runSummary.touchedFiles}
+            emptyLabel="No touched files recorded."
+          />
+          <RunSummarySection
+            title="Commands run"
+            items={runSummary.commandsRan}
+            emptyLabel="No commands recorded."
+          />
+          <RunSummarySection
+            title="Validation results"
+            items={runSummary.results}
+            emptyLabel="No validation results recorded."
+          />
+          <RunSummarySection
+            title="Remaining questions"
+            items={runSummary.openQuestions}
+            emptyLabel="No open questions remain."
+          />
+
+          <div className="mt-2 border-l-2 border-[color:var(--tone-warn)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[13px] leading-6 text-[color:var(--tone-warn)]">
+            Next step: manually test the uncommitted changes in the workspace before committing or
+            reverting.
+          </div>
         </div>
       </div>
-    </WorkspacePanel>
-  )
-}
-
-function RunSummaryMeta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] uppercase tracking-[0.14em] text-[#5a5a63]">{label}</div>
-      <div className="mt-1 font-medium tabular-nums text-[#ececee] [overflow-wrap:anywhere]">{value}</div>
-    </div>
+    </section>
   )
 }
 
@@ -90,20 +170,22 @@ function RunSummarySection({
   emptyLabel: string
 }) {
   return (
-    <div>
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">{title}</div>
+    <Section title={title} count={items.length > 0 ? items.length : undefined} level={3} inset>
       {items.length > 0 ? (
-        <ul className="space-y-1.5 text-[#d7d7dc]">
+        <ul className="space-y-1.5 text-[13px] leading-6 text-[color:var(--text-default)]">
           {items.map((item) => (
             <li key={item} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
-              <span className="mt-[0.65rem] h-1 w-1 rounded-full bg-[#5a5a63]" aria-hidden="true" />
+              <span
+                aria-hidden="true"
+                className="mt-[0.65rem] inline-block h-1 w-1 shrink-0 rounded-full bg-[color:var(--text-disabled)]"
+              />
               <span className="[overflow-wrap:anywhere]">{item}</span>
             </li>
           ))}
         </ul>
       ) : (
-        <div className="text-[12px] text-[#5a5a63]">{emptyLabel}</div>
+        <div className="text-[12px] text-[color:var(--text-disabled)]">{emptyLabel}</div>
       )}
-    </div>
+    </Section>
   )
 }

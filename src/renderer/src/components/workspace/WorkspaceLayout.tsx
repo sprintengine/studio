@@ -121,7 +121,7 @@ function sprintEngineRoleTabClass(role: SprintEngineRole): string {
 
 function PanelLoadingFallback() {
   return (
-    <div className="flex h-full items-center justify-center bg-[#08090b] text-[12px] font-mono text-[#6f7078]">
+    <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-[12px] font-mono text-[color:var(--text-subtle)]">
       <span className="flex items-center gap-3">
         <MulticodeSpinner className="h-8 w-8" />
         <span>Loading panel...</span>
@@ -172,7 +172,7 @@ function renderTerminalRecencyIndicator(
   if (isSessionWorking(session)) {
     return (
       <span
-        className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#30d158]"
+        className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--tone-good)]"
         title="Working"
         aria-label="Working"
       />
@@ -181,7 +181,7 @@ function renderTerminalRecencyIndicator(
   if (isSessionFailed(session)) {
     return (
       <span
-        className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ff787c]"
+        className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--tone-error)]"
         title="Failed"
         aria-label="Failed"
       />
@@ -192,7 +192,7 @@ function renderTerminalRecencyIndicator(
   const label = tabRecencyLabel(recency.source)
   return (
     <span
-      className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[#6f7078]"
+      className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[color:var(--text-subtle)]"
       title={`${label} ${formatRelativeMsAgo(recency.at, now)} (${new Date(recency.at).toLocaleString()})`}
       aria-label={`${label} ${formatRelativeMsAgo(recency.at, now)}`}
     >
@@ -366,7 +366,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         case 'file-editor':
           return config?.filePath
             ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)
-            : <div className="h-full bg-[#08090b]" />
+            : <div className="h-full bg-[color:var(--bg-app)]" />
         case 'explorer':
           return <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />
         case 'content-search':
@@ -382,7 +382,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
                 filePath={config.filePath}
               />
             ))
-            : <div className="h-full bg-[#08090b]" />
+            : <div className="h-full bg-[color:var(--bg-app)]" />
         case 'terminal':
           return wrapWithHighlight(timedPanel('PlainTerminalPanel', (
             <PlainTerminalPanel
@@ -429,7 +429,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             />
           )
         default:
-          return <div className="h-full bg-[#08090b]" />
+          return <div className="h-full bg-[color:var(--bg-app)]" />
       }
     },
     [onStartFuturePlan, workspaceId]
@@ -705,7 +705,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           <span className="inline-flex min-w-0 items-center gap-1">
             {tabContent}
             {file?.isDirty && (
-              <span className="shrink-0 text-[#f2c45f]" aria-label="Unsaved changes" title="Unsaved changes">
+              <span className="shrink-0 text-[color:var(--tone-warn)]" aria-label="Unsaved changes" title="Unsaved changes">
                 •
               </span>
             )}
@@ -749,7 +749,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           renderValues.leading = (
             <span
               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
-                isWatchtower ? 'text-[#d97757]' : 'text-[#a78bfa]'
+                isWatchtower ? 'text-[color:var(--tool-watchtower)]' : 'text-[color:var(--tool-switchboard)]'
               }`}
               title={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
               aria-label={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
@@ -762,7 +762,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           renderValues.leading = (
             <span
               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
-                'text-[#ffbf2f]'
+                'text-[color:var(--tool-sprintengine)]'
               }`}
               title='Sprint Engine panel'
               aria-label='Sprint Engine panel'
@@ -797,7 +797,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       if (specialist) {
         renderValues.leading = (
           <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[#9a9aa2]"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[color:var(--text-muted)]"
             title={`${specialist.shortLabel} specialist`}
             aria-label={`${specialist.shortLabel} specialist`}
           >
@@ -839,7 +839,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const recencyIndicator = agentRecency !== null
         ? (
             <span
-              className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[#6f7078]"
+              className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[color:var(--text-subtle)]"
               title={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)} (${new Date(agentRecency.at).toLocaleString()})`}
               aria-label={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)}`}
             >

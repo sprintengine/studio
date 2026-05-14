@@ -48,6 +48,8 @@ const EXCLUDED_DIRS = new Set(['__preview__', 'node_modules', 'dist', 'out'])
 // Canonical primitive paths. Detection rules below honour them.
 const TASKCARD_PATH = 'src/renderer/src/components/ui/TaskCard.tsx'
 const STATUSDOT_PATH = 'src/renderer/src/components/ui/StatusDot.tsx'
+// Memory graph atmosphere exception: pinned to exactly this canvas file per
+// knowledge/brand/aesthetic-north-star.md memory-graph exception.
 const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas.tsx'
 
 // Native <select> allow-list. Each entry MUST carry a comment pointing to

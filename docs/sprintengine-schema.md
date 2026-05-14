@@ -43,7 +43,11 @@ field order.
 - `status`: one of `todo`, `in_progress`, `needs_input`, `done`.
 - `ownerAgentId`: agent id currently responsible for active work, or null.
 - `dependsOn`: task ids that must be done before this task is ready.
-- `ownedPaths`: project-relative file or directory paths owned by the task.
+- `ownedPaths`: project-relative file or directory paths that define the
+  task's primary edit surface and collision boundary. Workers should prefer
+  these paths, but small directly required companion edits may be logged as
+  evidence scope expansions when they are needed for correctness, integration,
+  type safety, tests, or cleaner structure.
 - `acceptanceCriteria`: behavior that must be proven before completion.
 - `implementationNotes`: task-scoped guidance.
 - `evidence`: summary, touched files, commands, and results.
@@ -72,6 +76,8 @@ policies stay outside the core schema.
 - `touchedFiles`
 - `commandsRan`
 - `results`
+- `scopeExpansions`: optional structured records for touched files outside
+  `ownedPaths`, each with `path`, `reason`, and optional `risk`.
 
 `SprintReport` is the export payload for read/status/report commands:
 

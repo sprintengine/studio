@@ -132,24 +132,14 @@ export function Field({ label, hint, children }: FieldProps) {
 
 type ButtonVariant = 'primary' | 'ghost' | 'danger'
 
-// ModalAccent values are retained for type compatibility with the 5 remaining
-// consumer call sites (`accent="violet" | "copper" | "gold"`). Per the
-// app-wide audit plan §4 one-accent restraint, every variant now renders the
-// canonical product accent (`--accent-primary`). The architect should schedule
-// a follow-up task to remove the now-redundant `accent` prop from those
-// consumers; see
-// .multi-code/sprintengine/2026-05-13-app-wide-linear-grade-audit-v3/reviews/modal-hex-audit.md.
-export type ModalAccent = 'brand' | 'violet' | 'copper' | 'gold'
-
 type ModalButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant
-  accent?: ModalAccent
 }
 
 const PRIMARY_STYLES =
   'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)] hover:bg-[color:var(--accent-primary-hover)] disabled:hover:bg-[color:var(--accent-primary)]'
 
-export function ModalButton({ variant = 'ghost', accent: _accent, className, ...rest }: ModalButtonProps) {
+export function ModalButton({ variant = 'ghost', className, ...rest }: ModalButtonProps) {
   const base =
     'rounded-md px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-45'
   const styles: Record<ButtonVariant, string> = {

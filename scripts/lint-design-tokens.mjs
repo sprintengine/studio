@@ -70,10 +70,11 @@ const PATH_EXEMPTIONS = [
     rules: ['no-inline-hex'],
   },
   {
-    // (b) Memory graph atmosphere: graph node-type palette plus direct
-    // canvas fillStyle calls. Paint colors, not chrome tokens.
+    // (b) Memory graph atmosphere: graph node-type palette plus direct canvas
+    // paint colors, and the single canvas-scoped radial background var. Pinned
+    // to knowledge/brand/aesthetic-north-star.md memory-graph exception.
     path: 'src/renderer/src/components/memory/MemoryGraphCanvas.tsx',
-    rules: ['no-inline-hex'],
+    rules: ['no-inline-hex', 'no-radial-gradient'],
   },
   {
     // (b) Memory graph atmosphere: GRAPH_PALETTE constant — paint colors for

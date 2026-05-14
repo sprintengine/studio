@@ -3,6 +3,7 @@ import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace'
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
+import { StatusDot, type Tone } from '../ui'
 
 type WorktreeMessage = {
   tone: 'neutral' | 'error' | 'success'
@@ -89,11 +90,18 @@ function branchLabel(row: WorktreeRow): string {
 }
 
 function rowStatusLabel(row: WorktreeRow): string {
-  if (row.missing) return 'MISSING'
-  if (row.prunable) return 'PRUNABLE'
-  if (row.locked) return 'LOCKED'
-  if (row.dirtyCount && row.dirtyCount > 0) return `DIRTY ${row.dirtyCount}`
-  return 'CLEAN'
+  if (row.missing) return 'Missing'
+  if (row.prunable) return 'Prunable'
+  if (row.locked) return 'Locked'
+  if (row.dirtyCount && row.dirtyCount > 0) return `Dirty ${row.dirtyCount}`
+  return 'Clean'
+}
+
+function rowStatusTone(row: WorktreeRow): Tone {
+  if (row.missing || row.prunable) return 'error'
+  if (row.dirtyCount && row.dirtyCount > 0) return 'warn'
+  if (row.locked) return 'warn'
+  return 'good'
 }
 
 function messageFromResult<T>(result: GitWorktreeOperationResult<T>, success: string): WorktreeMessage {
@@ -361,33 +369,33 @@ export default function WorktreeManager({
 
   const formDisabled = Boolean(busy) || loading
   const contentOpen = mode === 'tab' || open
-  const sectionClassName = mode === 'tab' ? 'min-h-0' : 'mb-5 border-b border-[#1b1c21] pb-4'
+  const sectionClassName = mode === 'tab' ? 'min-h-0' : 'mb-5 border-b border-[color:var(--border-subtle)] pb-4'
 
   return (
     <section className={sectionClassName}>
       <div className="mb-2 flex h-7 items-center justify-between gap-2">
         {mode === 'tab' ? (
           <div className="flex min-w-0 items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Worktrees</span>
-            <span className="text-[10px] text-[#6f7480]">{rows.length}</span>
+            <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">Worktrees</span>
+            <span className="text-[10px] text-[color:var(--text-subtle)]">{rows.length}</span>
           </div>
         ) : (
           <button
             type="button"
             onClick={() => setOpen((current) => !current)}
-            className="group flex min-w-0 items-center gap-1.5 rounded-md pr-2 text-left focus:outline-none focus:ring-1 focus:ring-[#303139]"
+            className="group flex min-w-0 items-center gap-1.5 rounded-md pr-2 text-left focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)]"
             aria-expanded={open}
           >
             <svg
               viewBox="0 0 12 12"
               aria-hidden="true"
-              className={`h-3 w-3 shrink-0 text-[#838896] transition-transform group-hover:text-[#d7d7dc] ${open ? 'rotate-90' : ''}`}
+              className={`h-3 w-3 shrink-0 text-[color:var(--text-subtle)] transition-transform group-hover:text-[color:var(--text-default)] ${open ? 'rotate-90' : ''}`}
               fill="none"
             >
               <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Worktrees</span>
-            <span className="text-[10px] text-[#6f7480]">{rows.length}</span>
+            <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">Worktrees</span>
+            <span className="text-[10px] text-[color:var(--text-subtle)]">{rows.length}</span>
           </button>
         )}
         <div className="flex shrink-0 items-center gap-1">
@@ -395,7 +403,7 @@ export default function WorktreeManager({
             type="button"
             onClick={() => void refreshWorktrees()}
             disabled={formDisabled}
-            className="h-6 rounded-md px-2 text-[11px] font-semibold text-[#8a8a92] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:opacity-35"
+            className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
           >
             Refresh
           </button>
@@ -403,7 +411,7 @@ export default function WorktreeManager({
             type="button"
             onClick={() => void handlePrune()}
             disabled={formDisabled}
-            className="h-6 rounded-md px-2 text-[11px] font-semibold text-[#8a8a92] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:opacity-35"
+            className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
           >
             Prune
           </button>
@@ -418,20 +426,20 @@ export default function WorktreeManager({
               onChange={(event) => setWorktreeName(event.target.value)}
               disabled={formDisabled}
               placeholder="worktree name"
-              className="h-8 min-w-0 rounded-md border border-[#1f2025] bg-[#090a0c] px-2 text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#3a3d49] disabled:opacity-50"
+              className="h-8 min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-strong)] disabled:opacity-50"
             />
             <input
               value={branchName}
               onChange={(event) => setBranchName(event.target.value)}
               disabled={formDisabled}
               placeholder="branch"
-              className="h-8 min-w-0 rounded-md border border-[#1f2025] bg-[#090a0c] px-2 font-mono text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] focus:border-[#3a3d49] disabled:opacity-50"
+              className="h-8 min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-strong)] disabled:opacity-50"
             />
             <select
               value={baseRef}
               onChange={(event) => setBaseRef(event.target.value)}
               disabled={formDisabled}
-              className="h-8 min-w-0 rounded-md border border-[#1f2025] bg-[#090a0c] px-2 font-mono text-[12px] text-[#ececee] outline-none focus:border-[#3a3d49] disabled:opacity-50"
+              className="h-8 min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 font-mono text-[12px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)] disabled:opacity-50"
               aria-label="Worktree base ref"
             >
               <option value="HEAD">HEAD</option>
@@ -445,26 +453,26 @@ export default function WorktreeManager({
               type="button"
               onClick={() => void handleCreate()}
               disabled={formDisabled || !worktreeName.trim() || !branchName.trim()}
-              className="h-8 rounded-md border border-[#3a3d49] bg-[#ececee] px-3 text-[11px] font-semibold text-[#111216] transition-colors hover:bg-white focus:outline-none focus:ring-1 focus:ring-[#8a8f9b] disabled:border-[#24252b] disabled:bg-[#15161a] disabled:text-[#5a5a63]"
+              className="h-8 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-[11px] font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-white focus:outline-none focus:ring-1 focus:ring-[color:var(--text-muted)] disabled:border-[color:var(--border-subtle)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)]"
             >
               Create
             </button>
           </div>
 
-          <label className="mb-3 flex w-fit items-center gap-2 text-[11px] text-[#6f7480]">
+          <label className="mb-3 flex w-fit items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
             <input
               type="checkbox"
               checked={copyIncludedFiles}
               onChange={(event) => setCopyIncludedFiles(event.target.checked)}
               disabled={formDisabled}
-              className="h-3.5 w-3.5 accent-[#6366f1]"
+              className="h-3.5 w-3.5 accent-[color:var(--accent-primary)]"
             />
             Copy .worktreeinclude files
           </label>
 
           <div className="overflow-x-auto">
             <div className="min-w-[720px]">
-              <div className="grid grid-cols-[minmax(130px,0.8fr)_minmax(180px,1.4fr)_90px_90px_220px] gap-2 border-b border-[#1b1c21] px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#5a5a63]">
+              <div className="grid grid-cols-[minmax(130px,0.8fr)_minmax(180px,1.4fr)_90px_90px_220px] gap-2 border-b border-[color:var(--border-subtle)] px-2 pb-1 text-[11px] font-medium text-[color:var(--text-muted)]">
                 <span>Branch</span>
                 <span>Path</span>
                 <span>Status</span>
@@ -472,9 +480,9 @@ export default function WorktreeManager({
                 <span className="text-right">Actions</span>
               </div>
               {loading ? (
-                <div className="px-2 py-3 text-[11px] text-[#6f7480]">Loading worktrees...</div>
+                <div className="px-2 py-3 text-[11px] text-[color:var(--text-subtle)]">Loading worktrees...</div>
               ) : rows.length === 0 ? (
-                <div className="px-2 py-3 text-[11px] text-[#6f7480]">No worktrees reported by Git.</div>
+                <div className="px-2 py-3 text-[11px] text-[color:var(--text-subtle)]">No worktrees reported by Git.</div>
               ) : (
                 rows.map((row) => {
                   const ownerName = row.ownerAgentId ? workspace?.agents[row.ownerAgentId]?.name ?? row.ownerAgentId : '-'
@@ -483,32 +491,27 @@ export default function WorktreeManager({
                   return (
                     <div
                       key={`${row.id}:${row.path}`}
-                      className="grid min-h-[34px] grid-cols-[minmax(130px,0.8fr)_minmax(180px,1.4fr)_90px_90px_220px] items-center gap-2 border-b border-[#15161a] px-2 py-1.5 text-[12px] text-[#9a9aa2]"
+                      className="grid min-h-[34px] grid-cols-[minmax(130px,0.8fr)_minmax(180px,1.4fr)_90px_90px_220px] items-center gap-2 border-b border-[color:var(--bg-hover)] px-2 py-1.5 text-[12px] text-[color:var(--text-muted)]"
                     >
                       <div className="min-w-0">
-                        <div className="truncate font-mono text-[#d7d7dc]" title={branchLabel(row)}>
+                        <div className="truncate font-mono text-[color:var(--text-default)]" title={branchLabel(row)}>
                           {branchLabel(row)}
                         </div>
-                        {row.isMain ? <div className="text-[10px] text-[#6f7480]">main checkout</div> : null}
+                        {row.isMain ? <div className="text-[10px] text-[color:var(--text-subtle)]">main checkout</div> : null}
                       </div>
-                      <div className="truncate font-mono text-[11px] text-[#6f7480]" title={row.path}>
+                      <div className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]" title={row.path}>
                         {row.path}
                       </div>
                       <div className="min-w-0">
                         <span
-                          className={`inline-flex h-5 items-center rounded px-1.5 text-[10px] font-bold ${
-                            row.missing || row.prunable
-                              ? 'bg-[#2a1518] text-[#ff8a8e]'
-                              : row.dirtyCount
-                                ? 'bg-[#2a2414] text-[#f5c46b]'
-                                : 'bg-[#162419] text-[#8adf9a]'
-                          }`}
+                          className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-default)]"
                           title={row.lockedReason ?? row.prunableReason ?? undefined}
                         >
+                          <StatusDot tone={rowStatusTone(row)} label={rowStatusLabel(row)} />
                           {rowStatusLabel(row)}
                         </span>
                       </div>
-                      <div className="truncate text-[11px] text-[#6f7480]" title={ownerName}>
+                      <div className="truncate text-[11px] text-[color:var(--text-subtle)]" title={ownerName}>
                         {ownerName}
                       </div>
                       <div className="flex justify-end gap-1">
@@ -529,10 +532,10 @@ export default function WorktreeManager({
               role={message.tone === 'error' ? 'alert' : 'status'}
               className={`mt-2 rounded-md px-2 py-1.5 text-[11px] [overflow-wrap:anywhere] ${
                 message.tone === 'error'
-                  ? 'border border-[#713036] bg-[#311417] text-[#ff8a8e]'
+                  ? 'border border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
                   : message.tone === 'success'
-                    ? 'text-[#8a8f9b]'
-                    : 'bg-[#15161a] text-[#9a9aa2]'
+                    ? 'text-[color:var(--text-muted)]'
+                    : 'bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]'
               }`}
             >
               {message.text}
@@ -562,8 +565,8 @@ function WorktreeAction({
       disabled={disabled}
       className={`h-6 rounded-md px-2 text-[11px] font-semibold transition-colors focus:outline-none focus:ring-1 disabled:cursor-default disabled:opacity-30 ${
         danger
-          ? 'text-[#b97074] hover:bg-[#2a1518] hover:text-[#ff8a8e] focus:ring-[#713036]'
-          : 'text-[#8a8a92] hover:bg-[#1a1b20] hover:text-[#ececee] focus:ring-[#303139]'
+          ? 'text-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] focus:ring-[color:var(--tone-error)]'
+          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:ring-[color:var(--border-default)]'
       }`}
     >
       {label}

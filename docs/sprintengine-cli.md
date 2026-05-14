@@ -62,7 +62,7 @@ The canonical schema is documented in `docs/sprintengine-schema.md` and implemen
 Top-level state contains:
 
 - `run`: run id, name, goal, status, updated timestamp, and source metadata.
-- `tasks`: execution units with role, status, owner, dependencies, owned paths, acceptance criteria, implementation notes, evidence, learned facts, and blockers.
+- `tasks`: execution units with role, status, owner, dependencies, owned paths, acceptance criteria, implementation notes, evidence, learned facts, and blockers. Owned paths are the primary edit surface and collision boundary; small required companion edits should be captured as evidence scope expansions.
 - `artifacts`: reviewable task outputs with kind, status, path, review history, approvals, and recommendations.
 - `agents`: specialist execution slots.
 - `events`: append-only run history.
@@ -85,6 +85,7 @@ Swarm remains the compatibility consumer for Milestone 01. Continue using Swarm 
 ```bash
 scripts/swarm_tool.py task next --role developer --id developer-1
 scripts/swarm_tool.py task log --task-id T8 --id developer-1 --summary "Updated docs" --file docs/sprintengine-cli.md --command "pytest ..." --result "Passed"
+scripts/swarm_tool.py task log --task-id T8 --id developer-1 --scope-expansion-json '{"path":"tests/sprintengine_tool/test_task_lifecycle.py","reason":"regression coverage for the documented companion-edit evidence contract","risk":"low"}'
 scripts/swarm_tool.py task status --task-id T8 --status done --id developer-1
 ```
 

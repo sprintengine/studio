@@ -118,7 +118,7 @@ def task(
         "ownedPaths": owned_paths or [],
         "acceptanceCriteria": [],
         "implementationNotes": [],
-        "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": []},
+        "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": [], "scopeExpansions": []},
         "notes": [],
         "startedAt": None,
         "completedAt": None,

@@ -169,7 +169,10 @@ def worker_plan_worktree_block() -> str:
         "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
         "- Work in the current workspace directory used to launch this agent.",
         "- Do not create Sprint Engine worktrees.",
-        "- Edit only task-owned paths and log evidence before marking your task done.",
+        "- Treat task-owned paths as the primary edit surface and collision boundary.",
+        "- Prefer owned paths, but you may make small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure.",
+        "- Log every touched file. For files outside owned paths, also log a scope expansion with the path, reason, and risk.",
+        "- Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.",
         "- Do not merge or push.",
     ])
 
@@ -187,7 +190,10 @@ def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) ->
         f"- Work in the Sprint Engine run worktree `{worktree_path}` on branch `{branch}`.",
         f"- Shared Sprint Engine state remains `{project_relative_path(workspace_root_for_state_path(state_path), state_path)}`; mutate it only through the Sprint Engine tool.",
         "- Do not create additional Sprint Engine worktrees.",
-        "- Edit only task-owned paths and log evidence before marking your task done.",
+        "- Treat task-owned paths as the primary edit surface and collision boundary.",
+        "- Prefer owned paths, but you may make small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure.",
+        "- Log every touched file. For files outside owned paths, also log a scope expansion with the path, reason, and risk.",
+        "- Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.",
         "- Marking an implementation task done may commit dirty run-worktree changes through the Sprint Engine tool.",
         "- Do not merge or push unless you are explicitly running Sprint Engine finalization.",
     ])
@@ -1011,6 +1017,7 @@ def ensure_evidence(task: Dict[str, Any]) -> Dict[str, Any]:
     ev.setdefault("touchedFiles", [])
     ev.setdefault("commandsRan", [])
     ev.setdefault("results", [])
+    ev.setdefault("scopeExpansions", [])
     return ev
 
 
@@ -1122,6 +1129,34 @@ def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any
     return needs_input
 
 
+def normalize_scope_expansion(raw: Any, task_id: str, index: int) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise SystemExit(f"Task {task_id} evidence.scopeExpansions entries must be objects.")
+
+    path = str(raw.get("path") or "").strip()
+    if not path:
+        raise SystemExit(f"Task {task_id} evidence.scopeExpansions[{index}].path cannot be empty.")
+    reject_absolute_path_values([path], f"Task {task_id} evidence.scopeExpansions[{index}].path")
+
+    reason = str(raw.get("reason") or "").strip()
+    if not reason:
+        raise SystemExit(f"Task {task_id} evidence.scopeExpansions[{index}].reason cannot be empty.")
+
+    expansion = {"path": path, "reason": reason}
+    risk = str(raw.get("risk") or "").strip()
+    if risk:
+        expansion["risk"] = risk
+    return expansion
+
+
+def normalize_scope_expansions(raw: Any, task_id: str) -> List[Dict[str, Any]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise SystemExit(f"Task {task_id} evidence.scopeExpansions must be a list.")
+    return [normalize_scope_expansion(entry, task_id, index) for index, entry in enumerate(raw)]
+
+
 def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         raise SystemExit("Each task must be an object.")
@@ -1154,6 +1189,7 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
             "touchedFiles": [str(i).strip() for i in ev.get("touchedFiles", []) if str(i).strip()],
             "commandsRan": [str(i).strip() for i in ev.get("commandsRan", []) if str(i).strip()],
             "results": [str(i).strip() for i in ev.get("results", []) if str(i).strip()],
+            "scopeExpansions": normalize_scope_expansions(ev.get("scopeExpansions"), task_id),
         },
         "notes": [str(i).strip() for i in raw.get("notes", []) if str(i).strip()],
         "startedAt": raw.get("startedAt") or None,
@@ -1206,7 +1242,7 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         "ownedPaths": getattr(args, "path", None) or [],
         "acceptanceCriteria": getattr(args, "acceptance", None) or [],
         "implementationNotes": getattr(args, "note", None) or [],
-        "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": []},
+        "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": [], "scopeExpansions": []},
         "notes": getattr(args, "task_note", None) or [],
         "startedAt": None,
         "completedAt": None,
@@ -1262,6 +1298,32 @@ def add_unique_values(task: Dict[str, Any], key: str, values: List[str]) -> List
         existing.append(item)
         seen.add(item)
         added.append(item)
+    return added
+
+
+def add_unique_scope_expansions(evidence: Dict[str, Any], expansions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    existing = evidence.setdefault("scopeExpansions", [])
+    seen = {
+        (
+            str(item.get("path") or ""),
+            str(item.get("reason") or ""),
+            str(item.get("risk") or ""),
+        )
+        for item in existing
+        if isinstance(item, dict)
+    }
+    added = []
+    for expansion in expansions:
+        key = (
+            str(expansion.get("path") or ""),
+            str(expansion.get("reason") or ""),
+            str(expansion.get("risk") or ""),
+        )
+        if key in seen:
+            continue
+        existing.append(expansion)
+        seen.add(key)
+        added.append(expansion)
     return added
 
 
@@ -1442,6 +1504,17 @@ def parse_feedback_finding_args(args: argparse.Namespace, task_id: str) -> List[
             raise SystemExit(f"--finding-json must be valid JSON: {exc.msg}") from exc
         findings.append(normalize_feedback_finding(raw, task_id, index))
     return findings
+
+
+def parse_scope_expansion_args(args: argparse.Namespace, task_id: str) -> List[Dict[str, Any]]:
+    expansions: List[Dict[str, Any]] = []
+    for index, raw_json in enumerate(getattr(args, "scope_expansion_json", None) or []):
+        try:
+            raw = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"--scope-expansion-json must be valid JSON: {exc.msg}") from exc
+        expansions.append(normalize_scope_expansion(raw, task_id, index))
+    return expansions
 
 
 def parse_feedback_args(args: argparse.Namespace) -> Dict[str, Any]:
@@ -1988,7 +2061,7 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
                 "Artifact is reviewed by the user and either approved to done or sent back for changes.",
             ],
             "implementationNotes": implementation_notes,
-            "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": []},
+            "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": [], "scopeExpansions": []},
             "notes": [],
             "startedAt": None,
             "completedAt": None,
@@ -2075,7 +2148,7 @@ def ensure_plan_approval_gate(
                 "Plan is reviewed by the user and either approved to done or sent back for changes.",
             ],
             "implementationNotes": [],
-            "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": []},
+            "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": [], "scopeExpansions": []},
             "notes": [],
             "startedAt": now_iso() if start_active else None,
             "completedAt": None,
@@ -2396,6 +2469,7 @@ def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
     completed = [t for t in tasks if t.get("status") == "done"]
     touched_files: List[Any] = []
     commands_ran: List[Any] = []
+    scope_expansions: List[Dict[str, Any]] = []
     results: List[str] = []
     task_summaries = []
     open_questions: List[str] = []
@@ -2411,6 +2485,14 @@ def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
         })
         touched_files.extend(ev.get("touchedFiles", []))
         commands_ran.extend(ev.get("commandsRan", []))
+        for expansion in ev.get("scopeExpansions", []):
+            if isinstance(expansion, dict):
+                scope_expansions.append({
+                    "taskId": t.get("id"),
+                    "path": expansion.get("path"),
+                    "reason": expansion.get("reason"),
+                    "risk": expansion.get("risk", ""),
+                })
         results.extend(f"{t.get('id')}: {r}" for r in ev.get("results", []) if isinstance(r, str))
 
     for t in tasks:
@@ -2425,6 +2507,7 @@ def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
         "tasks": {"total": len(tasks), "completed": len(completed), "remaining": max(0, len(tasks) - len(completed))},
         "touchedFiles": unique_strings(touched_files),
         "commandsRan": unique_strings(commands_ran),
+        "scopeExpansions": scope_expansions,
         "results": results,
         "completedTasks": task_summaries,
         "openQuestions": open_questions,
@@ -2538,8 +2621,6 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
             "actor": args.actor,
             "message": f"{args.actor} registered root handoff artifact {source_artifact['id']}.",
         })
-    if getattr(args, "use_worktrees", False):
-        ensure_run_worktree(initial, state_path)
     save_state(state_path, initial)
 
     init_command = f"sprintengine --state {json.dumps(str(state_path))} init"
@@ -2581,13 +2662,9 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             "roles": {},
         }
         save_state(state_path, initial)
-        if getattr(args, "use_worktrees", False):
-            with_locked_state(state_path, lambda state: {"ok": True, "vcs": ensure_run_worktree(state, state_path)})
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         apply_agent_specs(state, getattr(args, "agent", None))
-        if getattr(args, "use_worktrees", False):
-            ensure_run_worktree(state, state_path)
         sprintengine = state.setdefault("sprintengine", {})
         if not sprintengine.get("name"):
             sprintengine["name"] = default_name
@@ -3092,6 +3169,7 @@ def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
         if getattr(args, "summary", None):
             ev["summary"] = args.summary
         add_unique_values(ev, "touchedFiles", args.file or [])
+        add_unique_scope_expansions(ev, parse_scope_expansion_args(args, args.task_id))
         ev["commandsRan"].extend(args.command or [])
         ev["results"].extend(args.result or [])
         event = append_event(state, "task_evidence_appended", args.id, f"{args.id} logged evidence for {args.task_id}.")
@@ -3523,6 +3601,7 @@ Task commands:
   sprintengine task status --task-id T3 --status needs_input --id developer-1 --needs-input-kind architect --needs-input-question "Acceptance conflicts with scoped paths"
   sprintengine task status --task-id T3 --status done --id developer-1 --confidence-pct 85 --hallucination-risk-pct 10
   sprintengine task log    --task-id T3 --id developer-1 --summary "..." --file src/foo.ts --command "npm test" --result "Passed"
+  sprintengine task log    --task-id T3 --id developer-1 --scope-expansion-json '{"path":"src/foo.test.ts","reason":"colocated regression test required for changed helper","risk":"low"}'
   sprintengine task note   --task-id T3 --id developer-1 --note "Blocked on X"
   sprintengine task list   --role developer
 
@@ -3726,6 +3805,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--file", action="append", metavar="PATH")
     p.add_argument("--command", action="append", metavar="CMD")
     p.add_argument("--result", action="append", metavar="RESULT")
+    p.add_argument(
+        "--scope-expansion-json",
+        action="append",
+        help='Repeatable JSON object for a justified touched file outside ownedPaths, e.g. {"path":"src/foo.test.ts","reason":"needed colocated regression test","risk":"low"}.',
+    )
     p.set_defaults(handler=cmd_task_log)
 
     p = task_sub.add_parser("note", help="Add a freeform note to a task.")

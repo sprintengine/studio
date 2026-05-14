@@ -181,6 +181,7 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "file": args.file or [],
             "command": args.command or [],
             "result": args.result or [],
+            "scopeExpansionJson": args.scope_expansion_json or [],
         }
     if action == "note":
         return "sprintengine.task.note", {**base, "taskId": args.task_id, "id": args.id, "note": args.note}

@@ -80,6 +80,9 @@ def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> No
             "file": ["sprintengine_mcp/server.py"],
             "command": ["pytest tests/sprintengine_tool/test_mcp_server.py"],
             "result": ["passed"],
+            "scopeExpansionJson": [
+                '{"path":"tests/sprintengine_tool/test_mcp_server.py","reason":"MCP regression test for companion evidence","risk":"low; test-only"}'
+            ],
         },
         actor("workspace-user", "user"),
     )
@@ -91,6 +94,13 @@ def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> No
     task_record = get_task(state, "T1")
     assert task_record["ownerAgentId"] == "developer-a"
     assert task_record["evidence"]["summary"] == "Implemented local MCP boundary"
+    assert task_record["evidence"]["scopeExpansions"] == [
+        {
+            "path": "tests/sprintengine_tool/test_mcp_server.py",
+            "reason": "MCP regression test for companion evidence",
+            "risk": "low; test-only",
+        }
+    ]
     rows = audit_rows(fixture.team_dir)
     assert [row["operation_name"] for row in rows] == ["sprintengine.task.next", "sprintengine.task.log"]
     assert rows[0]["actor"] == "workspace-user"

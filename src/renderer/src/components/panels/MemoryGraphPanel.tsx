@@ -9,11 +9,9 @@ import {
   MemoryGraphTooltip,
 } from '../memory/MemoryGraphHud'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
+import { StatusDot } from '../ui'
 
 type CursorPoint = { x: number; y: number }
-
-const PANEL_BG = 'rgba(10, 10, 30, 0.85)'
-const PANEL_BORDER = '1px solid rgba(255, 255, 255, 0.08)'
 
 export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string }) {
   const workspaceFolderPath = useWorkspaceStore((s) =>
@@ -220,23 +218,19 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
   return (
     <div
       ref={containerRef}
-      className="relative flex h-full flex-col overflow-hidden"
-      style={{ background: '#0a0a1a', color: '#e0e0e0' }}
+      className="relative flex h-full flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
     >
-      {/* Floating top bar — glassmorphism, sits over the canvas. */}
+      {/* Floating top bar sits over the canvas without owning atmosphere. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-end gap-2 p-3">
         <div
-          className="pointer-events-auto flex items-center gap-1.5 rounded-lg p-1"
+          className="pointer-events-auto flex items-center gap-1.5 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]/85 p-1 backdrop-blur-md"
           style={{
-            background: PANEL_BG,
-            border: PANEL_BORDER,
-            backdropFilter: 'blur(12px)',
             WebkitBackdropFilter: 'blur(12px)',
           }}
         >
           <div className="relative">
             <span
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-white/45"
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[color:var(--text-disabled)]"
               aria-hidden
             >
               ⌕
@@ -246,12 +240,10 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search notes…"
-              className="h-8 w-64 rounded-md bg-transparent pl-7 pr-7 text-xs text-white placeholder-white/40 outline-none transition-colors"
-              style={{ border: '1px solid rgba(255,255,255,0.12)' }}
+              className="h-8 w-64 rounded-[5px] border border-[color:var(--border-strong)] bg-transparent pl-7 pr-7 text-xs text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             />
             <kbd
-              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded px-1 py-0.5 font-mono text-[10px] text-white/45"
-              style={{ background: 'rgba(255,255,255,0.06)' }}
+              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded-[3px] bg-[color:var(--bg-surface-raised)] px-1 py-0.5 font-mono text-[10px] text-[color:var(--text-disabled)]"
             >
               /
             </kbd>
@@ -259,7 +251,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
           <button
             type="button"
             onClick={() => void loadGraph()}
-            className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-white/75 transition-colors hover:bg-white/10 hover:text-white"
+            className="flex h-8 items-center gap-1.5 rounded-[5px] px-2.5 text-xs text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             title="Refresh index"
             aria-label="Refresh knowledge index"
           >
@@ -360,8 +352,7 @@ function MemoryNotice({
         <div className="text-sm font-semibold text-white">{title}</div>
         {tone === 'error' ? (
           <div
-            className="mx-auto mt-3 max-w-md rounded px-3 py-2 text-left font-mono text-[11px] text-white/65"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+            className="mx-auto mt-3 max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-left font-mono text-[11px] text-[color:var(--text-muted)]"
           >
             {message}
           </div>
@@ -378,11 +369,7 @@ function LoadingOverlay() {
   return (
     <div className="flex h-full w-full items-center justify-center">
       <div className="flex items-center gap-3 text-xs text-white/60">
-        <span
-          className="h-3 w-3 animate-pulse rounded-full"
-          style={{ background: '#69f0ae', boxShadow: '0 0 12px #69f0ae' }}
-          aria-hidden
-        />
+        <StatusDot tone="good" pulse size={8} />
         <span>Indexing knowledge…</span>
       </div>
     </div>
@@ -395,11 +382,7 @@ function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus })
   //   - Tracking idle: installed and watching but nothing's happened recently.
   //   - Tracking live: a recent event landed; pulse the indicator.
   const isLive = status.lastEventAt !== null && Date.now() - status.lastEventAt < 5000
-  const dotColor = !status.isInstalled
-    ? 'rgba(255,255,255,0.35)'
-    : isLive
-      ? '#22d3ee'
-      : '#69f0ae'
+  const dotTone = !status.isInstalled ? 'neutral' : isLive ? 'accent' : 'good'
   const labelTone = status.isInstalled ? 'text-white/75' : 'text-white/45'
 
   return (
@@ -409,22 +392,12 @@ function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus })
       aria-live="polite"
     >
       <div
-        className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px]"
+        className="flex items-center gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]/85 px-2.5 py-1.5 text-[11px] backdrop-blur-md"
         style={{
-          background: 'rgba(10, 10, 30, 0.78)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          backdropFilter: 'blur(10px)',
           WebkitBackdropFilter: 'blur(10px)',
         }}
       >
-        <span
-          className={`h-2 w-2 rounded-full ${isLive ? 'animate-pulse' : ''}`}
-          style={{
-            background: dotColor,
-            boxShadow: status.isInstalled ? `0 0 8px ${dotColor}` : 'none',
-          }}
-          aria-hidden
-        />
+        <StatusDot tone={dotTone} pulse={isLive} />
         {!status.isInstalled ? (
           <span className={labelTone}>Activity tracking off</span>
         ) : (

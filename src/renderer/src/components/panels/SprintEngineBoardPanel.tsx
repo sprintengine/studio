@@ -2101,7 +2101,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  </ModalButton>
  <ModalButton
  variant="primary"
- accent="gold"
  onClick={confirmRecoveryAudit}
  disabled={!folderPath || !architectAgentId}
  >
@@ -2275,7 +2274,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  >
  Cancel
  </ModalButton>
- <ModalButton variant="primary" accent="gold" onClick={confirmSpawnDialog}>
+ <ModalButton variant="primary" onClick={confirmSpawnDialog}>
  {spawnDialogHasLiveTerminal ? 'Open Terminal' : 'Spawn'}
  </ModalButton>
  </ModalFooter>
@@ -2364,7 +2363,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  <ModalButton onClick={() => setAddMemberOpen(false)}>Cancel</ModalButton>
  <ModalButton
  variant="primary"
- accent="gold"
  onClick={() => void confirmAddMember()}
  >
  {sprintEngineState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {sprintEngineRoleLabels[addMemberRole]}
