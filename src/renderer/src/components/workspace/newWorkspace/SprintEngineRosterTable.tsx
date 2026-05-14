@@ -44,7 +44,7 @@ export function SprintEngineRosterTable({
   onSetCli,
 }: RosterTableProps) {
   return (
-    <div className="divide-y divide-[color:var(--border-default)] overflow-hidden rounded-md border border-[color:var(--border-default)]">
+    <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
       {sprintEngineRoleOrder.map((role) => {
         const isAdded = role === 'architect' || roleCounts[role] > 0
         const trailing = isAdded ? (
@@ -166,7 +166,7 @@ function CliPicker({
         value={value}
         onChange={(next) => onChange(role, next)}
         disabled={disabled}
-        className="w-[112px]"
+        className="w-[140px]"
       />
     </div>
   )

@@ -38,6 +38,13 @@ const MODE_STYLES: Record<CreationMode, ModeStyle> = {
     label: 'text-[color:var(--text-strong)]',
     iconColor: 'text-[color:var(--accent-primary)]',
   },
+  'guided-brief': {
+    border: 'border-[color:var(--accent-primary-soft-strong)]',
+    bg: 'bg-[color:var(--accent-primary-soft)]',
+    topAccent: 'bg-[color:var(--accent-primary)]',
+    label: 'text-[color:var(--text-strong)]',
+    iconColor: 'text-[color:var(--accent-primary)]',
+  },
 }
 
 const MODE_COPY: Record<CreationMode, { title: string; body: string }> = {
@@ -57,6 +64,24 @@ const MODE_COPY: Record<CreationMode, { title: string; body: string }> = {
     title: 'Multiloop',
     body: 'Roadmap, milestones, decisions, and evidence for long-running work.',
   },
+  'guided-brief': {
+    title: 'Guided brief',
+    body: 'Answer questions. We produce a brief, screens, and a build handoff before any code starts.',
+  },
+}
+
+function GuidedBriefIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5 6.25C5 5.42 5.67 4.75 6.5 4.75H17.5C18.33 4.75 19 5.42 19 6.25V13.75C19 14.58 18.33 15.25 17.5 15.25H10.75L7.5 18.5V15.25H6.5C5.67 15.25 5 14.58 5 13.75V6.25Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path d="M9 9.25H15M9 12H13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 interface ModeCardProps {
@@ -91,10 +116,16 @@ export function ModeCard({ mode, active, disabled = false, onSelect }: ModeCardP
         className={`absolute inset-x-0 top-0 h-[3px] ${active ? styles.topAccent : 'bg-transparent'}`}
       />
       <span className="flex items-center gap-2">
-        <WorkspaceTypeIcon
-          mode={mode}
-          className={`h-4 w-4 shrink-0 ${active ? styles.iconColor : 'text-[color:var(--text-muted)]'}`}
-        />
+        {mode === 'guided-brief' ? (
+          <GuidedBriefIcon
+            className={`h-4 w-4 shrink-0 ${active ? styles.iconColor : 'text-[color:var(--text-muted)]'}`}
+          />
+        ) : (
+          <WorkspaceTypeIcon
+            mode={mode}
+            className={`h-4 w-4 shrink-0 ${active ? styles.iconColor : 'text-[color:var(--text-muted)]'}`}
+          />
+        )}
         <span
           className={`text-[13px] font-semibold leading-4 ${
             active ? styles.label : 'text-[color:var(--text-strong)]'

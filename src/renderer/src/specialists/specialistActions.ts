@@ -192,6 +192,78 @@ export function buildSpecialistSoulStartupPrompt(action: SpecialistAction): stri
   ].join('\n')
 }
 
+export type GuidedBriefSpecialistKind = 'strategist' | 'designer'
+
+export type GuidedBriefSpecialistPromptInput =
+  | {
+      kind: 'strategist'
+      ideaSeedPath?: string
+      requirementsPath?: string
+      marker?: string
+    }
+  | {
+      kind: 'designer'
+      acceptedBriefSnapshotPath: string
+      inspirationDirectoryPath?: string
+      uiDirectionPath?: string
+      mockupPath?: string
+      marker?: string
+    }
+
+export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecialistPromptInput): string {
+  if (input.kind === 'strategist') {
+    const marker = input.marker ?? 'BRIEF_READY'
+    const ideaSeedPath = input.ideaSeedPath ?? 'product/idea-seed.md'
+    const requirementsPath = input.requirementsPath ?? 'product/requirements.md'
+
+    return [
+      'Fetch your Soul from the Souls CLI before doing any product strategy work.',
+      '',
+      '```bash',
+      'souls get product',
+      '```',
+      '',
+      'Treat the returned text as your role, judgment, and quality bar.',
+      '',
+      `Read \`${ideaSeedPath}\` before asking follow-up questions.`,
+      `Write the accepted product brief to \`${requirementsPath}\`.`,
+      `When and only when \`${requirementsPath}\` exists and is ready for user review, emit this exact marker on its own line:`,
+      '',
+      marker,
+      '',
+      'Do not create or mutate Sprint Engine state. This Guided brief flow hands off to Sprint Engine later.',
+      'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
+    ].join('\n')
+  }
+
+  const marker = input.marker ?? 'MOCKUP_SET_READY'
+  const inspirationDirectoryPath = input.inspirationDirectoryPath ?? '.guided-brief/inspiration'
+  const uiDirectionPath = input.uiDirectionPath ?? 'product/ui-direction.md'
+  const mockupPath = input.mockupPath ?? 'mockups/app.html'
+
+  return [
+    'Fetch your Soul from the Souls CLI before doing any frontend design work.',
+    '',
+    '```bash',
+    'souls get frontend',
+    '```',
+    '',
+    'Treat the returned text as your role, judgment, and quality bar.',
+    '',
+    `Read the accepted product brief snapshot at \`${input.acceptedBriefSnapshotPath}\` before designing.`,
+    `If the user references inspiration images as \`[attached: <relative-path>]\`, read those files from \`${inspirationDirectoryPath}\` through the existing CLI image-input path.`,
+    `Write UX direction to \`${uiDirectionPath}\`.`,
+    `Write the reviewable HTML mockup to \`${mockupPath}\`.`,
+    `When and only when \`${uiDirectionPath}\` and the mockup HTML exist and are ready for user review, emit this exact marker on its own line:`,
+    '',
+    marker,
+    '',
+    'Do not introduce a new agent runtime protocol. Use only normal terminal stdout/stdin, prompt instructions, and this marker.',
+    'Do not create or mutate Sprint Engine state. This Guided brief flow hands off to Sprint Engine later.',
+    'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
+  ].join('\n')
+}
+
 export function buildMissingMultiloopPrompt(descriptor: MultiloopRoleDescriptor, message?: string): string {
   return [
     'Multiloop role prompt unavailable.',

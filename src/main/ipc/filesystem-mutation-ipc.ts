@@ -15,6 +15,11 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
     await writeFile(filePath, content, 'utf-8')
   })
 
+  ipcMain.handle('fs:write-binary-file', async (_, filePath: string, base64Content: string): Promise<void> => {
+    await deps.assertNotDirectSprintEngineStateMutation(filePath)
+    await writeFile(filePath, Buffer.from(base64Content, 'base64'))
+  })
+
   ipcMain.handle('fs:create-file', async (_, parentDir: string, name: string): Promise<string> => {
     const filePath = join(parentDir, name)
     await deps.assertNotDirectSprintEngineStateMutation(filePath)

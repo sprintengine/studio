@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { WorkspaceTypeIcon } from '../AppIcons'
 import { StatusDot, type Tone } from '../ui'
 import MulticodeMark from '../brand/MulticodeMark'
@@ -1291,6 +1291,35 @@ type ContextMenuAction =
   | 'toggle-star'
   | 'clear-color'
 
+// Keeps a popover-style menu fully inside the viewport. If the menu would
+// overflow the bottom, flip it above the anchor point so the user can read it.
+function useClampedMenuPosition(
+  x: number,
+  y: number,
+  ref: React.RefObject<HTMLElement | null>,
+) {
+  const [pos, setPos] = useState<{ left: number; top: number }>({ left: x, top: y })
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const margin = 6
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    let left = x
+    let top = y
+    if (x + rect.width + margin > vw) {
+      left = Math.max(margin, vw - rect.width - margin)
+    }
+    if (y + rect.height + margin > vh) {
+      const flipped = y - rect.height
+      top = flipped >= margin ? flipped : Math.max(margin, vh - rect.height - margin)
+    }
+    setPos({ left, top })
+  }, [x, y, ref])
+  return pos
+}
+
 function ContextMenu({
   x,
   y,
@@ -1307,6 +1336,7 @@ function ContextMenu({
   onPickColor: (color: HighlightColor) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const pos = useClampedMenuPosition(x, y, ref)
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       if (!ref.current?.contains(event.target as Node)) onClose()
@@ -1326,7 +1356,7 @@ function ContextMenu({
       ref={ref}
       data-sidebar-menu="true"
       role="menu"
-      style={{ position: 'fixed', left: x, top: y, zIndex: 60 }}
+      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 60 }}
       // design-tokens-allow: popover-elevation reuses the OverflowMenu shadow shape (no glow CTA pattern)
       className="min-w-[240px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-[13px] text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
     >
@@ -1423,6 +1453,7 @@ function FolderContextMenu({
   onSelect: (action: FolderMenuAction) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const pos = useClampedMenuPosition(x, y, ref)
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       if (!ref.current?.contains(event.target as Node)) onClose()
@@ -1441,7 +1472,7 @@ function FolderContextMenu({
       ref={ref}
       data-sidebar-menu="true"
       role="menu"
-      style={{ position: 'fixed', left: x, top: y, zIndex: 60 }}
+      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 60 }}
       // design-tokens-allow: popover-elevation reuses the OverflowMenu shadow shape (no glow CTA pattern)
       className="min-w-[220px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-[13px] text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
     >

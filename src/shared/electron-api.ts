@@ -995,6 +995,7 @@ export type ElectronApi = {
   readSpecialistSoul: (specialistId: SpecialistActionId) => Promise<SoulPromptResult>
   readMultiloopPrompt: (role: MultiloopRole) => Promise<SoulPromptResult>
   writefile: (path: string, content: string) => Promise<void>
+  writeBinaryFile: (path: string, base64Content: string) => Promise<void>
   createFile: (parentDir: string, name: string) => Promise<string>
   createDir: (parentDir: string, name: string) => Promise<string>
   ensureDir: (parentDir: string, name: string) => Promise<string>

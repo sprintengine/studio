@@ -22,6 +22,7 @@ import type {
   SprintEngineSourcePlanKind,
   SprintEngineState,
   SprintEngineWorkspaceContext,
+  WorkspaceMode,
 } from '../../types/workspace'
 import {
   createPlanSourcedSprintEngineWorkspace,
@@ -31,6 +32,15 @@ import {
   createMultiloopWorkspace,
   MultiloopWorkspaceCreationError,
 } from '../../utils/multiloopWorkspaceCreation'
+import {
+  GuidedBriefWorkspaceError,
+  scaffoldGuidedBriefWorkspace,
+} from '../../utils/guidedBriefWorkspace'
+import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
+import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConfirmation'
+import { isMidStageGuidedRuntime, type GuidedBriefRuntimeState } from './guidedBrief/types'
+import { guidedBriefBuildHandoffRelativePath, guidedBriefSprintEngineGoal } from './guidedBrief/handoff'
+import { joinWorkspacePath as joinGuidedWorkspacePath } from './guidedBrief/paths'
 import {
   countSprintEngineAgents,
   createInitialSprintEngineState,
@@ -48,10 +58,10 @@ import {
   useFolderScan,
 } from './newWorkspace/useNewWorkspaceFolder'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind } from './newWorkspace/helpers'
-import type { CreationMode, ExistingTeam, SprintEnginePath } from './newWorkspace/types'
+import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
 
 const MAX_RECENT_FOLDERS = 6
-const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop']
+const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief']
 
 type StepId =
   | 'workspace'
@@ -60,12 +70,14 @@ type StepId =
   | 'multiloop-goal'
   | 'sprintengine-team'
   | 'sprintengine-roster'
+  | 'guided-idea'
 
 const STEPS_BY_MODE: Record<CreationMode, StepId[]> = {
   standard: ['workspace', 'mode', 'standard-layout'],
   switchboard: ['workspace', 'mode'],
   multiloop: ['workspace', 'mode', 'multiloop-goal'],
   sprintengine: ['workspace', 'mode', 'sprintengine-team', 'sprintengine-roster'],
+  'guided-brief': ['workspace', 'mode', 'guided-idea'],
 }
 
 const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
@@ -92,6 +104,10 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   'sprintengine-roster': {
     title: 'Pick specialists',
     subtitle: 'Choose how many of each role and which CLI they default to.',
+  },
+  'guided-idea': {
+    title: 'Tell us about your idea',
+    subtitle: 'A sentence or two. The strategist will ask the rest.',
   },
 }
 
@@ -147,6 +163,18 @@ const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> 
   security: 'codex',
 }
 
+const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
+  architect: 1,
+  product: 1,
+  frontend: 1,
+  developer: 1,
+  code_reviewer: 1,
+  spec_reviewer: 1,
+  performance: 0,
+  tester: 1,
+  security: 0,
+}
+
 const cliPermissionOptions: Array<{
   value: SprintEngineCliPermissionPreset
   label: string
@@ -184,7 +212,7 @@ interface Props {
     sprintEngineContext?: SprintEngineWorkspaceContext | null
     sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
     sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
-    mode?: CreationMode
+    mode?: WorkspaceMode
   }) => void
   onClose: () => void
   allowClose?: boolean
@@ -255,6 +283,16 @@ export default function NewWorkspacePanel({
   const [mlGoal, setMlGoal] = useState('')
   const [mlError, setMlError] = useState<string | null>(null)
 
+  const [guidedIdea, setGuidedIdea] = useState('')
+  const [guidedHasUi, setGuidedHasUi] = useState<GuidedBriefHasUi | null>(null)
+  const [guidedError, setGuidedError] = useState<string | null>(null)
+  const [guidedRuntimeState, setGuidedRuntimeState] = useState<GuidedBriefRuntimeState | null>(null)
+  const [viewingIdeaAfterCommit, setViewingIdeaAfterCommit] = useState(false)
+  const [closeConfirmation, setCloseConfirmation] = useState(false)
+
+  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'codex')
+  const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+
   const [isCreating, setIsCreating] = useState(false)
 
   const folderScan = useFolderScan(folderPath)
@@ -302,14 +340,36 @@ export default function NewWorkspacePanel({
     setSeSourceBundle(initialFuturePlan.sourceBundle ?? null)
   }, [initialFuturePlan])
 
-  // Escape closes when allowed.
+  // Escape closes when allowed. While a Guided brief runtime session is mid-
+  // stage we route Escape through a confirmation step instead of dropping the
+  // live conversation silently.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && allowClose) onClose()
+      if (event.key !== 'Escape') return
+      if (closeConfirmation) {
+        event.preventDefault()
+        setCloseConfirmation(false)
+        return
+      }
+      if (!allowClose) return
+      if (isMidStageGuidedRuntime(guidedRuntimeState)) {
+        event.preventDefault()
+        setCloseConfirmation(true)
+        return
+      }
+      onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, allowClose])
+  }, [onClose, allowClose, guidedRuntimeState, closeConfirmation])
+
+  const requestClose = () => {
+    if (isMidStageGuidedRuntime(guidedRuntimeState)) {
+      setCloseConfirmation(true)
+      return
+    }
+    onClose()
+  }
 
   // Reset SprintEngine path if the folder loses prerequisites.
   useEffect(() => {
@@ -414,6 +474,7 @@ export default function NewWorkspacePanel({
     sprintEngineAccess.allowed && sePlanReady && seObjectiveComplete
   const sprintEngineRosterReady =
     sprintEngineAccess.allowed && (seExistingTeam != null || totalAgents > 0)
+  const guidedIdeaReady = guidedIdea.trim().length > 0 && guidedHasUi != null
 
   const canAdvanceFromCurrent = isStepReady(step, {
     workspaceStepReady,
@@ -421,6 +482,7 @@ export default function NewWorkspacePanel({
     multiloopGoalReady,
     sprintEngineTeamReady,
     sprintEngineRosterReady,
+    guidedIdeaReady,
   })
 
   const blockingMessage = getStepBlockingMessage({
@@ -435,6 +497,8 @@ export default function NewWorkspacePanel({
     seExistingTeam,
     seObjectiveComplete,
     totalAgents,
+    guidedIdea,
+    guidedHasUi,
   })
 
   const handleSelectMode = (next: CreationMode) => {
@@ -444,8 +508,15 @@ export default function NewWorkspacePanel({
       setName(toTitleName(basename(folderPath ?? '')) || 'Switchboard')
     if (next === 'multiloop')
       setMlName(toTitleName(basename(folderPath ?? '')) || 'Product Loop')
+    if (next === 'guided-brief' && !nameTouched)
+      setName(toTitleName(basename(folderPath ?? '')) || 'Guided brief')
     if (next !== 'sprintengine') {
       setSeExistingTeam(null)
+    }
+    if (next !== 'guided-brief') {
+      setGuidedError(null)
+      setGuidedRuntimeState(null)
+      setViewingIdeaAfterCommit(false)
     }
   }
 
@@ -566,6 +637,57 @@ export default function NewWorkspacePanel({
   const handleCreate = async () => {
     if (!sprintEngineRosterReady && mode === 'sprintengine') return
     if (mode === 'sprintengine') setSePlanError(null)
+    if (mode === 'guided-brief') {
+      if (!folderPath) {
+        setGuidedError('Pick a folder before continuing.')
+        return
+      }
+      if (!guidedIdea.trim() || guidedHasUi == null) return
+      // If runtime state already exists (user pressed Back, then Continue),
+      // just return to the live runtime without rescaffolding.
+      if (guidedRuntimeState) {
+        setViewingIdeaAfterCommit(false)
+        return
+      }
+      setIsCreating(true)
+      setGuidedError(null)
+      try {
+        await scaffoldGuidedBriefWorkspace({
+          workspaceRoot: folderPath,
+          idea: guidedIdea,
+          hasUi: guidedHasUi,
+          filesystem: {
+            ensureDir: window.api.ensureDir,
+            readFile: window.api.readfile,
+            writeFile: window.api.writefile,
+          },
+        })
+        const workspaceLabel = toTitleName(basename(folderPath)) || name.trim() || 'Guided brief'
+        setGuidedRuntimeState({
+          workspaceRoot: folderPath,
+          workspaceName: workspaceLabel,
+          idea: guidedIdea,
+          hasUi: guidedHasUi,
+          stage: 'strategist-working',
+          acceptedProductBrief: null,
+          acceptedUiDirection: null,
+          acceptedMockups: [],
+          activeMockupPath: null,
+        })
+        setViewingIdeaAfterCommit(false)
+      } catch (error) {
+        setGuidedError(
+          error instanceof GuidedBriefWorkspaceError
+            ? `Could not scaffold the guided brief workspace (${error.code}).`
+            : error instanceof Error
+              ? error.message
+              : 'Could not scaffold the guided brief workspace.',
+        )
+      } finally {
+        setIsCreating(false)
+      }
+      return
+    }
     if (mode === 'multiloop') {
       if (!folderPath) return
       setIsCreating(true)
@@ -777,6 +899,50 @@ export default function NewWorkspacePanel({
     await window.api.authLogin(authState.selectedOrganization?.id ?? null)
   }
 
+  const handleGuidedStartBuild = async (runtimeState: GuidedBriefRuntimeState) => {
+    if (!sprintEngineAccess.allowed) {
+      await startLogin()
+      throw new Error('Sign in to use Sprint Engine mode.')
+    }
+    if (!runtimeState.acceptedProductBrief) {
+      throw new Error('Accept the product brief before starting the build.')
+    }
+    if (runtimeState.hasUi === 'yes' && (!runtimeState.acceptedUiDirection || runtimeState.acceptedMockups.length === 0)) {
+      throw new Error('Accept the UI direction and mockups before starting the build.')
+    }
+
+    const sourcePath = guidedBriefBuildHandoffRelativePath()
+    const sourceContent = await window.api.readfile(joinGuidedWorkspacePath(runtimeState.workspaceRoot, sourcePath))
+    const goal = guidedBriefSprintEngineGoal(sourceContent, runtimeState.hasUi)
+
+    try {
+      await createPlanSourcedSprintEngineWorkspace({
+        rootPath: runtimeState.workspaceRoot,
+        teamName: `${runtimeState.workspaceName} Build`,
+        goal,
+        sourcePath,
+        sourceContent,
+        sourcePlanKind: 'product_plan',
+        roleCounts: guidedBriefSprintEngineRoleCounts,
+        roleCliDefaults: seRoleCliDefaults,
+        sprintEngineAutoState: {
+          enabled: seStartRunner,
+          autoApproveArtifacts: seAutoApproveArtifacts,
+          cliPermissionPreset,
+          maxConcurrentAgents: countSprintEngineAgents(guidedBriefSprintEngineRoleCounts),
+        },
+        pathExists: window.api.pathExists,
+      })
+      persistLastPermissionPreset()
+      onClose()
+    } catch (error) {
+      if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {
+        throw new Error('A Sprint Engine team with this name already exists.')
+      }
+      throw error instanceof Error ? error : new Error('Could not create the Sprint Engine workspace.')
+    }
+  }
+
   const primaryLabel = isLastStep
     ? createLabelFor(mode, isCreating, seExistingTeam != null)
     : 'Continue'
@@ -785,13 +951,35 @@ export default function NewWorkspacePanel({
   const stepAnimationClass =
     direction === 'forward' ? 'wizard-step-in-forward' : 'wizard-step-in-backward'
 
+  const guidedFlowVisible = guidedRuntimeState != null && !viewingIdeaAfterCommit
+
   return (
     <section
       aria-labelledby="new-workspace-title"
       tabIndex={-1}
       onKeyDown={handleSectionKeyDown}
-      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] outline-none"
+      className="relative flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] outline-none"
     >
+      {guidedRuntimeState ? (
+        <div
+          aria-hidden={!guidedFlowVisible}
+          className={`absolute inset-0 z-10 transition-opacity ${
+            guidedFlowVisible
+              ? 'opacity-100 motion-safe:duration-200'
+              : 'pointer-events-none opacity-0'
+          }`}
+        >
+          <GuidedBriefFlow
+            runtimeState={guidedRuntimeState}
+            onChange={setGuidedRuntimeState}
+            onBackToIdea={() => setViewingIdeaAfterCommit(true)}
+            onClose={requestClose}
+            onStartBuild={handleGuidedStartBuild}
+            cli={lastSelectedCli}
+            cliRuntimes={appCliRuntimes}
+          />
+        </div>
+      ) : null}
       <header className="flex shrink-0 items-center gap-3 border-b border-[color:var(--bg-surface-raised)] px-5 py-3">
         <div className="flex shrink-0 items-center gap-2">
           <MulticodeMark className="h-[18px] w-[18px]" variant="mono" />
@@ -806,7 +994,7 @@ export default function NewWorkspacePanel({
         {allowClose ? (
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Close"
             className="
               ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[color:var(--text-subtle)]
@@ -996,6 +1184,23 @@ export default function NewWorkspacePanel({
             />
           ) : null}
 
+          {step === 'guided-idea' ? (
+            <GuidedIdeaStep
+              idea={guidedIdea}
+              hasUi={guidedHasUi}
+              onChangeIdea={(value) => {
+                setGuidedIdea(value)
+                setGuidedError(null)
+              }}
+              onChangeHasUi={(value) => {
+                setGuidedHasUi(value)
+                setGuidedError(null)
+              }}
+              folderPath={folderPath}
+              error={guidedError}
+            />
+          ) : null}
+
           {step === 'sprintengine-roster' ? (
             <SprintEngineRosterStep
               access={sprintEngineAccess}
@@ -1049,6 +1254,15 @@ export default function NewWorkspacePanel({
           </div>
         </div>
       </main>
+      <GuidedBriefCloseConfirmation
+        open={closeConfirmation}
+        stage={guidedRuntimeState?.stage ?? null}
+        onCancel={() => setCloseConfirmation(false)}
+        onConfirm={() => {
+          setCloseConfirmation(false)
+          onClose()
+        }}
+      />
     </section>
   )
 }
@@ -1315,6 +1529,117 @@ function MultiloopGoalStep({
   )
 }
 
+function GuidedIdeaStep({
+  idea,
+  hasUi,
+  onChangeIdea,
+  onChangeHasUi,
+  folderPath,
+  error,
+}: {
+  idea: string
+  hasUi: GuidedBriefHasUi | null
+  onChangeIdea: (value: string) => void
+  onChangeHasUi: (value: GuidedBriefHasUi) => void
+  folderPath: string | null
+  error: string | null
+}) {
+  return (
+    <div className="flex flex-col gap-5">
+      <label className="flex flex-col gap-2">
+        <FieldLabel>Rough idea</FieldLabel>
+        <textarea
+          value={idea}
+          onChange={(event) => onChangeIdea(event.target.value)}
+          placeholder="A shift-trading app where café staff can swap shifts without texting the manager."
+          autoFocus
+          className="
+            min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
+            text-[14px] leading-6 text-[color:var(--text-strong)] outline-none transition-colors
+            placeholder:text-[color:var(--text-disabled)]
+            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
+          "
+        />
+        <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          Plain English. Spelling doesn’t matter.
+        </span>
+      </label>
+
+      <div className="flex flex-col gap-2">
+        <FieldLabel>Will people use it on a screen?</FieldLabel>
+        <div role="radiogroup" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
+          <GuidedHasUiChoice
+            active={hasUi === 'yes'}
+            title="Yes, it has a UI"
+            body="App, dashboard, mobile screen, internal tool."
+            onSelect={() => onChangeHasUi('yes')}
+          />
+          <GuidedHasUiChoice
+            active={hasUi === 'no'}
+            title="No, script or service"
+            body="CLI, API, automation — runs in the background."
+            onSelect={() => onChangeHasUi('no')}
+          />
+        </div>
+        <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          If yes, a designer stage will run after the brief is approved.
+        </span>
+      </div>
+
+      {folderPath ? (
+        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          Idea seed will be written to{' '}
+          <span className="font-mono text-[color:var(--text-default)]">product/idea-seed.md</span>{' '}
+          in the selected folder.
+        </p>
+      ) : null}
+
+      {error ? (
+        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+          {error}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function GuidedHasUiChoice({
+  active,
+  title,
+  body,
+  onSelect,
+}: {
+  active: boolean
+  title: string
+  body: string
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onSelect}
+      className={`
+        relative flex h-[88px] w-full flex-col items-start gap-1.5 overflow-hidden rounded-md border p-3 text-left
+        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        ${active
+          ? 'border-[color:var(--accent-primary-soft-strong)] bg-[color:var(--accent-primary-soft)]'
+          : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+      `}
+    >
+      <span
+        aria-hidden="true"
+        className={`absolute inset-x-0 top-0 h-[3px] ${active ? 'bg-[color:var(--accent-primary)]' : 'bg-transparent'}`}
+      />
+      <span className="text-[13px] font-semibold leading-4 text-[color:var(--text-strong)]">
+        {title}
+      </span>
+      <span className="text-[12px] leading-4 text-[color:var(--text-muted)]">{body}</span>
+    </button>
+  )
+}
+
 type SprintEngineAccessState = {
   allowed: boolean
   title: string
@@ -1560,7 +1885,7 @@ function SprintEngineTeamStep(props: {
                   Clear sources
                 </button>
               </div>
-              <div className="overflow-hidden rounded-md border border-[color:var(--border-default)]">
+              <div className="rounded-md border border-[color:var(--border-default)]">
                 {sourceBundle?.map((item, index) => {
                   const label = SOURCE_BUNDLE_KIND_LABELS[item.kind] ?? item.kind.replace(/_/g, ' ')
                   return (
@@ -1853,6 +2178,8 @@ function labelFor(mode: CreationMode): string {
       return 'Sprint Engine'
     case 'multiloop':
       return 'Multiloop'
+    case 'guided-brief':
+      return 'Guided brief'
   }
 }
 
@@ -1866,6 +2193,8 @@ function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam
       return 'Create Switchboard'
     case 'multiloop':
       return 'Create Multiloop'
+    case 'guided-brief':
+      return 'Continue'
     case 'standard':
       return 'Create workspace'
   }
@@ -1879,6 +2208,7 @@ function isStepReady(
     multiloopGoalReady: boolean
     sprintEngineTeamReady: boolean
     sprintEngineRosterReady: boolean
+    guidedIdeaReady: boolean
   },
 ): boolean {
   switch (step) {
@@ -1894,6 +2224,8 @@ function isStepReady(
       return readiness.sprintEngineTeamReady
     case 'sprintengine-roster':
       return readiness.sprintEngineRosterReady
+    case 'guided-idea':
+      return readiness.guidedIdeaReady
   }
 }
 
@@ -1909,6 +2241,8 @@ function getStepBlockingMessage(args: {
   seExistingTeam: ExistingTeam | null
   seObjectiveComplete: boolean
   totalAgents: number
+  guidedIdea: string
+  guidedHasUi: GuidedBriefHasUi | null
 }): string {
   const {
     step,
@@ -1922,6 +2256,8 @@ function getStepBlockingMessage(args: {
     seExistingTeam,
     seObjectiveComplete,
     totalAgents,
+    guidedIdea,
+    guidedHasUi,
   } = args
 
   switch (step) {
@@ -1948,5 +2284,9 @@ function getStepBlockingMessage(args: {
       if (seExistingTeam) return 'Ready to load team.'
       if (totalAgents === 0) return 'Add at least one specialist.'
       return 'Ready to create.'
+    case 'guided-idea':
+      if (!guidedIdea.trim()) return 'Describe the idea in a sentence or two.'
+      if (guidedHasUi == null) return 'Pick whether the app has a UI.'
+      return 'Ready to capture the idea.'
   }
 }

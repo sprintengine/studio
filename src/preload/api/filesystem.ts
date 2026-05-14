@@ -48,6 +48,7 @@ export const filesystemApi = {
   openDiagnosticsLogsFolder: (): Promise<{ opened: true; path: string }> =>
     ipcRenderer.invoke('diagnostics:open-logs-folder'),
   writefile: (path: string, content: string) => ipcRenderer.invoke('fs:writefile', path, content),
+  writeBinaryFile: (path: string, base64Content: string) => ipcRenderer.invoke('fs:write-binary-file', path, base64Content),
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),
   createDir: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-dir', parentDir, name),
   ensureDir: (parentDir: string, name: string) => ipcRenderer.invoke('fs:ensure-dir', parentDir, name),
@@ -92,6 +93,7 @@ export const filesystemApi = {
   | 'logDiagnostic'
   | 'openDiagnosticsLogsFolder'
   | 'writefile'
+  | 'writeBinaryFile'
   | 'createFile'
   | 'createDir'
   | 'ensureDir'

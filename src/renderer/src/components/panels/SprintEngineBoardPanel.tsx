@@ -11,6 +11,9 @@ import {
  Select,
  Switch,
  TaskCard,
+ InboxRow,
+ DefinitionList,
+ type DefinitionItem,
  type OverflowMenuItem,
  type TabItem,
  type Tone,
@@ -498,14 +501,24 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  name: string
  content: string
  } | null>(null)
+ // The inbox row → inspector binding. Set by SprintEngineProjectView when
+ // the user clicks an inbox artifact. Cleared whenever task/agent
+ // selection changes so the inspector lights up the most recent intent.
+ const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
  // Switching tasks clears the artifact preview so the aside returns to
  // task detail. Opening an artifact does not change selectedTaskId, so
  // this only fires on a real navigation.
  useEffect(() => {
  setPreviewedArtifact(null)
  }, [selectedTaskId])
+ useEffect(() => {
+ if (selectedTaskId !== null) setSelectedArtifactId(null)
+ }, [selectedTaskId])
  const [activeView, setActiveView] = useState<SprintEngineView>('project')
  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+ useEffect(() => {
+ if (selectedAgentId !== null) setSelectedArtifactId(null)
+ }, [selectedAgentId])
  const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
  const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
  const [cliPickerOpen, setCliPickerOpen] = useState(false)
@@ -1249,8 +1262,13 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const inspectorSelectedAgent = selectedAgentId
  ? roster.find((entry) => entry.id === selectedAgentId) ?? null
  : null
+ const inspectorSelectedArtifact = selectedArtifactId
+ ? reviewArtifacts.find((artifact) => artifact.id === selectedArtifactId) ?? null
+ : null
  const inspectorSelection: SprintEngineInspectorSelection | null = previewedArtifact
- ? { kind: 'artifact', artifact: previewedArtifact }
+ ? { kind: 'artifact-preview', artifact: previewedArtifact }
+ : inspectorSelectedArtifact
+ ? { kind: 'artifact', artifact: inspectorSelectedArtifact }
  : selectedTask
  ? { kind: 'task', task: selectedTask }
  : inspectorSelectedAgent
@@ -1259,6 +1277,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const closeInspector = () => {
  setSelectedTaskId(null)
  setSelectedAgentId(null)
+ setSelectedArtifactId(null)
  setPreviewedArtifact(null)
  }
  const renderInspectorAside = () => inspectorSelection ? (
@@ -1806,16 +1825,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  focusOrAddComponentTab(workspaceId, 'sprintengine-run-summary', 'Run Summary')
  }
  reviewArtifacts={reviewArtifacts}
- artifactActions={artifactActions}
  selectedAgentId={resolvedSelectedAgentId}
  onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
  onSelectTask={setSelectedTaskId}
  onAddRole={(role) => {
  void confirmAddMember(role)
  }}
- onOpenArtifact={(artifact) => void openArtifact(artifact)}
- onApproveArtifact={(artifact) => void approveArtifact(artifact)}
- onRequestArtifactChanges={requestArtifactChanges}
+ selectedArtifactId={selectedArtifactId}
+ onSelectArtifact={setSelectedArtifactId}
  isAgentTerminalLive={isAgentTerminalLive}
  />
  {renderInspectorAside()}
@@ -2378,8 +2395,9 @@ type RuntimeAgentView = {
 type SprintEngineInspectorSelection =
  | { kind: 'task'; task: SprintEngineTask }
  | { kind: 'agent'; agent: RosterItem }
+ | { kind: 'artifact'; artifact: SprintEngineArtifact }
  | {
- kind: 'artifact'
+ kind: 'artifact-preview'
  artifact: { id: string; path: string; name: string; content: string }
  }
 
@@ -2442,12 +2460,28 @@ function SprintEngineInspectorPanel({
  onOpenAgentTerminal: (agentId: string) => void
  isAgentTerminalLive: (agentId: string) => boolean
 }) {
- if (selection.kind === 'artifact') {
+ if (selection.kind === 'artifact-preview') {
  return (
  <SprintEngineArtifactPreview
  artifact={selection.artifact}
  onBack={onBackFromArtifact}
  onPopOut={onPopOutArtifact}
+ />
+ )
+ }
+
+ if (selection.kind === 'artifact') {
+ const artifact = selection.artifact
+ return (
+ <SprintEngineArtifactInspector
+ artifact={artifact}
+ task={tasksById[artifact.taskId]}
+ actionState={artifactActions[artifact.id]}
+ onClose={onClose}
+ onOpenArtifact={onOpenArtifact}
+ onApproveArtifact={onApproveArtifact}
+ onRequestArtifactChanges={onRequestArtifactChanges}
+ onSelectTask={onSelectTask}
  />
  )
  }
@@ -2782,14 +2816,12 @@ function SprintEngineProjectView({
  runSummary,
  onViewRunSummary,
  reviewArtifacts,
- artifactActions,
  selectedAgentId,
  onSelectAgent,
  onSelectTask,
  onAddRole,
- onOpenArtifact,
- onApproveArtifact,
- onRequestArtifactChanges,
+ selectedArtifactId,
+ onSelectArtifact,
  isAgentTerminalLive,
 }: {
  sprintEngineState: SprintEngineState
@@ -2801,14 +2833,12 @@ function SprintEngineProjectView({
  runSummary: ReturnType<typeof buildRunSummary>
  onViewRunSummary: () => void
  reviewArtifacts: SprintEngineArtifact[]
- artifactActions: Record<string, ArtifactActionState>
  selectedAgentId: string | null
  onSelectAgent: (agentId: string) => void
  onSelectTask: (taskId: string) => void
  onAddRole: (role: SprintEngineRole) => void
- onOpenArtifact: (artifact: SprintEngineArtifact) => void
- onApproveArtifact: (artifact: SprintEngineArtifact) => void
- onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+ selectedArtifactId: string | null
+ onSelectArtifact: (artifactId: string | null) => void
  isAgentTerminalLive: (agentId: string) => boolean
 }) {
  // runPhase → semantic tone for the project name's status dot.
@@ -2841,6 +2871,47 @@ function SprintEngineProjectView({
  }))
  .filter(({ blockers }) => blockers.length > 0)
  ), [reviewArtifacts, sprintEngineState.tasks])
+
+ // Selection feeds the existing inspector aside (the same one the kanban
+ // task cards and roster rows use). The parent owns the state so a click
+ // here lights up the inspector sibling rendered next to this view.
+ const inboxEmptyMessage = sprintEngineInboxEmptyMessage(runPhase)
+ const handleInboxKeyDown = useCallback(
+ (event: React.KeyboardEvent<HTMLDivElement>) => {
+ if (isEditableTarget(event.target)) return
+ if (inboxArtifacts.length === 0) return
+ if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+ event.preventDefault()
+ const currentIndex = selectedArtifactId
+ ? inboxArtifacts.findIndex((artifact) => artifact.id === selectedArtifactId)
+ : -1
+ const delta = event.key === 'ArrowDown' ? 1 : -1
+ let nextIndex: number
+ if (currentIndex === -1) {
+ nextIndex = event.key === 'ArrowDown' ? 0 : inboxArtifacts.length - 1
+ } else {
+ nextIndex = (currentIndex + delta + inboxArtifacts.length) % inboxArtifacts.length
+ }
+ onSelectArtifact(inboxArtifacts[nextIndex].id)
+ return
+ }
+ if (event.key === 'Home') {
+ event.preventDefault()
+ onSelectArtifact(inboxArtifacts[0].id)
+ return
+ }
+ if (event.key === 'End') {
+ event.preventDefault()
+ onSelectArtifact(inboxArtifacts[inboxArtifacts.length - 1].id)
+ return
+ }
+ if (event.key === 'Escape' && selectedArtifactId) {
+ event.preventDefault()
+ onSelectArtifact(null)
+ }
+ },
+ [inboxArtifacts, onSelectArtifact, selectedArtifactId]
+ )
 
  const rosterCountByRole = useMemo(() => {
  const counts = Object.fromEntries(addableRoles.map((role) => [role, 0])) as Record<SprintEngineRole, number>
@@ -2902,32 +2973,39 @@ function SprintEngineProjectView({
  <div className="flex min-h-0 flex-1 min-w-0">
  <section
  className="flex w-[44%] min-w-[320px] max-w-[560px] flex-col border-r border-[color:var(--border-default)]"
- aria-label="Inbox"
+ aria-labelledby="sprintengine-inbox-title"
  >
- <header className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2.5">
- <div className="flex min-w-0 items-center gap-2">
- <StatusDot tone="accent" />
- <h2 className="truncate text-[11px] font-semibold text-[color:var(--text-strong)]">
- Inbox
- </h2>
- <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
- {inboxArtifacts.length}
- </span>
- </div>
- </header>
-
- <div className="flex-1 overflow-auto">
- <SprintEngineArtifactList
- artifacts={inboxArtifacts}
- tasksById={tasksById}
- actions={artifactActions}
- hideHeader
- emptyLabel="Inbox empty. The handover and any artifacts agents produce will appear here."
- onSelectTask={onSelectTask}
- onOpenArtifact={onOpenArtifact}
- onApproveArtifact={onApproveArtifact}
- onRequestArtifactChanges={onRequestArtifactChanges}
+ <PanelHeader
+ tool="sprintengine"
+ title="Inbox"
+ titleId="sprintengine-inbox-title"
+ count={inboxArtifacts.length}
  />
+
+ <div
+ tabIndex={0}
+ onKeyDown={handleInboxKeyDown}
+ className="flex-1 overflow-auto focus:outline-none"
+ aria-label="Inbox artifacts"
+ >
+ {inboxArtifacts.length === 0 ? (
+ <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
+ {inboxEmptyMessage}
+ </div>
+ ) : (
+ <ul>
+ {inboxArtifacts.map((artifact) => (
+ <li key={artifact.id}>
+ <SprintEngineInboxRow
+ artifact={artifact}
+ task={tasksById[artifact.taskId]}
+ selected={selectedArtifactId === artifact.id}
+ onSelect={() => onSelectArtifact(artifact.id)}
+ />
+ </li>
+ ))}
+ </ul>
+ )}
 
  {blockedByArtifacts.length > 0 ? (
  <Section
@@ -2937,29 +3015,18 @@ function SprintEngineProjectView({
  inset={false}
  className="border-t border-[color:var(--border-default)]"
  >
- <ol className="divide-y divide-[color:var(--border-default)]">
+ <ul>
  {blockedByArtifacts.map(({ task, blockers }) => (
  <li key={task.id}>
- <button
- type="button"
- onClick={() => onSelectTask(task.id)}
- className="interactive flex w-full min-w-0 flex-col gap-0.5 px-3 py-2 text-left transition-colors hover:bg-[color:var(--bg-surface)]"
- >
- <div className="flex min-w-0 items-baseline gap-2">
- <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
- {task.id}
- </span>
- <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
- {task.title}
- </span>
- </div>
- <div className="text-[11px] text-[color:var(--tone-warn)]">
- Waiting on {formatArtifactBlockerSummary(blockers)}
- </div>
- </button>
+ <SprintEngineBlockedByRow
+ task={task}
+ blockers={blockers}
+ selected={false}
+ onSelect={() => onSelectTask(task.id)}
+ />
  </li>
  ))}
- </ol>
+ </ul>
  </Section>
  ) : null}
  </div>
@@ -4414,6 +4481,279 @@ function getArtifactConfidencePct(
  return typeof value === 'number' ? value : null
 }
 
+function SprintEngineInboxRow({
+ artifact,
+ task,
+ selected,
+ onSelect,
+ id,
+}: {
+ artifact: SprintEngineArtifact
+ task: SprintEngineTask | undefined
+ selected: boolean
+ onSelect: () => void
+ id?: string
+}) {
+ const tone = sprintEngineInboxRowTone(artifact)
+ const timestamp = artifact.createdAt ?? artifact.updatedAt
+ const relativeTimestamp = timestamp ? formatRelativeTime(timestamp) : '—'
+ const title = (
+ <>
+ <span className="mr-2 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+ {artifact.id}
+ </span>
+ {artifact.title}
+ </>
+ )
+ return (
+ <InboxRow
+ id={id}
+ tone={tone}
+ title={title}
+ supporting={sprintEngineInboxRowSupporting(artifact, task)}
+ trailing={relativeTimestamp}
+ selected={selected}
+ onSelect={onSelect}
+ ariaLabel={`${artifact.id} ${artifact.title}`}
+ />
+ )
+}
+
+function SprintEngineBlockedByRow({
+ task,
+ blockers,
+ selected,
+ onSelect,
+ id,
+}: {
+ task: SprintEngineTask
+ blockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
+ selected: boolean
+ onSelect: () => void
+ id?: string
+}) {
+ const title = (
+ <>
+ <span className="mr-2 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+ {task.id}
+ </span>
+ {task.title}
+ </>
+ )
+ return (
+ <InboxRow
+ id={id}
+ tone="warn"
+ title={title}
+ supporting={`Waiting on ${formatArtifactBlockerSummary(blockers)}`}
+ selected={selected}
+ onSelect={onSelect}
+ ariaLabel={`${task.id} ${task.title} waiting on ${formatArtifactBlockerSummary(blockers)}`}
+ />
+ )
+}
+
+function SprintEngineArtifactInspector({
+ artifact,
+ task,
+ actionState,
+ onClose,
+ onOpenArtifact,
+ onApproveArtifact,
+ onRequestArtifactChanges,
+ onSelectTask,
+}: {
+ artifact: SprintEngineArtifact
+ task: SprintEngineTask | undefined
+ actionState: ArtifactActionState | undefined
+ onClose: () => void
+ onOpenArtifact: (artifact: SprintEngineArtifact) => void
+ onApproveArtifact: (artifact: SprintEngineArtifact) => void
+ onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+ onSelectTask: (taskId: string) => void
+}) {
+ const isSourceHandoff = artifact.id === SOURCE_HANDOFF_ARTIFACT_ID
+ const tone = sprintEngineInboxRowTone(artifact)
+ const statusLabel = isSourceHandoff
+ ? 'Source'
+ : sprintEngineArtifactStatusLabels[artifact.status]
+ const timestamp = artifact.createdAt ?? artifact.updatedAt
+ const relativeTimestamp = timestamp ? formatRelativeTime(timestamp) : 'No timestamp'
+ const absoluteTimestamp = timestamp ? new Date(timestamp).toLocaleString() : undefined
+ const confidencePct = getArtifactConfidencePct(artifact, task)
+ const mobileDecision = getMobileArtifactDecision(artifact)
+ const autoApproval = getSprintEngineArtifactAutoApprovalEligibility(artifact)
+ const canOpenArtifact = Boolean(artifact.path.trim()) && artifact.status !== 'draft'
+ const readyForReview = artifact.status === 'ready_for_review'
+ const pending = actionState?.status === 'pending'
+
+ const items: DefinitionItem[] = []
+ items.push({
+ term: 'Status',
+ description: (
+ <span className="inline-flex items-center gap-2">
+ <StatusDot tone={tone} />
+ <span>{statusLabel}</span>
+ </span>
+ ),
+ })
+ items.push({
+ term: 'Updated',
+ description: <span title={absoluteTimestamp}>{relativeTimestamp}</span>,
+ })
+ items.push({
+ term: 'Kind',
+ description: isSourceHandoff ? 'Handover' : sprintEngineArtifactKindLabels[artifact.kind],
+ })
+ if (!isSourceHandoff && artifact.taskId) {
+ items.push({
+ term: 'Task',
+ description: (
+ <button
+ type="button"
+ onClick={() => onSelectTask(artifact.taskId)}
+ disabled={!task}
+ className="interactive font-mono text-[color:var(--text-strong)] transition-colors hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)]"
+ >
+ {artifact.taskId}
+ {task ? <span className="ml-1.5 font-sans text-[color:var(--text-muted)]">{task.title}</span> : null}
+ </button>
+ ),
+ })
+ }
+ items.push({
+ term: 'File',
+ description: artifact.path ? (
+ <span className="break-all font-mono text-[12px] text-[color:var(--text-strong)]">{artifact.path}</span>
+ ) : (
+ <span className="text-[color:var(--text-disabled)]">No file path recorded.</span>
+ ),
+ })
+ if (confidencePct !== null) {
+ items.push({
+ term: 'Confidence',
+ description: (
+ <span className="inline-flex items-center gap-2">
+ <ConfidenceDial value={confidencePct} label="Agent confidence" />
+ <span className="tabular-nums">{Math.round(confidencePct)}%</span>
+ </span>
+ ),
+ })
+ }
+
+ return (
+ <div className="flex h-full min-h-0 flex-col">
+ <header className="border-b border-[color:var(--border-default)] px-5 py-4">
+ <div className="flex items-start justify-between gap-3">
+ <div className="min-w-0">
+ <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
+ <StatusDot tone={tone} />
+ <span>{statusLabel}</span>
+ <span>·</span>
+ <span className="font-mono text-[color:var(--text-muted)]">{artifact.id}</span>
+ </div>
+ <h3 className="mt-2 truncate text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]">
+ {artifact.title}
+ </h3>
+ </div>
+ <button
+ type="button"
+ onClick={onClose}
+ aria-label="Close artifact detail"
+ className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
+ >
+ <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+ </svg>
+ </button>
+ </div>
+ <div className="mt-3 flex flex-wrap gap-1.5">
+ {canOpenArtifact ? (
+ <GhostButton
+ onClick={() => onOpenArtifact(artifact)}
+ disabled={pending}
+ >
+ {pending && actionState?.kind === 'open' ? 'Opening…' : 'Open'}
+ </GhostButton>
+ ) : null}
+ {readyForReview ? (
+ <>
+ <PrimaryButton
+ onClick={() => onApproveArtifact(artifact)}
+ disabled={pending}
+ >
+ {pending && actionState?.kind === 'approve' ? 'Approving…' : 'Approve'}
+ </PrimaryButton>
+ <GhostButton
+ onClick={() => onRequestArtifactChanges(artifact)}
+ disabled={pending}
+ >
+ {pending && actionState?.kind === 'requestChanges'
+ ? 'Requesting changes…'
+ : 'Request changes'}
+ </GhostButton>
+ </>
+ ) : null}
+ {!canOpenArtifact && !readyForReview ? (
+ <span className="text-[12px] text-[color:var(--text-muted)]">
+ No actions available for this artifact yet.
+ </span>
+ ) : null}
+ </div>
+ </header>
+
+ <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)] space-y-5">
+ <DefinitionList items={items} />
+
+ {mobileDecision ? (
+ <div>
+ <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
+ Mobile decision
+ </div>
+ <div className="text-[12px] leading-5 text-[color:var(--text-default)]">
+ {formatMobileArtifactDecision(mobileDecision)}
+ </div>
+ </div>
+ ) : null}
+
+ {readyForReview && autoApproval.label ? (
+ <div>
+ <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
+ Auto-approval
+ </div>
+ <div
+ className={`text-[12px] leading-5 ${
+ autoApproval.eligible
+ ? 'text-[color:var(--accent-primary)]'
+ : 'text-[color:var(--tone-warn)]'
+ }`}
+ >
+ {autoApproval.label}
+ </div>
+ </div>
+ ) : null}
+
+ {actionState && actionState.status !== 'pending' ? (
+ <div>
+ <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
+ Last action
+ </div>
+ <div
+ className={`text-[12px] leading-5 ${
+ actionState.status === 'error'
+ ? 'text-[color:var(--tone-error)]'
+ : 'text-[color:var(--tone-good)]'
+ }`}
+ >
+ {actionState.message}
+ </div>
+ </div>
+ ) : null}
+ </div>
+ </div>
+ )
+}
+
 function SprintEngineArtifactList({
  artifacts,
  tasksById,
@@ -4853,6 +5193,51 @@ function artifactStatusTone(status: SprintEngineArtifact['status']): string {
  default:
  return 'bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]'
  }
+}
+
+// Inbox status idiom: one dot, five tones, in line with the brand rules
+// (aesthetic-north-star §4, primitives StatusDot contract). The tinted pill is
+// kept for the inspector's task detail (artifactStatusTone above) but the inbox
+// row resolves status to a Tone here.
+function sprintEngineInboxRowTone(artifact: SprintEngineArtifact): Tone {
+ if (artifact.id === SOURCE_HANDOFF_ARTIFACT_ID) return 'accent'
+ switch (artifact.status) {
+ case 'approved':
+ return 'good'
+ case 'ready_for_review':
+ return 'warn'
+ case 'changes_requested':
+ return 'error'
+ case 'superseded':
+ return 'neutral'
+ default:
+ return 'accent'
+ }
+}
+
+function sprintEngineInboxRowSupporting(
+ artifact: SprintEngineArtifact,
+ task: SprintEngineTask | undefined
+): string {
+ if (artifact.id === SOURCE_HANDOFF_ARTIFACT_ID) return 'Architect handover'
+ const kind = sprintEngineArtifactKindLabels[artifact.kind]
+ const parts = [kind]
+ if (artifact.taskId) parts.push(artifact.taskId)
+ if (task?.title) parts.push(task.title)
+ return parts.join(' · ')
+}
+
+function sprintEngineInboxEmptyMessage(runPhase: string): string {
+ if (runPhase === 'Running') {
+ return 'Run in flight. Artifacts will land here as workers finish tasks.'
+ }
+ if (runPhase === 'Complete') {
+ return 'Run complete. No artifacts were produced.'
+ }
+ if (runPhase === 'Tasked') {
+ return 'Tasks queued. Handover and artifacts will appear once workers start.'
+ }
+ return 'Inbox empty. The handover and any artifacts workers produce will appear here.'
 }
 
 function taskGraphNodeStyle(

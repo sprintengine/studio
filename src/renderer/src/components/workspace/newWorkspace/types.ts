@@ -4,7 +4,9 @@ import type {
   WorkspaceMode,
 } from '../../../types/workspace'
 
-export type CreationMode = WorkspaceMode
+export type CreationMode = WorkspaceMode | 'guided-brief'
+
+export type GuidedBriefHasUi = 'yes' | 'no'
 
 export type MarkdownPlanOption = {
   path: string
