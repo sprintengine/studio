@@ -6,35 +6,7 @@ type IconProps = {
   className?: string
 }
 
-type StatusDotTone = 'idle' | 'running' | 'needs-input' | 'done' | 'error'
-
 const iconStroke = 1.7
-
-export function StatusDot({
-  tone,
-  label,
-  className = '',
-}: {
-  tone: StatusDotTone
-  label: string
-  className?: string
-}) {
-  const toneClass = {
-    idle: 'bg-[#5a5a63]',
-    running: 'bg-[#30d158]',
-    'needs-input': 'animate-pulse bg-[#ffbf2f] shadow-[0_0_8px_rgba(255,191,47,0.75)]',
-    done: 'bg-[#30d158]',
-    error: 'bg-[#ff787c]',
-  }[tone]
-
-  return (
-    <span
-      className={`h-1.5 w-1.5 shrink-0 rounded-full ${toneClass} ${className}`}
-      title={label}
-      aria-label={label}
-    />
-  )
-}
 
 export function WorkspaceTypeIcon({
   mode,
@@ -169,9 +141,11 @@ export function PriorityIcon({
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
         <title>{label}</title>
-        <circle cx="12" cy="12" r="7.5" fill="#ff787c" />
-        <rect x="11.25" y="7.25" width="1.5" height="6" rx="0.5" fill="#1a0e0f" />
-        <circle cx="12" cy="15.75" r="1" fill="#1a0e0f" />
+        <circle cx="12" cy="12" r="7.5" style={{ fill: 'var(--tone-error)' }} />
+        <g style={{ fill: 'var(--text-on-accent)' }}>
+          <rect x="11.25" y="7.25" width="1.5" height="6" rx="0.5" fill="currentColor" />
+          <circle cx="12" cy="15.75" r="1" fill="currentColor" />
+        </g>
       </svg>
     )
   }
@@ -188,7 +162,8 @@ export function PriorityIcon({
   }
 
   const litCount = key === 'high' ? 3 : key === 'medium' ? 2 : 1
-  const accentColor = key === 'high' ? '#f2c45f' : 'currentColor'
+  const useAccentStyle = key === 'high'
+  const litStyle = useAccentStyle ? { fill: 'var(--tone-warn)' } : undefined
 
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
@@ -199,7 +174,8 @@ export function PriorityIcon({
         width="3"
         height="4.5"
         rx="0.6"
-        fill={litCount >= 1 ? accentColor : 'currentColor'}
+        fill="currentColor"
+        style={litCount >= 1 ? litStyle : undefined}
         opacity={litCount >= 1 ? 1 : 0.3}
       />
       <rect
@@ -208,7 +184,8 @@ export function PriorityIcon({
         width="3"
         height="8.5"
         rx="0.6"
-        fill={litCount >= 2 ? accentColor : 'currentColor'}
+        fill="currentColor"
+        style={litCount >= 2 ? litStyle : undefined}
         opacity={litCount >= 2 ? 1 : 0.3}
       />
       <rect
@@ -217,7 +194,8 @@ export function PriorityIcon({
         width="3"
         height="12.5"
         rx="0.6"
-        fill={litCount >= 3 ? accentColor : 'currentColor'}
+        fill="currentColor"
+        style={litCount >= 3 ? litStyle : undefined}
         opacity={litCount >= 3 ? 1 : 0.3}
       />
     </svg>
@@ -287,8 +265,15 @@ export function StatusIcon({
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
         <title>{label}</title>
-        <circle cx="12" cy="12" r="6.4" fill="#30d158" />
-        <path d="M9.25 12L11.25 14L14.75 10.25" stroke="#0f1d10" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="12" cy="12" r="6.4" style={{ fill: 'var(--tone-good)' }} />
+        <path
+          d="M9.25 12L11.25 14L14.75 10.25"
+          stroke="currentColor"
+          style={{ stroke: 'var(--text-on-accent)' }}
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     )
   }
@@ -338,7 +323,7 @@ export function StatusIcon({
         ? 0.5
         : 0.75
   const dashed = status.endsWith('_in_progress')
-  const accent = '#7c5cf2'
+  const accentStyle = { fill: 'var(--tool-switchboard)', stroke: 'var(--tool-switchboard)' }
 
   // Render the fill as a clipped wedge (sweep angle = 360 * progressFill, starting from 12 o'clock).
   const radius = 5.4
@@ -360,11 +345,16 @@ export function StatusIcon({
         cx={cx}
         cy={cy}
         r="6.4"
-        stroke={accent}
+        stroke="currentColor"
+        style={accentStyle}
         strokeWidth={iconStroke}
         strokeDasharray={dashed ? '2 1.6' : undefined}
       />
-      {wedgePath ? <path d={wedgePath} fill={accent} opacity="0.85" /> : <circle cx={cx} cy={cy} r={radius} fill={accent} opacity="0.85" />}
+      {wedgePath ? (
+        <path d={wedgePath} fill="currentColor" style={accentStyle} opacity="0.85" />
+      ) : (
+        <circle cx={cx} cy={cy} r={radius} fill="currentColor" style={accentStyle} opacity="0.85" />
+      )}
     </svg>
   )
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
@@ -37,6 +37,7 @@ import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useT
 import { hasAgentTab } from '../../utils/modelRegistry'
 import {
   DefinitionList,
+  Drawer,
   GhostButton,
   InboxRow,
   OverflowMenu,
@@ -620,7 +621,12 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       {
         id: 'watchtower.open.active-review',
         label: 'Active review',
-        onSelect: () => setDrawerOpen(true),
+        onSelect: () => {
+          // Focus the overflow trigger before the active-review Drawer mounts
+          // so the primitive captures it as the restore target on close.
+          document.querySelector<HTMLElement>('[aria-label="Watchtower overflow"]')?.focus()
+          setDrawerOpen(true)
+        },
       },
       { kind: 'separator', id: 'sep-1' },
       {
@@ -997,30 +1003,8 @@ function ActiveReviewDrawer({
   fetchStatus: ActionStatus | null
   onDismissFetchStatus: () => void
 }) {
-  const surfaceRef = useRef<HTMLDivElement>(null)
-  const restoreFocusElementRef = useRef<HTMLElement | null>(null)
   const terminalSessions = useTerminalSessions()
   const triageRun = selectedRun ? isTriageRun(selectedRun) : false
-
-  useEffect(() => {
-    restoreFocusElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    surfaceRef.current?.focus()
-    return () => {
-      const trigger = document.querySelector<HTMLElement>('[aria-label="Watchtower overflow"]')
-      ;(trigger ?? restoreFocusElementRef.current)?.focus()
-    }
-  }, [])
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
 
   const importItems = useMemo(() => {
     if (!importResult) return []
@@ -1034,32 +1018,15 @@ function ActiveReviewDrawer({
     : null
 
   return (
-    <div
-      ref={surfaceRef}
-      role="dialog"
-      aria-modal="false"
-      aria-label="Active review"
-      tabIndex={-1}
-      // design-tokens-allow: drawer elevation reuses the canonical popover shadow.
-      className="popover-enter absolute right-0 top-0 z-20 flex h-full w-[360px] flex-col border-l border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)] focus:outline-none"
-    >
-      <header className="flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <h3 className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-            Active review
-          </h3>
-          {selectedRun ? (
-            <span className="tabular-nums text-[11px] text-[color:var(--text-muted)]">
+    <Drawer open onClose={onClose} title="Active review" ariaLabel="Active review">
+      <Drawer.Body className="!p-0">
+        {selectedRun ? (
+          <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-2 text-[11px] text-[color:var(--text-muted)]">
+            <span className="tabular-nums">
               {runs.length} run{runs.length === 1 ? '' : 's'}
             </span>
-          ) : null}
-        </div>
-        <GhostButton onClick={onClose} aria-label="Close active review">
-          Close
-        </GhostButton>
-      </header>
-
-      <div className="flex-1 overflow-auto">
+          </div>
+        ) : null}
         {runStatus ? (
           <div className="px-3 pt-3">
             <ActionStatusChip
@@ -1217,8 +1184,8 @@ function ActiveReviewDrawer({
             )}
           </Section>
         ) : null}
-      </div>
-    </div>
+      </Drawer.Body>
+    </Drawer>
   )
 }
 

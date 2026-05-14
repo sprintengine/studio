@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
-import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { StatusDot } from '../ui'
 import CliIcon from '../CliIcon'
 import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
@@ -2538,7 +2539,8 @@ function SessionsPopover({
                             <span className="flex min-w-0 items-center gap-1.5">
                               <span className="truncate font-medium text-[#ececee]">{item.label}</span>
                               <StatusDot
-                                tone={item.status === 'needs-input' ? 'needs-input' : 'running'}
+                                tone={item.status === 'needs-input' ? 'warn' : 'good'}
+                                pulse
                                 label={item.status === 'needs-input' ? 'Needs input' : 'Working'}
                               />
                             </span>

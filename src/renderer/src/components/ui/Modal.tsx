@@ -46,7 +46,7 @@ export function Modal({ open, onClose, labelledBy, width = 560, children, contai
 
   return (
     <div
-      className={`${contained ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-[#08090b]/70 p-6 backdrop-blur-[2px]`}
+      className={`${contained ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-6 backdrop-blur-[2px]`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -58,7 +58,7 @@ export function Modal({ open, onClose, labelledBy, width = 560, children, contai
         aria-labelledby={labelledBy}
         tabIndex={-1}
         style={{ width, maxWidth: '95vw' }}
-        className="max-h-[92vh] overflow-y-auto rounded-[8px] border border-[rgba(255,255,255,0.06)] bg-[#0d0e11] outline-none"
+        className="max-h-[92vh] overflow-y-auto rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] outline-none"
       >
         {children}
       </div>
@@ -75,13 +75,13 @@ type ModalHeaderProps = {
 
 export function ModalHeader({ title, subtitle, titleId, onClose }: ModalHeaderProps) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-[rgba(255,255,255,0.06)] px-5 py-4">
+    <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-subtle)] px-5 py-4">
       <div className="min-w-0">
-        <h2 id={titleId} className="truncate text-[15px] font-semibold tracking-tight text-[#ececee]">
+        <h2 id={titleId} className="truncate text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]">
           {title}
         </h2>
         {subtitle ? (
-          <p className="mt-1 text-[12px] leading-5 text-[#9a9aa2]">{subtitle}</p>
+          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{subtitle}</p>
         ) : null}
       </div>
       {onClose ? (
@@ -89,7 +89,7 @@ export function ModalHeader({ title, subtitle, titleId, onClose }: ModalHeaderPr
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="rounded-md px-2 py-1 text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+          className="rounded-md px-2 py-1 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
         >
           <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -106,7 +106,7 @@ export function ModalBody({ children, className }: { children: React.ReactNode; 
 
 export function ModalFooter({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[rgba(255,255,255,0.06)] px-5 py-3">
+    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[color:var(--border-subtle)] px-5 py-3">
       {children}
     </div>
   )
@@ -121,17 +121,24 @@ type FieldProps = {
 export function Field({ label, hint, children }: FieldProps) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
+      <span className="mb-1.5 block text-[11px] font-medium text-[color:var(--text-default)]">
         {label}
       </span>
       {children}
-      {hint ? <span className="mt-1.5 block text-[11px] leading-4 text-[#5a5a63]">{hint}</span> : null}
+      {hint ? <span className="mt-1.5 block text-[11px] leading-4 text-[color:var(--text-disabled)]">{hint}</span> : null}
     </label>
   )
 }
 
 type ButtonVariant = 'primary' | 'ghost' | 'danger'
 
+// ModalAccent values are retained for type compatibility with the 5 remaining
+// consumer call sites (`accent="violet" | "copper" | "gold"`). Per the
+// app-wide audit plan §4 one-accent restraint, every variant now renders the
+// canonical product accent (`--accent-primary`). The architect should schedule
+// a follow-up task to remove the now-redundant `accent` prop from those
+// consumers; see
+// .multi-code/sprintengine/2026-05-13-app-wide-linear-grade-audit-v3/reviews/modal-hex-audit.md.
 export type ModalAccent = 'brand' | 'violet' | 'copper' | 'gold'
 
 type ModalButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -139,26 +146,24 @@ type ModalButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   accent?: ModalAccent
 }
 
-const accentPrimaryStyles: Record<ModalAccent, string> = {
-  brand: 'bg-[#5c7cff] text-[#08090b] hover:bg-[#6e8eff] disabled:hover:bg-[#5c7cff]',
-  violet: 'bg-[#7c5cf2] text-[#08090b] hover:bg-[#9075ff] disabled:hover:bg-[#7c5cf2]',
-  copper: 'bg-[#d97757] text-[#08090b] hover:bg-[#e0876b] disabled:hover:bg-[#d97757]',
-  gold: 'bg-[#ffbf2f] text-[#08090b] hover:bg-[#ffcb55] disabled:hover:bg-[#ffbf2f]',
-}
+const PRIMARY_STYLES =
+  'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)] hover:bg-[color:var(--accent-primary-hover)] disabled:hover:bg-[color:var(--accent-primary)]'
 
-export function ModalButton({ variant = 'ghost', accent = 'brand', className, ...rest }: ModalButtonProps) {
-  const base = 'rounded-md px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60 disabled:cursor-not-allowed disabled:opacity-45'
+export function ModalButton({ variant = 'ghost', accent: _accent, className, ...rest }: ModalButtonProps) {
+  const base =
+    'rounded-md px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-45'
   const styles: Record<ButtonVariant, string> = {
-    primary: accentPrimaryStyles[accent],
-    ghost: 'text-[#9a9aa2] hover:bg-[#17181d] hover:text-[#ececee]',
-    danger: 'bg-[#ff5a5f] text-[#08090b] hover:bg-[#ff787c]',
+    primary: PRIMARY_STYLES,
+    ghost:
+      'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+    danger: 'bg-[color:var(--tone-error)] text-[color:var(--text-on-accent)]',
   }
   return <button {...rest} className={`${base} ${styles[variant]} ${className ?? ''}`} />
 }
 
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5a5a63]">
+    <div className="text-[11px] font-medium text-[color:var(--text-default)]">
       {children}
     </div>
   )

@@ -7,18 +7,28 @@
 // foundation. It is intentionally self-contained.
 
 import { useState } from 'react'
+import type { SprintEngineRole } from '../../../types/workspace'
 import {
   DefinitionList,
+  Drawer,
+  Field,
   GhostButton,
   IconButton,
   InboxRow,
+  KbdChord,
   OverflowMenu,
   PanelHeader,
   PrimaryButton,
+  RoleGlyph,
   Section,
+  Select,
+  type SelectItem,
   StatusDot,
+  Switch,
   Tabs,
   TabPanel,
+  Toast,
+  Tooltip,
   type Tone,
   type ToolIdentity,
 } from '../index'
@@ -45,9 +55,53 @@ const TAB_ITEMS = [
   { id: 'disabled', label: 'Disabled', disabled: true },
 ]
 
+type RoleOption = 'architect' | 'frontend' | 'code_reviewer' | 'spec_reviewer' | 'tester'
+
+const SELECT_ROLE_ITEMS: SelectItem<RoleOption>[] = [
+  { value: 'architect', label: 'Architect' },
+  { value: 'frontend', label: 'Frontend' },
+  { value: 'code_reviewer', label: 'Code reviewer' },
+  { value: 'spec_reviewer', label: 'Spec reviewer' },
+  { value: 'tester', label: 'Tester', disabled: true },
+]
+
+type ThemeOption = 'auto' | 'dark' | 'light'
+
+const SELECT_THEME_ITEMS: SelectItem<ThemeOption>[] = [
+  { value: 'auto', label: 'Match system' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'light', label: 'Light' },
+]
+
+const ROLE_GLYPHS: SprintEngineRole[] = [
+  'architect',
+  'product',
+  'frontend',
+  'developer',
+  'code_reviewer',
+  'spec_reviewer',
+  'tester',
+  'security',
+  'performance',
+]
+
+const KBD_CHORDS: { keys: readonly string[]; ariaLabel: string; supporting: string }[] = [
+  { keys: ['⌘', 'K'], ariaLabel: 'Command K', supporting: 'Open command palette' },
+  { keys: ['⌘', 'Shift', 'P'], ariaLabel: 'Command Shift P', supporting: 'Run last command' },
+  { keys: ['Esc'], ariaLabel: 'Escape', supporting: 'Dismiss the overlay' },
+]
+
 export function PrimitivePreview() {
   const [selectedRow, setSelectedRow] = useState<string>('accent')
   const [tab, setTab] = useState<string>('inbox')
+  const [notify, setNotify] = useState(true)
+  const [autoRun, setAutoRun] = useState(false)
+  const [workspaceName, setWorkspaceName] = useState('linear-grade-audit')
+  const [endpoint, setEndpoint] = useState('')
+  const [role, setRole] = useState<RoleOption>('frontend')
+  const [theme, setTheme] = useState<ThemeOption>('auto')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [toastVisible, setToastVisible] = useState(true)
 
   return (
     <div className="flex h-full w-full flex-col gap-6 overflow-auto bg-[color:var(--bg-app)] p-6 text-[color:var(--text-default)]">
@@ -178,6 +232,203 @@ export function PrimitivePreview() {
         </div>
       </Section>
 
+      <Section title="Switch">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={notify}
+              onChange={setNotify}
+              ariaLabel="Send completion notifications"
+            />
+            <span className="text-[12px] text-[color:var(--text-default)]">
+              Send completion notifications
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <Switch checked={autoRun} onChange={setAutoRun} ariaLabel="Auto-run on workspace open" />
+            <span className="text-[12px] text-[color:var(--text-default)]">
+              Auto-run on workspace open
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <Switch checked disabled onChange={() => {}} ariaLabel="Disabled checked switch" />
+            <span className="text-[12px] text-[color:var(--text-muted)]">
+              Disabled — managed elsewhere
+            </span>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Field">
+        <div className="flex flex-col gap-4">
+          <Field label="Workspace name" htmlFor="preview-field-name" required>
+            <input
+              type="text"
+              value={workspaceName}
+              onChange={(event) => setWorkspaceName(event.target.value)}
+              className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]"
+            />
+          </Field>
+          <Field
+            label="Webhook endpoint"
+            htmlFor="preview-field-endpoint"
+            help="Optional — leave blank to disable outbound notifications."
+          >
+            <input
+              type="url"
+              value={endpoint}
+              onChange={(event) => setEndpoint(event.target.value)}
+              placeholder="https://"
+              className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]"
+            />
+          </Field>
+          <Field
+            label="API key"
+            htmlFor="preview-field-key"
+            error="Required when the webhook endpoint is set."
+            required
+          >
+            <input
+              type="text"
+              defaultValue=""
+              className="h-7 rounded-[5px] border border-[color:var(--tone-error)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-strong)] outline-none"
+            />
+          </Field>
+        </div>
+      </Section>
+
+      <Section title="Select">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-[12px] text-[color:var(--text-muted)]">Worker role</span>
+            <Select
+              ariaLabel="Worker role"
+              items={SELECT_ROLE_ITEMS}
+              value={role}
+              onChange={setRole}
+              className="w-[220px]"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[12px] text-[color:var(--text-muted)]">Theme</span>
+            <Select
+              ariaLabel="Theme"
+              items={SELECT_THEME_ITEMS}
+              value={theme}
+              onChange={setTheme}
+              className="w-[180px]"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[12px] text-[color:var(--text-muted)]">Disabled — managed elsewhere</span>
+            <Select
+              ariaLabel="Disabled select"
+              items={SELECT_THEME_ITEMS}
+              value={null}
+              onChange={() => {}}
+              disabled
+              placeholder="Locked"
+              className="w-[180px]"
+            />
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Drawer">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <PrimaryButton onClick={() => setDrawerOpen(true)}>Open drawer</PrimaryButton>
+            <span className="text-[12px] text-[color:var(--text-muted)]">
+              Escape closes; focus returns to the trigger.
+            </span>
+          </div>
+          <Drawer
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            title="Drawer preview"
+            ariaLabel="Drawer preview"
+          >
+            <Drawer.Body>
+              <div className="flex flex-col gap-3">
+                <DefinitionList
+                  items={[
+                    { term: 'Pattern', description: 'Right-slide-in, panel-local dialog' },
+                    { term: 'Elevation', description: '--shadow-drawer (canonical)' },
+                    { term: 'Motion', description: 'translate3d, --motion-deliberate' },
+                    { term: 'Reduced motion', description: 'Slide skipped; transform jumps' },
+                  ]}
+                />
+                <div className="flex items-center gap-2">
+                  <GhostButton onClick={() => setDrawerOpen(false)}>Close</GhostButton>
+                  <PrimaryButton onClick={() => setDrawerOpen(false)}>Acknowledge</PrimaryButton>
+                </div>
+              </div>
+            </Drawer.Body>
+          </Drawer>
+        </div>
+      </Section>
+
+      <Section title="Toast">
+        <div className="flex max-w-md flex-col gap-2">
+          <Toast tone="neutral" title="Workspace saved" description="Last write 12:04 PM" />
+          <Toast
+            tone="good"
+            title="Build passed"
+            description="42 packages compiled in 8.6s — auto-dismiss in 5s."
+          />
+          <Toast
+            tone="warn"
+            title="Branch is behind main"
+            description="Pull before pushing. This toast stays until dismissed."
+            onDismiss={() => undefined}
+          />
+          <Toast
+            tone="error"
+            title="Lint failed"
+            description="3 violations in SwitchboardBoardPanel.tsx."
+            onDismiss={() => undefined}
+          />
+          <div className="flex items-center gap-2">
+            <GhostButton onClick={() => setToastVisible((v) => !v)}>
+              {toastVisible ? 'Hide programmatic toast' : 'Show programmatic toast'}
+            </GhostButton>
+            {toastVisible ? (
+              <Toast
+                tone="accent"
+                title="Saved as preset"
+                onDismiss={() => setToastVisible(false)}
+              />
+            ) : null}
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Tooltip">
+        <div className="flex flex-wrap items-center gap-6">
+          <Tooltip content="Refresh the workspace state">
+            <IconButton aria-label="Refresh">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path
+                  d="M2 6a4 4 0 1 1 1.2 2.8"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+                <path d="M2 3v3h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+            </IconButton>
+          </Tooltip>
+          <Tooltip content="Discard local changes" placement="bottom">
+            <GhostButton>Reset</GhostButton>
+          </Tooltip>
+          <Tooltip content="Sprint engine state is the source of truth">
+            <span className="text-[12px] text-[color:var(--text-muted)] underline decoration-dotted underline-offset-2">
+              Source
+            </span>
+          </Tooltip>
+        </div>
+      </Section>
+
       <Section title="Tabs">
         <div className="overflow-hidden rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
           <Tabs
@@ -197,6 +448,46 @@ export function PrimitivePreview() {
             <TabPanel idPrefix="preview" tabId="history" active={tab === 'history'}>
               History panel content — composes a list of past runs.
             </TabPanel>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Keyboard chords" count={KBD_CHORDS.length}>
+        <div className="flex flex-col gap-2">
+          {KBD_CHORDS.map((chord) => (
+            <div key={chord.ariaLabel} className="flex items-center gap-3">
+              <KbdChord keys={chord.keys} ariaLabel={chord.ariaLabel} />
+              <span className="text-[12px] text-[color:var(--text-muted)]">{chord.supporting}</span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Role glyphs" count={ROLE_GLYPHS.length}>
+        <p className="mb-3 text-[12px] text-[color:var(--text-muted)]">
+          Documented exception to the one-accent rule. Used only on the Sprint Engine kanban card,
+          task-graph nodes, and agent rows where role tone carries identity information.
+        </p>
+        <div className="flex flex-wrap items-center gap-4">
+          {ROLE_GLYPHS.map((roleId) => (
+            <div key={roleId} className="flex items-center gap-2">
+              <RoleGlyph role={roleId} size="md" />
+              <span className="text-[12px] text-[color:var(--text-default)]">{roleId}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <RoleGlyph role="frontend" size="sm" />
+            <span className="text-[11px] text-[color:var(--text-muted)]">sm</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <RoleGlyph role="frontend" size="md" />
+            <span className="text-[11px] text-[color:var(--text-muted)]">md</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <RoleGlyph role="frontend" size="lg" />
+            <span className="text-[11px] text-[color:var(--text-muted)]">lg</span>
           </div>
         </div>
       </Section>

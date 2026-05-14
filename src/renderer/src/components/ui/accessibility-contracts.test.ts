@@ -20,6 +20,17 @@ const overflowMenu = read('src/renderer/src/components/ui/OverflowMenu.tsx')
 const tabs = read('src/renderer/src/components/ui/Tabs.tsx')
 const buttons = read('src/renderer/src/components/ui/Buttons.tsx')
 const modal = read('src/renderer/src/components/ui/Modal.tsx')
+const switchPrimitive = read('src/renderer/src/components/ui/Switch.tsx')
+const field = read('src/renderer/src/components/ui/Field.tsx')
+const select = read('src/renderer/src/components/ui/Select.tsx')
+const drawer = read('src/renderer/src/components/ui/Drawer.tsx')
+const toast = read('src/renderer/src/components/ui/Toast.tsx')
+const tooltip = read('src/renderer/src/components/ui/Tooltip.tsx')
+const taskCard = read('src/renderer/src/components/ui/TaskCard.tsx')
+const panelHeader = read('src/renderer/src/components/ui/PanelHeader.tsx')
+const kbdChord = read('src/renderer/src/components/ui/KbdChord.tsx')
+const roleGlyph = read('src/renderer/src/components/ui/RoleGlyph.tsx')
+const rendererCss = read('src/renderer/src/assets/index.css')
 const switchboardPanel = read('src/renderer/src/components/panels/SwitchboardBoardPanel.tsx')
 const watchtowerPanel = read('src/renderer/src/components/panels/WatchtowerPanel.tsx')
 const sprintEnginePanel = read('src/renderer/src/components/panels/SprintEngineBoardPanel.tsx')
@@ -51,6 +62,145 @@ expectIncludes(buttons, "'aria-label': string", 'IconButton type requires an acc
 expectMatches(buttons, /FOCUS_RING_CLASS[\s\S]*className \?\? ''/, 'Shared buttons apply the focus ring class')
 expectIncludes(modal, "event.key === 'Escape'", 'Modal closes on Escape')
 expectIncludes(modal, 'previous?.focus()', 'Modal restores focus to the previously active element')
+
+expectIncludes(switchPrimitive, 'role="switch"', 'Switch exposes switch role')
+expectIncludes(switchPrimitive, 'aria-checked={checked}', 'Switch exposes aria-checked')
+expectIncludes(switchPrimitive, "event.key === ' '", 'Switch toggles on Space')
+expectMatches(
+  switchPrimitive,
+  /event\.key === 'Enter'[\s\S]*event\.preventDefault\(\)/,
+  'Switch prevents Enter from toggling',
+)
+expectIncludes(
+  switchPrimitive,
+  'var(--accent-primary)',
+  'Switch uses the accent token for the checked state',
+)
+
+expectIncludes(field, 'htmlFor={htmlFor}', 'Field links its <label> to the child input via htmlFor')
+expectIncludes(field, "'aria-invalid'", 'Field exposes aria-invalid on the labelled element when an error is set')
+expectIncludes(field, "'aria-describedby'", 'Field wires aria-describedby on the labelled element')
+expectIncludes(field, 'React.cloneElement', 'Field injects id/ARIA props onto its single child control')
+
+// Select — select-only combobox; ten-line keyboard contract.
+expectIncludes(select, 'role="combobox"', 'Select trigger exposes the combobox role')
+expectIncludes(select, 'aria-haspopup="listbox"', 'Select trigger advertises a listbox popup')
+expectIncludes(select, 'aria-expanded={open}', 'Select trigger reports expanded state')
+expectIncludes(select, 'aria-activedescendant={activeOptionId}', 'Select trigger publishes active option id')
+expectIncludes(select, 'aria-label={ariaLabel}', 'Select requires an accessible trigger name')
+expectIncludes(select, 'role="listbox"', 'Select popup uses the listbox role')
+expectIncludes(select, 'role="option"', 'Select options use the option role')
+expectIncludes(select, 'aria-selected={selected}', 'Select options expose aria-selected for the current value')
+expectIncludes(select, "event.key === 'ArrowDown'", 'Select supports ArrowDown navigation')
+expectIncludes(select, "event.key === 'ArrowUp'", 'Select supports ArrowUp navigation')
+expectIncludes(select, "event.key === 'Enter'", 'Select commits on Enter')
+expectIncludes(select, "event.key === ' '", 'Select commits on Space')
+expectIncludes(select, "event.key === 'Escape'", 'Select closes on Escape')
+expectIncludes(select, 'handleTypeahead', 'Select supports printable-character type-ahead')
+expectIncludes(select, 'triggerRef.current?.focus()', 'Select restores focus to the trigger on close')
+expectIncludes(select, 'var(--accent-primary)', 'Select uses the accent token for selected state')
+
+// Drawer — right-slide-in primitive with focus trap, ESC close, focus restoration, scroll-lock, reduced-motion.
+expectIncludes(drawer, 'role="dialog"', 'Drawer surface exposes the dialog role')
+expectIncludes(drawer, 'aria-label={ariaLabel}', 'Drawer requires an accessible name on the dialog surface')
+expectIncludes(drawer, 'aria-labelledby={titleId}', 'Drawer wires aria-labelledby to its visible title')
+expectIncludes(drawer, "event.key === 'Escape'", 'Drawer closes on Escape')
+expectIncludes(drawer, 'restoreFocusRef.current', 'Drawer captures the opener for focus restoration')
+expectIncludes(drawer, 'target.focus()', 'Drawer restores focus to the opener on close')
+expectIncludes(drawer, "document.body.style.overflow = 'hidden'", 'Drawer locks body scroll while open')
+expectIncludes(drawer, 'data-focus-sentinel="true"', 'Drawer installs focus sentinels to trap focus')
+expectIncludes(drawer, 'trapFocus', 'Drawer wires a focus trap helper')
+expectIncludes(drawer, 'prefersReducedMotion', 'Drawer reads prefers-reduced-motion to skip slide animation')
+expectIncludes(drawer, 'drawer-panel', 'Drawer uses the canonical .drawer-panel elevation class')
+expectIncludes(rendererCss, '--shadow-drawer:', 'Canonical drawer elevation token is defined in index.css')
+expectIncludes(rendererCss, '.drawer-panel', 'Canonical .drawer-panel slide/elevation class is defined in index.css')
+expectIncludes(rendererCss, 'box-shadow: var(--shadow-drawer)', '.drawer-panel applies the canonical drawer elevation')
+
+// Toast — tone-driven live region. Polite/assertive split keys off StatusDot tones.
+expectMatches(toast, /neutral:\s*'status'/, 'Toast routes neutral tone to role="status"')
+expectMatches(toast, /good:\s*'status'/, 'Toast routes good tone to role="status"')
+expectMatches(toast, /accent:\s*'status'/, 'Toast routes accent tone to role="status"')
+expectMatches(toast, /warn:\s*'alert'/, 'Toast routes warn tone to role="alert"')
+expectMatches(toast, /error:\s*'alert'/, 'Toast routes error tone to role="alert"')
+expectMatches(toast, /neutral:\s*'polite'/, 'Toast neutral uses aria-live="polite"')
+expectMatches(toast, /good:\s*'polite'/, 'Toast good uses aria-live="polite"')
+expectMatches(toast, /warn:\s*'assertive'/, 'Toast warn uses aria-live="assertive"')
+expectMatches(toast, /error:\s*'assertive'/, 'Toast error uses aria-live="assertive"')
+expectMatches(toast, /warn:\s*false/, 'Toast disables auto-dismiss for warn tone')
+expectMatches(toast, /error:\s*false/, 'Toast disables auto-dismiss for error tone')
+expectMatches(toast, /neutral:\s*\d{3,}/, 'Toast auto-dismisses neutral tone after a finite duration')
+expectIncludes(toast, 'role={TOAST_ROLE[tone]}', 'Toast surface reads role from the tone map')
+expectIncludes(toast, 'aria-live={TOAST_LIVE[tone]}', 'Toast surface reads aria-live from the tone map')
+expectIncludes(toast, 'toast-enter', 'Toast uses the shared toast-enter class which is disabled under prefers-reduced-motion')
+
+// Tooltip — Radix-free; hover + focus open, ESC closes, aria-describedby on trigger.
+expectIncludes(tooltip, 'role="tooltip"', 'Tooltip surface uses the tooltip role')
+expectIncludes(tooltip, "'aria-describedby'", 'Tooltip wires aria-describedby on the trigger')
+expectIncludes(tooltip, "event.key === 'Escape'", 'Tooltip closes on Escape')
+expectIncludes(tooltip, 'onMouseEnter', 'Tooltip opens on hover')
+expectIncludes(tooltip, 'onFocus', 'Tooltip opens on keyboard focus')
+expectIncludes(tooltip, 'onBlur', 'Tooltip closes on blur')
+expectIncludes(tooltip, 'React.cloneElement', 'Tooltip injects ARIA + handlers onto its single child trigger')
+assert.ok(!/\btitle=/.test(tooltip), 'Tooltip does not fall back to the native title attribute')
+
+// TaskCard — shared anatomy across row and card variants. The card is the
+// interactive surface only when `onSelect` is provided; otherwise it must not
+// steal keyboard focus or expose a button role.
+expectIncludes(taskCard, 'data-task-card={variant}', 'TaskCard tags the variant on its root element')
+expectIncludes(taskCard, "role={onSelect ? 'button' : undefined}", 'TaskCard exposes role="button" only when interactive')
+expectIncludes(taskCard, 'tabIndex={onSelect ? 0 : undefined}', 'TaskCard joins the tab order only when interactive')
+expectIncludes(taskCard, 'aria-pressed={onSelect ? selected : undefined}', 'TaskCard reports selection via aria-pressed when interactive')
+expectIncludes(taskCard, 'aria-label={ariaLabel}', 'TaskCard accepts an accessible name')
+expectIncludes(taskCard, 'onKeyDown={onSelect ? handleKeyDown : undefined}', 'TaskCard only attaches keyboard handler when interactive')
+expectMatches(
+  taskCard,
+  /event\.key === 'Enter' \|\| event\.key === ' '[\s\S]*event\.preventDefault\(\)[\s\S]*onSelect\?\.\(\)/,
+  'TaskCard activates on Enter and Space and prevents default scroll',
+)
+expectIncludes(taskCard, 'FOCUS_RING_CLASS', 'TaskCard applies the shared focus ring class for visible focus')
+// Card variant: identifier above title, title clamps to 2 lines.
+expectIncludes(taskCard, 'line-clamp-2', 'TaskCard card variant clamps title to two lines for scanability')
+// Row variant: identifier inline with title, single-line truncate.
+expectIncludes(taskCard, 'truncate', 'TaskCard row variant truncates the title to a single line')
+// Identifier semantics — mono + tabular-nums so IDs align in a column.
+expectIncludes(taskCard, 'font-mono tabular-nums', 'TaskCard identifier uses mono + tabular-nums for ID columns')
+
+// PanelHeader.progress — 2px hairline overlay. It is a presentational ARIA
+// progressbar; it must not steal pointer or keyboard focus, and it is only
+// rendered when the panel has a real completion metric.
+expectIncludes(panelHeader, 'role="progressbar"', 'PanelHeader.progress exposes the progressbar role')
+expectIncludes(panelHeader, 'aria-valuemin={0}', 'PanelHeader.progress declares the progressbar minimum')
+expectIncludes(panelHeader, 'aria-valuemax={progress.total}', 'PanelHeader.progress declares the progressbar maximum from total')
+expectIncludes(panelHeader, 'aria-valuenow={progress.value}', 'PanelHeader.progress publishes the current value')
+expectIncludes(panelHeader, 'aria-label={progress.ariaLabel}', 'PanelHeader.progress accepts an accessible name from the caller')
+expectIncludes(panelHeader, 'pointer-events-none', 'PanelHeader.progress hairline does not capture pointer events')
+expectIncludes(panelHeader, 'progress && progress.total > 0', 'PanelHeader.progress only renders when the panel has a real completion metric')
+assert.ok(
+  !/progress[\s\S]*tabIndex=/.test(panelHeader),
+  'PanelHeader.progress does not assign a tabIndex (must not steal keyboard focus)',
+)
+
+// KbdChord — purely presentational. Each key is a real <kbd> element wearing
+// the mono token; the wrapper is role="img" with an accessible name so screen
+// readers announce the chord without exposing an interactive role.
+expectIncludes(kbdChord, '<kbd ', 'KbdChord renders each key as a real <kbd> element')
+expectIncludes(kbdChord, 'role="img"', 'KbdChord exposes role="img" on its wrapper')
+expectIncludes(kbdChord, 'aria-label={label}', 'KbdChord exposes an accessible name for the chord')
+expectIncludes(kbdChord, 'font-mono', 'KbdChord keys wear the monospace token')
+assert.ok(
+  !/role="button"|onClick=/.test(kbdChord),
+  'KbdChord has no interactive role or click handler',
+)
+
+// RoleGlyph — the documented exception to the one-accent rule. Wrapper is
+// role="img" with an accessible name including the role label; the tone
+// comes from the canonical sprintEngineRoleAccent map and the documentation
+// reference is required in-file.
+expectIncludes(roleGlyph, 'role="img"', 'RoleGlyph exposes role="img" on its wrapper')
+expectIncludes(roleGlyph, 'aria-label={label}', 'RoleGlyph attaches an accessible name')
+expectIncludes(roleGlyph, 'sprintEngineRoleLabels[role]', 'RoleGlyph names the role in its accessible label')
+expectIncludes(roleGlyph, 'sprintEngineRoleAccent[role]', 'RoleGlyph reads tone from the canonical role accent map')
+expectIncludes(roleGlyph, 'knowledge/brand/panel-design-system.md', 'RoleGlyph documents itself against the panel design system contract')
 
 expectIncludes(switchboardPanel, '[aria-label="Switchboard overflow"]', 'Switchboard runner restores focus to overflow trigger')
 expectIncludes(watchtowerPanel, '[aria-label="Watchtower overflow"]', 'Watchtower review drawer restores focus to overflow trigger')

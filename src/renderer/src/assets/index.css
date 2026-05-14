@@ -17,6 +17,9 @@
   --bg-hover: #17181d;
   --bg-active: #1d1e24;
   --bg-selected: #24252b;
+  /* Modal / dialog scrim above panel chrome. Matches the previous Modal
+     inline `bg-[#08090b]/70` literal (Tailwind /70 = 0.7 alpha). */
+  --surface-overlay-backdrop: rgba(8, 9, 11, 0.7);
 
   /* Text. */
   --text-strong: #ececee;
@@ -67,6 +70,14 @@
   --text-line-default: 1.4;
   --text-line-relaxed: 1.5;
 
+  /* Iconography. Canonical icon sizes for primitives and panel chrome.
+     Pair with the type scale so glyphs sit on the same rhythm as their
+     adjacent labels. */
+  --icon-xs: 12px; /* inline glyphs sitting next to body/meta copy */
+  --icon-sm: 14px; /* default list-row and toolbar icons */
+  --icon-md: 16px; /* button-pair icons and panel header chrome */
+  --icon-lg: 20px; /* prominent affordances and empty-state glyphs */
+
   /* Radius. */
   --radius-xs: 3px;
   --radius-sm: 5px;
@@ -81,6 +92,10 @@
 
   /* Focus ring helper for primitives. */
   --focus-ring: 0 0 0 2px var(--border-focus);
+
+  /* Canonical elevation. Drawers reuse this single shadow value so panel-local
+     drawers stop hand-rolling `shadow-[...]` literals. */
+  --shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -235,6 +250,23 @@ samp,
 @media (prefers-reduced-motion: no-preference) {
   .settings-overlay-panel {
     transition: transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+}
+
+/* Canonical right-slide-in Drawer primitive. Consumers should never write a
+ * bespoke `shadow-[...]` or translate transition on a drawer surface — this
+ * class owns the elevation and motion so all drawers stay coherent. */
+.drawer-panel {
+  transform: translate3d(100%, 0, 0);
+  will-change: transform;
+  box-shadow: var(--shadow-drawer);
+}
+.drawer-panel[data-state="open"] {
+  transform: translate3d(0, 0, 0);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .drawer-panel {
+    transition: transform var(--motion-deliberate) var(--motion-ease);
   }
 }
 

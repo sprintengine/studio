@@ -28,7 +28,8 @@ import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPaylo
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { sprintEngineRoleAccent } from '../../utils/sprintengine'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
-import { SpecialistActionIcon, StatusDot, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
 import FileExplorer from '../panels/FileExplorer'
@@ -67,7 +68,8 @@ const SPRINTENGINE_ROLES: SprintEngineRole[] = [
 ]
 
 type AgentTabActivityDot = {
-  tone: 'running' | 'needs-input' | 'error'
+  tone: Tone
+  pulse: boolean
   label: string
 }
 
@@ -88,17 +90,20 @@ function agentTabActivityDot(
   switch (activity) {
     case 'needs-input':
       return {
-        tone: 'needs-input',
+        tone: 'warn',
+        pulse: true,
         label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
       }
     case 'working':
       return {
-        tone: 'running',
+        tone: 'good',
+        pulse: true,
         label: 'Working',
       }
     case 'failed':
       return {
         tone: 'error',
+        pulse: false,
         label: 'Failed',
       }
     default:
@@ -847,7 +852,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1.5">
             {tabContent}
-            <StatusDot tone={activityDot.tone} label={activityDot.label} />
+            <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
             {recencyIndicator}
           </span>
         )

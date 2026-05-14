@@ -14,8 +14,8 @@ import {
 } from '../ui/ActionFeedback'
 import {
   DefinitionList,
+  Drawer,
   GhostButton,
-  IconButton,
   OverflowMenu,
   PanelHeader,
   PrimaryButton,
@@ -441,7 +441,12 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     {
       id: 'switchboard.open.runner',
       label: 'Open runner',
-      onSelect: () => setRunnerOpen(true),
+      onSelect: () => {
+        // Focus the overflow trigger before the runner Drawer mounts so the
+        // primitive captures it as the restore target on close.
+        document.querySelector<HTMLElement>('[aria-label="Switchboard overflow"]')?.focus()
+        setRunnerOpen(true)
+      },
     },
   ]
 
@@ -1453,32 +1458,10 @@ function RunnerDrawer({
   onClose: () => void
 }) {
   const [draft, setDraft] = useState<RunnerSettings>(() => settingsFromState(runner.state))
-  const containerRef = useRef<HTMLDivElement>(null)
-  const restoreFocusElementRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     setDraft(settingsFromState(runner.state))
   }, [runner.state])
-
-  useEffect(() => {
-    restoreFocusElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    containerRef.current?.focus()
-    return () => {
-      const trigger = document.querySelector<HTMLElement>('[aria-label="Switchboard overflow"]')
-      ;(trigger ?? restoreFocusElementRef.current)?.focus()
-    }
-  }, [])
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
 
   const isStarted = runner.status === 'running' || runner.status === 'paused'
   const canEdit = !isStarted
@@ -1552,40 +1535,19 @@ function RunnerDrawer({
   ]
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-stretch justify-end"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div
-        ref={containerRef}
-        role="dialog"
-        aria-modal="false"
-        aria-label="Switchboard runner"
-        tabIndex={-1}
-        // design-tokens-allow: drawer elevation reuses the canonical popover shadow.
-        className="popover-enter flex w-[420px] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)] focus:outline-none"
-      >
-        <header className="flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <StatusDot tone={RUNNER_TONE[runner.status]} pulse={runner.status === 'running'} />
-            <h2 className="text-[13px] font-semibold text-[color:var(--text-strong)]">Runner</h2>
+    <Drawer open onClose={onClose} title="Runner" ariaLabel="Switchboard runner" width={420}>
+      <Drawer.Body className="!p-0">
+        {runnerStatus ? (
+          <div className="border-b border-[color:var(--border-default)] px-3 py-2">
             <ActionStatusChip
               status={runnerStatus}
-              onDismiss={runnerStatus?.tone === 'error' ? onDismissRunnerStatus : undefined}
+              onDismiss={runnerStatus.tone === 'error' ? onDismissRunnerStatus : undefined}
             />
           </div>
-          <IconButton aria-label="Close runner" onClick={onClose}>
-            <span aria-hidden="true">×</span>
-          </IconButton>
-        </header>
-
-        <div className="flex-1 overflow-auto">
-          <Section title="State">
-            <DefinitionList items={stateItems} />
-          </Section>
+        ) : null}
+        <Section title="State">
+          <DefinitionList items={stateItems} />
+        </Section>
 
           <Section title="Controls">
             <div className="flex flex-wrap gap-1.5">
@@ -1659,11 +1621,10 @@ function RunnerDrawer({
           {inactiveExecutions.length > 0 ? (
             <Section title="Other tracked executions" count={inactiveExecutions.length}>
               <ExecutionsList executions={inactiveExecutions} tone="inactive" />
-            </Section>
-          ) : null}
-        </div>
-      </div>
-    </div>
+          </Section>
+        ) : null}
+      </Drawer.Body>
+    </Drawer>
   )
 }
 

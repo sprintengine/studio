@@ -73,8 +73,6 @@ const columnMeta: { key: SprintEngineTaskBoardColumn; label: string }[] = [
  { key: 'todo', label: 'Todo' },
  { key: 'ready', label: 'Ready' },
  { key: 'in_progress', label: 'In Progress' },
- { key: 'review', label: 'Review' },
- { key: 'testing', label: 'Testing' },
  { key: 'needs_input', label: 'Needs Input' },
  { key: 'done', label: 'Done' },
 ]
@@ -106,8 +104,6 @@ function KanbanCardList({
 const taskStateLabel: Record<SprintEngineTaskStatus, string> = {
  todo: 'Todo',
  in_progress: 'In Progress',
- review: 'Review',
- testing: 'Testing',
  needs_input: 'Needs Input',
  done: 'Done',
 }
@@ -1911,13 +1907,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  ? 'good'
  : task.status === 'needs_input'
  ? 'warn'
- : task.status === 'in_progress' || task.status === 'review' || task.status === 'testing' || boardColumn === 'ready'
+ : task.status === 'in_progress' || boardColumn === 'ready'
  ? 'accent'
  : 'neutral'
  const taskSelected = selectedTaskId === task.id
  const justMoved = recentlyMovedTaskIds.has(task.id)
- const isLive =
- task.status === 'in_progress' || task.status === 'review' || task.status === 'testing'
+ const isLive = task.status === 'in_progress'
  return (
  <TaskCard
  key={task.id}
@@ -4669,10 +4664,6 @@ function emptyKanbanColumnLabel(column: SprintEngineTaskBoardColumn): string {
  return 'No ready work. Waiting on dependencies or active workers.'
  case 'in_progress':
  return 'No workers are actively claiming tasks.'
- case 'review':
- return 'No tasks are waiting for review.'
- case 'testing':
- return 'No tasks are waiting for testing.'
  case 'needs_input':
  return 'No blocked tasks or worker questions.'
  case 'done':
@@ -4718,26 +4709,6 @@ function SprintEngineTaskStatusIcon({
  <title>{label}</title>
  <circle cx="12" cy="12" r="6.4" stroke="var(--tone-good)" strokeWidth="1.7" />
  <circle cx="12" cy="12" r="2" fill="var(--tone-good)" />
- </svg>
- )
- }
-
- if (column === 'review') {
- return (
- <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
- <title>{label}</title>
- <circle cx="12" cy="12" r="6.4" stroke="var(--accent-primary)" strokeWidth="1.7" />
- <path d="M8.8 12.2L10.8 14.2L15.4 9.8" stroke="var(--accent-primary)" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
- </svg>
- )
- }
-
- if (column === 'testing') {
- return (
- <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
- <title>{label}</title>
- <circle cx="12" cy="12" r="6.4" stroke="var(--tone-warn)" strokeWidth="1.7" />
- <path d="M9.2 9.2L14.8 14.8M14.8 9.2L9.2 14.8" stroke="var(--tone-warn)" strokeWidth="1.6" strokeLinecap="round" />
  </svg>
  )
  }

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { StatusDot, WorkspaceTypeIcon } from '../AppIcons'
+import { WorkspaceTypeIcon } from '../AppIcons'
+import { StatusDot, type Tone } from '../ui'
 import MulticodeMark from '../brand/MulticodeMark'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -201,10 +202,10 @@ function inactiveHighlightClass(workspace: Workspace): string {
   return `border-l-[3px] ${swatch.border}`
 }
 
-function activityTone(activity: Activity): 'running' | 'needs-input' | 'error' | null {
-  if (activity === 'needs-input') return 'needs-input'
-  if (activity === 'working') return 'running'
-  if (activity === 'failed') return 'error'
+function activityTone(activity: Activity): { tone: Tone; pulse: boolean } | null {
+  if (activity === 'needs-input') return { tone: 'warn', pulse: true }
+  if (activity === 'working') return { tone: 'good', pulse: true }
+  if (activity === 'failed') return { tone: 'error', pulse: false }
   return null
 }
 
@@ -771,7 +772,7 @@ export default function WorkspaceSidebar({
 
             <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end">
               <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0">
-                {tone ? <StatusDot tone={tone} label={activityLabel(activity)} /> : null}
+                {tone ? <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} /> : null}
                 {showRecencyText ? (
                   <span
                     className="text-[10px] tabular-nums text-[#5a5a63]"
@@ -823,14 +824,9 @@ export default function WorkspaceSidebar({
         )}
 
         {sidebarCollapsed && tone ? (
-          <span
-            className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full ${
-              tone === 'needs-input'
-                ? 'animate-pulse bg-[#ffbf2f] shadow-[0_0_8px_rgba(255,191,47,0.75)]'
-                : 'bg-[#30d158]'
-            }`}
-            aria-hidden="true"
-          />
+          <span className="absolute right-1 top-1">
+            <StatusDot tone={tone.tone} pulse={tone.pulse} />
+          </span>
         ) : null}
 
         {sidebarCollapsed && starred ? (

@@ -743,7 +743,7 @@ function evidenceSortKey(task: MultiloopTask): string {
 
 function sprintEngineTaskToMultiloopTask(task: SprintEngineTask, sprintEngineState: SprintEngineState, milestoneId: string): MultiloopTask {
   const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
-  const status = boardColumn === 'review' || boardColumn === 'testing' ? 'in_progress' : boardColumn
+  const status = boardColumn
   return {
     id: task.id,
     milestoneId,
