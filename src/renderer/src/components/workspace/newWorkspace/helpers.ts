@@ -1,3 +1,5 @@
+import type { SprintEngineSourcePlanKind } from '../../../types/workspace'
+
 export function basename(p: string): string {
   const parts = p.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? ''
@@ -49,4 +51,23 @@ export function markdownTitle(content: string): string | null {
 
 export function shouldScanDirectory(name: string): boolean {
   return name !== 'node_modules' && name !== '.git' && name !== '.multicode-worktrees'
+}
+
+const PRODUCT_FILENAME = /(^|[-_/\s])(product|prd|requirements|spec|rfc|brief)([-_\s.]|$)/i
+const ARCHITECT_FILENAME = /(^|[-_/\s])(implementation|architect|engineering|technical|tech[-_\s]?spec)([-_\s.]|$)/i
+const GENERIC_PLAN_FILENAME = /(^|[-_/\s])plan([-_\s.]|$)/i
+const ARCHITECT_TITLE = /\b(implementation plan|architect plan|technical plan|engineering plan|tech spec)\b/i
+const PRODUCT_TITLE = /\b(product plan|product requirements|prd|product brief)\b/i
+
+export function inferSourcePlanKind(filename: string, content: string): SprintEngineSourcePlanKind {
+  const baseName = basename(filename).replace(/\.md$/i, '')
+  if (PRODUCT_FILENAME.test(baseName)) return 'product_plan'
+  if (ARCHITECT_FILENAME.test(baseName)) return 'architect_plan'
+
+  const title = markdownTitle(content) ?? ''
+  if (PRODUCT_TITLE.test(title)) return 'product_plan'
+  if (ARCHITECT_TITLE.test(title)) return 'architect_plan'
+  if (GENERIC_PLAN_FILENAME.test(baseName)) return 'unknown'
+
+  return 'unknown'
 }

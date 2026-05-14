@@ -17,6 +17,7 @@ import type {
   SprintEngineRole,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
+  SprintEngineSourcePlanKind,
   SprintEngineState,
   SprintEngineWorkspaceContext,
 } from '../../types/workspace'
@@ -44,7 +45,7 @@ import {
   useFolderHints,
   useFolderScan,
 } from './newWorkspace/useNewWorkspaceFolder'
-import { basename, folderKey, planBasename, markdownTitle, toTitleName } from './newWorkspace/helpers'
+import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, SprintEnginePath } from './newWorkspace/types'
 
 const MAX_RECENT_FOLDERS = 6
@@ -91,6 +92,18 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     subtitle: 'Choose how many of each role and which CLI they default to.',
   },
 }
+
+const SOURCE_PLAN_KIND_LABELS: Record<SprintEngineSourcePlanKind, string> = {
+  product_plan: 'Product plan',
+  architect_plan: 'Implementation plan',
+  unknown: 'Generic handoff',
+}
+
+const SOURCE_PLAN_KIND_OPTIONS: Array<{ value: SprintEngineSourcePlanKind; label: string }> = [
+  { value: 'product_plan', label: SOURCE_PLAN_KIND_LABELS.product_plan },
+  { value: 'architect_plan', label: SOURCE_PLAN_KIND_LABELS.architect_plan },
+  { value: 'unknown', label: SOURCE_PLAN_KIND_LABELS.unknown },
+]
 
 const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
@@ -199,6 +212,9 @@ export default function NewWorkspacePanel({
   const [sePlanContent, setSePlanContent] = useState<string | null>(
     initialFuturePlan?.sourceContent ?? null,
   )
+  const [seSourcePlanKind, setSeSourcePlanKind] = useState<SprintEngineSourcePlanKind>(
+    initialFuturePlan?.sourcePlanKind ?? 'unknown',
+  )
   const [seExistingTeam, setSeExistingTeam] = useState<ExistingTeam | null>(null)
   const [seTeamName, setSeTeamName] = useState(initialFuturePlan?.teamName ?? '')
   const [seTeamNameTouched, setSeTeamNameTouched] = useState(Boolean(initialFuturePlan))
@@ -263,6 +279,7 @@ export default function NewWorkspacePanel({
     setSePath('plan')
     setSePlanPath(initialFuturePlan.sourcePath)
     setSePlanContent(initialFuturePlan.sourceContent ?? null)
+    setSeSourcePlanKind(initialFuturePlan.sourcePlanKind ?? 'unknown')
   }, [initialFuturePlan])
 
   // Escape closes when allowed.
@@ -428,6 +445,7 @@ export default function NewWorkspacePanel({
     setSeExistingTeam(null)
     setSePlanPath('')
     setSePlanContent(null)
+    setSeSourcePlanKind('unknown')
     setSePlanError(null)
     setMlError(null)
     if (!nameTouched) setName(folderName || 'workspace')
@@ -464,6 +482,7 @@ export default function NewWorkspacePanel({
     setSePlanError(null)
     if (!sourcePath) {
       setSePlanContent(null)
+      setSeSourcePlanKind('unknown')
       return
     }
     const option = folderScan.result.plans.find((candidate) => candidate.path === sourcePath)
@@ -477,6 +496,7 @@ export default function NewWorkspacePanel({
       const fallbackName = planBasename(option.path)
       const goal = markdownTitle(content) ?? toTitleName(fallbackName)
       setSePlanContent(content)
+      setSeSourcePlanKind(inferSourcePlanKind(option.relativePath, content))
       if (!seTeamNameTouched) setSeTeamName(slugifySprintEngineName(fallbackName))
       setSeGoal(goal)
       setSeExistingTeam(null)
@@ -625,6 +645,7 @@ export default function NewWorkspacePanel({
             goal: seGoal,
             sourcePath: option.relativePath,
             sourceContent: sePlanContent,
+            sourcePlanKind: seSourcePlanKind,
             roleCounts: seRoleCounts,
             roleCliDefaults: seRoleCliDefaults,
             sprintEngineAutoState: {
@@ -891,11 +912,14 @@ export default function NewWorkspacePanel({
                 if (p !== 'plan') {
                   setSePlanPath('')
                   setSePlanContent(null)
+                  setSeSourcePlanKind('unknown')
                 }
                 setSePlanError(null)
               }}
               planPath={sePlanPath}
               onSelectPlan={(p) => void handleSelectPlan(p)}
+              sourcePlanKind={seSourcePlanKind}
+              onChangeSourcePlanKind={setSeSourcePlanKind}
               planError={sePlanError}
               existingTeamSlug={seExistingTeam?.slug ?? ''}
               onSelectExistingTeam={handleSelectExistingTeam}
@@ -1299,6 +1323,8 @@ function SprintEngineTeamStep(props: {
   onChangePath: (path: SprintEnginePath) => void
   planPath: string
   onSelectPlan: (sourcePath: string) => void
+  sourcePlanKind: SprintEngineSourcePlanKind
+  onChangeSourcePlanKind: (kind: SprintEngineSourcePlanKind) => void
   planError: string | null
   existingTeamSlug: string
   onSelectExistingTeam: (slug: string) => void
@@ -1318,6 +1344,8 @@ function SprintEngineTeamStep(props: {
     onChangePath,
     planPath,
     onSelectPlan,
+    sourcePlanKind,
+    onChangeSourcePlanKind,
     planError,
     existingTeamSlug,
     onSelectExistingTeam,
@@ -1327,12 +1355,18 @@ function SprintEngineTeamStep(props: {
     onChangeGoal,
   } = props
 
+  const [planTypeEditing, setPlanTypeEditing] = useState(false)
+  useEffect(() => {
+    setPlanTypeEditing(false)
+  }, [planPath])
+
   if (!access.allowed) {
     return <SprintEngineAccessNotice access={access} onSignIn={onSignIn} />
   }
 
   const planAvailable = planOptions.length > 0
   const teamAvailable = existingTeams.length > 0
+  const planKindLabel = SOURCE_PLAN_KIND_LABELS[sourcePlanKind]
 
   return (
     <div className="flex flex-col gap-5">
@@ -1395,17 +1429,55 @@ function SprintEngineTeamStep(props: {
       ) : null}
 
       {path === 'plan' ? (
-        <div className="flex flex-col gap-2">
-          <FieldLabel>Markdown plan</FieldLabel>
-          <Select<string>
-            ariaLabel="Markdown plan"
-            items={planOptions.map((plan) => ({ value: plan.path, label: plan.relativePath }))}
-            value={planPath || null}
-            onChange={onSelectPlan}
-            disabled={!folderPath || isScanning}
-            placeholder="Select a plan…"
-            className="w-full"
-          />
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
+            <FieldLabel>Markdown plan</FieldLabel>
+            <Select<string>
+              ariaLabel="Markdown plan"
+              items={planOptions.map((plan) => ({ value: plan.path, label: plan.relativePath }))}
+              value={planPath || null}
+              onChange={onSelectPlan}
+              disabled={!folderPath || isScanning}
+              placeholder="Select a plan…"
+              className="w-full"
+            />
+          </div>
+          {planPath ? (
+            planTypeEditing ? (
+              <div className="flex flex-col gap-2">
+                <FieldLabel>Plan type</FieldLabel>
+                <Select<SprintEngineSourcePlanKind>
+                  ariaLabel="Plan type"
+                  items={SOURCE_PLAN_KIND_OPTIONS}
+                  value={sourcePlanKind}
+                  onChange={(value) => {
+                    onChangeSourcePlanKind(value)
+                    setPlanTypeEditing(false)
+                  }}
+                  className="w-full"
+                />
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                <span>Plan type</span>
+                <span aria-hidden="true">·</span>
+                <span className="text-[color:var(--text-default)]">{planKindLabel}</span>
+                <span aria-hidden="true">·</span>
+                <button
+                  type="button"
+                  onClick={() => setPlanTypeEditing(true)}
+                  aria-label="Change plan type"
+                  className="
+                    rounded-sm text-[color:var(--text-default)] underline-offset-2
+                    hover:underline focus:outline-none focus-visible:ring-2
+                    focus-visible:ring-[color:var(--accent-primary)]
+                  "
+                >
+                  Change
+                </button>
+              </div>
+            )
+          ) : null}
         </div>
       ) : null}
 

@@ -512,13 +512,20 @@ export type FuturePlanWorkspaceSource = {
   sourcePath: string
   sourceRelativePath: string
   sourceContent: string
+  sourcePlanKind: SprintEngineSourcePlanKind
   teamName: string
   goal: string
 }
 
+export type SprintEngineSourcePlanKind =
+  | 'unknown'
+  | 'product_plan'
+  | 'architect_plan'
+
 export type SprintEngineSource = {
   kind: 'markdown' | string
   origin: 'file' | 'stdin' | 'inline' | string
+  planKind?: SprintEngineSourcePlanKind | string
   path: string
   originalPath?: string
   capturedAt?: string

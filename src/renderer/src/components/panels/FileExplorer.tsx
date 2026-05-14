@@ -8,7 +8,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
-import type { FuturePlanWorkspaceSource } from '../../types/workspace'
+import type { FuturePlanWorkspaceSource, SprintEngineSourcePlanKind } from '../../types/workspace'
 
 const EMPTY_SEARCH_EXCLUDES: string[] = []
 
@@ -988,7 +988,7 @@ function ExplorerTree({
     }
   }
 
-  const startFuturePlan = async (entry: Entry) => {
+  const startFuturePlan = async (entry: Entry, sourcePlanKind: SprintEngineSourcePlanKind) => {
     const sourceRelativePath = markdownSourceRelativePath(rootPath, entry)
     if (!sourceRelativePath || !onStartFuturePlan) return
 
@@ -1002,6 +1002,7 @@ function ExplorerTree({
         sourcePath: entry.path,
         sourceRelativePath,
         sourceContent,
+        sourcePlanKind,
         teamName: slugifySprintEngineName(basename),
         goal: markdownTitle(sourceContent) ?? fallbackGoal,
       })
@@ -1054,7 +1055,17 @@ function ExplorerTree({
       ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
       ...(isSingleSelection && entry && isHtmlFile(entry) && canUsePathCommands ? [{ id: 'open-in-browser', label: 'Open in Browser' }] : []),
       ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
-      ...(canStartFuturePlan ? [{ id: 'create-markdown-sprintengine', label: 'Start Future Plan...' }] : []),
+      ...(canStartFuturePlan
+        ? [{
+          label: 'Start Sprint Engine From',
+          submenu: [
+            { id: 'create-markdown-sprintengine-product', label: 'Product Plan' },
+            { id: 'create-markdown-sprintengine-architect', label: 'Implementation Plan' },
+            { type: 'separator' as const },
+            { id: 'create-markdown-sprintengine-generic', label: 'Generic Handoff' },
+          ],
+        }]
+        : []),
       ...(isSingleSelection && entry?.isDir && !isSearching && canUsePathCommands
         ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
         : []),
@@ -1088,7 +1099,9 @@ function ExplorerTree({
       }
       return
     }
-    if (command === 'create-markdown-sprintengine' && entry) return void startFuturePlan(entry)
+    if (command === 'create-markdown-sprintengine-product' && entry) return void startFuturePlan(entry, 'product_plan')
+    if (command === 'create-markdown-sprintengine-architect' && entry) return void startFuturePlan(entry, 'architect_plan')
+    if (command === 'create-markdown-sprintengine-generic' && entry) return void startFuturePlan(entry, 'unknown')
     if (command === 'expand' && entry?.isDir) {
       if (!expandedPaths[entry.path]) {
         await ensureDirectoryLoaded(entry.path)

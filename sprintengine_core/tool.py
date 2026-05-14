@@ -69,6 +69,7 @@ VALID_ARTIFACT_KINDS = {
     "validation_report",
 }
 VALID_ARTIFACT_STATUSES = {"draft", "ready_for_review", "approved", "changes_requested", "superseded"}
+VALID_SOURCE_PLAN_KINDS = {"unknown", "product_plan", "architect_plan"}
 APPROVAL_BLOCKING_ARTIFACT_STATUSES = VALID_ARTIFACT_STATUSES - {"superseded"}
 PLAN_REVIEW_ROLES = VALID_ROLES - {"architect"}
 FEEDBACK_SCHEMA_VERSION = 4
@@ -2110,6 +2111,34 @@ def product_intake_handover_note(state_path: Path) -> Optional[str]:
     return f"Read `{handover_path_value}` as incoming context before writing product-requirements.md."
 
 
+def source_plan_kind(state: Dict[str, Any]) -> str:
+    source = state.get("source")
+    if not isinstance(source, dict):
+        return "unknown"
+    value = str(source.get("planKind") or "unknown").strip()
+    return value if value in VALID_SOURCE_PLAN_KINDS else "unknown"
+
+
+def import_handover_to_team_file(state_path: Path, filename: str) -> bool:
+    handover_path = handover_path_for_state(state_path)
+    if not handover_path.is_file():
+        return False
+    destination = state_path.parent / filename
+    if destination.exists():
+        return False
+    destination.write_text(handover_path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+    return True
+
+
+def refresh_artifact_fingerprint(artifact: Dict[str, Any], state_path: Path) -> None:
+    absolute_path = artifact_absolute_path(state_path, str(artifact.get("path", "")))
+    fingerprint = file_fingerprint(absolute_path)
+    if artifact.get("fingerprint") == fingerprint:
+        return
+    artifact["fingerprint"] = fingerprint
+    artifact["updatedAt"] = now_iso()
+
+
 def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
     plan_path_value = plan_path_artifact_value(state_path)
     plan_task = None
@@ -2715,6 +2744,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
         "roles": {},
     }
     if source_metadata and handover_text.strip():
+        source_metadata["planKind"] = args.source_plan_kind
         initial["source"] = source_metadata
     if wrote_handover:
         source_artifact = {
@@ -2793,6 +2823,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             sprintengine["name"] = default_name
         if getattr(args, "goal", None) and not sprintengine.get("goal"):
             sprintengine["goal"] = args.goal
+        plan_kind = source_plan_kind(state)
         legacy_plan_gate = find_architect_plan_gate(state, state_path)
         if legacy_plan_gate["task"] and not any(
             isinstance(task, dict) and task.get("role") == "product"
@@ -2803,13 +2834,32 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             return {"ok": True, "planGate": plan_gate}
 
         roles = roster_roles(state)
-        should_create_product_gate = not roster_is_configured(state) or "product" in roles
+        has_product_reviewer = not roster_is_configured(state) or "product" in roles
+        should_create_product_gate = plan_kind != "architect_plan" and has_product_reviewer
         product_gate = (
             ensure_product_intake_gate(state, state_path, "sprintengine")
             if should_create_product_gate
             else None
         )
         product_task = product_gate["task"] if product_gate else None
+        if plan_kind == "product_plan" and product_gate:
+            import_handover_to_team_file(state_path, "product-requirements.md")
+            product_task["title"] = "Review imported product plan"
+            product_task["description"] = (
+                "Review the imported product plan against the current repository and user intent. "
+                "Update stale or incomplete details in product-requirements.md, then mark the product requirements artifact ready for user approval."
+            )
+            product_task["acceptanceCriteria"] = [
+                "Imported product plan is reviewed against current project context.",
+                "Stale, missing, or incorrect requirements are updated in product-requirements.md.",
+                "Product requirements artifact is marked ready for user approval after review.",
+                "Do not recreate the product plan from scratch when the imported plan is still valid.",
+            ]
+            product_task["implementationNotes"] = [
+                f"Imported source plan is seeded at `{product_intake_path_artifact_value(state_path)}` if that file did not already exist.",
+                "Preserve existing product-requirements.md edits on repeated init runs.",
+            ]
+            refresh_artifact_fingerprint(product_gate["artifact"], state_path)
         plan_gate = ensure_plan_approval_gate(
             state,
             state_path,
@@ -2817,6 +2867,35 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             depends_on=str(product_task.get("id")) if product_task else None,
             start_active=False,
         )
+        if plan_kind == "product_plan" and not product_gate:
+            import_handover_to_team_file(state_path, "product-requirements.md")
+            plan_task = plan_gate["task"]
+            add_unique_values(plan_task, "ownedPaths", [product_intake_path_artifact_value(state_path)])
+            add_unique_values(plan_task, "implementationNotes", [
+                f"Imported product plan is seeded at `{product_intake_path_artifact_value(state_path)}` if that file did not already exist.",
+                "No product reviewer is rostered; review the imported product plan for stale requirements before writing the implementation plan.",
+                "Preserve existing product-requirements.md edits on repeated init runs.",
+            ])
+        if plan_kind == "architect_plan":
+            import_handover_to_team_file(state_path, "plan.md")
+            plan_task = plan_gate["task"]
+            plan_task["title"] = "Review imported implementation plan and create task graph"
+            plan_task["description"] = (
+                f"Review the imported implementation plan at {plan_path_artifact_value(state_path)} against the current codebase. "
+                "Update stale or incomplete details, then create or repair task cards, dependencies, acceptance criteria, and review gates from it."
+            )
+            plan_task["acceptanceCriteria"] = [
+                "Imported implementation plan is reviewed against the current repository before task creation.",
+                "Stale, missing, or incorrect plan details are updated in plan.md.",
+                "Implementation, validation, and required review tasks are created with Sprint Engine plan commands.",
+                "Task cards include real integration contracts and verification checks from the reviewed plan.",
+            ]
+            plan_task["implementationNotes"] = [
+                f"Imported source plan is seeded at `{plan_path_artifact_value(state_path)}` if that file did not already exist.",
+                "Preserve existing plan.md edits on repeated init runs.",
+                "Review and update only stale or missing parts; do not rewrite valid plan content just because it was imported.",
+            ]
+            refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
         recompute_phase(state)
         return {
             "ok": True,
@@ -3932,6 +4011,12 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
     handover.add_argument("--handover", type=Path, help="Path to markdown handover context to copy into handover.md.")
     handover.add_argument("--handover-text", help="Inline handover context to write to handover.md.")
     handover.add_argument("--handover-stdin", action="store_true", help="Read markdown handover context from stdin.")
+    p.add_argument(
+        "--source-plan-kind",
+        default="unknown",
+        choices=sorted(VALID_SOURCE_PLAN_KINDS),
+        help="Meaning of the markdown source: unknown, product_plan, or architect_plan.",
+    )
     p.add_argument("--actor", default="handoff", help="Actor name for the team creation event.")
     p.add_argument("--agent", action="append", default=[], help="Selected roster member as role:id. Repeat for each specialist.")
     p.add_argument(

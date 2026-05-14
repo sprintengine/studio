@@ -34,6 +34,7 @@ const workspace = (agent: AgentState): Workspace => ({
     cliPermissionPreset: 'bypass_all',
     maxConcurrentAgents: 3,
     pendingSpawns: [],
+    deliveredAgentNotificationEventKeys: [],
   },
   multiloopAutoState: {
     enabled: false,

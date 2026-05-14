@@ -20,6 +20,7 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import { createMultiloopTemplate } from '../layouts/templates'
 import { parseSprintEngineStateFile } from './sprintengineStateFile'
 import { createPlanSourcedSprintEngineWorkspace } from './sprintengineWorkspaceCreation'
+import { inferSourcePlanKind } from '../components/workspace/newWorkspace/helpers'
 
 function baseMultiloopState() {
   return {
@@ -962,6 +963,7 @@ async function testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeA
     goal: 'Keep sprintengine creation stable.',
     sourcePath: 'future-plans/regression.md',
     sourceContent: '# Regression Plan',
+    sourcePlanKind: 'architect_plan',
     pathExists: async (path) => {
       assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\regression-sprintengine\\state.yaml')
       return false
@@ -977,7 +979,15 @@ async function testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeA
   assert.equal(createdWorkspace.multiloopContext, null)
   assert.equal(createdWorkspace.sprintEngineState?.name, 'Regression SprintEngine')
   assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('sprintengine handover'), true)
+  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('--source-plan-kind \"architect_plan\"'), true)
   assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('multiloop'), false)
+}
+
+function testSourcePlanKindInferencePrefersSpecificProductSignals() {
+  assert.equal(inferSourcePlanKind('future-plans/product-plan.md', '# Roadmap\n'), 'product_plan')
+  assert.equal(inferSourcePlanKind('future-plans/implementation-plan.md', '# Roadmap\n'), 'architect_plan')
+  assert.equal(inferSourcePlanKind('future-plans/plan.md', '# Roadmap\n'), 'unknown')
+  assert.equal(inferSourcePlanKind('future-plans/brief.md', '# Implementation Plan\n'), 'product_plan')
 }
 
 testValidBlockedAndAcceptedHistoryFixtures()
@@ -998,6 +1008,7 @@ testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone()
 testMultiloopAutoRunPausesForBlockersAndUnknownRoles()
 testSprintEngineParsingRegression()
 testSetMultiloopStatePreservesExistingLayoutModel()
+testSourcePlanKindInferencePrefersSpecificProductSignals()
 
 void (async () => {
   await testMultiloopWorkspaceCreationOpensParsedState()
