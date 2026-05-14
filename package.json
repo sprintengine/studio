@@ -1,6 +1,6 @@
 {
   "name": "multicode",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "AI-first IDE and agent sprintengine command center",
   "main": "./out/main/index.js",
   "homepage": ".",
