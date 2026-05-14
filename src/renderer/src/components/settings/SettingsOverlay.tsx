@@ -131,7 +131,7 @@ export default function SettingsOverlay() {
   if (lifecycle === 'closed') return null
 
   return (
-    <div className="absolute inset-0 z-40">
+    <div className="absolute inset-0 z-[35]">
       <div
         aria-hidden="true"
         className="absolute inset-0 bg-[color:var(--bg-app)]/55 transition-opacity duration-200"

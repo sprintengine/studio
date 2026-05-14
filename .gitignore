@@ -23,6 +23,7 @@ __pycache__/
 .pytest-tmp*/
 .tmp/
 .codex-tmp/
+.codex/
 pytest-run-*/
 tmp/
 
