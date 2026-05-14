@@ -144,6 +144,61 @@ def test_task_status_needs_input_records_routing_metadata_and_triage_prompt(tmp_
     assert "sprintengine plan update-task --force" in triage["prompt"]
 
 
+def test_task_status_needs_input_records_reason_and_artifact_id(tmp_path) -> None:
+    fixture = create_team(tmp_path, "needs-input-artifact-review-routing", [
+        task("T1", "Review phase output", "code_reviewer", "in_progress", owner="code_reviewer"),
+    ])
+
+    payload = fixture.cli.run(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "needs_input",
+        "--id",
+        "code_reviewer",
+        "--needs-input-kind",
+        "architect",
+        "--needs-input-reason",
+        "artifact_review",
+        "--needs-input-artifact-id",
+        "A6",
+        "--needs-input-question",
+        "Code review artifact A6 has recommended follow-up tasks.",
+    )
+
+    assert payload["ok"] is True
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["needsInput"]["kind"] == "architect"
+    assert task_record["needsInput"]["reason"] == "artifact_review"
+    assert task_record["needsInput"]["artifactId"] == "A6"
+
+    triage = fixture.cli.run("triage", "needs-input", "--id", "architect")
+    assert [entry["id"] for entry in triage["tasks"]] == ["T1"]
+    assert "artifact_review" in triage["prompt"]
+    assert "A6" in triage["prompt"]
+
+
+def test_legacy_artifact_needs_input_routes_to_architect_triage(tmp_path) -> None:
+    blocked_task = task("T1", "Review legacy artifact", "code_reviewer", "needs_input", owner="code_reviewer")
+    blocked_task["needsInput"] = {
+        "kind": "artifact",
+        "question": "Artifact A6 is ready for review.",
+        "reportedBy": "code_reviewer",
+        "reportedAt": "2026-05-14T00:00:00Z",
+    }
+    fixture = create_team(tmp_path, "legacy-artifact-routes-to-architect", [blocked_task])
+
+    triage = fixture.cli.run("triage", "needs-input", "--id", "architect")
+
+    assert [entry["id"] for entry in triage["tasks"]] == ["T1"]
+    assert triage["tasks"][0]["needsInput"]["kind"] == "artifact"
+    assert triage["tasks"][0]["needsInput"]["reason"] == "artifact_review"
+    assert "artifact_review" in triage["prompt"]
+
+
 def test_task_status_rejects_needs_input_fields_for_other_statuses(tmp_path) -> None:
     fixture = create_team(tmp_path, "needs-input-field-rejection", [
         task("T1", "Normal task", "developer", "in_progress", owner="developer-1"),

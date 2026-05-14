@@ -35,6 +35,7 @@ import {
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
+import { Select } from '../ui'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { SprintEngineRosterTable } from './newWorkspace/SprintEngineRosterTable'
@@ -733,14 +734,14 @@ export default function NewWorkspacePanel({
       aria-labelledby="new-workspace-title"
       tabIndex={-1}
       onKeyDown={handleSectionKeyDown}
-      className="flex h-full min-h-0 flex-col bg-[#08090b] outline-none"
+      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] outline-none"
     >
-      <header className="flex shrink-0 items-center gap-3 border-b border-[#15161a] px-5 py-3">
+      <header className="flex shrink-0 items-center gap-3 border-b border-[color:var(--bg-surface-raised)] px-5 py-3">
         <div className="flex shrink-0 items-center gap-2">
           <MulticodeMark className="h-[18px] w-[18px]" variant="mono" />
           <h2
             id="new-workspace-title"
-            className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[#a8a8b0]"
+            className="text-[13px] font-semibold text-[color:var(--text-strong)]"
           >
             New workspace
           </h2>
@@ -752,9 +753,9 @@ export default function NewWorkspacePanel({
             onClick={onClose}
             aria-label="Close"
             className="
-              ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#777780]
-              transition-colors hover:bg-[#15161a] hover:text-[#ececee]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+              ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[color:var(--text-subtle)]
+              transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
             "
           >
             <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -779,9 +780,9 @@ export default function NewWorkspacePanel({
               type="button"
               onClick={goBack}
               className="
-                -ml-1.5 inline-flex h-7 w-fit items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[#777780]
-                transition-colors hover:bg-[#15161a] hover:text-[#ececee]
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+                -ml-1.5 inline-flex h-7 w-fit items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[color:var(--text-subtle)]
+                transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
               "
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -823,17 +824,17 @@ export default function NewWorkspacePanel({
                     />
                   </div>
                 </div>
-                <MulticodeWordmark className="h-5 text-[#ececee]" />
+                <MulticodeWordmark className="h-5 text-[color:var(--text-strong)]" />
               </div>
             ) : null}
             <h3
               ref={headingRef}
               tabIndex={-1}
-              className="text-[22px] font-semibold leading-7 tracking-tight text-[#ececee] outline-none"
+              className="text-[22px] font-semibold leading-7 tracking-tight text-[color:var(--text-strong)] outline-none"
             >
               {stepHeading.title}
             </h3>
-            <p className="text-[13px] leading-5 text-[#8a8a92]">{stepHeading.subtitle}</p>
+            <p className="text-[13px] leading-5 text-[color:var(--text-muted)]">{stepHeading.subtitle}</p>
           </header>
 
           {step === 'workspace' ? (
@@ -937,7 +938,7 @@ export default function NewWorkspacePanel({
           ) : null}
 
           <div className="flex items-center justify-between gap-3 pt-1">
-            <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-[#777780]">
+            <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-[color:var(--text-subtle)]">
               {blockingMessage}
             </p>
             <button
@@ -945,10 +946,10 @@ export default function NewWorkspacePanel({
               onClick={goNext}
               disabled={!canAdvanceFromCurrent || isCreating}
               className="
-                inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[#5c7cff] px-4 text-[13px] font-semibold text-[#08090b]
-                transition-colors hover:bg-[#6e8eff]
-                disabled:cursor-not-allowed disabled:bg-[#15161a] disabled:text-[#5a5a63]
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+                inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
+                transition-colors hover:bg-[color:var(--accent-primary-hover)]
+                disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
               "
             >
               {primaryLabel}
@@ -989,7 +990,7 @@ function WizardProgress({ total, active }: { total: number; active: number }) {
             key={idx}
             aria-hidden="true"
             className={`h-[3px] flex-1 rounded-full transition-colors duration-300 ${
-              isCurrent ? 'bg-[#ececee]' : isPast ? 'bg-[#5a5a63]' : 'bg-[#1f2025]'
+              isCurrent ? 'bg-[color:var(--text-strong)]' : isPast ? 'bg-[color:var(--text-disabled)]' : 'bg-[color:var(--border-default)]'
             }`}
           />
         )
@@ -1000,7 +1001,7 @@ function WizardProgress({ total, active }: { total: number; active: number }) {
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#9a9aa2]">
+    <span className="text-[12px] font-medium text-[color:var(--text-default)]">
       {children}
     </span>
   )
@@ -1035,10 +1036,10 @@ function WorkspaceStep({
           onChange={(event) => onChangeName(event.target.value)}
           placeholder="my-workspace"
           className="
-            block h-11 w-full rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
-            text-[14px] text-[#ececee] outline-none transition-colors
-            placeholder:text-[#5a5a63]
-            hover:border-[#303139] focus:border-[#ececee]/60
+            block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
+            text-[14px] text-[color:var(--text-strong)] outline-none transition-colors
+            placeholder:text-[color:var(--text-disabled)]
+            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
           "
         />
       </label>
@@ -1049,12 +1050,12 @@ function WorkspaceStep({
           type="button"
           onClick={onPickFolder}
           className="
-            flex h-11 w-full items-center gap-3 rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
-            text-left transition-colors hover:border-[#303139] hover:bg-[#111216]
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+            flex h-11 w-full items-center gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
+            text-left transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
           "
         >
-          <svg className="h-4 w-4 shrink-0 text-[#9a9aa2]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <svg className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               d="M3.75 7.5C3.75 6.39543 4.64543 5.5 5.75 5.5H9.5L11.5 7.5H18.25C19.3546 7.5 20.25 8.39543 20.25 9.5V16.25C20.25 17.3546 19.3546 18.25 18.25 18.25H5.75C4.64543 18.25 3.75 17.3546 3.75 16.25V7.5Z"
               stroke="currentColor"
@@ -1064,18 +1065,18 @@ function WorkspaceStep({
           </svg>
           <span
             className={`min-w-0 flex-1 truncate text-[13px] ${
-              folderPath ? 'text-[#d7d7dc]' : 'text-[#5a5a63]'
+              folderPath ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-disabled)]'
             }`}
           >
             {folderPath ?? 'Choose a folder…'}
           </span>
-          <span className="shrink-0 text-[12px] font-semibold text-[#a8a8b0]">Browse</span>
+          <span className="shrink-0 text-[12px] font-semibold text-[color:var(--text-muted)]">Browse</span>
         </button>
       </div>
 
       {recentFolders.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#777780]">
+          <div className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">
             Recent
           </div>
           <div className="flex flex-col gap-0.5">
@@ -1122,9 +1123,9 @@ function ModeStep({
   return (
     <div className="flex flex-col gap-3">
       {folderPath && suggested ? (
-        <p className="rounded-md border border-[#1f2025] bg-[#0d0e11] px-3 py-2 text-[12px] leading-5 text-[#a8a8b0]">
+        <p className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
           We found a saved{' '}
-          <span className="font-semibold text-[#ececee]">{labelFor(suggested)}</span>{' '}
+          <span className="font-semibold text-[color:var(--text-strong)]">{labelFor(suggested)}</span>{' '}
           team in this folder. {mode === suggested ? 'Selected for you.' : 'Select it to load.'}
         </p>
       ) : null}
@@ -1157,23 +1158,24 @@ function StandardLayoutStep({
             onClick={() => onChange(template.id)}
             className={`
               grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
-              transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+              transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
               ${active
-                ? 'border-[#3a3b42] bg-[#15161a]'
-                : 'border-[#1f2025] bg-[#0d0e11] hover:border-[#303139] hover:bg-[#111216]'}
+                ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
+                : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
             `}
           >
             <span
               className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
-                active ? 'border-[#ececee] bg-[#ececee]' : 'border-[#3a3b42]'
+                active ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--color-6)]'
               }`}
               aria-hidden="true"
             >
-              {active ? <span className="h-1.5 w-1.5 rounded-full bg-[#08090b]" /> : null}
+              {/* design-tokens-allow: inner glyph of a custom radio control — not a status dot */}
+              {active ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
             </span>
             <span className="min-w-0">
-              <span className="block text-[13px] font-semibold text-[#ececee]">{template.name}</span>
-              <span className="mt-0.5 block text-[12px] leading-5 text-[#9a9aa2]">
+              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">{template.name}</span>
+              <span className="mt-0.5 block text-[12px] leading-5 text-[color:var(--text-muted)]">
                 {template.description}
               </span>
             </span>
@@ -1207,16 +1209,16 @@ function MultiloopGoalStep({
           placeholder="What outcome should this loop reach?"
           autoFocus
           className="
-            min-h-[140px] w-full resize-none rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5 py-3
-            text-[14px] leading-6 text-[#ececee] outline-none transition-colors
-            placeholder:text-[#5a5a63]
-            hover:border-[#303139] focus:border-[#ececee]/60
+            min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
+            text-[14px] leading-6 text-[color:var(--text-strong)] outline-none transition-colors
+            placeholder:text-[color:var(--text-disabled)]
+            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
           "
         />
       </label>
       <div className="flex flex-col gap-2">
         <FieldLabel>Run settings</FieldLabel>
-        <div className="overflow-hidden rounded-md border border-[#1f2025] bg-[#0d0e11]">
+        <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
           <CliPermissionPresetRow
             preset={cliPermissionPreset}
             onChange={onChangeCliPermissionPreset}
@@ -1224,7 +1226,7 @@ function MultiloopGoalStep({
         </div>
       </div>
       {error ? (
-        <div className="border-l-2 border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
           {error}
         </div>
       ) : null}
@@ -1265,19 +1267,19 @@ function SprintEngineAccessNotice({
 }) {
   return (
     <div
-      className="rounded-md border border-[#3a3426] bg-[#1a1408] px-4 py-4"
+      className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-4 py-4"
       role="status"
       aria-live="polite"
     >
-      <div className="text-[13px] font-semibold text-[#ffe0a3]">{access.title}</div>
-      <p className="mt-1 text-[12px] leading-5 text-[#a8a8b0]">{access.body}</p>
+      <div className="text-[13px] font-semibold text-[color:var(--tone-warn)]">{access.title}</div>
+      <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{access.body}</p>
       <button
         type="button"
         onClick={onSignIn}
         className="
-          mt-3 inline-flex h-8 items-center justify-center rounded-md bg-[#ececee] px-3
-          text-[12px] font-semibold text-[#08090b] transition-colors hover:bg-white
-          focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+          mt-3 inline-flex h-8 items-center justify-center rounded-md bg-[color:var(--text-strong)] px-3
+          text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-white
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
         "
       >
         Sign in
@@ -1378,53 +1380,37 @@ function SprintEngineTeamStep(props: {
       </div>
 
       {path === 'existing' ? (
-        <label className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           <FieldLabel>Team</FieldLabel>
-          <select
-            value={existingTeamSlug}
-            onChange={(event) => onSelectExistingTeam(event.target.value)}
+          <Select<string>
+            ariaLabel="Team"
+            items={existingTeams.map((team) => ({ value: team.slug, label: team.displayName }))}
+            value={existingTeamSlug || null}
+            onChange={onSelectExistingTeam}
             disabled={isScanning || existingTeams.length === 0}
-            className="
-              h-11 w-full rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
-              text-[13px] font-medium text-[#d7d7dc] outline-none transition-colors
-              focus:border-[#ececee]/60 disabled:text-[#5a5a63]
-            "
-          >
-            <option value="">Select a team…</option>
-            {existingTeams.map((team) => (
-              <option key={team.slug} value={team.slug}>
-                {team.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
+            placeholder="Select a team…"
+            className="w-full"
+          />
+        </div>
       ) : null}
 
       {path === 'plan' ? (
-        <label className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           <FieldLabel>Markdown plan</FieldLabel>
-          <select
-            value={planPath}
-            onChange={(event) => onSelectPlan(event.target.value)}
+          <Select<string>
+            ariaLabel="Markdown plan"
+            items={planOptions.map((plan) => ({ value: plan.path, label: plan.relativePath }))}
+            value={planPath || null}
+            onChange={onSelectPlan}
             disabled={!folderPath || isScanning}
-            className="
-              h-11 w-full rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
-              text-[13px] font-medium text-[#d7d7dc] outline-none transition-colors
-              focus:border-[#ececee]/60 disabled:text-[#5a5a63]
-            "
-          >
-            <option value="">Select a plan…</option>
-            {planOptions.map((plan) => (
-              <option key={plan.path} value={plan.path}>
-                {plan.relativePath}
-              </option>
-            ))}
-          </select>
-        </label>
+            placeholder="Select a plan…"
+            className="w-full"
+          />
+        </div>
       ) : null}
 
       {planError ? (
-        <div className="border-l-2 border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
           {planError}
         </div>
       ) : null}
@@ -1436,10 +1422,10 @@ function SprintEngineTeamStep(props: {
           onChange={(event) => onChangeTeamName(event.target.value)}
           placeholder="Interface Team"
           className="
-            block h-11 w-full rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5
-            text-[14px] font-medium text-[#ececee] outline-none transition-colors
-            placeholder:text-[#5a5a63]
-            hover:border-[#303139] focus:border-[#ececee]/60
+            block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
+            text-[14px] font-medium text-[color:var(--text-strong)] outline-none transition-colors
+            placeholder:text-[color:var(--text-disabled)]
+            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
           "
         />
       </label>
@@ -1451,10 +1437,10 @@ function SprintEngineTeamStep(props: {
           onChange={(event) => onChangeGoal(event.target.value)}
           placeholder="What outcome should this team deliver?"
           className="
-            min-h-[120px] w-full resize-none rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5 py-3
-            text-[14px] leading-6 text-[#ececee] outline-none transition-colors
-            placeholder:text-[#5a5a63]
-            hover:border-[#303139] focus:border-[#ececee]/60
+            min-h-[120px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
+            text-[14px] leading-6 text-[color:var(--text-strong)] outline-none transition-colors
+            placeholder:text-[color:var(--text-disabled)]
+            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
           "
         />
       </label>
@@ -1508,13 +1494,13 @@ function SprintEngineRosterStep(props: {
   return (
     <div className="flex flex-col gap-5">
       {hasExistingTeam ? (
-        <p className="rounded-md border border-[#3a3426] bg-[#1a1408] px-3 py-2 text-[12px] leading-5 text-[#ffe0a3]">
+        <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
           Loading <span className="font-semibold">{existingTeamName}</span> — roster is read-only.
         </p>
       ) : null}
 
       {createError ? (
-        <div className="border-l-2 border-[#ff787c] pl-3 text-[12px] leading-5 text-[#ffb3b5]">
+        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
           {createError}
         </div>
       ) : null}
@@ -1522,7 +1508,7 @@ function SprintEngineRosterStep(props: {
       <div className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between">
           <FieldLabel>Roster</FieldLabel>
-          <span className="text-[11px] tabular-nums text-[#8a8a92]">
+          <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
             {totalAgents} specialist{totalAgents === 1 ? '' : 's'}
           </span>
         </div>
@@ -1535,12 +1521,12 @@ function SprintEngineRosterStep(props: {
         />
       </div>
 
-      <label className="flex items-start justify-between gap-3 rounded-md border border-[#1f2025] bg-[#0d0e11] px-3.5 py-3">
+      <label className="flex items-start justify-between gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3">
         <span className="min-w-0">
-          <span className="block text-[13px] font-semibold text-[#ececee]">
+          <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">
             Start roster runner when workspace opens
           </span>
-          <span className="mt-0.5 block text-[11px] leading-4 text-[#9a9aa2]">
+          <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
             Launch selected Sprint Engine agents in the background as soon as the workspace mounts.
           </span>
         </span>
@@ -1548,27 +1534,27 @@ function SprintEngineRosterStep(props: {
           type="checkbox"
           checked={startRunner}
           onChange={(event) => onChangeStartRunner(event.currentTarget.checked)}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-[#5c7cff] focus:outline-none focus:ring-2 focus:ring-[#5c7cff]"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)]"
         />
       </label>
 
       <div className="flex flex-col gap-2">
         <FieldLabel>Run settings</FieldLabel>
-        <div className="overflow-hidden rounded-md border border-[#1f2025] bg-[#0d0e11]">
+        <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
           <CliPermissionPresetRow
             preset={cliPermissionPreset}
             onChange={onChangeCliPermissionPreset}
           />
           <label
-            className={`flex items-start justify-between gap-3 border-t border-[#1f2025] px-3.5 py-3 ${
+            className={`flex items-start justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3 ${
               startRunner ? '' : 'opacity-60'
             }`}
           >
             <span className="min-w-0">
-              <span className="block text-[13px] font-semibold text-[#ececee]">
+              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">
                 Approve all artifacts
               </span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-[#9a9aa2]">
+              <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
                 Auto-approve artifacts as agents publish them so the runner does not stall.
               </span>
             </span>
@@ -1577,7 +1563,7 @@ function SprintEngineRosterStep(props: {
               checked={autoApproveArtifacts}
               disabled={!startRunner}
               onChange={(event) => onChangeAutoApproveArtifacts(event.currentTarget.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-[#5c7cff] focus:outline-none focus:ring-2 focus:ring-[#5c7cff] disabled:cursor-not-allowed"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed"
             />
           </label>
         </div>
@@ -1599,50 +1585,22 @@ function CliPermissionPresetRow({
     <div className="flex flex-col gap-2 px-3.5 py-3">
       <div className="flex items-center justify-between gap-3">
         <span className="min-w-0">
-          <span className="block text-[13px] font-semibold text-[#ececee]">Agent permissions</span>
-          <span className="mt-0.5 block text-[11px] leading-4 text-[#9a9aa2]">
+          <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Agent permissions</span>
+          <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
             How spawned agents handle CLI permission prompts.
           </span>
         </span>
-        <label className="relative shrink-0">
-          <span className="sr-only">CLI permission preset</span>
-          <select
-            value={preset}
-            onChange={(event) =>
-              onChange(event.currentTarget.value as SprintEngineCliPermissionPreset)
-            }
-            className="
-              h-8 appearance-none rounded-md border border-[#303139] bg-[#111216] py-0 pl-3 pr-7
-              text-[12px] font-semibold text-[#d7d7dc] outline-none transition-colors
-              hover:bg-[#17181d] focus:border-[#ececee]/70
-              focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
-            "
-          >
-            {cliPermissionOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <svg
-            className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#5a5a63]"
-            viewBox="0 0 20 20"
-            fill="none"
-            aria-hidden="true"
-          >
-            <path
-              d="M5 7.5L10 12.5L15 7.5"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </label>
+        <Select<SprintEngineCliPermissionPreset>
+          ariaLabel="CLI permission preset"
+          items={cliPermissionOptions.map((option) => ({ value: option.value, label: option.label }))}
+          value={preset}
+          onChange={onChange}
+          className="shrink-0"
+        />
       </div>
       <p
         className={`text-[11px] leading-4 ${
-          isBypass ? 'text-[#ffd28a]' : 'text-[#8a8a92]'
+          isBypass ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
         }`}
       >
         {current.hint}
@@ -1673,26 +1631,27 @@ function PathRadio({
       onClick={onSelect}
       className={`
         grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
-        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
         disabled:cursor-not-allowed disabled:opacity-55
         ${checked
-          ? 'border-[#3a3b42] bg-[#15161a]'
-          : 'border-[#1f2025] bg-[#0d0e11] hover:border-[#303139] hover:bg-[#111216]'}
+          ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
+          : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
       <span
         className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
-          checked ? 'border-[#ececee] bg-[#ececee]' : 'border-[#3a3b42]'
+          checked ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--color-6)]'
         }`}
         aria-hidden="true"
       >
-        {checked ? <span className="h-1.5 w-1.5 rounded-full bg-[#08090b]" /> : null}
+        {/* design-tokens-allow: inner glyph of a custom radio control — not a status dot */}
+        {checked ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
       </span>
       <span className="min-w-0">
-        <span className={`block text-[13px] font-semibold ${checked ? 'text-[#ececee]' : 'text-[#d7d7dc]'}`}>
+        <span className={`block text-[13px] font-semibold ${checked ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
           {label}
         </span>
-        <span className="mt-0.5 block text-[11px] leading-4 text-[#9a9aa2]">{hint}</span>
+        <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">{hint}</span>
       </span>
     </button>
   )

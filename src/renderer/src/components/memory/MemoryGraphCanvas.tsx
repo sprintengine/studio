@@ -117,6 +117,8 @@ const PULSE_DURATION_MS = 600
 const SPARK_DURATION_MS = 800
 const SYNAPSE_COLOR = '#22d3ee'
 const PULSE_COLOR = '#22d3ee'
+// Memory graph atmosphere exception: scoped to this canvas only per
+// knowledge/brand/aesthetic-north-star.md memory-graph exception.
 const CANVAS_ATMOSPHERE_VAR = {
   '--memory-graph-atmosphere':
     'radial-gradient(circle at 50% 45%, rgba(92, 124, 255, 0.08), transparent 48%)',

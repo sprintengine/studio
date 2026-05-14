@@ -73,6 +73,7 @@ export function Toast({
     >
       <span
         aria-hidden="true"
+        // design-tokens-allow: canonical tone bullet inside Toast; intentionally not delegated to StatusDot because Toast's bullet sits inline with text and uses the same TONE_COLOR_VAR lookup
         className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full"
         style={{ backgroundColor: TONE_COLOR_VAR[tone] }}
       />

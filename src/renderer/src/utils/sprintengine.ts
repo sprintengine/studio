@@ -35,6 +35,7 @@ import type {
   SprintEngineTask,
   SprintEngineTaskStatus,
   SprintEngineNeedsInputKind,
+  SprintEngineNeedsInputReason,
 } from '../types/workspace'
 
 export type SprintEngineAgentRosterItem = {
@@ -174,7 +175,8 @@ const sprintEngineTaskSourceSyncStatuses: readonly SprintEngineTaskSourceSyncSta
 const sprintEngineTaskDispatchModes: readonly SprintEngineTaskDispatchMode[] = ['dependency', 'manual']
 const sprintEngineTaskDispatchStatuses: readonly SprintEngineTaskDispatchStatus[] = ['todo', 'ready']
 const sprintEngineTaskDispatchTriagedByValues: readonly SprintEngineTaskDispatchTriagedBy[] = ['none', 'user', 'architect']
-const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user', 'artifact', 'tooling', 'verification', 'other']
+const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user', 'owner', 'artifact', 'tooling', 'verification', 'other']
+const sprintEngineNeedsInputReasons: readonly SprintEngineNeedsInputReason[] = ['task_scope', 'artifact_review', 'tooling', 'verification', 'product_decision', 'blocked_other']
 
 const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
   'architect_plan',
@@ -312,6 +314,10 @@ function isSprintEngineNeedsInputKind(value: unknown): value is SprintEngineNeed
   return sprintEngineNeedsInputKinds.includes(value as SprintEngineNeedsInputKind)
 }
 
+function isSprintEngineNeedsInputReason(value: unknown): value is SprintEngineNeedsInputReason {
+  return sprintEngineNeedsInputReasons.includes(value as SprintEngineNeedsInputReason)
+}
+
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
@@ -367,13 +373,28 @@ function normalizeSprintEngineTaskNeedsInput(value: unknown): SprintEngineTaskNe
 
   const record = value as Record<string, unknown>
   if (!isSprintEngineNeedsInputKind(record.kind)) return undefined
+  const legacyReasonByKind: Record<SprintEngineNeedsInputKind, SprintEngineNeedsInputReason> = {
+    architect: 'task_scope',
+    user: 'product_decision',
+    owner: 'blocked_other',
+    artifact: 'artifact_review',
+    tooling: 'tooling',
+    verification: 'verification',
+    other: 'blocked_other',
+  }
+  const reason = isSprintEngineNeedsInputReason(record.reason)
+    ? record.reason
+    : legacyReasonByKind[record.kind]
+  const artifactId = optionalTrimmedString(record.artifactId)
   const suggestedResolution = optionalTrimmedString(record.suggestedResolution)
   const reportedBy = optionalTrimmedString(record.reportedBy)
   const reportedAt = optionalTrimmedString(record.reportedAt)
 
   return {
     kind: record.kind,
+    reason,
     question: typeof record.question === 'string' ? record.question : '',
+    ...(artifactId ? { artifactId } : {}),
     ...(suggestedResolution ? { suggestedResolution } : {}),
     ...(reportedBy ? { reportedBy } : {}),
     ...(reportedAt ? { reportedAt } : {}),

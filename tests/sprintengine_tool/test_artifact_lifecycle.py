@@ -56,8 +56,15 @@ def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses
     assert_artifact_status(ready_state, "A1", "ready_for_review")
     assert_task_status(ready_state, "T1", "needs_input")
     ready_task = get_task(ready_state, "T1")
-    assert ready_task["needsInput"]["kind"] == "artifact"
+    assert ready_task["needsInput"]["kind"] == "architect"
+    assert ready_task["needsInput"]["reason"] == "artifact_review"
+    assert ready_task["needsInput"]["artifactId"] == "A1"
     assert ready_task["needsInput"]["question"] == "Artifact A1 (Requirements) is ready for review."
+
+    triage = fixture.cli.run("triage", "needs-input", "--id", "architect")
+    assert [entry["id"] for entry in triage["tasks"]] == ["T1"]
+    assert triage["tasks"][0]["artifacts"][0]["id"] == "A1"
+    assert "artifact_review" in triage["prompt"]
 
     feedback = "Tighten the requirement language."
     changes = fixture.cli.run(

@@ -13,6 +13,7 @@ import {
   subscribeEditorBuffer,
 } from '../../utils/editorBuffers'
 import { removeFileTabsForPath } from '../../utils/modelRegistry'
+import { IconButton, Tooltip } from '../ui'
 
 interface Props {
   workspaceId: string
@@ -24,6 +25,11 @@ const EDITOR_FOCUS_EVENT = 'multicode:focus-editor'
 const GIT_DECORATION_DEBOUNCE_MS = 200
 const GIT_DECORATION_MAX_CHARS = 600_000
 const GIT_DECORATION_MAX_LINES = 8_000
+
+function readCssVar(name: string): string {
+  if (typeof document === 'undefined') return ''
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
 
 export default function EditorPanel({ workspaceId, filePath }: Props) {
   const editorState = useWorkspaceStore(
@@ -305,10 +311,10 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
           ? 'git-change-gutter git-change-modified'
           : 'git-change-gutter git-change-deleted'
       const color = change.kind === 'added'
-        ? '#35d07f'
+        ? readCssVar('--tone-good')
         : change.kind === 'modified'
-          ? '#f0a340'
-          : '#ff5a5f'
+          ? readCssVar('--tone-warn')
+          : readCssVar('--tone-error')
       const label = change.kind === 'added'
         ? 'Added lines'
         : change.kind === 'modified'
@@ -339,7 +345,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (!filePath) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#08090b] text-[#5a5a63] text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-[13px] font-mono">
         Open a file from the Files pane
       </div>
     )
@@ -347,7 +353,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (!activeFile) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#08090b] px-4 text-center text-[#5a5a63] text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--text-disabled)] text-[13px] font-mono">
         This file is no longer open.
       </div>
     )
@@ -355,7 +361,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (contentLoadError?.path === activeFilePath) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#08090b] px-4 text-center text-[#ff9b9f] text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--tone-error)] text-[13px] font-mono">
         Failed to load file: {contentLoadError.message}
       </div>
     )
@@ -363,34 +369,47 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (!activeFileContentReady) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#08090b] text-[#5a5a63] text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-[13px] font-mono">
         Loading file...
       </div>
     )
   }
 
   const markdownModeToggle = isMarkdown ? (
-    <button
-      onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}
-      className="absolute right-3 top-3 z-10 h-6 rounded-md border border-[#303139] bg-[#111216]/95 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9a9aa2] shadow-[0_8px_24px_rgba(0,0,0,0.32)] transition-colors hover:border-[#3a3b43] hover:bg-[#17181d] hover:text-[#ececee]"
-      aria-label={showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
-      title={showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
-    >
-      {showPreview ? 'Edit' : 'Preview'}
-    </button>
+    <div className="absolute right-3 top-3 z-10">
+      <Tooltip content={showPreview ? 'Edit Markdown source' : 'Preview Markdown'} placement="bottom">
+        <IconButton
+          aria-label={showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
+          onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}
+          className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
+        >
+          {showPreview ? (
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+              <path d="M2.5 11.75L2.5 13.5h1.75L12 5.75 10.25 4 2.5 11.75z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <path d="M9.25 5L11 6.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+              <path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <circle cx="8" cy="8" r="1.75" stroke="currentColor" strokeWidth="1.4" />
+            </svg>
+          )}
+        </IconButton>
+      </Tooltip>
+    </div>
   ) : null
 
   if (isImage && activeFilePath) {
     if (!imageDataUrl || imageDataUrl.path !== activeFilePath) {
       return (
-        <div className="h-full flex items-center justify-center bg-[#08090b] text-[#5a5a63] text-[13px] font-mono">
+        <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-[13px] font-mono">
           Loading image...
         </div>
       )
     }
 
     return (
-      <div className="flex h-full flex-col bg-[#08090b]">
+      <div className="flex h-full flex-col bg-[color:var(--bg-app)]">
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6">
           <img
             src={imageDataUrl.url}
@@ -404,11 +423,11 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#08090b]">
+    <div className="flex flex-col h-full bg-[color:var(--bg-app)]">
       <div className="relative flex-1 overflow-hidden">
         {markdownModeToggle}
         {showPreview ? (
-          <div className="h-full overflow-y-auto bg-[#08090b] px-8 pb-8 pt-14">
+          <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-14">
             <div className="max-w-4xl mx-auto">
               {renderMarkdown(activeContent, { lineChanges: previewGitLineChanges })}
             </div>

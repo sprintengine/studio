@@ -52,15 +52,15 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
       ref={sectionRef}
       aria-labelledby={headingId}
       tabIndex={-1}
-      className="flex h-full min-h-0 flex-col bg-[#08090b] outline-none"
+      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] outline-none"
     >
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-4 py-3">
         <div className="min-w-0">
-          <h2 id={headingId} className="truncate text-[15px] font-semibold tracking-tight text-[#ececee]">
+          <h2 id={headingId} className="truncate text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]">
             {title}
           </h2>
           {subtitle ? (
-            <p className="mt-0.5 truncate text-[12px] leading-5 text-[#8a8a92]">{subtitle}</p>
+            <p className="mt-0.5 truncate text-[12px] leading-5 text-[color:var(--text-muted)]">{subtitle}</p>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -70,7 +70,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
               type="button"
               onClick={onClose}
               aria-label={closeLabel}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             >
               <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -82,7 +82,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
 
       <div className={`flex min-h-0 flex-1 ${sidebar ? 'flex-col md:flex-row' : 'flex-col'}`}>
         {sidebar ? (
-          <aside className="shrink-0 border-b border-[#1f2025] bg-[#0a0b0e] p-1.5 md:w-48 md:border-b-0 md:border-r">
+          <aside className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-1.5 md:w-48 md:border-b-0 md:border-r">
             {sidebar}
           </aside>
         ) : null}

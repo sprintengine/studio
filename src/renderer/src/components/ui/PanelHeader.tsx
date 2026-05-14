@@ -56,6 +56,7 @@ export function PanelHeader({
         {tool ? (
           <span
             aria-hidden="true"
+            // design-tokens-allow: tool-identity dot — per-tool accent colour cannot be expressed via StatusDot tone enum, and this is the canonical PanelHeader implementation
             className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
             style={{ backgroundColor: TOOL_COLOR_VAR[tool] }}
           />

@@ -3,6 +3,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { InboxRow } from '../ui'
 
 interface Props {
   workspaceId: string
@@ -32,7 +33,7 @@ function highlightLine(lineText: string, matchText: string) {
   return (
     <>
       {lineText.slice(0, index)}
-      <mark className="rounded-sm bg-[#f2c45f]/24 px-0.5 text-[#ffe4a3]">{lineText.slice(index, index + matchText.length)}</mark>
+      <mark className="rounded-sm bg-[color:var(--tone-warn-soft)] px-0.5 text-[color:var(--tone-warn)]">{lineText.slice(index, index + matchText.length)}</mark>
       {lineText.slice(index + matchText.length)}
     </>
   )
@@ -140,25 +141,25 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
   }
 
   if (checkingFolder) {
-    return <div className="flex h-full items-center justify-center bg-[#08090b] text-[12px] text-[#5a5a63]">Checking workspace...</div>
+    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-[12px] text-[color:var(--text-disabled)]">Checking workspace...</div>
   }
 
   if (folderMissing || !folderReadyPath) {
-    return <div className="flex h-full items-center justify-center bg-[#08090b] px-6 text-center text-[12px] text-[#5a5a63]">Open a folder to search file contents.</div>
+    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-[12px] text-[color:var(--text-disabled)]">Open a folder to search file contents.</div>
   }
 
   return (
-    <div className="flex h-full flex-col bg-[#08090b]">
-      <div className="border-b border-[#1f2025] px-3 py-3">
+    <div className="flex h-full flex-col bg-[color:var(--bg-app)]">
+      <div className="border-b border-[color:var(--border-default)] px-3 py-3">
         <input
           ref={inputRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search file contents..."
-          className="h-8 w-full rounded-md border border-[#24252b] bg-[#090a0c] px-3 text-[12px] text-[#ececee] placeholder-[#5a5a63] outline-none transition-colors focus:border-[#303139]"
+          className="h-8 w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-app)] px-3 text-[12px] text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] outline-none transition-colors focus:border-[color:var(--color-5)]"
         />
         {statusText && (
-          <div className={`mt-2 text-[11px] ${error ? 'text-[#ff9b9f]' : 'text-[#5a5a63]'}`}>
+          <div className={`mt-2 text-[11px] ${error ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-disabled)]'}`}>
             {statusText}
           </div>
         )}
@@ -166,29 +167,30 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
 
       <div className="flex-1 overflow-y-auto">
         {!trimmedQuery ? (
-          <div className="px-4 py-3 text-[12px] text-[#5a5a63]">Enter text to search this workspace.</div>
+          <div className="px-4 py-3 text-[12px] text-[color:var(--text-disabled)]">Enter text to search this workspace.</div>
         ) : !searching && !error && results.length === 0 ? (
-          <div className="px-4 py-3 text-[12px] text-[#5a5a63]">No content matches.</div>
+          <div className="px-4 py-3 text-[12px] text-[color:var(--text-disabled)]">No content matches.</div>
         ) : (
-          <div className="divide-y divide-[#16171c]">
+          <div className="divide-y divide-[color:var(--border-default)]">
             {results.map((entry, index) => {
               const fileLabel = relativePath(folderReadyPath, entry.path)
+              const locator = `${entry.lineNumber}:${entry.column}`
               return (
-                <button
+                <InboxRow
                   key={`${entry.path}:${entry.lineNumber}:${entry.column}:${index}`}
-                  type="button"
-                  onClick={() => void openResult(entry)}
-                  className="block w-full px-4 py-2.5 text-left transition-colors hover:bg-[#111216] focus:bg-[#111216] focus:outline-none"
-                  title={`${fileLabel}:${entry.lineNumber}:${entry.column}`}
-                >
-                  <div className="flex min-w-0 items-center gap-2 text-[11px]">
-                    <span className="min-w-0 truncate font-mono text-[#d7d7dc]">{fileLabel}</span>
-                    <span className="shrink-0 font-mono text-[#5a5a63]">{entry.lineNumber}:{entry.column}</span>
-                  </div>
-                  <div className="mt-1 truncate font-mono text-[12px] leading-5 text-[#9a9aa2]">
-                    {highlightLine(entry.lineText, entry.matchText)}
-                  </div>
-                </button>
+                  tone="neutral"
+                  title={
+                    <span className="font-mono text-[12px] text-[color:var(--text-default)]">{fileLabel}</span>
+                  }
+                  supporting={
+                    <span className="font-mono text-[12px] leading-5 text-[color:var(--text-muted)]">
+                      {highlightLine(entry.lineText, entry.matchText)}
+                    </span>
+                  }
+                  trailing={<span className="font-mono">{locator}</span>}
+                  ariaLabel={`${fileLabel}:${locator}`}
+                  onSelect={() => void openResult(entry)}
+                />
               )
             })}
           </div>

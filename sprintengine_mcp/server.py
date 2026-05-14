@@ -197,6 +197,13 @@ class SprintEngineMcpServer:
             base.update(task_id=payload["taskId"], id=payload["id"])
         elif tool_name == "sprintengine.task.status":
             base.update(task_id=payload["taskId"], status=payload["status"], id=payload["id"], summary=payload.get("summary"))
+            base.update(
+                needs_input_kind=payload.get("needsInputKind"),
+                needs_input_reason=payload.get("needsInputReason"),
+                needs_input_artifact_id=payload.get("needsInputArtifactId"),
+                needs_input_question=payload.get("needsInputQuestion"),
+                needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
+            )
             _add_feedback_defaults(base, payload)
         elif tool_name == "sprintengine.task.ready":
             base.update(task_id=payload["taskId"], id=payload["id"], triaged_by=payload.get("triagedBy") or "user")

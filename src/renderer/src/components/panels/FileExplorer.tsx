@@ -164,8 +164,13 @@ function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
   return rows
 }
 
+// design-tokens-allow: language-identity palette below — accent/bg/border triples
+// are brand-recognisable file-type identifiers (TS, PY, JS, etc.), not chrome.
+// Chrome around the FileIcon chip (row hover, selection, panel surrounds) uses
+// semantic tokens elsewhere in this file.
 function fileAppearance(name: string): { accent: string; bg: string; border: string; label: string } {
   if (name === 'package.json') {
+    // design-tokens-allow: language-identity palette
     return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: '{}' }
   }
 
@@ -173,36 +178,50 @@ function fileAppearance(name: string): { accent: string; bg: string; border: str
   switch (ext) {
     case 'ts':
     case 'tsx':
+      // design-tokens-allow: language-identity palette
       return { accent: '#7db3ff', bg: '#142033', border: '#29486f', label: 'TS' }
     case 'js':
     case 'jsx':
+      // design-tokens-allow: language-identity palette
       return { accent: '#f2d36b', bg: '#2b2613', border: '#6e6023', label: 'JS' }
     case 'java':
+      // design-tokens-allow: language-identity palette
       return { accent: '#f19974', bg: '#2d1b16', border: '#70402f', label: 'JV' }
     case 'py':
+      // design-tokens-allow: language-identity palette
       return { accent: '#84d69b', bg: '#14291b', border: '#2c6740', label: 'PY' }
     case 'rs':
+      // design-tokens-allow: language-identity palette
       return { accent: '#f19974', bg: '#2d1b16', border: '#70402f', label: 'RS' }
     case 'go':
+      // design-tokens-allow: language-identity palette
       return { accent: '#7bd7ea', bg: '#10272e', border: '#286274', label: 'GO' }
     case 'json':
+      // design-tokens-allow: language-identity palette
       return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: '{}' }
     case 'yaml':
     case 'yml':
+      // design-tokens-allow: language-identity palette
       return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: 'YML' }
     case 'md':
+      // design-tokens-allow: language-identity palette
       return { accent: '#cfd2dd', bg: '#1b1d24', border: '#3a3d49', label: 'MD' }
     case 'txt':
+      // design-tokens-allow: language-identity palette
       return { accent: '#b9bcc8', bg: '#181a20', border: '#353844', label: 'TXT' }
     case 'html':
+      // design-tokens-allow: language-identity palette
       return { accent: '#ff9f75', bg: '#2d1b16', border: '#70402f', label: '<>' }
     case 'css':
     case 'scss':
+      // design-tokens-allow: language-identity palette
       return { accent: '#7db3ff', bg: '#142033', border: '#29486f', label: '#' }
     case 'sh':
     case 'bash':
+      // design-tokens-allow: language-identity palette
       return { accent: '#84d69b', bg: '#14291b', border: '#2c6740', label: 'SH' }
     default:
+      // design-tokens-allow: language-identity palette (fallback)
       return { accent: '#a6abb8', bg: '#17191f', border: '#343742', label: '.' }
   }
 }
@@ -211,7 +230,7 @@ function FileIcon({ name }: { name: string }) {
   const { accent, bg, border, label } = fileAppearance(name)
   return (
     <span
-      className="inline-flex h-[18px] w-[20px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[8px] font-black leading-none shadow-[0_0_0_1px_rgba(0,0,0,0.2)]"
+      className="inline-flex h-[18px] w-[20px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[8px] font-black leading-none ring-1 ring-[color:var(--border-subtle)]"
       style={{ color: accent, backgroundColor: bg, borderColor: border }}
     >
       {label}
@@ -225,7 +244,7 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
       type="button"
       tabIndex={-1}
       onClick={onClick}
-      className="inline-flex h-[18px] w-3 shrink-0 items-center justify-center text-[#838896] transition-colors group-hover:text-[#d7d7dc]"
+      className="inline-flex h-[18px] w-3 shrink-0 items-center justify-center text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]"
       aria-label={expanded ? 'Collapse folder' : 'Expand folder'}
     >
       <svg
@@ -240,24 +259,32 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
   )
 }
 
+// design-tokens-allow: folder-glyph identity palette — the yellow folder icon
+// is a brand-recognisable folder mark, not chrome. Chrome around it (row hover,
+// selection) uses semantic tokens.
 function FolderIcon({ expanded }: { expanded: boolean }) {
   return (
     <span className="inline-flex h-[20px] w-[22px] shrink-0 items-center justify-center">
-      <svg viewBox="0 0 24 20" aria-hidden="true" className="h-5 w-6 drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)]">
+      <svg viewBox="0 0 24 20" aria-hidden="true" className="h-5 w-6">
         <path
           d="M2.5 5.8c0-1.1.9-2 2-2h5.1l1.9 2.1h8c1.1 0 2 .9 2 2v.95h-19V5.8Z"
+          // design-tokens-allow: folder-glyph palette
           fill={expanded ? '#ffe18a' : '#f2c45f'}
+          // design-tokens-allow: folder-glyph palette
           stroke="#7a5b18"
           strokeWidth="1.2"
           strokeLinejoin="round"
         />
         <path
           d="M2.25 8.4h19.5l-1.45 7.25c-.22 1.06-1.15 1.85-2.23 1.85H5.93c-1.08 0-2.01-.79-2.23-1.85L2.25 8.4Z"
+          // design-tokens-allow: folder-glyph palette
           fill={expanded ? '#f4b94f' : '#d9992f'}
+          // design-tokens-allow: folder-glyph palette
           stroke="#7a5b18"
           strokeWidth="1.2"
           strokeLinejoin="round"
         />
+        {/* design-tokens-allow: folder-glyph palette */}
         <path d="M5.5 10.35h13" stroke="#ffe7a5" strokeWidth="1.15" strokeLinecap="round" opacity="0.7" />
       </svg>
     </span>
@@ -1388,15 +1415,15 @@ function ExplorerTree({
   }
 
   if (loading) {
-    return <div className="px-4 py-2 text-[11px] text-[#5a5a63]">Loading...</div>
+    return <div className="px-4 py-2 text-[11px] text-[color:var(--text-disabled)]">Loading...</div>
   }
 
   if (isSearching && searching) {
-    return <div className="px-4 py-2 text-[11px] text-[#5a5a63]">Searching...</div>
+    return <div className="px-4 py-2 text-[11px] text-[color:var(--text-disabled)]">Searching...</div>
   }
 
   if (isSearching && activeRows.length === 0) {
-    return <div className="px-4 py-2 text-[11px] text-[#5a5a63]">No matching files</div>
+    return <div className="px-4 py-2 text-[11px] text-[color:var(--text-disabled)]">No matching files</div>
   }
 
   return (
@@ -1408,7 +1435,7 @@ function ExplorerTree({
         title={searchDiagnosticsTitle}
         onKeyDown={(event) => void handleKeyDown(event)}
         onContextMenu={(event) => void showContextMenu(event)}
-        className="flex flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[#303139]"
+        className="flex flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
       >
         {activeRows.map(({ entry, depth }) => {
           const isSelected = selectedPaths.has(entry.path)
@@ -1417,7 +1444,7 @@ function ExplorerTree({
           const isRenaming = renameDraft?.entry.path === entry.path
           const gitStatusKind = getEntryGitStatus(gitStatus, directoryStatus, entry)
           const gitAppearance = getGitStatusAppearance(gitStatusKind)
-          const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[#d7d7dc] group-hover:text-[#fff7d7]' : '')
+          const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[color:var(--text-default)] group-hover:text-[color:var(--text-strong)]' : '')
 
           return (
             <div
@@ -1449,9 +1476,9 @@ function ExplorerTree({
               className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
                 isSelected
                   ? isFocused
-                    ? 'bg-[#1f2430] text-[#ececee]'
-                    : 'bg-[#17181d] text-[#ececee]'
-                  : 'text-[#9a9aa2] hover:bg-[#15161a] hover:text-[#ececee]'
+                    ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                    : 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
               }`}
               style={{ paddingLeft: `${8 + depth * 14}px` }}
             >
@@ -1468,7 +1495,7 @@ function ExplorerTree({
                   <FolderIcon expanded={isExpanded} />
                   {isRenaming ? (
                     renderRenameInput(
-                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] font-medium text-[#ececee] outline-none focus:border-[#4f6ad7]'
+                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--color-6)] bg-[color:var(--bg-app)] px-1.5 text-[12px] font-medium text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]'
                     )
                   ) : (
                     <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
@@ -1483,7 +1510,7 @@ function ExplorerTree({
                   <FileIcon name={entry.name} />
                   {isRenaming ? (
                     renderRenameInput(
-                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[#3a3d49] bg-[#090a0c] px-1.5 text-[12px] text-[#ececee] outline-none focus:border-[#4f6ad7]'
+                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--color-6)] bg-[color:var(--bg-app)] px-1.5 text-[12px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]'
                     )
                   ) : (
                     <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
@@ -1568,11 +1595,11 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
   const rootName = folderPath?.split(/[/\\]/).filter(Boolean).pop() ?? folderPath ?? ''
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#0d0e11] text-[#d7d7dc]">
+    <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]">
       {rootName && (
-        <div className="border-b border-[#1f2025] bg-[#111216]">
+        <div className="border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
           <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-3">
-            <span className="min-w-0 truncate font-mono text-[11px] text-[#9a9aa2]" title={folderPath ?? undefined}>
+            <span className="min-w-0 truncate font-mono text-[11px] text-[color:var(--text-muted)]" title={folderPath ?? undefined}>
               {rootName}
             </span>
             {folderReadyPath && (
@@ -1580,7 +1607,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
                 <button
                   type="button"
                   onClick={() => requestCreateEntry('file')}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139]"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
                   title="New file"
                   aria-label="New file"
                 >
@@ -1589,7 +1616,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
                 <button
                   type="button"
                   onClick={() => requestCreateEntry('dir')}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139]"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
                   title="New folder"
                   aria-label="New folder"
                 >
@@ -1599,7 +1626,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
                   type="button"
                   onClick={revealActiveFile}
                   disabled={!canRevealActiveFile}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#838896]"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
                   title={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'}
                   aria-label="Reveal active file"
                 >
@@ -1611,7 +1638,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
                     setRefreshToken((current) => current + 1)
                     void refreshGitStatus()
                   }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139]"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
                   title="Refresh files"
                   aria-label="Refresh files"
                 >
@@ -1627,7 +1654,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search files..."
-                className="h-8 w-full rounded-md border border-[#24252b] bg-[#090a0c] px-3 text-[12px] text-[#ececee] placeholder-[#5a5a63] outline-none transition-colors focus:border-[#303139]"
+                className="h-8 w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-app)] px-3 text-[12px] text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] outline-none transition-colors focus:border-[color:var(--border-strong)]"
               />
             </div>
           )}
@@ -1652,34 +1679,34 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
             onStartFuturePlan={onStartFuturePlan}
           />
         ) : checkingFolder ? (
-          <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[#5a5a63]">
+          <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--text-disabled)]">
             Checking workspace folder...
           </div>
         ) : folderMissing && folderPath ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center text-[#5a5a63]">
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center text-[color:var(--text-disabled)]">
             <p className="text-[12px]">Saved folder is missing.</p>
-            <p className="max-w-full truncate font-mono text-[11px] text-[#8a8a92]">{folderPath}</p>
+            <p className="max-w-full truncate font-mono text-[11px] text-[color:var(--text-muted)]">{folderPath}</p>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => void recheckFolder()}
-                className="rounded-md border border-[#24252b] bg-[#15161a] px-3 py-1.5 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20]"
+                className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]"
               >
                 Retry
               </button>
               <button
                 onClick={handleOpen}
-                className="rounded-md border border-[#5c7cff]/45 bg-[#5c7cff]/10 px-3 py-1.5 text-[11px] font-semibold text-[#b8ccff] transition-colors hover:bg-[#5c7cff]/16"
+                className="rounded-md border border-[color:var(--accent-primary)]/45 bg-[color:var(--accent-primary-soft)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft-strong)]"
               >
                 Relink
               </button>
             </div>
           </div>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-[#5a5a63]">
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-[color:var(--text-disabled)]">
             <p className="px-4 text-center text-[12px]">No folder open</p>
             <button
               onClick={handleOpen}
-              className="rounded-md border border-[#24252b] bg-[#15161a] px-3 py-1.5 text-[11px] text-[#9a9aa2] transition-colors hover:bg-[#1a1b20]"
+              className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]"
             >
               Open Folder
             </button>

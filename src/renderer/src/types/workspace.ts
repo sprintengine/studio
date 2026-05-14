@@ -37,7 +37,14 @@ export type SprintEngineTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'd
 
 export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done'
 
-export type SprintEngineNeedsInputKind = 'architect' | 'user' | 'artifact' | 'tooling' | 'verification' | 'other'
+export type SprintEngineNeedsInputKind = 'architect' | 'user' | 'owner' | 'artifact' | 'tooling' | 'verification' | 'other'
+export type SprintEngineNeedsInputReason =
+  | 'task_scope'
+  | 'artifact_review'
+  | 'tooling'
+  | 'verification'
+  | 'product_decision'
+  | 'blocked_other'
 
 export type SprintEngineArtifactKind =
   | 'architect_plan'
@@ -248,7 +255,9 @@ export type SprintEngineTaskDispatch = {
 
 export type SprintEngineTaskNeedsInput = {
   kind: SprintEngineNeedsInputKind
+  reason?: SprintEngineNeedsInputReason
   question: string
+  artifactId?: string
   suggestedResolution?: string
   reportedBy?: string
   reportedAt?: string

@@ -142,6 +142,7 @@ export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: Overf
           role="menu"
           aria-label={ariaLabel}
           className={[
+            // design-tokens-allow: canonical popover elevation; the shadow on the next line is the reference implementation other popovers reuse via markers
             'popover-enter absolute z-30 mt-1 min-w-[200px] rounded-[7px] border border-[color:var(--border-strong)]',
             'bg-[color:var(--bg-surface-raised)] py-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]',
             align === 'end' ? 'right-0' : 'left-0',

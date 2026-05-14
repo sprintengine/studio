@@ -28,11 +28,19 @@ const ALLOW_LIST = new Map([
   // and falls outside this script's PANELS_DIR scope. Recorded here so future
   // relocations into panels/ inherit the rationale instead of being flagged.
   ['LearnCenter.tsx', 'Settings tab body (mounted inside SettingsPanel); chrome is provided by the parent settings shell, not a PanelHeader. Currently lives at components/learn/LearnCenter.tsx, outside this guard\'s scope.'],
+  // Note: NewWorkspacePanel lives at workspace/NewWorkspacePanel.tsx and is a
+  // multi-step wizard, not an operational panel. The wizard chrome is a
+  // brand-led header + WizardProgress (stepper indicator), which is the
+  // justified Stepper alternative offered in the T22 plan instead of
+  // PanelHeader + Tabs. Recorded here for parity with similar non-panels/
+  // surfaces.
+  ['NewWorkspacePanel.tsx', 'Multi-step workspace creation wizard; chrome is a brand-led header + WizardProgress stepper, not a PanelHeader. Lives at components/workspace/NewWorkspacePanel.tsx, outside this guard\'s scope.'],
   ['EditorPanel.tsx', 'Hosts Monaco; chrome is the editor surround, not a PanelHeader.'],
-  ['TerminalView.tsx', 'Hosts xterm; chrome is the terminal surround, not a PanelHeader.'],
-  ['PlainTerminalPanel.tsx', 'Hosts xterm; chrome is the terminal surround, not a PanelHeader.'],
-  ['FileExplorer.tsx', 'Tree surface; rebuild scheduled in the app-wide audit plan.'],
-  ['GitPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 7).'],
+  ['TerminalView.tsx', 'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.'],
+  ['PlainTerminalPanel.tsx', 'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.'],
+  ['FileExplorer.tsx', 'Tree surface with a bespoke folder-root + search bar header. Chrome was tokenised in T23 (hex=0); a deeper rebuild around PanelHeader + Tabs is still scheduled in the app-wide audit plan.'],
+  // GitPanel.tsx now imports PanelHeader (T20). The allow-list entry has been
+  // removed; the lint script will detect the import and mark the file ok.
   ['GitConflictResolverPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 7).'],
   ['ContentSearchPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 8).'],
   ['MemoryGraphPanel.tsx', 'Graph canvas surface; rebuild scheduled in the app-wide audit plan.'],

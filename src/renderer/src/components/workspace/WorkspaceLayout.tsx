@@ -170,22 +170,10 @@ function renderTerminalRecencyIndicator(
 ): React.ReactNode {
   if (!session) return null
   if (isSessionWorking(session)) {
-    return (
-      <span
-        className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--tone-good)]"
-        title="Working"
-        aria-label="Working"
-      />
-    )
+    return <StatusDot tone="good" pulse label="Working" className="ml-0.5" />
   }
   if (isSessionFailed(session)) {
-    return (
-      <span
-        className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--tone-error)]"
-        title="Failed"
-        aria-label="Failed"
-      />
-    )
+    return <StatusDot tone="error" label="Failed" className="ml-0.5" />
   }
   const recency = pickTerminalTabRecency(session)
   if (!recency) return null

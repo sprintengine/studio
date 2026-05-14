@@ -54,6 +54,13 @@
   --tone-warn-soft: rgba(255, 191, 47, 0.18);
   --tone-error-soft: rgba(255, 120, 124, 0.18);
 
+  /* Diff palette — file-status badges in Git surfaces and (future) diff-hunk
+     line backgrounds. Aliased to the canonical tone tokens so chrome stays
+     visually aligned with the rest of the design system. */
+  --diff-added: var(--tone-good);
+  --diff-removed: var(--tone-error);
+  --diff-context: var(--text-muted);
+
   /* Tool identity dots only — header chrome, never row chrome. */
   --tool-switchboard: #7c5cf2;
   --tool-watchtower: #d97757;

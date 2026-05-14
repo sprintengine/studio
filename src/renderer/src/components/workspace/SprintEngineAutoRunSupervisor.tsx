@@ -309,8 +309,9 @@ function describeNeedsInputAutoApprovalState(sprintEngineState: SprintEngineStat
 }
 
 function getArchitectActionableNeedsInputTasks(sprintEngineState: SprintEngineState): SprintEngineTask[] {
+  const architectRoutedKinds = new Set(['architect', 'artifact', 'tooling', 'verification', 'other'])
   return sprintEngineState.tasks.filter((task) =>
-    task.status === 'needs_input' && task.needsInput?.kind === 'architect'
+    task.status === 'needs_input' && architectRoutedKinds.has(task.needsInput?.kind ?? '')
   )
 }
 
@@ -1505,7 +1506,7 @@ async function superviseWorkspace(
       task.status === 'needs_input'
       && Boolean(task.ownerAgentId)
       && runningAgentIds.has(task.ownerAgentId!)
-      && (!hasArchitectOnRoster || task.needsInput?.kind !== 'architect')
+      && (!hasArchitectOnRoster || !getArchitectActionableNeedsInputTasks(sprintEngineState).some((candidate) => candidate.id === task.id))
     )
     .map((task) => task.id)
   if (runningNeedsInputTaskIds.length > 0) {

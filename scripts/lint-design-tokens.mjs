@@ -100,6 +100,11 @@ const PATH_EXEMPTIONS = [
     path: 'src/renderer/src/components/brand/MulticodeSpinner.tsx',
     rules: ['no-inline-hex'],
   },
+  {
+    // (c) Brand SVG asset: per-CLI badge identity colour.
+    path: 'src/renderer/src/components/CliIcon.tsx',
+    rules: ['no-inline-hex'],
+  },
 ]
 
 // Implementation-note guardrail: when the file-level allow-list exceeds this

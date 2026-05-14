@@ -134,7 +134,7 @@ export default function SettingsOverlay() {
     <div className="absolute inset-0 z-40">
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-[color:var(--bg-app,#08090b)]/55 transition-opacity duration-200"
+        className="absolute inset-0 bg-[color:var(--bg-app)]/55 transition-opacity duration-200"
         style={{ opacity: lifecycle === 'open' ? 1 : 0 }}
       />
 
@@ -152,17 +152,17 @@ export default function SettingsOverlay() {
         aria-labelledby="settings-overlay-title"
         tabIndex={-1}
         data-state={lifecycle}
-        className="settings-overlay-panel absolute inset-y-0 right-0 flex h-full w-full flex-col border-l border-[color:var(--border-subtle,rgba(255,255,255,0.06))] bg-[color:var(--bg-surface,#0d0e11)] outline-none"
+        className="settings-overlay-panel absolute inset-y-0 right-0 flex h-full w-full flex-col border-l border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] outline-none"
       >
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#1f2025] bg-[#0d0e11] px-4 py-3">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3">
           <div className="min-w-0">
             <h2
               id="settings-overlay-title"
-              className="truncate text-[15px] font-semibold tracking-tight text-[#ececee]"
+              className="truncate text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]"
             >
               Settings
             </h2>
-            <p className="mt-0.5 truncate text-[12px] leading-5 text-[#8a8a92]">
+            <p className="mt-0.5 truncate text-[12px] leading-5 text-[color:var(--text-muted)]">
               Configure local CLIs, workspace paths, updates, and telemetry.
             </p>
           </div>
@@ -170,7 +170,7 @@ export default function SettingsOverlay() {
             type="button"
             onClick={closeSettingsOverlay}
             aria-label="Close settings"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#24252b] bg-[#111216] text-[#9a9aa2] transition-colors hover:border-[#303139] hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]/60"
           >
             <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

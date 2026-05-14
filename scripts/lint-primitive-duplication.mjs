@@ -53,53 +53,42 @@ const STATUSDOT_PATH = 'src/renderer/src/components/ui/StatusDot.tsx'
 const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas.tsx'
 
 // Native <select> allow-list. Each entry MUST carry a comment pointing to
-// the Phase D consumer task that will migrate this surface to `ui/Select`.
-// Adding an entry without a migration owner is a code review reject.
+// the migration owner (this audit run or a companion follow-up plan) that
+// will retire the native control. Adding an entry without a migration owner
+// is a code review reject.
+//
+// Entries fall into two groups:
+//   AUDIT-PENDING: scheduled to migrate to ui/Select inside this Shared
+//     audit run. T31 triages whether the consumer recomposition still lands
+//     before signoff.
+//   COMPANION-PLAN-OWNED: target panels handled outside this run by
+//     future-plans/2026-05-13-linear-grade-followup-implementation.md.
+//     This audit's panel migrations stop short of these surfaces by design.
 const NATIVE_SELECT_ALLOW = [
+  // --- AUDIT-PENDING ---
   {
-    // Phase D — Settings migration: large surface with many native selects;
-    // architect plan §D.Settings owns the migration to ui/Select.
-    path: 'src/renderer/src/components/settings/SettingsPanel.tsx',
-  },
-  {
-    // Phase D — NewWorkspace migration: provider / role / template pickers
-    // live here; migration owner is the NewWorkspace Phase D task.
-    path: 'src/renderer/src/components/workspace/NewWorkspacePanel.tsx',
-  },
-  {
-    // Phase D — NewWorkspace roster: agent role + model pickers inside the
-    // roster table; migrated alongside NewWorkspacePanel.
-    path: 'src/renderer/src/components/workspace/newWorkspace/SprintEngineRosterTable.tsx',
-  },
-  {
-    // Phase D — Worktree migration: branch and base-branch pickers; owned by
-    // the Worktree manager Phase D task.
+    // AUDIT-PENDING — Worktree migration: branch and base-branch pickers;
+    // migration owner is the Worktree manager Phase D task. T31 triages.
     path: 'src/renderer/src/components/worktree/WorktreeManager.tsx',
   },
   {
-    // Phase D — Git diff base picker: native select on diff-base controls
-    // inside GitPanel; migrated with the Git Phase D task.
+    // AUDIT-PENDING — Git diff base picker: native select on diff-base
+    // controls inside GitPanel; T31 triages whether the migration to
+    // ui/Select lands before signoff.
     path: 'src/renderer/src/components/panels/GitPanel.tsx',
   },
+  // --- COMPANION-PLAN-OWNED ---
   {
-    // Phase D — Switchboard panel: workspace + provider selects in the run
-    // composer; migrated alongside SwitchboardBoardPanel's Phase D pass.
+    // COMPANION-PLAN-OWNED — Switchboard panel: workspace + provider selects
+    // in the run composer. Target panel handled by the linear-grade follow-up
+    // implementation plan; intentionally out of scope for this audit.
     path: 'src/renderer/src/components/panels/SwitchboardBoardPanel.tsx',
   },
   {
-    // Phase D — Watchtower panel: tail-window picker; migrated alongside
-    // WatchtowerPanel's Phase D pass.
+    // COMPANION-PLAN-OWNED — Watchtower panel: tail-window picker. Target
+    // panel handled by the linear-grade follow-up implementation plan;
+    // intentionally out of scope for this audit.
     path: 'src/renderer/src/components/panels/WatchtowerPanel.tsx',
-  },
-  {
-    // Phase D — Sprint Engine board: roster / role pickers in the board
-    // header; migrated alongside SprintEngineBoardPanel's Phase D pass.
-    path: 'src/renderer/src/components/panels/SprintEngineBoardPanel.tsx',
-  },
-  {
-    // Phase D — Multiloop board: loop / agent pickers in the composer;
-    // migrated alongside MultiloopBoardPanel's Phase D pass.
-    path: 'src/renderer/src/components/panels/MultiloopBoardPanel.tsx',
   },
 ]
 

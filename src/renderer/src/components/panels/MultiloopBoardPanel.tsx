@@ -21,7 +21,9 @@ import {
   PanelHeader,
   PrimaryButton,
   Section,
+  Select,
   StatusDot,
+  Switch,
   type DefinitionItem,
   type OverflowMenuItem,
   type Tone,
@@ -1825,32 +1827,28 @@ function MultiloopSettingsPopover({
       </div>
 
       <Section title="Run" level={4}>
-        <label className="flex items-center justify-between gap-3 text-[12px] text-[color:var(--text-default)]">
-          <span>Autonomous loop</span>
-          <input
-            type="checkbox"
+        <div className="flex items-center justify-between gap-3 text-[12px] text-[color:var(--text-default)]">
+          <span id="multiloop-settings-auto-label">Autonomous loop</span>
+          <Switch
             checked={autoRunEnabled}
             onChange={onToggleAutoRun}
-            className="h-4 w-4 accent-[color:var(--accent-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            ariaLabelledBy="multiloop-settings-auto-label"
           />
-        </label>
+        </div>
         <p className="mt-1.5 text-[11px] leading-[1.5] text-[color:var(--text-muted)]">
           When on, Multiloop spawns the next role agent as soon as a sprint task is ready.
           Current: {runStateLabel}. Engine reason: {autoRunReasonLabel}.
         </p>
-        <label className="mt-3 block text-[11px] text-[color:var(--text-muted)]">
-          CLI permission preset
-          <select
+        <div className="mt-3 flex flex-col gap-1">
+          <span className="text-[11px] text-[color:var(--text-muted)]">CLI permission preset</span>
+          <Select<SprintEngineCliPermissionPreset>
+            ariaLabel="CLI permission preset"
+            items={multiloopCliPermissionOptions.map(({ value, label }) => ({ value, label }))}
             value={cliPermissionPreset}
-            onChange={(event) => onPermissionPresetChange(event.currentTarget.value as SprintEngineCliPermissionPreset)}
-            title={multiloopCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title}
-            className="mt-1 h-7 w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-          >
-            {multiloopCliPermissionOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
+            onChange={onPermissionPresetChange}
+            className="w-full"
+          />
+        </div>
       </Section>
 
       <Section title="Terminals" level={4}>

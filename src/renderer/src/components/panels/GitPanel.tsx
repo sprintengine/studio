@@ -6,6 +6,22 @@ import { focusOrAddFileTab, focusOrAddGitConflictTab, focusOrAddTerminalTab } fr
 import { isImageFile } from '../../utils/files'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
+import { IconButton, InboxRow, PanelHeader, StatusDot, type Tone } from '../ui'
+
+function gitStatusToTone(status: GitFileStatus | null): Tone {
+  switch (status) {
+    case 'new':
+      return 'good'
+    case 'modified':
+    case 'renamed':
+      return 'warn'
+    case 'deleted':
+    case 'conflicted':
+      return 'error'
+    default:
+      return 'neutral'
+  }
+}
 
 type GitPanelMessage = {
   tone: 'neutral' | 'error' | 'success'
@@ -172,6 +188,13 @@ function resolveReviewDiffTarget(branches: GitBranchSnapshot | null, activeScope
   }
 
   return { baseRef: 'HEAD~1', reason: 'using HEAD~1' }
+}
+
+function scopeAppearanceTone(label: string): Tone {
+  if (label === 'Missing' || label === 'Prunable') return 'error'
+  if (label === 'Locked') return 'warn'
+  if (label === 'Ready') return 'good'
+  return 'neutral'
 }
 
 function splitGitPath(relativePath: string): { directory: string; filename: string } {
@@ -651,7 +674,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   if (!folderPath) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#0d0e11] px-6 text-center text-[12px] text-[#5a5a63]">
+      <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-center text-[12px] text-[color:var(--text-disabled)]">
         Open a folder to use Git controls.
       </div>
     )
@@ -659,86 +682,86 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   if (!repoRoot) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#0d0e11] px-6 text-center text-[12px] text-[#5a5a63]">
+      <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-center text-[12px] text-[color:var(--text-disabled)]">
         This folder is not a Git repository.
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#0d0e11] text-[#d7d7dc]">
-      <div className="border-b border-[#1b1c21] bg-[#101115]">
-        <div className="flex min-h-[72px] shrink-0 items-center justify-between gap-2 px-3 py-2">
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-              <select
-                value={activeScope?.id ?? 'main'}
-                onChange={(event) => setActiveScopeId(event.target.value)}
-                disabled={Boolean(busy) || scopeOptions.length <= 1}
-                className="block h-6 max-w-full rounded-md border border-[#25262c] bg-[#090a0c] px-1.5 text-[11px] font-semibold text-[#d7d7dc] outline-none transition-colors hover:border-[#303139] focus:border-[#4b5563] disabled:opacity-50"
-                aria-label="Git scope"
-                title={activeScopePath}
-              >
-                {scopeOptions.length === 0 ? (
-                  <option value="main">Current checkout</option>
-                ) : (
-                  scopeOptions.map((scope) => (
-                    <option key={scope.id} value={scope.id} disabled={scope.missing || scope.locked || scope.prunable}>
-                      {scope.label}
-                    </option>
-                  ))
-                )}
-              </select>
-              <button
-                type="button"
-                onClick={() => void handleReviewDiff()}
-                disabled={Boolean(busy) || activeScope?.kind !== 'worktree' || !repoRoot}
-                className="h-6 rounded-md px-2 text-[11px] font-semibold text-[#8a8a92] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#8a8a92]"
-                title={activeScope?.kind === 'worktree' ? `Review diff against ${reviewDiffTarget.baseRef}` : 'Select a worktree to review its diff'}
-              >
-                Review Diff
-              </button>
-            </div>
-            <select
-              value={branches?.current ?? ''}
-              onChange={(event) => void handleSwitchBranch(event.target.value)}
-              disabled={Boolean(busy) || branchOptions.length === 0}
-              className="block h-5 max-w-full rounded-md border border-transparent bg-transparent px-1 font-mono text-[12px] font-semibold text-[#ececee] outline-none transition-colors hover:bg-[#1a1b20] focus:border-[#303139] focus:bg-[#090a0c] disabled:opacity-50"
-              aria-label="Current branch"
-            >
-              {branchOptions.length === 0 ? (
-                <option value="">{branches?.current ?? 'detached'}</option>
-              ) : null}
-              {branchOptions.map((branch) => (
-                <option key={branch.name} value={branch.name}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#6f7480]">
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activeScopeAppearance.dotClass}`} aria-hidden="true" />
-              <span className="shrink-0">{activeScopeAppearance.label}</span>
-              <span className="shrink-0 text-[#3f444d]" aria-hidden="true">/</span>
-              <span className="truncate">{syncStatusLabel(branches)}</span>
-              <span className="shrink-0 text-[#3f444d]" aria-hidden="true">/</span>
-              <span className="truncate font-mono" title={activeScopePath}>{activeScopePath}</span>
-            </div>
-          </div>
-          <button
-            type="button"
+    <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]">
+      <PanelHeader
+        title="Git"
+        count={allEntries.length}
+        primaryAction={
+          <IconButton
+            aria-label="Fetch remotes and refresh Git status"
+            title="Fetch remotes and refresh Git status"
             onClick={() => void handleFetch()}
             disabled={Boolean(busy)}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#838896] transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[#838896]"
-            title="Fetch remotes and refresh Git status"
-            aria-label="Fetch remotes and refresh Git status"
           >
             <RefreshGitIcon />
+          </IconButton>
+        }
+      />
+      <div className="border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+          <select
+            value={activeScope?.id ?? 'main'}
+            onChange={(event) => setActiveScopeId(event.target.value)}
+            disabled={Boolean(busy) || scopeOptions.length <= 1}
+            className="block h-6 max-w-full rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-1.5 text-[11px] font-semibold text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-default)] focus:border-[color:var(--border-strong)] disabled:opacity-50"
+            aria-label="Git scope"
+            title={activeScopePath}
+          >
+            {scopeOptions.length === 0 ? (
+              <option value="main">Current checkout</option>
+            ) : (
+              scopeOptions.map((scope) => (
+                <option key={scope.id} value={scope.id} disabled={scope.missing || scope.locked || scope.prunable}>
+                  {scope.label}
+                </option>
+              ))
+            )}
+          </select>
+          <button
+            type="button"
+            onClick={() => void handleReviewDiff()}
+            disabled={Boolean(busy) || activeScope?.kind !== 'worktree' || !repoRoot}
+            className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+            title={activeScope?.kind === 'worktree' ? `Review diff against ${reviewDiffTarget.baseRef}` : 'Select a worktree to review its diff'}
+          >
+            Review diff
           </button>
+        </div>
+        <select
+          value={branches?.current ?? ''}
+          onChange={(event) => void handleSwitchBranch(event.target.value)}
+          disabled={Boolean(busy) || branchOptions.length === 0}
+          className="mt-1 block h-5 max-w-full rounded-md border border-transparent bg-transparent px-1 font-mono text-[12px] font-semibold text-[color:var(--text-strong)] outline-none transition-colors hover:bg-[color:var(--bg-hover)] focus:border-[color:var(--border-default)] focus:bg-[color:var(--bg-app)] disabled:opacity-50"
+          aria-label="Current branch"
+        >
+          {branchOptions.length === 0 ? (
+            <option value="">{branches?.current ?? 'detached'}</option>
+          ) : null}
+          {branchOptions.map((branch) => (
+            <option key={branch.name} value={branch.name}>
+              {branch.name}
+            </option>
+          ))}
+        </select>
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
+          <StatusDot tone={scopeAppearanceTone(activeScopeAppearance.label)} label={activeScopeAppearance.label} />
+          <span className="shrink-0">{activeScopeAppearance.label}</span>
+          <span className="shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">/</span>
+          <span className="truncate">{syncStatusLabel(branches)}</span>
+          <span className="shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">/</span>
+          <span className="truncate font-mono" title={activeScopePath}>{activeScopePath}</span>
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[#1b1c21] bg-[#0d0e11] px-3" role="tablist" aria-label="Git panel views">
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3" role="tablist" aria-label="Git panel views">
           <GitPanelTab
             active={activeView === 'changes'}
             label="Changes"
@@ -768,7 +791,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           <>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
               {allEntries.length === 0 ? (
-                <div className="py-2 text-[12px] text-[#6f7480]">Working tree clean</div>
+                <div className="py-2 text-[12px] text-[color:var(--text-subtle)]">Working tree clean</div>
               ) : (
                 <>
                   <ConflictGroup
@@ -847,15 +870,15 @@ function GitPanelTab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors focus:outline-none focus:ring-1 focus:ring-[#303139] ${
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] ${
         active
-          ? 'bg-[#1a1b20] text-[#ececee]'
-          : 'text-[#8a8a92] hover:bg-[#15161a] hover:text-[#d7d7dc]'
+          ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
       }`}
     >
       <span>{label}</span>
       {typeof count === 'number' ? (
-        <span className={active ? 'text-[#9a9aa2]' : 'text-[#5a5a63]'}>{count}</span>
+        <span className={active ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-disabled)]'}>{count}</span>
       ) : null}
     </button>
   )
@@ -871,7 +894,7 @@ function GitTerminalView({
   terminalId: string
 }) {
   return (
-    <div className="min-h-0 flex-1 border-t border-[#15161a] bg-[#09090b]">
+    <div className="min-h-0 flex-1 border-t border-[color:var(--bg-hover)] bg-[color:var(--bg-app)]">
       <PlainTerminalPanel
         workspaceId={workspaceId}
         terminalId={terminalId}
@@ -898,47 +921,43 @@ function ConflictGroup({
   return (
     <section className="mb-4">
       <div className="mb-1 flex h-6 items-center justify-between gap-2">
-        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#b97074]">
+        <div className="text-[12px] font-semibold text-[color:var(--tone-error)]">
           Conflicts ({entries.length})
         </div>
       </div>
       <div className="space-y-1">
         {entries.map((entry) => {
           const pathParts = splitGitPath(entry.relativePath)
+          const title = (
+            <span className="flex min-w-0 items-baseline font-mono">
+              {pathParts.directory ? (
+                <>
+                  <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
+                    {pathParts.directory}
+                  </span>
+                  <span className="shrink-0 opacity-60">/</span>
+                </>
+              ) : null}
+              <span className="min-w-0 max-w-full shrink-0 truncate font-semibold">{pathParts.filename}</span>
+            </span>
+          )
           return (
-            <div
-              key={`conflict:${entry.path}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => void onOpenFile(entry)}
-              onKeyDown={(event) => {
-                if (event.currentTarget !== event.target) return
-                if (event.key !== 'Enter' && event.key !== ' ') return
-                event.preventDefault()
-                void onOpenFile(entry)
-              }}
-              className="group flex min-h-[28px] items-center gap-2 rounded-md border border-[#3d2024] bg-[#180d10] px-2 py-1 text-[12px] text-[#ff9b9f] transition-colors hover:bg-[#201114]"
-              title={`Open ${entry.relativePath}`}
-            >
-              <span className="flex min-w-0 flex-1 items-baseline font-mono">
-                {pathParts.directory ? (
-                  <>
-                    <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
-                      {pathParts.directory}
-                    </span>
-                    <span className="shrink-0 opacity-60">/</span>
-                  </>
-                ) : null}
-                <span className="min-w-0 max-w-full shrink-0 truncate font-semibold">{pathParts.filename}</span>
-              </span>
+            <div key={`conflict:${entry.path}`} className="flex items-center gap-1">
+              <div className="min-w-0 flex-1">
+                <InboxRow
+                  tone="error"
+                  title={title}
+                  trailing={<span className="font-mono text-[10px] font-bold opacity-80">!</span>}
+                  onSelect={() => void onOpenFile(entry)}
+                  ariaLabel={`Open ${entry.relativePath}`}
+                />
+              </div>
               <button
                 type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onResolve(entry)
-                }}
+                onClick={() => onResolve(entry)}
                 disabled={Boolean(busy)}
-                className="h-6 shrink-0 rounded-md px-2 text-[11px] font-semibold text-[#ffb3b6] transition-colors hover:bg-[#311417] hover:text-white disabled:opacity-30"
+                className="h-6 shrink-0 rounded-md px-2 text-[11px] font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-white disabled:opacity-30"
+                title={`Resolve ${entry.relativePath}`}
               >
                 Resolve
               </button>
@@ -962,7 +981,7 @@ function ChangeGroup({
   return (
     <section className="mb-4">
       <div className="mb-1 flex h-6 items-center justify-between gap-2">
-        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">{group.title}</div>
+        <div className="text-[12px] font-semibold text-[color:var(--text-strong)]">{group.title}</div>
         {group.bulkActions && group.entries.length > 0 ? (
           <div className="flex shrink-0 items-center gap-1">
             {group.bulkActions.map((bulkAction) => (
@@ -973,8 +992,8 @@ function ChangeGroup({
                 disabled={Boolean(busy)}
                 className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md px-2 text-[11px] font-semibold leading-none transition-colors disabled:opacity-30 ${
                   bulkAction.danger
-                    ? 'text-[#b97074] hover:bg-[#2a1518] hover:text-[#ff8a8e]'
-                    : 'text-[#8a8a92] hover:bg-[#1a1b20] hover:text-[#ececee]'
+                    ? 'text-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]'
+                    : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
                 }`}
                 title={bulkAction.title}
                 aria-label={bulkAction.title}
@@ -986,47 +1005,48 @@ function ChangeGroup({
         ) : null}
       </div>
       {group.entries.length === 0 ? (
-        <div className="py-1.5 text-[11px] text-[#5a5a63]">{group.empty}</div>
+        <div className="py-1.5 text-[11px] text-[color:var(--text-disabled)]">{group.empty}</div>
       ) : (
         <>
           <div className="space-y-1">
             {group.entries.map((entry) => {
               const appearance = getGitStatusAppearance(entry.status)
               const pathParts = splitGitPath(entry.relativePath)
-              return (
-                <div
-                  key={`${group.title}:${entry.path}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => void onOpenFile(entry)}
-                  onKeyDown={(event) => {
-                    if (event.currentTarget !== event.target) return
-                    if (event.key !== 'Enter' && event.key !== ' ') return
-                    event.preventDefault()
-                    void onOpenFile(entry)
-                  }}
-                  className="group flex min-h-[26px] items-center gap-2 rounded-md px-2 py-1 text-[12px] text-[#9a9aa2] transition-colors hover:bg-[#15161a] hover:text-[#ececee]"
-                  title={`Open ${entry.relativePath}`}
-                >
-                  <span className={`flex min-w-0 flex-1 items-baseline font-mono ${appearance.textClass}`}>
-                    {pathParts.directory ? (
-                      <>
-                        <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
-                          {pathParts.directory}
-                        </span>
-                        <span className="shrink-0 opacity-60">/</span>
-                      </>
-                    ) : null}
-                    <span className="min-w-0 max-w-full shrink-0 truncate">{pathParts.filename}</span>
+              const tone = gitStatusToTone(entry.status)
+              const title = (
+                <span className="flex min-w-0 items-baseline font-mono">
+                  {pathParts.directory ? (
+                    <>
+                      <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
+                        {pathParts.directory}
+                      </span>
+                      <span className="shrink-0 opacity-60">/</span>
+                    </>
+                  ) : null}
+                  <span className={`min-w-0 max-w-full shrink-0 truncate ${entry.status === 'deleted' ? 'line-through decoration-[color:var(--diff-removed)]/80' : ''}`}>
+                    {pathParts.filename}
                   </span>
+                </span>
+              )
+              const trailing = appearance.badge ? (
+                <span className="font-mono text-[10px] font-bold opacity-80">{appearance.badge}</span>
+              ) : null
+              return (
+                <div key={`${group.title}:${entry.path}`} className="group/row flex items-center gap-1">
+                  <div className="min-w-0 flex-1">
+                    <InboxRow
+                      tone={tone}
+                      title={title}
+                      trailing={trailing}
+                      onSelect={() => void onOpenFile(entry)}
+                      ariaLabel={`Open ${entry.relativePath}`}
+                    />
+                  </div>
                   <button
                     type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      void group.action(entry.path)
-                    }}
+                    onClick={() => void group.action(entry.path)}
                     disabled={Boolean(busy)}
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#8a8a92] opacity-70 transition-colors hover:bg-[#1a1b20] hover:text-[#ececee] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[#303139] disabled:opacity-30 group-hover:opacity-100"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] opacity-70 transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-30 group-hover/row:opacity-100"
                     title={group.actionTitle}
                     aria-label={`${group.actionTitle}: ${entry.relativePath}`}
                   >
@@ -1035,12 +1055,9 @@ function ChangeGroup({
                   {group.secondaryAction ? (
                     <button
                       type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        void group.secondaryAction?.action(entry)
-                      }}
+                      onClick={() => void group.secondaryAction?.action(entry)}
                       disabled={Boolean(busy)}
-                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#b97074] opacity-70 transition-colors hover:bg-[#2a1518] hover:text-[#ff8a8e] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[#713036] disabled:opacity-30 group-hover:opacity-100"
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--tone-error)] opacity-70 transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--tone-error)] disabled:opacity-30 group-hover/row:opacity-100"
                       title={group.secondaryAction.title}
                       aria-label={`${group.secondaryAction.title}: ${entry.relativePath}`}
                     >
@@ -1052,7 +1069,7 @@ function ChangeGroup({
             })}
           </div>
           {group.omittedCount > 0 ? (
-            <div className="mt-2 rounded-md border border-[#24252b] bg-[#111216] px-2 py-1.5 text-[11px] text-[#6f7480]">
+            <div className="mt-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5 text-[11px] text-[color:var(--text-subtle)]">
               {group.omittedCount} more changes hidden to keep the panel responsive. Use Git CLI or stage/discard all for bulk actions.
             </div>
           ) : null}
@@ -1090,20 +1107,20 @@ function CommitComposer({
   scopePath: string
 }) {
   return (
-    <section className="shrink-0 border-t border-[#1b1c21] bg-[#101115] px-3 py-3">
-      <div className="mb-2 min-w-0 text-[10px] text-[#6f7480]">
-        <span className="font-semibold uppercase tracking-[0.08em] text-[#8a8f9b]">Commit scope</span>
-        <span className="mx-1.5 text-[#3f444d]" aria-hidden="true">/</span>
+    <section className="shrink-0 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3">
+      <div className="mb-2 min-w-0 text-[11px] text-[color:var(--text-subtle)]">
+        <span className="font-medium text-[color:var(--text-muted)]">Commit scope</span>
+        <span className="mx-1.5 text-[color:var(--text-disabled)]" aria-hidden="true">/</span>
         <span className="font-mono" title={scopePath}>{scopeLabel}</span>
       </div>
       <textarea
         value={commitMessage}
         onChange={(event) => onCommitMessageChange(event.target.value)}
         placeholder="Commit message"
-        className="h-16 w-full resize-none rounded-md border border-[#1f2025] bg-[#090a0c] px-2.5 py-2 text-[12px] text-[#ececee] outline-none placeholder:text-[#5a5a63] transition-colors focus:border-[#3a3d49]"
+        className="h-16 w-full resize-none rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2.5 py-2 text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] transition-colors focus:border-[color:var(--border-strong)]"
       />
       <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-[11px] text-[#6f7480]">
+        <div className="min-w-0 truncate text-[11px] text-[color:var(--text-subtle)]">
           {stagedCount > 0 ? `${stagedCount} staged` : 'Nothing staged'}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -1111,7 +1128,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onFetch()}
             disabled={Boolean(busy)}
-            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
+            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
           >
             Fetch
           </button>
@@ -1119,7 +1136,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onPull()}
             disabled={Boolean(busy)}
-            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
+            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
           >
             Pull
           </button>
@@ -1127,7 +1144,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onPush()}
             disabled={Boolean(busy)}
-            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[#8a8f9b] transition-colors hover:bg-[#17181d] hover:text-[#ececee] disabled:cursor-default disabled:text-[#4f535c] disabled:hover:bg-transparent"
+            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
           >
             Push
           </button>
@@ -1135,7 +1152,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onCommit()}
             disabled={Boolean(busy) || !readyToCommit}
-            className="h-8 rounded-md border border-[#3a3d49] bg-[#ececee] px-3 text-[11px] font-semibold text-[#111216] transition-colors hover:bg-white disabled:border-[#24252b] disabled:bg-[#15161a] disabled:text-[#5a5a63]"
+            className="h-8 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-[11px] font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-white disabled:border-[color:var(--border-subtle)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)]"
           >
             Commit
           </button>
@@ -1146,10 +1163,10 @@ function CommitComposer({
           role={message.tone === 'error' ? 'alert' : 'status'}
           className={`mt-2 max-h-20 overflow-y-auto rounded-md px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
             message.tone === 'error'
-              ? 'border border-[#713036] bg-[#311417] text-[#ff8a8e]'
+              ? 'border border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
               : message.tone === 'success'
-                ? 'bg-transparent px-0 py-0 text-[#8a8f9b]'
-                : 'bg-[#15161a] text-[#9a9aa2]'
+                ? 'bg-transparent px-0 py-0 text-[color:var(--text-muted)]'
+                : 'bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]'
           }`}
         >
           {message.text}
@@ -1168,26 +1185,26 @@ function GitLogView({
   const totalCount = history.status === 'ready' ? history.snapshot.totalCount : commits.length
 
   if (history.status === 'loading') {
-    return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[#5a5a63]">Loading commits...</div>
+    return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[color:var(--text-disabled)]">Loading commits...</div>
   }
 
   if (history.status === 'error') {
-    return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[#8a8a92]">{history.message}</div>
+    return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[color:var(--text-muted)]">{history.message}</div>
   }
 
   if (commits.length === 0) {
-    return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[#5a5a63]">No commits yet</div>
+    return <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[color:var(--text-disabled)]">No commits yet</div>
   }
 
   return (
     <section className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <div className="mb-2 flex h-6 items-center justify-between gap-2">
-        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#5a5a63]">Log</div>
-        <div className="text-[10px] text-[#5a5a63]">
+        <div className="text-[12px] font-semibold text-[color:var(--text-strong)]">Log</div>
+        <div className="tabular-nums text-[11px] text-[color:var(--text-muted)]">
           {totalCount} total / showing {commits.length}
         </div>
       </div>
-      <div className="relative space-y-1.5 before:absolute before:left-[13px] before:top-3 before:bottom-3 before:w-px before:bg-[#2c3038]">
+      <div className="relative space-y-1.5 before:absolute before:left-[13px] before:top-3 before:bottom-3 before:w-px before:bg-[color:var(--border-subtle)]">
         {commits.map((commit) => (
           <GitLogCommitRow
             key={commit.hash}
@@ -1209,12 +1226,12 @@ function GitLogCommitRow({ commit }: { commit: GitCommit }) {
     <>
       <div
         className={`relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border ${
-          hasHead ? 'border-[#5c7cff] bg-[#5c7cff]' : 'border-[#555b68] bg-[#0d0e11]'
+          hasHead ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)]' : 'border-[color:var(--text-disabled)] bg-[color:var(--bg-surface)]'
         }`}
       />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="min-w-0 truncate text-[#d7d7dc] group-hover:text-[#ececee]">{commit.subject}</div>
+          <div className="min-w-0 truncate text-[color:var(--text-default)] group-hover:text-[color:var(--text-strong)]">{commit.subject}</div>
           {visibleRefs.length > 0 ? (
             <span className="flex min-w-0 shrink-0 items-center gap-1">
               {visibleRefs.map((ref) => (
@@ -1223,8 +1240,8 @@ function GitLogCommitRow({ commit }: { commit: GitCommit }) {
             </span>
           ) : null}
         </div>
-        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#5a5a63]">
-          <span className="font-mono text-[#8a8a92]">{commit.shortHash}</span>
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[color:var(--text-disabled)]">
+          <span className="font-mono text-[color:var(--text-muted)]">{commit.shortHash}</span>
           <span>{commit.date}</span>
           <span className="min-w-0 truncate">{commit.author}</span>
         </div>
@@ -1232,8 +1249,8 @@ function GitLogCommitRow({ commit }: { commit: GitCommit }) {
     </>
   )
 
-  const className = `group flex min-h-[46px] items-start gap-2 rounded-md px-2 py-2 text-[12px] text-[#9a9aa2] transition-colors ${
-    commit.commitWebUrl ? 'hover:bg-[#15161a] hover:text-[#ececee] focus:outline-none focus:ring-1 focus:ring-[#303139]' : ''
+  const className = `group flex min-h-[46px] items-start gap-2 rounded-md px-2 py-2 text-[12px] text-[color:var(--text-muted)] transition-colors ${
+    commit.commitWebUrl ? 'hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)]' : ''
   }`
 
   if (commit.commitWebUrl) {
@@ -1259,17 +1276,14 @@ function GitLogCommitRow({ commit }: { commit: GitCommit }) {
 }
 
 function GitRefBadge({ label }: { label: string }) {
-  const isRemote = label.includes('/')
-  const isHead = label === 'HEAD'
-  const className = isHead
-    ? 'border-[#2f746c] bg-[#12302d] text-[#8ff5e8]'
-    : isRemote
-      ? 'border-[#314466] bg-[#101827] text-[#9ebcff]'
-      : 'border-[#3d3f48] bg-[#15161a] text-[#b8b8c0]'
-
+  const tone: Tone = label === 'HEAD' ? 'good' : label.includes('/') ? 'accent' : 'neutral'
   return (
-    <span className={`max-w-[120px] truncate rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${className}`} title={label}>
-      {label}
+    <span
+      className="inline-flex max-w-[140px] items-center gap-1 text-[11px] font-medium text-[color:var(--text-default)]"
+      title={label}
+    >
+      <StatusDot tone={tone} label={label} />
+      <span className="truncate">{label}</span>
     </span>
   )
 }

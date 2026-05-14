@@ -170,6 +170,16 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
         return "sprintengine.task.claim", {**base, "taskId": args.task_id, "id": args.id}
     if action == "status":
         payload = {**base, "taskId": args.task_id, "status": args.status, "id": args.id, "summary": args.summary}
+        if getattr(args, "needs_input_kind", None):
+            payload["needsInputKind"] = args.needs_input_kind
+        if getattr(args, "needs_input_reason", None):
+            payload["needsInputReason"] = args.needs_input_reason
+        if getattr(args, "needs_input_artifact_id", None):
+            payload["needsInputArtifactId"] = args.needs_input_artifact_id
+        if getattr(args, "needs_input_question", None):
+            payload["needsInputQuestion"] = args.needs_input_question
+        if getattr(args, "needs_input_suggested_resolution", None):
+            payload["needsInputSuggestedResolution"] = args.needs_input_suggested_resolution
         payload.update(_feedback_payload(args))
         return "sprintengine.task.status", payload
     if action == "log":

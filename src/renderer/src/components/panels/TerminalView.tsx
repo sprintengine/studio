@@ -600,10 +600,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       className="absolute inset-0 overflow-hidden px-2 pb-2 cursor-text"
     >
       {isFileDragOver ? (
-        <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[#4f6ad7] bg-[#101524]/70" />
+        <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
       ) : null}
       {folderBlocked ? (
-        <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[#5a5a63]">
+        <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--text-muted)]">
           {checkingFolder
             ? 'Checking workspace folder before starting this terminal...'
             : folderMissing

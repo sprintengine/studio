@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal, ModalButton } from '../ui/Modal'
+import { StatusDot } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { LEARNING_CATEGORY_LABELS } from '../../content/learning/types'
 import type { LearningAction, LearningItem } from '../../content/learning/types'
@@ -117,18 +118,18 @@ export function TipStartupModal({
       <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#5c7cff]" aria-hidden="true" />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8a9cff]">
+            <StatusDot tone="accent" label="Tip" />
+            <span className="text-[11px] font-medium text-[color:var(--accent-primary)]">
               Tip
             </span>
-            <span aria-hidden="true" className="text-[#303139]">·</span>
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9a9aa2]">
+            <span aria-hidden="true" className="text-[color:var(--border-default)]">·</span>
+            <span className="text-[11px] font-medium text-[color:var(--text-muted)]">
               {categoryLabel}
             </span>
           </div>
           <h2
             id="tip-startup-title"
-            className="mt-2 text-[16px] font-semibold leading-snug tracking-tight text-[#ececee]"
+            className="mt-2 text-[16px] font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]"
           >
             {currentTip.title}
           </h2>
@@ -137,7 +138,7 @@ export function TipStartupModal({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="rounded-md px-2 py-1 text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+          className="rounded-md px-2 py-1 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
         >
           <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -146,19 +147,19 @@ export function TipStartupModal({
       </div>
 
       <div className="px-5 pb-5 space-y-2.5">
-        <p className="text-[13px] leading-[1.55] text-[#d7d7dc]">{currentTip.summary}</p>
+        <p className="text-[13px] leading-[1.55] text-[color:var(--text-default)]">{currentTip.summary}</p>
         {currentTip.body ? (
-          <p className="text-[12px] leading-[1.6] text-[#9a9aa2]">{currentTip.body}</p>
+          <p className="text-[12px] leading-[1.6] text-[color:var(--text-muted)]">{currentTip.body}</p>
         ) : null}
       </div>
 
-      <div className="flex items-center justify-between gap-3 border-t border-[rgba(255,255,255,0.06)] px-5 py-3">
-        <label className="flex items-center gap-2 text-[11px] text-[#7a7a82] hover:text-[#9a9aa2] transition-colors">
+      <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-5 py-3">
+        <label className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)] hover:text-[color:var(--text-muted)] transition-colors">
           <input
             type="checkbox"
             checked={showTipsOnStartup}
             onChange={(event) => setLearningShowTipsOnStartup(event.target.checked)}
-            className="h-3 w-3 rounded border-[#303139] bg-[#0d0e11] text-[#5c7cff] focus:ring-1 focus:ring-[#5c7cff]/60"
+            className="h-3 w-3 rounded border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--accent-primary)] focus:ring-1 focus:ring-[color:var(--border-focus)]"
           />
           Show on startup
         </label>
@@ -171,8 +172,8 @@ export function TipStartupModal({
                 onClick={handlePrevious}
                 label="Previous tip"
               />
-              <span className="min-w-[34px] text-center text-[11px] tabular-nums text-[#9a9aa2]">
-                {position + 1}<span className="mx-0.5 text-[#3a3b42]">/</span>{rotation.length}
+              <span className="min-w-[34px] text-center text-[11px] tabular-nums text-[color:var(--text-muted)]">
+                {position + 1}<span className="mx-0.5 text-[color:var(--border-strong)]">/</span>{rotation.length}
               </span>
               <TipPagerButton
                 direction="next"
@@ -203,7 +204,7 @@ function TipPagerButton({ direction, onClick, label }: TipPagerButtonProps) {
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="flex h-7 w-7 items-center justify-center rounded-md text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+      className="flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
     >
       <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         {direction === 'prev' ? (

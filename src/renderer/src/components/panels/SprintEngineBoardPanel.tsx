@@ -8,6 +8,8 @@ import {
  GhostButton,
  StatusDot,
  Section,
+ Select,
+ Switch,
  TaskCard,
  type OverflowMenuItem,
  type TabItem,
@@ -413,33 +415,29 @@ function SprintEngineSettingsPopover({
  >
  <Section title="Run" level={3} inset={true}>
  <div className="flex flex-col gap-2">
- <label className="flex cursor-pointer items-center justify-between gap-3 text-[12px] text-[color:var(--text-default)]">
- <span>Auto roster runner</span>
- <input
- type="checkbox"
+ <div className="flex items-center justify-between gap-3 text-[12px] text-[color:var(--text-default)]">
+ <span id="sprintengine-settings-auto-label">Auto roster runner</span>
+ <Switch
  checked={autoEnabled}
  onChange={onToggleAuto}
- className="h-3.5 w-3.5 accent-[color:var(--accent-primary)]"
- aria-label="Auto roster runner"
+ ariaLabelledBy="sprintengine-settings-auto-label"
  />
- </label>
- <label
+ </div>
+ <div
  className={`flex items-center justify-between gap-3 text-[12px] ${
  autoEnabled
- ? 'cursor-pointer text-[color:var(--text-default)]'
+ ? 'text-[color:var(--text-default)]'
  : 'text-[color:var(--text-disabled)]'
  }`}
  >
- <span>Approve all artifacts</span>
- <input
- type="checkbox"
+ <span id="sprintengine-settings-approve-label">Approve all artifacts</span>
+ <Switch
  checked={autoApproveArtifacts}
  disabled={!autoEnabled}
  onChange={onToggleArtifactAutoApproval}
- className="h-3.5 w-3.5 accent-[color:var(--accent-primary)] disabled:opacity-45"
- aria-label="Approve all artifacts"
+ ariaLabelledBy="sprintengine-settings-approve-label"
  />
- </label>
+ </div>
  </div>
  </Section>
  <Section title="CLI permissions" level={3} inset={true}>
@@ -448,23 +446,12 @@ function SprintEngineSettingsPopover({
  Current:{' '}
  <span className="text-[color:var(--text-default)]">{currentPresetLabel}</span>
  </div>
- <label className="sr-only" htmlFor="sprintengine-settings-cli-preset">
- CLI permission preset
- </label>
- <select
- id="sprintengine-settings-cli-preset"
+ <Select<SprintEngineCliPermissionPreset>
+ ariaLabel="CLI permission preset"
+ items={sprintEngineCliPermissionOptions.map(({ value, label }) => ({ value, label }))}
  value={cliPermissionPreset}
- onChange={(event) =>
- onUpdateCliPreset(event.currentTarget.value as SprintEngineCliPermissionPreset)
- }
- className="h-8 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-strong)] focus:outline-none focus:ring-2 focus:ring-[color:var(--border-focus)]"
- >
- {sprintEngineCliPermissionOptions.map((option) => (
- <option key={option.value} value={option.value}>
- {option.label}
- </option>
- ))}
- </select>
+ onChange={onUpdateCliPreset}
+ />
  </div>
  </Section>
  {onVerifyProgress ? (

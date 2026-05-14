@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { StatusDot, type Tone } from '../ui'
 import { MetaCell, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
@@ -275,12 +276,12 @@ export default function MobileSettingsTab() {
   }
 
   const noteToneClass = action.status === 'error'
-    ? 'border-[#ff787c] text-[#ffb3b5]'
+    ? 'border-[color:var(--tone-error)] text-[color:var(--tone-error)]'
     : enabled && state?.relayStatus === 'connected'
-      ? 'border-[#30d158]/70 text-[#b9f7c8]'
+      ? 'border-[color:var(--tone-good)]/70 text-[color:var(--tone-good)]'
       : enabled && (state?.relayStatus === 'connecting' || state?.relayStatus === 'retrying')
-        ? 'border-[#ffbf2f]/75 text-[#ffd58a]'
-        : 'border-[rgba(255,255,255,0.10)] text-[#9a9aa2]'
+        ? 'border-[color:var(--tone-warn)]/75 text-[color:var(--tone-warn)]'
+        : 'border-[color:var(--border-default)] text-[color:var(--text-muted)]'
 
   return (
     <div
@@ -291,23 +292,23 @@ export default function MobileSettingsTab() {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5a5a63]">
-            Mobile Companion
+          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">
+            Mobile companion
           </div>
-          <div className="mt-1 text-sm font-semibold text-[#ececee]">
+          <div className="mt-1 text-sm font-semibold text-[color:var(--text-strong)]">
             Pair phones to drive Sprint Engine remotely
           </div>
         </div>
         <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
           enabled
             ? state?.relayStatus === 'connected'
-              ? 'border-[#30d158]/35 bg-[#30d158]/10 text-[#b9f7c8]'
+              ? 'border-[color:var(--tone-good)]/35 bg-[color:var(--tone-good-soft)] text-[color:var(--tone-good)]'
               : state?.relayStatus === 'connecting' || state?.relayStatus === 'retrying'
-                ? 'border-[#ffbf2f]/35 bg-[#ffbf2f]/10 text-[#ffe0a3]'
+                ? 'border-[color:var(--tone-warn)]/35 bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn)]'
                 : state?.relayStatus === 'error'
-                  ? 'border-[#ff787c]/35 bg-[#ff787c]/10 text-[#ffb3b5]'
-                  : 'border-[#5c7cff]/35 bg-[#5c7cff]/10 text-[#b8ccff]'
-            : 'border-[#303139] bg-[#0d0e11] text-[#9a9aa2]'
+                  ? 'border-[color:var(--tone-error)]/35 bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
+                  : 'border-[color:var(--accent-primary)]/35 bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+            : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)]'
         }`}>
           {enabled ? relayStatusLabel(state?.relayStatus) : 'Off'}
         </div>
@@ -317,7 +318,7 @@ export default function MobileSettingsTab() {
         {action.message || statusMessage(state)}
       </div>
 
-      <div className="divide-y divide-[#24252b]">
+      <div className="divide-y divide-[color:var(--bg-selected)]">
         <SettingToggle
           label="Enable mobile companion"
           description="Connect this desktop to the relay so paired phones can request snapshots, send follow-ups, and control Sprint Engine."
@@ -327,9 +328,9 @@ export default function MobileSettingsTab() {
         />
       </div>
 
-      <div className="border-t border-[#24252b] pt-4">
+      <div className="border-t border-[color:var(--bg-selected)] pt-4">
         <label className="block">
-          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a9aa2]">
+          <span className="mb-1 block text-[12px] font-semibold text-[color:var(--text-default)]">
             Relay URL
           </span>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -345,30 +346,30 @@ export default function MobileSettingsTab() {
               placeholder="https://relay.example.com"
               autoComplete="off"
               spellCheck={false}
-              className="h-9 min-w-0 flex-1 rounded-md border border-[#303139] bg-[#0d0e11] px-3 font-mono text-sm text-[#ececee] outline-none transition-colors placeholder:text-[#5a5a63] focus:border-[#5c7cff]/70"
+              className="h-9 min-w-0 flex-1 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]/70"
             />
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => void saveRelayUrl()}
                 disabled={busy || !relayUrlDirty}
-                className="h-9 rounded-md bg-[#5c7cff] px-3 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
+                className="h-9 rounded-md bg-[color:var(--accent-primary)] px-3 text-sm font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[color:var(--accent-primary)]"
               >
                 Save
               </button>
             </div>
           </div>
         </label>
-        <p className="mt-2 text-[12px] leading-5 text-[#5a5a63]">
+        <p className="mt-2 text-[12px] leading-5 text-[color:var(--text-disabled)]">
           Point this desktop at the relay your phone is configured to reach. Multicode keeps the connection open while the companion is enabled.
         </p>
       </div>
 
-      <div className="border-t border-[#24252b] pt-4">
+      <div className="border-t border-[color:var(--bg-selected)] pt-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-[#ececee]">Pairing code</div>
-            <p className="mt-1 text-[12px] leading-5 text-[#5a5a63]">
+            <div className="text-sm font-semibold text-[color:var(--text-strong)]">Pairing code</div>
+            <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-disabled)]">
               Generate a single-use code, then enter it on a phone running the Multicode mobile app.
             </p>
           </div>
@@ -376,53 +377,53 @@ export default function MobileSettingsTab() {
             type="button"
             onClick={() => void requestPairingCode()}
             disabled={!enabled || busy}
-            className="h-9 rounded-md bg-[#5c7cff] px-3 text-sm font-semibold text-[#08090b] transition-colors hover:bg-[#6e8eff] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[#5c7cff]"
+            className="h-9 rounded-md bg-[color:var(--accent-primary)] px-3 text-sm font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[color:var(--accent-primary)]"
           >
             Generate code
           </button>
         </div>
 
         {pairingChallenge ? (
-          <div className="mt-4 rounded-md border border-[#5c7cff]/30 bg-[#100f1c] px-4 py-4">
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8a93b8]">
+          <div className="mt-4 rounded-md border border-[color:var(--accent-primary)]/30 bg-[color:var(--accent-primary-soft)] px-4 py-4">
+            <div className="text-[12px] font-semibold text-[color:var(--text-muted)]">
               Pairing code
             </div>
             <button
               type="button"
               onClick={() => void copyPairingCode()}
-              className="mt-1 block font-mono text-[36px] font-semibold tracking-[0.2em] text-[#ececee] transition-colors hover:text-[#d4ddff] focus:outline-none focus-visible:text-[#d4ddff]"
+              className="mt-1 block font-mono text-[36px] font-semibold tracking-[0.2em] text-[color:var(--text-strong)] transition-colors hover:text-[color:var(--accent-primary)] focus:outline-none focus-visible:text-[color:var(--accent-primary)]"
               aria-label={`Copy pairing code ${pairingChallenge.pairingCode}`}
             >
               {pairingChallenge.pairingCode}
             </button>
-            <div className="mt-1 text-[12px] leading-5 text-[#9a9aa2]">
+            <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
               Expires {formatDate(pairingChallenge.expiresAt)}. Tap the code to copy.
             </div>
           </div>
         ) : null}
       </div>
 
-      <div className="border-t border-[#24252b] pt-4">
+      <div className="border-t border-[color:var(--bg-selected)] pt-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-[#ececee]">Paired phones</div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
+          <div className="text-sm font-semibold text-[color:var(--text-strong)]">Paired phones</div>
+          <div className="text-[12px] tabular-nums text-[color:var(--text-muted)]">
             {activeDevices.length} active
           </div>
         </div>
         {activeDevices.length > 0 ? (
-          <div className="mt-3 divide-y divide-[#24252b]">
+          <div className="mt-3 divide-y divide-[color:var(--bg-selected)]">
             {activeDevices.map((device) => (
               <div
                 key={device.deviceId}
                 className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
               >
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-[#ececee]">
+                  <div className="truncate text-sm font-semibold text-[color:var(--text-strong)]">
                     {device.displayName}
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#8a8a92]">
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
                     <span className="capitalize">{device.platform}</span>
-                    <span className="font-mono text-[#9a9aa2]">v{device.appVersion}</span>
+                    <span className="font-mono text-[color:var(--text-muted)]">v{device.appVersion}</span>
                     <span>Last seen {formatNullableDate(device.lastSeenAt)}</span>
                   </div>
                 </div>
@@ -430,7 +431,7 @@ export default function MobileSettingsTab() {
                   type="button"
                   onClick={() => void revokeDevice(device)}
                   disabled={!enabled || revokingDeviceId === device.deviceId}
-                  className="justify-self-start rounded-md border border-[#303139] bg-[#0d0e11] px-3 py-1.5 text-sm font-semibold text-[#d7d7dc] transition-colors hover:border-[#ff787c]/45 hover:bg-[#17181d] hover:text-[#ffb3b5] disabled:cursor-default disabled:opacity-45 disabled:hover:border-[#303139] disabled:hover:bg-[#0d0e11] disabled:hover:text-[#d7d7dc] sm:justify-self-end"
+                  className="justify-self-start rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-sm font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--tone-error)]/45 hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--tone-error)] disabled:cursor-default disabled:opacity-45 disabled:hover:border-[color:var(--border-strong)] disabled:hover:bg-[color:var(--bg-surface)] disabled:hover:text-[color:var(--text-default)] sm:justify-self-end"
                 >
                   {revokingDeviceId === device.deviceId ? 'Revoking.' : 'Revoke'}
                 </button>
@@ -438,39 +439,39 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-[12px] leading-5 text-[#5a5a63]">
+          <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-disabled)]">
             No phones paired yet. Generate a pairing code, then enter it in the mobile app to link a device.
           </p>
         )}
       </div>
 
-      <div className="grid gap-x-6 gap-y-3 border-t border-[#24252b] pt-4 text-sm sm:grid-cols-2">
+      <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--bg-selected)] pt-4 text-sm sm:grid-cols-2">
         <MetaCell label="Relay status" value={relayStatusLabel(state?.relayStatus)} tone={relayStatusTone(state?.relayStatus)} />
         <MetaCell label="Session" value={state?.desktopRelaySessionId ? 'Ready' : 'Not ready'} tone={state?.desktopRelaySessionId ? 'positive' : 'muted'} />
         <MetaCell label="Last presence" value={formatNullableDate(state?.lastPresenceAt)} />
         <MetaCell label="Token expires" value={formatNullableDate(state?.relayTokenExpiresAt)} />
       </div>
 
-      <div className="border-t border-[#24252b] pt-4">
+      <div className="border-t border-[color:var(--bg-selected)] pt-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-[#ececee]">Recent mobile messages</div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a63]">
+          <div className="text-sm font-semibold text-[color:var(--text-strong)]">Recent mobile messages</div>
+          <div className="text-[12px] tabular-nums text-[color:var(--text-muted)]">
             {recentCommands.length} recent
           </div>
         </div>
         {recentCommands.length > 0 ? (
-          <div className="mt-3 divide-y divide-[#24252b]">
+          <div className="mt-3 divide-y divide-[color:var(--bg-selected)]">
             {recentCommands.map((event) => (
               <div key={event.id} className="grid gap-1 py-2.5 first:pt-0 last:pb-0">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 truncate text-sm text-[#ececee]">
+                  <div className="min-w-0 truncate text-sm text-[color:var(--text-strong)]">
                     {commandLabel(event.commandType)}
                   </div>
-                  <span className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${commandStatusClass(event.status)}`}>
+                  <span className={`text-[11px] font-semibold ${commandStatusClass(event.status)}`}>
                     {event.status}
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#8a8a92]">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
                   <span>{event.deviceName ?? event.deviceId ?? 'Mobile device'}</span>
                   <span>{formatDate(event.receivedAt)}</span>
                   {event.resultCode ? <span className="font-mono">{event.resultCode}</span> : null}
@@ -479,19 +480,19 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-[12px] leading-5 text-[#5a5a63]">
+          <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-disabled)]">
             No mobile messages yet.
           </p>
         )}
       </div>
 
-      <div className="border-t border-[#24252b] pt-4">
+      <div className="border-t border-[color:var(--bg-selected)] pt-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-[#ececee]">Diagnostics</div>
+          <div className="text-sm font-semibold text-[color:var(--text-strong)]">Diagnostics</div>
           <button
             type="button"
             onClick={() => void refreshDiagnostics()}
-            className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[#9a9aa2] transition-colors hover:bg-[#17181d] hover:text-[#ececee] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60"
+            className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
           >
             {showDiagnostics ? 'Refresh' : 'Show'}
           </button>
@@ -500,11 +501,15 @@ export default function MobileSettingsTab() {
           <div className="mt-3 space-y-3">
             {visibleDiagnostics.map((entry) => (
               <div key={entry.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-[12px] leading-5">
-                <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${diagnosticDotClass(entry.level)}`} aria-hidden="true" />
+                <StatusDot
+                  tone={diagnosticDotTone(entry.level)}
+                  label={entry.level}
+                  className="mt-2"
+                />
                 <div className="min-w-0">
-                  <div className="text-[#d7d7dc]">{entry.message}</div>
-                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#5a5a63]">
-                    <span className="font-mono uppercase tracking-[0.08em]">{entry.code}</span>
+                  <div className="text-[color:var(--text-default)]">{entry.message}</div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[color:var(--text-disabled)]">
+                    <span className="font-mono">{entry.code}</span>
                     <span>{formatDate(entry.timestamp)}</span>
                   </div>
                 </div>
@@ -512,7 +517,7 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-[12px] leading-5 text-[#5a5a63]">
+          <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-disabled)]">
             No diagnostics recorded.
           </p>
         )}
@@ -568,14 +573,14 @@ function relayStatusTone(status: MobileBridgeRelayStatus | undefined): 'positive
   return undefined
 }
 
-function diagnosticDotClass(level: MobileBridgeDiagnosticEntry['level']): string {
+function diagnosticDotTone(level: MobileBridgeDiagnosticEntry['level']): Tone {
   switch (level) {
     case 'error':
-      return 'bg-[#ff787c]'
+      return 'error'
     case 'warning':
-      return 'bg-[#ffbf2f]'
+      return 'warn'
     default:
-      return 'bg-[#5c7cff]'
+      return 'accent'
   }
 }
 
@@ -603,11 +608,11 @@ function commandLabel(commandType: MobileControlCommandType): string {
 function commandStatusClass(status: MobileBridgeCommandEvent['status']): string {
   switch (status) {
     case 'completed':
-      return 'text-[#b9f7c8]'
+      return 'text-[color:var(--tone-good)]'
     case 'failed':
-      return 'text-[#ffb3b5]'
+      return 'text-[color:var(--tone-error)]'
     case 'received':
-      return 'text-[#ffd58a]'
+      return 'text-[color:var(--tone-warn)]'
   }
 }
 

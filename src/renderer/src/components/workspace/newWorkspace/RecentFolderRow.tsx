@@ -16,16 +16,16 @@ const HINT_LABEL: Record<Hint, string> = {
 
 const HINT_STYLES: Record<Hint, { dot: string; text: string; bg: string; border: string }> = {
   sprintengine: {
-    dot: 'bg-[#ffbf2f]',
-    text: 'text-[#ffe0a3]',
-    bg: 'bg-[#1a1408]',
-    border: 'border-[#3a3426]',
+    dot: 'bg-[color:var(--tone-warn)]',
+    text: 'text-[color:var(--tone-warn)]',
+    bg: 'bg-[color:var(--tone-warn-soft)]',
+    border: 'border-[color:var(--tone-warn-soft)]',
   },
   multiloop: {
-    dot: 'bg-[#5c7cff]',
-    text: 'text-[#d4ddff]',
-    bg: 'bg-[#111b30]',
-    border: 'border-[#26304d]',
+    dot: 'bg-[color:var(--accent-primary)]',
+    text: 'text-[color:var(--text-strong)]',
+    bg: 'bg-[color:var(--accent-primary-soft)]',
+    border: 'border-[color:var(--accent-primary-soft-strong)]',
   },
 }
 
@@ -40,14 +40,14 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
       onClick={() => onSelect(path)}
       className={`
         group flex w-full min-w-0 items-center gap-3 rounded px-2 py-1.5 text-left
-        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
-        ${active ? 'bg-[#17181d]' : 'hover:bg-[#111216]'}
+        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        ${active ? 'bg-[color:var(--bg-hover)]' : 'hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
       <span
         aria-hidden="true"
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-[#777780] ${
-          active ? 'bg-[#1f2025] text-[#a8a8b0]' : 'bg-[#111216] group-hover:text-[#a8a8b0]'
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] ${
+          active ? 'bg-[color:var(--border-default)] text-[color:var(--text-muted)]' : 'bg-[color:var(--bg-surface-raised)] group-hover:text-[color:var(--text-muted)]'
         }`}
       >
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -62,12 +62,12 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
       <span className="min-w-0 flex-1">
         <span
           className={`block truncate text-[13px] font-medium ${
-            active ? 'text-[#ececee]' : 'text-[#d7d7dc]'
+            active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
           }`}
         >
           {label}
         </span>
-        <span className="block truncate font-mono text-[11px] leading-4 text-[#777780]">
+        <span className="block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
           {path}
         </span>
       </span>
@@ -80,6 +80,7 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
                 key={hint}
                 className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${styles.bg} ${styles.border} ${styles.text}`}
               >
+                {/* design-tokens-allow: hint identity dot inside a chip — color matches the chip's accent */}
                 <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} aria-hidden="true" />
                 {HINT_LABEL[hint]}
               </span>

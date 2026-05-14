@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckIcon, CloseIcon } from '../AppIcons'
+import { StatusDot } from './StatusDot'
+import { TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
 
 export type ActionTone = 'success' | 'error' | 'info'
 
@@ -12,10 +14,10 @@ export type ActionStatus = {
 
 export type ActionStatusMap = Record<string, ActionStatus | null>
 
-const TONE_CLASS: Record<ActionTone, string> = {
-  success: 'border-[#234d27] bg-[#0f1d10] text-[#9be39e]',
-  error: 'border-[#3a2222] bg-[#1c1414] text-[#ffb3b5]',
-  info: 'border-[#2a2b31] bg-[#111216] text-[#d7d7dc]',
+const ACTION_TONE_TO_TONE: Record<ActionTone, Tone> = {
+  success: 'good',
+  error: 'error',
+  info: 'neutral',
 }
 
 const AUTO_DISMISS_MS = 4000
@@ -32,19 +34,25 @@ export function ActionStatusChip({
   if (!status) return null
   const role = status.tone === 'error' ? 'alert' : 'status'
   const ariaLive = status.tone === 'error' ? 'assertive' : 'polite'
+  const tone = ACTION_TONE_TO_TONE[status.tone]
   return (
     <span
       key={status.nonce}
       role={role}
       aria-live={ariaLive}
-      className={`chip-enter inline-flex max-w-[280px] shrink-0 items-center gap-1.5 rounded border px-1.5 py-0.5 text-[10.5px] leading-4 ${TONE_CLASS[status.tone]} ${className}`}
+      className={`chip-enter inline-flex max-w-[280px] shrink-0 items-center gap-1.5 rounded border px-1.5 py-0.5 text-[10.5px] leading-4 ${className}`}
+      style={{
+        borderColor: TONE_COLOR_VAR[tone],
+        backgroundColor: TONE_SOFT_VAR[tone],
+        color: TONE_COLOR_VAR[tone],
+      }}
     >
       {status.tone === 'success' ? (
         <CheckIcon className="h-3 w-3 shrink-0" />
       ) : status.tone === 'error' ? (
-        <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ff787c]" />
+        <StatusDot tone="error" />
       ) : (
-        <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#9a9aa2]" />
+        <StatusDot tone="neutral" />
       )}
       <span className="min-w-0 truncate">{status.message}</span>
       {onDismiss ? (

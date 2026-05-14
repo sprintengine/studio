@@ -36,7 +36,25 @@ VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "
 VALID_TASK_DISPATCH_MODES = {"dependency", "manual"}
 VALID_TASK_DISPATCH_STATUSES = {"todo", "ready"}
 VALID_TASK_DISPATCH_TRIAGED_BY = {"none", "user", "architect"}
-VALID_NEEDS_INPUT_KINDS = {"architect", "user", "artifact", "tooling", "verification", "other"}
+VALID_NEEDS_INPUT_KINDS = {"architect", "user", "owner", "artifact", "tooling", "verification", "other"}
+VALID_NEEDS_INPUT_REASONS = {
+    "task_scope",
+    "artifact_review",
+    "tooling",
+    "verification",
+    "product_decision",
+    "blocked_other",
+}
+LEGACY_NEEDS_INPUT_KIND_REASONS = {
+    "architect": "task_scope",
+    "user": "product_decision",
+    "owner": "blocked_other",
+    "artifact": "artifact_review",
+    "tooling": "tooling",
+    "verification": "verification",
+    "other": "blocked_other",
+}
+ARCHITECT_ROUTED_NEEDS_INPUT_KINDS = {"architect", "artifact", "tooling", "verification", "other"}
 VALID_ARTIFACT_KINDS = {
     "architect_plan",
     "product_strategy",
@@ -1122,7 +1140,17 @@ def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any
         )
 
     needs_input: Dict[str, Any] = {"kind": kind}
-    for key in ("question", "suggestedResolution", "reportedBy", "reportedAt"):
+    reason = optional_non_empty_string(raw, "reason")
+    if reason is not None:
+        if reason not in VALID_NEEDS_INPUT_REASONS:
+            raise SystemExit(
+                f"Task {task_id} needsInput.reason must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_REASONS))}."
+            )
+        needs_input["reason"] = reason
+    elif kind in LEGACY_NEEDS_INPUT_KIND_REASONS:
+        needs_input["reason"] = LEGACY_NEEDS_INPUT_KIND_REASONS[kind]
+
+    for key in ("question", "suggestedResolution", "reportedBy", "reportedAt", "artifactId"):
         value = optional_non_empty_string(raw, key)
         if value is not None:
             needs_input[key] = value
@@ -1911,12 +1939,15 @@ def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, An
     artifact_id = str(artifact.get("id") or "").strip() if isinstance(artifact, dict) else ""
     artifact_title = str(artifact.get("title") or "").strip() if isinstance(artifact, dict) else ""
     task["needsInput"] = {
-        "kind": "artifact",
+        "kind": "architect",
+        "reason": "artifact_review",
+        **({"artifactId": artifact_id} if artifact_id else {}),
         "question": (
             f"Artifact {artifact_id} ({artifact_title}) is ready for review."
             if artifact_id and artifact_title
             else "A linked artifact is ready for review."
         ),
+        "suggestedResolution": "Review the artifact, adjudicate recommended follow-up tasks, then approve/request changes or resolve the blocked task.",
         "reportedBy": str((artifact or {}).get("createdBy") or task.get("ownerAgentId") or task.get("role") or "agent"),
         "reportedAt": now_iso(),
     }
@@ -2990,6 +3021,8 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             raise SystemExit("Needs-input fields are only supported with --status needs_input.")
         wants_needs_input_routing = (
             getattr(args, "needs_input_kind", None)
+            or getattr(args, "needs_input_reason", None)
+            or getattr(args, "needs_input_artifact_id", None)
             or getattr(args, "needs_input_question", None)
             or getattr(args, "needs_input_suggested_resolution", None)
         )
@@ -2997,10 +3030,14 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             raise SystemExit("--needs-input-question is required when writing routed needs_input metadata.")
         task["status"] = args.status
         if args.status == "needs_input" and wants_needs_input_routing:
+            kind = args.needs_input_kind or "architect"
+            reason = args.needs_input_reason or LEGACY_NEEDS_INPUT_KIND_REASONS.get(kind, "blocked_other")
             needs_input = {
-                "kind": args.needs_input_kind or "user",
+                "kind": kind,
+                "reason": reason,
                 "question": (args.needs_input_question or "").strip(),
                 "suggestedResolution": (args.needs_input_suggested_resolution or "").strip(),
+                "artifactId": (args.needs_input_artifact_id or "").strip(),
                 "reportedBy": actor,
                 "reportedAt": now_iso(),
             }
@@ -3066,9 +3103,26 @@ def architect_actionable_needs_input_tasks(state: Dict[str, Any]) -> List[Dict[s
         needs_input = task.get("needsInput")
         if not isinstance(needs_input, dict):
             continue
-        if needs_input.get("kind") == "architect":
+        if needs_input.get("kind") in ARCHITECT_ROUTED_NEEDS_INPUT_KINDS:
             tasks.append(task)
     return tasks
+
+
+def normalized_needs_input_for_routing(needs_input: Any) -> Dict[str, Any]:
+    if not isinstance(needs_input, dict):
+        return {}
+    normalized = dict(needs_input)
+    kind = str(normalized.get("kind") or "").strip()
+    if kind and not normalized.get("reason"):
+        normalized["reason"] = LEGACY_NEEDS_INPUT_KIND_REASONS.get(kind, "blocked_other")
+    return normalized
+
+
+def artifacts_for_task(state: Dict[str, Any], task_id: Any) -> List[Dict[str, Any]]:
+    return [
+        artifact for artifact in state.get("artifacts", [])
+        if isinstance(artifact, dict) and artifact.get("taskId") == task_id
+    ]
 
 
 def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
@@ -3083,7 +3137,9 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
             "",
             "Rules:",
             "- Inspect the blocked task card, notes, evidence, owned paths, and current code before changing the plan.",
+            "- `needsInput.kind` routes who acts. Treat legacy kind=artifact/tooling/verification/other as architect-routed blockers with reason metadata.",
             "- Resolve planning defects by updating task cards or adding follow-up tasks; do not edit application source in this triage mode.",
+            "- For reason=artifact_review, read the referenced artifact, adjudicate recommended follow-up tasks, wire blockers before validation when needed, then approve/request changes or resolve the blocked task.",
             "- Use `sprintengine plan update-task --force` for active task-card corrections.",
             "- Use `sprintengine plan add-task`, `sprintengine plan add-dependency`, or `sprintengine plan remove-dependency` only when the task graph really needs repair.",
             "- Add a task note explaining the resolution for the original worker.",
@@ -3100,14 +3156,24 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
 
         prompt_lines.append("Architect-actionable blockers:")
         for task in tasks:
-            needs_input = task.get("needsInput") if isinstance(task.get("needsInput"), dict) else {}
+            needs_input = normalized_needs_input_for_routing(task.get("needsInput"))
             evidence = task.get("evidence") if isinstance(task.get("evidence"), dict) else {}
+            task_artifacts = artifacts_for_task(state, task.get("id"))
+            artifact_lines = []
+            for artifact in task_artifacts:
+                artifact_lines.append(
+                    f"{artifact.get('id')} {artifact.get('kind')} status={artifact.get('status')} "
+                    f"path={artifact.get('path') or '(none)'} recommendedTasks={len(artifact.get('recommendedTasks') or [])}"
+                )
             prompt_lines.extend([
                 "",
                 f"- Task: {task.get('id')} - {task.get('title')}",
                 f"  Role/owner: {task.get('role')} / {task.get('ownerAgentId') or 'unowned'}",
+                f"  Route/reason: {needs_input.get('kind') or '(none)'} / {needs_input.get('reason') or '(legacy unspecified)'}",
+                f"  Artifact id: {needs_input.get('artifactId') or '(not provided)'}",
                 f"  Question: {needs_input.get('question') or '(not provided)'}",
                 f"  Suggested resolution: {needs_input.get('suggestedResolution') or '(not provided)'}",
+                f"  Artifacts: {' | '.join(artifact_lines) or '(none)'}",
                 f"  Description: {task.get('description') or ''}",
                 f"  Owned paths: {', '.join(task.get('ownedPaths') or []) or '(none)'}",
                 f"  Acceptance: {' | '.join(task.get('acceptanceCriteria') or []) or '(none)'}",
@@ -3123,7 +3189,17 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
                     "title": task.get("title"),
                     "role": task.get("role"),
                     "ownerAgentId": task.get("ownerAgentId"),
-                    "needsInput": task.get("needsInput"),
+                    "needsInput": normalized_needs_input_for_routing(task.get("needsInput")),
+                    "artifacts": [
+                        {
+                            "id": artifact.get("id"),
+                            "kind": artifact.get("kind"),
+                            "status": artifact.get("status"),
+                            "path": artifact.get("path"),
+                            "recommendedTaskCount": len(artifact.get("recommendedTasks") or []),
+                        }
+                        for artifact in artifacts_for_task(state, task.get("id"))
+                    ],
                 }
                 for task in tasks
             ],
@@ -3794,6 +3870,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", help="Agent id.")
     p.add_argument("--summary", help="Completion summary (used when status=done).")
     p.add_argument("--needs-input-kind", choices=sorted(VALID_NEEDS_INPUT_KINDS), help="Classify a needs_input blocker for routing.")
+    p.add_argument("--needs-input-reason", choices=sorted(VALID_NEEDS_INPUT_REASONS), help="Why the task needs input; kind is the actor who must act.")
+    p.add_argument("--needs-input-artifact-id", help="Artifact id related to an artifact_review blocker.")
     p.add_argument("--needs-input-question", help="Question or blocker that requires input.")
     p.add_argument("--needs-input-suggested-resolution", help="Optional proposed unblock path.")
     add_feedback_arguments(p)

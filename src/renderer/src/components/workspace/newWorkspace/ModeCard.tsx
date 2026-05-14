@@ -11,32 +11,32 @@ type ModeStyle = {
 
 const MODE_STYLES: Record<CreationMode, ModeStyle> = {
   standard: {
-    border: 'border-[#3a3b42]',
-    bg: 'bg-[#17181d]',
-    topAccent: 'bg-[#ececee]',
-    label: 'text-[#ececee]',
-    iconColor: 'text-[#ececee]',
+    border: 'border-[color:var(--color-6)]',
+    bg: 'bg-[color:var(--bg-hover)]',
+    topAccent: 'bg-[color:var(--text-strong)]',
+    label: 'text-[color:var(--text-strong)]',
+    iconColor: 'text-[color:var(--text-strong)]',
   },
   switchboard: {
-    border: 'border-[#3b2f63]',
-    bg: 'bg-[#100c1e]',
-    topAccent: 'bg-[#7c5cf2]',
-    label: 'text-[#cdbcff]',
-    iconColor: 'text-[#a78bfa]',
+    border: 'border-[color:var(--bg-surface-raised)]',
+    bg: 'bg-[color:var(--bg-surface-raised)]',
+    topAccent: 'bg-[color:var(--tool-switchboard)]',
+    label: 'text-[color:var(--tool-switchboard)]',
+    iconColor: 'text-[color:var(--tool-switchboard)]',
   },
   sprintengine: {
-    border: 'border-[#3a3426]',
-    bg: 'bg-[#151106]',
-    topAccent: 'bg-[#ffbf2f]',
-    label: 'text-[#ffe0a3]',
-    iconColor: 'text-[#ffbf2f]',
+    border: 'border-[color:var(--tone-warn-soft)]',
+    bg: 'bg-[color:var(--tone-warn-soft)]',
+    topAccent: 'bg-[color:var(--tone-warn)]',
+    label: 'text-[color:var(--tone-warn)]',
+    iconColor: 'text-[color:var(--tone-warn)]',
   },
   multiloop: {
-    border: 'border-[#26304d]',
-    bg: 'bg-[#111b30]',
-    topAccent: 'bg-[#5c7cff]',
-    label: 'text-[#d4ddff]',
-    iconColor: 'text-[#5c7cff]',
+    border: 'border-[color:var(--accent-primary-soft-strong)]',
+    bg: 'bg-[color:var(--accent-primary-soft)]',
+    topAccent: 'bg-[color:var(--accent-primary)]',
+    label: 'text-[color:var(--text-strong)]',
+    iconColor: 'text-[color:var(--accent-primary)]',
   },
 }
 
@@ -79,11 +79,11 @@ export function ModeCard({ mode, active, disabled = false, onSelect }: ModeCardP
       onClick={() => onSelect(mode)}
       className={`
         relative flex h-[120px] w-full flex-col items-start gap-2 overflow-hidden rounded-md border p-3 text-left
-        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7cff]/60
+        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
         disabled:cursor-not-allowed disabled:opacity-55
         ${active
           ? `${styles.border} ${styles.bg}`
-          : 'border-[#24252b] bg-[#0d0e11] hover:border-[#303139] hover:bg-[#111216]'}
+          : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
       <span
@@ -93,17 +93,17 @@ export function ModeCard({ mode, active, disabled = false, onSelect }: ModeCardP
       <span className="flex items-center gap-2">
         <WorkspaceTypeIcon
           mode={mode}
-          className={`h-4 w-4 shrink-0 ${active ? styles.iconColor : 'text-[#9a9aa2]'}`}
+          className={`h-4 w-4 shrink-0 ${active ? styles.iconColor : 'text-[color:var(--text-muted)]'}`}
         />
         <span
           className={`text-[13px] font-semibold leading-4 ${
-            active ? styles.label : 'text-[#ececee]'
+            active ? styles.label : 'text-[color:var(--text-strong)]'
           }`}
         >
           {copy.title}
         </span>
       </span>
-      <span className="text-[12px] leading-4 text-[#9a9aa2]">
+      <span className="text-[12px] leading-4 text-[color:var(--text-muted)]">
         {copy.body}
       </span>
     </button>
