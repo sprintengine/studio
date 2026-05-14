@@ -294,6 +294,7 @@ export type SprintEngineAutoState = {
   cliPermissionPreset: SprintEngineCliPermissionPreset
   maxConcurrentAgents: number
   pendingSpawns: SprintEngineAutoPendingSpawn[]
+  deliveredAgentNotificationEventKeys: string[]
 }
 
 export type MultiloopAutoPendingSpawn = {

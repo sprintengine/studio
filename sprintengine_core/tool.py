@@ -2019,6 +2019,8 @@ def resolve_task_input(
     if task.get("status") != "needs_input":
         raise SystemExit("Only needs_input tasks can be resolved.")
     owner_id = str(task.get("ownerAgentId") or "").strip()
+    if not complete and not owner_id:
+        raise SystemExit("Cannot resume a needs_input task without an owner. Use --complete or release the task.")
     now = now_iso()
     needs_input = task.get("needsInput") if isinstance(task.get("needsInput"), dict) else {}
     needs_input = dict(needs_input)

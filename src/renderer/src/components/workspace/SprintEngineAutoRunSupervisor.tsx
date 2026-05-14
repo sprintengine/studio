@@ -81,6 +81,7 @@ const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
   cliPermissionPreset: 'default',
   maxConcurrentAgents: 3,
   pendingSpawns: [],
+  deliveredAgentNotificationEventKeys: [],
 }
 
 function quoteShellArg(value: string): string {
@@ -813,15 +814,25 @@ function buildSprintEngineContinuationPrompt(task: SprintEngineTask, agentId: st
   ].join('\n')
 }
 
+function agentNotificationDeliveryKey(workspace: Workspace, event: SprintEngineEvent): string {
+  return [
+    workspace.sprintEngineContext?.statePath ?? workspace.id,
+    event.id,
+  ].join(':')
+}
+
 function getPendingAgentNotificationEvents(
+  workspace: Workspace,
   sprintEngineState: SprintEngineState,
   sentAgentNotificationEvents: MutableRefObject<Set<string>>
 ): SprintEngineEvent[] {
+  const deliveredEventKeys = new Set(getSprintEngineAutoState(workspace).deliveredAgentNotificationEventKeys)
   return sprintEngineState.events.filter((event) =>
     event.type === 'agent_notification_requested'
     && Boolean(event.id)
     && Boolean(event.targetAgentId)
-    && !sentAgentNotificationEvents.current.has(event.id)
+    && !deliveredEventKeys.has(agentNotificationDeliveryKey(workspace, event))
+    && !sentAgentNotificationEvents.current.has(agentNotificationDeliveryKey(workspace, event))
   )
 }
 
@@ -849,7 +860,11 @@ async function deliverAgentNotificationEvents(
   inFlightSpawns: MutableRefObject<Set<string>>,
   sentAgentNotificationEvents: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'none'> {
-  const events = getPendingAgentNotificationEvents(sprintEngineState, sentAgentNotificationEvents)
+  const events = getPendingAgentNotificationEvents(
+    workspace,
+    sprintEngineState,
+    sentAgentNotificationEvents
+  )
   if (events.length === 0) return 'none'
 
   let started = false
@@ -857,11 +872,13 @@ async function deliverAgentNotificationEvents(
   for (const event of events) {
     const targetAgentId = event.targetAgentId
     if (!targetAgentId) continue
+    const deliveryKey = agentNotificationDeliveryKey(workspace, event)
     const prompt = buildAgentNotificationPrompt(event)
     const session = await findRunningAgentSession(workspace, targetAgentId)
     if (session) {
       await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(prompt))
-      sentAgentNotificationEvents.current.add(event.id)
+      sentAgentNotificationEvents.current.add(deliveryKey)
+      useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
       logPerfEvent('SprintEngineAutoRun', 'agent-notification-sent', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -909,7 +926,8 @@ async function deliverAgentNotificationEvents(
     if (result === 'started') {
       started = true
       runningAgentIds.add(targetAgentId)
-      sentAgentNotificationEvents.current.add(event.id)
+      sentAgentNotificationEvents.current.add(deliveryKey)
+      useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
     }
   }
 

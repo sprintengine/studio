@@ -193,6 +193,7 @@ interface WorkspaceStore {
     workspaceId: WorkspaceId,
     pendingSpawns: SprintEngineAutoPendingSpawn[]
   ) => void
+  markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
   setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setMultiloopCliPermissionPreset: (
     workspaceId: WorkspaceId,
@@ -696,6 +697,7 @@ const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
   cliPermissionPreset: 'default',
   maxConcurrentAgents: 3,
   pendingSpawns: [],
+  deliveredAgentNotificationEventKeys: [],
 })
 
 const defaultMultiloopAutoState = (): MultiloopAutoState => ({
@@ -792,7 +794,12 @@ function normalizeCliDefaults<K extends string>(
 }
 
 function normalizeSprintEngineAutoState(
-  input: (Partial<SprintEngineAutoState> & { pending?: SprintEngineAutoPendingSpawn | null }) | null | undefined
+  input: (
+    Partial<SprintEngineAutoState> & {
+      pending?: SprintEngineAutoPendingSpawn | null
+      deliveredAgentNotificationEventIds?: string[]
+    }
+  ) | null | undefined
 ): SprintEngineAutoState {
   const legacyPending = normalizeSprintEngineAutoPendingSpawn(input?.pending)
   const pendingSpawns = Array.isArray(input?.pendingSpawns)
@@ -802,6 +809,16 @@ function normalizeSprintEngineAutoState(
     : legacyPending
       ? [legacyPending]
       : []
+  const deliveredAgentNotificationEventKeysInput =
+    Array.isArray(input?.deliveredAgentNotificationEventKeys)
+      ? input.deliveredAgentNotificationEventKeys
+      : Array.isArray(input?.deliveredAgentNotificationEventIds)
+        ? input.deliveredAgentNotificationEventIds
+        : []
+  const deliveredAgentNotificationEventKeys = deliveredAgentNotificationEventKeysInput.length > 0
+    ? deliveredAgentNotificationEventKeysInput
+      .filter((eventKey): eventKey is string => typeof eventKey === 'string' && eventKey.trim().length > 0)
+    : []
   const cliPermissionPreset = normalizeCliPermissionPreset(input?.cliPermissionPreset)
   const maxConcurrentAgents =
     typeof input?.maxConcurrentAgents === 'number' && Number.isFinite(input.maxConcurrentAgents)
@@ -815,6 +832,7 @@ function normalizeSprintEngineAutoState(
     cliPermissionPreset,
     maxConcurrentAgents,
     pendingSpawns,
+    deliveredAgentNotificationEventKeys,
   }
 }
 
@@ -1782,6 +1800,23 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ws.sprintEngineAutoState = {
             ...current,
             pendingSpawns,
+          }
+        }),
+
+      markSprintEngineAgentNotificationDelivered: (workspaceId, eventKey) =>
+        set((state) => {
+          const trimmedEventKey = eventKey.trim()
+          if (!trimmedEventKey) return
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
+          if (current.deliveredAgentNotificationEventKeys.includes(trimmedEventKey)) return
+          ws.sprintEngineAutoState = {
+            ...current,
+            deliveredAgentNotificationEventKeys: [
+              ...current.deliveredAgentNotificationEventKeys,
+              trimmedEventKey,
+            ],
           }
         }),
 

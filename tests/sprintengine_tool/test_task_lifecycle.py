@@ -321,6 +321,31 @@ def test_task_resolve_input_complete_marks_done_and_notifies_owner(tmp_path) -> 
     assert notification["notificationKind"] == "task_completed_after_input_resolution"
 
 
+def test_task_resolve_input_rejects_unowned_resume_without_complete(tmp_path) -> None:
+    blocked_task = task("T1", "Unowned blocker", "frontend", "needs_input")
+    blocked_task["needsInput"] = {
+        "kind": "architect",
+        "reason": "task_scope",
+        "question": "Needs a decision.",
+        "reportedBy": "frontend-1",
+        "reportedAt": "2026-05-14T00:00:00Z",
+    }
+    fixture = create_team(tmp_path, "resolve-input-unowned-rejected", [blocked_task])
+
+    rejected = fixture.cli.run_failure(
+        "task",
+        "resolve-input",
+        "--task-id",
+        "T1",
+        "--id",
+        "architect",
+        "--resolution",
+        "Continue.",
+    )
+
+    assert "without an owner" in rejected.stderr
+
+
 def test_task_release_clears_active_owner_and_notifies_previous_owner(tmp_path) -> None:
     active_task = task("T1", "Abandoned task", "frontend", "in_progress", owner="frontend-1")
     active_task["startedAt"] = "2026-05-14T09:00:00Z"
