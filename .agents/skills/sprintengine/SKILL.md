@@ -24,7 +24,7 @@ API discovery:
 - Before using a command group or action for the first time, run its `--help` and follow the exact flags shown by the tool.
 - Current command groups are `handover`, `init`, `recover`, `join`, `triage`, `task`, `plan`, `artifact`, and `summary`.
 - Worker commands live under `sprintengine task`: use `task next`, `task claim`, `task status`, `task log`, `task note`, and `task list`.
-- `sprintengine task log` uses repeatable `--file`, `--command`, and `--result` flags.
+- `sprintengine task log` uses repeatable `--file`, `--command`, and `--result` flags. When a task requires a small directly related edit outside `ownedPaths`, also add repeatable `--scope-expansion-json '{"path":"<project-relative-path>","reason":"<why this companion edit is required>","risk":"<low|medium|high or short risk>"}'`.
 - When moving a task to `needs_input`, classify the blocker with `--needs-input-kind` (`architect`, `user`, `artifact`, `tooling`, `verification`, or `other`) plus `--needs-input-question`; use `architect` for stale plans, impossible acceptance criteria, wrong paths, or architectural scope mismatches so the UI can route the blocker to the architect.
 - Architects can triage architect-actionable blockers with `sprintengine triage needs-input --id architect`; this returns a bounded prompt for task-card or task-graph repair, not application-source implementation.
 - `sprintengine task status --status done` and `sprintengine artifact ready` accept optional `0`-`100` agent feedback flags such as `--confidence-pct`, `--task-clarity-pct`, and `--hallucination-risk-pct`, short text fields such as `--top-friction`, repeatable `--issue-json` prompt/process improvement signals, and repeatable `--finding-json` role-specific review findings. Omit them when unavailable; existing completion commands remain valid.
@@ -39,17 +39,19 @@ Worker workflow:
 3. Run `sprintengine task next --role <your-role> --id <your-agent-id>` to atomically claim the next ready task for your role. On Windows PowerShell, run `.\scripts\sprintengine.cmd task next --role <your-role> --id <your-agent-id>`.
 4. If this Claude process was restarted, reuse the same `--id`; `task next` returns that slot's existing active task before claiming new work.
 5. If no task is ready, stop and do not manually edit shared state.
-6. Update only your own task card with:
+6. Treat `ownedPaths` as the primary edit surface and collision boundary, not a ban on obvious companion edits. Prefer owned paths, but small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure are allowed when logged as scope expansions. Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.
+7. Update only your own task card with:
    - `sprintengine task status`
    - `sprintengine task note`
    - `sprintengine task log`
-7. Before marking work `done`, publish:
+8. Before marking work `done`, publish:
    - summary
    - touched files
+   - scope expansions for touched files outside owned paths, if any
    - commands run
    - results
    - optional completion feedback percentages on the final status or artifact-ready command when you can assess them
-8. After marking one task `done`, stop. A fresh agent must be spawned for additional work.
+9. After marking one task `done`, stop. A fresh agent must be spawned for additional work.
 
 Architect workflow:
 
@@ -83,7 +85,7 @@ sprintengine task list --role frontend
 sprintengine task next --role frontend --id frontend-1
 sprintengine task claim --task-id T3 --id frontend-1
 sprintengine task status --task-id T3 --status in_progress --id frontend-1
-sprintengine task log --task-id T3 --id frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SprintEngineBoardPanel.tsx --file src/renderer/src/utils/sprintengine.ts --command "npm run typecheck" --result "Passed"
+sprintengine task log --task-id T3 --id frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SprintEngineBoardPanel.tsx --file src/renderer/src/utils/sprintengine.ts --scope-expansion-json '{"path":"src/renderer/src/utils/sprintengine.ts","reason":"shared selector extracted to avoid duplicated panel/palette logic","risk":"low; covered by typecheck"}' --command "npm run typecheck" --result "Passed"
 Sprint Engine plan add-task --title "Persist Sprint Engine state" --role developer --path src/renderer/src/store --acceptance "State tracks task ownership and evidence"
 Sprint Engine plan add-task --title "Review implementation quality" --role code_reviewer --depends-on T3 --path src/renderer/src/store --path .multi-code/sprintengine/<team>/reviews/code-review-1.md --description "Review-only the completed implementation for correctness, modularity, maintainability, and verification gaps. Produce direct review evidence or a code_review artifact with concrete findings and recommended follow-up work; do not edit application or test code." --acceptance "Reviewer logs review evidence and verification commands inspected or run" --acceptance "Findings include severity, impact, recommended fix, owner role, and verification steps" --acceptance "If no findings remain, reviewer records explicit approval and residual risk"
 Sprint Engine plan add-task --title "Spec review implementation" --role spec_reviewer --depends-on T3 --path .multi-code/sprintengine/<team>/reviews/spec-review-1.md --description "Review-only the completed implementation against the approved requirements, acceptance criteria, architect plan, implementation evidence, and tests. Produce a spec review artifact with requirement coverage, behavioral gaps, missing tests, verdict, and recommended follow-up tasks." --acceptance "Spec review records every material requirement as met, missing, partial, blocked, not applicable, or intentionally deferred" --acceptance "Findings include severity, requirement source, impact, recommended fix, and verification steps"

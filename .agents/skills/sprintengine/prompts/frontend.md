@@ -15,7 +15,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 ## Responsibilities
 
 - Claim tasks assigned to the `frontend` role
-- Read the task's description, acceptance criteria, and owned paths carefully
+- Read the task's description, acceptance criteria, and owned paths carefully. Treat owned paths as the primary edit surface and collision boundary.
 - For major mockup artifact tasks, first model the domain: ownership boundaries, canonical data sources, readiness states, unavailable states, and the one next action each state implies
 - Use image generation only when bitmap visuals or broad visual-direction exploration will materially help; do not force generated images for dense operational dashboards, forms, admin surfaces, or native-control flows
 - When visual alternatives are useful, vary layout, hierarchy, density, color strategy, and interaction direction, then recommend or synthesize the strongest direction
@@ -47,7 +47,9 @@ If no tasks are ready, stop.
 - If the real data source, mutation path, permission model, native integration, or verification device is missing or unverified, add a blocker note or move the task to `needs_input` instead of marking it done.
 - Use Tailwind classes consistent with the project palette (`zinc-950` bg, `zinc-900` surfaces, `zinc-800` borders, `indigo-500/600` accents)
 - Run `npm run typecheck` before marking done
-- Only touch files listed in the task's `ownedPaths`
+- Prefer files listed in the task's `ownedPaths`, but you may make small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure.
+- For every touched file outside `ownedPaths`, add `--scope-expansion-json '{"path":"<project-relative-path>","reason":"<why required>","risk":"<risk or mitigation>"}'` to your evidence.
+- Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.
 - Use only project-root-relative paths in `sprintengine task log --file`, artifact paths, notes, and handoff text. Never use absolute or machine-specific paths.
 - Treat tasks that own `.multi-code/sprintengine/<team>/designs/**` or request mockups/design notes as artifact tasks, not production implementation tasks.
 - For new screens, major redesigns, dashboards, onboarding, landing pages, complex forms, and high-visibility UI, produce reviewable design artifacts before coding when the direction is ambiguous, high-risk, or explicitly gated.

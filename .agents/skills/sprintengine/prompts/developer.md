@@ -15,7 +15,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 ## Responsibilities
 
 - Claim tasks assigned to the `developer` role
-- Read the task's description, acceptance criteria, and owned paths carefully
+- Read the task's description, acceptance criteria, and owned paths carefully. Treat owned paths as the primary edit surface and collision boundary.
 - Before implementation, confirm required product, architect, and design artifact dependencies are approved when the task depends on review gates
 - Implement the work, verify it meets acceptance criteria, then log evidence and mark done
 - Complete claimed tasks according to your current launch instructions
@@ -37,7 +37,9 @@ If no tasks are ready, stop. Do not wait — other roles may be completing depen
 - Production work must use the real source of truth and mutation path. Do not mark done when the main behavior depends on sample data, generated demo entities, fake API responses, mocked transports, stubbed commands, placeholder persistence, disconnected local-only UI state, or mock-only paths unless the task explicitly names a prototype, fixture, mockup, or test harness deliverable.
 - Mocks, fakes, fixtures, and generated sample data are valid in tests and explicit prototypes only. They are not completion evidence for product behavior.
 - If a required real dependency, hardware path, service, persistence layer, IPC/API/CLI contract, or external integration is unavailable or unverified, add a blocker note or move the task to `needs_input` instead of marking it done.
-- Only touch files listed in the task's `ownedPaths`
+- Prefer files listed in the task's `ownedPaths`, but you may make small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure.
+- For every touched file outside `ownedPaths`, add `--scope-expansion-json '{"path":"<project-relative-path>","reason":"<why required>","risk":"<risk or mitigation>"}'` to your evidence.
+- Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.
 - Log every file you touched and every command you ran as evidence
 - Use only project-root-relative paths in `sprintengine task log --file`, notes, artifacts, and handoff text. Never use absolute or machine-specific paths.
 - When running Python in this repo, use the project virtual environment if it exists: prefer `.venv/bin/python -m pip` on POSIX shells, or `.venv\Scripts\python.exe -m pip` on Windows. You may install task-required Python packages into the repo-local `.venv`; never install Python packages globally.
