@@ -246,6 +246,110 @@ def test_task_status_todo_releases_owner_and_makes_task_claimable(tmp_path) -> N
     assert claimed["task"]["ownerAgentId"] == "frontend-2"
 
 
+def test_task_resolve_input_resumes_original_owner_with_notification(tmp_path) -> None:
+    blocked_task = task("T1", "Blocked implementation", "frontend", "needs_input", owner="frontend-1")
+    blocked_task["needsInput"] = {
+        "kind": "architect",
+        "reason": "task_scope",
+        "question": "Scope mismatch.",
+        "reportedBy": "frontend-1",
+        "reportedAt": "2026-05-14T00:00:00Z",
+    }
+    fixture = create_team(tmp_path, "resolve-input-resumes-owner", [blocked_task])
+
+    payload = fixture.cli.run(
+        "task",
+        "resolve-input",
+        "--task-id",
+        "T1",
+        "--id",
+        "architect",
+        "--resolution",
+        "Scope narrowed; continue.",
+    )
+
+    assert payload["ok"] is True
+    assert payload["transition"] == {"status": "in_progress", "ownerAgentId": "frontend-1"}
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "in_progress"
+    assert task_record["ownerAgentId"] == "frontend-1"
+    assert task_record["needsInput"]["resolvedBy"] == "architect"
+    assert task_record["needsInput"]["resolution"] == "Scope narrowed; continue."
+    assert task_record["needsInput"]["resumeRequestedAt"]
+    assert state["agents"]["frontend-1"]["status"] == "running"
+    assert state["agents"]["frontend-1"]["currentTaskId"] == "T1"
+    notification = state["events"][-1]
+    assert notification["type"] == "agent_notification_requested"
+    assert notification["targetAgentId"] == "frontend-1"
+    assert notification["taskId"] == "T1"
+    assert notification["notificationKind"] == "task_resume_requested"
+
+
+def test_task_resolve_input_complete_marks_done_and_notifies_owner(tmp_path) -> None:
+    blocked_task = task("T1", "Review gate", "code_reviewer", "needs_input", owner="code_reviewer")
+    blocked_task["needsInput"] = {
+        "kind": "architect",
+        "reason": "artifact_review",
+        "question": "Artifact needs adjudication.",
+        "reportedBy": "code_reviewer",
+        "reportedAt": "2026-05-14T00:00:00Z",
+    }
+    fixture = create_team(tmp_path, "resolve-input-completes-task", [blocked_task])
+
+    payload = fixture.cli.run(
+        "task",
+        "resolve-input",
+        "--task-id",
+        "T1",
+        "--id",
+        "architect",
+        "--resolution",
+        "Artifact adjudicated; review gate complete.",
+        "--complete",
+    )
+
+    assert payload["ok"] is True
+    assert payload["transition"] == {"status": "done", "ownerAgentId": "code_reviewer"}
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "done"
+    assert task_record["completedAt"]
+    assert state["agents"]["code_reviewer"]["status"] == "idle"
+    notification = state["events"][-1]
+    assert notification["type"] == "agent_notification_requested"
+    assert notification["notificationKind"] == "task_completed_after_input_resolution"
+
+
+def test_task_release_clears_active_owner_and_notifies_previous_owner(tmp_path) -> None:
+    active_task = task("T1", "Abandoned task", "frontend", "in_progress", owner="frontend-1")
+    active_task["startedAt"] = "2026-05-14T09:00:00Z"
+    fixture = create_team(tmp_path, "task-release", [active_task])
+
+    payload = fixture.cli.run(
+        "task",
+        "release",
+        "--task-id",
+        "T1",
+        "--id",
+        "architect",
+        "--reason",
+        "Original worker inactive.",
+    )
+
+    assert payload["ok"] is True
+    assert payload["transition"] == {"previousOwnerAgentId": "frontend-1", "status": "todo"}
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "todo"
+    assert task_record["ownerAgentId"] is None
+    assert state["agents"]["frontend-1"]["status"] == "idle"
+    assert_ready_tasks(fixture.cli, "frontend", ["T1"])
+    notification = state["events"][-1]
+    assert notification["type"] == "agent_notification_requested"
+    assert notification["notificationKind"] == "task_released_from_owner"
+
+
 def test_task_status_requires_question_for_routed_needs_input(tmp_path) -> None:
     fixture = create_team(tmp_path, "needs-input-question-required", [
         task("T1", "Ambiguous blocker", "frontend", "in_progress", owner="frontend-1"),

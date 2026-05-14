@@ -32,6 +32,8 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.task.next",
         "sprintengine.task.claim",
         "sprintengine.task.status",
+        "sprintengine.task.resolve_input",
+        "sprintengine.task.release",
         "sprintengine.task.ready",
         "sprintengine.task.log",
         "sprintengine.task.note",

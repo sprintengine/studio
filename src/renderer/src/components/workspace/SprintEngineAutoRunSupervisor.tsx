@@ -9,6 +9,7 @@ import type {
   SprintEngineAutoState,
   SprintEngineRole,
   SprintEngineState,
+  SprintEngineEvent,
   SprintEngineTask,
   Workspace,
 } from '../../types/workspace'
@@ -43,6 +44,10 @@ const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SprintEngineArtifact['status'
   'draft',
   'ready_for_review',
   'changes_requested',
+])
+const SPAWNABLE_NOTIFICATION_KINDS = new Set([
+  'task_resume_requested',
+  'task_changes_requested_after_artifact_review',
 ])
 type AutoRunCandidate = {
   agentId: string
@@ -808,6 +813,109 @@ function buildSprintEngineContinuationPrompt(task: SprintEngineTask, agentId: st
   ].join('\n')
 }
 
+function getPendingAgentNotificationEvents(
+  sprintEngineState: SprintEngineState,
+  sentAgentNotificationEvents: MutableRefObject<Set<string>>
+): SprintEngineEvent[] {
+  return sprintEngineState.events.filter((event) =>
+    event.type === 'agent_notification_requested'
+    && Boolean(event.id)
+    && Boolean(event.targetAgentId)
+    && !sentAgentNotificationEvents.current.has(event.id)
+  )
+}
+
+function buildAgentNotificationPrompt(event: SprintEngineEvent): string {
+  return [
+    'Sprint Engine notification.',
+    event.taskId ? `Task: ${event.taskId}` : null,
+    event.artifactId ? `Artifact: ${event.artifactId}` : null,
+    event.notificationKind ? `Type: ${event.notificationKind}` : null,
+    '',
+    event.message,
+    '',
+    event.notificationKind === 'task_completed_after_artifact_approval' || event.notificationKind === 'task_completed_after_input_resolution'
+      ? 'Your Sprint Engine task is complete. Do not claim another task in this terminal unless explicitly instructed.'
+      : 'Re-read the current task card, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.',
+  ].filter((line): line is string => line !== null).join('\n')
+}
+
+async function deliverAgentNotificationEvents(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  runningAgentIds: Set<string>,
+  cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+  mcpSettings: McpSettings,
+  inFlightSpawns: MutableRefObject<Set<string>>,
+  sentAgentNotificationEvents: MutableRefObject<Set<string>>
+): Promise<'started' | 'failed' | 'none'> {
+  const events = getPendingAgentNotificationEvents(sprintEngineState, sentAgentNotificationEvents)
+  if (events.length === 0) return 'none'
+
+  let started = false
+  const rosterById = new Map(buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) => [agent.id, agent]))
+  for (const event of events) {
+    const targetAgentId = event.targetAgentId
+    if (!targetAgentId) continue
+    const prompt = buildAgentNotificationPrompt(event)
+    const session = await findRunningAgentSession(workspace, targetAgentId)
+    if (session) {
+      await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(prompt))
+      sentAgentNotificationEvents.current.add(event.id)
+      logPerfEvent('SprintEngineAutoRun', 'agent-notification-sent', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        eventId: event.id,
+        agentId: targetAgentId,
+        taskId: event.taskId ?? null,
+        notificationKind: event.notificationKind ?? null,
+        sessionId: session.sessionId,
+      })
+      continue
+    }
+
+    if (!getSprintEngineAutoState(workspace).enabled || !SPAWNABLE_NOTIFICATION_KINDS.has(event.notificationKind ?? '')) {
+      logPerfEvent('SprintEngineAutoRun', 'agent-notification-pending-no-session', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        eventId: event.id,
+        agentId: targetAgentId,
+        taskId: event.taskId ?? null,
+        notificationKind: event.notificationKind ?? null,
+      })
+      continue
+    }
+
+    const rosterAgent = rosterById.get(targetAgentId)
+    const runtimeAgent = sprintEngineState.sprintEngineAgents[targetAgentId]
+    const role = rosterAgent?.role ?? runtimeAgent?.role
+    if (!role) continue
+    const result = await spawnAutoRunCandidate(
+      workspace,
+      sprintEngineState,
+      {
+        agentId: targetAgentId,
+        label: workspace.agents[targetAgentId]?.name ?? rosterAgent?.label ?? targetAgentId,
+        role,
+        taskId: event.taskId ?? `notification-${event.id}`,
+        startupPromptOverride: prompt,
+      },
+      cliRuntimes,
+      mcpSettings,
+      inFlightSpawns,
+      { trackPendingSpawn: false }
+    )
+    if (result === 'failed') return 'failed'
+    if (result === 'started') {
+      started = true
+      runningAgentIds.add(targetAgentId)
+      sentAgentNotificationEvents.current.add(event.id)
+    }
+  }
+
+  return started ? 'started' : 'none'
+}
+
 async function sendContinuationPromptsToIdleAgents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
@@ -1371,6 +1479,7 @@ async function superviseWorkspace(
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
   sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>,
+  sentAgentNotificationEvents: MutableRefObject<Set<string>>,
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<void> {
@@ -1450,6 +1559,17 @@ async function superviseWorkspace(
     runningAgentCount: runningAgentIds.size,
     continuationCapacity: Object.fromEntries(continuationCapacity.capacityByRole),
   })
+
+  const notificationSignal = await deliverAgentNotificationEvents(
+    workspace,
+    sprintEngineState,
+    runningAgentIds,
+    cliRuntimes,
+    mcpSettings,
+    inFlightSpawns,
+    sentAgentNotificationEvents
+  )
+  if (notificationSignal === 'failed') return
 
   const architectTriageSignal = await signalArchitectForNeedsInputTriage(
     workspace,
@@ -1676,6 +1796,7 @@ export default function SprintEngineAutoRunSupervisor() {
   const autoApprovalDiagnostics = useRef(new Map<string, number>())
   const sentContinuationMessages = useRef(new Map<string, RoleContinuationMessage>())
   const sentArchitectTriageMessages = useRef(new Map<string, ArchitectTriageMessage>())
+  const sentAgentNotificationEvents = useRef(new Set<string>())
   const continuationGraceByTask = useRef(new Map<string, RoleContinuationGrace>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
   const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
@@ -1751,6 +1872,7 @@ export default function SprintEngineAutoRunSupervisor() {
             autoApprovalDiagnostics,
             sentContinuationMessages,
             sentArchitectTriageMessages,
+            sentAgentNotificationEvents,
             continuationGraceByTask,
             lastContentByWorkspace
           )

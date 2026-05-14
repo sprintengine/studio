@@ -65,18 +65,6 @@ const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas
 //     future-plans/2026-05-13-linear-grade-followup-implementation.md.
 //     This audit's panel migrations stop short of these surfaces by design.
 const NATIVE_SELECT_ALLOW = [
-  // --- AUDIT-PENDING ---
-  {
-    // AUDIT-PENDING — Worktree migration: branch and base-branch pickers;
-    // migration owner is the Worktree manager Phase D task. T31 triages.
-    path: 'src/renderer/src/components/worktree/WorktreeManager.tsx',
-  },
-  {
-    // AUDIT-PENDING — Git diff base picker: native select on diff-base
-    // controls inside GitPanel; T31 triages whether the migration to
-    // ui/Select lands before signoff.
-    path: 'src/renderer/src/components/panels/GitPanel.tsx',
-  },
   // --- COMPANION-PLAN-OWNED ---
   {
     // COMPANION-PLAN-OWNED — Switchboard panel: workspace + provider selects

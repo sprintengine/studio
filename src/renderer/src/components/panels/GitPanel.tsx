@@ -6,7 +6,7 @@ import { focusOrAddFileTab, focusOrAddGitConflictTab, focusOrAddTerminalTab } fr
 import { isImageFile } from '../../utils/files'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { IconButton, InboxRow, PanelHeader, StatusDot, type Tone } from '../ui'
+import { IconButton, InboxRow, PanelHeader, Select, StatusDot, type Tone } from '../ui'
 
 function gitStatusToTone(status: GitFileStatus | null): Tone {
   switch (status) {
@@ -705,25 +705,23 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         }
       />
       <div className="border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-          <select
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2" title={activeScopePath}>
+          <Select<string>
+            ariaLabel="Git scope"
+            items={
+              scopeOptions.length === 0
+                ? [{ value: 'main', label: 'Current checkout' }]
+                : scopeOptions.map((scope) => ({
+                    value: scope.id,
+                    label: scope.label,
+                    disabled: scope.missing || scope.locked || scope.prunable,
+                  }))
+            }
             value={activeScope?.id ?? 'main'}
-            onChange={(event) => setActiveScopeId(event.target.value)}
+            onChange={(next) => setActiveScopeId(next)}
             disabled={Boolean(busy) || scopeOptions.length <= 1}
-            className="block h-6 max-w-full rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-1.5 text-[11px] font-semibold text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-default)] focus:border-[color:var(--border-strong)] disabled:opacity-50"
-            aria-label="Git scope"
-            title={activeScopePath}
-          >
-            {scopeOptions.length === 0 ? (
-              <option value="main">Current checkout</option>
-            ) : (
-              scopeOptions.map((scope) => (
-                <option key={scope.id} value={scope.id} disabled={scope.missing || scope.locked || scope.prunable}>
-                  {scope.label}
-                </option>
-              ))
-            )}
-          </select>
+            className="w-full"
+          />
           <button
             type="button"
             onClick={() => void handleReviewDiff()}
@@ -734,22 +732,20 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             Review diff
           </button>
         </div>
-        <select
-          value={branches?.current ?? ''}
-          onChange={(event) => void handleSwitchBranch(event.target.value)}
-          disabled={Boolean(busy) || branchOptions.length === 0}
-          className="mt-1 block h-5 max-w-full rounded-md border border-transparent bg-transparent px-1 font-mono text-[12px] font-semibold text-[color:var(--text-strong)] outline-none transition-colors hover:bg-[color:var(--bg-hover)] focus:border-[color:var(--border-default)] focus:bg-[color:var(--bg-app)] disabled:opacity-50"
-          aria-label="Current branch"
-        >
-          {branchOptions.length === 0 ? (
-            <option value="">{branches?.current ?? 'detached'}</option>
-          ) : null}
-          {branchOptions.map((branch) => (
-            <option key={branch.name} value={branch.name}>
-              {branch.name}
-            </option>
-          ))}
-        </select>
+        <div className="mt-1">
+          <Select<string>
+            ariaLabel="Current branch"
+            items={
+              branchOptions.length === 0
+                ? [{ value: '', label: branches?.current ?? 'detached' }]
+                : branchOptions.map((branch) => ({ value: branch.name, label: branch.name }))
+            }
+            value={branches?.current ?? ''}
+            onChange={(next) => void handleSwitchBranch(next)}
+            disabled={Boolean(busy) || branchOptions.length === 0}
+            className="w-full"
+          />
+        </div>
         <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
           <StatusDot tone={scopeAppearanceTone(activeScopeAppearance.label)} label={activeScopeAppearance.label} />
           <span className="shrink-0">{activeScopeAppearance.label}</span>

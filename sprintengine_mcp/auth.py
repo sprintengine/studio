@@ -15,6 +15,8 @@ AUDITED_TOOLS = {
     "sprintengine.task.next",
     "sprintengine.task.claim",
     "sprintengine.task.status",
+    "sprintengine.task.resolve_input",
+    "sprintengine.task.release",
     "sprintengine.task.ready",
     "sprintengine.task.log",
     "sprintengine.task.note",

@@ -912,7 +912,13 @@ def find_task_by_id(state: Dict[str, Any], task_id: Any) -> Optional[Dict[str, A
     return None
 
 
-def append_event(state: Dict[str, Any], event_type: str, actor: str, message: str) -> Dict[str, Any]:
+def append_event(
+    state: Dict[str, Any],
+    event_type: str,
+    actor: str,
+    message: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     event = {
         "id": f"EVT-{len(state['events']) + 1:03d}",
         "timestamp": now_iso(),
@@ -920,9 +926,36 @@ def append_event(state: Dict[str, Any], event_type: str, actor: str, message: st
         "actor": actor,
         "message": message,
     }
+    if extra:
+        event.update({key: value for key, value in extra.items() if value is not None and value != ""})
     state["events"].append(event)
     state.setdefault("sprintengine", {})["updatedAt"] = now_iso()
     return event
+
+
+def append_agent_notification_event(
+    state: Dict[str, Any],
+    actor: str,
+    target_agent_id: Optional[str],
+    task_id: Optional[str],
+    notification_kind: str,
+    message: str,
+    artifact_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    if not target_agent_id:
+        return None
+    return append_event(
+        state,
+        "agent_notification_requested",
+        actor,
+        message,
+        {
+            "targetAgentId": target_agent_id,
+            "taskId": task_id,
+            "artifactId": artifact_id,
+            "notificationKind": notification_kind,
+        },
+    )
 
 
 def ensure_agent(state: Dict[str, Any], agent_id: str, role: Optional[str] = None) -> Dict[str, Any]:
@@ -1974,6 +2007,63 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
         if agent_id != owner_id:
             set_agent_idle(ensure_agent(state, agent_id))
     return True
+
+
+def resolve_task_input(
+    state: Dict[str, Any],
+    task: Dict[str, Any],
+    actor: str,
+    resolution: str,
+    complete: bool = False,
+) -> Dict[str, Any]:
+    if task.get("status") != "needs_input":
+        raise SystemExit("Only needs_input tasks can be resolved.")
+    owner_id = str(task.get("ownerAgentId") or "").strip()
+    now = now_iso()
+    needs_input = task.get("needsInput") if isinstance(task.get("needsInput"), dict) else {}
+    needs_input = dict(needs_input)
+    needs_input.update({
+        "resolvedBy": actor,
+        "resolvedAt": now,
+        "resolution": resolution,
+        "resumeRequestedAt": now,
+    })
+    task["needsInput"] = needs_input
+    task.setdefault("notes", []).append(f"INPUT RESOLVED by {actor}: {resolution}")
+
+    if complete:
+        task["status"] = "done"
+        task["completedAt"] = now
+        if owner_id:
+            set_agent_idle(ensure_agent(state, owner_id, task.get("role")))
+        clear_task_refs(state, str(task.get("id")))
+        return {"status": "done", "ownerAgentId": owner_id or None}
+
+    task["status"] = "in_progress"
+    task["completedAt"] = None
+    if not task.get("startedAt"):
+        task["startedAt"] = now
+    if owner_id:
+        agent = ensure_agent(state, owner_id, task.get("role"))
+        agent["status"] = "running"
+        agent["currentTaskId"] = task.get("id")
+    return {"status": "in_progress", "ownerAgentId": owner_id or None}
+
+
+def release_task_from_owner(state: Dict[str, Any], task: Dict[str, Any], actor: str, reason: str) -> Dict[str, Any]:
+    if task.get("status") not in ACTIVE_TASK_STATUSES:
+        raise SystemExit("Only in_progress or needs_input tasks can be released.")
+    previous_owner_id = str(task.get("ownerAgentId") or "").strip()
+    if previous_owner_id:
+        set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
+    clear_task_refs(state, str(task.get("id")))
+    task["ownerAgentId"] = None
+    task["status"] = "todo"
+    task["startedAt"] = None
+    task["completedAt"] = None
+    task.pop("needsInput", None)
+    task.setdefault("notes", []).append(f"RELEASED by {actor}: {reason}")
+    return {"previousOwnerAgentId": previous_owner_id or None, "status": "todo"}
 
 
 def reopen_task_for_artifact_changes(state: Dict[str, Any], task: Dict[str, Any]) -> str:
@@ -3095,6 +3185,89 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
     return result
 
 
+def cmd_task_resolve_input(args: argparse.Namespace) -> Dict[str, Any]:
+    resolution = args.resolution.strip()
+    if not resolution:
+        raise SystemExit("--resolution is required.")
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        result = resolve_task_input(state, task, args.id, resolution, complete=bool(args.complete))
+        recompute_phase(state)
+        event = append_event(
+            state,
+            "task_input_resolved",
+            args.id,
+            f"{args.id} resolved input for {args.task_id}.",
+            {
+                "taskId": args.task_id,
+                "targetAgentId": result.get("ownerAgentId"),
+                "resolution": resolution,
+                "completed": bool(args.complete),
+            },
+        )
+        notification = append_agent_notification_event(
+            state,
+            args.id,
+            result.get("ownerAgentId"),
+            args.task_id,
+            "task_completed_after_input_resolution" if args.complete else "task_resume_requested",
+            (
+                f"Your blocked task {args.task_id} was resolved by {args.id} and marked done. Resolution: {resolution}"
+                if args.complete
+                else f"Your blocked task {args.task_id} was resolved by {args.id}. Resolution: {resolution}"
+            ),
+        )
+        return {
+            "ok": True,
+            "task": task,
+            "transition": result,
+            "event": event,
+            "notification": notification,
+        }
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_task_release(args: argparse.Namespace) -> Dict[str, Any]:
+    reason = args.reason.strip()
+    if not reason:
+        raise SystemExit("--reason is required.")
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        result = release_task_from_owner(state, task, args.id, reason)
+        recompute_phase(state)
+        event = append_event(
+            state,
+            "task_released",
+            args.id,
+            f"{args.id} released {args.task_id} from {result.get('previousOwnerAgentId') or 'unowned'}.",
+            {
+                "taskId": args.task_id,
+                "previousOwnerAgentId": result.get("previousOwnerAgentId"),
+                "reason": reason,
+            },
+        )
+        notification = append_agent_notification_event(
+            state,
+            args.id,
+            result.get("previousOwnerAgentId"),
+            args.task_id,
+            "task_released_from_owner",
+            f"Your task {args.task_id} was released by {args.id} and returned to the ready queue. Reason: {reason}",
+        )
+        return {
+            "ok": True,
+            "task": task,
+            "transition": result,
+            "event": event,
+            "notification": notification,
+        }
+
+    return with_locked_state(args.state, run)
+
+
 def architect_actionable_needs_input_tasks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
     tasks = []
     for task in state.get("tasks", []):
@@ -3142,7 +3315,9 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
             "- For reason=artifact_review, read the referenced artifact, adjudicate recommended follow-up tasks, wire blockers before validation when needed, then approve/request changes or resolve the blocked task.",
             "- Use `sprintengine plan update-task --force` for active task-card corrections.",
             "- Use `sprintengine plan add-task`, `sprintengine plan add-dependency`, or `sprintengine plan remove-dependency` only when the task graph really needs repair.",
-            "- Add a task note explaining the resolution for the original worker.",
+            "- When the original owner should continue, use `sprintengine task resolve-input --task-id <id> --id architect --resolution \"...\"` instead of plain `task status --status in_progress` so the owner receives a resume notification.",
+            "- When architect adjudication completes a review-only blocked task, use `sprintengine task resolve-input --task-id <id> --id architect --resolution \"...\" --complete`.",
+            "- If the original owner is inactive or should not continue, use `sprintengine task release --task-id <id> --id architect --reason \"...\"`.",
             "- Leave human-owned decisions as `needs_input` with kind=user; do not guess product intent.",
             "- When the worker can continue, say so clearly in the note. The original worker still owns implementation and completion evidence.",
             "",
@@ -3603,15 +3778,28 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
         artifact["approvedAt"] = now_iso()
         artifact["updatedAt"] = artifact["approvedAt"]
         append_artifact_history(artifact, "approved", args.id)
+        owner_id = str(task.get("ownerAgentId") or "").strip()
         task_completed = mark_task_done_if_artifacts_approved(state, task)
         recompute_phase(state)
         event = append_event(state, "artifact_approved", args.id, f"{args.id} approved artifact {args.artifact_id}.")
+        notification = None
+        if task_completed:
+            notification = append_agent_notification_event(
+                state,
+                args.id,
+                owner_id,
+                str(task.get("id") or ""),
+                "task_completed_after_artifact_approval",
+                f"Artifact {args.artifact_id} was approved by {args.id}. Your task {task.get('id')} is complete. Stop now.",
+                args.artifact_id,
+            )
         return {
             "ok": True,
             "artifact": artifact,
             "task": task,
             "taskCompleted": task_completed,
             "event": event,
+            "notification": notification,
         }
 
     return with_locked_state(args.state, run)
@@ -3638,15 +3826,26 @@ def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
 
         note = f"Changes requested for artifact {artifact.get('id')} ({artifact.get('title')}): {feedback}"
         task.setdefault("notes", []).append(note)
+        owner_id = str(task.get("ownerAgentId") or "").strip()
         reopened_status = reopen_task_for_artifact_changes(state, task)
         recompute_phase(state)
         event = append_event(state, "artifact_changes_requested", args.id, f"{args.id} requested changes for artifact {args.artifact_id}.")
+        notification = append_agent_notification_event(
+            state,
+            args.id,
+            owner_id,
+            str(task.get("id") or ""),
+            "task_changes_requested_after_artifact_review",
+            f"Changes were requested for artifact {args.artifact_id} by {args.id}. Re-read task notes and revise if you still own the task.",
+            args.artifact_id,
+        )
         return {
             "ok": True,
             "artifact": artifact,
             "task": task,
             "reopenedStatus": reopened_status,
             "event": event,
+            "notification": notification,
         }
 
     return with_locked_state(args.state, run)
@@ -3682,6 +3881,8 @@ Task commands:
   sprintengine task claim  --task-id T3 --id developer-1
   sprintengine task status --task-id T3 --status done --id developer-1
   sprintengine task status --task-id T3 --status needs_input --id developer-1 --needs-input-kind architect --needs-input-question "Acceptance conflicts with scoped paths"
+  sprintengine task resolve-input --task-id T3 --id architect --resolution "Acceptance narrowed; continue with revised scope."
+  sprintengine task release --task-id T3 --id architect --reason "Original worker inactive."
   sprintengine task status --task-id T3 --status done --id developer-1 --confidence-pct 85 --hallucination-risk-pct 10
   sprintengine task log    --task-id T3 --id developer-1 --summary "..." --file src/foo.ts --command "npm test" --result "Passed"
   sprintengine task log    --task-id T3 --id developer-1 --scope-expansion-json '{"path":"src/foo.test.ts","reason":"colocated regression test required for changed helper","risk":"low"}'
@@ -3876,6 +4077,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--needs-input-suggested-resolution", help="Optional proposed unblock path.")
     add_feedback_arguments(p)
     p.set_defaults(handler=cmd_task_status)
+
+    p = task_sub.add_parser("resolve-input", help="Resolve a needs_input blocker and notify the owner to resume or stop.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--id", required=True, help="Actor id resolving the input.")
+    p.add_argument("--resolution", required=True, help="Concrete resolution for the waiting owner.")
+    p.add_argument("--complete", action="store_true", help="Mark the task done instead of resuming the owner.")
+    p.set_defaults(handler=cmd_task_resolve_input)
+
+    p = task_sub.add_parser("release", help="Release an active task from its owner and return it to the ready queue.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--id", required=True, help="Actor id releasing the task.")
+    p.add_argument("--reason", required=True, help="Why the task is being released.")
+    p.set_defaults(handler=cmd_task_release)
 
     p = task_sub.add_parser("ready", help="Move a manual-dispatch todo task to Ready.")
     p.add_argument("--task-id", required=True)

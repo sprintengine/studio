@@ -3,7 +3,7 @@ import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace'
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
-import { StatusDot, type Tone } from '../ui'
+import { Select, StatusDot, type SelectItem, type Tone } from '../ui'
 
 type WorktreeMessage = {
   tone: 'neutral' | 'error' | 'success'
@@ -435,20 +435,17 @@ export default function WorktreeManager({
               placeholder="branch"
               className="h-8 min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-strong)] disabled:opacity-50"
             />
-            <select
+            <Select<string>
+              ariaLabel="Worktree base ref"
+              items={[
+                { value: 'HEAD', label: 'HEAD' },
+                ...branchOptions.map((branch): SelectItem<string> => ({ value: branch, label: branch })),
+              ]}
               value={baseRef}
-              onChange={(event) => setBaseRef(event.target.value)}
+              onChange={setBaseRef}
               disabled={formDisabled}
-              className="h-8 min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 font-mono text-[12px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)] disabled:opacity-50"
-              aria-label="Worktree base ref"
-            >
-              <option value="HEAD">HEAD</option>
-              {branchOptions.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch}
-                </option>
-              ))}
-            </select>
+              className="min-w-0"
+            />
             <button
               type="button"
               onClick={() => void handleCreate()}

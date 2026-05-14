@@ -389,6 +389,10 @@ function normalizeSprintEngineTaskNeedsInput(value: unknown): SprintEngineTaskNe
   const suggestedResolution = optionalTrimmedString(record.suggestedResolution)
   const reportedBy = optionalTrimmedString(record.reportedBy)
   const reportedAt = optionalTrimmedString(record.reportedAt)
+  const resolvedBy = optionalTrimmedString(record.resolvedBy)
+  const resolvedAt = optionalTrimmedString(record.resolvedAt)
+  const resolution = optionalTrimmedString(record.resolution)
+  const resumeRequestedAt = optionalTrimmedString(record.resumeRequestedAt)
 
   return {
     kind: record.kind,
@@ -398,6 +402,10 @@ function normalizeSprintEngineTaskNeedsInput(value: unknown): SprintEngineTaskNe
     ...(suggestedResolution ? { suggestedResolution } : {}),
     ...(reportedBy ? { reportedBy } : {}),
     ...(reportedAt ? { reportedAt } : {}),
+    ...(resolvedBy ? { resolvedBy } : {}),
+    ...(resolvedAt ? { resolvedAt } : {}),
+    ...(resolution ? { resolution } : {}),
+    ...(resumeRequestedAt ? { resumeRequestedAt } : {}),
   }
 }
 

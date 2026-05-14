@@ -92,6 +92,12 @@ def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses
     assert_task_status(approved_state, "T1", "done")
     assert "needsInput" not in get_task(approved_state, "T1")
     assert_event_type(approved_state, "artifact_approved")
+    notification = approved_state["events"][-1]
+    assert notification["type"] == "agent_notification_requested"
+    assert notification["targetAgentId"] == "product-fixture"
+    assert notification["taskId"] == "T1"
+    assert notification["artifactId"] == "A1"
+    assert notification["notificationKind"] == "task_completed_after_artifact_approval"
 
     history_actions = [entry["action"] for entry in get_artifact(approved_state, "A1")["reviewHistory"]]
     assert history_actions == [

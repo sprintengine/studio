@@ -44,6 +44,8 @@ from sprintengine_core.tool import (
     cmd_task_note,
     cmd_task_comment,
     cmd_task_ready,
+    cmd_task_release,
+    cmd_task_resolve_input,
     cmd_task_status,
     load_state,
 )
@@ -144,6 +146,8 @@ class SprintEngineMcpServer:
             "sprintengine.task.next": cmd_task_next,
             "sprintengine.task.claim": cmd_task_claim,
             "sprintengine.task.status": cmd_task_status,
+            "sprintengine.task.resolve_input": cmd_task_resolve_input,
+            "sprintengine.task.release": cmd_task_release,
             "sprintengine.task.ready": cmd_task_ready,
             "sprintengine.task.log": cmd_task_log,
             "sprintengine.task.note": cmd_task_note,
@@ -205,6 +209,10 @@ class SprintEngineMcpServer:
                 needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
             )
             _add_feedback_defaults(base, payload)
+        elif tool_name == "sprintengine.task.resolve_input":
+            base.update(task_id=payload["taskId"], id=payload["id"], resolution=payload["resolution"], complete=bool(payload.get("complete", False)))
+        elif tool_name == "sprintengine.task.release":
+            base.update(task_id=payload["taskId"], id=payload["id"], reason=payload["reason"])
         elif tool_name == "sprintengine.task.ready":
             base.update(task_id=payload["taskId"], id=payload["id"], triaged_by=payload.get("triagedBy") or "user")
         elif tool_name == "sprintengine.task.log":

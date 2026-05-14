@@ -72,6 +72,10 @@ export type SprintEngineEvent = {
   type: string
   actor: string
   message: string
+  targetAgentId?: string
+  taskId?: string
+  artifactId?: string
+  notificationKind?: string
 }
 
 export type SprintEngineArtifactReviewHistoryEntry = {
@@ -261,6 +265,10 @@ export type SprintEngineTaskNeedsInput = {
   suggestedResolution?: string
   reportedBy?: string
   reportedAt?: string
+  resolvedBy?: string
+  resolvedAt?: string
+  resolution?: string
+  resumeRequestedAt?: string
 }
 
 export type SprintEngineRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'

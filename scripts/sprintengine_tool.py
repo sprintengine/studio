@@ -182,6 +182,10 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
             payload["needsInputSuggestedResolution"] = args.needs_input_suggested_resolution
         payload.update(_feedback_payload(args))
         return "sprintengine.task.status", payload
+    if action == "resolve-input":
+        return "sprintengine.task.resolve_input", {**base, "taskId": args.task_id, "id": args.id, "resolution": args.resolution, "complete": args.complete}
+    if action == "release":
+        return "sprintengine.task.release", {**base, "taskId": args.task_id, "id": args.id, "reason": args.reason}
     if action == "log":
         return "sprintengine.task.log", {
             **base,
