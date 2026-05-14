@@ -1,29 +1,15 @@
-import type { GuidedBriefHasUi } from '../newWorkspace/types'
+import type {
+  GuidedBriefHasUi,
+  GuidedBriefStage,
+  GuidedBriefAcceptedArtifact,
+  GuidedBriefRuntimeState,
+} from '../../../types/workspace'
 
-export type GuidedBriefStage =
-  | 'strategist-working'
-  | 'strategist-ready'
-  | 'designer-working'
-  | 'designer-ready'
-  | 'handoff'
-
-export type GuidedBriefAcceptedArtifact = {
-  kind: 'product' | 'mockup'
-  title: string
-  hash: string
-  path: string
-}
-
-export type GuidedBriefRuntimeState = {
-  workspaceRoot: string
-  workspaceName: string
-  idea: string
-  hasUi: GuidedBriefHasUi
-  stage: GuidedBriefStage
-  acceptedProductBrief: GuidedBriefAcceptedArtifact | null
-  acceptedUiDirection: GuidedBriefAcceptedArtifact | null
-  acceptedMockups: GuidedBriefAcceptedArtifact[]
-  activeMockupPath: string | null
+export type {
+  GuidedBriefHasUi,
+  GuidedBriefStage,
+  GuidedBriefAcceptedArtifact,
+  GuidedBriefRuntimeState,
 }
 
 /**

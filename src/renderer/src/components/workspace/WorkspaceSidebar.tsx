@@ -151,6 +151,15 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--tool-multiloop)]',
   },
+  'guided-brief': {
+    border: 'border-l-[color:var(--accent-primary)]',
+    bg: 'bg-[color:var(--bg-active)]',
+    text: 'text-[color:var(--text-strong)]',
+    shadow: '',
+    collapsedShadow: '',
+    chip: 'bg-[color:var(--bg-hover)]',
+    glyph: 'text-[color:var(--accent-primary)]',
+  },
   standard: {
     border: 'border-l-[color:var(--border-strong)]',
     bg: 'bg-[color:var(--bg-active)]',

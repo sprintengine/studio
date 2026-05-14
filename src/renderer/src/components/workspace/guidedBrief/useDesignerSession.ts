@@ -52,6 +52,7 @@ const UI_DIRECTION_RELATIVE_PATH = 'product/ui-direction.md'
 const MOCKUPS_DIRECTORY_NAME = 'mockups'
 const INSPIRATION_DIRECTORY_NAME = '.guided-brief/inspiration'
 const PRIMARY_MOCKUP_RELATIVE_PATH = 'mockups/app.html'
+const POLL_INTERVAL_MS = 2500
 
 function hasContent(value: string): boolean {
   return value.trim().length > 0
@@ -187,13 +188,20 @@ export function useDesignerSession({
         stopWatch = stop
       })
       .catch(() => {
-        // The mockups directory may not exist yet; periodic refresh is not
-        // required because the scaffold already created it before the
-        // strategist accepted.
+        // The mockups directory may not exist yet; the poll below will keep
+        // checking until it does.
       })
+
+    // macOS fs.watch (fsevents) can miss "create" events for files added to a
+    // directory that was empty when the watcher started. Poll as a fallback so
+    // the designer-ready transition is not stuck on a missed event.
+    const pollHandle = setInterval(() => {
+      void refresh()
+    }, POLL_INTERVAL_MS)
 
     return () => {
       cancelled = true
+      clearInterval(pollHandle)
       if (stopWatch) void stopWatch()
     }
   }, [enabled, mockupsDirectoryPath])
@@ -235,8 +243,15 @@ export function useDesignerSession({
       })
       .catch(() => {})
 
+    // Poll for the same reason as the mockups watcher above: fs.watch can miss
+    // create events on macOS for files added after the watcher started.
+    const pollHandle = setInterval(() => {
+      void refresh()
+    }, POLL_INTERVAL_MS)
+
     return () => {
       cancelled = true
+      clearInterval(pollHandle)
       if (stopWatch) void stopWatch()
     }
   }, [enabled, uiDirectionAbsolutePath, workspaceRoot])

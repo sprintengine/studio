@@ -97,6 +97,7 @@ function shortcutLabel(shortcut: string): string {
 function workspaceTabIconClass(mode: Workspace['mode']): string {
   if (mode === 'sprintengine') return 'text-[color:var(--tool-sprintengine)]'
   if (mode === 'switchboard') return 'text-[color:var(--tool-switchboard)]'
+  if (mode === 'guided-brief') return 'text-[color:var(--accent-primary)]'
   return 'text-[color:var(--text-muted)]'
 }
 

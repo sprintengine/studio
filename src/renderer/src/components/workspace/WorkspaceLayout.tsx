@@ -51,6 +51,7 @@ const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPan
 const WatchtowerPanel = React.lazy(() => import('../panels/WatchtowerPanel'))
 const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoardPanel'))
 const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
+const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const AGENT_TAB_ROLE_CLASS_PREFIX = 'agent-tab-role-'
 const loadedPanelComponents = new Set<string>()
@@ -391,6 +392,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel(
             'MultiloopBoardPanel',
             <MultiloopBoardPanel workspaceId={workspaceId} />
+          )
+        case 'guided-brief':
+          return timedPanel(
+            'GuidedBriefWorkspacePanel',
+            <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
           )
         case 'watchtower-panel':
           return timedPanel('WatchtowerPanel', <WatchtowerPanel workspaceId={workspaceId} />)

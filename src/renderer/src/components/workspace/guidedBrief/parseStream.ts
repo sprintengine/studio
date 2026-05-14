@@ -52,7 +52,7 @@ export function appendSpecChunk({
   nextSpecTurnId,
 }: AppendChunkInput): ConversationTurn[] {
   const cleaned = stripAnsiAndOverwrites(chunk)
-  if (!cleaned) return turns
+  if (!cleaned || !hasVisibleText(cleaned)) return turns
   const last = turns[turns.length - 1]
   if (last && last.speaker === 'spec') {
     const updated = { ...last, content: last.content + cleaned }
@@ -67,6 +67,10 @@ export function appendSpecChunk({
       createdAt: now,
     },
   ]
+}
+
+function hasVisibleText(text: string): boolean {
+  return /[^\s]/.test(text)
 }
 
 export type AppendUserTurnInput = {

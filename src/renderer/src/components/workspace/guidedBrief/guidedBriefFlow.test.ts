@@ -186,10 +186,22 @@ const emptyAfterStrip = appendSpecChunk({
 })
 assert.strictEqual(emptyAfterStrip, turns, 'a chunk that strips to empty does not mutate the turn list')
 
+const whitespaceOnlyTerminalRedraw = appendSpecChunk({
+  chunk: '\r\n      \r\n',
+  turns,
+  now: 6,
+  nextSpecTurnId: nextSpecId,
+})
+assert.strictEqual(
+  whitespaceOnlyTerminalRedraw,
+  turns,
+  'terminal redraw whitespace does not create an invisible auto-scrolling turn',
+)
+
 const emptyUserTurn = appendUserTurn({
   message: '   ',
   turns,
-  now: 6,
+  now: 7,
   nextUserTurnId: nextUserId,
 })
 assert.strictEqual(emptyUserTurn, turns, 'whitespace-only user sends do not create a turn')

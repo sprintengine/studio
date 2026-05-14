@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
@@ -403,6 +403,36 @@ function isLoginShell(shellName: string | undefined): boolean {
   return shellName === 'bash' || shellName === 'zsh'
 }
 
+function isExecutableFile(filePath: string | undefined): filePath is string {
+  if (!filePath) return false
+  try {
+    const stats = statSync(filePath)
+    return stats.isFile()
+  } catch {
+    return false
+  }
+}
+
+function assertExistingDirectory(dirPath: string): void {
+  try {
+    if (statSync(dirPath).isDirectory()) return
+  } catch {
+    // Fall through to the clearer terminal-specific error below.
+  }
+
+  throw new Error(`Terminal working directory does not exist: ${dirPath}`)
+}
+
+function getPosixShellPath(): string {
+  const configuredShell = process.env.SHELL?.trim()
+  if (configuredShell?.startsWith('/') && isExecutableFile(configuredShell)) {
+    return configuredShell
+  }
+
+  const fallbackShell = ['/bin/zsh', '/bin/bash', '/usr/bin/zsh', '/usr/bin/bash', '/bin/sh'].find(isExecutableFile)
+  return fallbackShell ?? 'sh'
+}
+
 function buildInteractiveShellExec(shellPath: string, shellName: string | undefined): string {
   const loginArg = isLoginShell(shellName) ? ' -l' : ''
   return `exec ${quotePosixCommand(shellPath)}${loginArg}`
@@ -460,6 +490,8 @@ export function getShellLaunchConfig(
   memoryRootPath?: string,
   memoryRelativeRoot?: string
 ): ShellLaunchConfig {
+  assertExistingDirectory(cwd)
+
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
 
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
@@ -526,7 +558,7 @@ export function getShellLaunchConfig(
     }
   }
 
-  const shellPath = process.env.SHELL || 'bash'
+  const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot),
@@ -550,6 +582,8 @@ export function getPlainShellLaunchConfig(
   sprintEngineStatePath?: string,
   sessionId = 'plain-terminal'
 ): ShellLaunchConfig {
+  assertExistingDirectory(cwd)
+
   if (process.platform === 'win32') {
     const windowsCwd = toWindowsPath(cwd)
     const windowsStatePath = sprintEngineStatePath ? toWindowsPath(sprintEngineStatePath) : undefined
@@ -588,7 +622,7 @@ export function getPlainShellLaunchConfig(
     }
   }
 
-  const shellPath = process.env.SHELL || 'bash'
+  const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
     buildSprintEngineShellBootstrap(sprintEngineStatePath),

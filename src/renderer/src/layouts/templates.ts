@@ -46,6 +46,39 @@ const switchboardBoardTab = () => ({
   component: 'switchboard-board',
 })
 
+const guidedBriefTab = () => ({
+  type: 'tab',
+  name: 'Guided Brief',
+  component: 'guided-brief',
+})
+
+export function createGuidedBriefTemplate(): LayoutTemplate {
+  return {
+    id: 'guided-brief-mode',
+    name: 'Guided Brief',
+    description: 'Product brief, mockups, and build handoff before implementation.',
+    previewSlots: [
+      editor('Brief', 4, 4, 140, 102),
+      agent('Strategist', 148, 4, 148, 48),
+      editor('Mockup', 148, 58, 148, 48),
+    ],
+    layout: {
+      global: { tabSetEnableDrop: true, tabEnableClose: false },
+      borders: [],
+      layout: {
+        type: 'row',
+        children: [
+          {
+            type: 'tabset',
+            weight: 100,
+            children: [guidedBriefTab()],
+          },
+        ],
+      },
+    },
+  }
+}
+
 export function createSprintEngineTemplate(_config: SprintEngineMockConfig): LayoutTemplate {
   return {
     id: 'sprintengine-mode',

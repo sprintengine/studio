@@ -2,7 +2,7 @@ import type { IJsonModel } from 'flexlayout-react'
 
 export type WorkspaceId = string
 export type AgentId = string
-export type WorkspaceMode = 'standard' | 'sprintengine' | 'switchboard' | 'multiloop'
+export type WorkspaceMode = 'standard' | 'sprintengine' | 'switchboard' | 'multiloop' | 'guided-brief'
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
 
@@ -775,6 +775,34 @@ export type AppSettings = {
   learning: LearningSettings
 }
 
+export type GuidedBriefHasUi = 'yes' | 'no'
+
+export type GuidedBriefStage =
+  | 'strategist-working'
+  | 'strategist-ready'
+  | 'designer-working'
+  | 'designer-ready'
+  | 'handoff'
+
+export type GuidedBriefAcceptedArtifact = {
+  kind: 'product' | 'mockup'
+  title: string
+  hash: string
+  path: string
+}
+
+export type GuidedBriefRuntimeState = {
+  workspaceRoot: string
+  workspaceName: string
+  idea: string
+  hasUi: GuidedBriefHasUi
+  stage: GuidedBriefStage
+  acceptedProductBrief: GuidedBriefAcceptedArtifact | null
+  acceptedUiDirection: GuidedBriefAcceptedArtifact | null
+  acceptedMockups: GuidedBriefAcceptedArtifact[]
+  activeMockupPath: string | null
+}
+
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
 export type DiagnosticSource =
   | 'auth'
@@ -877,6 +905,7 @@ export type Workspace = {
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
   sprintEngineAutoState: SprintEngineAutoState
   multiloopAutoState: MultiloopAutoState
+  guidedBriefState?: GuidedBriefRuntimeState | null
   highlight?: WorkspaceHighlight
   createdAt: number
   lastTerminalActivityAt?: number | null

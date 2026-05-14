@@ -15,6 +15,7 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    const focusTerminal = () => terminal.focus()
 
     const terminal = new Terminal({
       // design-tokens-allow: xterm-256 host palette — same exemption as TerminalView/PlainTerminalPanel
@@ -56,10 +57,23 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
 
     resizeObserver.observe(container)
     fitTerminal()
-    terminal.focus()
+    focusTerminal()
+    container.addEventListener('mousedown', focusTerminal)
+    container.addEventListener('mouseup', focusTerminal)
+    container.addEventListener('click', focusTerminal)
+    container.addEventListener('focus', focusTerminal)
+    const settleTimer = window.setTimeout(() => {
+      fitTerminal()
+      focusTerminal()
+    }, 50)
 
     return () => {
+      window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
+      container.removeEventListener('mousedown', focusTerminal)
+      container.removeEventListener('mouseup', focusTerminal)
+      container.removeEventListener('click', focusTerminal)
+      container.removeEventListener('focus', focusTerminal)
       disposeData()
       disposeExit()
       disposeError()
@@ -70,5 +84,5 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     }
   }, [sessionId])
 
-  return <div ref={containerRef} className={`h-full min-h-0 overflow-hidden ${className}`} />
+  return <div ref={containerRef} tabIndex={0} className={`h-full min-h-0 cursor-text overflow-hidden ${className}`} />
 }

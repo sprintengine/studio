@@ -72,6 +72,45 @@ assert.match(designerPrompt, /\nMOCKUP_SET_READY\n/, 'designer prompt emits MOCK
 
 assert.equal(containsGuidedBriefMarker('working\nBRIEF_READY\n', 'BRIEF_READY'), true)
 assert.equal(containsGuidedBriefMarker('working BRIEF_READY but not a marker line', 'BRIEF_READY'), false)
+// Claude Code prefixes assistant lines with "⏺ " and wraps text in ANSI. The
+// marker still needs to match after both are stripped.
+assert.equal(
+  containsGuidedBriefMarker('\x1b[1m⏺\x1b[0m MOCKUP_SET_READY\n', 'MOCKUP_SET_READY'),
+  true,
+  'detects marker wrapped in ANSI + Claude Code prompt glyph',
+)
+// Codex boxes wrap lines in box-drawing characters at both ends.
+assert.equal(
+  containsGuidedBriefMarker('│ MOCKUP_SET_READY │\n', 'MOCKUP_SET_READY'),
+  true,
+  'detects marker wrapped in Codex box-drawing chrome',
+)
+// Substring matches must still be rejected so noisy logs do not flip the gate.
+assert.equal(
+  containsGuidedBriefMarker('see MOCKUP_SET_READY_LATER for details\n', 'MOCKUP_SET_READY'),
+  false,
+  'does not match a marker substring inside another token',
+)
+
+const generatedIdApi = createTerminalApi()
+const generatedIdResult = await startGuidedBriefSpecialistSession(
+  {
+    kind: 'strategist',
+    workspaceRoot: '/workspace',
+  },
+  {
+    terminalApi: generatedIdApi,
+  },
+)
+
+assert.equal(generatedIdResult.ok, true, 'session starts with generated ID')
+if (generatedIdResult.ok) {
+  assert.match(
+    generatedIdResult.session.sessionId,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    'generated Guided brief session ID is a provider-compatible UUID',
+  )
+}
 
 const api = createTerminalApi()
 const lifecycles: string[] = []

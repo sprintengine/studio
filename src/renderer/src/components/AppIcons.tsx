@@ -47,6 +47,16 @@ export function WorkspaceTypeIcon({
     )
   }
 
+  if (mode === 'guided-brief') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M5 5.5H15.25L19 9.25V18.5H5V5.5Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+        <path d="M15 5.75V9.5H18.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+        <path d="M8 12.25H15.5M8 15.25H13" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      </svg>
+    )
+  }
+
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth={iconStroke} />

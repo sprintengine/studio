@@ -25,6 +25,7 @@ export type UseStrategistSessionInput = {
   workspaceRoot: string
   cli: AgentCli
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  enabled?: boolean
 }
 
 export type UseStrategistSessionResult = {
@@ -46,6 +47,7 @@ export function useStrategistSession({
   workspaceRoot,
   cli,
   cliRuntimes,
+  enabled = true,
 }: UseStrategistSessionInput): UseStrategistSessionResult {
   const [status, setStatus] = useState<StrategistSessionStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -60,6 +62,7 @@ export function useStrategistSession({
 
   // Start the strategist session exactly once per mount.
   useEffect(() => {
+    if (!enabled) return
     if (startedRef.current) return
     startedRef.current = true
 
@@ -125,10 +128,11 @@ export function useStrategistSession({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [enabled])
 
   // Watch the product directory for requirements.md becoming non-empty.
   useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     let stopWatch: (() => Promise<void>) | null = null
 
@@ -169,7 +173,7 @@ export function useStrategistSession({
       cancelled = true
       if (stopWatch) void stopWatch()
     }
-  }, [productDirectoryPath, requirementsAbsolutePath, fileReady])
+  }, [enabled, productDirectoryPath, requirementsAbsolutePath, fileReady])
 
   const isReady = markerReceived || fileReady
 

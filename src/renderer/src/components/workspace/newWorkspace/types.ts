@@ -2,11 +2,12 @@ import type {
   SprintEngineState,
   SprintEngineWorkspaceContext,
   WorkspaceMode,
+  GuidedBriefHasUi,
 } from '../../../types/workspace'
 
 export type CreationMode = WorkspaceMode | 'guided-brief'
 
-export type GuidedBriefHasUi = 'yes' | 'no'
+export type { GuidedBriefHasUi }
 
 export type MarkdownPlanOption = {
   path: string

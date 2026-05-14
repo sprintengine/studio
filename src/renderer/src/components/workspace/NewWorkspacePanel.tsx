@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  createGuidedBriefTemplate,
   createMultiloopTemplate,
   createSprintEngineTemplate,
   createSwitchboardTemplate,
@@ -663,7 +664,7 @@ export default function NewWorkspacePanel({
           },
         })
         const workspaceLabel = toTitleName(basename(folderPath)) || name.trim() || 'Guided brief'
-        setGuidedRuntimeState({
+        const runtimeState: GuidedBriefRuntimeState = {
           workspaceRoot: folderPath,
           workspaceName: workspaceLabel,
           idea: guidedIdea,
@@ -673,8 +674,14 @@ export default function NewWorkspacePanel({
           acceptedUiDirection: null,
           acceptedMockups: [],
           activeMockupPath: null,
+        }
+        addWorkspace(createGuidedBriefTemplate(), {
+          name: workspaceLabel,
+          folderPath,
+          mode: 'guided-brief',
+          guidedBriefState: runtimeState,
         })
-        setViewingIdeaAfterCommit(false)
+        onClose()
       } catch (error) {
         setGuidedError(
           error instanceof GuidedBriefWorkspaceError
@@ -899,7 +906,13 @@ export default function NewWorkspacePanel({
     await window.api.authLogin(authState.selectedOrganization?.id ?? null)
   }
 
-  const handleGuidedStartBuild = async (runtimeState: GuidedBriefRuntimeState) => {
+  const handleGuidedStartBuild = async (
+    runtimeState: GuidedBriefRuntimeState,
+    runOptions: { startRunner: boolean; autoApproveArtifacts: boolean } = {
+      startRunner: seStartRunner,
+      autoApproveArtifacts: seAutoApproveArtifacts,
+    },
+  ) => {
     if (!sprintEngineAccess.allowed) {
       await startLogin()
       throw new Error('Sign in to use Sprint Engine mode.')
@@ -926,8 +939,8 @@ export default function NewWorkspacePanel({
         roleCounts: guidedBriefSprintEngineRoleCounts,
         roleCliDefaults: seRoleCliDefaults,
         sprintEngineAutoState: {
-          enabled: seStartRunner,
-          autoApproveArtifacts: seAutoApproveArtifacts,
+          enabled: runOptions.startRunner,
+          autoApproveArtifacts: runOptions.autoApproveArtifacts,
           cliPermissionPreset,
           maxConcurrentAgents: countSprintEngineAgents(guidedBriefSprintEngineRoleCounts),
         },

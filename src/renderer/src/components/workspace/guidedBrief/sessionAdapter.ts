@@ -8,6 +8,7 @@ import {
   buildGuidedBriefSpecialistStartupPrompt,
   type GuidedBriefSpecialistKind,
 } from '../../../specialists/specialistActions'
+import { stripAnsiAndOverwrites } from './parseStream'
 
 export type { GuidedBriefSpecialistKind }
 
@@ -116,9 +117,34 @@ export type StartGuidedBriefSpecialistSessionResult =
   | { ok: true; session: GuidedBriefSpecialistSession }
   | { ok: false; sessionId: string; message: string }
 
-function createSessionId(kind: GuidedBriefSpecialistKind): string {
-  const randomId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  return `guided-brief-${kind}-${randomId}`
+function createUuidV4(): string {
+  const nativeUuid = globalThis.crypto?.randomUUID?.()
+  if (nativeUuid) return nativeUuid
+
+  const bytes = new Uint8Array(16)
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes)
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256)
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0'))
+  return [
+    hex.slice(0, 4).join(''),
+    hex.slice(4, 6).join(''),
+    hex.slice(6, 8).join(''),
+    hex.slice(8, 10).join(''),
+    hex.slice(10, 16).join(''),
+  ].join('-')
+}
+
+function createSessionId(): string {
+  return createUuidV4()
 }
 
 function bracketedTerminalPaste(text: string): string {
@@ -163,17 +189,23 @@ function markerDetectionForInput(input: StartGuidedBriefSpecialistSessionInput, 
   }
 }
 
+// Strip ANSI/control codes and trim leading/trailing CLI prompt chrome so the
+// marker still matches when wrapped by tools like Claude Code (`⏺ MARKER`) or
+// Codex (`│ MARKER │`). The marker must still appear alone on its own line —
+// the regex only removes whitespace and a small allowlist of prompt glyphs.
+const PROMPT_CHROME = /^[\s>│●⏺•*»]+|[\s>│●⏺•*»]+$/gu
+
 export function containsGuidedBriefMarker(output: string, marker: string): boolean {
-  return output
+  return stripAnsiAndOverwrites(output)
     .split(/\r?\n/)
-    .some((line) => line.trim() === marker)
+    .some((line) => line.replace(PROMPT_CHROME, '') === marker)
 }
 
 export async function startGuidedBriefSpecialistSession(
   input: StartGuidedBriefSpecialistSessionInput,
   options: StartGuidedBriefSpecialistSessionOptions,
 ): Promise<StartGuidedBriefSpecialistSessionResult> {
-  const sessionId = input.sessionId ?? createSessionId(input.kind)
+  const sessionId = input.sessionId ?? createSessionId()
   const marker = GUIDED_BRIEF_SPECIALIST_MARKERS[input.kind]
   const prompt = promptForInput(input, marker)
   const markerDetection = markerDetectionForInput(input, marker)

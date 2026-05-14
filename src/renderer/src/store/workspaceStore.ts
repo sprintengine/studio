@@ -38,6 +38,7 @@ import type {
   WorkspaceHighlight,
   McpServerConfig,
   McpSettings,
+  GuidedBriefRuntimeState,
 } from '../types/workspace'
 import {
   DEFAULT_GRAPH_SETTINGS,
@@ -145,6 +146,7 @@ interface WorkspaceStore {
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
+      guidedBriefState?: GuidedBriefRuntimeState | null
       mode?: Workspace['mode']
     }
   ) => WorkspaceId
@@ -204,6 +206,7 @@ interface WorkspaceStore {
     pendingSpawns: MultiloopAutoPendingSpawn[]
   ) => void
   setMultiloopCoordinatorAutoSpawnKey: (workspaceId: WorkspaceId, key: string | null) => void
+  setGuidedBriefState: (workspaceId: WorkspaceId, guidedBriefState: GuidedBriefRuntimeState | null) => void
   addSprintEngineMember: (
     workspaceId: WorkspaceId,
     role: SprintEngineRole
@@ -604,10 +607,71 @@ function normalizeWorkspaceMode(
     || input === 'sprintengine'
     || input === 'switchboard'
     || input === 'multiloop'
+    || input === 'guided-brief'
   ) {
     return input
   }
   return 'standard'
+}
+
+function normalizeGuidedBriefAcceptedArtifact(input: unknown): GuidedBriefRuntimeState['acceptedProductBrief'] {
+  if (!input || typeof input !== 'object') return null
+  const candidate = input as Partial<NonNullable<GuidedBriefRuntimeState['acceptedProductBrief']>>
+  if (
+    (candidate.kind !== 'product' && candidate.kind !== 'mockup')
+    || typeof candidate.title !== 'string'
+    || typeof candidate.hash !== 'string'
+    || typeof candidate.path !== 'string'
+  ) {
+    return null
+  }
+  return {
+    kind: candidate.kind,
+    title: candidate.title,
+    hash: candidate.hash,
+    path: candidate.path,
+  }
+}
+
+function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeState | null {
+  if (!input || typeof input !== 'object') return null
+  const candidate = input as Partial<GuidedBriefRuntimeState>
+  if (
+    typeof candidate.workspaceRoot !== 'string'
+    || !candidate.workspaceRoot.trim()
+    || typeof candidate.workspaceName !== 'string'
+    || !candidate.workspaceName.trim()
+    || typeof candidate.idea !== 'string'
+    || !candidate.idea.trim()
+    || (candidate.hasUi !== 'yes' && candidate.hasUi !== 'no')
+  ) {
+    return null
+  }
+  const stage = (
+    candidate.stage === 'strategist-working'
+    || candidate.stage === 'strategist-ready'
+    || candidate.stage === 'designer-working'
+    || candidate.stage === 'designer-ready'
+    || candidate.stage === 'handoff'
+  )
+    ? candidate.stage
+    : 'strategist-working'
+
+  return {
+    workspaceRoot: candidate.workspaceRoot,
+    workspaceName: candidate.workspaceName,
+    idea: candidate.idea,
+    hasUi: candidate.hasUi,
+    stage,
+    acceptedProductBrief: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedProductBrief),
+    acceptedUiDirection: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedUiDirection),
+    acceptedMockups: Array.isArray(candidate.acceptedMockups)
+      ? candidate.acceptedMockups
+        .map(normalizeGuidedBriefAcceptedArtifact)
+        .filter((artifact): artifact is GuidedBriefRuntimeState['acceptedMockups'][number] => artifact != null)
+      : [],
+    activeMockupPath: typeof candidate.activeMockupPath === 'string' ? candidate.activeMockupPath : null,
+  }
 }
 
 function normalizeWorktreeEntry(input: Partial<WorktreeEntry> | null | undefined): WorktreeEntry | null {
@@ -1013,6 +1077,31 @@ const multiloopTabsLayoutModel = (): IJsonModel => ({
     ],
   },
 })
+
+const guidedBriefLayoutModel = (): IJsonModel => ({
+  global: { tabSetEnableDrop: true, tabEnableClose: false },
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        weight: 100,
+        children: [
+          { type: 'tab', name: 'Guided Brief', component: 'guided-brief' },
+        ],
+      },
+    ],
+  },
+})
+
+function hasGuidedBriefLayout(model: unknown): boolean {
+  return modelContainsComponent(model, 'guided-brief')
+}
+
+function ensureGuidedBriefLayoutModel(model: IJsonModel | undefined): IJsonModel {
+  return model && hasGuidedBriefLayout(model) ? model : guidedBriefLayoutModel()
+}
 
 function modelContainsComponent(value: unknown, component: string): boolean {
   if (!value) return false
@@ -1442,6 +1531,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const isSwitchboard = explicitMode === 'switchboard' || template.id === 'switchboard-mode'
           const isSprintEngine = !isSwitchboard && (template.id === 'sprintengine-mode' || Boolean(options?.sprintEngineState))
           const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
+          const guidedBriefState = normalizeGuidedBriefState(options?.guidedBriefState)
+          const isGuidedBrief = explicitMode === 'guided-brief' || template.id === 'guided-brief-mode' || Boolean(guidedBriefState)
           const switchboardFolderKey = isSwitchboard ? workspaceFolderKey(folderPath) : null
           const existingSwitchboard = switchboardFolderKey
             ? state.workspaces.find((workspace) =>
@@ -1496,6 +1587,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ? 'multiloop'
               : isSwitchboard
                 ? 'switchboard'
+                : isGuidedBrief
+                  ? 'guided-brief'
                   : sprintEngineState
                     ? 'sprintengine'
                     : 'standard',
@@ -1514,6 +1607,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             templateId: template.id,
             layoutModel: isMultiloop
               ? multiloopTabsLayoutModel()
+              : isGuidedBrief
+                ? guidedBriefLayoutModel()
               : sprintEngineState
               ? sprintEngineTabsLayoutModel(sprintEngineState, agents, { includeAgentTabs: false })
               : template.layout,
@@ -1523,6 +1618,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             editorState: defaultEditorState(),
             sprintEngineState,
             multiloopState,
+            guidedBriefState,
             sprintEngineRoleCliDefaults,
             sprintEngineAutoState: normalizeSprintEngineAutoState(options?.sprintEngineAutoState),
             multiloopAutoState: normalizeMultiloopAutoState(options?.multiloopAutoState),
@@ -1867,6 +1963,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           }
         }),
 
+      setGuidedBriefState: (workspaceId, guidedBriefState) =>
+        set((state) => {
+          const ws = state.workspaces.find((w) => w.id === workspaceId)
+          if (!ws) return
+          ws.guidedBriefState = normalizeGuidedBriefState(guidedBriefState)
+          if (ws.guidedBriefState) {
+            ws.mode = 'guided-brief'
+            ws.layoutModel = ensureGuidedBriefLayoutModel(ws.layoutModel)
+          }
+        }),
+
       addSprintEngineMember: (workspaceId, role) => {
         let addedAgent: { id: AgentId; label: string } | null = null
 
@@ -2139,7 +2246,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 43,
+      version: 44,
       // Migrate older persisted state that lacks editorState / folderPath / sprintEngineState
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Partial<WorkspaceMigrationState> | undefined
@@ -2533,6 +2640,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             layoutModel: stripSettingsTabsFromLayout(ws.layoutModel) as Workspace['layoutModel'],
           }))
         }
+        if (version < 44) {
+          mapMigrationWorkspaces(migrationState, (ws) => {
+            const guidedBriefState = normalizeGuidedBriefState(ws.guidedBriefState)
+            if (ws.mode !== 'guided-brief' && !guidedBriefState) return ws
+            return {
+              ...ws,
+              mode: 'guided-brief',
+              guidedBriefState,
+              layoutModel: ensureGuidedBriefLayoutModel(ws.layoutModel),
+            }
+          })
+        }
         return state as never
       },
       merge: (persisted, current) => {
@@ -2557,6 +2676,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         workspaces: s.workspaces.map((ws) => ({
           ...ws,
           mode: normalizeWorkspaceMode(ws.mode, ws.sprintEngineState, ws.multiloopState),
+          guidedBriefState: normalizeGuidedBriefState(ws.guidedBriefState),
           memory: normalizeWorkspaceMemoryConfig(ws.memory),
           sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
           multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),

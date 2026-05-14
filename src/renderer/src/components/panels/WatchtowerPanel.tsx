@@ -34,7 +34,8 @@ import {
 import { filterInboxTasks } from '../../utils/watchtower'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
-import { hasAgentTab } from '../../utils/modelRegistry'
+import { focusOrAddFileTab, hasAgentTab } from '../../utils/modelRegistry'
+import { renderMarkdown } from '../../utils/markdown'
 import {
   DefinitionList,
   Drawer,
@@ -207,6 +208,7 @@ const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
 export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
+  const openFile = useWorkspaceStore((s) => s.openFile)
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
 
@@ -223,6 +225,9 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState<DraftTask>(emptyDraft)
   const [commentBody, setCommentBody] = useState('')
+  const [fileView, setFileView] = useState<{ path: string; name: string; content: string } | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
+  const [loadingFile, setLoadingFile] = useState(false)
   const { isPending, run: runAction } = usePendingActions<PendingKey>()
   const feedback = useActionFeedback()
 
@@ -247,6 +252,44 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     () => (selectedRun ? countAgentOutcomes(selectedRun, tasks) : new Map<string, AgentTaskOutcome>()),
     [selectedRun, tasks]
   )
+
+  useEffect(() => {
+    setFileView(null)
+    setFileError(null)
+  }, [selectedId])
+
+  const handleOpenFile = useCallback(async () => {
+    if (!selected) return
+    const path = selected.location.path
+    setLoadingFile(true)
+    setFileError(null)
+    try {
+      const exists = await window.api.pathExists(path)
+      if (!exists) {
+        setFileError('File could not be found at its recorded location.')
+        return
+      }
+      const content = await window.api.readfile(path)
+      const name = path.split(/[\\/]/).pop() ?? path
+      setFileView({ path, name, content })
+    } catch (error) {
+      setFileError(error instanceof Error ? error.message : 'Could not read file.')
+    } finally {
+      setLoadingFile(false)
+    }
+  }, [selected])
+
+  const handleCloseFile = useCallback(() => {
+    setFileView(null)
+    setFileError(null)
+  }, [])
+
+  const handlePopOutFile = useCallback(() => {
+    if (!fileView) return
+    openFile(workspaceId, fileView.path, fileView.name, fileView.content)
+    focusOrAddFileTab(workspaceId, fileView.path, fileView.name)
+    setFileView(null)
+  }, [fileView, openFile, workspaceId])
 
   const notifyStartFailure = useCallback(
     (kind: WatchtowerStartKind, message: string) => {
@@ -751,30 +794,42 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
       <section className="flex min-w-0 flex-1 flex-col" aria-label="Selected task detail">
         {selected ? (
-          <DetailPane
-            record={selected}
-            editing={editing}
-            editForm={editForm}
-            onEditFormChange={setEditForm}
-            onStartEdit={startEdit}
-            onCancelEdit={() => setEditing(false)}
-            onSaveEdit={handleEditSave}
-            onPromote={handlePromote}
-            onCancelTask={handleCancel}
-            onTriageTask={() => void handleStartTriage('selected')}
-            commentBody={commentBody}
-            onCommentChange={setCommentBody}
-            onAddComment={handleAddComment}
-            isEditing={isPending('edit')}
-            isPromoting={isPending('promote')}
-            isCanceling={isPending('cancelTask')}
-            isTriaging={isPending('startTriageSelected')}
-            isCommenting={isPending('addComment')}
-            detailStatus={feedback.statuses.detail ?? null}
-            commentStatus={feedback.statuses.comment ?? null}
-            onDismissDetailStatus={() => feedback.dismiss('detail')}
-            onDismissCommentStatus={() => feedback.dismiss('comment')}
-          />
+          fileView ? (
+            <WatchtowerFilePreview
+              artifact={fileView}
+              onBack={handleCloseFile}
+              onPopOut={handlePopOutFile}
+            />
+          ) : (
+            <DetailPane
+              record={selected}
+              editing={editing}
+              editForm={editForm}
+              onEditFormChange={setEditForm}
+              onStartEdit={startEdit}
+              onCancelEdit={() => setEditing(false)}
+              onSaveEdit={handleEditSave}
+              onPromote={handlePromote}
+              onCancelTask={handleCancel}
+              onTriageTask={() => void handleStartTriage('selected')}
+              onOpenFile={() => void handleOpenFile()}
+              loadingFile={loadingFile}
+              fileError={fileError}
+              onDismissFileError={() => setFileError(null)}
+              commentBody={commentBody}
+              onCommentChange={setCommentBody}
+              onAddComment={handleAddComment}
+              isEditing={isPending('edit')}
+              isPromoting={isPending('promote')}
+              isCanceling={isPending('cancelTask')}
+              isTriaging={isPending('startTriageSelected')}
+              isCommenting={isPending('addComment')}
+              detailStatus={feedback.statuses.detail ?? null}
+              commentStatus={feedback.statuses.comment ?? null}
+              onDismissDetailStatus={() => feedback.dismiss('detail')}
+              onDismissCommentStatus={() => feedback.dismiss('comment')}
+            />
+          )
         ) : (
           <EmptyDetail />
         )}
@@ -971,6 +1026,63 @@ function EmptyDetail() {
       <div className="text-[12px] font-semibold text-[color:var(--text-default)]">Triage</div>
       <div className="text-[12px] text-[color:var(--text-muted)]">
         Select an inbox task to inspect, edit, comment, or promote.
+      </div>
+    </div>
+  )
+}
+
+function WatchtowerFilePreview({
+  artifact,
+  onBack,
+  onPopOut,
+}: {
+  artifact: { path: string; name: string; content: string }
+  onBack: () => void
+  onPopOut: () => void
+}) {
+  const isMarkdown = artifact.path.toLowerCase().endsWith('.md')
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-5 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[12px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            aria-label="Back to task detail"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+              <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Back
+          </button>
+          <span
+            className="min-w-0 truncate font-mono text-[12.5px] tabular-nums text-[color:var(--text-strong)]"
+            title={artifact.path}
+          >
+            {artifact.name}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onPopOut}
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          title="Open in editor tab"
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+            <path d="M9 3H13V7M13 3L7.5 8.5M6 4H4C3.45 4 3 4.45 3 5V12C3 12.55 3.45 13 4 13H11C11.55 13 12 12.55 12 12V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Open in editor
+        </button>
+      </header>
+      <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+        {isMarkdown ? (
+          <div className="markdown-body">{renderMarkdown(artifact.content)}</div>
+        ) : (
+          <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[color:var(--text-default)]">
+            {artifact.content}
+          </pre>
+        )}
       </div>
     </div>
   )
@@ -1277,6 +1389,10 @@ function DetailPane({
   onPromote,
   onCancelTask,
   onTriageTask,
+  onOpenFile,
+  loadingFile,
+  fileError,
+  onDismissFileError,
   commentBody,
   onCommentChange,
   onAddComment,
@@ -1300,6 +1416,10 @@ function DetailPane({
   onPromote: () => void
   onCancelTask: () => void
   onTriageTask: () => void
+  onOpenFile: () => void
+  loadingFile: boolean
+  fileError: string | null
+  onDismissFileError: () => void
   commentBody: string
   onCommentChange: (next: string) => void
   onAddComment: () => void
@@ -1354,6 +1474,12 @@ function DetailPane({
               onDismiss={detailStatus.tone === 'error' ? onDismissDetailStatus : undefined}
             />
           ) : null}
+          {fileError ? (
+            <ActionStatusChip
+              status={{ tone: 'error', message: fileError, nonce: 0 }}
+              onDismiss={onDismissFileError}
+            />
+          ) : null}
           {editing ? (
             <>
               <GhostButton onClick={onCancelEdit} disabled={isEditing}>
@@ -1365,6 +1491,9 @@ function DetailPane({
             </>
           ) : (
             <>
+              <GhostButton onClick={onOpenFile} disabled={anyDetailMutation || loadingFile}>
+                {loadingFile ? 'Opening…' : 'View file'}
+              </GhostButton>
               <GhostButton onClick={onStartEdit} disabled={anyDetailMutation}>
                 Edit
               </GhostButton>

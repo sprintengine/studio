@@ -5,6 +5,7 @@ import {
   GuidedBriefWorkspaceError,
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
+import { StatusDot } from '../../ui'
 import { ConversationPane, type ConversationView } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
@@ -23,12 +24,20 @@ import {
   type GuidedBriefStage,
 } from './types'
 
+export type GuidedBriefRunOptions = {
+  startRunner: boolean
+  autoApproveArtifacts: boolean
+}
+
 type Props = {
   runtimeState: GuidedBriefRuntimeState
   onChange: (next: GuidedBriefRuntimeState) => void
   onBackToIdea: () => void
-  onClose: () => void
-  onStartBuild: (runtimeState: GuidedBriefRuntimeState) => Promise<void>
+  onClose?: () => void
+  onStartBuild: (
+    runtimeState: GuidedBriefRuntimeState,
+    runOptions: GuidedBriefRunOptions,
+  ) => Promise<void>
   cli: AgentCli
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
 }
@@ -45,11 +54,14 @@ export function GuidedBriefFlow({
   const { stage, hasUi, workspaceRoot, workspaceName, acceptedProductBrief } = runtimeState
   const progress = progressForStage(stage, hasUi)
   const counter = stepCounterLabel(stage, hasUi)
+  const inStrategistStage = stage === 'strategist-working' || stage === 'strategist-ready'
+  const inDesignerStage = stage === 'designer-working' || stage === 'designer-ready'
 
   const strategist = useStrategistSession({
     workspaceRoot,
     cli,
     cliRuntimes,
+    enabled: inStrategistStage,
   })
 
   // The designer reads the accepted product brief from product/.versions/<sha>.md.
@@ -64,11 +76,8 @@ export function GuidedBriefFlow({
     enabled:
       hasUi === 'yes' &&
       acceptedBriefRelativePath !== null &&
-      (stage === 'designer-working' || stage === 'designer-ready' || stage === 'handoff'),
+      inDesignerStage,
   })
-
-  const inStrategistStage = stage === 'strategist-working' || stage === 'strategist-ready'
-  const inDesignerStage = stage === 'designer-working' || stage === 'designer-ready'
 
   // Strategist working → ready as soon as a real signal arrives.
   useEffect(() => {
@@ -105,8 +114,12 @@ export function GuidedBriefFlow({
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [startingBuild, setStartingBuild] = useState(false)
   const [startBuildError, setStartBuildError] = useState<string | null>(null)
-  const [conversationView, setConversationView] = useState<ConversationView>('parsed')
+  const [conversationView, setConversationView] = useState<ConversationView>('raw')
+  const [startRunner, setStartRunner] = useState(true)
+  const [autoApproveArtifacts, setAutoApproveArtifacts] = useState(false)
   const showTerminalDisclosure = inStrategistStage || inDesignerStage
+
+  const effectiveAutoApprove = startRunner && autoApproveArtifacts
 
   const acceptStrategistBrief = async () => {
     if (!strategist.readiness.fileReady) return
@@ -246,7 +259,10 @@ export function GuidedBriefFlow({
     setStartingBuild(true)
     setStartBuildError(null)
     try {
-      await onStartBuild(runtimeState)
+      await onStartBuild(runtimeState, {
+        startRunner,
+        autoApproveArtifacts: effectiveAutoApprove,
+      })
     } catch (error) {
       setStartBuildError(error instanceof Error ? error.message : 'Could not start the build.')
     } finally {
@@ -272,25 +288,27 @@ export function GuidedBriefFlow({
           </span>
         </div>
         <GuidedProgress total={progress.total} active={progress.active} done={progress.done} />
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="
-            ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[color:var(--text-subtle)]
-            transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-          "
-        >
-          <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="
+              ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[color:var(--text-subtle)]
+              transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+            "
+          >
+            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        ) : null}
       </header>
 
       <main className="relative min-h-0 flex-1 overflow-hidden">
@@ -319,7 +337,13 @@ export function GuidedBriefFlow({
             conversationView={conversationView}
           />
         ) : (
-          <HandoffBody runtimeState={runtimeState} />
+          <HandoffBody
+            runtimeState={runtimeState}
+            startRunner={startRunner}
+            onChangeStartRunner={setStartRunner}
+            autoApproveArtifacts={autoApproveArtifacts}
+            onChangeAutoApproveArtifacts={setAutoApproveArtifacts}
+          />
         )}
       </main>
 
@@ -337,12 +361,15 @@ export function GuidedBriefFlow({
               focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
             "
           >
-            {conversationView === 'raw' ? 'Hide terminal' : 'Show terminal'}
+            {conversationView === 'raw' ? 'Show transcript' : 'Show terminal'}
           </button>
         ) : null}
         <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-subtle)]">
           {counter}
         </span>
+        {stage === 'designer-working' ? (
+          <DesignerReadinessHint readiness={designer.readiness} />
+        ) : null}
         {acceptError ? (
           <span className="truncate text-[12px] text-[color:var(--tone-error)]">{acceptError}</span>
         ) : null}
@@ -419,10 +446,18 @@ function renderPrimaryAction({
       </PrimaryButton>
     )
   }
+  const waitingReason =
+    stage === 'designer-working'
+      ? 'Waiting for mockups/app.html and product/ui-direction.md, or the MOCKUP_SET_READY marker.'
+      : stage === 'strategist-working'
+        ? 'Waiting for product/requirements.md, or the BRIEF_READY marker.'
+        : 'Waiting for the agent to finish.'
   return (
     <button
       type="button"
       disabled
+      aria-disabled
+      title={waitingReason}
       className="
         inline-flex h-9 cursor-not-allowed items-center rounded-md bg-[color:var(--bg-surface-raised)] px-4
         text-[13px] font-semibold text-[color:var(--text-disabled)]
@@ -430,6 +465,31 @@ function renderPrimaryAction({
     >
       Continue
     </button>
+  )
+}
+
+function DesignerReadinessHint({
+  readiness,
+}: {
+  readiness: ReturnType<typeof useDesignerSession>['readiness']
+}) {
+  const items: Array<{ label: string; ready: boolean }> = [
+    { label: 'marker', ready: readiness.markerReceived },
+    { label: 'mockup', ready: readiness.mockupsAvailable },
+    { label: 'ui direction', ready: readiness.uiDirectionReady },
+  ]
+  return (
+    <span
+      aria-label="Designer readiness"
+      className="inline-flex shrink-0 items-center gap-2 font-mono text-[11px] text-[color:var(--text-subtle)]"
+    >
+      {items.map((item) => (
+        <span key={item.label} className="inline-flex items-center gap-1">
+          <StatusDot tone={item.ready ? 'good' : 'neutral'} />
+          <span>{item.label}</span>
+        </span>
+      ))}
+    </span>
   )
 }
 
@@ -595,7 +655,19 @@ function DesignerBody({
   )
 }
 
-function HandoffBody({ runtimeState }: { runtimeState: GuidedBriefRuntimeState }) {
+function HandoffBody({
+  runtimeState,
+  startRunner,
+  onChangeStartRunner,
+  autoApproveArtifacts,
+  onChangeAutoApproveArtifacts,
+}: {
+  runtimeState: GuidedBriefRuntimeState
+  startRunner: boolean
+  onChangeStartRunner: (value: boolean) => void
+  autoApproveArtifacts: boolean
+  onChangeAutoApproveArtifacts: (value: boolean) => void
+}) {
   const [handoffStatus, setHandoffStatus] = useState<'loading' | 'ready' | 'missing'>('loading')
   const handoffPath = joinWorkspacePath(runtimeState.workspaceRoot, guidedBriefBuildHandoffRelativePath())
   const checklist = guidedBriefHandoffChecklist(runtimeState)
@@ -642,6 +714,48 @@ function HandoffBody({ runtimeState }: { runtimeState: GuidedBriefRuntimeState }
               ) : null}
             </div>
           ))}
+        </div>
+        <div className="flex flex-col gap-2 border-t border-[color:var(--bg-surface-raised)] pt-4">
+          <span className="text-[12px] font-medium text-[color:var(--text-default)]">
+            Run settings
+          </span>
+          <label className="flex items-start justify-between gap-3 py-0.5">
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium text-[color:var(--text-default)]">
+                Start roster runner when workspace opens
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+                Launch the Sprint Engine specialists in the background as soon as the workspace mounts.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={startRunner}
+              onChange={(event) => onChangeStartRunner(event.currentTarget.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)]"
+            />
+          </label>
+          <label
+            className={`flex items-start justify-between gap-3 py-0.5 ${
+              startRunner ? '' : 'opacity-60'
+            }`}
+          >
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium text-[color:var(--text-default)]">
+                Approve all artifacts
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+                Auto-approve artifacts as agents publish them so the runner does not stall.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={autoApproveArtifacts}
+              disabled={!startRunner}
+              onChange={(event) => onChangeAutoApproveArtifacts(event.currentTarget.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed"
+            />
+          </label>
         </div>
         {handoffStatus === 'missing' ? (
           <span className="text-[12px] text-[color:var(--tone-error)]">
