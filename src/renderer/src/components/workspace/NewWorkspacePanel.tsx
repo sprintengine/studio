@@ -17,6 +17,8 @@ import type {
   SprintEngineRole,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
+  SprintEngineSourceBundleItem,
+  SprintEngineSourceBundleKind,
   SprintEngineSourcePlanKind,
   SprintEngineState,
   SprintEngineWorkspaceContext,
@@ -103,6 +105,22 @@ const SOURCE_PLAN_KIND_OPTIONS: Array<{ value: SprintEngineSourcePlanKind; label
   { value: 'product_plan', label: SOURCE_PLAN_KIND_LABELS.product_plan },
   { value: 'architect_plan', label: SOURCE_PLAN_KIND_LABELS.architect_plan },
   { value: 'unknown', label: SOURCE_PLAN_KIND_LABELS.unknown },
+]
+
+const SOURCE_BUNDLE_KIND_LABELS: Record<string, string> = {
+  ...SOURCE_PLAN_KIND_LABELS,
+  html_mockup: 'HTML mockup',
+  design_notes: 'Design notes',
+  generic_context: 'Context',
+}
+
+const SOURCE_BUNDLE_KIND_OPTIONS: Array<{ value: SprintEngineSourceBundleKind; label: string }> = [
+  { value: 'html_mockup', label: SOURCE_BUNDLE_KIND_LABELS.html_mockup },
+  { value: 'product_plan', label: SOURCE_PLAN_KIND_LABELS.product_plan },
+  { value: 'architect_plan', label: SOURCE_PLAN_KIND_LABELS.architect_plan },
+  { value: 'design_notes', label: SOURCE_BUNDLE_KIND_LABELS.design_notes },
+  { value: 'unknown', label: SOURCE_PLAN_KIND_LABELS.unknown },
+  { value: 'generic_context', label: SOURCE_BUNDLE_KIND_LABELS.generic_context },
 ]
 
 const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
@@ -215,6 +233,7 @@ export default function NewWorkspacePanel({
   const [seSourcePlanKind, setSeSourcePlanKind] = useState<SprintEngineSourcePlanKind>(
     initialFuturePlan?.sourcePlanKind ?? 'unknown',
   )
+  const [seSourceBundle, setSeSourceBundle] = useState(initialFuturePlan?.sourceBundle ?? null)
   const [seExistingTeam, setSeExistingTeam] = useState<ExistingTeam | null>(null)
   const [seTeamName, setSeTeamName] = useState(initialFuturePlan?.teamName ?? '')
   const [seTeamNameTouched, setSeTeamNameTouched] = useState(Boolean(initialFuturePlan))
@@ -280,6 +299,7 @@ export default function NewWorkspacePanel({
     setSePlanPath(initialFuturePlan.sourcePath)
     setSePlanContent(initialFuturePlan.sourceContent ?? null)
     setSeSourcePlanKind(initialFuturePlan.sourcePlanKind ?? 'unknown')
+    setSeSourceBundle(initialFuturePlan.sourceBundle ?? null)
   }, [initialFuturePlan])
 
   // Escape closes when allowed.
@@ -446,6 +466,7 @@ export default function NewWorkspacePanel({
     setSePlanPath('')
     setSePlanContent(null)
     setSeSourcePlanKind('unknown')
+    setSeSourceBundle(null)
     setSePlanError(null)
     setMlError(null)
     if (!nameTouched) setName(folderName || 'workspace')
@@ -483,20 +504,30 @@ export default function NewWorkspacePanel({
     if (!sourcePath) {
       setSePlanContent(null)
       setSeSourcePlanKind('unknown')
+      setSeSourceBundle(null)
       return
     }
     const option = folderScan.result.plans.find((candidate) => candidate.path === sourcePath)
     if (!option) {
       setSePlanContent(null)
-      setSePlanError('Selected markdown file is not available.')
+      setSePlanError('Selected source file is not available.')
       return
     }
     try {
       const content = await window.api.readfile(option.path)
       const fallbackName = planBasename(option.path)
       const goal = markdownTitle(content) ?? toTitleName(fallbackName)
+      const isHtmlSource = /\.html?$/i.test(option.relativePath)
       setSePlanContent(content)
-      setSeSourcePlanKind(inferSourcePlanKind(option.relativePath, content))
+      setSeSourcePlanKind(isHtmlSource ? 'unknown' : inferSourcePlanKind(option.relativePath, content))
+      setSeSourceBundle(isHtmlSource
+        ? [{
+          kind: 'html_mockup',
+          sourcePath: option.path,
+          sourceRelativePath: option.relativePath,
+          sourceContent: content,
+        }]
+        : null)
       if (!seTeamNameTouched) setSeTeamName(slugifySprintEngineName(fallbackName))
       setSeGoal(goal)
       setSeExistingTeam(null)
@@ -616,7 +647,10 @@ export default function NewWorkspacePanel({
           setSePlanError('Pick a folder before creating from a plan.')
           return
         }
-        const option = folderScan.result.plans.find((candidate) => candidate.path === sePlanPath)
+        const bundlePrimary = seSourceBundle?.[0] ?? null
+        const option = bundlePrimary
+          ? { path: bundlePrimary.sourcePath, relativePath: bundlePrimary.sourceRelativePath }
+          : folderScan.result.plans.find((candidate) => candidate.path === sePlanPath)
         if (!option) {
           setSePlanError('Selected plan is no longer available. Pick it again on the previous step.')
           return
@@ -636,7 +670,7 @@ export default function NewWorkspacePanel({
         setIsCreating(true)
         try {
           if (!(await window.api.pathExists(option.path))) {
-            setSePlanError('Selected markdown file is not available.')
+            setSePlanError('Selected source file is not available.')
             return
           }
           await createPlanSourcedSprintEngineWorkspace({
@@ -646,6 +680,7 @@ export default function NewWorkspacePanel({
             sourcePath: option.relativePath,
             sourceContent: sePlanContent,
             sourcePlanKind: seSourcePlanKind,
+            sourceBundle: seSourceBundle ?? undefined,
             roleCounts: seRoleCounts,
             roleCliDefaults: seRoleCliDefaults,
             sprintEngineAutoState: {
@@ -913,6 +948,7 @@ export default function NewWorkspacePanel({
                   setSePlanPath('')
                   setSePlanContent(null)
                   setSeSourcePlanKind('unknown')
+                  setSeSourceBundle(null)
                 }
                 setSePlanError(null)
               }}
@@ -920,6 +956,27 @@ export default function NewWorkspacePanel({
               onSelectPlan={(p) => void handleSelectPlan(p)}
               sourcePlanKind={seSourcePlanKind}
               onChangeSourcePlanKind={setSeSourcePlanKind}
+              sourceBundle={seSourceBundle}
+              onChangeSourceBundleKind={(index, kind) => {
+                setSeSourceBundle((current) => {
+                  if (!current) return current
+                  return current.map((item, itemIndex) => itemIndex === index ? { ...item, kind } : item)
+                })
+                const item = seSourceBundle?.[index]
+                if (
+                  item?.sourcePath === sePlanPath
+                  && (kind === 'product_plan' || kind === 'architect_plan' || kind === 'unknown')
+                ) {
+                  setSeSourcePlanKind(kind)
+                }
+              }}
+              onClearSourceBundle={() => {
+                setSePlanPath('')
+                setSePlanContent(null)
+                setSeSourcePlanKind('unknown')
+                setSeSourceBundle(null)
+                setSePlanError(null)
+              }}
               planError={sePlanError}
               existingTeamSlug={seExistingTeam?.slug ?? ''}
               onSelectExistingTeam={handleSelectExistingTeam}
@@ -1325,6 +1382,9 @@ function SprintEngineTeamStep(props: {
   onSelectPlan: (sourcePath: string) => void
   sourcePlanKind: SprintEngineSourcePlanKind
   onChangeSourcePlanKind: (kind: SprintEngineSourcePlanKind) => void
+  sourceBundle: SprintEngineSourceBundleItem[] | null
+  onChangeSourceBundleKind: (index: number, kind: SprintEngineSourceBundleKind) => void
+  onClearSourceBundle: () => void
   planError: string | null
   existingTeamSlug: string
   onSelectExistingTeam: (slug: string) => void
@@ -1346,6 +1406,9 @@ function SprintEngineTeamStep(props: {
     onSelectPlan,
     sourcePlanKind,
     onChangeSourcePlanKind,
+    sourceBundle,
+    onChangeSourceBundleKind,
+    onClearSourceBundle,
     planError,
     existingTeamSlug,
     onSelectExistingTeam,
@@ -1367,6 +1430,7 @@ function SprintEngineTeamStep(props: {
   const planAvailable = planOptions.length > 0
   const teamAvailable = existingTeams.length > 0
   const planKindLabel = SOURCE_PLAN_KIND_LABELS[sourcePlanKind]
+  const hasSourceBundle = Boolean(sourceBundle?.length)
 
   return (
     <div className="flex flex-col gap-5">
@@ -1399,15 +1463,15 @@ function SprintEngineTeamStep(props: {
         <PathRadio
           checked={path === 'plan'}
           disabled={!planAvailable && !planPath}
-          label="Source from a plan"
+          label="Source from files"
           hint={
             isScanning
-              ? 'Scanning the folder for markdown plans…'
+              ? 'Scanning the folder for source files…'
               : planAvailable
-                ? `${planOptions.length} markdown plan${planOptions.length === 1 ? '' : 's'} available.`
+                ? `${planOptions.length} source file${planOptions.length === 1 ? '' : 's'} available.`
                 : !folderPath
-                  ? 'Pick a folder to detect markdown plans.'
-                  : 'No markdown plans found.'
+                  ? 'Pick a folder to detect source files.'
+                  : 'No source files found.'
           }
           onSelect={() => onChangePath('plan')}
         />
@@ -1430,19 +1494,21 @@ function SprintEngineTeamStep(props: {
 
       {path === 'plan' ? (
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-2">
-            <FieldLabel>Markdown plan</FieldLabel>
-            <Select<string>
-              ariaLabel="Markdown plan"
-              items={planOptions.map((plan) => ({ value: plan.path, label: plan.relativePath }))}
-              value={planPath || null}
-              onChange={onSelectPlan}
-              disabled={!folderPath || isScanning}
-              placeholder="Select a plan…"
-              className="w-full"
-            />
-          </div>
-          {planPath ? (
+          {!hasSourceBundle ? (
+            <div className="flex flex-col gap-2">
+              <FieldLabel>Source file</FieldLabel>
+              <Select<string>
+                ariaLabel="Source file"
+                items={planOptions.map((plan) => ({ value: plan.path, label: plan.relativePath }))}
+                value={planPath || null}
+                onChange={onSelectPlan}
+                disabled={!folderPath || isScanning}
+                placeholder="Select a source file…"
+                className="w-full"
+              />
+            </div>
+          ) : null}
+          {planPath && !hasSourceBundle ? (
             planTypeEditing ? (
               <div className="flex flex-col gap-2">
                 <FieldLabel>Plan type</FieldLabel>
@@ -1477,6 +1543,54 @@ function SprintEngineTeamStep(props: {
                 </button>
               </div>
             )
+          ) : null}
+          {hasSourceBundle ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <FieldLabel>Source bundle</FieldLabel>
+                <button
+                  type="button"
+                  onClick={onClearSourceBundle}
+                  className="
+                    rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
+                    hover:text-[color:var(--text-default)] hover:underline focus:outline-none
+                    focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                  "
+                >
+                  Clear sources
+                </button>
+              </div>
+              <div className="overflow-hidden rounded-md border border-[color:var(--border-default)]">
+                {sourceBundle?.map((item, index) => {
+                  const label = SOURCE_BUNDLE_KIND_LABELS[item.kind] ?? item.kind.replace(/_/g, ' ')
+                  return (
+                    <div
+                      key={`${item.sourceRelativePath}-${index}`}
+                      className="
+                        grid grid-cols-[minmax(0,1fr)_150px] items-center gap-3 border-b
+                        border-[color:var(--border-subtle)] px-3 py-2 last:border-b-0
+                      "
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-[12px] leading-5 text-[color:var(--text-default)]">
+                          {item.sourceRelativePath}
+                        </div>
+                        <div className="text-[11px] leading-4 text-[color:var(--text-muted)]">
+                          {label}
+                        </div>
+                      </div>
+                      <Select<SprintEngineSourceBundleKind>
+                        ariaLabel={`Source type for ${item.sourceRelativePath}`}
+                        items={SOURCE_BUNDLE_KIND_OPTIONS}
+                        value={item.kind}
+                        onChange={(value) => onChangeSourceBundleKind(index, value)}
+                        className="w-full"
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           ) : null}
         </div>
       ) : null}

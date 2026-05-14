@@ -70,6 +70,7 @@ VALID_ARTIFACT_KINDS = {
 }
 VALID_ARTIFACT_STATUSES = {"draft", "ready_for_review", "approved", "changes_requested", "superseded"}
 VALID_SOURCE_PLAN_KINDS = {"unknown", "product_plan", "architect_plan"}
+VALID_SOURCE_BUNDLE_KINDS = VALID_SOURCE_PLAN_KINDS | {"html_mockup", "design_notes", "generic_context"}
 APPROVAL_BLOCKING_ARTIFACT_STATUSES = VALID_ARTIFACT_STATUSES - {"superseded"}
 PLAN_REVIEW_ROLES = VALID_ROLES - {"architect"}
 FEEDBACK_SCHEMA_VERSION = 4
@@ -2119,24 +2120,73 @@ def source_plan_kind(state: Dict[str, Any]) -> str:
     return value if value in VALID_SOURCE_PLAN_KINDS else "unknown"
 
 
-def import_handover_to_team_file(state_path: Path, filename: str) -> bool:
-    handover_path = handover_path_for_state(state_path)
-    if not handover_path.is_file():
+def source_bundle_items(state: Dict[str, Any], kind: Optional[str] = None) -> List[Dict[str, Any]]:
+    raw = state.get("sourceBundle")
+    if not isinstance(raw, list):
+        return []
+    items = [item for item in raw if isinstance(item, dict)]
+    if kind is None:
+        return items
+    return [item for item in items if item.get("kind") == kind]
+
+
+def state_has_source_kind(state: Dict[str, Any], kind: str) -> bool:
+    if source_bundle_items(state, kind):
+        return True
+    return source_plan_kind(state) == kind
+
+
+def source_path_for_kind(state: Dict[str, Any], state_path: Path, kind: str) -> Path:
+    bundle_item = next(iter(source_bundle_items(state, kind)), None)
+    if bundle_item:
+        item_path = str(bundle_item.get("path") or "").strip()
+        if item_path:
+            return artifact_absolute_path(state_path, item_path)
+    return handover_path_for_state(state_path)
+
+
+def import_source_to_team_file(state: Dict[str, Any], state_path: Path, kind: str, filename: str) -> bool:
+    source_path = source_path_for_kind(state, state_path, kind)
+    if not source_path.is_file():
         return False
     destination = state_path.parent / filename
     if destination.exists():
         return False
-    destination.write_text(handover_path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+    destination.write_text(source_path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
     return True
 
 
 def refresh_artifact_fingerprint(artifact: Dict[str, Any], state_path: Path) -> None:
+    if artifact.get("status") == "approved":
+        return
     absolute_path = artifact_absolute_path(state_path, str(artifact.get("path", "")))
     fingerprint = file_fingerprint(absolute_path)
     if artifact.get("fingerprint") == fingerprint:
         return
     artifact["fingerprint"] = fingerprint
     artifact["updatedAt"] = now_iso()
+
+
+def source_bundle_reference_notes(state: Dict[str, Any]) -> List[str]:
+    notes: List[str] = []
+    for item in source_bundle_items(state):
+        kind = str(item.get("kind") or "").strip()
+        path = str(item.get("path") or "").strip()
+        if not path:
+            continue
+        if kind == "html_mockup":
+            notes.append(
+                f"Use source mockup `{path}` as the primary UI reference for relevant frontend/UI tasks. "
+                "Put this path in those tasks' implementationNotes, not ownedPaths, unless the mockup itself must be edited."
+            )
+        elif kind == "design_notes":
+            notes.append(
+                f"Use design notes `{path}` as reference for relevant UI/frontend tasks. "
+                "Put this path in those tasks' implementationNotes, not ownedPaths, unless the notes themselves must be edited."
+            )
+        elif kind in {"generic_context", "unknown"}:
+            notes.append(f"Review source context `{path}` before creating affected task cards.")
+    return notes
 
 
 def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
@@ -2265,7 +2315,6 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
         product_artifact.setdefault("reviewHistory", [])
         product_artifact.setdefault("recommendedTasks", [])
         product_artifact.setdefault("createdAt", now_iso())
-        product_artifact["updatedAt"] = now_iso()
 
     return {"task": product_task, "artifact": product_artifact}
 
@@ -2353,7 +2402,6 @@ def ensure_plan_approval_gate(
         plan_artifact.setdefault("reviewHistory", [])
         plan_artifact.setdefault("recommendedTasks", [])
         plan_artifact.setdefault("createdAt", now_iso())
-        plan_artifact["updatedAt"] = now_iso()
 
     return {"task": plan_task, "artifact": plan_artifact}
 
@@ -2380,9 +2428,37 @@ def handover_path_for_state(state_path: Path) -> Path:
     return state_path.parent / "handover.md"
 
 
+def sources_dir_for_state(state_path: Path) -> Path:
+    return state_path.parent / "sources"
+
+
 def safe_review_filename(agent_id: str) -> str:
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", agent_id.strip()).strip(".-")
     return f"{name or 'agent'}.md"
+
+
+def safe_source_filename(path: Path, used: set[str]) -> str:
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", path.name.strip()).strip(".-") or "source"
+    candidate = name
+    stem = Path(name).stem or "source"
+    suffix = Path(name).suffix
+    index = 2
+    while candidate in used:
+        candidate = f"{stem}-{index}{suffix}"
+        index += 1
+    used.add(candidate)
+    return candidate
+
+
+def parse_source_bundle_arg(value: str) -> Dict[str, str]:
+    kind, separator, raw_path = value.partition(":")
+    kind = kind.strip()
+    raw_path = raw_path.strip()
+    if not separator or not kind or not raw_path:
+        raise SystemExit("--source must use kind:path, for example product_plan:future-plans/product.md")
+    if kind not in VALID_SOURCE_BUNDLE_KINDS:
+        raise SystemExit(f"--source kind must be one of: {', '.join(sorted(VALID_SOURCE_BUNDLE_KINDS))}.")
+    return {"kind": kind, "path": raw_path}
 
 
 def plan_fingerprint(plan_path: Path) -> str:
@@ -2687,6 +2763,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
 
     handover_text = ""
     source_metadata: Optional[Dict[str, Any]] = None
+    source_bundle: List[Dict[str, Any]] = []
     captured_at = now_iso()
     if args.handover:
         source_path = args.handover.resolve()
@@ -2722,6 +2799,26 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
         handover_path.write_text(handover_text.rstrip() + "\n", encoding="utf-8")
         wrote_handover = True
 
+    source_specs = [parse_source_bundle_arg(value) for value in getattr(args, "source", [])]
+    if source_specs:
+        source_dir = sources_dir_for_state(state_path)
+        source_dir.mkdir(parents=True, exist_ok=True)
+        used_names: set[str] = set()
+        for spec in source_specs:
+            original_path = Path(spec["path"]).expanduser().resolve()
+            if not original_path.is_file():
+                raise SystemExit(f"Source file not found: {original_path}")
+            filename = safe_source_filename(original_path, used_names)
+            copied_path = source_dir / filename
+            copied_path.write_bytes(original_path.read_bytes())
+            source_bundle.append({
+                "kind": spec["kind"],
+                "origin": "file",
+                "path": project_relative_display_path(state_path, copied_path),
+                "originalPath": project_relative_display_path(state_path, original_path),
+                "capturedAt": captured_at,
+            })
+
     initial: Dict[str, Any] = {
         "sprintengine": {
             "name": team_slug,
@@ -2746,6 +2843,8 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
     if source_metadata and handover_text.strip():
         source_metadata["planKind"] = args.source_plan_kind
         initial["source"] = source_metadata
+    if source_bundle:
+        initial["sourceBundle"] = source_bundle
     if wrote_handover:
         source_artifact = {
             "id": next_artifact_id(initial["artifacts"]),
@@ -2823,42 +2922,48 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             sprintengine["name"] = default_name
         if getattr(args, "goal", None) and not sprintengine.get("goal"):
             sprintengine["goal"] = args.goal
-        plan_kind = source_plan_kind(state)
+        has_product_plan_source = state_has_source_kind(state, "product_plan")
+        has_architect_plan_source = state_has_source_kind(state, "architect_plan")
         legacy_plan_gate = find_architect_plan_gate(state, state_path)
         if legacy_plan_gate["task"] and not any(
             isinstance(task, dict) and task.get("role") == "product"
             for task in state.get("tasks", [])
         ):
             plan_gate = ensure_plan_approval_gate(state, state_path, "sprintengine", start_active=False)
+            refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
             recompute_phase(state)
             return {"ok": True, "planGate": plan_gate}
 
         roles = roster_roles(state)
         has_product_reviewer = not roster_is_configured(state) or "product" in roles
-        should_create_product_gate = plan_kind != "architect_plan" and has_product_reviewer
+        should_create_product_gate = has_product_reviewer and (has_product_plan_source or not has_architect_plan_source)
         product_gate = (
             ensure_product_intake_gate(state, state_path, "sprintengine")
             if should_create_product_gate
             else None
         )
         product_task = product_gate["task"] if product_gate else None
-        if plan_kind == "product_plan" and product_gate:
-            import_handover_to_team_file(state_path, "product-requirements.md")
-            product_task["title"] = "Review imported product plan"
-            product_task["description"] = (
-                "Review the imported product plan against the current repository and user intent. "
-                "Update stale or incomplete details in product-requirements.md, then mark the product requirements artifact ready for user approval."
-            )
-            product_task["acceptanceCriteria"] = [
-                "Imported product plan is reviewed against current project context.",
-                "Stale, missing, or incorrect requirements are updated in product-requirements.md.",
-                "Product requirements artifact is marked ready for user approval after review.",
-                "Do not recreate the product plan from scratch when the imported plan is still valid.",
-            ]
-            product_task["implementationNotes"] = [
-                f"Imported source plan is seeded at `{product_intake_path_artifact_value(state_path)}` if that file did not already exist.",
-                "Preserve existing product-requirements.md edits on repeated init runs.",
-            ]
+        if product_task:
+            add_unique_values(product_task, "implementationNotes", source_bundle_reference_notes(state))
+        if has_product_plan_source and product_gate:
+            seeded_product = import_source_to_team_file(state, state_path, "product_plan", "product-requirements.md")
+            if seeded_product:
+                product_task["title"] = "Review imported product plan"
+                product_task["description"] = (
+                    "Review the imported product plan against the current repository and user intent. "
+                    "Update stale or incomplete details in product-requirements.md, then mark the product requirements artifact ready for user approval."
+                )
+                product_task["acceptanceCriteria"] = [
+                    "Imported product plan is reviewed against current project context.",
+                    "Stale, missing, or incorrect requirements are updated in product-requirements.md.",
+                    "Product requirements artifact is marked ready for user approval after review.",
+                    "Do not recreate the product plan from scratch when the imported plan is still valid.",
+                ]
+                product_task["implementationNotes"] = [
+                    f"Imported source plan is seeded at `{product_intake_path_artifact_value(state_path)}` if that file did not already exist.",
+                    "Preserve existing product-requirements.md edits on repeated init runs.",
+                    *source_bundle_reference_notes(state),
+                ]
             refresh_artifact_fingerprint(product_gate["artifact"], state_path)
         plan_gate = ensure_plan_approval_gate(
             state,
@@ -2867,8 +2972,8 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             depends_on=str(product_task.get("id")) if product_task else None,
             start_active=False,
         )
-        if plan_kind == "product_plan" and not product_gate:
-            import_handover_to_team_file(state_path, "product-requirements.md")
+        if has_product_plan_source and not product_gate:
+            import_source_to_team_file(state, state_path, "product_plan", "product-requirements.md")
             plan_task = plan_gate["task"]
             add_unique_values(plan_task, "ownedPaths", [product_intake_path_artifact_value(state_path)])
             add_unique_values(plan_task, "implementationNotes", [
@@ -2876,25 +2981,30 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "No product reviewer is rostered; review the imported product plan for stale requirements before writing the implementation plan.",
                 "Preserve existing product-requirements.md edits on repeated init runs.",
             ])
-        if plan_kind == "architect_plan":
-            import_handover_to_team_file(state_path, "plan.md")
+        plan_task = plan_gate["task"]
+        add_unique_values(plan_task, "implementationNotes", source_bundle_reference_notes(state))
+        if has_architect_plan_source:
+            seeded_plan = import_source_to_team_file(state, state_path, "architect_plan", "plan.md")
             plan_task = plan_gate["task"]
-            plan_task["title"] = "Review imported implementation plan and create task graph"
-            plan_task["description"] = (
-                f"Review the imported implementation plan at {plan_path_artifact_value(state_path)} against the current codebase. "
-                "Update stale or incomplete details, then create or repair task cards, dependencies, acceptance criteria, and review gates from it."
-            )
-            plan_task["acceptanceCriteria"] = [
-                "Imported implementation plan is reviewed against the current repository before task creation.",
-                "Stale, missing, or incorrect plan details are updated in plan.md.",
-                "Implementation, validation, and required review tasks are created with Sprint Engine plan commands.",
-                "Task cards include real integration contracts and verification checks from the reviewed plan.",
-            ]
-            plan_task["implementationNotes"] = [
-                f"Imported source plan is seeded at `{plan_path_artifact_value(state_path)}` if that file did not already exist.",
-                "Preserve existing plan.md edits on repeated init runs.",
-                "Review and update only stale or missing parts; do not rewrite valid plan content just because it was imported.",
-            ]
+            if seeded_plan:
+                plan_task["title"] = "Review imported implementation plan and create task graph"
+                plan_task["description"] = (
+                    f"Review the imported implementation plan at {plan_path_artifact_value(state_path)} against the current codebase. "
+                    "Update stale or incomplete details, then create or repair task cards, dependencies, acceptance criteria, and review gates from it."
+                )
+                plan_task["acceptanceCriteria"] = [
+                    "Imported implementation plan is reviewed against the current repository before task creation.",
+                    "Stale, missing, or incorrect plan details are updated in plan.md.",
+                    "Architect plan artifact is marked ready for user approval after review.",
+                    "Implementation, validation, and required review tasks are created with Sprint Engine plan commands.",
+                    "Task cards include real integration contracts and verification checks from the reviewed plan.",
+                ]
+                plan_task["implementationNotes"] = [
+                    f"Imported source plan is seeded at `{plan_path_artifact_value(state_path)}` if that file did not already exist.",
+                    "Preserve existing plan.md edits on repeated init runs.",
+                    "Review and update only stale or missing parts; do not rewrite valid plan content just because it was imported.",
+                    *source_bundle_reference_notes(state),
+                ]
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
         recompute_phase(state)
         return {
@@ -4011,6 +4121,12 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
     handover.add_argument("--handover", type=Path, help="Path to markdown handover context to copy into handover.md.")
     handover.add_argument("--handover-text", help="Inline handover context to write to handover.md.")
     handover.add_argument("--handover-stdin", action="store_true", help="Read markdown handover context from stdin.")
+    p.add_argument(
+        "--source",
+        action="append",
+        default=[],
+        help="Additional source bundle item as kind:path. Repeat for product_plan, architect_plan, html_mockup, design_notes, or generic_context.",
+    )
     p.add_argument(
         "--source-plan-kind",
         default="unknown",

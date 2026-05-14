@@ -4,6 +4,7 @@ import type {
   SprintEngineRoleCounts,
   SprintEngineAutoState,
   SprintEngineRoleCliDefaults,
+  SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
   SprintEngineWorkspaceContext,
   WorkspaceId,
@@ -39,6 +40,7 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   sourcePath: string
   sourceContent: string
   sourcePlanKind?: SprintEngineSourcePlanKind
+  sourceBundle?: SprintEngineSourceBundleItem[]
   roleCounts?: SprintEngineRoleCounts
   roleCliDefaults?: SprintEngineRoleCliDefaults
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
@@ -89,6 +91,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   sourcePath,
   sourceContent,
   sourcePlanKind = 'unknown',
+  sourceBundle,
   roleCounts = planSourcedSprintEngineRoleCounts,
   roleCliDefaults,
   sprintEngineAutoState,
@@ -137,6 +140,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     sourcePath: trimmedSourcePath,
     sourceContent,
     sourcePlanKind,
+    sourceBundle,
     statePath: sprintEngineContext.statePath,
     rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
   })

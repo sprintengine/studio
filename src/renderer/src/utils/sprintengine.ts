@@ -1059,6 +1059,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     goal: input.goal ?? '',
     rosterConfigured: Boolean(input.rosterConfigured),
     ...(input.source ? { source: input.source } : {}),
+    ...(input.sourceBundle ? { sourceBundle: input.sourceBundle } : {}),
     updatedAt: input.updatedAt ?? null,
     roleCounts,
     sprintEngineAgents: input.sprintEngineAgents && Object.keys(input.sprintEngineAgents).length > 0

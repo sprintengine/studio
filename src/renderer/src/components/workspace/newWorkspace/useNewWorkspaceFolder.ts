@@ -67,7 +67,7 @@ async function scanExistingTeams(folderPath: string): Promise<ExistingTeam[]> {
   return teams
 }
 
-async function scanMarkdownPlans(folderPath: string): Promise<MarkdownPlanOption[]> {
+async function scanSourceFiles(folderPath: string): Promise<MarkdownPlanOption[]> {
   const options: MarkdownPlanOption[] = []
   const queue = [folderPath]
 
@@ -83,7 +83,7 @@ async function scanMarkdownPlans(folderPath: string): Promise<MarkdownPlanOption
         continue
       }
 
-      if (!/\.md$/i.test(entry.name)) continue
+      if (!/\.(md|html?)$/i.test(entry.name)) continue
       const relativePath = workspaceRelativePath(folderPath, entryPath)
       if (relativePath) options.push({ path: entryPath, relativePath })
       if (options.length >= MAX_PLAN_FILES) break
@@ -96,7 +96,7 @@ async function scanMarkdownPlans(folderPath: string): Promise<MarkdownPlanOption
 export async function scanFolder(folderPath: string): Promise<FolderScanResult> {
   const [teams, plans] = await Promise.all([
     scanExistingTeams(folderPath),
-    scanMarkdownPlans(folderPath),
+    scanSourceFiles(folderPath),
   ])
   return { teams, plans }
 }

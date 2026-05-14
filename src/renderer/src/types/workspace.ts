@@ -513,6 +513,7 @@ export type FuturePlanWorkspaceSource = {
   sourceRelativePath: string
   sourceContent: string
   sourcePlanKind: SprintEngineSourcePlanKind
+  sourceBundle?: SprintEngineSourceBundleItem[]
   teamName: string
   goal: string
 }
@@ -522,10 +523,31 @@ export type SprintEngineSourcePlanKind =
   | 'product_plan'
   | 'architect_plan'
 
+export type SprintEngineSourceBundleKind =
+  | SprintEngineSourcePlanKind
+  | 'html_mockup'
+  | 'design_notes'
+  | 'generic_context'
+
+export type SprintEngineSourceBundleItem = {
+  kind: SprintEngineSourceBundleKind
+  sourcePath: string
+  sourceRelativePath: string
+  sourceContent: string
+}
+
 export type SprintEngineSource = {
   kind: 'markdown' | string
   origin: 'file' | 'stdin' | 'inline' | string
   planKind?: SprintEngineSourcePlanKind | string
+  path: string
+  originalPath?: string
+  capturedAt?: string
+}
+
+export type SprintEngineSourceBundleStateItem = {
+  kind: SprintEngineSourceBundleKind | string
+  origin: 'file' | 'stdin' | 'inline' | string
   path: string
   originalPath?: string
   capturedAt?: string
@@ -559,6 +581,7 @@ export type SprintEngineState = {
   goal: string
   rosterConfigured?: boolean
   source?: SprintEngineSource
+  sourceBundle?: SprintEngineSourceBundleStateItem[]
   updatedAt?: string | null
   roleCounts: SprintEngineRoleCounts
   sprintEngineAgents: Record<string, SprintEngineRuntimeAgent>

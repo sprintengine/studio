@@ -788,6 +788,15 @@ function testSprintEngineParsingRegression() {
       goal: 'Keep Sprint Engine workspace parsing stable.',
       updatedAt: '2026-05-02T15:00:00Z',
     },
+    sourceBundle: [
+      {
+        kind: 'html_mockup',
+        origin: 'file',
+        path: '.multi-code/sprintengine/regression/sources/mockup.html',
+        originalPath: 'future-plans/mockup.html',
+        capturedAt: '2026-05-02T14:59:00Z',
+      },
+    ],
     agents: {
       architect: { role: 'architect', status: 'idle', currentTaskId: null },
       tester: { role: 'tester', status: 'running', currentTaskId: 'T1' },
@@ -819,6 +828,8 @@ function testSprintEngineParsingRegression() {
   assert.equal(state.roleCounts.tester, 1)
   assert.equal(state.tasks[0].status, 'in_progress')
   assert.equal(state.sprintEngineAgents.tester.currentTaskId, 'T1')
+  assert.equal(state.sourceBundle?.[0]?.kind, 'html_mockup')
+  assert.equal(state.sourceBundle?.[0]?.path, '.multi-code/sprintengine/regression/sources/mockup.html')
 }
 
 async function testMultiloopWorkspaceCreationOpensParsedState() {
@@ -983,9 +994,113 @@ async function testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeA
   assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('multiloop'), false)
 }
 
+async function testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle() {
+  const beforeIds = new Set(useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id))
+  const result = await createPlanSourcedSprintEngineWorkspace({
+    rootPath: 'C:\\repo',
+    teamName: 'HTML Mockups',
+    goal: 'Create UI tasks from approved mockups.',
+    sourcePath: 'future-plans/mockup.html',
+    sourceContent: '<!doctype html><title>Mockup</title>',
+    sourcePlanKind: 'unknown',
+    sourceBundle: [
+      {
+        kind: 'html_mockup',
+        sourcePath: 'C:\\repo\\future-plans\\mockup.html',
+        sourceRelativePath: 'future-plans/mockup.html',
+        sourceContent: '<!doctype html><title>Mockup</title>',
+      },
+    ],
+    pathExists: async (path) => {
+      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\html-mockups\\state.yaml')
+      return false
+    },
+  })
+  const createdWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => !beforeIds.has(workspace.id))
+  const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
+
+  assert.ok(createdWorkspace)
+  assert.equal(prompt.includes('--source "html_mockup:C:\\repo\\future-plans\\mockup.html"'), true)
+  assert.equal(prompt.includes('Source bundle type: HTML mockup.'), true)
+  assert.equal(prompt.includes('Source plan type: generic handoff.'), false)
+  assert.equal(prompt.includes('--handover "future-plans/mockup.html"'), false)
+}
+
+async function testSprintEngineWorkspaceCreationGuidesSingleContextBundle() {
+  const beforeIds = new Set(useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id))
+  const result = await createPlanSourcedSprintEngineWorkspace({
+    rootPath: 'C:\\repo',
+    teamName: 'Context Source',
+    goal: 'Clarify context before planning.',
+    sourcePath: 'future-plans/context.html',
+    sourceContent: '<!doctype html><title>Context</title>',
+    sourcePlanKind: 'unknown',
+    sourceBundle: [
+      {
+        kind: 'generic_context',
+        sourcePath: 'C:\\repo\\future-plans\\context.html',
+        sourceRelativePath: 'future-plans/context.html',
+        sourceContent: '<!doctype html><title>Context</title>',
+      },
+    ],
+    pathExists: async (path) => {
+      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\context-source\\state.yaml')
+      return false
+    },
+  })
+  const createdWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => !beforeIds.has(workspace.id))
+  const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
+
+  assert.ok(createdWorkspace)
+  assert.equal(prompt.includes('--source "generic_context:C:\\repo\\future-plans\\context.html"'), true)
+  assert.equal(prompt.includes('Source bundle type: context.'), true)
+  assert.equal(prompt.includes('Source bundle type: mixed sources.'), false)
+  assert.equal(prompt.includes('copy the selected source file(s) into the team sources directory'), true)
+  assert.equal(prompt.includes('copy the selected markdown file into the team handover'), false)
+}
+
+async function testSprintEngineWorkspaceCreationGuidesMixedContextBundle() {
+  const beforeIds = new Set(useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id))
+  const result = await createPlanSourcedSprintEngineWorkspace({
+    rootPath: 'C:\\repo',
+    teamName: 'Mockup Context',
+    goal: 'Plan from mockup and design context.',
+    sourcePath: 'future-plans/mockup.html',
+    sourceContent: '<!doctype html><title>Mockup</title>',
+    sourcePlanKind: 'unknown',
+    sourceBundle: [
+      {
+        kind: 'html_mockup',
+        sourcePath: 'C:\\repo\\future-plans\\mockup.html',
+        sourceRelativePath: 'future-plans/mockup.html',
+        sourceContent: '<!doctype html><title>Mockup</title>',
+      },
+      {
+        kind: 'design_notes',
+        sourcePath: 'C:\\repo\\future-plans\\design.md',
+        sourceRelativePath: 'future-plans/design.md',
+        sourceContent: '# Design Notes',
+      },
+    ],
+    pathExists: async (path) => {
+      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\mockup-context\\state.yaml')
+      return false
+    },
+  })
+  const createdWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => !beforeIds.has(workspace.id))
+  const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
+
+  assert.ok(createdWorkspace)
+  assert.equal(prompt.includes('Source bundle type: mixed context sources.'), true)
+  assert.equal(prompt.includes('seed canonical files from product and implementation plan sources'), false)
+}
+
 function testSourcePlanKindInferencePrefersSpecificProductSignals() {
   assert.equal(inferSourcePlanKind('future-plans/product-plan.md', '# Roadmap\n'), 'product_plan')
   assert.equal(inferSourcePlanKind('future-plans/implementation-plan.md', '# Roadmap\n'), 'architect_plan')
+  assert.equal(inferSourcePlanKind('future-plans/tech-spec.md', '# Roadmap\n'), 'architect_plan')
+  assert.equal(inferSourcePlanKind('future-plans/architecture-spec.md', '# Roadmap\n'), 'architect_plan')
+  assert.equal(inferSourcePlanKind('future-plans/product-spec.md', '# Roadmap\n'), 'product_plan')
   assert.equal(inferSourcePlanKind('future-plans/plan.md', '# Roadmap\n'), 'unknown')
   assert.equal(inferSourcePlanKind('future-plans/brief.md', '# Implementation Plan\n'), 'product_plan')
 }
@@ -1015,4 +1130,7 @@ void (async () => {
   await testMultiloopWorkspaceCreationRejectsInvalidInputBeforeIpc()
   await testMultiloopWorkspaceCreationSurfacesExistingStateFailure()
   await testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeAndPrompt()
+  await testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle()
+  await testSprintEngineWorkspaceCreationGuidesSingleContextBundle()
+  await testSprintEngineWorkspaceCreationGuidesMixedContextBundle()
 })()

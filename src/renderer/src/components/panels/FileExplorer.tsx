@@ -8,7 +8,8 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
-import type { FuturePlanWorkspaceSource, SprintEngineSourcePlanKind } from '../../types/workspace'
+import { inferSourcePlanKind } from '../workspace/newWorkspace/helpers'
+import type { FuturePlanWorkspaceSource, SprintEngineSourceBundleItem, SprintEngineSourcePlanKind } from '../../types/workspace'
 
 const EMPTY_SEARCH_EXCLUDES: string[] = []
 
@@ -401,8 +402,21 @@ function markdownSourceRelativePath(rootPath: string, entry: Entry): string | nu
   return relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
 }
 
+function sourceBundleRelativePath(rootPath: string, entry: Entry): string | null {
+  if (entry.isDir || entry.gitDeleted || !/\.(md|html?)$/i.test(entry.name)) return null
+
+  const relativePath = workspaceRelativePath(rootPath, entry.path)
+  if (!relativePath) return null
+
+  return relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+}
+
 function isHtmlFile(entry: Entry): boolean {
   return !entry.isDir && !entry.gitDeleted && /\.html?$/i.test(entry.name)
+}
+
+function isSourceBundleFile(rootPath: string, entry: Entry): boolean {
+  return Boolean(sourceBundleRelativePath(rootPath, entry))
 }
 
 function titleCasePlanName(value: string): string {
@@ -1011,6 +1025,43 @@ function ExplorerTree({
     }
   }
 
+  const startFuturePlanBundle = async (entries: Entry[]) => {
+    if (!onStartFuturePlan) return
+    const sourceEntries = entries.filter((candidate) => isSourceBundleFile(rootPath, candidate))
+    if (sourceEntries.length === 0) return
+
+    try {
+      const sourceBundle: SprintEngineSourceBundleItem[] = await Promise.all(sourceEntries.map(async (sourceEntry) => {
+        const sourceContent = await window.api.readfile(sourceEntry.path)
+        const sourceRelativePath = sourceBundleRelativePath(rootPath, sourceEntry)
+        if (!sourceRelativePath) throw new Error(`Unsupported source file: ${sourceEntry.name}`)
+        return {
+          kind: isHtmlFile(sourceEntry) ? 'html_mockup' : inferSourcePlanKind(sourceRelativePath, sourceContent),
+          sourcePath: sourceEntry.path,
+          sourceRelativePath,
+          sourceContent,
+        }
+      }))
+      const primary = sourceBundle.find((item) => item.kind === 'architect_plan')
+        ?? sourceBundle.find((item) => item.kind === 'product_plan')
+        ?? sourceBundle[0]
+      const basename = planBasename(primary.sourceRelativePath.split('/').pop() ?? 'source-bundle')
+      const firstMarkdown = sourceBundle.find((item) => /\.md$/i.test(item.sourceRelativePath))
+      onStartFuturePlan({
+        folderPath: rootPath,
+        sourcePath: primary.sourcePath,
+        sourceRelativePath: primary.sourceRelativePath,
+        sourceContent: primary.sourceContent,
+        sourcePlanKind: primary.kind === 'product_plan' || primary.kind === 'architect_plan' ? primary.kind : 'unknown',
+        sourceBundle,
+        teamName: slugifySprintEngineName(basename),
+        goal: (firstMarkdown ? markdownTitle(firstMarkdown.sourceContent) : null) ?? titleCasePlanName(basename),
+      })
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not read the selected source files.')
+    }
+  }
+
   const handleDragStart = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
     if (entry.gitDeleted) {
       event.preventDefault()
@@ -1044,6 +1095,11 @@ function ExplorerTree({
     const canStartFuturePlan = Boolean(
       isSingleSelection && entry && canUsePathCommands && markdownSourceRelativePath(rootPath, entry)
     )
+    const canStartFuturePlanBundle = Boolean(
+      canUsePathCommands
+      && contextSelection.every((selectedEntry) => isSourceBundleFile(rootPath, selectedEntry))
+      && (contextSelection.length > 1 || (isSingleSelection && entry && isHtmlFile(entry)))
+    )
     const deleteLabel = contextSelection.length > 1
       ? canDeletePath
         ? `Delete ${contextSelection.length} Items`
@@ -1059,13 +1115,14 @@ function ExplorerTree({
         ? [{
           label: 'Start Sprint Engine From',
           submenu: [
-            { id: 'create-markdown-sprintengine-product', label: 'Product Plan' },
-            { id: 'create-markdown-sprintengine-architect', label: 'Implementation Plan' },
+            { id: 'create-markdown-sprintengine-product', label: 'Product Plan...' },
+            { id: 'create-markdown-sprintengine-architect', label: 'Implementation Plan...' },
             { type: 'separator' as const },
-            { id: 'create-markdown-sprintengine-generic', label: 'Generic Handoff' },
+            { id: 'create-markdown-sprintengine-generic', label: 'Generic Handoff...' },
           ],
         }]
         : []),
+      ...(canStartFuturePlanBundle ? [{ id: 'create-source-bundle-sprintengine', label: `Start Sprint Engine From ${contextSelection.length === 1 ? 'Source' : `${contextSelection.length} Sources`}...` }] : []),
       ...(isSingleSelection && entry?.isDir && !isSearching && canUsePathCommands
         ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
         : []),
@@ -1102,6 +1159,7 @@ function ExplorerTree({
     if (command === 'create-markdown-sprintengine-product' && entry) return void startFuturePlan(entry, 'product_plan')
     if (command === 'create-markdown-sprintengine-architect' && entry) return void startFuturePlan(entry, 'architect_plan')
     if (command === 'create-markdown-sprintengine-generic' && entry) return void startFuturePlan(entry, 'unknown')
+    if (command === 'create-source-bundle-sprintengine') return void startFuturePlanBundle(contextSelection)
     if (command === 'expand' && entry?.isDir) {
       if (!expandedPaths[entry.path]) {
         await ensureDirectoryLoaded(entry.path)

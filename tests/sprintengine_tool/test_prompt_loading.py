@@ -8,6 +8,7 @@ import pytest
 
 import helpers as swarm_helpers
 from fixtures import SwarmCli, assert_prompt_includes, create_team, read_state, task
+from helpers import write_state
 
 
 @pytest.fixture(autouse=True)
@@ -353,6 +354,117 @@ def test_product_plan_handover_seeds_reviewable_product_requirements(tmp_path) -
     assert payload["planTask"]["status"] == "todo"
 
 
+def test_source_bundle_handover_seeds_product_and_architect_sources(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "source-bundle" / "state.yaml"
+    product_path = tmp_path / "future-plans" / "product.md"
+    architect_path = tmp_path / "future-plans" / "implementation.md"
+    mockup_path = tmp_path / "future-plans" / "mockup.html"
+    product_path.parent.mkdir(parents=True)
+    product_path.write_text("# Product Plan\n\nRequirements.\n", encoding="utf-8")
+    architect_path.write_text("# Implementation Plan\n\nArchitecture.\n", encoding="utf-8")
+    mockup_path.write_text("<!doctype html><title>Mockup</title>\n", encoding="utf-8")
+    cli = SwarmCli(state_path)
+
+    cli.run(
+        "handover",
+        "--name",
+        "Source Bundle",
+        "--goal",
+        "Build from source bundle",
+        "--source",
+        f"product_plan:{product_path}",
+        "--source",
+        f"architect_plan:{architect_path}",
+        "--source",
+        f"html_mockup:{mockup_path}",
+    )
+    payload = cli.run("init", "--goal", "Build from source bundle")
+    state = read_state(state_path)
+
+    assert [item["kind"] for item in state["sourceBundle"]] == ["product_plan", "architect_plan", "html_mockup"]
+    assert (state_path.parent / "product-requirements.md").read_text(encoding="utf-8") == "# Product Plan\n\nRequirements.\n"
+    assert (state_path.parent / "plan.md").read_text(encoding="utf-8") == "# Implementation Plan\n\nArchitecture.\n"
+    assert payload["productTask"]["title"] == "Review imported product plan"
+    assert payload["planTask"]["title"] == "Review imported implementation plan and create task graph"
+    assert payload["planTask"]["dependsOn"] == [payload["productTask"]["id"]]
+    assert "Architect plan artifact is marked ready for user approval after review." in payload["planTask"]["acceptanceCriteria"]
+    assert [artifact for artifact in state["artifacts"] if artifact["taskId"] == ""] == []
+    assert any("mockup.html" in note and "implementationNotes" in note for note in payload["productTask"]["implementationNotes"])
+    assert any("mockup.html" in note and "implementationNotes" in note for note in payload["planTask"]["implementationNotes"])
+
+
+def test_html_only_source_bundle_routes_mockup_context_to_review_tasks(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "html-only-source" / "state.yaml"
+    mockup_path = tmp_path / "future-plans" / "mockup.html"
+    mockup_path.parent.mkdir(parents=True)
+    mockup_path.write_text("<!doctype html><title>Mockup</title>\n", encoding="utf-8")
+    cli = SwarmCli(state_path)
+
+    cli.run(
+        "handover",
+        "--name",
+        "HTML Only Source",
+        "--goal",
+        "Plan from a mockup",
+        "--source",
+        f"html_mockup:{mockup_path}",
+    )
+    payload = cli.run("init", "--goal", "Plan from a mockup")
+    state = read_state(state_path)
+
+    assert [item["kind"] for item in state["sourceBundle"]] == ["html_mockup"]
+    assert payload["productTask"]["title"] == "Define product requirements"
+    assert payload["planTask"]["dependsOn"] == [payload["productTask"]["id"]]
+    assert any("mockup.html" in note and "implementationNotes" in note for note in payload["productTask"]["implementationNotes"])
+    assert any("mockup.html" in note and "implementationNotes" in note for note in payload["planTask"]["implementationNotes"])
+
+
+def test_html_source_can_be_classified_as_architect_plan(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "html-architect-plan" / "state.yaml"
+    html_plan_path = tmp_path / "future-plans" / "implementation.html"
+    html_plan_path.parent.mkdir(parents=True)
+    html_plan_path.write_text("<!doctype html><title>Implementation Plan</title><main>Tasks</main>\n", encoding="utf-8")
+    cli = SwarmCli(state_path)
+
+    cli.run(
+        "handover",
+        "--name",
+        "HTML Architect Plan",
+        "--goal",
+        "Plan from an HTML implementation document",
+        "--source",
+        f"architect_plan:{html_plan_path}",
+    )
+    payload = cli.run("init", "--goal", "Plan from an HTML implementation document")
+
+    assert payload["productTask"] is None
+    assert payload["planTask"]["title"] == "Review imported implementation plan and create task graph"
+    assert "Architect plan artifact is marked ready for user approval after review." in payload["planTask"]["acceptanceCriteria"]
+    assert (state_path.parent / "plan.md").read_text(encoding="utf-8") == "<!doctype html><title>Implementation Plan</title><main>Tasks</main>\n"
+
+
+def test_unknown_source_bundle_routes_context_to_review_tasks(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "unknown-source" / "state.yaml"
+    context_path = tmp_path / "future-plans" / "source.html"
+    context_path.parent.mkdir(parents=True)
+    context_path.write_text("<!doctype html><title>Context</title>\n", encoding="utf-8")
+    cli = SwarmCli(state_path)
+
+    cli.run(
+        "handover",
+        "--name",
+        "Unknown Source",
+        "--goal",
+        "Plan from generic context",
+        "--source",
+        f"unknown:{context_path}",
+    )
+    payload = cli.run("init", "--goal", "Plan from generic context")
+
+    assert any("source.html" in note for note in payload["productTask"]["implementationNotes"])
+    assert any("source.html" in note for note in payload["planTask"]["implementationNotes"])
+
+
 def test_product_plan_without_product_reviewer_seeds_architect_review_input(tmp_path) -> None:
     state_path = tmp_path / ".multi-code" / "sprintengine" / "product-plan-no-product" / "state.yaml"
     cli = SwarmCli(state_path)
@@ -420,6 +532,7 @@ def test_architect_plan_handover_skips_product_gate_even_when_product_rostered(t
     assert payload["planTask"]["title"] == "Review imported implementation plan and create task graph"
     assert payload["planTask"]["status"] == "todo"
     assert payload["planTask"]["dependsOn"] == []
+    assert "Architect plan artifact is marked ready for user approval after review." in payload["planTask"]["acceptanceCriteria"]
     assert plan_artifact["status"] == "draft"
     assert plan_artifact["path"] == "plan.md"
 
@@ -447,7 +560,8 @@ def test_typed_handover_init_preserves_reviewed_file_edits(tmp_path) -> None:
     first_state = read_state(state_path)
     plan_artifact = next(artifact for artifact in first_state["artifacts"] if artifact["kind"] == "architect_plan")
     initial_history_count = len(plan_artifact["reviewHistory"])
-    initial_updated_at = plan_artifact["updatedAt"]
+    first_state["tasks"][0]["description"] = "Architect refined this task after reviewing the imported plan."
+    write_state(state_path, first_state)
 
     cli.run("init", "--goal", "Build from implementation plan", "--agent", "architect:architect")
     second_state = read_state(state_path)
@@ -455,7 +569,12 @@ def test_typed_handover_init_preserves_reviewed_file_edits(tmp_path) -> None:
 
     assert plan_path.read_text(encoding="utf-8") == "# Reviewed Plan\n\nCurrent code changed this.\n"
     assert len(second_artifact["reviewHistory"]) == initial_history_count
-    assert second_artifact["updatedAt"] == initial_updated_at
+    assert second_state["tasks"][0]["description"] == "Architect refined this task after reviewing the imported plan."
+
+    cli.run("init", "--goal", "Build from implementation plan", "--agent", "architect:architect")
+    third_state = read_state(state_path)
+    third_artifact = next(artifact for artifact in third_state["artifacts"] if artifact["kind"] == "architect_plan")
+    assert third_artifact["updatedAt"] == second_artifact["updatedAt"]
 
 
 def test_product_plan_init_preserves_reviewed_requirements_edits(tmp_path) -> None:
@@ -479,7 +598,8 @@ def test_product_plan_init_preserves_reviewed_requirements_edits(tmp_path) -> No
     first_state = read_state(state_path)
     product_artifact = next(artifact for artifact in first_state["artifacts"] if artifact["kind"] == "requirements" and artifact["path"] == "product-requirements.md")
     initial_history_count = len(product_artifact["reviewHistory"])
-    initial_updated_at = product_artifact["updatedAt"]
+    first_state["tasks"][0]["description"] = "Product refined this task after reviewing the imported requirements."
+    write_state(state_path, first_state)
 
     cli.run("init", "--goal", "Build from product plan")
     second_state = read_state(state_path)
@@ -487,7 +607,82 @@ def test_product_plan_init_preserves_reviewed_requirements_edits(tmp_path) -> No
 
     assert requirements_path.read_text(encoding="utf-8") == "# Reviewed Requirements\n\nProduct corrected this.\n"
     assert len(second_artifact["reviewHistory"]) == initial_history_count
-    assert second_artifact["updatedAt"] == initial_updated_at
+    assert second_state["tasks"][0]["description"] == "Product refined this task after reviewing the imported requirements."
+
+    cli.run("init", "--goal", "Build from product plan")
+    third_state = read_state(state_path)
+    third_artifact = next(artifact for artifact in third_state["artifacts"] if artifact["kind"] == "requirements" and artifact["path"] == "product-requirements.md")
+    assert third_artifact["updatedAt"] == second_artifact["updatedAt"]
+
+
+def test_init_does_not_refresh_approved_artifact_fingerprint_after_file_edit(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "approved-plan-edit" / "state.yaml"
+    cli = SwarmCli(state_path)
+    cli.run(
+        "handover",
+        "--name",
+        "Approved Plan Edit",
+        "--goal",
+        "Build from implementation plan",
+        "--handover-text",
+        "# Original Plan\n",
+        "--source-plan-kind",
+        "architect_plan",
+        "--agent",
+        "architect:architect",
+    )
+
+    cli.run("init", "--goal", "Build from implementation plan", "--agent", "architect:architect")
+    state = read_state(state_path)
+    plan_artifact = next(artifact for artifact in state["artifacts"] if artifact["kind"] == "architect_plan")
+    plan_artifact["status"] = "approved"
+    plan_artifact["approvedBy"] = "user"
+    plan_artifact["approvedAt"] = "2026-05-14T10:00:00Z"
+    original_fingerprint = plan_artifact["fingerprint"]
+    original_updated_at = plan_artifact["updatedAt"]
+    write_state(state_path, state)
+
+    (state_path.parent / "plan.md").write_text("# Edited After Approval\n", encoding="utf-8")
+    cli.run("init", "--goal", "Build from implementation plan", "--agent", "architect:architect")
+    updated_state = read_state(state_path)
+    updated_artifact = next(artifact for artifact in updated_state["artifacts"] if artifact["kind"] == "architect_plan")
+
+    assert updated_artifact["status"] == "approved"
+    assert updated_artifact["fingerprint"] == original_fingerprint
+    assert updated_artifact["updatedAt"] == original_updated_at
+
+
+def test_init_refreshes_ready_for_review_artifact_fingerprint_after_file_edit(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "ready-plan-edit" / "state.yaml"
+    cli = SwarmCli(state_path)
+    cli.run(
+        "handover",
+        "--name",
+        "Ready Plan Edit",
+        "--goal",
+        "Build from implementation plan",
+        "--handover-text",
+        "# Original Plan\n",
+        "--source-plan-kind",
+        "architect_plan",
+        "--agent",
+        "architect:architect",
+    )
+
+    cli.run("init", "--goal", "Build from implementation plan", "--agent", "architect:architect")
+    state = read_state(state_path)
+    plan_artifact = next(artifact for artifact in state["artifacts"] if artifact["kind"] == "architect_plan")
+    plan_artifact["status"] = "ready_for_review"
+    original_fingerprint = plan_artifact["fingerprint"]
+    write_state(state_path, state)
+
+    (state_path.parent / "plan.md").write_text("# Edited During Review\n", encoding="utf-8")
+    cli.run("init", "--goal", "Build from implementation plan", "--agent", "architect:architect")
+    updated_state = read_state(state_path)
+    updated_artifact = next(artifact for artifact in updated_state["artifacts"] if artifact["kind"] == "architect_plan")
+
+    assert updated_artifact["status"] == "ready_for_review"
+    assert updated_artifact["fingerprint"] != original_fingerprint
 
 
 def test_product_intake_task_includes_handover_note_without_duplicates(tmp_path) -> None:

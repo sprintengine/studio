@@ -114,6 +114,9 @@ export function parseSprintEngineStateFile(content: string, fallbackName?: strin
   const source = typeof parsed.source === 'object' && parsed.source !== null
     ? parsed.source as SprintEngineState['source']
     : undefined
+  const sourceBundle = Array.isArray(parsed.sourceBundle)
+    ? parsed.sourceBundle as SprintEngineState['sourceBundle']
+    : undefined
   const artifacts = Array.isArray(parsed.artifacts) ? parsed.artifacts as SprintEngineState['artifacts'] : []
 
   const candidate: SprintEngineState = {
@@ -121,6 +124,7 @@ export function parseSprintEngineStateFile(content: string, fallbackName?: strin
     goal: (sprintengine.goal as string) ?? '',
     rosterConfigured: Boolean(sprintengine.rosterConfigured),
     source,
+    sourceBundle,
     updatedAt: typeof sprintengine.updatedAt === 'string' ? sprintengine.updatedAt : null,
     roleCounts,
     sprintEngineAgents: Object.keys(agents).length > 0
