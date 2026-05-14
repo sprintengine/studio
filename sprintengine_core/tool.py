@@ -2910,8 +2910,15 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             or getattr(args, "needs_input_suggested_resolution", None)
         ):
             raise SystemExit("Needs-input fields are only supported with --status needs_input.")
+        wants_needs_input_routing = (
+            getattr(args, "needs_input_kind", None)
+            or getattr(args, "needs_input_question", None)
+            or getattr(args, "needs_input_suggested_resolution", None)
+        )
+        if args.status == "needs_input" and wants_needs_input_routing and not (args.needs_input_question or "").strip():
+            raise SystemExit("--needs-input-question is required when writing routed needs_input metadata.")
         task["status"] = args.status
-        if args.status == "needs_input":
+        if args.status == "needs_input" and wants_needs_input_routing:
             needs_input = {
                 "kind": args.needs_input_kind or "user",
                 "question": (args.needs_input_question or "").strip(),
@@ -2920,6 +2927,8 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
                 "reportedAt": now_iso(),
             }
             task["needsInput"] = {key: value for key, value in needs_input.items() if value}
+        elif args.status == "needs_input":
+            task.pop("needsInput", None)
         elif "needsInput" in task:
             task.pop("needsInput", None)
         if args.status == "in_progress" and not task.get("startedAt"):

@@ -165,6 +165,55 @@ def test_task_status_rejects_needs_input_fields_for_other_statuses(tmp_path) -> 
     assert "Needs-input fields are only supported with --status needs_input" in rejected.stderr
 
 
+def test_task_status_requires_question_for_routed_needs_input(tmp_path) -> None:
+    fixture = create_team(tmp_path, "needs-input-question-required", [
+        task("T1", "Ambiguous blocker", "frontend", "in_progress", owner="frontend-1"),
+    ])
+
+    rejected = fixture.cli.run_failure(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "needs_input",
+        "--id",
+        "frontend-1",
+        "--needs-input-kind",
+        "architect",
+    )
+
+    assert "--needs-input-question is required" in rejected.stderr
+
+
+def test_bare_needs_input_keeps_legacy_status_without_routing_metadata(tmp_path) -> None:
+    blocked_task = task("T1", "Legacy blocker", "developer", "in_progress", owner="developer-1")
+    blocked_task["needsInput"] = {
+        "kind": "architect",
+        "question": "Old routed blocker.",
+        "reportedBy": "developer-1",
+        "reportedAt": "2026-05-14T00:00:00Z",
+    }
+    fixture = create_team(tmp_path, "bare-needs-input", [blocked_task])
+
+    payload = fixture.cli.run(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "needs_input",
+        "--id",
+        "developer-1",
+    )
+
+    assert payload["ok"] is True
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "needs_input"
+    assert "needsInput" not in task_record
+
+
 def test_manual_dispatch_ready_task_is_claimable_after_dependencies_complete(tmp_path) -> None:
     gate = task("T1", "Approval gate", "architect", "done")
     manual_task = task("T2", "Imported issue ready for work", "developer", depends_on=["T1"])
