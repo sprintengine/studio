@@ -2979,6 +2979,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
+        previous_owner_id = task.get("ownerAgentId")
         if feedback_args_present(args) and args.status != "done":
             raise SystemExit("Feedback flags on `sprintengine task status` are only supported with --status done.")
         if args.status != "needs_input" and (
@@ -3010,6 +3011,12 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             task.pop("needsInput", None)
         if args.status == "in_progress" and not task.get("startedAt"):
             task["startedAt"] = now_iso()
+        if args.status == "todo":
+            if previous_owner_id:
+                set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
+            task["ownerAgentId"] = None
+            task["startedAt"] = None
+            task["completedAt"] = None
         if args.status == "done":
             task["completedAt"] = now_iso()
         if getattr(args, "summary", None):

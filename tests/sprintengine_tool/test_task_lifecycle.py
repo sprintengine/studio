@@ -165,6 +165,32 @@ def test_task_status_rejects_needs_input_fields_for_other_statuses(tmp_path) -> 
     assert "Needs-input fields are only supported with --status needs_input" in rejected.stderr
 
 
+def test_task_status_todo_releases_owner_and_makes_task_claimable(tmp_path) -> None:
+    releasable_task = task("T1", "Too large for current context", "frontend", "in_progress", owner="frontend-1")
+    releasable_task["startedAt"] = "2026-05-14T09:00:00Z"
+    fixture = create_team(tmp_path, "todo-release-clears-owner", [
+        releasable_task,
+    ])
+
+    payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "todo", "--id", "frontend-1")
+
+    assert payload["ok"] is True
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "todo"
+    assert task_record["ownerAgentId"] is None
+    assert task_record["startedAt"] is None
+    assert task_record["completedAt"] is None
+    assert state["agents"]["frontend-1"]["status"] == "idle"
+    assert state["agents"]["frontend-1"]["currentTaskId"] is None
+    assert_ready_tasks(fixture.cli, "frontend", ["T1"])
+
+    claimed = fixture.cli.run("task", "next", "--role", "frontend", "--id", "frontend-2")
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == "T1"
+    assert claimed["task"]["ownerAgentId"] == "frontend-2"
+
+
 def test_task_status_requires_question_for_routed_needs_input(tmp_path) -> None:
     fixture = create_team(tmp_path, "needs-input-question-required", [
         task("T1", "Ambiguous blocker", "frontend", "in_progress", owner="frontend-1"),
