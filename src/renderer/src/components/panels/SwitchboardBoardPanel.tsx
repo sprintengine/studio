@@ -27,6 +27,8 @@ import {
   PrimaryButton,
   Section,
   Select,
+  SidePane,
+  SidePaneHeader,
   StatusDot,
   TaskCard,
   Tooltip,
@@ -626,10 +628,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
           onClose={() => setRunningOpen(false)}
         />
       ) : selected ? (
-        <aside
-          className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[color:var(--border-default)]"
-          aria-label="Selected task detail"
-        >
+        <SidePane side="right" width="md" ariaLabel="Selected task detail">
           <BoardDetailPane
             record={selected}
             workspaceId={workspaceId}
@@ -654,7 +653,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
             onDismissCommentStatus={() => feedback.dismiss('comment')}
             onClose={() => setSelectedId(null)}
           />
-        </aside>
+        </SidePane>
       ) : null}
 
       {runnerOpen ? (
@@ -940,21 +939,13 @@ function SwitchboardRunningAgentsAside({
 }) {
   const terminalSessions = useTerminalSessions()
   return (
-    <aside
-      aria-label="Running agents"
-      className="flex w-[38%] min-w-[320px] max-w-[520px] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-app)]"
-    >
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
-        <h3 className="truncate text-[13px] font-semibold tracking-tight text-[color:var(--text-strong)]">
-          Running agents
-        </h3>
-        <div className="flex shrink-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
-          <span className="tabular-nums">
-            {entries.length} task{entries.length === 1 ? '' : 's'}
-          </span>
-          <CloseIconButton onClick={onClose} aria-label="Close running agents" />
-        </div>
-      </header>
+    <SidePane side="right" width="sm" tone="sunken" ariaLabel="Running agents">
+      <SidePaneHeader
+        title="Running agents"
+        count={`${entries.length} task${entries.length === 1 ? '' : 's'}`}
+        onClose={onClose}
+        closeLabel="Close running agents"
+      />
 
       <ul className="min-h-0 flex-1 overflow-y-auto">
         {entries.map((entry) => {
@@ -1032,7 +1023,7 @@ function SwitchboardRunningAgentsAside({
           )
         })}
       </ul>
-    </aside>
+    </SidePane>
   )
 }
 

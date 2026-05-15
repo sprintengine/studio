@@ -8,6 +8,7 @@ import {
  PrimaryButton,
  GhostButton,
  Popover,
+ SidePane,
  StatusDot,
  Section,
  Select,
@@ -1265,10 +1266,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  setPreviewedArtifact(null)
  }
  const renderInspectorAside = () => inspectorSelection ? (
- <aside
- className="flex w-[42%] min-w-[320px] max-w-[560px] flex-col border-l border-[color:var(--border-default)]"
- aria-label="Sprint Engine inspector"
- >
+ <SidePane side="right" width="md" ariaLabel="Sprint Engine inspector">
  <SprintEngineInspectorPanel
  selection={inspectorSelection}
  sprintEngineState={sprintEngineState}
@@ -1299,7 +1297,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  onOpenAgentTerminal={openAgentTerminal}
  isAgentTerminalLive={isAgentTerminalLive}
  />
- </aside>
+ </SidePane>
  ) : null
  const activateView = (view: SprintEngineView) => {
  if (fixedView) return
@@ -2939,10 +2937,7 @@ function SprintEngineProjectView({
  </header>
 
  <div className="flex min-h-0 flex-1 min-w-0">
- <section
- className="flex w-[44%] min-w-[320px] max-w-[560px] flex-col border-r border-[color:var(--border-default)]"
- aria-labelledby="sprintengine-inbox-title"
- >
+ <SidePane as="section" side="left" width="lg" ariaLabelledBy="sprintengine-inbox-title">
  <PanelHeader
  tool="sprintengine"
  title="Inbox"
@@ -2998,7 +2993,7 @@ function SprintEngineProjectView({
  </Section>
  ) : null}
  </div>
- </section>
+ </SidePane>
 
  <section
  className="flex min-w-0 flex-1 flex-col"

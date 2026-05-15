@@ -42,7 +42,6 @@ import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useT
 import { focusOrAddFileTab, hasAgentTab } from '../../utils/modelRegistry'
 import { renderMarkdown } from '../../utils/markdown'
 import {
-  CloseIconButton,
   DefinitionList,
   GhostButton,
   InboxRow,
@@ -51,6 +50,8 @@ import {
   PrimaryButton,
   Section,
   Select,
+  SidePane,
+  SidePaneHeader,
   StatusDot,
   Tooltip,
   type OverflowMenuItem,
@@ -739,10 +740,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
   return (
     <div className="relative flex h-full min-h-0 bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
-      <section
-        className="flex w-[44%] min-w-[320px] max-w-[560px] flex-col border-r border-[color:var(--border-default)]"
-        aria-labelledby={INBOX_TITLE_ID}
-      >
+      <SidePane as="section" side="left" width="lg" ariaLabelledBy={INBOX_TITLE_ID}>
         <PanelHeader
           tool="watchtower"
           title="Inbox"
@@ -829,7 +827,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             </ul>
           )}
         </div>
-      </section>
+      </SidePane>
 
       <section className="flex min-w-0 flex-1 flex-col" aria-label="Selected task detail">
         {selected ? (
@@ -1167,23 +1165,13 @@ function WatchtowerActiveReviewAside({
     : null
 
   return (
-    <aside
-      aria-label="Active review"
-      className="flex w-[38%] min-w-[320px] max-w-[520px] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-app)]"
-    >
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
-        <h3 className="truncate text-[13px] font-semibold tracking-tight text-[color:var(--text-strong)]">
-          Active review
-        </h3>
-        <div className="flex shrink-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
-          {selectedRun ? (
-            <span className="tabular-nums">
-              {runs.length} run{runs.length === 1 ? '' : 's'}
-            </span>
-          ) : null}
-          <CloseIconButton onClick={onClose} aria-label="Close active review" />
-        </div>
-      </header>
+    <SidePane side="right" width="sm" tone="sunken" ariaLabel="Active review">
+      <SidePaneHeader
+        title="Active review"
+        count={selectedRun ? `${runs.length} run${runs.length === 1 ? '' : 's'}` : undefined}
+        onClose={onClose}
+        closeLabel="Close active review"
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {runStatus ? (
@@ -1387,7 +1375,7 @@ function WatchtowerActiveReviewAside({
           </Section>
         ) : null}
       </div>
-    </aside>
+    </SidePane>
   )
 }
 

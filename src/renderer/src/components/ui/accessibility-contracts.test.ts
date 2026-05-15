@@ -257,7 +257,11 @@ expectIncludes(roleGlyph, 'sprintEngineRoleAccent[role]', 'RoleGlyph reads tone 
 expectIncludes(roleGlyph, 'knowledge/brand/panel-design-system.md', 'RoleGlyph documents itself against the panel design system contract')
 
 expectIncludes(switchboardPanel, '[aria-label="Switchboard overflow"]', 'Switchboard runner restores focus to overflow trigger')
-expectIncludes(watchtowerPanel, 'aria-label="Active review"', 'Watchtower active review is a non-modal inline aside, not a Drawer')
+expectMatches(
+  watchtowerPanel,
+  /(?:aria-label|ariaLabel)="Active review"/,
+  'Watchtower active review is a non-modal inline aside, not a Drawer',
+)
 assert.ok(
   !/<Drawer\b/.test(watchtowerPanel),
   'Watchtower no longer uses the modal Drawer chrome — the active review is an inline aside that joins the flex row',
