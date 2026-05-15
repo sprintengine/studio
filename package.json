@@ -19,6 +19,7 @@
     "test:renderer:markdown": "esbuild src/renderer/src/utils/markdown.test.tsx --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/markdown.test.cjs && node node_modules/.cache/multicode/markdown.test.cjs",
     "test:renderer:switchboard-board": "esbuild src/renderer/src/utils/switchboardBoard.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/switchboardBoard.test.cjs && node node_modules/.cache/multicode/switchboardBoard.test.cjs",
     "test:main:builtin-skills": "esbuild src/main/builtin-skills.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/builtin-skills.test.cjs && node node_modules/.cache/multicode/builtin-skills.test.cjs",
+    "test:main:git-branch-actions": "esbuild src/main/git-branch-actions.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/git-branch-actions.test.cjs && node node_modules/.cache/multicode/git-branch-actions.test.cjs",
     "test:main:mcp-config": "esbuild src/main/mcp-config-service.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/mcp-config-service.test.cjs && node node_modules/.cache/multicode/mcp-config-service.test.cjs",
     "test:main:switchboard-ipc": "esbuild src/main/ipc/switchboard-ipc.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/switchboard-ipc.test.cjs && node node_modules/.cache/multicode/switchboard-ipc.test.cjs",
     "test:main:terminal-session": "esbuild src/main/terminal-session.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/terminal-session.test.cjs && node node_modules/.cache/multicode/terminal-session.test.cjs",
@@ -35,7 +36,7 @@
     "lint:primitive-duplication": "node scripts/lint-primitive-duplication.mjs",
     "lint:primitive-duplication:report": "node scripts/lint-primitive-duplication.mjs --report",
     "verify:panels": "npm run lint && npm run test:renderer:switchboard-board && npm run test:renderer:ui-accessibility-contracts",
-    "verify:app": "npm run typecheck && npm run lint && npm run test:renderer:markdown && npm run test:renderer:switchboard-board && npm run test:renderer:terminal-sessions && npm run test:renderer:ui-accessibility-contracts",
+    "verify:app": "npm run typecheck && npm run lint && npm run test:main:git-branch-actions && npm run test:renderer:markdown && npm run test:renderer:switchboard-board && npm run test:renderer:terminal-sessions && npm run test:renderer:ui-accessibility-contracts",
     "icons": "node scripts/generate-icons.js",
     "postinstall": "node scripts/fix-node-pty-permissions.js"
   },

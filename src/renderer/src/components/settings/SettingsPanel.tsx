@@ -4,6 +4,7 @@ import type { AgentCli, McpCatalogServer, McpServerConfig, McpSettings } from '.
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
+  CloseIconButton,
   Field,
   GhostButton,
   PrimaryButton,
@@ -1758,21 +1759,7 @@ export default function SettingsPanel({
             <kbd className="hidden font-mono text-[11px] text-[color:var(--text-subtle)] sm:inline">
               Esc
             </kbd>
-            <button
-              type="button"
-              onClick={closeSettings}
-              aria-label="Close settings"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-            >
-              <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path
-                  d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
+            <CloseIconButton size="md" aria-label="Close settings" onClick={closeSettings} />
           </div>
         </header>
 

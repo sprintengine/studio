@@ -75,7 +75,7 @@ export async function pullGitBranchWithStash(repoRoot: string): Promise<GitComma
     stashCreated = !/No local changes to save/i.test(`${stashResult.stdout}\n${stashResult.stderr}`)
   }
 
-  const pullResult = await runGitCommand(repoRoot, ['pull'])
+  const pullResult = await runGitCommand(repoRoot, ['pull', '--no-rebase', '--ff', '--no-edit'])
   appendGitCommandOutput(outputs, 'pull', pullResult)
   if (!pullResult.ok) {
     return {

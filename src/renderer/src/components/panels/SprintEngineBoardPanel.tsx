@@ -1977,19 +1977,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  The Architect will back up state.yaml, check each task in order, and update task status through the sprintengine Python tool.
  </p>
  </div>
- <button
- type="button"
+ <CloseIconButton
+ size="md"
+ aria-label="Close"
  onClick={() => {
  setCliPickerOpen(false)
  setRecoveryDialog(null)
  }}
- aria-label="Close"
- className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
- >
- <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
- </svg>
- </button>
+ />
  </div>
 
  <ModalBody className="space-y-4">
@@ -2135,19 +2130,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  Choose the CLI and optional identifier for this specialist.
  </p>
  </div>
- <button
- type="button"
+ <CloseIconButton
+ size="md"
+ aria-label="Close"
  onClick={() => {
  setCliPickerOpen(false)
  setSpawnDialog(null)
  }}
- aria-label="Close"
- className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
- >
- <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
- </svg>
- </button>
+ />
  </div>
 
  <ModalBody className="space-y-4">
@@ -2304,16 +2294,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  {sprintEngineState.rosterConfigured ? 'Add Roster Member' : 'Spawn Team Member'}
  </h3>
  </div>
- <button
- type="button"
- onClick={() => setAddMemberOpen(false)}
+ <CloseIconButton
+ size="md"
  aria-label="Close"
- className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
- >
- <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
- </svg>
- </button>
+ onClick={() => setAddMemberOpen(false)}
+ />
  </div>
 
  <ModalBody className="space-y-1">

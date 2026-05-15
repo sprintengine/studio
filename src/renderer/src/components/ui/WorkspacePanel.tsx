@@ -1,4 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { CloseIconButton } from './Buttons'
 
 export type WorkspacePanelHandle = {
   focus: () => void
@@ -66,16 +67,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
         <div className="flex shrink-0 items-center gap-2">
           {toolbar}
           {onClose ? (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={closeLabel}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-            >
-              <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-            </button>
+            <CloseIconButton size="md" aria-label={closeLabel} onClick={onClose} />
           ) : null}
         </div>
       </div>

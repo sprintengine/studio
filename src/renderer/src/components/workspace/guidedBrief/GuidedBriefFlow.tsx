@@ -5,7 +5,7 @@ import {
   GuidedBriefWorkspaceError,
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
-import { StatusDot, Tooltip } from '../../ui'
+import { CloseIconButton, StatusDot, Tooltip } from '../../ui'
 import { ConversationPane, type ConversationView } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
@@ -289,25 +289,12 @@ export function GuidedBriefFlow({
         </div>
         <GuidedProgress total={progress.total} active={progress.active} done={progress.done} />
         {onClose ? (
-          <button
-            type="button"
-            onClick={onClose}
+          <CloseIconButton
+            size="md"
             aria-label="Close"
-            className="
-              ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[color:var(--text-subtle)]
-              transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-            "
-          >
-            <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
+            onClick={onClose}
+            className="ml-2"
+          />
         ) : null}
       </header>
 

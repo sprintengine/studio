@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal, ModalButton } from '../ui/Modal'
-import { StatusDot } from '../ui'
+import { CloseIconButton, StatusDot } from '../ui'
 import { Tooltip } from '../ui/Tooltip'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { LEARNING_CATEGORY_LABELS } from '../../content/learning/types'
@@ -135,16 +135,7 @@ export function TipStartupModal({
             {currentTip.title}
           </h2>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="rounded-md px-2 py-1 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-        >
-          <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-        </button>
+        <CloseIconButton size="md" aria-label="Close" onClick={onClose} />
       </div>
 
       <div className="px-5 pb-5 space-y-2.5">

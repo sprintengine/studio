@@ -6,6 +6,7 @@
 //   z-40 — app-shell popovers and dropdowns (notifications, sessions, account, view menus)
 //   z-50 — modals and the command palette (always above everything else)
 import React, { useEffect, useRef } from 'react'
+import { CloseIconButton } from './Buttons'
 
 type ModalProps = {
   open: boolean
@@ -86,16 +87,7 @@ export function ModalHeader({ title, subtitle, titleId, onClose }: ModalHeaderPr
         ) : null}
       </div>
       {onClose ? (
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="rounded-md px-2 py-1 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-        >
-          <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-        </button>
+        <CloseIconButton size="md" aria-label="Close" onClick={onClose} />
       ) : null}
     </div>
   )
