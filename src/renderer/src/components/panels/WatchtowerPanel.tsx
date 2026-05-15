@@ -677,7 +677,20 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   }, [editForm, feedback, folderPath, refresh, runAction, selected])
 
   const overflowItems = useMemo<OverflowMenuItem[]>(() => {
-    return [
+    const items: OverflowMenuItem[] = []
+    if (activeRun) {
+      // When a review is running, the PanelHeader's primary action is "View"
+      // (open the drawer). Starting a new review survives here in the overflow
+      // so the capability isn't lost — just demoted from primary.
+      items.push({
+        id: 'watchtower.review.start',
+        label: isPending('startReview') ? 'Starting…' : 'Start another review…',
+        disabled: isPending('startReview'),
+        onSelect: () => setReviewOpen(true),
+      })
+      items.push({ kind: 'separator', id: 'sep-active-run' })
+    }
+    items.push(
       {
         id: 'watchtower.triage.inbox',
         label: isPending('startTriageAll') ? 'Starting triage…' : 'Triage inbox',
@@ -709,8 +722,10 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         disabled: isPending('refresh'),
         onSelect: () => void handleRefreshAll(),
       },
-    ]
+    )
+    return items
   }, [
+    activeRun,
     handleImportGitHub,
     handleImportJira,
     handleRefreshAll,
@@ -747,13 +762,22 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           titleId={INBOX_TITLE_ID}
           count={inbox.length}
           primaryAction={
-            <PrimaryButton
-              onClick={() => setReviewOpen(true)}
-              disabled={isPending('startReview')}
-              aria-label="Open review preset chooser"
-            >
-              {isPending('startReview') ? 'Starting…' : 'Review'}
-            </PrimaryButton>
+            activeRun ? (
+              <PrimaryButton
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open active review"
+              >
+                View
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton
+                onClick={() => setReviewOpen(true)}
+                disabled={isPending('startReview')}
+                aria-label="Open review preset chooser"
+              >
+                {isPending('startReview') ? 'Starting…' : 'Review'}
+              </PrimaryButton>
+            )
           }
           overflow={<OverflowMenu ariaLabel="Watchtower overflow" items={overflowItems} />}
         />
@@ -768,11 +792,10 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           />
         ) : null}
         {activeRun ? (
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open active review"
-            className="interactive flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-left text-[12px] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-[12px]"
           >
             <StatusDot tone="warn" pulse label="Agents running" />
             <span className="font-medium text-[color:var(--text-strong)]">
@@ -784,10 +807,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
                 ? liveRunningAgents.map(specialistShortLabel).join(', ')
                 : 'Architect spinning up…'}
             </span>
-            <span className="shrink-0 font-medium text-[color:var(--accent-primary)]">
-              View
-            </span>
-          </button>
+          </div>
         ) : null}
         {inboxStatus ? (
           <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-1.5">

@@ -78,6 +78,17 @@ import {
 import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
 import { publishDiagnostic, publishDiagnosticSync } from '../../utils/diagnostics'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
+import {
+ buildTaskGraphLayout,
+ defaultTaskGraphZoom,
+ getNextTaskGraphZoom,
+ getTaskGraphFocusTaskId,
+ maxTaskGraphZoom,
+ minTaskGraphZoom,
+ taskGraphEdgePath,
+ taskGraphStatusTone,
+ type TaskGraphZoomAnchor,
+} from './sprintEngineTaskGraph'
 
 const columnMeta: { key: SprintEngineTaskBoardColumn; label: string }[] = [
  { key: 'todo', label: 'Todo' },
@@ -2974,18 +2985,7 @@ function SprintEngineProjectView({
  className="flex min-w-0 flex-1 flex-col"
  aria-label="Roster"
  >
- <header className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2.5">
- <div className="flex min-w-0 items-center gap-2">
- <StatusDot tone="accent" />
- <h2 className="truncate text-[11px] font-semibold text-[color:var(--text-strong)]">
- Roster
- </h2>
- <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
- {roster.length}
- </span>
- </div>
- <span className="text-[11px] text-[color:var(--text-subtle)]">Pick a role below to add another member</span>
- </header>
+ <PanelHeader title="Roster" count={roster.length} />
 
  <div className="flex-1 overflow-auto">
  {roster.length === 0 ? (
@@ -3029,7 +3029,7 @@ function SprintEngineProjectView({
  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
  {agent.label}
  </span>
- <span className="shrink-0 rounded border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--text-muted)]">
+ <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
  {sprintEngineRoleLabels[agent.role]}
  </span>
  </span>
@@ -3048,7 +3048,7 @@ function SprintEngineProjectView({
  <span className="text-[color:var(--text-disabled)]">No active task</span>
  )}
  {hasLiveTerminal ? (
- <span className="ml-auto shrink-0 rounded border border-[color:var(--tone-good-soft)] bg-[color:var(--tone-good-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[color:var(--tone-good)]">
+ <span className="ml-auto shrink-0 text-[11px] text-[color:var(--text-muted)]">
  Terminal live
  </span>
  ) : null}
@@ -3402,7 +3402,7 @@ function SprintEngineTaskGraphView({
  {hasWarning ? (
  <span
  role="alert"
- className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--tone-warn-soft)] px-2 py-1 text-[11px] font-semibold text-[color:var(--tone-warn)]"
+ className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--tone-warn)]"
  >
  <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
  <path d="M8 1.75L14.75 13.5H1.25L8 1.75Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
@@ -3811,326 +3811,6 @@ function TaskGraphLegendDot({ color, label }: { color: string; label: string }) 
 }
 
 
-type TaskGraphLayoutNode =
- | {
- id: string
- type: 'task'
- task: SprintEngineTask
- x: number
- y: number
- width: number
- height: number
- }
- | {
- id: string
- type: 'end'
- x: number
- y: number
- width: number
- height: number
- }
-
-type TaskGraphLayoutEdge = {
- id: string
- fromId: string
- toId: string
- color: string
- opacity: number
- weight: number
- dashed: boolean
-}
-
-type TaskGraphLayout = {
- nodes: TaskGraphLayoutNode[]
- nodesById: Record<string, TaskGraphLayoutNode>
- edges: TaskGraphLayoutEdge[]
- canvasWidth: number
- canvasHeight: number
- terminalTaskIds: string[]
- hasCycle: boolean
- missingDependencyCount: number
-}
-
-type TaskGraphZoomAnchor = {
- graphX: number
- graphY: number
- viewportX: number
- viewportY: number
-}
-
-const taskGraphZoomLevels = [0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2]
-const defaultTaskGraphZoom = 1
-const minTaskGraphZoom = taskGraphZoomLevels[0]
-const maxTaskGraphZoom = taskGraphZoomLevels[taskGraphZoomLevels.length - 1]
-
-function getNextTaskGraphZoom(currentZoom: number, direction: 'in' | 'out'): number {
- if (direction === 'in') {
- return taskGraphZoomLevels.find((level) => level > currentZoom + 0.001) ?? taskGraphZoomLevels[taskGraphZoomLevels.length - 1]
- }
-
- return [...taskGraphZoomLevels].reverse().find((level) => level < currentZoom - 0.001) ?? taskGraphZoomLevels[0]
-}
-
-function buildTaskGraphLayout(tasks: SprintEngineTask[]): TaskGraphLayout {
- const nodeWidth = 272
- const nodeHeight = 154
- const endNodeWidth = 252
- const endNodeHeight = 154
- const levelGap = 420
- const rowGap = 236
- const paddingX = 220
- const paddingY = 132
- const minCanvasWidth = 1180
- const minCanvasHeight = 720
-
- if (tasks.length === 0) {
- return {
- nodes: [],
- nodesById: {},
- edges: [],
- canvasWidth: minCanvasWidth,
- canvasHeight: minCanvasHeight,
- terminalTaskIds: [],
- hasCycle: false,
- missingDependencyCount: 0,
- }
- }
-
- const taskById = new Map(tasks.map((task) => [task.id, task]))
- const validDepsByTask = new Map<string, string[]>()
- const dependentsByTask = new Map<string, string[]>()
- const indegreeByTask = new Map<string, number>()
- let missingDependencyCount = 0
-
- tasks.forEach((task) => {
- validDepsByTask.set(task.id, [])
- dependentsByTask.set(task.id, [])
- indegreeByTask.set(task.id, 0)
- })
-
- tasks.forEach((task) => {
- const uniqueDeps = Array.from(new Set(task.dependsOn))
- uniqueDeps.forEach((depId) => {
- if (depId === task.id || !taskById.has(depId)) {
- missingDependencyCount += 1
- return
- }
-
- validDepsByTask.get(task.id)?.push(depId)
- dependentsByTask.get(depId)?.push(task.id)
- indegreeByTask.set(task.id, (indegreeByTask.get(task.id) ?? 0) + 1)
- })
- })
-
- const levelByTask = new Map<string, number>()
- const queue = tasks
- .filter((task) => (indegreeByTask.get(task.id) ?? 0) === 0)
- .map((task) => task.id)
- const visited = new Set<string>()
-
- queue.forEach((taskId) => levelByTask.set(taskId, 0))
-
- while (queue.length > 0) {
- const taskId = queue.shift()!
- visited.add(taskId)
- const currentLevel = levelByTask.get(taskId) ?? 0
-
- dependentsByTask.get(taskId)?.forEach((dependentId) => {
- levelByTask.set(dependentId, Math.max(levelByTask.get(dependentId) ?? 0, currentLevel + 1))
- const nextIndegree = (indegreeByTask.get(dependentId) ?? 0) - 1
- indegreeByTask.set(dependentId, nextIndegree)
- if (nextIndegree === 0) queue.push(dependentId)
- })
- }
-
- const hasCycle = visited.size < tasks.length
- if (hasCycle) {
- const fallbackStart = Math.max(0, ...Array.from(levelByTask.values())) + 1
- tasks.forEach((task, index) => {
- if (visited.has(task.id)) return
- const dependencyLevels = (validDepsByTask.get(task.id) ?? [])
- .map((depId) => levelByTask.get(depId))
- .filter((level): level is number => typeof level === 'number')
- const nextLevel = dependencyLevels.length > 0
- ? Math.max(...dependencyLevels) + 1
- : fallbackStart + Math.floor(index / 3)
- levelByTask.set(task.id, nextLevel)
- })
- }
-
- const groups = new Map<number, SprintEngineTask[]>()
- tasks.forEach((task) => {
- const level = levelByTask.get(task.id) ?? 0
- const group = groups.get(level) ?? []
- group.push(task)
- groups.set(level, group)
- })
-
- const maxTaskLevel = Math.max(0, ...Array.from(groups.keys()))
- const endLevel = maxTaskLevel + 1
- const maxRows = Math.max(1, ...Array.from(groups.values()).map((group) => group.length))
- const canvasHeight = Math.max(minCanvasHeight, paddingY * 2 + nodeHeight + (maxRows - 1) * rowGap)
- const canvasWidth = Math.max(minCanvasWidth, paddingX * 2 + endLevel * levelGap + endNodeWidth)
- const nodes: TaskGraphLayoutNode[] = []
-
- Array.from(groups.entries())
- .sort(([a], [b]) => a - b)
- .forEach(([level, group]) => {
- const columnTop = canvasHeight / 2 - ((group.length - 1) * rowGap) / 2
- group.forEach((task, index) => {
- nodes.push({
- id: task.id,
- type: 'task',
- task,
- x: paddingX + level * levelGap,
- y: columnTop + index * rowGap,
- width: nodeWidth,
- height: nodeHeight,
- })
- })
- })
-
- const endNode: TaskGraphLayoutNode = {
- id: 'end-product',
- type: 'end',
- x: paddingX + endLevel * levelGap,
- y: canvasHeight / 2,
- width: endNodeWidth,
- height: endNodeHeight,
- }
- nodes.push(endNode)
-
- const terminalTaskIds = tasks
- .filter((task) => (dependentsByTask.get(task.id) ?? []).length === 0)
- .map((task) => task.id)
- const fallbackTerminalTaskIds = terminalTaskIds.length > 0
- ? terminalTaskIds
- : tasks.filter((task) => (levelByTask.get(task.id) ?? 0) === maxTaskLevel).map((task) => task.id)
-
- const edges: TaskGraphLayoutEdge[] = []
- tasks.forEach((task) => {
- ;(validDepsByTask.get(task.id) ?? []).forEach((depId) => {
- const dependency = taskById.get(depId)
- if (!dependency) return
- edges.push({
- id: `${depId}->${task.id}`,
- fromId: depId,
- toId: task.id,
- ...taskGraphEdgeStyle(dependency, task),
- })
- })
- })
-
- fallbackTerminalTaskIds.forEach((taskId) => {
- const task = taskById.get(taskId)
- if (!task) return
- edges.push({
- id: `${taskId}->end-product`,
- fromId: taskId,
- toId: 'end-product',
- ...taskGraphEndEdgeStyle(task),
- })
- })
-
- const nodesById = Object.fromEntries(nodes.map((node) => [node.id, node]))
-
- return {
- nodes,
- nodesById,
- edges,
- canvasWidth,
- canvasHeight,
- terminalTaskIds: fallbackTerminalTaskIds,
- hasCycle,
- missingDependencyCount,
- }
-}
-
-function getTaskGraphFocusTaskId(tasks: SprintEngineTask[]): string | null {
- const newestBy = (candidates: SprintEngineTask[], field: 'startedAt' | 'completedAt') =>
- candidates
- .map((task, index) => ({ task, index }))
- .sort((a, b) => {
- const timeDelta = timestampMs(b.task[field]) - timestampMs(a.task[field])
- return timeDelta !== 0 ? timeDelta : b.index - a.index
- })[0]?.task.id ?? null
-
- return (
- newestBy(tasks.filter((task) => task.status === 'in_progress'), 'startedAt')
- ?? newestBy(tasks.filter((task) => task.status === 'needs_input'), 'startedAt')
- ?? newestBy(tasks.filter((task) => task.status === 'done'), 'completedAt')
- ?? tasks.find((task) => getSprintEngineTaskBoardColumn(task, tasks) === 'ready')?.id
- ?? tasks[0]?.id
- ?? null
- )
-}
-
-function timestampMs(value: string | null): number {
- if (!value) return 0
- const parsed = Date.parse(value)
- return Number.isFinite(parsed) ? parsed : 0
-}
-
-function taskGraphEdgePath(from: TaskGraphLayoutNode, to: TaskGraphLayoutNode): string {
- const startX = from.x + from.width / 2
- const startY = from.y
- const endX = to.x - to.width / 2
- const endY = to.y
- const horizontalGap = endX - startX
-
- if (horizontalGap < 120) {
- const curve = Math.max(72, horizontalGap * 0.42)
- return `M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${endY}, ${endX} ${endY}`
- }
-
- if (Math.abs(endY - startY) < 2) {
- return `M ${startX} ${startY} H ${endX}`
- }
-
- const gutterX = startX + horizontalGap / 2
- const direction = endY > startY ? 1 : -1
- const radius = Math.min(22, Math.abs(endY - startY) / 2, Math.abs(gutterX - startX) / 2, Math.abs(endX - gutterX) / 2)
-
- return [
- `M ${startX} ${startY}`,
- `H ${gutterX - radius}`,
- `Q ${gutterX} ${startY} ${gutterX} ${startY + radius * direction}`,
- `V ${endY - radius * direction}`,
- `Q ${gutterX} ${endY} ${gutterX + radius} ${endY}`,
- `H ${endX}`,
- ].join(' ')
-}
-
-function taskGraphEdgeStyle(
- dependency: SprintEngineTask,
- dependent: SprintEngineTask
-): Omit<TaskGraphLayoutEdge, 'id' | 'fromId' | 'toId'> {
- const dependencyDone = dependency.status === 'done'
- const active = dependent.status === 'in_progress' || dependent.status === 'needs_input'
- const color = active
- ? sprintEngineRoleAccent[dependent.role]
- : dependencyDone
- ? 'var(--tone-good)'
- : sprintEngineRoleAccent[dependency.role]
-
- return {
- color,
- opacity: active ? 0.68 : dependencyDone ? 0.48 : 0.3,
- weight: active ? 2.2 : 1.6,
- dashed: false,
- }
-}
-
-function taskGraphEndEdgeStyle(
- task: SprintEngineTask
-): Omit<TaskGraphLayoutEdge, 'id' | 'fromId' | 'toId'> {
- return {
- color: task.status === 'done' ? 'var(--tone-good)' : sprintEngineRoleAccent[task.role],
- opacity: task.status === 'done' ? 0.58 : 0.32,
- weight: task.status === 'done' ? 2 : 1.5,
- dashed: false,
- }
-}
 
 function runtimeStatusTone(status: string): Tone {
  switch (status) {
@@ -5202,20 +4882,6 @@ function taskGraphNodeStyle(
  }
 }
 
-function taskGraphStatusTone(taskStatus: SprintEngineTaskStatus, boardColumn: SprintEngineTaskBoardColumn): string {
- if (boardColumn === 'ready') return 'text-[color:var(--tone-good)]'
-
- switch (taskStatus) {
- case 'done':
- return 'text-[color:var(--tone-good)]'
- case 'needs_input':
- return 'text-[color:var(--tone-warn)]'
- case 'in_progress':
- return 'text-[color:var(--tone-warn)]'
- default:
- return 'text-[color:var(--text-muted)]'
- }
-}
 
 function hexToRgba(hex: string, alpha: number): string {
  const value = hex.replace('#', '')
