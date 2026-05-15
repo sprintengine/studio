@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './assets/index.css'
+import { ConfirmDialogProvider } from './components/ui'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
 
@@ -47,5 +48,7 @@ try {
 }
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <WorkspaceManager />
+  <ConfirmDialogProvider>
+    <WorkspaceManager />
+  </ConfirmDialogProvider>
 )

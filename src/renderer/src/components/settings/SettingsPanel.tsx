@@ -13,6 +13,7 @@ import {
   Switch,
   type Tone,
 } from '../ui'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 import LearnCenter from '../learn/LearnCenter'
 import MobileSettingsTab from './MobileSettingsTab'
 import { MetaCell, formatNullableDate } from './SettingsAtoms'
@@ -250,7 +251,7 @@ function McpCatalogTile({
             : 'text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-default)]'
         }`}
       >
-        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
+        <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
           <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 12.5A5.5 5.5 0 118 2.5a5.5 5.5 0 010 11zM7.25 5.5a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM7.25 7.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
         </svg>
       </button>
@@ -305,7 +306,7 @@ function McpInfoPanel({
           aria-label="Close details"
           className="interactive grid h-6 w-6 shrink-0 place-items-center rounded-md text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
         >
-          <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+          <svg viewBox="0 0 12 12" className="icon-xs" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
             <path d="M3 3l6 6M9 3l-6 6" />
           </svg>
         </button>
@@ -554,6 +555,7 @@ export default function SettingsPanel({
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
   )
+  const dialog = useConfirmDialog()
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
@@ -724,14 +726,21 @@ export default function SettingsPanel({
         return
       }
       if (next) {
-        const confirmed = window.confirm(
-          'Enable knowledge activity tracking?\n\n'
-          + 'Multicode will:\n'
-          + ' • Add a hook to .claude/settings.local.json in the project folder\n'
-          + ' • Copy a hook script to .multicode/hooks/\n'
-          + ' • Record knowledge file touches to .multicode/knowledge-trace/\n\n'
-          + 'Only files under your knowledge folder are recorded. Add .multicode/ to .gitignore.'
-        )
+        const confirmed = await dialog.confirm({
+          title: 'Enable activity tracking?',
+          body: (
+            <>
+              <div>Multicode will:</div>
+              <ul className="mt-1 list-disc pl-5">
+                <li>Add a hook to <span className="font-mono">.claude/settings.local.json</span> in the project folder</li>
+                <li>Copy a hook script to <span className="font-mono">.multicode/hooks/</span></li>
+                <li>Record knowledge file touches to <span className="font-mono">.multicode/knowledge-trace/</span></li>
+              </ul>
+              <div className="mt-2">Only files under your knowledge folder are recorded. Add <span className="font-mono">.multicode/</span> to <span className="font-mono">.gitignore</span>.</div>
+            </>
+          ),
+          confirmLabel: 'Enable tracking',
+        })
         if (!confirmed) return
       }
       setActivityPending(true)

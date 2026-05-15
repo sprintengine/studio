@@ -45,7 +45,9 @@ import {
   PanelHeader,
   PrimaryButton,
   Section,
+  Select,
   StatusDot,
+  Tooltip,
   type OverflowMenuItem,
   type Tone,
 } from '../ui'
@@ -1051,7 +1053,7 @@ function WatchtowerFilePreview({
             className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[12px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
             aria-label="Back to task detail"
           >
-            <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+            <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
               <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             Back
@@ -1063,17 +1065,19 @@ function WatchtowerFilePreview({
             {artifact.name}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={onPopOut}
-          className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          title="Open in editor tab"
-        >
-          <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
-            <path d="M9 3H13V7M13 3L7.5 8.5M6 4H4C3.45 4 3 4.45 3 5V12C3 12.55 3.45 13 4 13H11C11.55 13 12 12.55 12 12V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Open in editor
-        </button>
+        <Tooltip content="Open in editor tab">
+          <button
+            type="button"
+            onClick={onPopOut}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            aria-label="Open in editor tab"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
+              <path d="M9 3H13V7M13 3L7.5 8.5M6 4H4C3.45 4 3 4.45 3 5V12C3 12.55 3.45 13 4 13H11C11.55 13 12 12.55 12 12V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Open in editor
+          </button>
+        </Tooltip>
       </header>
       <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
         {isMarkdown ? (
@@ -1154,21 +1158,17 @@ function ActiveReviewDrawer({
             level={4}
             action={
               runs.length > 1 ? (
-                <label className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-                  <span className="sr-only">Switch run</span>
-                  <select
+                <div className="inline-flex max-w-[180px] items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+                  <Select<string>
+                    ariaLabel="Switch run"
+                    items={runs.slice(0, 8).map((run, index) => ({
+                      value: run.runId,
+                      label: runHistoryLabel(run, index),
+                    }))}
                     value={selectedRun.runId}
-                    onChange={(event) => onSelectRun(event.target.value)}
-                    className="h-6 max-w-[180px] truncate rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] py-0 pl-2 pr-1.5 text-[11px] tabular-nums text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-                    aria-label="Switch run"
-                  >
-                    {runs.slice(0, 8).map((run, index) => (
-                      <option key={run.runId} value={run.runId}>
-                        {runHistoryLabel(run, index)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    onChange={(value) => onSelectRun(value)}
+                  />
+                </div>
               ) : null
             }
           >
@@ -1324,16 +1324,15 @@ function ReviewPresetChooser({
       <ModalHeader title="Run a review" titleId="watchtower-review-title" onClose={onClose} />
       <ModalBody className="space-y-3">
         <Field label="Preset">
-          <select
+          <Select<WatchtowerReviewPresetId>
+            ariaLabel="Review preset"
+            items={WATCHTOWER_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => ({
+              value: item.id,
+              label: item.label,
+            }))}
             value={preset}
-            onChange={(event) => onPresetChange(event.target.value as WatchtowerReviewPresetId)}
-            className="h-9 w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[13px] text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-            aria-label="Review preset"
-          >
-            {WATCHTOWER_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => (
-              <option key={item.id} value={item.id}>{item.label}</option>
-            ))}
-          </select>
+            onChange={(value) => onPresetChange(value)}
+          />
         </Field>
         <div className="flex flex-col gap-1.5">
           <div className="text-[11px] text-[color:var(--text-muted)]">Agents</div>
@@ -1538,20 +1537,18 @@ function DetailPane({
             {
               term: 'Priority',
               description: editing ? (
-                <select
+                <Select<string>
+                  ariaLabel="Task priority"
+                  items={[
+                    { value: '', label: 'No priority' },
+                    { value: '0', label: 'Urgent' },
+                    { value: '1', label: 'High' },
+                    { value: '2', label: 'Medium' },
+                    { value: '3', label: 'Low' },
+                  ]}
                   value={editForm.priority == null ? '' : String(editForm.priority)}
-                  onChange={(event) => {
-                    const v = event.target.value
-                    onEditFormChange({ ...editForm, priority: v === '' ? null : Number(v) })
-                  }}
-                  className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-strong)]"
-                >
-                  <option value="">No priority</option>
-                  <option value="0">Urgent</option>
-                  <option value="1">High</option>
-                  <option value="2">Medium</option>
-                  <option value="3">Low</option>
-                </select>
+                  onChange={(value) => onEditFormChange({ ...editForm, priority: value === '' ? null : Number(value) })}
+                />
               ) : (
                 <span className="flex items-center gap-2">
                   <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
@@ -1768,20 +1765,18 @@ function CreateInboxDialog({
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Priority">
-            <select
+            <Select<string>
+              ariaLabel="Task priority"
+              items={[
+                { value: '', label: 'No priority' },
+                { value: '0', label: 'Urgent' },
+                { value: '1', label: 'High' },
+                { value: '2', label: 'Medium' },
+                { value: '3', label: 'Low' },
+              ]}
               value={draft.priority == null ? '' : String(draft.priority)}
-              onChange={(event) => {
-                const v = event.target.value
-                onChange({ ...draft, priority: v === '' ? null : Number(v) })
-              }}
-              className={`${inputClass} h-9 py-0`}
-            >
-              <option value="">No priority</option>
-              <option value="0">Urgent</option>
-              <option value="1">High</option>
-              <option value="2">Medium</option>
-              <option value="3">Low</option>
-            </select>
+              onChange={(value) => onChange({ ...draft, priority: value === '' ? null : Number(value) })}
+            />
           </Field>
           <Field label="Identifier">
             <input

@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 // Panel composition guard for the shared UI redesign.
 //
-// Asserts every operational panel under `src/renderer/src/components/panels/`
-// either:
-//   - imports `PanelHeader` from `../ui` (the canonical chrome), or
-//   - is explicitly allow-listed below with a reason.
+// Two rules:
 //
-// A panel that hand-rolls its own header has, in practice, also hand-rolled
-// status dots, density, and accent treatment — so this guard catches the
-// composition regression that the design-token lint cannot see (because no
-// hex literal or uppercase-tracking token is emitted).
+//   (a) Every operational panel under `src/renderer/src/components/panels/`
+//       either imports `PanelHeader` from `../ui` (the canonical chrome) or
+//       is explicitly allow-listed below with a reason. A panel that hand-
+//       rolls its own header has, in practice, also hand-rolled status dots,
+//       density, and accent treatment — so this guard catches the composition
+//       regression that the design-token lint cannot see.
+//
+//   (b) `WorkspaceTopBar` declares at most five at-rest control groups via
+//       `{/* top-bar-group: <name> */}` JSX comment markers. The cap matches
+//       the architect plan and BRAND-APP rule "≤ 5 controls per panel header".
+//       Adding a sixth marker fails this guard; renaming or removing one
+//       requires the brand docs (panel-design-system.md TopBar inventory) to
+//       move in lockstep.
 //
 // Usage:
 //   node scripts/lint-panel-composition.mjs           # exit 1 on violation
@@ -19,6 +25,22 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 
 const PANELS_DIR = resolve(process.cwd(), 'src/renderer/src/components/panels')
+const WORKSPACE_TOPBAR_PATH = resolve(
+  process.cwd(),
+  'src/renderer/src/components/workspace/WorkspaceTopBar.tsx',
+)
+const TOP_BAR_GROUP_MARKER = /\btop-bar-group:\s*([a-z0-9-]+)\b/g
+const TOP_BAR_GROUP_CAP = 5
+// Canonical at-rest group inventory. Mirrors the BRAND-APP rule and the
+// panel-design-system.md TopBar table. Adding to this set requires a brand
+// review.
+const CANONICAL_TOP_BAR_GROUPS = new Set([
+  'activity-and-views',
+  'workspace-context',
+  'communication',
+  'agent-spawn',
+  'account-and-settings',
+])
 
 // Files exempt from the rule with reasons. Keep this list small and
 // justified — when the surface is rebuilt, remove the entry.
@@ -99,5 +121,55 @@ if (findings.length > 0) {
   )
 }
 
-const exitCode = !REPORT_ONLY && findings.length > 0 ? 1 : 0
+// (b) WorkspaceTopBar at-rest control-group cap.
+let topBarFindings = 0
+try {
+  const topBarSrc = readFileSync(WORKSPACE_TOPBAR_PATH, 'utf8')
+  const seenGroups = []
+  TOP_BAR_GROUP_MARKER.lastIndex = 0
+  let markerMatch
+  while ((markerMatch = TOP_BAR_GROUP_MARKER.exec(topBarSrc))) {
+    seenGroups.push(markerMatch[1])
+  }
+  const unique = new Set(seenGroups)
+  const unexpected = [...unique].filter((g) => !CANONICAL_TOP_BAR_GROUPS.has(g))
+  const missing = [...CANONICAL_TOP_BAR_GROUPS].filter((g) => !unique.has(g))
+  process.stdout.write('\nWorkspaceTopBar control-group cap\n')
+  process.stdout.write(`  cap:        ≤ ${TOP_BAR_GROUP_CAP} at-rest groups (BRAND-APP)\n`)
+  process.stdout.write(`  declared:   ${seenGroups.length} marker(s); ${unique.size} unique\n`)
+  process.stdout.write(`  canonical:  ${[...CANONICAL_TOP_BAR_GROUPS].join(', ')}\n`)
+  if (unique.size > TOP_BAR_GROUP_CAP) {
+    process.stdout.write(
+      `  VIOLATION: ${unique.size} unique top-bar-group markers (> ${TOP_BAR_GROUP_CAP}).\n` +
+        '             Density drift — collapse two groups or document the new group\n' +
+        '             in CANONICAL_TOP_BAR_GROUPS + panel-design-system.md TopBar inventory.\n',
+    )
+    topBarFindings += 1
+  }
+  if (unexpected.length > 0) {
+    process.stdout.write(
+      `  VIOLATION: unknown group(s) — ${unexpected.join(', ')}\n` +
+        '             Either rename to a canonical key or add to CANONICAL_TOP_BAR_GROUPS\n' +
+        '             with a brand-doc inventory entry.\n',
+    )
+    topBarFindings += 1
+  }
+  if (missing.length > 0 && unique.size > 0) {
+    process.stdout.write(
+      `  VIOLATION: canonical group(s) absent — ${missing.join(', ')}\n` +
+        '             Add the marker or amend CANONICAL_TOP_BAR_GROUPS to match.\n',
+    )
+    topBarFindings += 1
+  }
+  if (topBarFindings === 0) {
+    process.stdout.write('  ok — all five canonical groups present, no extras.\n')
+  }
+} catch (error) {
+  process.stdout.write(
+    `\nWorkspaceTopBar control-group cap: skipped (could not read ${WORKSPACE_TOPBAR_PATH}: ${error.message})\n`,
+  )
+  topBarFindings += 1
+}
+
+const exitCode = !REPORT_ONLY && (findings.length > 0 || topBarFindings > 0) ? 1 : 0
 process.exit(exitCode)

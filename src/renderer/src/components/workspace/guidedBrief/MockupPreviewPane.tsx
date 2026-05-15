@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { StatusDot } from '../../ui'
+import { StatusDot, Tabs, type TabItem } from '../../ui'
 import type { DesignerMockupFile } from './useDesignerSession'
 
 type Props = {
@@ -151,33 +151,15 @@ export function MockupPreviewPane({ mockups, watchDirectoryPath }: Props) {
       </header>
 
       {mockups.length > 0 ? (
-        <div role="tablist" aria-label="Mockup screens" className="flex flex-wrap items-center gap-1">
-          {mockups.map((mockup, index) => {
-            const active = mockup.relativePath === activeMockup?.relativePath
-            return (
-              <button
-                key={mockup.relativePath}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setActiveRelativePath(mockup.relativePath)}
-                className={`
-                  inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5
-                  text-[12px] font-medium transition-colors
-                  focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-                  ${active
-                    ? 'border-[color:var(--accent-primary-soft-strong)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                    : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
-                `}
-              >
-                <span className="font-mono text-[11px] text-[color:var(--text-muted)]">
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-                <span>{titleFromFilename(mockup.name)}</span>
-              </button>
-            )
-          })}
-        </div>
+        <Tabs<string>
+          ariaLabel="Mockup screens"
+          items={mockups.map((mockup, index): TabItem<string> => ({
+            id: mockup.relativePath,
+            label: `${String(index + 1).padStart(2, '0')} · ${titleFromFilename(mockup.name)}`,
+          }))}
+          value={activeMockup?.relativePath ?? mockups[0]?.relativePath ?? ''}
+          onChange={(id) => setActiveRelativePath(id)}
+        />
       ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">

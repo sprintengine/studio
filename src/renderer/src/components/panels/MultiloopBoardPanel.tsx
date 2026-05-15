@@ -19,11 +19,13 @@ import {
   InboxRow,
   OverflowMenu,
   PanelHeader,
+  Popover,
   PrimaryButton,
   Section,
   Select,
   StatusDot,
   Switch,
+  Tooltip,
   type DefinitionItem,
   type OverflowMenuItem,
   type Tone,
@@ -830,26 +832,32 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
           </PrimaryButton>
         )}
         overflow={(
-          <div className="relative inline-flex">
-            <OverflowMenu ariaLabel="Multiloop overflow" items={overflowItems} />
-            {settingsOpen ? (
-              <MultiloopSettingsPopover
-                autoRunEnabled={autoRunEnabled}
-                runStateLabel={runStateLabel}
-                autoRunReasonLabel={autoRunReasonLabel}
-                cliPermissionPreset={multiloopAutoState?.cliPermissionPreset ?? 'default'}
-                agents={workspace.agents}
-                launchState={roleLaunchState}
-                hasSprintEngineLink={Boolean(activeMilestone?.sprintEngine)}
-                linkedSprintEngineState={activeLinkedSprintEngineState}
-                linkedExecutionReadState={activeLinkedExecutionReadState}
-                onToggleAutoRun={() => setMultiloopAutoEnabled(workspaceId, !autoRunEnabled)}
-                onPermissionPresetChange={(preset) => setMultiloopCliPermissionPreset(workspaceId, preset)}
-                onOpenRole={(role) => void openRoleAgent(role)}
-                onClose={() => setSettingsOpen(false)}
-              />
-            ) : null}
-          </div>
+          <Popover
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            ariaLabel="Multiloop settings"
+            popupRole="dialog"
+            placement="bottom-end"
+            renderTrigger={() => (
+              <OverflowMenu ariaLabel="Multiloop overflow" items={overflowItems} />
+            )}
+          >
+            <MultiloopSettingsPopover
+              autoRunEnabled={autoRunEnabled}
+              runStateLabel={runStateLabel}
+              autoRunReasonLabel={autoRunReasonLabel}
+              cliPermissionPreset={multiloopAutoState?.cliPermissionPreset ?? 'default'}
+              agents={workspace.agents}
+              launchState={roleLaunchState}
+              hasSprintEngineLink={Boolean(activeMilestone?.sprintEngine)}
+              linkedSprintEngineState={activeLinkedSprintEngineState}
+              linkedExecutionReadState={activeLinkedExecutionReadState}
+              onToggleAutoRun={() => setMultiloopAutoEnabled(workspaceId, !autoRunEnabled)}
+              onPermissionPresetChange={(preset) => setMultiloopCliPermissionPreset(workspaceId, preset)}
+              onOpenRole={(role) => void openRoleAgent(role)}
+              onClose={() => setSettingsOpen(false)}
+            />
+          </Popover>
         )}
       />
 
@@ -1765,27 +1773,6 @@ function MultiloopSettingsPopover({
     }
   }, [])
 
-  useEffect(() => {
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node | null
-      if (!target) return
-      if (panelRef.current?.contains(target)) return
-      onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('mousedown', onPointer)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener('mousedown', onPointer)
-    }
-  }, [onClose])
-
   const onPanelKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Tab') return
     const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
@@ -1807,13 +1794,10 @@ function MultiloopSettingsPopover({
   return (
     <div
       ref={panelRef}
-      role="dialog"
-      aria-modal="false"
       aria-labelledby={labelId}
       tabIndex={-1}
       onKeyDown={onPanelKey}
-      // design-tokens-allow: settings popover elevation reuses the canonical shadow.
-      className="popover-enter absolute right-0 top-full z-30 mt-1 w-80 rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
+      className="w-80"
     >
       <div className="flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
         <h3 id={labelId} className="text-[13px] font-semibold text-[color:var(--text-strong)]">
@@ -1871,24 +1855,25 @@ function MultiloopSettingsPopover({
                       : 'Sprint Engine state is still loading.'
                     : null
                   const terminalKind = isLinkedWorker ? 'Sprint Engine' : 'Multiloop'
+                  const tooltipContent = disabledReason ?? `${exists ? 'Focus' : 'Create'} ${terminalKind} ${soul.label} role terminal`
                   return (
-                    <button
-                      key={role}
-                      type="button"
-                      onClick={() => {
-                        if (disabledReason) return
-                        onOpenRole(role)
-                      }}
-                      disabled={loading || Boolean(disabledReason)}
-                      className="interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-45"
-                      title={disabledReason ?? `${exists ? 'Focus' : 'Create'} ${terminalKind} ${soul.label} role terminal`}
-                    >
-                      <SpecialistActionIcon icon={soul.icon} className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {loading ? 'Opening…' : `${soul.label} (${terminalKind})`}
-                      </span>
-                      {exists ? <StatusDot tone="accent" label="Created" /> : null}
-                    </button>
+                    <Tooltip key={role} content={tooltipContent}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (disabledReason) return
+                          onOpenRole(role)
+                        }}
+                        disabled={loading || Boolean(disabledReason)}
+                        className="interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <SpecialistActionIcon icon={soul.icon} className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]" />
+                        <span className="min-w-0 flex-1 truncate">
+                          {loading ? 'Opening…' : `${soul.label} (${terminalKind})`}
+                        </span>
+                        {exists ? <StatusDot tone="accent" label="Created" /> : null}
+                      </button>
+                    </Tooltip>
                   )
                 })}
               </div>

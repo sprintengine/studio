@@ -17,6 +17,7 @@ import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/term
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import type { McpSettings } from '../../types/workspace'
+import { Toast } from '../ui/Toast'
 
 interface Props {
   workspaceId: string
@@ -115,6 +116,7 @@ function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
 export default function TerminalView({ workspaceId, agentId, sessionId: attachedSessionId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [isFileDragOver, setIsFileDragOver] = useState(false)
+  const [dropError, setDropError] = useState<string | null>(null)
   const agent = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
@@ -574,7 +576,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
     const sessionId = agent?.cliSessionId
     if (!sessionId) {
-      alert('Start this agent terminal before dropping files into it.')
+      setDropError('Start this agent terminal before dropping files into it.')
       return
     }
 
@@ -587,7 +589,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       message: error instanceof Error ? error.message : 'Could not drop the file into the terminal.',
     }))
 
-    if (!result.ok) alert(result.message)
+    if (!result.ok) setDropError(result.message)
   }
 
   return (
@@ -601,6 +603,16 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     >
       {isFileDragOver ? (
         <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
+      ) : null}
+      {dropError ? (
+        <div className="absolute right-3 top-3 z-20 max-w-[360px]">
+          <Toast
+            tone="error"
+            title="File drop failed"
+            description={dropError}
+            onDismiss={() => setDropError(null)}
+          />
+        </div>
       ) : null}
       {folderBlocked ? (
         <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--text-muted)]">

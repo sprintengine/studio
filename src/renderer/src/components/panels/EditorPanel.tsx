@@ -384,12 +384,12 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
           className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
         >
           {showPreview ? (
-            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+            <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
               <path d="M2.5 11.75L2.5 13.5h1.75L12 5.75 10.25 4 2.5 11.75z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
               <path d="M9.25 5L11 6.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
           ) : (
-            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+            <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
               <path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
               <circle cx="8" cy="8" r="1.75" stroke="currentColor" strokeWidth="1.4" />
             </svg>

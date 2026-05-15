@@ -1,6 +1,6 @@
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
-import { StatusDot } from '../ui'
+import { Popover, StatusDot, Tooltip } from '../ui'
 import CliIcon from '../CliIcon'
 import {
   MULTILOOP_ROLES,
@@ -268,11 +268,7 @@ function NotificationsPopover({
   }
 
   return (
-    <div
-      role="menu"
-      // design-tokens-allow: popover elevation matches OverflowMenu shadow
-      className="absolute right-0 top-9 z-40 w-[440px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
-    >
+    <div className="w-[440px] overflow-hidden">
       <div className="flex h-10 items-center justify-between border-b border-[color:var(--border-default)] px-3">
         <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">
           Notifications
@@ -407,11 +403,7 @@ function SessionsPopover({
     })
 
   return (
-    <div
-      role="menu"
-      // design-tokens-allow: popover elevation matches OverflowMenu shadow
-      className="absolute right-0 top-9 z-40 w-[420px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
-    >
+    <div className="w-[420px] overflow-hidden p-1">
       <div className="flex h-9 items-center justify-between border-b border-[color:var(--border-default)] px-2.5">
         <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">
           Sessions
@@ -450,7 +442,7 @@ function SessionsPopover({
                     <svg
                       viewBox="0 0 16 16"
                       fill="currentColor"
-                      className="h-3 w-3 shrink-0 text-[color:var(--tone-warn)]"
+                      className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
                       aria-label="Starred workspace"
                     >
                       <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
@@ -506,15 +498,16 @@ function SessionsPopover({
                           Open
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => onStop(item)}
-                          className="flex h-7 w-7 items-center justify-center rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--tone-error-soft)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]"
-                          title="Stop"
-                          aria-label={`Stop ${item.label}`}
-                        >
-                          <StopIcon className="h-3.5 w-3.5" />
-                        </button>
+                        <Tooltip content="Stop">
+                          <button
+                            type="button"
+                            onClick={() => onStop(item)}
+                            className="flex h-7 w-7 items-center justify-center rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--tone-error-soft)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]"
+                            aria-label={`Stop ${item.label}`}
+                          >
+                            <StopIcon className="icon-sm" />
+                          </button>
+                        </Tooltip>
                       </div>
                     )
                   })}
@@ -550,11 +543,7 @@ function AccountPopover({
       : authState.entitlements?.plan.status ?? null
 
   return (
-    <div
-      role="menu"
-      // design-tokens-allow: popover elevation matches OverflowMenu shadow
-      className="absolute right-0 top-9 z-40 w-72 overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
-    >
+    <div className="w-72 overflow-hidden p-3">
       <div className="space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -777,12 +766,12 @@ export default function WorkspaceTopBar({
               >
                 <WorkspaceTypeIcon
                   mode={activeWorkspace.mode}
-                  className="h-3.5 w-3.5"
+                  className="icon-sm"
                 />
               </span>
               {activeWorkspace.highlight?.starred ? (
                 <svg
-                  className="h-3 w-3 shrink-0 text-[color:var(--tone-warn)]"
+                  className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
                   viewBox="0 0 16 16"
                   fill="currentColor"
                   aria-label="Starred workspace"
@@ -804,81 +793,105 @@ export default function WorkspaceTopBar({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {/*
+           * WorkspaceTopBar at-rest control inventory — capped at five groups.
+           * Adding a sixth top-bar-group marker fails scripts/lint-panel-composition.mjs.
+           * Documented in knowledge/brand/panel-design-system.md (TopBar inventory).
+           */}
+          {/* top-bar-group: activity-and-views */}
           {workspaces.length > 0 ? (
             <div ref={sessionsRef} className="relative inline-flex">
-              <button
-                type="button"
-                  onClick={() => {
-                    setSessionsOpen((open) => !open)
+              <Popover
+                open={sessionsOpen}
+                onOpenChange={(next) => {
+                  setSessionsOpen(next)
+                  if (next) {
                     setSpecialistMenuOpen(false)
-                  setNotificationsOpen(false)
+                    setNotificationsOpen(false)
+                  }
                 }}
-                className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-                  sessionsOpen
-                    ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                    : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-                }`}
-                title="Sessions"
-                aria-label="Sessions"
-                aria-haspopup="menu"
-                aria-expanded={sessionsOpen}
+                ariaLabel="Sessions"
+                popupRole="menu"
+                placement="bottom-end"
+                renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                  <Tooltip content="Sessions" placement="bottom">
+                    <button
+                      ref={ref}
+                      type="button"
+                      onClick={togglePopover}
+                      className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                        sessionsOpen
+                          ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                          : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+                      }`}
+                      aria-label="Sessions"
+                      {...triggerProps}
+                    >
+                      <SessionsIcon className="h-[18px] w-[18px]" />
+                      {sessions.length > 0 ? (
+                        <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-good)] px-1 text-[10px] font-bold leading-none text-[color:var(--bg-app)]">
+                          {sessions.length > 99 ? '99+' : sessions.length}
+                        </span>
+                      ) : null}
+                    </button>
+                  </Tooltip>
+                )}
               >
-                <SessionsIcon className="h-[18px] w-[18px]" />
-                {sessions.length > 0 ? (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-good)] px-1 text-[10px] font-bold leading-none text-[color:var(--bg-app)]">
-                    {sessions.length > 99 ? '99+' : sessions.length}
-                  </span>
-                ) : null}
-              </button>
-
-              {sessionsOpen ? (
                 <SessionsPopover
                   items={sessions}
                   workspaceOrder={sidebarWorkspaceOrder}
                   onOpen={openSession}
                   onStop={stopSession}
                 />
-              ) : null}
+              </Popover>
             </div>
           ) : null}
 
           {workspaceActionsEnabled && activeWorkspace && (activeWorkspace.mode === 'sprintengine' || activeWorkspace.mode === 'multiloop') ? (
             <div ref={viewMenuRef} className="relative inline-flex">
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMenuOpen((open) => !open)
-                  setViewMenuTick((tick) => tick + 1)
-                  setSessionsOpen(false)
-                  setSpecialistMenuOpen(false)
-                  setNotificationsOpen(false)
-                  setAccountOpen(false)
+              <Popover
+                open={viewMenuOpen}
+                onOpenChange={(next) => {
+                  setViewMenuOpen(next)
+                  if (next) {
+                    setViewMenuTick((tick) => tick + 1)
+                    setSessionsOpen(false)
+                    setSpecialistMenuOpen(false)
+                    setNotificationsOpen(false)
+                    setAccountOpen(false)
+                  }
                 }}
-                className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 transition-colors ${
-                  viewMenuOpen
-                    ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                    : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-                }`}
-                title={`${VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'} panels`}
-                aria-label="Toggle workspace panels"
-                aria-haspopup="menu"
-                aria-expanded={viewMenuOpen}
+                ariaLabel={`${VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'} panels`}
+                popupRole="menu"
+                placement="bottom-end"
+                renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                  <Tooltip content={`${VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'} panels`} placement="bottom">
+                    <button
+                      ref={ref}
+                      type="button"
+                      onClick={togglePopover}
+                      className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 transition-colors ${
+                        viewMenuOpen
+                          ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                          : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+                      }`}
+                      aria-label="Toggle workspace panels"
+                      {...triggerProps}
+                    >
+                      <svg className="h-[14px] w-[14px]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                        <rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                        <rect x="9" y="10" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                      </svg>
+                      <span className="text-[12px] font-semibold">{VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'}</span>
+                      <svg className={`icon-xs transition-transform ${viewMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                        <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </Tooltip>
+                )}
               >
-                <svg className="h-[14px] w-[14px]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.4" />
-                  <rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-                  <rect x="9" y="10" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
-                </svg>
-                <span className="text-[12px] font-semibold">{VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'}</span>
-                <svg className={`h-3 w-3 transition-transform ${viewMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                  <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-              {viewMenuOpen ? (
-                <div
-                  role="menu"
-                  className="absolute right-0 top-9 z-40 w-60 overflow-hidden rounded-md border border-[rgba(255,255,255,0.06)] bg-[color:var(--bg-surface)] p-1"
-                >
+                <div className="w-60 overflow-hidden p-1">
                   <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium text-[color:var(--text-muted)]">
                     {VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'} panels
                   </div>
@@ -905,7 +918,7 @@ export default function WorkspaceTopBar({
                           }`}
                           aria-hidden="true"
                         >
-                          <svg className="h-3 w-3" viewBox="0 0 20 20" fill="none">
+                          <svg className="icon-xs" viewBox="0 0 20 20" fill="none">
                             <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         </span>
@@ -914,10 +927,11 @@ export default function WorkspaceTopBar({
                     )
                   })}
                 </div>
-              ) : null}
+              </Popover>
             </div>
           ) : null}
 
+          {/* top-bar-group: workspace-context */}
           {activeWorkspace ? (
             <WorkspaceGitStatusButton
               workspaceId={activeWorkspace.id}
@@ -932,46 +946,58 @@ export default function WorkspaceTopBar({
           ) : null}
 
           {workspaceActionsEnabled ? (
-            <button
-              type="button"
-              onClick={openMemoryGraph}
-              disabled={!activeWorkspaceId}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-surface-raised)]"
-              title="Knowledge Graph"
-              aria-label="Knowledge Graph"
-            >
-              <MemoryGraphIcon className="h-[18px] w-[18px]" />
-            </button>
+            <Tooltip content="Knowledge Graph" placement="bottom">
+              <button
+                type="button"
+                onClick={openMemoryGraph}
+                disabled={!activeWorkspaceId}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-surface-raised)]"
+                aria-label="Knowledge Graph"
+              >
+                <MemoryGraphIcon className="h-[18px] w-[18px]" />
+              </button>
+            </Tooltip>
           ) : null}
 
+          {/* top-bar-group: communication */}
           <div ref={notificationsRef} className="relative inline-flex">
-            <button
-              type="button"
-              onClick={() => {
-                setNotificationsOpen((open) => !open)
-                setSessionsOpen(false)
-                setSpecialistMenuOpen(false)
-                setAccountOpen(false)
+            <Popover
+              open={notificationsOpen}
+              onOpenChange={(next) => {
+                setNotificationsOpen(next)
+                if (next) {
+                  setSessionsOpen(false)
+                  setSpecialistMenuOpen(false)
+                  setAccountOpen(false)
+                }
               }}
-              className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-                notificationsOpen
-                  ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                  : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-              }`}
-              title="Notifications"
-              aria-label="Notifications"
-              aria-haspopup="menu"
-              aria-expanded={notificationsOpen}
+              ariaLabel="Notifications"
+              popupRole="menu"
+              placement="bottom-end"
+              renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                <Tooltip content="Notifications" placement="bottom">
+                  <button
+                    ref={ref}
+                    type="button"
+                    onClick={togglePopover}
+                    className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                      notificationsOpen
+                        ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                        : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+                    }`}
+                    aria-label="Notifications"
+                    {...triggerProps}
+                  >
+                    <NotificationBellIcon className="h-[18px] w-[18px]" />
+                    {unreadNotificationCount > 0 ? (
+                      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-[10px] font-bold leading-none text-[color:var(--bg-app)]">
+                        {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                      </span>
+                    ) : null}
+                  </button>
+                </Tooltip>
+              )}
             >
-              <NotificationBellIcon className="h-[18px] w-[18px]" />
-              {unreadNotificationCount > 0 ? (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-[10px] font-bold leading-none text-[color:var(--bg-app)]">
-                  {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
-                </span>
-              ) : null}
-            </button>
-
-            {notificationsOpen ? (
               <NotificationsPopover
                 notifications={notifications}
                 onMarkRead={markNotificationRead}
@@ -979,36 +1005,39 @@ export default function WorkspaceTopBar({
                 onClear={clearNotifications}
                 onOpenLogs={() => void window.api.openDiagnosticsLogsFolder()}
               />
-            ) : null}
+            </Popover>
           </div>
 
           {workspaceActionsEnabled ? (
-            <button
-              type="button"
-              onClick={openHandoffDialog}
-              disabled={!activeWorkspaceId}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--tone-warn)] transition-colors hover:border-[color:var(--tone-warn-soft)] hover:bg-[color:var(--tone-warn)]/8 hover:text-[color:var(--tone-warn)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-surface-raised)]"
-              title="Handoff current plan to sprintengine"
-              aria-label="Handoff current plan to sprintengine"
-            >
-              <WorkspaceTypeIcon mode="sprintengine" className="h-[18px] w-[18px]" />
-            </button>
+            <Tooltip content="Handoff current plan to sprintengine" placement="bottom">
+              <button
+                type="button"
+                onClick={openHandoffDialog}
+                disabled={!activeWorkspaceId}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--tone-warn)] transition-colors hover:border-[color:var(--tone-warn-soft)] hover:bg-[color:var(--tone-warn)]/8 hover:text-[color:var(--tone-warn)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-surface-raised)]"
+                aria-label="Handoff current plan to sprintengine"
+              >
+                <WorkspaceTypeIcon mode="sprintengine" className="h-[18px] w-[18px]" />
+              </button>
+            </Tooltip>
           ) : null}
 
+          {/* top-bar-group: agent-spawn */}
           {workspaceActionsEnabled ? (
-            <button
-              onClick={addNewTerminal}
-              disabled={!activeWorkspaceId}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-surface-raised)]"
-              title={`Open terminal (${shortcutLabel("Ctrl+Shift+'")})`}
-              aria-label="Open terminal"
-            >
-              <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <rect x="3.5" y="5" width="17" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
-                <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M12.5 15H16.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </button>
+            <Tooltip content={`Open terminal (${shortcutLabel("Ctrl+Shift+'")})`} placement="bottom">
+              <button
+                onClick={addNewTerminal}
+                disabled={!activeWorkspaceId}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-surface-raised)]"
+                aria-label="Open terminal"
+              >
+                <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="3.5" y="5" width="17" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
+                  <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M12.5 15H16.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </Tooltip>
           ) : null}
 
           {workspaceActionsEnabled ? (() => {
@@ -1104,64 +1133,70 @@ export default function WorkspaceTopBar({
             return (
             <div ref={specialistMenuRef} className="relative inline-flex">
               <div className="inline-flex overflow-hidden rounded-md border border-[color:var(--color-6)] bg-[color:var(--bg-hover)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.025)]">
-                <button
-                  onClick={() => {
-                    if (multiloopLaunchMenu) {
-                      void addNewMultiloopAgent()
-                    } else {
-                      void addNewSpecialist()
-                    }
-                  }}
-                  disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-8 items-center justify-center text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
-                  title={
+                <Tooltip
+                  placement="bottom"
+                  content={
                     multiloopLaunchMenu
                       ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label} with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
                       : `Spawn ${selectedSpecialistAction.label} specialist with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${shortcutLabel(selectedSpecialistAction.shortcut)})` : ''}`
                   }
-                  aria-label={
-                    multiloopLaunchMenu
-                      ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label}`
-                      : `Spawn ${selectedSpecialistAction.label} specialist`
-                  }
                 >
-                  <SpecialistActionIcon
-                    icon={multiloopLaunchMenu ? selectedMultiloopRoleDescriptor.icon : selectedSpecialistAction.icon}
-                    className="h-[18px] w-[18px]"
-                  />
-                </button>
+                  <button
+                    onClick={() => {
+                      if (multiloopLaunchMenu) {
+                        void addNewMultiloopAgent()
+                      } else {
+                        void addNewSpecialist()
+                      }
+                    }}
+                    disabled={!activeWorkspaceId}
+                    className="inline-flex h-8 w-8 items-center justify-center text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
+                    aria-label={
+                      multiloopLaunchMenu
+                        ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label}`
+                        : `Spawn ${selectedSpecialistAction.label} specialist`
+                    }
+                  >
+                    <SpecialistActionIcon
+                      icon={multiloopLaunchMenu ? selectedMultiloopRoleDescriptor.icon : selectedSpecialistAction.icon}
+                      className="h-[18px] w-[18px]"
+                    />
+                  </button>
+                </Tooltip>
                 <span
                   className="inline-flex h-8 items-center border-l border-[color:var(--color-6)] px-1.5 text-[color:var(--text-strong)]"
                   aria-hidden="true"
+                  // design-tokens-allow: non-interactive identity badge span; aria-hidden so hover affordance is documented decoration, not an interactive control
                   title={`Default CLI: ${triggerCliOption.label}`}
                 >
-                  <CliIcon cli={triggerCli} className="h-3.5 w-3.5" />
+                  <CliIcon cli={triggerCli} className="icon-sm" />
                 </span>
-                <button
-                  onClick={() => {
-                    setSpecialistMenuOpen((open) => !open)
-                  }}
-                  disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-6 items-center justify-center border-l border-[color:var(--color-6)] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
-                  title="Spawn agent"
-                  aria-haspopup="menu"
-                  aria-expanded={specialistMenuOpen}
-                  aria-label="Spawn agent"
+                <Popover
+                  open={specialistMenuOpen}
+                  onOpenChange={(next) => setSpecialistMenuOpen(next)}
+                  ariaLabel="Spawn agent"
+                  popupRole="menu"
+                  placement="bottom-end"
+                  renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                    <Tooltip content="Spawn agent" placement="bottom">
+                      <button
+                        ref={ref}
+                        onClick={togglePopover}
+                        disabled={!activeWorkspaceId}
+                        className="inline-flex h-8 w-6 items-center justify-center border-l border-[color:var(--color-6)] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
+                        aria-label="Spawn agent"
+                        {...triggerProps}
+                      >
+                        <svg className={`icon-sm transition-transform ${specialistMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                          <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </Tooltip>
+                  )}
                 >
-                  <svg className={`h-3.5 w-3.5 transition-transform ${specialistMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
-
-              {specialistMenuOpen ? (
-                <div
-                  role="menu"
-                  // design-tokens-allow: popover elevation matches OverflowMenu shadow
-                  className="absolute right-0 top-9 z-40 w-[320px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
-                >
+                <div className="w-[320px] overflow-hidden">
                   <div className="flex items-center gap-2 border-b border-white/[0.06] px-2.5 py-2">
-                    <svg className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <svg className="icon-sm shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                       <circle cx="9" cy="9" r="5" stroke="currentColor" strokeWidth="1.6" />
                       <path d="M13 13l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                     </svg>
@@ -1212,40 +1247,46 @@ export default function WorkspaceTopBar({
                                     className={`h-4 w-4 ${highlighted ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}`}
                                   />
                                   <span className="truncate text-[13px]">{soul.label}</span>
-                                  <span
-                                    role="button"
-                                    tabIndex={-1}
-                                    aria-label={`Default CLI: ${boundCli === 'codex' ? 'Codex' : 'Claude Code'}`}
-                                    title={hasOverride
+                                  <Tooltip
+                                    placement="bottom"
+                                    content={hasOverride
                                       ? `Pinned to ${boundCli === 'codex' ? 'Codex' : 'Claude Code'} · click to change · ⇧⌫ to unpin`
                                       : `Using last-used (${boundCli === 'codex' ? 'Codex' : 'Claude Code'}) · click to pin`}
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      setAgentMenuHighlight(index)
-                                      setChipPopoverForRole((current) =>
-                                        current?.kind === 'multiloop' && current.role === soul.role
-                                          ? null
-                                          : { kind: 'multiloop', role: soul.role }
-                                      )
-                                    }}
-                                    className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
-                                      hasOverride
-                                        ? highlighted
-                                          ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                                          : 'bg-[color:var(--accent-primary-soft)]/60 text-[color:var(--text-strong)]'
-                                        : highlighted
-                                          ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-                                          : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
-                                    }`}
                                   >
-                                    <CliIcon cli={boundCli} className="h-3.5 w-3.5" />
-                                  </span>
+                                    <span
+                                      role="button"
+                                      tabIndex={-1}
+                                      aria-label={`Default CLI: ${boundCli === 'codex' ? 'Codex' : 'Claude Code'}`}
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        setAgentMenuHighlight(index)
+                                        setChipPopoverForRole((current) =>
+                                          current?.kind === 'multiloop' && current.role === soul.role
+                                            ? null
+                                            : { kind: 'multiloop', role: soul.role }
+                                        )
+                                      }}
+                                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
+                                        hasOverride
+                                          ? highlighted
+                                            ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                                            : 'bg-[color:var(--accent-primary-soft)]/60 text-[color:var(--text-strong)]'
+                                          : highlighted
+                                            ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
+                                            : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
+                                      }`}
+                                    >
+                                      <CliIcon cli={boundCli} className="icon-sm" />
+                                    </span>
+                                  </Tooltip>
                                 </button>
                                 {popoverOpen ? (
                                   <div
                                     role="listbox"
                                     aria-label={`Default CLI for ${soul.label}`}
-                                    // design-tokens-allow: popover elevation matches OverflowMenu shadow
+                                    // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
+                                    // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
+                                    // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
                                     className="absolute right-2 top-[32px] z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
                                   >
                                     {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
@@ -1266,7 +1307,7 @@ export default function WorkspaceTopBar({
                                               : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
                                           }`}
                                         >
-                                          <CliIcon cli={option.value} className="h-3.5 w-3.5" />
+                                          <CliIcon cli={option.value} className="icon-sm" />
                                           {option.label}
                                           {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
                                         </button>
@@ -1315,40 +1356,46 @@ export default function WorkspaceTopBar({
                                     className={`h-4 w-4 ${highlighted ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}`}
                                   />
                                   <span className="truncate text-[13px]">{action.shortLabel}</span>
-                                  <span
-                                    role="button"
-                                    tabIndex={-1}
-                                    aria-label={`Default CLI: ${boundCli === 'codex' ? 'Codex' : 'Claude Code'}`}
-                                    title={hasOverride
+                                  <Tooltip
+                                    placement="bottom"
+                                    content={hasOverride
                                       ? `Pinned to ${boundCli === 'codex' ? 'Codex' : 'Claude Code'} · click to change · ⇧⌫ to unpin`
                                       : `Using last-used (${boundCli === 'codex' ? 'Codex' : 'Claude Code'}) · click to pin`}
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      setAgentMenuHighlight(index)
-                                      setChipPopoverForRole((current) =>
-                                        current?.kind === 'specialist' && current.id === action.id
-                                          ? null
-                                          : { kind: 'specialist', id: action.id }
-                                      )
-                                    }}
-                                    className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
-                                      hasOverride
-                                        ? highlighted
-                                          ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                                          : 'bg-[color:var(--accent-primary-soft)]/60 text-[color:var(--text-strong)]'
-                                        : highlighted
-                                          ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-                                          : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
-                                    }`}
                                   >
-                                    <CliIcon cli={boundCli} className="h-3.5 w-3.5" />
-                                  </span>
+                                    <span
+                                      role="button"
+                                      tabIndex={-1}
+                                      aria-label={`Default CLI: ${boundCli === 'codex' ? 'Codex' : 'Claude Code'}`}
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        setAgentMenuHighlight(index)
+                                        setChipPopoverForRole((current) =>
+                                          current?.kind === 'specialist' && current.id === action.id
+                                            ? null
+                                            : { kind: 'specialist', id: action.id }
+                                        )
+                                      }}
+                                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
+                                        hasOverride
+                                          ? highlighted
+                                            ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                                            : 'bg-[color:var(--accent-primary-soft)]/60 text-[color:var(--text-strong)]'
+                                          : highlighted
+                                            ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
+                                            : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
+                                      }`}
+                                    >
+                                      <CliIcon cli={boundCli} className="icon-sm" />
+                                    </span>
+                                  </Tooltip>
                                 </button>
                                 {popoverOpen ? (
                                   <div
                                     role="listbox"
                                     aria-label={`Default CLI for ${action.label}`}
-                                    // design-tokens-allow: popover elevation matches OverflowMenu shadow
+                                    // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
+                                    // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
+                                    // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
                                     className="absolute right-2 top-[32px] z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
                                   >
                                     {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
@@ -1369,7 +1416,7 @@ export default function WorkspaceTopBar({
                                               : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
                                           }`}
                                         >
-                                          <CliIcon cli={option.value} className="h-3.5 w-3.5" />
+                                          <CliIcon cli={option.value} className="icon-sm" />
                                           {option.label}
                                           {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
                                         </button>
@@ -1401,10 +1448,10 @@ export default function WorkspaceTopBar({
                         }}
                         className="mt-1 grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 border-t border-white/[0.06] py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-muted)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
                       >
-                        <CliIcon cli={lastSelectedCli} className="h-4 w-4" />
+                        <CliIcon cli={lastSelectedCli} className="icon-md" />
                         <span className="truncate text-[13px]">General Agent</span>
                         <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-[color:var(--text-disabled)]">
-                          <CliIcon cli={lastSelectedCli} className="h-3.5 w-3.5" />
+                          <CliIcon cli={lastSelectedCli} className="icon-sm" />
                         </span>
                       </button>
                     </div>
@@ -1415,95 +1462,109 @@ export default function WorkspaceTopBar({
                       const active = option.value === agentSpawnPermissionPreset
                       const isBypass = option.value === 'bypass_all'
                       return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setAgentSpawnPermissionPreset(option.value)}
-                          title={option.title}
-                          className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                            active
-                              ? isBypass
-                                ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn)]'
-                                : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                              : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
-                          }`}
-                        >
-                          {option.value === 'default' ? 'Default' : option.value === 'auto_workspace' ? 'Auto' : 'Bypass'}
-                        </button>
+                        <Tooltip key={option.value} content={option.title} placement="bottom">
+                          <button
+                            type="button"
+                            onClick={() => setAgentSpawnPermissionPreset(option.value)}
+                            className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                              active
+                                ? isBypass
+                                  ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn)]'
+                                  : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                                : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
+                            }`}
+                          >
+                            {option.value === 'default' ? 'Default' : option.value === 'auto_workspace' ? 'Auto' : 'Bypass'}
+                          </button>
+                        </Tooltip>
                       )
                     })}
                   </div>
                 </div>
-              ) : null}
+                </Popover>
+              </div>
             </div>
             )
           })() : null}
 
+          {/* top-bar-group: account-and-settings */}
           <div ref={accountRef} className="relative inline-flex">
             {authState.authenticated ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setAccountOpen((open) => !open)
-                  setSessionsOpen(false)
-                  setSpecialistMenuOpen(false)
-                  setNotificationsOpen(false)
+              <Popover
+                open={accountOpen}
+                onOpenChange={(next) => {
+                  setAccountOpen(next)
+                  if (next) {
+                    setSessionsOpen(false)
+                    setSpecialistMenuOpen(false)
+                    setNotificationsOpen(false)
+                  }
                 }}
-                className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-                  proAccount
-                    ? accountOpen
-                      ? 'border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn)]/8 text-[color:var(--tone-warn)]'
-                      : 'border-transparent text-[color:var(--tone-warn)] hover:bg-[color:var(--tone-warn)]/8 hover:text-[color:var(--tone-warn)]'
-                    : accountOpen
-                      ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--tone-good)]'
-                      : 'border-[color:var(--tone-good-soft)] bg-[color:var(--tone-good-soft)] text-[color:var(--tone-good)] hover:border-[color:var(--tone-good)]/50 hover:bg-[color:var(--tone-good-soft)]'
-                }`}
-                title={proAccount ? 'Multicode Pro account' : 'Multicode account'}
-                aria-label={proAccount ? 'Multicode Pro account' : 'Multicode account'}
-                aria-haspopup="menu"
-                aria-expanded={accountOpen}
+                ariaLabel={proAccount ? 'Multicode Pro account' : 'Multicode account'}
+                popupRole="menu"
+                placement="bottom-end"
+                renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                  <Tooltip content={proAccount ? 'Multicode Pro account' : 'Multicode account'} placement="bottom">
+                    <button
+                      ref={ref}
+                      type="button"
+                      onClick={togglePopover}
+                      className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                        proAccount
+                          ? accountOpen
+                            ? 'border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn)]/8 text-[color:var(--tone-warn)]'
+                            : 'border-transparent text-[color:var(--tone-warn)] hover:bg-[color:var(--tone-warn)]/8 hover:text-[color:var(--tone-warn)]'
+                          : accountOpen
+                            ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--tone-good)]'
+                            : 'border-[color:var(--tone-good-soft)] bg-[color:var(--tone-good-soft)] text-[color:var(--tone-good)] hover:border-[color:var(--tone-good)]/50 hover:bg-[color:var(--tone-good-soft)]'
+                      }`}
+                      aria-label={proAccount ? 'Multicode Pro account' : 'Multicode account'}
+                      {...triggerProps}
+                    >
+                      <AccountIcon className="icon-md" />
+                    </button>
+                  </Tooltip>
+                )}
               >
-                <AccountIcon className="h-4 w-4" />
-              </button>
+                <AccountPopover
+                  authState={authState}
+                  message={authMessage}
+                  onRefresh={() => void refreshAuthState()}
+                  onLogout={() => void logout()}
+                  onSwitchOrganization={() => void switchOrganization()}
+                  onUpgrade={() => void window.api.authOpenUpgrade('sprintengine')}
+                />
+              </Popover>
             ) : (
-              <button
-                type="button"
-                onClick={() => void startLogin()}
-                disabled={authState.status === 'checking'}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] disabled:cursor-default disabled:opacity-60 disabled:hover:border-[color:var(--bg-selected)] disabled:hover:bg-[color:var(--bg-surface-raised)] disabled:hover:text-[color:var(--text-muted)]"
-                title={authState.status === 'checking' ? 'Checking sign-in status' : 'Sign in'}
-                aria-label={authState.status === 'checking' ? 'Checking sign-in status' : 'Sign in'}
-              >
-                <AccountIcon className="h-4 w-4" />
-              </button>
+              <Tooltip content={authState.status === 'checking' ? 'Checking sign-in status' : 'Sign in'} placement="bottom">
+                <button
+                  type="button"
+                  onClick={() => void startLogin()}
+                  disabled={authState.status === 'checking'}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] disabled:cursor-default disabled:opacity-60 disabled:hover:border-[color:var(--bg-selected)] disabled:hover:bg-[color:var(--bg-surface-raised)] disabled:hover:text-[color:var(--text-muted)]"
+                  aria-label={authState.status === 'checking' ? 'Checking sign-in status' : 'Sign in'}
+                >
+                  <AccountIcon className="icon-md" />
+                </button>
+              </Tooltip>
             )}
-
-            {authState.authenticated && accountOpen ? (
-              <AccountPopover
-                authState={authState}
-                message={authMessage}
-                onRefresh={() => void refreshAuthState()}
-                onLogout={() => void logout()}
-                onSwitchOrganization={() => void switchOrganization()}
-                onUpgrade={() => void window.api.authOpenUpgrade('sprintengine')}
-              />
-            ) : null}
           </div>
 
-          <button
-            type="button"
-            onClick={() => openSettings(false)}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-              settingsOpen
-                ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-            }`}
-            title={`Settings (${shortcutLabel('Ctrl+,')})`}
-            aria-label="Settings"
-            aria-pressed={settingsOpen}
-          >
-            <GearIcon className="h-[18px] w-[18px]" />
-          </button>
+          <Tooltip content={`Settings (${shortcutLabel('Ctrl+,')})`} placement="bottom">
+            <button
+              type="button"
+              onClick={() => openSettings(false)}
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                settingsOpen
+                  ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                  : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+              }`}
+              aria-label="Settings"
+              aria-pressed={settingsOpen}
+            >
+              <GearIcon className="h-[18px] w-[18px]" />
+            </button>
+          </Tooltip>
         </div>
       </div>
   )

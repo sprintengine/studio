@@ -202,7 +202,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
             className="inline-flex h-6 w-6 items-center justify-center rounded-[5px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
           >
             <svg
-              className="h-3.5 w-3.5"
+              className="icon-sm"
               viewBox="0 0 14 14"
               fill="none"
               aria-hidden="true"

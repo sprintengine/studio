@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { StatusDot, type Tone } from '../ui'
+import React, { useEffect, useMemo, useId, useState } from 'react'
+import { Field, Section, StatusDot, type Tone } from '../ui'
 import { MetaCell, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
@@ -116,6 +116,7 @@ type ActionState = {
 const mobileBridgeApi = window.api as typeof window.api & MobileBridgeApi
 
 export default function MobileSettingsTab() {
+  const relayUrlId = useId()
   const [state, setState] = useState<MobileBridgeState | null>(null)
   const [pairingChallenge, setPairingChallenge] = useState<MobileBridgePairingChallenge | null>(null)
   const [action, setAction] = useState<ActionState>({
@@ -318,7 +319,7 @@ export default function MobileSettingsTab() {
         {action.message || statusMessage(state)}
       </div>
 
-      <div className="divide-y divide-[color:var(--bg-selected)]">
+      <Section title="Companion" level={3} inset={false}>
         <SettingToggle
           label="Enable mobile companion"
           description="Connect this desktop to the relay so paired phones can request snapshots, send follow-ups, and control Sprint Engine."
@@ -326,13 +327,14 @@ export default function MobileSettingsTab() {
           onChange={(next) => void toggleEnabled(next)}
           disabled={busy}
         />
-      </div>
+      </Section>
 
-      <div className="border-t border-[color:var(--bg-selected)] pt-4">
-        <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-[color:var(--text-default)]">
-            Relay URL
-          </span>
+      <Section title="Relay" level={3} inset={false}>
+        <Field
+          label="Relay URL"
+          htmlFor={relayUrlId}
+          help="Point this desktop at the relay your phone is configured to reach. Multicode keeps the connection open while the companion is enabled."
+        >
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
               value={relayUrlDraft}
@@ -359,20 +361,14 @@ export default function MobileSettingsTab() {
               </button>
             </div>
           </div>
-        </label>
-        <p className="mt-2 text-[12px] leading-5 text-[color:var(--text-disabled)]">
-          Point this desktop at the relay your phone is configured to reach. Multicode keeps the connection open while the companion is enabled.
-        </p>
-      </div>
+        </Field>
+      </Section>
 
-      <div className="border-t border-[color:var(--bg-selected)] pt-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-[color:var(--text-strong)]">Pairing code</div>
-            <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-disabled)]">
-              Generate a single-use code, then enter it on a phone running the Multicode mobile app.
-            </p>
-          </div>
+      <Section
+        title="Pairing code"
+        level={3}
+        inset={false}
+        action={
           <button
             type="button"
             onClick={() => void requestPairingCode()}
@@ -381,8 +377,11 @@ export default function MobileSettingsTab() {
           >
             Generate code
           </button>
-        </div>
-
+        }
+      >
+        <p className="text-[12px] leading-5 text-[color:var(--text-disabled)]">
+          Generate a single-use code, then enter it on a phone running the Multicode mobile app.
+        </p>
         {pairingChallenge ? (
           <div className="mt-4 rounded-md border border-[color:var(--accent-primary)]/30 bg-[color:var(--accent-primary-soft)] px-4 py-4">
             <div className="text-[12px] font-semibold text-[color:var(--text-muted)]">
@@ -401,17 +400,16 @@ export default function MobileSettingsTab() {
             </div>
           </div>
         ) : null}
-      </div>
+      </Section>
 
-      <div className="border-t border-[color:var(--bg-selected)] pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-[color:var(--text-strong)]">Paired phones</div>
-          <div className="text-[12px] tabular-nums text-[color:var(--text-muted)]">
-            {activeDevices.length} active
-          </div>
-        </div>
+      <Section
+        title="Paired phones"
+        level={3}
+        inset={false}
+        count={activeDevices.length}
+      >
         {activeDevices.length > 0 ? (
-          <div className="mt-3 divide-y divide-[color:var(--bg-selected)]">
+          <div className="divide-y divide-[color:var(--bg-selected)]">
             {activeDevices.map((device) => (
               <div
                 key={device.deviceId}
@@ -439,28 +437,29 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-disabled)]">
+          <p className="text-[12px] leading-5 text-[color:var(--text-disabled)]">
             No phones paired yet. Generate a pairing code, then enter it in the mobile app to link a device.
           </p>
         )}
-      </div>
+      </Section>
 
-      <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--bg-selected)] pt-4 text-sm sm:grid-cols-2">
-        <MetaCell label="Relay status" value={relayStatusLabel(state?.relayStatus)} tone={relayStatusTone(state?.relayStatus)} />
-        <MetaCell label="Session" value={state?.desktopRelaySessionId ? 'Ready' : 'Not ready'} tone={state?.desktopRelaySessionId ? 'positive' : 'muted'} />
-        <MetaCell label="Last presence" value={formatNullableDate(state?.lastPresenceAt)} />
-        <MetaCell label="Token expires" value={formatNullableDate(state?.relayTokenExpiresAt)} />
-      </div>
-
-      <div className="border-t border-[color:var(--bg-selected)] pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-[color:var(--text-strong)]">Recent mobile messages</div>
-          <div className="text-[12px] tabular-nums text-[color:var(--text-muted)]">
-            {recentCommands.length} recent
-          </div>
+      <Section title="Relay state" level={3} inset={false}>
+        <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+          <MetaCell label="Relay status" value={relayStatusLabel(state?.relayStatus)} tone={relayStatusTone(state?.relayStatus)} />
+          <MetaCell label="Session" value={state?.desktopRelaySessionId ? 'Ready' : 'Not ready'} tone={state?.desktopRelaySessionId ? 'positive' : 'muted'} />
+          <MetaCell label="Last presence" value={formatNullableDate(state?.lastPresenceAt)} />
+          <MetaCell label="Token expires" value={formatNullableDate(state?.relayTokenExpiresAt)} />
         </div>
+      </Section>
+
+      <Section
+        title="Recent mobile messages"
+        level={3}
+        inset={false}
+        count={recentCommands.length}
+      >
         {recentCommands.length > 0 ? (
-          <div className="mt-3 divide-y divide-[color:var(--bg-selected)]">
+          <div className="divide-y divide-[color:var(--bg-selected)]">
             {recentCommands.map((event) => (
               <div key={event.id} className="grid gap-1 py-2.5 first:pt-0 last:pb-0">
                 <div className="flex items-center justify-between gap-3">
@@ -480,15 +479,17 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-disabled)]">
+          <p className="text-[12px] leading-5 text-[color:var(--text-disabled)]">
             No mobile messages yet.
           </p>
         )}
-      </div>
+      </Section>
 
-      <div className="border-t border-[color:var(--bg-selected)] pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-[color:var(--text-strong)]">Diagnostics</div>
+      <Section
+        title="Diagnostics"
+        level={3}
+        inset={false}
+        action={
           <button
             type="button"
             onClick={() => void refreshDiagnostics()}
@@ -496,9 +497,10 @@ export default function MobileSettingsTab() {
           >
             {showDiagnostics ? 'Refresh' : 'Show'}
           </button>
-        </div>
+        }
+      >
         {visibleDiagnostics.length > 0 ? (
-          <div className="mt-3 space-y-3">
+          <div className="space-y-3">
             {visibleDiagnostics.map((entry) => (
               <div key={entry.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-[12px] leading-5">
                 <StatusDot
@@ -517,11 +519,11 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-disabled)]">
+          <p className="text-[12px] leading-5 text-[color:var(--text-disabled)]">
             No diagnostics recorded.
           </p>
         )}
-      </div>
+      </Section>
     </div>
   )
 }

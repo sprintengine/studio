@@ -1015,7 +1015,7 @@ export default function NewWorkspacePanel({
               focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
             "
           >
-            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path
                 d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5"
                 stroke="currentColor"
@@ -1042,7 +1042,7 @@ export default function NewWorkspacePanel({
                 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
               "
             >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <svg className="icon-sm" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path
                   d="M7.5 3L4.5 6L7.5 9"
                   stroke="currentColor"
@@ -1253,7 +1253,7 @@ export default function NewWorkspacePanel({
             >
               {primaryLabel}
               {!isLastStep ? (
-                <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <svg className="icon-sm" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                   <path
                     d="M4.5 3L7.5 6L4.5 9"
                     stroke="currentColor"
@@ -1363,7 +1363,7 @@ function WorkspaceStep({
             focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
           "
         >
-          <svg className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               d="M3.75 7.5C3.75 6.39543 4.64543 5.5 5.75 5.5H9.5L11.5 7.5H18.25C19.3546 7.5 20.25 8.39543 20.25 9.5V16.25C20.25 17.3546 19.3546 18.25 18.25 18.25H5.75C4.64543 18.25 3.75 17.3546 3.75 16.25V7.5Z"
               stroke="currentColor"

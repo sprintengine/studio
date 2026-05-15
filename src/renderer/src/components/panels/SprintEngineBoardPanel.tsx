@@ -6,11 +6,13 @@ import {
  OverflowMenu,
  PrimaryButton,
  GhostButton,
+ Popover,
  StatusDot,
  Section,
  Select,
  Switch,
  TaskCard,
+ Tooltip,
  InboxRow,
  DefinitionList,
  type DefinitionItem,
@@ -18,6 +20,7 @@ import {
  type TabItem,
  type Tone,
 } from '../ui'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { Modal, ModalBody, ModalButton, ModalFooter } from '../ui/Modal'
 import { focusOrAddComponentTab } from '../../utils/modelRegistry'
@@ -142,7 +145,7 @@ const sprintEngineCliPermissionOptions: Array<{
 
 function ZoomInSprintEngineIcon() {
  return (
- <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+ <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
  <path
  d="M7.25 11.25a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm2.9-1.1 3.1 3.1M7.25 5.45v3.6M5.45 7.25h3.6"
  stroke="currentColor"
@@ -156,7 +159,7 @@ function ZoomInSprintEngineIcon() {
 
 function ZoomOutSprintEngineIcon() {
  return (
- <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+ <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
  <path
  d="M7.25 11.25a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm2.9-1.1 3.1 3.1M5.45 7.25h3.6"
  stroke="currentColor"
@@ -170,7 +173,7 @@ function ZoomOutSprintEngineIcon() {
 
 function ResetGraphZoomIcon() {
  return (
- <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+ <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
  <path
  d="M12.75 5.5A5 5 0 1 0 13 8m-.25-2.5V2.75m0 2.75H10"
  stroke="currentColor"
@@ -184,7 +187,7 @@ function ResetGraphZoomIcon() {
 
 function FitGraphZoomIcon() {
  return (
- <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+ <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
  <path
  d="M3.25 6V3.25H6m4 0h2.75V6m0 4v2.75H10m-4 0H3.25V10"
  stroke="currentColor"
@@ -384,37 +387,16 @@ function SprintEngineSettingsPopover({
  first.focus()
  }
  }
- useEffect(() => {
- const onKey = (event: KeyboardEvent) => {
- if (event.key === 'Escape') {
- event.preventDefault()
- onClose()
- }
- }
- const onPointer = (event: MouseEvent) => {
- const target = event.target as Node | null
- if (!target) return
- if (containerRef.current?.contains(target)) return
- onClose()
- }
- window.addEventListener('keydown', onKey)
- window.addEventListener('mousedown', onPointer)
- return () => {
- window.removeEventListener('keydown', onKey)
- window.removeEventListener('mousedown', onPointer)
- }
- }, [onClose])
  const currentPresetLabel =
  sprintEngineCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.label
  ?? cliPermissionPreset
  return (
  <div
  ref={containerRef}
- role="dialog"
  aria-label="Sprint Engine settings"
  tabIndex={-1}
  onKeyDown={onPanelKey}
- className="popover-enter absolute right-3 top-full z-30 mt-1 w-[280px] overflow-hidden rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] py-1"
+ className="w-[280px] overflow-hidden py-1"
  >
  <Section title="Run" level={3} inset={true}>
  <div className="flex flex-col gap-2">
@@ -485,6 +467,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
  const openFile = useWorkspaceStore((s) => s.openFile)
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
+ const dialog = useConfirmDialog()
  const {
  folderPath: savedFolderPath,
  folderReadyPath,
@@ -1331,11 +1314,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  setSprintEngineAutoApproveArtifacts(workspaceId, !autoApproveArtifacts)
  }
 
- const updateCliPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
+ const updateCliPermissionPreset = async (preset: SprintEngineCliPermissionPreset) => {
  if (preset === 'bypass_all') {
- const confirmed = window.confirm(
- 'Bypass permissions lets spawned Sprint Engine agents run without CLI approval prompts. Use this only in repositories and environments you trust.'
- )
+ const confirmed = await dialog.confirm({
+ title: 'Bypass CLI permissions?',
+ body: 'Spawned Sprint Engine agents will run without CLI approval prompts. Use this only in repositories and environments you trust.',
+ confirmLabel: 'Bypass permissions',
+ tone: 'danger',
+ })
  if (!confirmed) return
  }
 
@@ -1773,7 +1759,27 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  count={sprintEngineState.tasks.length}
  primaryAction={chromePrimaryButton}
  overflow={
+ <Popover
+ open={settingsOpen}
+ onOpenChange={setSettingsOpen}
+ ariaLabel="Sprint Engine settings"
+ popupRole="dialog"
+ placement="bottom-end"
+ renderTrigger={() => (
  <OverflowMenu ariaLabel="Sprint Engine overflow" items={chromeOverflowItems} />
+ )}
+ >
+ <SprintEngineSettingsPopover
+ autoEnabled={autoEnabled}
+ autoApproveArtifacts={autoApproveArtifacts}
+ cliPermissionPreset={cliPermissionPreset}
+ onToggleAuto={toggleAuto}
+ onToggleArtifactAutoApproval={toggleArtifactAutoApproval}
+ onUpdateCliPreset={updateCliPermissionPreset}
+ onVerifyProgress={architectAgentId ? openRecoveryDialog : null}
+ onClose={() => setSettingsOpen(false)}
+ />
+ </Popover>
  }
  />
  {!fixedView ? (
@@ -1789,18 +1795,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  <div className="sr-only" role="status" aria-live="polite">
  {syncState.message}
  </div>
- {settingsOpen ? (
- <SprintEngineSettingsPopover
- autoEnabled={autoEnabled}
- autoApproveArtifacts={autoApproveArtifacts}
- cliPermissionPreset={cliPermissionPreset}
- onToggleAuto={toggleAuto}
- onToggleArtifactAutoApproval={toggleArtifactAutoApproval}
- onUpdateCliPreset={updateCliPermissionPreset}
- onVerifyProgress={architectAgentId ? openRecoveryDialog : null}
- onClose={() => setSettingsOpen(false)}
- />
- ) : null}
  </div>
 
  {folderStatusBanner}
@@ -1936,7 +1930,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  aria-label={`Role: ${sprintEngineRoleLabels[task.role]}`}
  role="img"
  >
- <SprintEngineRoleIcon role={task.role} className="h-3.5 w-3.5" />
+ <SprintEngineRoleIcon role={task.role} className="icon-sm" />
  </span>
  }
  />
@@ -1991,7 +1985,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  aria-label="Close"
  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
- <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
  </svg>
  </button>
@@ -2003,16 +1997,25 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  <MetaItem label="Backup" value="state-timestamp.yaml" />
  </div>
 
- <div className="relative">
+ <div>
  <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
  Architect CLI
  </div>
+ <Popover
+ open={cliPickerOpen}
+ onOpenChange={setCliPickerOpen}
+ ariaLabel="Architect CLI options"
+ popupRole="listbox"
+ placement="bottom-start"
+ className="block w-full"
+ surfaceClassName="left-0 right-0 w-full p-1"
+ renderTrigger={({ ref, triggerProps, togglePopover }) => (
  <button
+ ref={ref}
  type="button"
- onClick={() => setCliPickerOpen((open) => !open)}
- aria-haspopup="listbox"
- aria-expanded={cliPickerOpen}
+ onClick={togglePopover}
  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-[color:var(--text-strong)] outline-none interactive transition-colors hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--border-strong)]"
+ {...triggerProps}
  >
  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)]">
  <CliIcon cli={selectedRecoveryCliOption.value} className="h-5 w-5" />
@@ -2026,7 +2029,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  </span>
  </span>
  <svg
- className={`h-4 w-4 shrink-0 text-[color:var(--text-disabled)] transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
+ className={`icon-md shrink-0 text-[color:var(--text-disabled)] transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
  viewBox="0 0 20 20"
  fill="none"
  aria-hidden="true"
@@ -2035,12 +2038,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
  </button>
-
- {cliPickerOpen ? (
- <div
- role="listbox"
- // design-tokens-allow: CLI picker popover elevation reuses the canonical shadow.
- className="popover-enter absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[color:var(--bg-surface)] p-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
+ )}
  >
  {cliOptions.map((option) => {
  const selected = recoveryDialog.cli === option.value
@@ -2078,15 +2076,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  </span>
  </span>
  {selected ? (
- <svg className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+ <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
  <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
  ) : null}
  </button>
  )
  })}
- </div>
- ) : null}
+ </Popover>
  </div>
 
  <p className="border-l border-[color:var(--border-strong)] pl-3 text-sm leading-6 text-[color:var(--text-muted)]">
@@ -2146,7 +2143,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  aria-label="Close"
  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
- <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
  </svg>
  </button>
@@ -2175,16 +2172,25 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  />
  </label>
 
- <div className="relative">
+ <div>
  <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
  CLI
  </div>
+ <Popover
+ open={cliPickerOpen}
+ onOpenChange={setCliPickerOpen}
+ ariaLabel="Spawn agent CLI options"
+ popupRole="listbox"
+ placement="bottom-start"
+ className="block w-full"
+ surfaceClassName="left-0 right-0 w-full p-1"
+ renderTrigger={({ ref, triggerProps, togglePopover }) => (
  <button
+ ref={ref}
  type="button"
- onClick={() => setCliPickerOpen((open) => !open)}
- aria-haspopup="listbox"
- aria-expanded={cliPickerOpen}
+ onClick={togglePopover}
  className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-[color:var(--text-strong)] outline-none interactive transition-colors hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--border-strong)]"
+ {...triggerProps}
  >
  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)]">
  <CliIcon cli={selectedCliOption.value} className="h-5 w-5" />
@@ -2198,7 +2204,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  </span>
  </span>
  <svg
- className={`h-4 w-4 shrink-0 text-[color:var(--text-disabled)] transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
+ className={`icon-md shrink-0 text-[color:var(--text-disabled)] transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
  viewBox="0 0 20 20"
  fill="none"
  aria-hidden="true"
@@ -2207,12 +2213,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
  </button>
-
- {cliPickerOpen ? (
- <div
- role="listbox"
- // design-tokens-allow: CLI picker popover elevation reuses the canonical shadow.
- className="popover-enter absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-md bg-[color:var(--bg-surface)] p-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
+ )}
  >
  {cliOptions.map((option) => {
  const selected = spawnDialog.cli === option.value
@@ -2250,15 +2251,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  </span>
  </span>
  {selected ? (
- <svg className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+ <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
  <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
  ) : null}
  </button>
  )
  })}
- </div>
- ) : null}
+ </Popover>
  </div>
 
  <p className="border-l border-[color:var(--border-strong)] pl-3 text-sm leading-6 text-[color:var(--text-muted)]">
@@ -2309,7 +2309,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  aria-label="Close"
  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
- <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
  </svg>
  </button>
@@ -2342,7 +2342,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  color: 'var(--text-muted)',
  }}
  >
- <SprintEngineRoleIcon role={role} className="h-4 w-4" />
+ <SprintEngineRoleIcon role={role} className="icon-md" />
  </span>
  <div className="min-w-0 flex-1">
  <div className="truncate text-sm font-semibold">
@@ -2509,7 +2509,7 @@ function SprintEngineInspectorPanel({
  color: sprintEngineRoleAccent[agent.role],
  }}
  >
- <SprintEngineRoleIcon role={agent.role} className="h-3.5 w-3.5" />
+ <SprintEngineRoleIcon role={agent.role} className="icon-sm" />
  </span>
  <span>{sprintEngineRoleLabels[agent.role]}</span>
  <span>·</span>
@@ -2529,7 +2529,7 @@ function SprintEngineInspectorPanel({
  aria-label="Close agent detail"
  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
- <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
  </svg>
  </button>
@@ -2637,7 +2637,7 @@ function SprintEngineInspectorPanel({
  aria-label="Close task detail"
  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
- <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
  </svg>
  </button>
@@ -3084,7 +3084,7 @@ function SprintEngineProjectView({
  }}
  aria-hidden="true"
  >
- <SprintEngineRoleIcon role={agent.role} className="h-4 w-4" />
+ <SprintEngineRoleIcon role={agent.role} className="icon-md" />
  </span>
  <span className="min-w-0 flex-1 space-y-0.5">
  <span className="flex min-w-0 items-baseline gap-2">
@@ -3135,12 +3135,13 @@ function SprintEngineProjectView({
  <div className="flex flex-wrap gap-1.5 px-3 py-2.5">
  {addableRoles.map((role) => {
  const count = rosterCountByRole[role] ?? 0
+ const addLabel = `${count > 0 ? 'Add another' : 'Add'} ${sprintEngineRoleLabels[role]}`
  return (
+ <Tooltip key={role} content={addLabel}>
  <button
- key={role}
  type="button"
  onClick={() => dispatchRoleAdd(role)}
- title={`${count > 0 ? 'Add another' : 'Add'} ${sprintEngineRoleLabels[role]}`}
+ aria-label={addLabel}
  className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[color:var(--border-strong)] px-2 py-1 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--accent-primary-soft)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
  <span
@@ -3151,7 +3152,7 @@ function SprintEngineProjectView({
  }}
  aria-hidden="true"
  >
- <SprintEngineRoleIcon role={role} className="h-3 w-3" />
+ <SprintEngineRoleIcon role={role} className="icon-xs" />
  </span>
  <span>{sprintEngineRoleLabels[role]}</span>
  {count > 0 ? (
@@ -3160,6 +3161,7 @@ function SprintEngineProjectView({
  </span>
  ) : null}
  </button>
+ </Tooltip>
  )
  })}
  </div>
@@ -3464,7 +3466,7 @@ function SprintEngineTaskGraphView({
  role="alert"
  className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--tone-warn-soft)] px-2 py-1 text-[11px] font-semibold text-[color:var(--tone-warn)]"
  >
- <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
  <path d="M8 1.75L14.75 13.5H1.25L8 1.75Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
  <path d="M8 6.5V9.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
  <circle cx="8" cy="11.6" r="0.7" fill="currentColor" />
@@ -3474,52 +3476,56 @@ function SprintEngineTaskGraphView({
  ) : null}
  </div>
  <div className="flex items-center gap-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-0.5">
+ <Tooltip content="Zoom out">
  <button
  type="button"
  onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'out'))}
  disabled={!canZoomOut}
  className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
  aria-label="Zoom out task graph"
- title="Zoom out"
  >
  <ZoomOutSprintEngineIcon />
  </button>
+ </Tooltip>
  <div
  className="min-w-[2.75rem] px-1 text-center text-[11px] font-semibold tabular-nums text-[color:var(--text-default)]"
  aria-live="polite"
  >
  {zoomPercent}%
  </div>
+ <Tooltip content="Zoom in">
  <button
  type="button"
  onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'in'))}
  disabled={!canZoomIn}
  className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
  aria-label="Zoom in task graph"
- title="Zoom in"
  >
  <ZoomInSprintEngineIcon />
  </button>
+ </Tooltip>
  <span className="mx-0.5 h-4 w-px bg-[color:var(--border-default)]" aria-hidden="true" />
+ <Tooltip content="Fit graph">
  <button
  type="button"
  onClick={fitGraphToViewport}
  className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
  aria-label="Fit task graph to viewport"
- title="Fit graph"
  >
  <FitGraphZoomIcon />
  </button>
+ </Tooltip>
+ <Tooltip content="Reset zoom">
  <button
  type="button"
  onClick={() => setGraphZoomFromAnchor(defaultTaskGraphZoom)}
  disabled={!canResetZoom}
  className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
  aria-label="Reset task graph zoom"
- title="Reset zoom"
  >
  <ResetGraphZoomIcon />
  </button>
+ </Tooltip>
  </div>
  </header>
 
@@ -3614,7 +3620,7 @@ function SprintEngineTaskGraphView({
  }}
  >
  <div className="flex items-center gap-1.5 text-[10px] font-bold text-[color:var(--tone-good)]">
- <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+ <svg className="icon-xs" viewBox="0 0 12 12" fill="none" aria-hidden="true">
  <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
  Goal
@@ -3729,7 +3735,7 @@ function SprintEngineTaskGraphView({
  >
  Legend
  <svg
- className={`h-3 w-3 transition-transform ${legendOpen ? 'rotate-180' : ''}`}
+ className={`icon-xs transition-transform ${legendOpen ? 'rotate-180' : ''}`}
  viewBox="0 0 12 12"
  fill="none"
  aria-hidden="true"
@@ -3738,8 +3744,10 @@ function SprintEngineTaskGraphView({
  </svg>
  </button>
  {legendOpen ? (
- // design-tokens-allow: legend popover elevation reuses the canonical shadow.
- <div className="popover-enter mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-[11px] backdrop-blur shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]">
+ // Inline disclosure under the legend toggle: flow-positioned, no outside-click,
+ // no Escape close. Not a popover semantically — kept as a graph-overlay
+ // disclosure card so it doesn't fight canvas pan/zoom interactions.
+ <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-[11px] backdrop-blur shadow-[var(--shadow-drawer)]">
  <div className="text-[9px] font-bold text-[color:var(--text-disabled)]">
  Status
  </div>
@@ -3771,7 +3779,7 @@ function SprintEngineTaskGraphView({
  >
  Minimap
  <svg
- className={`h-3 w-3 transition-transform ${minimapOpen ? 'rotate-180' : ''}`}
+ className={`icon-xs transition-transform ${minimapOpen ? 'rotate-180' : ''}`}
  viewBox="0 0 12 12"
  fill="none"
  aria-hidden="true"
@@ -3780,8 +3788,10 @@ function SprintEngineTaskGraphView({
  </svg>
  </button>
  {minimapOpen ? (
- // design-tokens-allow: minimap popover elevation reuses the canonical shadow.
- <div className="popover-enter mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 backdrop-blur shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]">
+ // Inline disclosure under the minimap toggle: flow-positioned, no
+ // outside-click, no Escape close. Not a popover semantically — kept as a
+ // graph-overlay disclosure card so canvas pan/zoom keeps working.
+ <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 backdrop-blur shadow-[var(--shadow-drawer)]">
  <div
  className="relative cursor-crosshair overflow-hidden rounded bg-[color:var(--bg-app)]"
  style={{ width: minimapInnerWidth, height: minimapInnerHeight }}
@@ -4229,7 +4239,7 @@ function SprintEngineArtifactPreview({
  className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[12px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
  aria-label="Back to task detail"
  >
- <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+ <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
  <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
  Back
@@ -4238,17 +4248,19 @@ function SprintEngineArtifactPreview({
  {artifact.name}
  </span>
  </div>
+ <Tooltip content="Open in editor tab">
  <button
  type="button"
  onClick={onPopOut}
  className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
- title="Open in editor tab"
+ aria-label="Open in editor tab"
  >
- <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+ <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
  <path d="M9 3H13V7M13 3L7.5 8.5M6 4H4C3.45 4 3 4.45 3 5V12C3 12.55 3.45 13 4 13H11C11.55 13 12 12.55 12 12V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
  Open in editor
  </button>
+ </Tooltip>
  </header>
  <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
  {isMarkdown ? (
@@ -4662,7 +4674,7 @@ function SprintEngineArtifactInspector({
  aria-label="Close artifact detail"
  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
- <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
  <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
  </svg>
  </button>

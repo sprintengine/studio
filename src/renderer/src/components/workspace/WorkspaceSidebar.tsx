@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { WorkspaceTypeIcon } from '../AppIcons'
-import { StatusDot, type Tone } from '../ui'
+import { StatusDot, Tooltip, type Tone } from '../ui'
 import MulticodeMark from '../brand/MulticodeMark'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -754,7 +754,7 @@ export default function WorkspaceSidebar({
               >
                 {starred ? (
                   <svg
-                    className="h-3 w-3 shrink-0 text-[color:var(--tone-warn)]"
+                    className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
                     viewBox="0 0 16 16"
                     fill="currentColor"
                     aria-label="Starred"
@@ -769,7 +769,7 @@ export default function WorkspaceSidebar({
 
             {folderMissing ? (
               <svg
-                className="h-3 w-3 shrink-0 text-[color:var(--tone-warn)]"
+                className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
                 viewBox="0 0 16 16"
                 fill="none"
                 aria-label="Folder missing"
@@ -793,40 +793,42 @@ export default function WorkspaceSidebar({
                 ) : null}
               </span>
               <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setContextMenu({
-                      workspaceId: workspace.id,
-                      x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
-                      y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
-                    })
-                  }}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
-                  aria-label="Workspace actions"
-                  title="More actions"
-                >
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                    <circle cx="3.5" cy="8" r="1.2" />
-                    <circle cx="8" cy="8" r="1.2" />
-                    <circle cx="12.5" cy="8" r="1.2" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    handleClose(workspace.id)
-                  }}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
-                  aria-label={`Close ${workspace.name}`}
-                  title="Close workspace"
-                >
-                  <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
-                    <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                  </svg>
-                </button>
+                <Tooltip content="More actions">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setContextMenu({
+                        workspaceId: workspace.id,
+                        x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
+                        y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
+                      })
+                    }}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                    aria-label="Workspace actions"
+                  >
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs">
+                      <circle cx="3.5" cy="8" r="1.2" />
+                      <circle cx="8" cy="8" r="1.2" />
+                      <circle cx="12.5" cy="8" r="1.2" />
+                    </svg>
+                  </button>
+                </Tooltip>
+                <Tooltip content="Close workspace">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleClose(workspace.id)
+                    }}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                    aria-label={`Close ${workspace.name}`}
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
+                      <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </Tooltip>
               </span>
             </span>
           </>
@@ -872,27 +874,29 @@ export default function WorkspaceSidebar({
             <span className="truncate">multicode</span>
           </div>
         )}
-        <button
-          type="button"
-          onClick={() => onSetSidebarCollapsed(!sidebarCollapsed)}
-          className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
-          title={sidebarCollapsed ? 'Open sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}
-          aria-label={sidebarCollapsed ? 'Open sidebar' : 'Collapse sidebar'}
-        >
-          {sidebarCollapsed ? (
-            <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5">
-              <rect x="2.5" y="3" width="3.5" height="10" rx="1" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M9.5 8H13.5M11.5 6L13.5 8L11.5 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5">
-              <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )}
-        </button>
+        <Tooltip content={sidebarCollapsed ? 'Open sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}>
+          <button
+            type="button"
+            onClick={() => onSetSidebarCollapsed(!sidebarCollapsed)}
+            className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+            aria-label={sidebarCollapsed ? 'Open sidebar' : 'Collapse sidebar'}
+          >
+            {sidebarCollapsed ? (
+              <svg viewBox="0 0 16 16" fill="none" className="icon-sm">
+                <rect x="2.5" y="3" width="3.5" height="10" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M9.5 8H13.5M11.5 6L13.5 8L11.5 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" fill="none" className="icon-sm">
+                <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
+        </Tooltip>
       </div>
 
       {/* New workspace */}
+      <Tooltip content="New workspace (Ctrl+T) — drop a tab here to extract it">
       <button
         type="button"
         onClick={onNewWorkspace}
@@ -904,16 +908,16 @@ export default function WorkspaceSidebar({
             ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
             : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
         } ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}
-        title="New workspace (Ctrl+T) — drop a tab here to extract it"
         aria-label="New workspace"
       >
-        <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+        <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
           <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
         {!sidebarCollapsed && (
           <span>{tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New workspace'}</span>
         )}
       </button>
+      </Tooltip>
 
       {/* Tree */}
       <nav className="mt-1 flex-1 overflow-y-auto pb-2" role="tree">
@@ -936,7 +940,7 @@ export default function WorkspaceSidebar({
               <svg
                 viewBox="0 0 16 16"
                 fill="none"
-                className={`h-3 w-3 shrink-0 text-[color:var(--text-disabled)] transition-transform ${
+                className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
                   starredCollapsed ? '-rotate-90' : ''
                 }`}
               >
@@ -945,7 +949,7 @@ export default function WorkspaceSidebar({
               <svg
                 viewBox="0 0 16 16"
                 fill="currentColor"
-                className="h-3.5 w-3.5 shrink-0 text-[color:var(--tone-warn)]"
+                className="icon-sm shrink-0 text-[color:var(--tone-warn)]"
                 aria-hidden="true"
               >
                 <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
@@ -1001,13 +1005,13 @@ export default function WorkspaceSidebar({
                   <svg
                     viewBox="0 0 16 16"
                     fill="none"
-                    className={`h-3 w-3 shrink-0 text-[color:var(--text-disabled)] transition-transform ${
+                    className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
                       collapsed ? '-rotate-90' : ''
                     }`}
                   >
                     <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                  <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0">
+                  <svg viewBox="0 0 16 16" fill="none" className="icon-sm shrink-0">
                     <path
                       d="M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z"
                       stroke="currentColor"
@@ -1026,27 +1030,28 @@ export default function WorkspaceSidebar({
                       Missing
                     </span>
                   ) : null}
-                  <button
-                    type="button"
-                    data-folder-overflow="true"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      setFolderMenu({
-                        folderKey: group.key,
-                        x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
-                        y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
-                      })
-                    }}
-                    className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100"
-                    aria-label="Folder actions"
-                    title="Folder actions"
-                  >
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                      <circle cx="3.5" cy="8" r="1.2" />
-                      <circle cx="8" cy="8" r="1.2" />
-                      <circle cx="12.5" cy="8" r="1.2" />
-                    </svg>
-                  </button>
+                  <Tooltip content="Folder actions">
+                    <button
+                      type="button"
+                      data-folder-overflow="true"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setFolderMenu({
+                          folderKey: group.key,
+                          x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
+                          y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
+                        })
+                      }}
+                      className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100"
+                      aria-label="Folder actions"
+                    >
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs">
+                        <circle cx="3.5" cy="8" r="1.2" />
+                        <circle cx="8" cy="8" r="1.2" />
+                        <circle cx="12.5" cy="8" r="1.2" />
+                      </svg>
+                    </button>
+                  </Tooltip>
                 </header>
               )}
               {(!collapsed || sidebarCollapsed) && (
@@ -1390,7 +1395,7 @@ function ContextMenu({
           fill={starred ? 'currentColor' : 'none'}
           stroke="currentColor"
           strokeWidth="1.4"
-          className={`h-3.5 w-3.5 shrink-0 ${starred ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-disabled)]'}`}
+          className={`icon-sm shrink-0 ${starred ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-disabled)]'}`}
         >
           <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" strokeLinejoin="round" />
         </svg>
@@ -1400,38 +1405,39 @@ function ContextMenu({
         Highlight color
       </div>
       <div className="flex items-center gap-1 px-2 pb-1.5">
-        <button
-          type="button"
-          onClick={() => onSelect('clear-color')}
-          aria-label="Clear color"
-          title="Clear color"
-          className={`flex h-5 w-5 items-center justify-center rounded-full border border-[color:var(--border-default)] text-[color:var(--text-disabled)] transition-colors hover:border-[color:var(--text-disabled)] hover:text-[color:var(--text-default)] ${
-            currentColor === null ? 'ring-1 ring-[color:var(--text-default)]' : ''
-          }`}
-        >
-          <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3">
-            <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </button>
+        <Tooltip content="Clear color">
+          <button
+            type="button"
+            onClick={() => onSelect('clear-color')}
+            aria-label="Clear color"
+            className={`flex h-5 w-5 items-center justify-center rounded-full border border-[color:var(--border-default)] text-[color:var(--text-disabled)] transition-colors hover:border-[color:var(--text-disabled)] hover:text-[color:var(--text-default)] ${
+              currentColor === null ? 'ring-1 ring-[color:var(--text-default)]' : ''
+            }`}
+          >
+            <svg viewBox="0 0 12 12" fill="none" className="icon-xs">
+              <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </button>
+        </Tooltip>
         {HIGHLIGHT_COLORS.map((color) => {
           const swatch = getHighlightSwatch(color)
           const selected = currentColor === color
           return (
-            <button
-              key={color}
-              type="button"
-              onClick={() => onPickColor(color)}
-              aria-label={`Highlight ${swatch.label}`}
-              title={swatch.label}
-              className={`h-5 w-5 rounded-full transition-transform hover:scale-110 ${
-                selected ? 'ring-2 ring-offset-1 ring-offset-[color:var(--bg-surface)]' : ''
-              }`}
-              style={{
-                backgroundColor: swatch.hex,
-                boxShadow: selected ? `0 0 8px ${swatch.ringRgba(0.6)}` : undefined,
-                ['--tw-ring-color' as never]: swatch.hex,
-              }}
-            />
+            <Tooltip key={color} content={swatch.label}>
+              <button
+                type="button"
+                onClick={() => onPickColor(color)}
+                aria-label={`Highlight ${swatch.label}`}
+                className={`h-5 w-5 rounded-full transition-transform hover:scale-110 ${
+                  selected ? 'ring-2 ring-offset-1 ring-offset-[color:var(--bg-surface)]' : ''
+                }`}
+                style={{
+                  backgroundColor: swatch.hex,
+                  boxShadow: selected ? `0 0 8px ${swatch.ringRgba(0.6)}` : undefined,
+                  ['--tw-ring-color' as never]: swatch.hex,
+                }}
+              />
+            </Tooltip>
           )
         })}
       </div>

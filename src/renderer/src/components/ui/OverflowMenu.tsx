@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
+import { Popover } from './Popover'
 import { FOCUS_RING_CLASS } from './tokens'
 
 export type OverflowMenuItem =
@@ -37,51 +38,18 @@ const KEBAB = (
 
 export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: OverflowMenuProps) {
   const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const menuId = useId()
+  const menuRef = useRef<HTMLElement | null>(null)
 
   const interactiveItems = useMemo(
     () => items.filter((item) => item.kind !== 'separator') as Extract<OverflowMenuItem, { kind?: 'item' }>[],
     [items],
   )
 
-  const close = useCallback(
-    (restoreFocus = true) => {
-      setOpen(false)
-      if (restoreFocus) triggerRef.current?.focus()
-    },
-    [],
-  )
-
-  useEffect(() => {
-    if (!open) return
-    const first = menuRef.current?.querySelector<HTMLButtonElement>('[data-overflow-item="true"]:not([disabled])')
+  const focusFirstItem = useCallback((surface: HTMLElement) => {
+    menuRef.current = surface
+    const first = surface.querySelector<HTMLButtonElement>('[data-overflow-item="true"]:not([disabled])')
     first?.focus()
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node | null
-      if (!target) return
-      if (menuRef.current?.contains(target)) return
-      if (triggerRef.current?.contains(target)) return
-      setOpen(false)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        close(true)
-      }
-    }
-    window.addEventListener('mousedown', onPointer)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('mousedown', onPointer)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open, close])
+  }, [])
 
   const focusByOffset = (current: HTMLElement, offset: 1 | -1) => {
     if (!menuRef.current) return
@@ -117,38 +85,34 @@ export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: Overf
   }
 
   return (
-    <div className="relative inline-flex">
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        aria-label={ariaLabel}
-        onClick={() => setOpen((v) => !v)}
-        className={[
-          'interactive inline-flex h-6 w-6 items-center justify-center rounded-[5px]',
-          'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-          open ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : '',
-          FOCUS_RING_CLASS,
-        ].join(' ')}
-      >
-        {trigger ? trigger(() => setOpen(true), open) : KEBAB}
-      </button>
-      {open ? (
-        <div
-          ref={menuRef}
-          id={menuId}
-          role="menu"
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel={ariaLabel}
+      popupRole="menu"
+      placement={align === 'end' ? 'bottom-end' : 'bottom-start'}
+      surfaceClassName="min-w-[200px] py-1"
+      onOpenAutoFocus={focusFirstItem}
+      renderTrigger={({ ref, openPopover, open: opened, togglePopover, triggerProps }) => (
+        <button
+          ref={ref}
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={triggerProps['aria-expanded']}
+          aria-controls={triggerProps['aria-controls']}
           aria-label={ariaLabel}
+          onClick={togglePopover}
           className={[
-            // design-tokens-allow: canonical popover elevation; the shadow on the next line is the reference implementation other popovers reuse via markers
-            'popover-enter absolute z-30 mt-1 min-w-[200px] rounded-[7px] border border-[color:var(--border-strong)]',
-            'bg-[color:var(--bg-surface-raised)] py-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]',
-            align === 'end' ? 'right-0' : 'left-0',
-            'top-full',
+            'interactive inline-flex h-6 w-6 items-center justify-center rounded-[5px]',
+            'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+            opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : '',
+            FOCUS_RING_CLASS,
           ].join(' ')}
         >
+          {trigger ? trigger(openPopover, opened) : KEBAB}
+        </button>
+      )}
+    >
           {items.map((item) => {
             if (item.kind === 'separator') {
               return (
@@ -172,7 +136,7 @@ export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: Overf
                 onClick={() => {
                   if (item.disabled) return
                   item.onSelect()
-                  close(false)
+                  setOpen(false)
                 }}
                 className={[
                   'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px]',
@@ -194,8 +158,6 @@ export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: Overf
               </button>
             )
           })}
-        </div>
-      ) : null}
-    </div>
+    </Popover>
   )
 }

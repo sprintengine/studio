@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Primitive-duplication guard for the shared UI redesign.
 //
-// Five rules, each of which fires with a clear message that names the
+// Six rules, each of which fires with a clear message that names the
 // offending file and the canonical replacement. The renderer tree is the
 // scope; node_modules, build output, and __preview__ surfaces are excluded.
 //
@@ -32,6 +32,21 @@
 //       `ui/TaskCard` primitive instead; the variants `row` and `card`
 //       already cover both layouts the four panels need.
 //
+//   (f) no-bespoke-popover-shell — `popover-enter` anchored shell classes
+//       outside the canonical Popover/Tooltip primitives are forbidden. Use
+//       `ui/Popover` for interactive anchored menus, listboxes, and dialog
+//       popovers. Existing graph overlay debt is baselined so new shells fail.
+//
+//   (g) no-bespoke-absolute-popover-role — `<div role="listbox|menu|dialog"
+//       className="…absolute…">` opening tags outside the canonical Popover /
+//       OverflowMenu / Select primitives. Catches the broader bespoke shell
+//       pattern that bypasses the popover-enter-only detector — a hand-rolled
+//       anchored ARIA-role surface is functionally a popover regardless of
+//       whether the consumer pulled in the popover-enter animation. Per-line
+//       `primitive-duplication-allow:` markers honour documented exemptions
+//       (e.g. nested chip-listbox inside a Popover-managed parent that
+//       handles outside-click upstream).
+//
 // Usage:
 //   node scripts/lint-primitive-duplication.mjs            # fails on any violation
 //   node scripts/lint-primitive-duplication.mjs --report   # never fails; report only
@@ -48,6 +63,12 @@ const EXCLUDED_DIRS = new Set(['__preview__', 'node_modules', 'dist', 'out'])
 // Canonical primitive paths. Detection rules below honour them.
 const TASKCARD_PATH = 'src/renderer/src/components/ui/TaskCard.tsx'
 const STATUSDOT_PATH = 'src/renderer/src/components/ui/StatusDot.tsx'
+const POPOVER_PATH = 'src/renderer/src/components/ui/Popover.tsx'
+const TOOLTIP_PATH = 'src/renderer/src/components/ui/Tooltip.tsx'
+// The Drawer primitive itself renders `<div role="dialog" className="…absolute…">`
+// for its panel — that's exactly the shape rule (g) flags, so the canonical
+// primitive needs to be exempt.
+const DRAWER_PATH = 'src/renderer/src/components/ui/Drawer.tsx'
 // Memory graph atmosphere exception: pinned to exactly this canvas file per
 // knowledge/brand/aesthetic-north-star.md memory-graph exception.
 const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas.tsx'
@@ -64,23 +85,24 @@ const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas
 //   COMPANION-PLAN-OWNED: target panels handled outside this run by
 //     future-plans/2026-05-13-linear-grade-followup-implementation.md.
 //     This audit's panel migrations stop short of these surfaces by design.
-const NATIVE_SELECT_ALLOW = [
-  // --- COMPANION-PLAN-OWNED ---
-  {
-    // COMPANION-PLAN-OWNED — Switchboard panel: workspace + provider selects
-    // in the run composer. Target panel handled by the linear-grade follow-up
-    // implementation plan; intentionally out of scope for this audit.
-    path: 'src/renderer/src/components/panels/SwitchboardBoardPanel.tsx',
-  },
-  {
-    // COMPANION-PLAN-OWNED — Watchtower panel: tail-window picker. Target
-    // panel handled by the linear-grade follow-up implementation plan;
-    // intentionally out of scope for this audit.
-    path: 'src/renderer/src/components/panels/WatchtowerPanel.tsx',
-  },
-]
+// Migration complete: SwitchboardBoardPanel and WatchtowerPanel native
+// <select> sites are now routed through ui/Select (see T8 of the Linear App
+// UI Upgrade — Phase 4 plan). Allow-list is intentionally empty so any new
+// native <select> in the renderer tree fails this guard.
+const NATIVE_SELECT_ALLOW = []
 
 const nativeSelectAllow = new Set(NATIVE_SELECT_ALLOW.map((entry) => entry.path))
+
+// Existing non-primitive popover-enter uses that predate the final gate. This
+// map must shrink as owning surfaces migrate to ui/Popover. T24 drained the
+// last two entries (graph legend + minimap) by reclassifying them as inline
+// disclosures (flow-positioned, no outside-click, no Escape) so the baseline
+// is now empty: any new popover-enter outside Popover/Tooltip fails the guard.
+const BESPOKE_POPOVER_BASELINE = new Map([])
+
+// Documented exemption marker for rule (g). Honour per-line markers exactly
+// like the design-token lint does: same-line or up to two preceding lines.
+const PRIMITIVE_DUP_ALLOW_MARKER = 'primitive-duplication-allow:'
 
 const args = new Set(process.argv.slice(2))
 const REPORT_ONLY = args.has('--report')
@@ -115,6 +137,14 @@ const STATUSDOT_FROM_APP_ICONS =
 //     the shape is a layout-reservation skeleton, not a real task card.
 const TASKCARD_DATA_ATTR = /\bdata-task-card\b/g
 const TASKCARD_TAG_OPEN = /<(li|article)\b/g
+const POPOVER_ENTER = /\bpopover-enter\b/g
+
+// (g) Bespoke absolute-shell + ARIA popover role pattern. The `[^>]*?`
+// crosses newlines via the `s` flag so multi-line div openings are handled.
+// We capture the role string for the finding text.
+const ABS_POPOVER_ROLE_TAG =
+  /<div\b[^>]*?\brole=["'](listbox|menu|dialog)["'][^>]*?>/gs
+const ABS_IN_CLASSNAME = /className=["`][^"`]*\babsolute\b[^"`]*["`]/
 
 function walk(absoluteRoot, repoRoot) {
   const out = []
@@ -274,6 +304,69 @@ for (const path of FILES) {
       }
     }
   }
+
+  // (f) Bespoke popover shells outside the canonical primitives.
+  if (path !== POPOVER_PATH && path !== TOOLTIP_PATH) {
+    let popoverShellCount = 0
+    const popoverShellFindings = []
+    POPOVER_ENTER.lastIndex = 0
+    let popoverMatch
+    while ((popoverMatch = POPOVER_ENTER.exec(source))) {
+      popoverShellCount += 1
+      const { line, column } = locationOf(source, popoverMatch.index)
+      popoverShellFindings.push({
+        rule: 'no-bespoke-popover-shell',
+        path,
+        line,
+        column,
+        match: popoverMatch[0],
+        canonical: "use ui/Popover from 'src/renderer/src/components/ui/Popover.tsx'",
+      })
+    }
+    const allowed = BESPOKE_POPOVER_BASELINE.get(path) ?? 0
+    if (popoverShellCount > allowed) {
+      popoverShellFindings.slice(allowed).forEach(recordFinding)
+    }
+  }
+
+  // (g) Bespoke absolute-shell + ARIA popover role pattern outside the
+  // canonical primitives. Catches the broader pattern that bypasses the
+  // popover-enter detector — a hand-rolled `<div role="listbox|menu|dialog"
+  // className="…absolute…">` is functionally a popover regardless of which
+  // animation class it pulls in. Per-line primitive-duplication-allow markers
+  // exempt documented cases (e.g. nested chip-listbox inside a Popover-managed
+  // parent where the outer Popover owns outside-click and focus restoration).
+  if (path !== POPOVER_PATH && path !== TOOLTIP_PATH && path !== DRAWER_PATH) {
+    const sourceLines = source.split('\n')
+    ABS_POPOVER_ROLE_TAG.lastIndex = 0
+    let roleMatch
+    while ((roleMatch = ABS_POPOVER_ROLE_TAG.exec(source))) {
+      const tagText = roleMatch[0]
+      if (!ABS_IN_CLASSNAME.test(tagText)) continue
+      const { line, column } = locationOf(source, roleMatch.index)
+      const lineText = sourceLines[line - 1] ?? ''
+      const prev1 = line >= 2 ? sourceLines[line - 2] ?? '' : ''
+      const prev2 = line >= 3 ? sourceLines[line - 3] ?? '' : ''
+      const prev3 = line >= 4 ? sourceLines[line - 4] ?? '' : ''
+      if (
+        lineText.includes(PRIMITIVE_DUP_ALLOW_MARKER) ||
+        prev1.includes(PRIMITIVE_DUP_ALLOW_MARKER) ||
+        prev2.includes(PRIMITIVE_DUP_ALLOW_MARKER) ||
+        prev3.includes(PRIMITIVE_DUP_ALLOW_MARKER)
+      ) {
+        continue
+      }
+      recordFinding({
+        rule: 'no-bespoke-absolute-popover-role',
+        path,
+        line,
+        column,
+        match: `<div role="${roleMatch[1]}" ... absolute …>`,
+        canonical:
+          "use ui/Popover, ui/OverflowMenu, or ui/Select — or add `primitive-duplication-allow: <reason>` for a documented nested exemption",
+      })
+    }
+  }
 }
 
 // (a) Rule check after walking the tree.
@@ -333,12 +426,17 @@ process.stdout.write(`  scope: ${SCAN_ROOT} (recursive, .tsx/.ts, ${FILES.length
 process.stdout.write(
   `  no-native-select allow-list: ${NATIVE_SELECT_ALLOW.length} consumer file(s) pending Phase D migration\n`,
 )
+process.stdout.write(
+  `  no-bespoke-popover-shell baseline: ${[...BESPOKE_POPOVER_BASELINE.values()].reduce((sum, count) => sum + count, 0)} legacy shell(s)\n`,
+)
 const ruleOrder = [
   'no-duplicate-statusdot',
   'no-native-select',
   'no-radial-gradient',
   'no-statusdot-from-app-icons',
   'no-hand-rolled-task-card',
+  'no-bespoke-popover-shell',
+  'no-bespoke-absolute-popover-role',
 ]
 for (const rule of ruleOrder) {
   const count = findingsByRule.get(rule)?.length ?? 0
@@ -352,6 +450,7 @@ if (findings.length > 0) {
       '  - ui/StatusDot for tone-coloured status indicators\n' +
       '  - ui/Select for tone-correct picker controls\n' +
       '  - ui/TaskCard (variant="row" | "card") for task list/board items\n' +
+      '  - ui/Popover for anchored menus, listboxes, and dialog popovers\n' +
       'Confine radial-gradient to the memory graph canvas. Delete any\n' +
       'AppIcons.StatusDot re-export; it was removed in T9 and should never\n' +
       'come back.\n',

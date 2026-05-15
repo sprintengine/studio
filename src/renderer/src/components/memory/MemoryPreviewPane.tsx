@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import { renderMarkdown } from '../../utils/markdown'
 import { TYPE_COLORS, bucketForNode } from './MemoryGraphCanvas'
+import { Tooltip } from '../ui/Tooltip'
 
 type Props = {
   workspaceId: string
@@ -138,17 +139,18 @@ export default function MemoryPreviewPane({
               Open in editor
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close preview"
-            title="Close (Esc)"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </button>
+          <Tooltip content="Close (Esc)">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close preview"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            >
+              <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </Tooltip>
         </div>
       </header>
 

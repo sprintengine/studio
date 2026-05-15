@@ -7,6 +7,7 @@ import {
   replaceGitConflictBlock,
 } from '../../utils/gitConflictMarkers'
 import { Section } from '../ui'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 type ResolverState =
   | { status: 'loading' }
@@ -50,6 +51,7 @@ function languageForPath(path: string): string | undefined {
 export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) {
   const [state, setState] = useState<ResolverState>({ status: 'loading' })
   const language = languageForPath(filePath)
+  const dialog = useConfirmDialog()
   const blocks = useMemo(
     () => state.status === 'ready' ? parseGitConflictBlocks(state.content) : [],
     [state]
@@ -111,7 +113,12 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
   const saveResolved = async () => {
     if (state.status !== 'ready' || state.saving) return
     if (hasGitConflictMarkers(state.content)) {
-      const confirmed = window.confirm('Conflict markers remain in this file. Mark it resolved anyway?')
+      const confirmed = await dialog.confirm({
+        title: 'Conflict markers remain',
+        body: 'This file still has <<<<<<<, =======, or >>>>>>> markers. Mark it resolved anyway?',
+        confirmLabel: 'Mark resolved',
+        tone: 'danger',
+      })
       if (!confirmed) return
     }
 

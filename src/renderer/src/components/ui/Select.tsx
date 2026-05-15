@@ -11,6 +11,7 @@
 // Selection is communicated via --accent-primary on the trailing check glyph.
 // All chrome is token-only; no inline hex literals.
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Popover } from './Popover'
 import { FOCUS_RING_CLASS } from './tokens'
 
 export type SelectItem<V extends string = string> = {
@@ -47,8 +48,8 @@ export function Select<V extends string = string>({
     return idx >= 0 ? idx : items.findIndex((item) => !item.disabled)
   }, [items, value])
   const [activeIndex, setActiveIndex] = useState<number>(initialActive >= 0 ? initialActive : 0)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const listboxRef = useRef<HTMLUListElement>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const listboxRef = useRef<HTMLElement | null>(null)
   const typeaheadRef = useRef<{ buffer: string; timer: number | null }>({ buffer: '', timer: null })
   const listboxId = useId()
 
@@ -69,19 +70,6 @@ export function Select<V extends string = string>({
     setOpen(false)
     if (restoreFocus) triggerRef.current?.focus()
   }, [])
-
-  useEffect(() => {
-    if (!open) return
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node | null
-      if (!target) return
-      if (listboxRef.current?.contains(target)) return
-      if (triggerRef.current?.contains(target)) return
-      setOpen(false)
-    }
-    window.addEventListener('mousedown', onPointer)
-    return () => window.removeEventListener('mousedown', onPointer)
-  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -201,67 +189,70 @@ export function Select<V extends string = string>({
   const activeOptionId = open ? `${listboxId}-option-${activeIndex}` : undefined
 
   return (
-    <div className={['relative inline-flex', className ?? ''].join(' ')}>
-      <button
-        ref={triggerRef}
-        type="button"
-        role="combobox"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? listboxId : undefined}
-        aria-activedescendant={activeOptionId}
-        aria-label={ariaLabel}
-        disabled={disabled}
-        onClick={() => (open ? close(false) : openMenu())}
-        onKeyDown={onKey}
-        className={[
-          'interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2',
-          'rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
-          'px-2 text-left text-[12px]',
-          'text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
-          'disabled:cursor-not-allowed disabled:opacity-45',
-          FOCUS_RING_CLASS,
-        ].join(' ')}
-      >
-        <span
-          className={[
-            'min-w-0 flex-1 truncate',
-            selectedItem ? '' : 'text-[color:var(--text-muted)]',
-          ].join(' ')}
-        >
-          {selectedItem ? selectedItem.label : placeholder}
-        </span>
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          aria-hidden="true"
-          focusable="false"
-          className="shrink-0 text-[color:var(--text-muted)]"
-        >
-          <path
-            d="M2 4l3 3 3-3"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-      {open ? (
-        <ul
-          ref={listboxRef}
-          id={listboxId}
-          role="listbox"
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel={ariaLabel}
+      popupRole="listbox"
+      className={className}
+      surfaceAs="ul"
+      surfaceClassName="max-h-[240px] min-w-full overflow-y-auto py-1"
+      onOpenAutoFocus={(surface) => {
+        listboxRef.current = surface
+      }}
+      renderTrigger={({ ref, triggerProps }) => (
+        <button
+          ref={(node) => {
+            triggerRef.current = node
+            ref.current = node
+          }}
+          type="button"
+          role="combobox"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={triggerProps['aria-controls']}
+          aria-activedescendant={activeOptionId}
           aria-label={ariaLabel}
-          tabIndex={-1}
+          disabled={disabled}
+          onClick={() => (open ? close(false) : openMenu())}
+          onKeyDown={onKey}
           className={[
-            'popover-enter absolute left-0 top-full z-30 mt-1 max-h-[240px] min-w-full overflow-y-auto',
-            'rounded-[7px] border border-[color:var(--border-strong)]',
-            'bg-[color:var(--bg-surface-raised)] py-1',
+            'interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2',
+            'rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
+            'px-2 text-left text-[12px]',
+            'text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
+            'disabled:cursor-not-allowed disabled:opacity-45',
+            FOCUS_RING_CLASS,
           ].join(' ')}
         >
+          <span
+            className={[
+              'min-w-0 flex-1 truncate',
+              selectedItem ? '' : 'text-[color:var(--text-muted)]',
+            ].join(' ')}
+          >
+            {selectedItem ? selectedItem.label : placeholder}
+          </span>
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            aria-hidden="true"
+            focusable="false"
+            className="shrink-0 text-[color:var(--text-muted)]"
+          >
+            <path
+              d="M2 4l3 3 3-3"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      )}
+    >
           {items.map((item, index) => {
             const selected = item.value === value
             const active = index === activeIndex && !item.disabled
@@ -309,8 +300,6 @@ export function Select<V extends string = string>({
               </li>
             )
           })}
-        </ul>
-      ) : null}
-    </div>
+    </Popover>
   )
 }

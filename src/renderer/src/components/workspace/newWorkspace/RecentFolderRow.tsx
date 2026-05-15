@@ -1,4 +1,12 @@
+// Documented InboxRow extension. The shared `ui/InboxRow` mandates a leading
+// `StatusDot`; RecentFolderRow swaps that for the canonical folder glyph so the
+// row's leading slot reads as "this is a recent folder" rather than "this has a
+// status." The button-row contract (single `<button>` root, no nested
+// interactives, panel-aligned hover/selected tokens, Tooltip-wrapped accessible
+// name) matches `ui/InboxRow` and the trailing hint chips are non-interactive
+// spans so the row remains valid HTML.
 import { basename, folderKey } from './helpers'
+import { Tooltip } from '../../ui/Tooltip'
 
 type Hint = 'sprintengine' | 'multiloop'
 
@@ -33,10 +41,11 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
   const label = basename(path) || path
 
   return (
+    <Tooltip content={path}>
     <button
       type="button"
       aria-pressed={active}
-      title={path}
+      aria-label={path}
       onClick={() => onSelect(path)}
       className={`
         group flex w-full min-w-0 items-center gap-3 rounded px-2 py-1.5 text-left
@@ -50,7 +59,7 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
           active ? 'bg-[color:var(--border-default)] text-[color:var(--text-muted)]' : 'bg-[color:var(--bg-surface-raised)] group-hover:text-[color:var(--text-muted)]'
         }`}
       >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <svg className="icon-md" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path
             d="M3.75 7.5C3.75 6.39543 4.64543 5.5 5.75 5.5H9.5L11.5 7.5H18.25C19.3546 7.5 20.25 8.39543 20.25 9.5V16.25C20.25 17.3546 19.3546 18.25 18.25 18.25H5.75C4.64543 18.25 3.75 17.3546 3.75 16.25V7.5Z"
             stroke="currentColor"
@@ -89,6 +98,7 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
         </span>
       ) : null}
     </button>
+    </Tooltip>
   )
 }
 

@@ -16,7 +16,19 @@ function expectMatches(source: string, pattern: RegExp, message: string): void {
   assert.match(source, pattern, message)
 }
 
+function sliceFunction(source: string, name: string): string {
+  const start = source.indexOf(`function ${name}`)
+  assert.ok(start >= 0, `${name} exists`)
+  const candidates = ['\nfunction ', '\nexport default function ', '\n// ='].flatMap((marker) => {
+    const index = source.indexOf(marker, start + 1)
+    return index >= 0 ? [index] : []
+  })
+  const next = candidates.length > 0 ? Math.min(...candidates) : -1
+  return source.slice(start, next >= 0 ? next : source.length)
+}
+
 const overflowMenu = read('src/renderer/src/components/ui/OverflowMenu.tsx')
+const popover = read('src/renderer/src/components/ui/Popover.tsx')
 const tabs = read('src/renderer/src/components/ui/Tabs.tsx')
 const buttons = read('src/renderer/src/components/ui/Buttons.tsx')
 const modal = read('src/renderer/src/components/ui/Modal.tsx')
@@ -34,13 +46,32 @@ const rendererCss = read('src/renderer/src/assets/index.css')
 const switchboardPanel = read('src/renderer/src/components/panels/SwitchboardBoardPanel.tsx')
 const watchtowerPanel = read('src/renderer/src/components/panels/WatchtowerPanel.tsx')
 const sprintEnginePanel = read('src/renderer/src/components/panels/SprintEngineBoardPanel.tsx')
+const multiloopPanel = read('src/renderer/src/components/panels/MultiloopBoardPanel.tsx')
+const sprintEngineSettingsPopover = sliceFunction(sprintEnginePanel, 'SprintEngineSettingsPopover')
+const multiloopSettingsPopover = sliceFunction(multiloopPanel, 'MultiloopSettingsPopover')
+
+// Popover — shared anchored surface contract for app-shell dropdowns.
+expectIncludes(popover, "popupRole: 'menu' | 'listbox' | 'dialog'", 'Popover exposes a thin popup role API')
+expectIncludes(popover, "'aria-haspopup'", 'Popover wires aria-haspopup for triggers')
+expectIncludes(popover, "'aria-expanded': open", 'Popover wires trigger expanded state')
+expectIncludes(popover, "'aria-controls': open ? popoverId : undefined", 'Popover wires trigger controls to a generated surface id')
+expectIncludes(popover, 'id={popoverId}', 'Popover assigns the generated id to the surface')
+expectIncludes(popover, 'role={popupRole}', 'Popover applies the requested popup role to the surface')
+expectIncludes(popover, 'aria-label={ariaLabel}', 'Popover requires an accessible surface name')
+expectIncludes(popover, "event.key === 'Escape'", 'Popover closes on Escape')
+expectIncludes(popover, 'event.defaultPrevented', 'Popover ignores Escape already handled by nested surfaces')
+expectIncludes(popover, 'openPopoverStack', 'Popover tracks nested open surfaces')
+expectIncludes(popover, 'isTopmostPopover(popoverId)', 'Popover only lets the topmost open surface handle Escape')
+expectIncludes(popover, "window.addEventListener('mousedown'", 'Popover closes on outside pointer down')
+expectIncludes(popover, 'triggerRef.current?.focus()', 'Popover restores focus to the trigger on Escape close')
+expectIncludes(popover, 'PLACEMENT_CLASS[placement]', 'Popover owns anchored placement classes')
+expectIncludes(popover, 'popover-enter absolute z-30 mt-1 rounded-[7px]', 'Popover uses the canonical popover shell')
 
 expectIncludes(overflowMenu, 'aria-haspopup="menu"', 'Overflow menu trigger exposes menu semantics')
-expectIncludes(overflowMenu, 'aria-expanded={open}', 'Overflow menu trigger reports expanded state')
-expectIncludes(overflowMenu, 'role="menu"', 'Overflow menu surface uses menu role')
+expectIncludes(overflowMenu, "aria-expanded={triggerProps['aria-expanded']}", 'Overflow menu trigger reports expanded state')
+expectIncludes(overflowMenu, 'popupRole="menu"', 'Overflow menu delegates menu role to Popover')
 expectIncludes(overflowMenu, 'role="menuitem"', 'Overflow menu actions use menuitem role')
-expectIncludes(overflowMenu, "event.key === 'Escape'", 'Overflow menu closes on Escape')
-expectIncludes(overflowMenu, 'triggerRef.current?.focus()', 'Overflow menu restores focus to trigger on Escape close')
+expectIncludes(overflowMenu, '<Popover', 'Overflow menu uses the shared Popover primitive')
 expectIncludes(overflowMenu, "event.key === 'ArrowDown'", 'Overflow menu supports ArrowDown navigation')
 expectIncludes(overflowMenu, "event.key === 'ArrowUp'", 'Overflow menu supports ArrowUp navigation')
 expectIncludes(overflowMenu, "event.key === 'Home'", 'Overflow menu supports Home navigation')
@@ -88,7 +119,8 @@ expectIncludes(select, 'aria-haspopup="listbox"', 'Select trigger advertises a l
 expectIncludes(select, 'aria-expanded={open}', 'Select trigger reports expanded state')
 expectIncludes(select, 'aria-activedescendant={activeOptionId}', 'Select trigger publishes active option id')
 expectIncludes(select, 'aria-label={ariaLabel}', 'Select requires an accessible trigger name')
-expectIncludes(select, 'role="listbox"', 'Select popup uses the listbox role')
+expectIncludes(select, 'popupRole="listbox"', 'Select delegates listbox role to Popover')
+expectIncludes(select, 'surfaceAs="ul"', 'Select keeps listbox options inside a list surface')
 expectIncludes(select, 'role="option"', 'Select options use the option role')
 expectIncludes(select, 'aria-selected={selected}', 'Select options expose aria-selected for the current value')
 expectIncludes(select, "event.key === 'ArrowDown'", 'Select supports ArrowDown navigation')
@@ -96,9 +128,30 @@ expectIncludes(select, "event.key === 'ArrowUp'", 'Select supports ArrowUp navig
 expectIncludes(select, "event.key === 'Enter'", 'Select commits on Enter')
 expectIncludes(select, "event.key === ' '", 'Select commits on Space')
 expectIncludes(select, "event.key === 'Escape'", 'Select closes on Escape')
+expectMatches(
+  select,
+  /event\.key === 'Escape'[\s\S]*event\.preventDefault\(\)/,
+  'Select marks Escape handled so an enclosing Popover stays open',
+)
 expectIncludes(select, 'handleTypeahead', 'Select supports printable-character type-ahead')
 expectIncludes(select, 'triggerRef.current?.focus()', 'Select restores focus to the trigger on close')
 expectIncludes(select, 'var(--accent-primary)', 'Select uses the accent token for selected state')
+assert.ok(
+  !/window\.addEventListener\('keydown'/.test(sprintEngineSettingsPopover),
+  'Sprint Engine settings delegates Escape dismissal to Popover',
+)
+assert.ok(
+  !/window\.addEventListener\('mousedown'/.test(sprintEngineSettingsPopover),
+  'Sprint Engine settings delegates outside-click dismissal to Popover',
+)
+assert.ok(
+  !/window\.addEventListener\('keydown'/.test(multiloopSettingsPopover),
+  'Multiloop settings delegates Escape dismissal to Popover',
+)
+assert.ok(
+  !/window\.addEventListener\('mousedown'/.test(multiloopSettingsPopover),
+  'Multiloop settings delegates outside-click dismissal to Popover',
+)
 
 // Drawer — right-slide-in primitive with focus trap, ESC close, focus restoration, scroll-lock, reduced-motion.
 expectIncludes(drawer, 'role="dialog"', 'Drawer surface exposes the dialog role')

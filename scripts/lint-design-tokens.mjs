@@ -24,6 +24,17 @@
 //   7. `no-statusdot-from-app-icons` — importing `StatusDot` from an
 //      `AppIcons` module. The canonical primitive is `ui/StatusDot`; the
 //      AppIcons re-export was deleted in T9 and must never come back.
+//   8. New native renderer dialogs (`confirm`, `prompt`, `alert`, or their
+//      `window.*` forms). Existing call sites are temporarily baselined for
+//      migration tasks; any count increase fails this guard.
+//   9. `no-native-tooltip-on-control` — native `title=` attribute on an
+//      interactive control (`<button>`, `<a>`, `<IconButton>`,
+//      `<PrimaryButton>`, `<GhostButton>`). The canonical hover/focus tooltip
+//      is the `src/renderer/src/components/ui/Tooltip.tsx` primitive; native
+//      `title` is slow, ungoverned, and inaccessible on interactive controls.
+//      Native `title` remains acceptable on non-interactive elements
+//      (truncated identifiers, decorative spans, `<iframe>` for a11y,
+//      `<title>` inside SVG).
 //
 // Two exception mechanisms exist; both must explain the carve-out:
 //   * Per-line: a `// design-tokens-allow: <reason>` marker on the same line
@@ -151,6 +162,50 @@ const GLOW_SHADOW = /shadow-\[0_[0-9]+(?:px)?_[0-9]+(?:px)?_/g
 const STATUSDOT_FROM_APP_ICONS =
   /import\s*(?:type\s+)?(?:\{[^}]*\bStatusDot\b[^}]*\}|StatusDot)\s*from\s*['"][^'"]*AppIcons[^'"]*['"]/g
 
+const NATIVE_DIALOG = /(?<![\w$.])(?:window\s*\.\s*)?(?:confirm|prompt|alert)\s*\(/g
+
+// no-native-tooltip-on-control: matches an opening JSX tag for an interactive
+// control (`<button>`, `<a>`, `<IconButton>`, `<PrimaryButton>`,
+// `<GhostButton>`) that carries a native `title=` attribute inside the
+// opening tag. `[^>]*?` crosses newlines because `.` does not match `\n` in
+// JS regex while the negated class does; this lets the regex span multi-line
+// JSX opening tags. The match captures the tag name plus the offending
+// `title=` so the reporter can show what was flagged. SVG `<title>` elements
+// and component props on non-interactive primitives (Section, Modal,
+// PanelHeader, etc.) are not matched because their tag name does not appear
+// in the alternation.
+const NATIVE_TITLE_ON_INTERACTIVE =
+  /<(button|a|IconButton|PrimaryButton|GhostButton)\b[^>]*?\btitle\s*=/g
+
+// Baselined files still hold legacy native dialog calls that are scheduled for
+// migration in the app-wide audit plan. Entries are removed as their owning
+// task completes so the guard catches any re-addition.
+// Empty: all renderer native-dialog call sites have been migrated to the
+// shared ConfirmDialog flow.
+const NATIVE_DIALOG_BASELINE = new Map([])
+
+// no-ad-hoc-icon-size: flag <svg ... className="...h-3 w-3 / h-3.5 w-3.5 /
+// h-4 w-4 / h-[Npx] w-[Npx] ..." ...> opening tags. App-shell icons should use
+// the canonical `.icon-xs / .icon-sm / .icon-md / .icon-lg` utility classes
+// (12/14/16/20 px) or set width/height through CSS variables that resolve to
+// `--icon-*`. StatusDot (6 px contract), brand marks, memory-graph canvas
+// glyphs, and ANSI terminal output are intentionally not in this vocabulary
+// and stay as documented exceptions. The regex matches a single `<svg ...>`
+// opening tag whose body contains an ad-hoc paired height+width literal.
+// Allow either the standard Tailwind values or arbitrary `h-[…px]` values.
+const SVG_TAG = /<svg\b[^>]*?>/gs
+const AD_HOC_ICON_SIZE_INSIDE_TAG =
+  /\bh-(?:3|3\.5|4|\[[\d.]+(?:px|rem|em)?\])\s+w-(?:3|3\.5|4|\[[\d.]+(?:px|rem|em)?\])\b/
+
+// Baselined ad-hoc icon-size counts per file. T25 drained the renderer tree
+// of every h-3 w-3 / h-3.5 w-3.5 / h-4 w-4 / h-[Npx] w-[Npx] svg literal so
+// this map is intentionally empty: any new ad-hoc icon size anywhere in the
+// renderer is a violation. StatusDot keeps its own 6 px contract; brand
+// marks (PATH_EXEMPTIONS), memory graph canvas glyphs (PATH_EXEMPTIONS), and
+// ANSI terminal output (PATH_EXEMPTIONS) are out of this vocabulary by
+// design and are handled through the file-level exemption list, not here.
+const AD_HOC_ICON_SIZE_BASELINE = new Map([])
+
 const RULES = {
   hex: { regex: HEX_LITERAL, name: 'no-inline-hex' },
   tracking: { regex: UPPERCASE_TRACKING, name: 'no-uppercase-tracking' },
@@ -210,6 +265,9 @@ for (const relativePath of TARGET_FILES) {
     inlineDot: 0,
     glowShadow: 0,
     statusdotFromAppIcons: 0,
+    nativeDialog: 0,
+    nativeTitleOnInteractive: 0,
+    adHocIconSize: 0,
   }
   const findings = []
 
@@ -230,6 +288,93 @@ for (const relativePath of TARGET_FILES) {
       column,
       text: importMatch[0].split('\n')[0],
     })
+  }
+
+  NATIVE_DIALOG.lastIndex = 0
+  let nativeDialogMatch
+  while ((nativeDialogMatch = NATIVE_DIALOG.exec(source))) {
+    counts.nativeDialog += 1
+    const upTo = source.slice(0, nativeDialogMatch.index)
+    const lineNumber = upTo.split('\n').length
+    const lastNewline = upTo.lastIndexOf('\n')
+    const column = nativeDialogMatch.index - lastNewline
+    findings.push({
+      rule: 'no-native-window-dialog',
+      line: lineNumber,
+      column,
+      text: nativeDialogMatch[0],
+    })
+  }
+
+  // File-scoped check for ad-hoc icon sizing inside <svg ...> opening tags.
+  // The SVG_TAG regex tolerates multi-line tag bodies; the inner check fires
+  // when the tag carries one of the legacy h-N w-N pairs. Per-line
+  // `design-tokens-allow:` markers honour the exemption when an SVG truly
+  // needs a non-canonical size (rare). The baseline is tallied per file; any
+  // count above baseline is a violation.
+  if (!fileExemptRules.has('no-ad-hoc-icon-size')) {
+    SVG_TAG.lastIndex = 0
+    let svgMatch
+    while ((svgMatch = SVG_TAG.exec(source))) {
+      const tagText = svgMatch[0]
+      if (!AD_HOC_ICON_SIZE_INSIDE_TAG.test(tagText)) continue
+      const upTo = source.slice(0, svgMatch.index)
+      const lineNumber = upTo.split('\n').length
+      const lastNewline = upTo.lastIndexOf('\n')
+      const column = svgMatch.index - lastNewline
+      const lineText = lines[lineNumber - 1] ?? ''
+      const prev1 = lineNumber >= 2 ? lines[lineNumber - 2] ?? '' : ''
+      const prev2 = lineNumber >= 3 ? lines[lineNumber - 3] ?? '' : ''
+      if (
+        lineText.includes(ALLOW_MARKER) ||
+        prev1.includes(ALLOW_MARKER) ||
+        prev2.includes(ALLOW_MARKER)
+      ) {
+        continue
+      }
+      counts.adHocIconSize += 1
+      findings.push({
+        rule: 'no-ad-hoc-icon-size',
+        line: lineNumber,
+        column,
+        text: '<svg ... h-N w-N>',
+      })
+    }
+  }
+
+  // File-scoped check for native `title=` on interactive controls. JSX
+  // opening tags can span multiple lines so the regex scans the whole source
+  // string. The line/column reported point at the offending `title=` token
+  // (not the tag opening) so the developer lands on the violation. Per-line
+  // `design-tokens-allow:` markers and `PATH_EXEMPTIONS` honour the
+  // exemption.
+  if (!fileExemptRules.has('no-native-tooltip-on-control')) {
+    NATIVE_TITLE_ON_INTERACTIVE.lastIndex = 0
+    let titleMatch
+    while ((titleMatch = NATIVE_TITLE_ON_INTERACTIVE.exec(source))) {
+      const titleIndex = titleMatch.index + titleMatch[0].lastIndexOf('title')
+      const upTo = source.slice(0, titleIndex)
+      const lineNumber = upTo.split('\n').length
+      const lastNewline = upTo.lastIndexOf('\n')
+      const column = titleIndex - lastNewline
+      const lineText = lines[lineNumber - 1] ?? ''
+      const prev1 = lineNumber >= 2 ? lines[lineNumber - 2] ?? '' : ''
+      const prev2 = lineNumber >= 3 ? lines[lineNumber - 3] ?? '' : ''
+      if (
+        lineText.includes(ALLOW_MARKER) ||
+        prev1.includes(ALLOW_MARKER) ||
+        prev2.includes(ALLOW_MARKER)
+      ) {
+        continue
+      }
+      counts.nativeTitleOnInteractive += 1
+      findings.push({
+        rule: 'no-native-tooltip-on-control',
+        line: lineNumber,
+        column,
+        text: `<${titleMatch[1]} ... title=`,
+      })
+    }
   }
 
   lines.forEach((line, index) => {
@@ -259,6 +404,10 @@ for (const relativePath of TARGET_FILES) {
     }
   })
 
+  const nativeDialogAllowed = NATIVE_DIALOG_BASELINE.get(relativePath) ?? 0
+  const nativeDialogViolations = Math.max(0, counts.nativeDialog - nativeDialogAllowed)
+  const adHocIconSizeAllowed = AD_HOC_ICON_SIZE_BASELINE.get(relativePath) ?? 0
+  const adHocIconSizeViolations = Math.max(0, counts.adHocIconSize - adHocIconSizeAllowed)
   const fileTotal =
     counts.hex +
     counts.tracking +
@@ -266,14 +415,28 @@ for (const relativePath of TARGET_FILES) {
     counts.gradient +
     counts.inlineDot +
     counts.glowShadow +
-    counts.statusdotFromAppIcons
-  perFile.push({ path: relativePath, counts, total: fileTotal })
+    counts.statusdotFromAppIcons +
+    counts.nativeTitleOnInteractive +
+    nativeDialogViolations +
+    adHocIconSizeViolations
+  perFile.push({
+    path: relativePath,
+    counts,
+    total: fileTotal,
+    nativeDialogAllowed,
+    adHocIconSizeAllowed,
+  })
   totalViolations += fileTotal
 
-  if (!QUIET && findings.length > 0) {
-    findings.sort((a, b) => a.line - b.line || a.column - b.column)
+  const visibleFindings = findings.filter((finding) => {
+    if (finding.rule === 'no-native-window-dialog') return nativeDialogViolations > 0
+    if (finding.rule === 'no-ad-hoc-icon-size') return adHocIconSizeViolations > 0
+    return true
+  })
+  if (!QUIET && visibleFindings.length > 0) {
+    visibleFindings.sort((a, b) => a.line - b.line || a.column - b.column)
     process.stdout.write(`\n${relativePath}\n`)
-    for (const finding of findings) {
+    for (const finding of visibleFindings) {
       process.stdout.write(
         `  ${finding.line}:${finding.column}  ${finding.rule}  ${finding.text}\n`,
       )
@@ -301,10 +464,20 @@ process.stdout.write(
 const dirty = perFile.filter((entry) => entry.total > 0)
 if (!QUIET) {
   for (const entry of dirty) {
-    const { hex, tracking, radial, gradient, inlineDot, glowShadow, statusdotFromAppIcons } =
-      entry.counts
+    const {
+      hex,
+      tracking,
+      radial,
+      gradient,
+      inlineDot,
+      glowShadow,
+      statusdotFromAppIcons,
+      nativeDialog,
+      nativeTitleOnInteractive,
+      adHocIconSize,
+    } = entry.counts
     process.stdout.write(
-      `  ${entry.path}: hex=${hex} uppercase-tracking=${tracking} radial-gradient=${radial} bg-gradient-to=${gradient} inline-status-dot=${inlineDot} glow-shadow=${glowShadow} statusdot-from-app-icons=${statusdotFromAppIcons}\n`,
+      `  ${entry.path}: hex=${hex} uppercase-tracking=${tracking} radial-gradient=${radial} bg-gradient-to=${gradient} inline-status-dot=${inlineDot} glow-shadow=${glowShadow} statusdot-from-app-icons=${statusdotFromAppIcons} native-dialog=${nativeDialog}/${entry.nativeDialogAllowed} native-tooltip-on-control=${nativeTitleOnInteractive} ad-hoc-icon-size=${adHocIconSize}/${entry.adHocIconSizeAllowed}\n`,
     )
   }
 }
@@ -315,10 +488,13 @@ if (totalViolations > 0) {
     '\nFix by reading colors from CSS variables in src/renderer/src/assets/index.css,\n' +
       'dropping uppercase tracking chrome in favor of sentence-case labels,\n' +
       'replacing radial-gradient / bg-gradient-to-* decoration with solid\n' +
-      'token-backed backgrounds, and reusing the ui/StatusDot primitive\n' +
-      'instead of the deleted AppIcons re-export. Document intentional\n' +
-      'exceptions with `// design-tokens-allow: <reason>` on the same line\n' +
-      'or in PATH_EXEMPTIONS with a category-naming comment.\n',
+      'token-backed backgrounds, reusing the ui/StatusDot primitive\n' +
+      'instead of the deleted AppIcons re-export, replacing native renderer\n' +
+      'dialogs with ConfirmDialog/useConfirmDialog, and wrapping interactive\n' +
+      'controls (button, a, IconButton, PrimaryButton, GhostButton) with the\n' +
+      'ui/Tooltip primitive instead of relying on the native title attribute.\n' +
+      'Document intentional exceptions with `// design-tokens-allow: <reason>`\n' +
+      'on the same line or in PATH_EXEMPTIONS with a category-naming comment.\n',
   )
 }
 

@@ -20,12 +20,15 @@ import {
   PanelHeader,
   PrimaryButton,
   Section,
+  Select,
   StatusDot,
   TaskCard,
+  Tooltip,
   type DefinitionItem,
   type OverflowMenuItem,
   type Tone,
 } from '../ui'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 import {
   attentionReasonDescription,
   attentionReasonLabel,
@@ -842,13 +845,14 @@ function AttentionStrip({
           {info.lastAttemptAt ? ` · ${formatRelativeTime(info.lastAttemptAt)}` : ''}
         </span>
       </div>
-      <GhostButton
-        onClick={onRetry}
-        disabled={isRetrying}
-        title={attentionReasonDescription(info.reason)}
-      >
-        {isRetrying ? 'Retrying…' : 'Retry now'}
-      </GhostButton>
+      <Tooltip content={attentionReasonDescription(info.reason)}>
+        <GhostButton
+          onClick={onRetry}
+          disabled={isRetrying}
+        >
+          {isRetrying ? 'Retrying…' : 'Retry now'}
+        </GhostButton>
+      </Tooltip>
     </div>
   )
 }
@@ -1131,14 +1135,16 @@ function BoardDetailPane({
         {canOpenTerminal || targets.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Task actions">
             {canOpenTerminal ? (
-              <PrimaryButton onClick={handleOpenTerminal} title={terminalButtonLabel}>
-                {terminalState.kind === 'running' ? (
-                  <StatusDot tone="good" pulse />
-                ) : terminalState.kind === 'exited' ? (
-                  <StatusDot tone="neutral" />
-                ) : null}
-                {terminalButtonLabel}
-              </PrimaryButton>
+              <Tooltip content={terminalButtonLabel}>
+                <PrimaryButton onClick={handleOpenTerminal}>
+                  {terminalState.kind === 'running' ? (
+                    <StatusDot tone="good" pulse />
+                  ) : terminalState.kind === 'exited' ? (
+                    <StatusDot tone="neutral" />
+                  ) : null}
+                  {terminalButtonLabel}
+                </PrimaryButton>
+              </Tooltip>
             ) : null}
             {targets.map((target) => (
               <GhostButton
@@ -1368,20 +1374,18 @@ function CreateTaskDialog({
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Priority">
-            <select
+            <Select<string>
+              ariaLabel="Task priority"
+              items={[
+                { value: '', label: 'No priority' },
+                { value: '0', label: 'Urgent' },
+                { value: '1', label: 'High' },
+                { value: '2', label: 'Medium' },
+                { value: '3', label: 'Low' },
+              ]}
               value={draft.priority == null ? '' : String(draft.priority)}
-              onChange={(event) => {
-                const v = event.target.value
-                onChange({ ...draft, priority: v === '' ? null : Number(v) })
-              }}
-              className={`${inputClass} h-9 py-0`}
-            >
-              <option value="">No priority</option>
-              <option value="0">Urgent</option>
-              <option value="1">High</option>
-              <option value="2">Medium</option>
-              <option value="3">Low</option>
-            </select>
+              onChange={(value) => onChange({ ...draft, priority: value === '' ? null : Number(value) })}
+            />
           </Field>
           <Field label="Identifier">
             <input
@@ -1457,6 +1461,7 @@ function RunnerDrawer({
   onClose: () => void
 }) {
   const [draft, setDraft] = useState<RunnerSettings>(() => settingsFromState(runner.state))
+  const dialog = useConfirmDialog()
 
   useEffect(() => {
     setDraft(settingsFromState(runner.state))
@@ -1476,9 +1481,12 @@ function RunnerDrawer({
   }, [draft, runner, workspaceId])
 
   const handleStopRunner = useCallback(async () => {
-    const confirmed = window.confirm(
-      'Stop the Switchboard runner for this workspace and stop all active Switchboard executions?'
-    )
+    const confirmed = await dialog.confirm({
+      title: 'Stop Switchboard runner?',
+      body: 'This stops the runner for this workspace and stops every active Switchboard execution. Tasks remain recoverable.',
+      confirmLabel: 'Stop runner',
+      tone: 'danger',
+    })
     if (!confirmed) return
     const ok = await runner.stop()
     if (ok) {
@@ -1487,11 +1495,20 @@ function RunnerDrawer({
     } else {
       onNotify('error', 'Runner did not stop. Check the runner error message and try again.')
     }
-  }, [onNotify, onRefresh, runner])
+  }, [dialog, onNotify, onRefresh, runner])
 
   const handleStopExecution = useCallback(
     async (execution: SwitchboardRunnerExecution) => {
-      const confirmed = window.confirm(`Stop execution ${execution.executionId}? The task will remain recoverable.`)
+      const confirmed = await dialog.confirm({
+        title: 'Stop execution?',
+        body: (
+          <>
+            Stop execution <span className="font-mono">{execution.executionId}</span>? The task remains recoverable.
+          </>
+        ),
+        confirmLabel: 'Stop execution',
+        tone: 'danger',
+      })
       if (!confirmed) return
       const ok = await runner.stopExecution(execution.executionId, 'Stopped from Switchboard board.')
       if (ok) {
@@ -1501,7 +1518,7 @@ function RunnerDrawer({
         onNotify('error', 'Execution did not stop. Check the runner error message and try again.')
       }
     },
-    [onNotify, onRefresh, runner]
+    [dialog, onNotify, onRefresh, runner]
   )
 
   const allExecutions = runner.state?.activeExecutions ?? []
@@ -1569,22 +1586,24 @@ function RunnerDrawer({
               </PrimaryButton>
             ) : null}
             {isStarted ? (
-              <GhostButton
-                onClick={() => void runner.tick()}
-                disabled={runner.busy}
-                title="Run one runner tick now"
-              >
-                Tick
-              </GhostButton>
+              <Tooltip content="Run one runner tick now">
+                <GhostButton
+                  onClick={() => void runner.tick()}
+                  disabled={runner.busy}
+                >
+                  Tick
+                </GhostButton>
+              </Tooltip>
             ) : null}
             {isStarted ? (
-              <GhostButton
-                onClick={() => void handleStopRunner()}
-                disabled={runner.busy}
-                title="Stop the workspace runner and active executions"
-              >
-                Stop runner
-              </GhostButton>
+              <Tooltip content="Stop the workspace runner and active executions">
+                <GhostButton
+                  onClick={() => void handleStopRunner()}
+                  disabled={runner.busy}
+                >
+                  Stop runner
+                </GhostButton>
+              </Tooltip>
             ) : null}
           </div>
         </Section>
@@ -1688,33 +1707,31 @@ function RunnerSettingsFields({
         </label>
         <label className="block">
           <span className="text-[11px] text-[color:var(--text-muted)]">CLI</span>
-          <select
-            value={draft.cli}
-            disabled={!canEdit}
-            onChange={(event) => onChange({ ...draft, cli: event.target.value as 'codex' | 'claude' })}
-            className={`mt-1 ${selectClass}`}
-          >
-            <option value="codex">Codex</option>
-            <option value="claude">Claude</option>
-          </select>
+          <div className="mt-1">
+            <Select<'codex' | 'claude'>
+              ariaLabel="Runner CLI"
+              items={[
+                { value: 'codex', label: 'Codex' },
+                { value: 'claude', label: 'Claude' },
+              ]}
+              value={draft.cli}
+              disabled={!canEdit}
+              onChange={(value) => onChange({ ...draft, cli: value })}
+            />
+          </div>
         </label>
       </div>
       <label className="block">
         <span className="text-[11px] text-[color:var(--text-muted)]">Provider</span>
-        <select
-          value={draft.provider}
-          disabled={!canEdit}
-          onChange={(event) =>
-            onChange({ ...draft, provider: event.target.value as SwitchboardExecutionProviderKind })
-          }
-          className={`mt-1 ${selectClass}`}
-        >
-          {RUNNER_PROVIDERS.map((provider) => (
-            <option key={provider} value={provider}>
-              {providerLabel(provider)}
-            </option>
-          ))}
-        </select>
+        <div className="mt-1">
+          <Select<SwitchboardExecutionProviderKind>
+            ariaLabel="Execution provider"
+            items={RUNNER_PROVIDERS.map((provider) => ({ value: provider, label: providerLabel(provider) }))}
+            value={draft.provider}
+            disabled={!canEdit}
+            onChange={(value) => onChange({ ...draft, provider: value })}
+          />
+        </div>
       </label>
     </div>
   )

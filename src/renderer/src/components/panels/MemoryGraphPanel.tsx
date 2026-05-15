@@ -10,6 +10,7 @@ import {
 } from '../memory/MemoryGraphHud'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { StatusDot } from '../ui'
+import { Tooltip } from '../ui/Tooltip'
 
 type CursorPoint = { x: number; y: number }
 
@@ -248,16 +249,17 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
               /
             </kbd>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadGraph()}
-            className="flex h-8 items-center gap-1.5 rounded-[5px] px-2.5 text-xs text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-            title="Refresh index"
-            aria-label="Refresh knowledge index"
-          >
-            <span aria-hidden>↻</span>
-            <span>Refresh</span>
-          </button>
+          <Tooltip content="Refresh index">
+            <button
+              type="button"
+              onClick={() => void loadGraph()}
+              className="flex h-8 items-center gap-1.5 rounded-[5px] px-2.5 text-xs text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+              aria-label="Refresh knowledge index"
+            >
+              <span aria-hidden>↻</span>
+              <span>Refresh</span>
+            </button>
+          </Tooltip>
         </div>
       </div>
 

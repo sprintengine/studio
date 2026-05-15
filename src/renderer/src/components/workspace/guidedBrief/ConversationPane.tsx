@@ -165,7 +165,7 @@ export function ConversationPane({
           aria-hidden="true"
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
         >
-          <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+          <svg viewBox="0 0 24 24" fill="none" className="icon-md">
             <circle cx="12" cy="9" r="3" stroke="currentColor" strokeWidth="1.6" />
             <path d="M5 19c1.5-3 4-4.5 7-4.5s5.5 1.5 7 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
@@ -215,7 +215,7 @@ export function ConversationPane({
           {attachments.map((attachment) => (
             <li key={attachment.id}>
               <span className="inline-flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 text-[11px] text-[color:var(--text-default)]">
-                <svg className="h-3.5 w-3.5 text-[color:var(--text-muted)]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <svg className="icon-sm text-[color:var(--text-muted)]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" />
                   <circle cx="9" cy="9.5" r="1.4" fill="currentColor" />
                   <path d="M4.5 16l4.5-4 4 3.5 3-2.5 3.5 3" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />

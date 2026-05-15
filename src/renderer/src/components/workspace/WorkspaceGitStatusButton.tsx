@@ -1,6 +1,7 @@
 import React from 'react'
 import { useGitStatus, type GitRepoState } from '../../hooks/useGitStatus'
 import { focusOrAddComponentTab } from '../../utils/modelRegistry'
+import { Tooltip } from '../ui/Tooltip'
 
 type WorkspaceGitStatusButtonProps = {
   workspaceId: string
@@ -30,32 +31,33 @@ export default function WorkspaceGitStatusButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={openGitPanel}
-      className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)] ${
-        error
-          ? 'border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)] hover:border-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]'
-          : dimmed
-            ? 'border-[color:var(--bg-active)] bg-[color:var(--bg-surface)] text-[color:var(--text-disabled)] hover:border-[color:var(--bg-selected)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-subtle)]'
-            : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-      }`}
-      title={tooltip}
-      aria-label={ariaLabel}
-      aria-busy={repoState === 'loading'}
-    >
-      <GitBranchIcon className="h-[18px] w-[18px]" />
-      {hasChanges ? (
-        <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-warn)] px-1 text-[10px] font-bold leading-none text-[color:var(--text-on-accent)]">
-          {badgeLabel}
-        </span>
-      ) : null}
-      {error ? (
-        <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] text-[10px] font-bold leading-none text-[color:var(--text-on-accent)]">
-          !
-        </span>
-      ) : null}
-    </button>
+    <Tooltip content={tooltip} placement="bottom">
+      <button
+        type="button"
+        onClick={openGitPanel}
+        className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)] ${
+          error
+            ? 'border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)] hover:border-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]'
+            : dimmed
+              ? 'border-[color:var(--bg-active)] bg-[color:var(--bg-surface)] text-[color:var(--text-disabled)] hover:border-[color:var(--bg-selected)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-subtle)]'
+              : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+        }`}
+        aria-label={ariaLabel}
+        aria-busy={repoState === 'loading'}
+      >
+        <GitBranchIcon className="h-[18px] w-[18px]" />
+        {hasChanges ? (
+          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-warn)] px-1 text-[10px] font-bold leading-none text-[color:var(--text-on-accent)]">
+            {badgeLabel}
+          </span>
+        ) : null}
+        {error ? (
+          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] text-[10px] font-bold leading-none text-[color:var(--text-on-accent)]">
+            !
+          </span>
+        ) : null}
+      </button>
+    </Tooltip>
   )
 }
 

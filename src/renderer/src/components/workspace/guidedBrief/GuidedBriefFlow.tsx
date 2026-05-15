@@ -5,7 +5,7 @@ import {
   GuidedBriefWorkspaceError,
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
-import { StatusDot } from '../../ui'
+import { StatusDot, Tooltip } from '../../ui'
 import { ConversationPane, type ConversationView } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
@@ -299,7 +299,7 @@ export function GuidedBriefFlow({
               focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
             "
           >
-            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <svg className="icon-md" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path
                 d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5"
                 stroke="currentColor"
@@ -453,18 +453,20 @@ function renderPrimaryAction({
         ? 'Waiting for product/requirements.md, or the BRIEF_READY marker.'
         : 'Waiting for the agent to finish.'
   return (
-    <button
-      type="button"
-      disabled
-      aria-disabled
-      title={waitingReason}
-      className="
-        inline-flex h-9 cursor-not-allowed items-center rounded-md bg-[color:var(--bg-surface-raised)] px-4
-        text-[13px] font-semibold text-[color:var(--text-disabled)]
-      "
-    >
-      Continue
-    </button>
+    <Tooltip content={waitingReason}>
+      <button
+        type="button"
+        disabled
+        aria-disabled
+        aria-label={waitingReason}
+        className="
+          inline-flex h-9 cursor-not-allowed items-center rounded-md bg-[color:var(--bg-surface-raised)] px-4
+          text-[13px] font-semibold text-[color:var(--text-disabled)]
+        "
+      >
+        Continue
+      </button>
+    </Tooltip>
   )
 }
 

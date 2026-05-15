@@ -8,6 +8,9 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
+import { Tooltip } from '../ui/Tooltip'
+import { Toast } from '../ui/Toast'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { inferSourcePlanKind } from '../workspace/newWorkspace/helpers'
 import type { FuturePlanWorkspaceSource, SprintEngineSourceBundleItem, SprintEngineSourcePlanKind } from '../../types/workspace'
 
@@ -251,7 +254,7 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
       <svg
         viewBox="0 0 12 12"
         aria-hidden="true"
-        className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        className={`icon-xs transition-transform ${expanded ? 'rotate-90' : ''}`}
         fill="none"
       >
         <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -294,7 +297,7 @@ function FolderIcon({ expanded }: { expanded: boolean }) {
 
 function RefreshFilesIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
       <path
         d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25"
         stroke="currentColor"
@@ -308,7 +311,7 @@ function RefreshFilesIcon() {
 
 function RevealActiveFileIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
       <circle cx="8" cy="8" r="4.75" stroke="currentColor" strokeWidth="1.35" />
       <circle cx="8" cy="8" r="1.45" fill="currentColor" />
       <path d="M8 1.75v2M8 12.25v2M14.25 8h-2M3.75 8h-2" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
@@ -318,7 +321,7 @@ function RevealActiveFileIcon() {
 
 function NewFileIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
       <path
         d="M4.25 1.75h5.4l2.1 2.1v10.4h-7.5a1.5 1.5 0 0 1-1.5-1.5v-9.5a1.5 1.5 0 0 1 1.5-1.5Z"
         stroke="currentColor"
@@ -332,7 +335,7 @@ function NewFileIcon() {
 
 function NewFolderIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
       <path
         d="M1.75 4.7c0-.8.65-1.45 1.45-1.45h3.05l1.2 1.45h5.35c.8 0 1.45.65 1.45 1.45v6.15c0 .8-.65 1.45-1.45 1.45H3.2c-.8 0-1.45-.65-1.45-1.45V4.7Z"
         stroke="currentColor"
@@ -607,6 +610,7 @@ function ExplorerTree({
   const openFile = useWorkspaceStore((s) => s.openFile)
   const remapOpenFiles = useWorkspaceStore((s) => s.remapOpenFiles)
   const removeOpenFilesForPath = useWorkspaceStore((s) => s.removeOpenFilesForPath)
+  const dialog = useConfirmDialog()
 
   const [rootEntries, setRootEntries] = useState<Entry[]>([])
   const [childrenByPath, setChildrenByPath] = useState<Record<string, Entry[]>>({})
@@ -619,6 +623,7 @@ function ExplorerTree({
   const [searchResults, setSearchResults] = useState<Entry[]>([])
   const [searchDiagnostics, setSearchDiagnostics] = useState<FileSearchDiagnostics | null>(null)
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
+  const [errorToast, setErrorToast] = useState<string | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
   const searchTimeoutRef = useRef<number | null>(null)
   const searchRequestSeqRef = useRef(0)
@@ -669,6 +674,10 @@ function ExplorerTree({
   }, [gitStatus])
 
   const renamingPath = renameDraft?.entry.path ?? null
+
+  const showError = useCallback((error: unknown, fallback?: string) => {
+    setErrorToast(error instanceof Error ? error.message : fallback ?? String(error))
+  }, [])
 
   const applySearchResponse = useCallback((response: FileSearchResponse) => {
     setSearchResults(response.entries)
@@ -841,7 +850,14 @@ function ExplorerTree({
 
   const createEntry = async (targetDir: string, kind: 'file' | 'dir') => {
     const defaultName = kind === 'file' ? 'untitled.ts' : 'new-folder'
-    const name = window.prompt(kind === 'file' ? 'New file name' : 'New folder name', defaultName)?.trim()
+    const rawName = await dialog.prompt({
+      title: kind === 'file' ? 'New file' : 'New folder',
+      inputLabel: kind === 'file' ? 'File name' : 'Folder name',
+      initialValue: defaultName,
+      confirmLabel: 'Create',
+      required: true,
+    })
+    const name = rawName?.trim()
     if (!name) return
 
     try {
@@ -868,7 +884,7 @@ function ExplorerTree({
       }
       void refreshGitStatus()
     } catch (error) {
-      alert(error instanceof Error ? error.message : String(error))
+      showError(error)
     }
   }
 
@@ -926,7 +942,7 @@ function ExplorerTree({
       focusTree()
       void refreshGitStatus()
     } catch (error) {
-      alert(error instanceof Error ? error.message : String(error))
+      showError(error)
     } finally {
       committingRenameRef.current = false
     }
@@ -944,7 +960,7 @@ function ExplorerTree({
       setSelectedPaths(new Set([newPath]))
       void refreshGitStatus()
     } catch (error) {
-      alert(error instanceof Error ? error.message : String(error))
+      showError(error)
     }
   }
 
@@ -953,7 +969,7 @@ function ExplorerTree({
     if (!deletableEntries.length) return
 
     if (typeof window.api.deletePath !== 'function') {
-      alert('Delete support is not loaded yet. Restart the app so Electron reloads the preload script.')
+      showError('Delete support is not loaded yet. Restart the app so Electron reloads the preload script.')
       return
     }
 
@@ -965,7 +981,13 @@ function ExplorerTree({
         ? `folder "${topLevelEntries[0].name}" and its contents`
         : `file "${topLevelEntries[0].name}"`
       : `${topLevelEntries.length} selected items`
-    if (!window.confirm(`Move ${targetLabel} to Trash?`)) return
+    const confirmed = await dialog.confirm({
+      title: 'Move to Trash?',
+      body: `This moves ${targetLabel} to the system Trash. You can restore it from Trash until it is emptied.`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    })
+    if (!confirmed) return
 
     try {
       await Promise.all(topLevelEntries.map((entry) => window.api.deletePath(entry.path)))
@@ -998,7 +1020,7 @@ function ExplorerTree({
       setSelectedPaths(nextSelection ? new Set([nextSelection]) : new Set())
       void refreshGitStatus()
     } catch (error) {
-      alert(error instanceof Error ? error.message : String(error))
+      showError(error)
     }
   }
 
@@ -1021,7 +1043,7 @@ function ExplorerTree({
         goal: markdownTitle(sourceContent) ?? fallbackGoal,
       })
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Could not read the selected markdown file.')
+      showError(error, 'Could not read the selected markdown file.')
     }
   }
 
@@ -1058,7 +1080,7 @@ function ExplorerTree({
         goal: (firstMarkdown ? markdownTitle(firstMarkdown.sourceContent) : null) ?? titleCasePlanName(basename),
       })
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Could not read the selected source files.')
+      showError(error, 'Could not read the selected source files.')
     }
   }
 
@@ -1144,7 +1166,7 @@ function ExplorerTree({
       try {
         await window.api.openHtmlFileInBrowser(entry.path)
       } catch (error) {
-        alert(error instanceof Error ? error.message : String(error))
+        showError(error)
       }
       return
     }
@@ -1152,7 +1174,7 @@ function ExplorerTree({
       try {
         await window.api.showItemInFolder(entry.path)
       } catch (error) {
-        alert(error instanceof Error ? error.message : String(error))
+        showError(error)
       }
       return
     }
@@ -1499,6 +1521,16 @@ function ExplorerTree({
 
   return (
     <>
+      {errorToast ? (
+        <div className="sticky top-0 z-10 px-2 pb-1 pt-1">
+          <Toast
+            tone="error"
+            title="File action failed"
+            description={errorToast}
+            onDismiss={() => setErrorToast(null)}
+          />
+        </div>
+      ) : null}
       <div
         ref={containerRef}
         tabIndex={0}
@@ -1675,46 +1707,50 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
             </span>
             {folderReadyPath && (
               <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => requestCreateEntry('file')}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
-                  title="New file"
-                  aria-label="New file"
-                >
-                  <NewFileIcon />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => requestCreateEntry('dir')}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
-                  title="New folder"
-                  aria-label="New folder"
-                >
-                  <NewFolderIcon />
-                </button>
-                <button
-                  type="button"
-                  onClick={revealActiveFile}
-                  disabled={!canRevealActiveFile}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
-                  title={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'}
-                  aria-label="Reveal active file"
-                >
-                  <RevealActiveFileIcon />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRefreshToken((current) => current + 1)
-                    void refreshGitStatus()
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
-                  title="Refresh files"
-                  aria-label="Refresh files"
-                >
-                  <RefreshFilesIcon />
-                </button>
+                <Tooltip content="New file">
+                  <button
+                    type="button"
+                    onClick={() => requestCreateEntry('file')}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
+                    aria-label="New file"
+                  >
+                    <NewFileIcon />
+                  </button>
+                </Tooltip>
+                <Tooltip content="New folder">
+                  <button
+                    type="button"
+                    onClick={() => requestCreateEntry('dir')}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
+                    aria-label="New folder"
+                  >
+                    <NewFolderIcon />
+                  </button>
+                </Tooltip>
+                <Tooltip content={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'}>
+                  <button
+                    type="button"
+                    onClick={revealActiveFile}
+                    disabled={!canRevealActiveFile}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+                    aria-label="Reveal active file"
+                  >
+                    <RevealActiveFileIcon />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Refresh files">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRefreshToken((current) => current + 1)
+                      void refreshGitStatus()
+                    }}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
+                    aria-label="Refresh files"
+                  >
+                    <RefreshFilesIcon />
+                  </button>
+                </Tooltip>
               </div>
             )}
           </div>

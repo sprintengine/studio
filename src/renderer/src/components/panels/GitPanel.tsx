@@ -6,7 +6,8 @@ import { focusOrAddFileTab, focusOrAddGitConflictTab, focusOrAddTerminalTab } fr
 import { isImageFile } from '../../utils/files'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { IconButton, InboxRow, PanelHeader, Select, StatusDot, type Tone } from '../ui'
+import { IconButton, InboxRow, PanelHeader, Select, StatusDot, Tooltip, type Tone } from '../ui'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 function gitStatusToTone(status: GitFileStatus | null): Tone {
   switch (status) {
@@ -84,7 +85,7 @@ const GIT_PANEL_AUTO_REFRESH_MS = 10_000
 
 function RefreshGitIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
       <path
         d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25"
         stroke="currentColor"
@@ -99,7 +100,7 @@ function RefreshGitIcon() {
 function GitActionIcon({ kind }: { kind: GitActionIconKind }) {
   if (kind === 'stage') {
     return (
-      <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
         <path d="M8 3.25V12.75M4.25 8H11.75" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
       </svg>
     )
@@ -107,14 +108,14 @@ function GitActionIcon({ kind }: { kind: GitActionIconKind }) {
 
   if (kind === 'unstage') {
     return (
-      <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+      <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
         <path d="M4.25 8H11.75" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
       </svg>
     )
   }
 
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none">
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
       <path
         d="M5.2 4.5H2.85V2.15M3.1 7.8A4.95 4.95 0 1 0 4.45 4.4L2.85 6"
         stroke="currentColor"
@@ -252,6 +253,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const [commitMessage, setCommitMessage] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<GitPanelView>('changes')
+  const dialog = useConfirmDialog()
   const refreshAllInFlightRef = useRef(false)
   const refreshAllQueuedHistoryLoadingRef = useRef<boolean | null>(null)
 
@@ -463,19 +465,35 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     runAction('Staging file', () => window.api.stageGitPaths(repoRoot!, [path]), 'Staged file.')
   const unstagePath = (path: string) =>
     runAction('Unstaging file', () => window.api.unstageGitPaths(repoRoot!, [path]), 'Unstaged file.')
-  const revertPath = (entry: GitStatusEntry) => {
-    const confirmed = window.confirm(
-      `Revert all changes to ${entry.relativePath} in ${activeScopeLabel}? This cannot be undone from Multicode.\n\nScope path: ${activeScopePath}`
-    )
-    if (!confirmed) return Promise.resolve(null)
+  const revertPath = async (entry: GitStatusEntry) => {
+    const confirmed = await dialog.confirm({
+      title: `Revert ${entry.relativePath}?`,
+      body: (
+        <>
+          This reverts every change to {entry.relativePath} in {activeScopeLabel}. The action cannot be undone from Multicode.
+          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+        </>
+      ),
+      confirmLabel: 'Revert file',
+      tone: 'danger',
+    })
+    if (!confirmed) return null
 
     return runAction('Reverting file', () => window.api.revertGitPaths(repoRoot!, [entry.path]), 'Reverted file.')
   }
-  const discardUnstagedChanges = () => {
-    const confirmed = window.confirm(
-      `Roll back all unstaged changes in ${activeScopeLabel}? This will discard unstaged edits and remove untracked files.\n\nScope path: ${activeScopePath}`
-    )
-    if (!confirmed) return Promise.resolve(null)
+  const discardUnstagedChanges = async () => {
+    const confirmed = await dialog.confirm({
+      title: 'Discard unstaged changes?',
+      body: (
+        <>
+          This rolls back every unstaged edit in {activeScopeLabel} and removes untracked files. The action cannot be undone from Multicode.
+          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+        </>
+      ),
+      confirmLabel: 'Discard changes',
+      tone: 'danger',
+    })
+    if (!confirmed) return null
 
     return runAction(
       'Rolling back unstaged changes',
@@ -582,9 +600,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       scope.branch === branchName && !samePath(scope.path, repoRoot)
     )
     if (checkedOutElsewhere) {
-      const confirmed = window.confirm(
-        `Branch "${branchName}" is already checked out in another worktree.\n\n${checkedOutElsewhere.path}\n\nGit may refuse to switch to it here. Continue?`
-      )
+      const confirmed = await dialog.confirm({
+        title: `Branch already checked out`,
+        body: (
+          <>
+            Branch <span className="font-mono">{branchName}</span> is already checked out at:
+            <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">{checkedOutElsewhere.path}</div>
+            <div className="mt-2">Git may refuse to switch to it here.</div>
+          </>
+        ),
+        confirmLabel: 'Switch anyway',
+        tone: 'danger',
+      })
       if (!confirmed) {
         setMessage({ tone: 'neutral', text: `Branch switch cancelled. ${branchName} is checked out at ${checkedOutElsewhere.path}.` })
         return
@@ -694,14 +721,15 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         title="Git"
         count={allEntries.length}
         primaryAction={
-          <IconButton
-            aria-label="Fetch remotes and refresh Git status"
-            title="Fetch remotes and refresh Git status"
-            onClick={() => void handleFetch()}
-            disabled={Boolean(busy)}
-          >
-            <RefreshGitIcon />
-          </IconButton>
+          <Tooltip content="Fetch remotes and refresh Git status">
+            <IconButton
+              aria-label="Fetch remotes and refresh Git status"
+              onClick={() => void handleFetch()}
+              disabled={Boolean(busy)}
+            >
+              <RefreshGitIcon />
+            </IconButton>
+          </Tooltip>
         }
       />
       <div className="border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
@@ -722,15 +750,16 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             disabled={Boolean(busy) || scopeOptions.length <= 1}
             className="w-full"
           />
-          <button
-            type="button"
-            onClick={() => void handleReviewDiff()}
-            disabled={Boolean(busy) || activeScope?.kind !== 'worktree' || !repoRoot}
-            className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
-            title={activeScope?.kind === 'worktree' ? `Review diff against ${reviewDiffTarget.baseRef}` : 'Select a worktree to review its diff'}
-          >
-            Review diff
-          </button>
+          <Tooltip content={activeScope?.kind === 'worktree' ? `Review diff against ${reviewDiffTarget.baseRef}` : 'Select a worktree to review its diff'}>
+            <button
+              type="button"
+              onClick={() => void handleReviewDiff()}
+              disabled={Boolean(busy) || activeScope?.kind !== 'worktree' || !repoRoot}
+              className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+            >
+              Review diff
+            </button>
+          </Tooltip>
         </div>
         <div className="mt-1">
           <Select<string>
@@ -948,15 +977,17 @@ function ConflictGroup({
                   ariaLabel={`Open ${entry.relativePath}`}
                 />
               </div>
-              <button
-                type="button"
-                onClick={() => onResolve(entry)}
-                disabled={Boolean(busy)}
-                className="h-6 shrink-0 rounded-md px-2 text-[11px] font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-white disabled:opacity-30"
-                title={`Resolve ${entry.relativePath}`}
-              >
-                Resolve
-              </button>
+              <Tooltip content={`Resolve ${entry.relativePath}`}>
+                <button
+                  type="button"
+                  onClick={() => onResolve(entry)}
+                  disabled={Boolean(busy)}
+                  className="h-6 shrink-0 rounded-md px-2 text-[11px] font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-white disabled:opacity-30"
+                  aria-label={`Resolve ${entry.relativePath}`}
+                >
+                  Resolve
+                </button>
+              </Tooltip>
             </div>
           )
         })}
@@ -981,21 +1012,21 @@ function ChangeGroup({
         {group.bulkActions && group.entries.length > 0 ? (
           <div className="flex shrink-0 items-center gap-1">
             {group.bulkActions.map((bulkAction) => (
-              <button
-                key={bulkAction.title}
-                type="button"
-                onClick={() => void bulkAction.action()}
-                disabled={Boolean(busy)}
-                className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md px-2 text-[11px] font-semibold leading-none transition-colors disabled:opacity-30 ${
-                  bulkAction.danger
-                    ? 'text-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]'
-                    : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                }`}
-                title={bulkAction.title}
-                aria-label={bulkAction.title}
-              >
-                {bulkAction.label}
-              </button>
+              <Tooltip key={bulkAction.title} content={bulkAction.title}>
+                <button
+                  type="button"
+                  onClick={() => void bulkAction.action()}
+                  disabled={Boolean(busy)}
+                  className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md px-2 text-[11px] font-semibold leading-none transition-colors disabled:opacity-30 ${
+                    bulkAction.danger
+                      ? 'text-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]'
+                      : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                  }`}
+                  aria-label={bulkAction.title}
+                >
+                  {bulkAction.label}
+                </button>
+              </Tooltip>
             ))}
           </div>
         ) : null}
@@ -1038,27 +1069,29 @@ function ChangeGroup({
                       ariaLabel={`Open ${entry.relativePath}`}
                     />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void group.action(entry.path)}
-                    disabled={Boolean(busy)}
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] opacity-70 transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-30 group-hover/row:opacity-100"
-                    title={group.actionTitle}
-                    aria-label={`${group.actionTitle}: ${entry.relativePath}`}
-                  >
-                    <GitActionIcon kind={group.actionIcon} />
-                  </button>
-                  {group.secondaryAction ? (
+                  <Tooltip content={group.actionTitle}>
                     <button
                       type="button"
-                      onClick={() => void group.secondaryAction?.action(entry)}
+                      onClick={() => void group.action(entry.path)}
                       disabled={Boolean(busy)}
-                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--tone-error)] opacity-70 transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--tone-error)] disabled:opacity-30 group-hover/row:opacity-100"
-                      title={group.secondaryAction.title}
-                      aria-label={`${group.secondaryAction.title}: ${entry.relativePath}`}
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] opacity-70 transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-30 group-hover/row:opacity-100"
+                      aria-label={`${group.actionTitle}: ${entry.relativePath}`}
                     >
-                      <GitActionIcon kind={group.secondaryAction.icon} />
+                      <GitActionIcon kind={group.actionIcon} />
                     </button>
+                  </Tooltip>
+                  {group.secondaryAction ? (
+                    <Tooltip content={group.secondaryAction.title}>
+                      <button
+                        type="button"
+                        onClick={() => void group.secondaryAction?.action(entry)}
+                        disabled={Boolean(busy)}
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--tone-error)] opacity-70 transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--tone-error)] disabled:opacity-30 group-hover/row:opacity-100"
+                        aria-label={`${group.secondaryAction.title}: ${entry.relativePath}`}
+                      >
+                        <GitActionIcon kind={group.secondaryAction.icon} />
+                      </button>
+                    </Tooltip>
                   ) : null}
                 </div>
               )
@@ -1251,16 +1284,17 @@ function GitLogCommitRow({ commit }: { commit: GitCommit }) {
 
   if (commit.commitWebUrl) {
     return (
-      <a
-        href={commit.commitWebUrl}
-        target="_blank"
-        rel="noreferrer"
-        className={className}
-        title={`Open ${commit.shortHash} on GitHub`}
-        aria-label={`Open commit ${commit.shortHash} on GitHub`}
-      >
-        {content}
-      </a>
+      <Tooltip content={`Open ${commit.shortHash} on GitHub`}>
+        <a
+          href={commit.commitWebUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={className}
+          aria-label={`Open commit ${commit.shortHash} on GitHub`}
+        >
+          {content}
+        </a>
+      </Tooltip>
     )
   }
 

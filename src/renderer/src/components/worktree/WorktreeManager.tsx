@@ -4,6 +4,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace'
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { Select, StatusDot, type SelectItem, type Tone } from '../ui'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 type WorktreeMessage = {
   tone: 'neutral' | 'error' | 'success'
@@ -123,6 +124,7 @@ export default function WorktreeManager({
   const removeWorktreeEntry = useWorkspaceStore((state) => state.removeWorktreeEntry)
   const addWorkspace = useWorkspaceStore((state) => state.addWorkspace)
   const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace)
+  const dialog = useConfirmDialog()
   const [open, setOpen] = useState(true)
   const [rows, setRows] = useState<WorktreeRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -347,11 +349,21 @@ export default function WorktreeManager({
   const handleRemove = async (row: WorktreeRow) => {
     const force = Boolean(row.dirtyCount && row.dirtyCount > 0)
     if (force) {
-      const confirmation = window.prompt(
-        `Worktree "${branchLabel(row)}" has uncommitted changes. Type remove to force removal.`,
-        ''
-      )
-      if (confirmation !== 'remove') {
+      const confirmation = await dialog.prompt({
+        title: 'Force remove worktree?',
+        body: (
+          <>
+            Worktree <span className="font-mono">{branchLabel(row)}</span> has uncommitted changes. Removing it will discard those changes. Type <span className="font-mono">remove</span> to confirm.
+          </>
+        ),
+        inputLabel: 'Type "remove" to confirm',
+        placeholder: 'remove',
+        required: true,
+        confirmLabel: 'Force remove',
+        tone: 'danger',
+        validate: (value) => (value.trim() === 'remove' ? null : 'Type "remove" exactly to confirm'),
+      })
+      if (confirmation === null || confirmation.trim() !== 'remove') {
         setMessage({ tone: 'neutral', text: 'Remove cancelled.' })
         return
       }
@@ -389,7 +401,7 @@ export default function WorktreeManager({
             <svg
               viewBox="0 0 12 12"
               aria-hidden="true"
-              className={`h-3 w-3 shrink-0 text-[color:var(--text-subtle)] transition-transform group-hover:text-[color:var(--text-default)] ${open ? 'rotate-90' : ''}`}
+              className={`icon-xs shrink-0 text-[color:var(--text-subtle)] transition-transform group-hover:text-[color:var(--text-default)] ${open ? 'rotate-90' : ''}`}
               fill="none"
             >
               <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
