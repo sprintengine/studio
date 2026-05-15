@@ -18,6 +18,7 @@ import {
   type ActionTone,
 } from '../ui/ActionFeedback'
 import {
+  CloseIconButton,
   DefinitionList,
   Drawer,
   GhostButton,
@@ -213,6 +214,16 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
   const [createOpen, setCreateOpen] = useState(false)
   const [runnerOpen, setRunnerOpen] = useState(false)
   const [runningOpen, setRunningOpen] = useState(false)
+
+  // The running-agents aside and the task-detail aside share one panel slot.
+  // User-initiated task selection (board click, keyboard nav, new-task,
+  // clicking a row in the running aside) switches the slot to detail by
+  // closing the running aside. Programmatic resets (auto-recovery, detail X)
+  // still call setSelectedId directly.
+  const selectTask = useCallback((id: string | null) => {
+    setSelectedId(id)
+    if (id) setRunningOpen(false)
+  }, [])
   const [draft, setDraft] = useState<DraftTask>(emptyDraft)
   const [commentBody, setCommentBody] = useState('')
   const [dragSource, setDragSource] = useState<{ taskId: string; from: SwitchboardFolderStatus } | null>(null)
@@ -272,7 +283,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         feedback.notify('board', 'error', result.message)
         return
       }
-      setSelectedId(result.record.task.id)
+      selectTask(result.record.task.id)
       setDraft(emptyDraft)
       setCreateOpen(false)
       await refresh()
@@ -383,7 +394,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
           for (const status of BOARD_STATUS_ORDER) {
             const cards = grouped[status] ?? []
             if (cards.length > 0) {
-              setSelectedId(cards[0].task.id)
+              selectTask(cards[0].task.id)
               return
             }
           }
@@ -391,7 +402,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         }
         const next = currentCardIdx + delta
         if (next >= 0 && next < currentCards.length) {
-          setSelectedId(currentCards[next].task.id)
+          selectTask(currentCards[next].task.id)
         }
       }
 
@@ -406,7 +417,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
           if (cards.length > 0) {
             const fallbackIdx = currentCardIdx >= 0 ? currentCardIdx : 0
             const targetIdx = Math.min(Math.max(fallbackIdx, 0), cards.length - 1)
-            setSelectedId(cards[targetIdx].task.id)
+            selectTask(cards[targetIdx].task.id)
             return
           }
         }
@@ -570,7 +581,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
                   executionStatusByTaskId={executionStatusByTaskId}
                   recentlyMovedId={recentlyMovedId}
                   selectedId={selectedId}
-                  onSelect={(id) => setSelectedId(id)}
+                  onSelect={(id) => selectTask(id)}
                   dragActive={Boolean(dragSource)}
                   isLegalDropTarget={isLegalDropTarget}
                   isSourceLane={isSourceLane}
@@ -611,12 +622,10 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
           entries={runningExecutions}
           workspaceId={workspaceId}
           workspaceRoot={folderPath}
-          onSelectTask={(taskId) => setSelectedId(taskId)}
+          onSelectTask={(taskId) => selectTask(taskId)}
           onClose={() => setRunningOpen(false)}
         />
-      ) : null}
-
-      {selected ? (
+      ) : selected ? (
         <aside
           className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[color:var(--border-default)]"
           aria-label="Selected task detail"
@@ -943,21 +952,7 @@ function SwitchboardRunningAgentsAside({
           <span className="tabular-nums">
             {entries.length} task{entries.length === 1 ? '' : 's'}
           </span>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close running agents"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-          >
-            <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path
-                d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
+          <CloseIconButton onClick={onClose} aria-label="Close running agents" />
         </div>
       </header>
 
@@ -1356,21 +1351,7 @@ function BoardDetailPane({
             </div>
             <h3 className="mt-2 text-[15px] font-semibold leading-6 text-[color:var(--text-strong)]">{task.title}</h3>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close task detail"
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-          >
-            <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path
-                d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
+          <CloseIconButton onClick={onClose} aria-label="Close task detail" />
         </div>
         {canOpenTerminal || targets.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Task actions">

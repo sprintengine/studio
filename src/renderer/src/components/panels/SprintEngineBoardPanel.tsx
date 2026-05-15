@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
+ CloseIconButton,
  PanelHeader,
  Tabs,
  OverflowMenu,
@@ -2523,16 +2524,7 @@ function SprintEngineInspectorPanel({
  </h3>
  <div className="mt-1 font-mono text-[11px] text-[color:var(--text-disabled)]">{agent.id}</div>
  </div>
- <button
- type="button"
- onClick={onClose}
- aria-label="Close agent detail"
- className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
- >
- <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
- </svg>
- </button>
+ <CloseIconButton onClick={onClose} aria-label="Close agent detail" />
  </div>
  <div className="mt-3 flex flex-wrap gap-1.5">
  {hasLiveTerminal ? (
@@ -2631,16 +2623,7 @@ function SprintEngineInspectorPanel({
  {selectedTask.title}
  </h3>
  </div>
- <button
- type="button"
- onClick={onClose}
- aria-label="Close task detail"
- className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
- >
- <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
- </svg>
- </button>
+ <CloseIconButton onClick={onClose} aria-label="Close task detail" />
  </div>
  <div className="mt-3 flex flex-wrap gap-1.5">
  {selectedTaskCanMarkReady ? (
@@ -4668,16 +4651,7 @@ function SprintEngineArtifactInspector({
  {artifact.title}
  </h3>
  </div>
- <button
- type="button"
- onClick={onClose}
- aria-label="Close artifact detail"
- className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
- >
- <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
- </svg>
- </button>
+ <CloseIconButton onClick={onClose} aria-label="Close artifact detail" />
  </div>
  <div className="mt-3 flex flex-wrap gap-1.5">
  {canOpenArtifact ? (

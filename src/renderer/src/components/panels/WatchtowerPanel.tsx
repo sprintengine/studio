@@ -42,6 +42,7 @@ import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useT
 import { focusOrAddFileTab, hasAgentTab } from '../../utils/modelRegistry'
 import { renderMarkdown } from '../../utils/markdown'
 import {
+  CloseIconButton,
   DefinitionList,
   GhostButton,
   InboxRow,
@@ -1180,21 +1181,7 @@ function WatchtowerActiveReviewAside({
               {runs.length} run{runs.length === 1 ? '' : 's'}
             </span>
           ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close active review"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-          >
-            <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path
-                d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
+          <CloseIconButton onClick={onClose} aria-label="Close active review" />
         </div>
       </header>
 
