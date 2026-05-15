@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type {
   MobileControlCommand,
+  MobileSprintEngineCommandAuditEntry,
   MobileSprintEngineCommandResult,
 } from '../sprintengine/command'
 import type {
@@ -76,6 +77,7 @@ export function summarizeCommandResult(result: MobileSprintEngineCommandResult):
       code: result.error.code,
       message: result.error.message,
       retryable: result.error.retryable,
+      audit: summarizeAudit(result.audit),
     }
   }
 
@@ -85,6 +87,24 @@ export function summarizeCommandResult(result: MobileSprintEngineCommandResult):
     commandType: result.commandType,
     executedAt: result.executedAt,
     data: sanitizeResultData(result.data),
+    audit: summarizeAudit(result.audit),
+  }
+}
+
+function summarizeAudit(audit: MobileSprintEngineCommandAuditEntry): Record<string, unknown> {
+  return {
+    auditId: audit.auditId,
+    commandId: audit.commandId,
+    deviceId: audit.deviceId,
+    commandType: audit.commandType,
+    status: audit.status,
+    ...(audit.code ? { code: audit.code } : {}),
+    ...(audit.statePath ? { statePath: audit.statePath } : {}),
+    ...(audit.workspacePath ? { workspacePath: audit.workspacePath } : {}),
+    ...(audit.artifactId ? { artifactId: audit.artifactId } : {}),
+    ...(audit.toolArgs ? { toolArgs: audit.toolArgs } : {}),
+    ...(audit.exitCode !== undefined ? { exitCode: audit.exitCode } : {}),
+    recordedAt: audit.recordedAt,
   }
 }
 

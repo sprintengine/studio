@@ -18,6 +18,8 @@ void main()
 
 async function main(): Promise<void> {
   await assertArtifactApproveInvokesSprintEngineTool()
+  await assertArtifactApproveUsesAuthorizedDiscoveredStateOutsideServiceCwd()
+  await assertArtifactApproveRejectsUnauthorizedDiscoveredStatePath()
   await assertArtifactRequestChangesInvokesSprintEngineTool()
   assertAutoRunArtifactApproveArgsUseCanonicalActor()
   await assertArtifactRequestChangesRejectsStaleSnapshot()
@@ -28,8 +30,10 @@ async function main(): Promise<void> {
   await assertInvalidArtifactPathIsRejected()
   await assertSprintEngineCreateUsesControlledHandover()
   await assertTaskStartUsesDesktopSessionOrchestration()
+  await assertTaskStartUsesAuthorizedDiscoveredStateOutsideServiceCwd()
   await assertTaskStartRejectsBlockedDependencies()
   await assertFollowUpUsesKnownAgentSessionOrchestration()
+  await assertFollowUpUsesAuthorizedDiscoveredStateOutsideServiceCwd()
   await assertFollowUpRejectsTerminalControlCharacters()
   await assertUnsupportedCommandIsRejected()
   await assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
@@ -67,6 +71,65 @@ async function assertArtifactApproveInvokesSprintEngineTool(): Promise<void> {
   ])
   assert.equal(invocations[0].cwd, fixture.workspaceRoot)
   assert.equal(service.getAuditLog()[0].status, 'accepted')
+}
+
+async function assertArtifactApproveUsesAuthorizedDiscoveredStateOutsideServiceCwd(): Promise<void> {
+  const fixture = await writeSprintEngineFixture('discovered-review-team', '.multi-code/sprintengine/discovered-review-team/documents/requirements.md')
+  const serviceWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-cwd-'))
+  const invocations: Array<{ args: string[]; cwd: string }> = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: serviceWorkspaceRoot,
+    now: () => now,
+    execute: async (invocation) => {
+      invocations.push(invocation)
+      return { exitCode: 0, stdout: '{"ok":true,"action":"approved"}', stderr: '' }
+    },
+  })
+
+  const result = await service.dispatch(command('artifact.approve', {
+    sprintEngineId: 'discovered-review-team',
+    artifactId: 'A1',
+  }, {
+    commandId: 'cmd_discovered_review',
+    idempotencyKey: 'mobile:device_1:discovered-review',
+  }), {
+    statePaths: [fixture.statePath],
+    allowedWorkspaceRoots: [fixture.workspaceRoot],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(invocations.length, 1)
+  assert.equal(invocations[0].cwd, fixture.workspaceRoot)
+  assert.deepEqual(invocations[0].args.slice(0, 2), ['--state', fixture.statePath])
+}
+
+async function assertArtifactApproveRejectsUnauthorizedDiscoveredStatePath(): Promise<void> {
+  const fixture = await writeSprintEngineFixture('unauthorized-review-team', '.multi-code/sprintengine/unauthorized-review-team/documents/requirements.md')
+  const allowedWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-allowed-'))
+  let invocationCount = 0
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: allowedWorkspaceRoot,
+    now: () => now,
+    execute: async () => {
+      invocationCount += 1
+      return { exitCode: 0, stdout: '{"ok":true}', stderr: '' }
+    },
+  })
+
+  const result = await service.dispatch(command('artifact.approve', {
+    sprintEngineId: 'unauthorized-review-team',
+    artifactId: 'A1',
+  }, {
+    commandId: 'cmd_unauthorized_review',
+    idempotencyKey: 'mobile:device_1:unauthorized-review',
+  }), {
+    statePaths: [fixture.statePath],
+    allowedWorkspaceRoots: [allowedWorkspaceRoot],
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'path_not_allowed')
+  assert.equal(invocationCount, 0)
 }
 
 async function assertArtifactRequestChangesInvokesSprintEngineTool(): Promise<void> {
@@ -369,6 +432,7 @@ async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {
     sprintEngineId: 'task-start-team',
     taskId: 'T2',
     role: 'developer',
+    worktreeIsolation: 'preferred',
   }, {
     idempotencyKey: 'mobile:device_1:task-start',
   }))
@@ -380,6 +444,48 @@ async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {
   assert.equal(starts[0].role, 'developer')
   assert.equal(result.ok === true ? (result.data as { sessionId: string }).sessionId : '', 'session_1')
   assert.equal(service.getAuditLog()[0].status, 'accepted')
+}
+
+async function assertTaskStartUsesAuthorizedDiscoveredStateOutsideServiceCwd(): Promise<void> {
+  const fixture = await writeSprintEngineFixture('discovered-task-start-team', '.multi-code/sprintengine/discovered-task-start-team/documents/requirements.md', {
+    tasks: [
+      task('T1', 'architect', 'done'),
+      task('T2', 'developer', 'todo', { dependsOn: ['T1'] }),
+    ],
+  })
+  const serviceWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-cwd-'))
+  const starts: Parameters<MobileSprintEngineSessionOrchestrator['startTask']>[0][] = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: serviceWorkspaceRoot,
+    now: () => now,
+    sessionOrchestrator: {
+      startTask: async (request) => {
+        starts.push(request)
+        return { sessionId: 'session_discovered', agentId: 'developer-1', executionMode: 'current_workspace' }
+      },
+      sendFollowUp: async () => {
+        throw new Error('follow-up should not run for task starts')
+      },
+    },
+  })
+
+  const result = await service.dispatch(command('task.start', {
+    sprintEngineId: 'discovered-task-start-team',
+    taskId: 'T2',
+    role: 'developer',
+    worktreeIsolation: 'preferred',
+  }, {
+    commandId: 'cmd_discovered_task_start',
+    idempotencyKey: 'mobile:device_1:discovered-task-start',
+  }), {
+    statePaths: [fixture.statePath],
+    allowedWorkspaceRoots: [fixture.workspaceRoot],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(starts.length, 1)
+  assert.equal(starts[0].statePath, fixture.statePath)
+  assert.equal(starts[0].workspaceRoot, fixture.workspaceRoot)
 }
 
 async function assertTaskStartRejectsBlockedDependencies(): Promise<void> {
@@ -409,6 +515,7 @@ async function assertTaskStartRejectsBlockedDependencies(): Promise<void> {
     sprintEngineId: 'task-blocked-team',
     taskId: 'T2',
     role: 'developer',
+    worktreeIsolation: 'preferred',
   }, {
     idempotencyKey: 'mobile:device_1:task-blocked',
   }))
@@ -455,6 +562,49 @@ async function assertFollowUpUsesKnownAgentSessionOrchestration(): Promise<void>
   assert.equal(followUps.length, 1)
   assert.equal(followUps[0].agentId, 'developer-1')
   assert.equal(followUps[0].text, 'Please include the failing command output in your evidence.')
+}
+
+async function assertFollowUpUsesAuthorizedDiscoveredStateOutsideServiceCwd(): Promise<void> {
+  const fixture = await writeSprintEngineFixture('discovered-follow-up-team', '.multi-code/sprintengine/discovered-follow-up-team/documents/requirements.md', {
+    tasks: [
+      task('T1', 'developer', 'in_progress', { ownerAgentId: 'developer-1' }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' },
+    },
+  })
+  const serviceWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-cwd-'))
+  const followUps: Parameters<MobileSprintEngineSessionOrchestrator['sendFollowUp']>[0][] = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: serviceWorkspaceRoot,
+    now: () => now,
+    sessionOrchestrator: {
+      startTask: async () => {
+        throw new Error('task start should not run for follow-up')
+      },
+      sendFollowUp: async (request) => {
+        followUps.push(request)
+        return { sessionId: 'session_discovered_follow_up', agentId: request.agentId, acceptedAt: now.toISOString() }
+      },
+    },
+  })
+
+  const result = await service.dispatch(command('agent.followUp', {
+    sprintEngineId: 'discovered-follow-up-team',
+    agentId: 'developer-1',
+    text: 'Continue with the latest approved plan.',
+  }, {
+    commandId: 'cmd_discovered_follow_up',
+    idempotencyKey: 'mobile:device_1:discovered-follow-up',
+  }), {
+    statePaths: [fixture.statePath],
+    allowedWorkspaceRoots: [fixture.workspaceRoot],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(followUps.length, 1)
+  assert.equal(followUps[0].statePath, fixture.statePath)
+  assert.equal(followUps[0].workspaceRoot, fixture.workspaceRoot)
 }
 
 async function assertFollowUpRejectsTerminalControlCharacters(): Promise<void> {
@@ -516,6 +666,7 @@ async function assertUnsupportedCommandIsRejected(): Promise<void> {
     sprintEngineId: 'team',
     taskId: 'T1',
     role: 'developer',
+    worktreeIsolation: 'preferred',
   }))
 
   assert.equal(result.ok, false)

@@ -1,9 +1,11 @@
 import {
   MobileSprintEngineCommandService,
+  type MobileControlCommand,
   type MobileSprintEngineCommandResult,
 } from '../sprintengine/command'
 import type { MobilePushRegistrationTarget } from '../sprintengine/activity'
 import { MobileSprintEngineSnapshotService, type MobileControlSnapshot } from '../sprintengine/snapshot'
+import { validateSprintEngineStatePath } from '../sprintengine/state-path'
 import { getErrorMessage } from '../../error-message'
 import { hashSecret } from './crypto'
 import { getDesktopDisplayName } from './desktop'
@@ -303,6 +305,7 @@ export type MobileBridgeSettingsUpdate = {
 type DesktopSessionProvider = () => Promise<{ authenticated: boolean; session?: { id: string; expiresAt: string } }>
 type DesktopAccessTokenProvider = () => Promise<string | null>
 type SprintEngineStatePathsProvider = () => Promise<string[]>
+type MobileWorkspaceRootsProvider = () => Promise<string[]>
 
 export type MobileBridgeOptions = {
   relayUrl?: string | null
@@ -312,6 +315,7 @@ export type MobileBridgeOptions = {
   commandService?: MobileSprintEngineCommandService
   snapshotService?: MobileSprintEngineSnapshotService
   statePathsProvider?: SprintEngineStatePathsProvider
+  workspaceRootsProvider?: MobileWorkspaceRootsProvider
   commandPollIntervalMs?: number
 }
 
@@ -391,6 +395,7 @@ export class MobileBridge {
   private readonly commandService: MobileSprintEngineCommandService
   private readonly snapshotService: MobileSprintEngineSnapshotService
   private readonly statePathsProvider: SprintEngineStatePathsProvider
+  private readonly workspaceRootsProvider: MobileWorkspaceRootsProvider
   private readonly commandPollIntervalMs: number
   private readonly activeRelayCommandIds = new Set<string>()
 
@@ -405,6 +410,7 @@ export class MobileBridge {
     this.commandService = options.commandService ?? new MobileSprintEngineCommandService()
     this.snapshotService = options.snapshotService ?? new MobileSprintEngineSnapshotService()
     this.statePathsProvider = options.statePathsProvider ?? defaultSprintEngineStatePaths
+    this.workspaceRootsProvider = options.workspaceRootsProvider ?? (async () => [])
     this.commandPollIntervalMs = Math.max(250, options.commandPollIntervalMs ?? DEFAULT_COMMAND_POLL_INTERVAL_MS)
   }
 
@@ -941,6 +947,7 @@ export class MobileBridge {
           snapshotService: this.snapshotService,
           desktopSessionId: this.desktopRelaySessionId ?? this.desktopInstanceId,
           statePathsProvider: this.statePathsProvider,
+          workspaceRootsProvider: this.workspaceRootsProvider,
         })
       case 'artifact.read':
         return dispatchArtifactRead({
@@ -959,8 +966,17 @@ export class MobileBridge {
       case 'artifact.approve':
       case 'artifact.requestChanges':
       case 'agent.followUp':
-        return this.commandService.dispatch(command)
+        return this.dispatchSprintEngineMutation(command)
     }
+  }
+
+  private async dispatchSprintEngineMutation(command: MobileControlCommand): Promise<MobileSprintEngineCommandResult> {
+    const statePaths = await this.statePathsProvider()
+    const allowedWorkspaceRoots = statePaths.map((statePath) => validateSprintEngineStatePath(statePath).workspaceRoot)
+    return this.commandService.dispatch(command, {
+      statePaths,
+      allowedWorkspaceRoots,
+    })
   }
 
   private async revokeDeviceAtRelay(deviceId: string, reason: string): Promise<void> {
@@ -1007,6 +1023,7 @@ export class MobileBridge {
       const snapshot = await this.snapshotService.publishSnapshot({
         desktopSessionId: this.desktopRelaySessionId,
         statePaths: await this.statePathsProvider(),
+        workspaceRoots: await this.workspaceRootsProvider(),
       })
       if (snapshot) {
         await this.relayTransport.publishSnapshot({

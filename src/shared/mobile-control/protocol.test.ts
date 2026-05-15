@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   mobileControlProtocolVersion,
+  mobileControlWorkspaceSnapshotVersion,
   validateMobileControlCapabilities,
   validateMobileControlCommand,
   validateMobileControlDevice,
@@ -32,6 +33,17 @@ const validSnapshot: MobileControlSnapshot = {
   protocolVersion: mobileControlProtocolVersion,
   generatedAt: now,
   desktopSessionId: "desktop_session_1",
+  snapshotVersion: "snap_root_1",
+  commands: [
+    "snapshot.request",
+    "artifact.read",
+    "sprintengine.create",
+    "task.start",
+    "artifact.approve",
+    "artifact.requestChanges",
+    "agent.followUp",
+    "device.revoke",
+  ],
   sprintEngines: [
     {
       sprintEngineId: "mobile-sprintengine-companion-integration",
@@ -71,13 +83,232 @@ const validSnapshot: MobileControlSnapshot = {
       ],
     },
   ],
+  workspaces: [
+    {
+      workspaceId: "mobile-sprintengine-companion-integration",
+      kind: "sprintengine",
+      name: "Mobile Sprint Engine Companion Integration",
+      workspacePath: "/workspace/multicode",
+      statePath: "/workspace/multicode/.multi-code/sprintengine/state.yaml",
+      updatedAt: now,
+      capabilities: ["summary.read", "detail.read", "logs.read"],
+      detailVersion: mobileControlWorkspaceSnapshotVersion,
+      summary: {
+        status: "running",
+        headline: "2 ready, 0 needs input",
+        counts: {
+          ready: 2,
+          needsInput: 0,
+        },
+      },
+      detail: {
+        kind: "sprintengine",
+        data: {
+          sprintEngineId: "mobile-sprintengine-companion-integration",
+          snapshotVersion: "snap_1",
+          board: {
+            todo: 1,
+            ready: 2,
+            inProgress: 3,
+            needsInput: 0,
+            blocked: 0,
+            done: 4,
+          },
+        },
+      },
+    },
+    {
+      workspaceId: "switchboard-main",
+      kind: "switchboard",
+      name: "Switchboard",
+      updatedAt: now,
+      capabilities: ["summary.read", "detail.read"],
+      detailVersion: mobileControlWorkspaceSnapshotVersion,
+      summary: {
+        status: "idle",
+        counts: {
+          inbox: 3,
+          activeExecutions: 0,
+        },
+      },
+      detail: {
+        kind: "switchboard",
+        data: {
+          inboxCount: 3,
+          laneCounts: {
+            todo: 2,
+            doing: 1,
+          },
+          activeExecutionCount: 0,
+          tasks: [
+            {
+              taskId: "task_1",
+              identifier: "TASK-1",
+              title: "Ready task",
+              status: "ready",
+              lane: "ready",
+              updatedAt: now,
+              source: { type: "manual", externalKey: null },
+              priority: null,
+              claimedBy: null,
+            },
+          ],
+          inboxItems: [
+            {
+              taskId: "task_inbox",
+              identifier: "TASK-INBOX",
+              title: "Inbox task",
+              status: "todo",
+              lane: "inbox",
+              updatedAt: now,
+              source: { type: "watchtower", externalKey: "WT-1" },
+            },
+          ],
+          comments: [
+            {
+              taskId: "task_1",
+              commentId: "comment_1",
+              kind: "comment",
+              body: "Looks good.",
+              createdAt: now,
+              authorName: "Reviewer",
+              confidencePct: 90,
+            },
+          ],
+          evidence: [
+            {
+              taskId: "task_1",
+              summary: "Verified.",
+              artifactCount: 1,
+              commandCount: 2,
+              touchedFileCount: 3,
+              updatedAt: now,
+            },
+          ],
+          logs: [
+            {
+              taskId: "task_1",
+              executionId: "exec_1",
+              status: "completed",
+              agentId: "developer-1",
+              startedAt: now,
+              completedAt: now,
+              summary: "Done.",
+            },
+          ],
+        },
+      },
+    },
+    {
+      workspaceId: "watchtower-main",
+      kind: "watchtower",
+      name: "Watchtower",
+      updatedAt: now,
+      capabilities: ["summary.read", "detail.read", "logs.read"],
+      detailVersion: mobileControlWorkspaceSnapshotVersion,
+      summary: {
+        status: "complete",
+      },
+      detail: {
+        kind: "watchtower",
+        data: {
+          activeRunCount: 0,
+          latestRunStatus: "passed",
+          generatedInboxCount: 1,
+          runs: [
+            {
+              runId: "run_1",
+              status: "completed",
+              preset: "standard",
+              createdAt: now,
+              completedAt: now,
+              validCount: 1,
+              invalidCount: 0,
+              generatedInboxCount: 1,
+              agentCount: 2,
+            },
+          ],
+          generatedInboxItems: [
+            {
+              runId: "run_1",
+              taskId: "task_watchtower_1",
+              source: "watchtower",
+            },
+          ],
+        },
+      },
+    },
+    {
+      workspaceId: "multiloop-main",
+      kind: "multiloop",
+      name: "Multiloop",
+      updatedAt: now,
+      capabilities: ["summary.read", "detail.read"],
+      detailVersion: mobileControlWorkspaceSnapshotVersion,
+      summary: {
+        status: "blocked",
+      },
+      detail: {
+        kind: "multiloop",
+        data: {
+          loopId: "loop_1",
+          milestoneCount: 4,
+          blockerCount: 1,
+          linkedSprintEngineId: "mobile-sprintengine-companion-integration",
+          milestones: [
+            {
+              milestoneId: "milestone_1",
+              title: "Milestone one",
+              status: "active",
+              updatedAt: now,
+              linkedSprintEngineId: "mobile-sprintengine-companion-integration",
+            },
+          ],
+          blockers: [
+            {
+              blockerId: "blocker_1",
+              title: "Needs validation",
+              status: "active",
+              updatedAt: now,
+            },
+          ],
+        },
+      },
+    },
+  ],
+};
+
+const validTaskStartCommand: MobileControlCommand = {
+  protocolVersion: mobileControlProtocolVersion,
+  commandId: "cmd_task_start",
+  type: "task.start",
+  issuedAt: now,
+  deviceId: "device_1",
+  payload: {
+    sprintEngineId: "mobile-sprintengine-companion-integration",
+    taskId: "T3",
+    role: "developer",
+    worktreeIsolation: "preferred",
+  },
 };
 
 assert.equal(validateMobileControlCommand(validCommand).ok, true);
+assert.equal(validateMobileControlCommand(validTaskStartCommand).ok, true);
 assert.equal(validateMobileControlSnapshot(validSnapshot).ok, true);
 
 assertInvalid("unknown protocol version", validateMobileControlCommand({ ...validCommand, protocolVersion: 2 }));
 assertInvalid("unknown command type", validateMobileControlCommand({ ...validCommand, type: "terminal.write" }));
+assertInvalid(
+  "missing command payload field",
+  validateMobileControlCommand({
+    ...validTaskStartCommand,
+    payload: {
+      sprintEngineId: "mobile-sprintengine-companion-integration",
+      taskId: "T3",
+      role: "developer",
+    },
+  }),
+);
 assertInvalid(
   "missing command payload field",
   validateMobileControlCommand({
@@ -101,6 +332,67 @@ assertInvalid(
         },
       },
     ],
+  }),
+);
+assertInvalid(
+  "invalid workspace detail version",
+  validateMobileControlSnapshot({
+    ...validSnapshot,
+    workspaces: [
+      {
+        ...validSnapshot.workspaces![0],
+        detailVersion: 1,
+      },
+    ],
+  }),
+);
+assertInvalid(
+  "invalid workspace detail kind",
+  validateMobileControlSnapshot({
+    ...validSnapshot,
+    workspaces: [
+      {
+        ...validSnapshot.workspaces![0],
+        detail: {
+          kind: "switchboard",
+          data: {},
+        },
+      },
+    ],
+  }),
+);
+assertInvalid(
+  "invalid workspace detail collection",
+  validateMobileControlSnapshot({
+    ...validSnapshot,
+    workspaces: [
+      {
+        ...validSnapshot.workspaces![1],
+        detail: {
+          kind: "switchboard",
+          data: {
+            tasks: [
+              {
+                taskId: "task_1",
+                identifier: "TASK-1",
+                title: "Ready task",
+                status: "ready",
+                lane: "ready",
+                updatedAt: "not-a-date",
+                source: { type: "manual" },
+              },
+            ],
+          },
+        },
+      },
+    ],
+  }),
+);
+assertInvalid(
+  "invalid snapshot command",
+  validateMobileControlSnapshot({
+    ...validSnapshot,
+    commands: ["artifact.approve", "terminal.write"],
   }),
 );
 assertInvalid(

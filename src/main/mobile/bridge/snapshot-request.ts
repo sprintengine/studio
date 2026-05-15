@@ -7,12 +7,14 @@ export async function dispatchSnapshotRequest(input: {
   snapshotService: MobileSprintEngineSnapshotService
   desktopSessionId: string
   statePathsProvider: () => Promise<string[]>
+  workspaceRootsProvider?: () => Promise<string[]>
 }): Promise<MobileSprintEngineCommandResult> {
-  const { command, snapshotService, desktopSessionId, statePathsProvider } = input
+  const { command, snapshotService, desktopSessionId, statePathsProvider, workspaceRootsProvider } = input
   const statePaths = await statePathsProvider()
   const snapshot = await snapshotService.readSnapshot({
     desktopSessionId,
     statePaths,
+    workspaceRoots: workspaceRootsProvider ? await workspaceRootsProvider() : undefined,
   })
   return acceptedBridgeCommand(command, snapshot)
 }

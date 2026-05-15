@@ -34,6 +34,7 @@ electron.vite.config.*.mjs
 .claude/settings.local.json
 .claude/*.lock
 .grok/settings.json
+.mcp.json
 
 # Switchboard runtime state
 .multi-code/switchboard/

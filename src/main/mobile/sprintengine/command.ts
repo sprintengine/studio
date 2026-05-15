@@ -15,6 +15,7 @@ import {
   createSprintEngineToolExecutor,
   defaultSprintEngineToolPath,
   parseToolJson,
+  redactToolArgs,
   type SprintEngineToolExecutor,
 } from './tool-runner'
 import {
@@ -106,6 +107,7 @@ type TaskStartCommand = MobileControlCommandBase<
     sprintEngineId: string
     taskId: string
     role: string
+    worktreeIsolation: 'required' | 'preferred' | 'disabled'
   }
 >
 
@@ -232,6 +234,16 @@ type MobileSprintEngineCommandServiceOptions = {
   auditSink?: (entry: MobileSprintEngineCommandAuditEntry) => void
 }
 
+export type MobileSprintEngineCommandDispatchOptions = {
+  allowedWorkspaceRoots?: string[]
+  statePaths?: string[]
+}
+
+type MobileSprintEngineCommandScope = {
+  allowedWorkspaceRoots: string[]
+  statePaths: string[]
+}
+
 export type MobileSprintEngineCommandAuditEntry = {
   auditId: string
   commandId: string
@@ -272,8 +284,8 @@ export type MobileSprintEngineCommandResult =
 
 export class MobileSprintEngineCommandService {
   private readonly workspaceRoot: string
-  private readonly allowedWorkspaceRoots: string[]
-  private readonly statePaths: string[]
+  private readonly configuredAllowedWorkspaceRoots: string[]
+  private readonly configuredStatePaths: string[]
   private readonly commandTtlMs: number
   private readonly now: () => Date
   private readonly execute: SprintEngineToolExecutor
@@ -282,11 +294,11 @@ export class MobileSprintEngineCommandService {
 
   constructor(options: MobileSprintEngineCommandServiceOptions = {}) {
     this.workspaceRoot = resolve(options.workspaceRoot ?? process.cwd())
-    this.allowedWorkspaceRoots = uniqueResolved([
+    this.configuredAllowedWorkspaceRoots = uniqueResolved([
       this.workspaceRoot,
       ...(options.allowedWorkspaceRoots ?? []),
     ])
-    this.statePaths = (options.statePaths ?? []).map((statePath) => validateSprintEngineStatePath(statePath).statePath)
+    this.configuredStatePaths = (options.statePaths ?? []).map((statePath) => validateSprintEngineStatePath(statePath).statePath)
     this.commandTtlMs = Math.max(1, options.commandTtlMs ?? defaultCommandTtlMs)
     this.now = options.now ?? (() => new Date())
     this.execute = options.execute ?? createSprintEngineToolExecutor(options.sprintEngineToolPath ?? defaultSprintEngineToolPath())
@@ -298,7 +310,7 @@ export class MobileSprintEngineCommandService {
     return this.resultRecorder.getAuditLog()
   }
 
-  async dispatch(input: unknown): Promise<MobileSprintEngineCommandResult> {
+  async dispatch(input: unknown, options: MobileSprintEngineCommandDispatchOptions = {}): Promise<MobileSprintEngineCommandResult> {
     const validated = validateMobileControlCommand(input)
     if (!validated.ok) {
       return this.resultRecorder.rejectUnknown(validated.error)
@@ -326,7 +338,8 @@ export class MobileSprintEngineCommandService {
     }
 
     try {
-      const result = await this.executeCommand(command)
+      const scope = this.commandScope(options)
+      const result = await this.executeCommand(command, scope)
       rememberCommandResult(idempotencyKey, requestHash, result)
       return result
     } catch (error) {
@@ -341,18 +354,21 @@ export class MobileSprintEngineCommandService {
     }
   }
 
-  private async executeCommand(command: MobileControlCommand): Promise<MobileSprintEngineCommandResult> {
+  private async executeCommand(
+    command: MobileControlCommand,
+    scope: MobileSprintEngineCommandScope
+  ): Promise<MobileSprintEngineCommandResult> {
     switch (command.type) {
       case 'artifact.approve':
-        return this.executeArtifactReviewCommand(command, 'approve')
+        return this.executeArtifactReviewCommand(command, 'approve', scope)
       case 'artifact.requestChanges':
-        return this.executeArtifactReviewCommand(command, 'request-changes')
+        return this.executeArtifactReviewCommand(command, 'request-changes', scope)
       case 'sprintengine.create':
-        return this.executeSprintEngineCreateCommand(command)
+        return this.executeSprintEngineCreateCommand(command, scope)
       case 'task.start':
-        return this.executeTaskStartCommand(command)
+        return this.executeTaskStartCommand(command, scope)
       case 'agent.followUp':
-        return this.executeAgentFollowUpCommand(command)
+        return this.executeAgentFollowUpCommand(command, scope)
       case 'snapshot.request':
       case 'artifact.read':
       case 'device.revoke':
@@ -361,13 +377,14 @@ export class MobileSprintEngineCommandService {
   }
 
   private async executeTaskStartCommand(
-    command: Extract<MobileControlCommand, { type: 'task.start' }>
+    command: Extract<MobileControlCommand, { type: 'task.start' }>,
+    scope: MobileSprintEngineCommandScope
   ): Promise<MobileSprintEngineCommandResult> {
     if (!this.sessionOrchestrator) {
       return this.resultRecorder.reject(command, 'command_not_supported', 'Desktop session orchestration is not configured for mobile task starts.', false)
     }
 
-    const state = await this.resolveStateForSprintEngine(command.payload.sprintEngineId)
+    const state = await this.resolveStateForSprintEngine(command.payload.sprintEngineId, scope)
     await assertExpectedSnapshotVersion({
       expectedSnapshotVersion: command.expectedSnapshotVersion,
       statePath: state.statePath,
@@ -394,13 +411,14 @@ export class MobileSprintEngineCommandService {
   }
 
   private async executeAgentFollowUpCommand(
-    command: Extract<MobileControlCommand, { type: 'agent.followUp' }>
+    command: Extract<MobileControlCommand, { type: 'agent.followUp' }>,
+    scope: MobileSprintEngineCommandScope
   ): Promise<MobileSprintEngineCommandResult> {
     if (!this.sessionOrchestrator) {
       return this.resultRecorder.reject(command, 'command_not_supported', 'Desktop session orchestration is not configured for mobile follow-up messages.', false)
     }
 
-    const state = await this.resolveStateForSprintEngine(command.payload.sprintEngineId)
+    const state = await this.resolveStateForSprintEngine(command.payload.sprintEngineId, scope)
     await assertExpectedSnapshotVersion({
       expectedSnapshotVersion: command.expectedSnapshotVersion,
       statePath: state.statePath,
@@ -429,9 +447,10 @@ export class MobileSprintEngineCommandService {
 
   private async executeArtifactReviewCommand(
     command: Extract<MobileControlCommand, { type: 'artifact.approve' | 'artifact.requestChanges' }>,
-    action: 'approve' | 'request-changes'
+    action: 'approve' | 'request-changes',
+    scope: MobileSprintEngineCommandScope
   ): Promise<MobileSprintEngineCommandResult> {
-    const state = await this.resolveStateForSprintEngine(command.payload.sprintEngineId)
+    const state = await this.resolveStateForSprintEngine(command.payload.sprintEngineId, scope)
     await assertExpectedSnapshotVersion({
       expectedSnapshotVersion: command.expectedSnapshotVersion,
       statePath: state.statePath,
@@ -463,11 +482,12 @@ export class MobileSprintEngineCommandService {
   }
 
   private async executeSprintEngineCreateCommand(
-    command: Extract<MobileControlCommand, { type: 'sprintengine.create' }>
+    command: Extract<MobileControlCommand, { type: 'sprintengine.create' }>,
+    scope: MobileSprintEngineCommandScope
   ): Promise<MobileSprintEngineCommandResult> {
     const workspacePath = await validateMobileWorkspacePath({
       workspacePath: command.payload.workspacePath,
-      allowedWorkspaceRoots: this.allowedWorkspaceRoots,
+      allowedWorkspaceRoots: scope.allowedWorkspaceRoots,
     })
     const productPrompt = command.payload.productPrompt.trim()
     if (!productPrompt) {
@@ -493,12 +513,27 @@ export class MobileSprintEngineCommandService {
     return this.invokeTool(command, args, workspacePath, undefined, undefined, workspacePath)
   }
 
-  private async resolveStateForSprintEngine(sprintEngineId: string): Promise<ValidSprintEngineStatePath> {
+  private commandScope(options: MobileSprintEngineCommandDispatchOptions): MobileSprintEngineCommandScope {
+    const configuredStates = this.configuredStatePaths.map((statePath) => validateSprintEngineStatePath(statePath))
+    const dispatchStates = (options.statePaths ?? []).map((statePath) => validateSprintEngineStatePath(statePath))
+    const statePaths = uniqueResolved([...configuredStates, ...dispatchStates].map((state) => state.statePath))
+    const allowedWorkspaceRoots = uniqueResolved([
+      ...this.configuredAllowedWorkspaceRoots,
+      ...(options.allowedWorkspaceRoots ?? []),
+    ])
+
+    return { allowedWorkspaceRoots, statePaths }
+  }
+
+  private async resolveStateForSprintEngine(
+    sprintEngineId: string,
+    scope: MobileSprintEngineCommandScope
+  ): Promise<ValidSprintEngineStatePath> {
     return resolveStateForSprintEngine({
       sprintEngineId,
-      statePaths: this.statePaths,
+      statePaths: scope.statePaths,
       workspaceRoot: this.workspaceRoot,
-      allowedWorkspaceRoots: this.allowedWorkspaceRoots,
+      allowedWorkspaceRoots: scope.allowedWorkspaceRoots,
     })
   }
 
@@ -525,7 +560,7 @@ export class MobileSprintEngineCommandService {
       state,
       artifactId,
       workspacePath,
-      toolArgs: args,
+      toolArgs: redactToolArgs(args),
       exitCode: toolResult.exitCode,
     })
 

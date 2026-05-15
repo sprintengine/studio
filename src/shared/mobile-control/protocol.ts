@@ -1,6 +1,8 @@
 export const mobileControlProtocolVersion = 1 as const;
+export const mobileControlWorkspaceSnapshotVersion = 2 as const;
 
 export type MobileControlProtocolVersion = typeof mobileControlProtocolVersion;
+export type MobileControlWorkspaceSnapshotVersion = typeof mobileControlWorkspaceSnapshotVersion;
 
 export type MobileControlCommandType =
   | "snapshot.request"
@@ -47,6 +49,33 @@ export type MobileControlErrorCode =
   | "path_not_allowed"
   | "python_tool_failed"
   | "internal_error";
+
+export type MobileNotificationCategory =
+  | "artifact.ready"
+  | "task.needs_input"
+  | "command.failed"
+  | "desktop.offline"
+  | "sprintengine.complete";
+
+export type MobileNotificationTarget =
+  | { kind: "artifact"; sprintEngineId: string; artifactId: string }
+  | { kind: "task"; sprintEngineId: string; taskId: string }
+  | { kind: "sprintEngine"; sprintEngineId: string }
+  | { kind: "command"; commandId: string; sprintEngineId?: string }
+  | { kind: "desktop" };
+
+export type MobileControlWorkspaceKind = "sprintengine" | "switchboard" | "watchtower" | "multiloop";
+
+export type MobileControlWorkspaceCapability =
+  | "summary.read"
+  | "detail.read"
+  | "logs.read"
+  | "comments.create"
+  | "inbox.promote"
+  | "tasks.move"
+  | "runner.pause"
+  | "runner.resume"
+  | "execution.cancel";
 
 export interface MobileControlError {
   protocolVersion: MobileControlProtocolVersion;
@@ -124,6 +153,7 @@ export type TaskStartCommand = MobileControlCommandBase<
     sprintEngineId: string;
     taskId: string;
     role: string;
+    worktreeIsolation: "required" | "preferred" | "disabled";
   }
 >;
 
@@ -172,6 +202,39 @@ export type MobileControlCommand =
   | AgentFollowUpCommand
   | DeviceRevokeCommand;
 
+export type MobileControlNeedsInputKind = "architect" | "user" | "owner";
+
+export interface MobileControlTaskNeedsInput {
+  kind?: MobileControlNeedsInputKind;
+  reason?: string;
+  question?: string;
+  suggestedResolution?: string;
+  artifactId?: string;
+}
+
+export interface MobileControlTaskEvidence {
+  summary?: string;
+  touchedFileCount?: number;
+  commandCount?: number;
+  resultCount?: number;
+}
+
+export interface MobileControlTaskFeedback {
+  confidencePct?: number;
+  hallucinationRiskPct?: number;
+}
+
+export interface MobileControlTaskReviewSignals {
+  findingCount?: number;
+  issueCount?: number;
+  verdict?: string;
+}
+
+export interface MobileControlTaskRelease {
+  requestedBy?: string;
+  reason?: string;
+}
+
 export interface MobileControlTaskSnapshot {
   taskId: string;
   title: string;
@@ -179,6 +242,17 @@ export interface MobileControlTaskSnapshot {
   status: "todo" | "ready" | "in_progress" | "needs_input" | "blocked" | "done";
   ownerAgentId?: string;
   dependsOn: string[];
+  needsInput?: MobileControlTaskNeedsInput;
+  evidence?: MobileControlTaskEvidence;
+  feedback?: MobileControlTaskFeedback;
+  reviewSignals?: MobileControlTaskReviewSignals;
+  release?: MobileControlTaskRelease;
+}
+
+export interface MobileControlRosterEntry {
+  role?: string;
+  status?: string;
+  currentTaskId?: string | null;
 }
 
 export interface MobileControlArtifactSnapshot {
@@ -208,13 +282,162 @@ export interface MobileControlSprintEngineSnapshot {
   };
   tasks: MobileControlTaskSnapshot[];
   artifacts: MobileControlArtifactSnapshot[];
+  roster?: Record<string, MobileControlRosterEntry>;
+  runSummary?: Record<string, string | number | boolean | null>;
+  planReview?: Record<string, string | number | boolean | null>;
+}
+
+export interface MobileControlWorkspaceSummary {
+  status: "idle" | "running" | "needs_input" | "blocked" | "complete" | "error" | "unknown";
+  headline?: string;
+  counts?: Record<string, number>;
+}
+
+export interface MobileControlSprintEngineWorkspaceDetail {
+  sprintEngineId: string;
+  snapshotVersion: string;
+  board: MobileControlSprintEngineSnapshot["board"];
+  roster?: Record<string, MobileControlRosterEntry>;
+  runSummary?: Record<string, string | number | boolean | null>;
+  planReview?: Record<string, string | number | boolean | null>;
+}
+
+export interface MobileControlSwitchboardSourceSummary {
+  type: string;
+  externalId?: string | null;
+  externalKey?: string | null;
+  externalUrl?: string | null;
+}
+
+export interface MobileControlSwitchboardTaskSummary {
+  taskId: string;
+  identifier: string;
+  title: string;
+  status: string;
+  lane: string;
+  updatedAt: string;
+  source: MobileControlSwitchboardSourceSummary;
+  priority?: number | null;
+  claimedBy?: string | null;
+}
+
+export interface MobileControlSwitchboardCommentSummary {
+  taskId: string;
+  commentId: string;
+  kind: string;
+  body: string;
+  createdAt: string;
+  authorName?: string | null;
+  confidencePct?: number | null;
+}
+
+export interface MobileControlSwitchboardEvidenceSummary {
+  taskId: string;
+  summary?: string;
+  artifactCount: number;
+  commandCount: number;
+  touchedFileCount: number;
+  updatedAt: string;
+}
+
+export interface MobileControlSwitchboardLogSummary {
+  taskId?: string;
+  executionId: string;
+  status?: string | null;
+  agentId?: string | null;
+  startedAt: string;
+  completedAt?: string | null;
+  summary?: string | null;
+}
+
+export interface MobileControlSwitchboardWorkspaceDetail {
+  inboxCount?: number;
+  laneCounts?: Record<string, number>;
+  activeExecutionCount?: number;
+  tasks?: MobileControlSwitchboardTaskSummary[];
+  inboxItems?: MobileControlSwitchboardTaskSummary[];
+  comments?: MobileControlSwitchboardCommentSummary[];
+  evidence?: MobileControlSwitchboardEvidenceSummary[];
+  logs?: MobileControlSwitchboardLogSummary[];
+}
+
+export interface MobileControlWatchtowerRunSummary {
+  runId: string;
+  status: string;
+  preset: string;
+  createdAt: string;
+  completedAt?: string | null;
+  validCount: number;
+  invalidCount: number;
+  generatedInboxCount: number;
+  agentCount: number;
+}
+
+export interface MobileControlWatchtowerGeneratedInboxSummary {
+  runId: string;
+  taskId: string;
+  source: "watchtower";
+}
+
+export interface MobileControlWatchtowerWorkspaceDetail {
+  activeRunCount?: number;
+  latestRunStatus?: string;
+  generatedInboxCount?: number;
+  runs?: MobileControlWatchtowerRunSummary[];
+  generatedInboxItems?: MobileControlWatchtowerGeneratedInboxSummary[];
+}
+
+export interface MobileControlMultiloopMilestoneSummary {
+  milestoneId: string;
+  title: string;
+  status?: string;
+  updatedAt?: string;
+  linkedSprintEngineId?: string;
+}
+
+export interface MobileControlMultiloopBlockerSummary {
+  blockerId: string;
+  title: string;
+  status?: string;
+  updatedAt?: string;
+}
+
+export interface MobileControlMultiloopWorkspaceDetail {
+  loopId?: string;
+  milestoneCount?: number;
+  blockerCount?: number;
+  linkedSprintEngineId?: string;
+  milestones?: MobileControlMultiloopMilestoneSummary[];
+  blockers?: MobileControlMultiloopBlockerSummary[];
+}
+
+export type MobileControlWorkspaceDetail =
+  | { kind: "sprintengine"; data: MobileControlSprintEngineWorkspaceDetail }
+  | { kind: "switchboard"; data: MobileControlSwitchboardWorkspaceDetail }
+  | { kind: "watchtower"; data: MobileControlWatchtowerWorkspaceDetail }
+  | { kind: "multiloop"; data: MobileControlMultiloopWorkspaceDetail };
+
+export interface MobileControlWorkspaceSnapshot {
+  workspaceId: string;
+  kind: MobileControlWorkspaceKind;
+  name: string;
+  workspacePath?: string;
+  statePath?: string;
+  updatedAt: string;
+  capabilities: MobileControlWorkspaceCapability[];
+  detailVersion: MobileControlWorkspaceSnapshotVersion;
+  summary: MobileControlWorkspaceSummary;
+  detail?: MobileControlWorkspaceDetail;
 }
 
 export interface MobileControlSnapshot {
   protocolVersion: MobileControlProtocolVersion;
   generatedAt: string;
   desktopSessionId: string;
+  snapshotVersion?: string;
+  commands?: MobileControlCommandType[];
   sprintEngines: MobileControlSprintEngineSnapshot[];
+  workspaces?: MobileControlWorkspaceSnapshot[];
 }
 
 export interface MobileControlEventBase<Type extends MobileControlEventType, Payload> {
@@ -268,10 +491,13 @@ export type ArtifactReviewUpdatedEvent = MobileControlEventBase<
 export type NotificationCreatedEvent = MobileControlEventBase<
   "notification.created",
   {
+    category: MobileNotificationCategory;
     sprintEngineId?: string;
     title: string;
     body: string;
     severity: "info" | "warning" | "error";
+    deepLink: string;
+    target: MobileNotificationTarget;
   }
 >;
 
@@ -359,6 +585,29 @@ const taskStatuses = ["todo", "ready", "in_progress", "needs_input", "blocked", 
 const artifactStatuses = ["draft", "ready_for_review", "approved", "changes_requested"] as const;
 const presenceValues = ["online", "offline", "revoked"] as const;
 const severityValues = ["info", "warning", "error"] as const;
+const worktreeIsolationValues = ["required", "preferred", "disabled"] as const;
+const workspaceKinds = ["sprintengine", "switchboard", "watchtower", "multiloop"] as const;
+const workspaceCapabilities = [
+  "summary.read",
+  "detail.read",
+  "logs.read",
+  "comments.create",
+  "inbox.promote",
+  "tasks.move",
+  "runner.pause",
+  "runner.resume",
+  "execution.cancel",
+] as const satisfies readonly MobileControlWorkspaceCapability[];
+const workspaceSummaryStatuses = ["idle", "running", "needs_input", "blocked", "complete", "error", "unknown"] as const;
+const notificationCategories = [
+  "artifact.ready",
+  "task.needs_input",
+  "command.failed",
+  "desktop.offline",
+  "sprintengine.complete",
+] as const satisfies readonly MobileNotificationCategory[];
+const notificationTargetKinds = ["artifact", "task", "sprintEngine", "command", "desktop"] as const;
+const needsInputKinds = ["architect", "user", "owner"] as const satisfies readonly MobileControlNeedsInputKind[];
 
 export function validateMobileControlCommand(input: unknown): ValidationResult<MobileControlCommand> {
   const base = validateObject(input, "command");
@@ -455,15 +704,37 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
     requireString(snapshot.value, "generatedAt") ??
     requireIsoDate(snapshot.value, "generatedAt") ??
     requireString(snapshot.value, "desktopSessionId") ??
+    optionalString(snapshot.value, "snapshotVersion") ??
     requireArray(snapshot.value, "sprintEngines");
   if (baseError) {
     return invalidPayload(baseError);
   }
 
-  for (const sprintengine of snapshot.value.sprintEngines as unknown[]) {
-    const error = validateSprintEngineSnapshot(sprintengine);
+  for (const sprintEngine of snapshot.value.sprintEngines as unknown[]) {
+    const error = validateSprintEngineSnapshot(sprintEngine);
     if (error) {
       return invalidPayload(error);
+    }
+  }
+
+  if (snapshot.value.commands !== undefined) {
+    const commandError = validateStringLiteralArray(snapshot.value.commands, commandTypes, "snapshot.commands");
+    if (commandError) {
+      return invalidPayload(commandError);
+    }
+  }
+
+  if (snapshot.value.workspaces !== undefined) {
+    const workspacesError = requireArray(snapshot.value, "workspaces");
+    if (workspacesError) {
+      return invalidPayload(workspacesError);
+    }
+
+    for (const workspace of snapshot.value.workspaces as unknown[]) {
+      const error = validateWorkspaceSnapshot(workspace);
+      if (error) {
+        return invalidPayload(error);
+      }
     }
   }
 
@@ -616,7 +887,8 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       return (
         requireString(payload, "sprintEngineId") ??
         requireString(payload, "taskId") ??
-        requireString(payload, "role")
+        requireString(payload, "role") ??
+        requireLiteral(payload, "worktreeIsolation", worktreeIsolationValues)
       );
     case "artifact.approve":
       return requireString(payload, "sprintEngineId") ?? requireString(payload, "artifactId") ?? optionalString(payload, "feedback");
@@ -662,36 +934,66 @@ function validateEventPayload(type: MobileControlEventType, payload: Record<stri
       );
     case "notification.created":
       return (
+        requireLiteral(payload, "category", notificationCategories) ??
         optionalString(payload, "sprintEngineId") ??
         requireString(payload, "title") ??
         requireString(payload, "body") ??
-        requireLiteral(payload, "severity", severityValues)
+        requireLiteral(payload, "severity", severityValues) ??
+        requireString(payload, "deepLink") ??
+        validateNotificationTarget(payload.target)
       );
   }
 }
 
+function validateNotificationTarget(input: unknown): string | null {
+  const target = validateObject(input, "notification.target");
+  if (target.ok === false) {
+    return target.error;
+  }
+
+  const kindError = requireLiteral(target.value, "kind", notificationTargetKinds);
+  if (kindError) {
+    return kindError;
+  }
+
+  switch (target.value.kind) {
+    case "artifact":
+      return requireString(target.value, "sprintEngineId") ?? requireString(target.value, "artifactId");
+    case "task":
+      return requireString(target.value, "sprintEngineId") ?? requireString(target.value, "taskId");
+    case "sprintEngine":
+      return requireString(target.value, "sprintEngineId");
+    case "command":
+      return requireString(target.value, "commandId") ?? optionalString(target.value, "sprintEngineId");
+    case "desktop":
+      return null;
+  }
+
+  return "notification.target.kind must be a supported notification target";
+}
+
 function validateSprintEngineSnapshot(input: unknown): string | null {
-  const sprintengine = validateObject(input, "snapshot.sprintengine");
-  if (sprintengine.ok === false) {
-    return sprintengine.error;
+  const sprintEngine = validateObject(input, "snapshot.sprintEngine");
+  if (sprintEngine.ok === false) {
+    return sprintEngine.error;
   }
 
   const baseError =
-    requireString(sprintengine.value, "sprintEngineId") ??
-    requireString(sprintengine.value, "name") ??
-    requireString(sprintengine.value, "workspacePath") ??
-    requireString(sprintengine.value, "statePath") ??
-    optionalString(sprintengine.value, "planPath") ??
-    requireString(sprintengine.value, "snapshotVersion") ??
-    requireString(sprintengine.value, "updatedAt") ??
-    requireIsoDate(sprintengine.value, "updatedAt") ??
-    requireArray(sprintengine.value, "tasks") ??
-    requireArray(sprintengine.value, "artifacts");
+    requireString(sprintEngine.value, "sprintEngineId") ??
+    requireString(sprintEngine.value, "name") ??
+    requireString(sprintEngine.value, "workspacePath") ??
+    requireString(sprintEngine.value, "statePath") ??
+    optionalString(sprintEngine.value, "planPath") ??
+    requireString(sprintEngine.value, "snapshotVersion") ??
+    requireString(sprintEngine.value, "updatedAt") ??
+    requireIsoDate(sprintEngine.value, "updatedAt") ??
+    requireArray(sprintEngine.value, "tasks") ??
+    requireArray(sprintEngine.value, "artifacts");
   if (baseError) {
     return baseError;
   }
 
-  const board = validateObject(sprintengine.value.board, "sprintengine.board");
+  const board = validateObject(sprintEngine.value.board, "sprintEngine.board");
   if (board.ok === false) {
     return board.error;
   }
@@ -707,20 +1009,64 @@ function validateSprintEngineSnapshot(input: unknown): string | null {
     return boardError;
   }
 
-  for (const task of sprintengine.value.tasks as unknown[]) {
+  for (const task of sprintEngine.value.tasks as unknown[]) {
     const taskError = validateTaskSnapshot(task);
     if (taskError) {
       return taskError;
     }
   }
 
-  for (const artifact of sprintengine.value.artifacts as unknown[]) {
+  for (const artifact of sprintEngine.value.artifacts as unknown[]) {
     const artifactError = validateArtifactSnapshot(artifact);
     if (artifactError) {
       return artifactError;
     }
   }
 
+  return (
+    validateOptionalRoster(sprintEngine.value.roster, "snapshot.sprintEngine.roster") ??
+    validateOptionalRecordSummary(sprintEngine.value.runSummary, "snapshot.sprintEngine.runSummary") ??
+    validateOptionalRecordSummary(sprintEngine.value.planReview, "snapshot.sprintEngine.planReview")
+  );
+}
+
+function validateOptionalRoster(input: unknown, fieldName: string): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const roster = validateObject(input, fieldName);
+  if (roster.ok === false) {
+    return roster.error;
+  }
+  for (const [agentId, value] of Object.entries(roster.value)) {
+    const entry = validateObject(value, `${fieldName}.${agentId}`);
+    if (entry.ok === false) {
+      return entry.error;
+    }
+    const entryError =
+      optionalString(entry.value, "role") ??
+      optionalString(entry.value, "status") ??
+      optionalNullableString(entry.value, "currentTaskId");
+    if (entryError) {
+      return `${fieldName}.${agentId}.${entryError}`;
+    }
+  }
+  return null;
+}
+
+function validateOptionalRecordSummary(input: unknown, fieldName: string): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const record = validateObject(input, fieldName);
+  if (record.ok === false) {
+    return record.error;
+  }
+  for (const [key, value] of Object.entries(record.value)) {
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean" && value !== null) {
+      return `${fieldName}.${key} must be a string, number, boolean, or null`;
+    }
+  }
   return null;
 }
 
@@ -737,8 +1083,86 @@ function validateTaskSnapshot(input: unknown): string | null {
     requireLiteral(task.value, "status", taskStatuses) ??
     optionalString(task.value, "ownerAgentId") ??
     requireArray(task.value, "dependsOn") ??
-    validateStringArray(task.value.dependsOn, "task.dependsOn")
+    validateStringArray(task.value.dependsOn, "task.dependsOn") ??
+    validateOptionalNeedsInput(task.value.needsInput) ??
+    validateOptionalTaskEvidence(task.value.evidence) ??
+    validateOptionalTaskFeedback(task.value.feedback) ??
+    validateOptionalReviewSignals(task.value.reviewSignals) ??
+    validateOptionalTaskRelease(task.value.release)
   );
+}
+
+function validateOptionalNeedsInput(input: unknown): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const needsInput = validateObject(input, "task.needsInput");
+  if (needsInput.ok === false) {
+    return needsInput.error;
+  }
+  return (
+    optionalLiteral(needsInput.value, "kind", needsInputKinds, "task.needsInput.kind") ??
+    optionalString(needsInput.value, "reason") ??
+    optionalString(needsInput.value, "question") ??
+    optionalString(needsInput.value, "suggestedResolution") ??
+    optionalString(needsInput.value, "artifactId")
+  );
+}
+
+function validateOptionalTaskEvidence(input: unknown): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const evidence = validateObject(input, "task.evidence");
+  if (evidence.ok === false) {
+    return evidence.error;
+  }
+  return (
+    optionalString(evidence.value, "summary") ??
+    optionalNonNegativeInteger(evidence.value, "touchedFileCount") ??
+    optionalNonNegativeInteger(evidence.value, "commandCount") ??
+    optionalNonNegativeInteger(evidence.value, "resultCount")
+  );
+}
+
+function validateOptionalTaskFeedback(input: unknown): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const feedback = validateObject(input, "task.feedback");
+  if (feedback.ok === false) {
+    return feedback.error;
+  }
+  return (
+    optionalPercentage(feedback.value, "confidencePct") ??
+    optionalPercentage(feedback.value, "hallucinationRiskPct")
+  );
+}
+
+function validateOptionalReviewSignals(input: unknown): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const review = validateObject(input, "task.reviewSignals");
+  if (review.ok === false) {
+    return review.error;
+  }
+  return (
+    optionalNonNegativeInteger(review.value, "findingCount") ??
+    optionalNonNegativeInteger(review.value, "issueCount") ??
+    optionalString(review.value, "verdict")
+  );
+}
+
+function validateOptionalTaskRelease(input: unknown): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const release = validateObject(input, "task.release");
+  if (release.ok === false) {
+    return release.error;
+  }
+  return optionalString(release.value, "requestedBy") ?? optionalString(release.value, "reason");
 }
 
 function validateArtifactSnapshot(input: unknown): string | null {
@@ -757,8 +1181,306 @@ function validateArtifactSnapshot(input: unknown): string | null {
   );
 }
 
+function validateWorkspaceSnapshot(input: unknown): string | null {
+  const workspace = validateObject(input, "snapshot.workspace");
+  if (workspace.ok === false) {
+    return workspace.error;
+  }
+
+  const baseError =
+    requireString(workspace.value, "workspaceId") ??
+    requireLiteral(workspace.value, "kind", workspaceKinds) ??
+    requireString(workspace.value, "name") ??
+    optionalString(workspace.value, "workspacePath") ??
+    optionalString(workspace.value, "statePath") ??
+    requireString(workspace.value, "updatedAt") ??
+    requireIsoDate(workspace.value, "updatedAt") ??
+    requireArray(workspace.value, "capabilities") ??
+    requireLiteralNumber(workspace.value, "detailVersion", mobileControlWorkspaceSnapshotVersion);
+  if (baseError) {
+    return baseError;
+  }
+
+  const capabilitiesError = validateStringLiteralArray(
+    workspace.value.capabilities,
+    workspaceCapabilities,
+    "workspace.capabilities",
+  );
+  if (capabilitiesError) {
+    return capabilitiesError;
+  }
+
+  const summaryError = validateWorkspaceSummary(workspace.value.summary);
+  if (summaryError) {
+    return summaryError;
+  }
+
+  if (workspace.value.detail !== undefined) {
+    return validateWorkspaceDetail(workspace.value.kind as MobileControlWorkspaceKind, workspace.value.detail);
+  }
+
+  return null;
+}
+
+function validateWorkspaceSummary(input: unknown): string | null {
+  const summary = validateObject(input, "workspace.summary");
+  if (summary.ok === false) {
+    return summary.error;
+  }
+
+  const baseError =
+    requireLiteral(summary.value, "status", workspaceSummaryStatuses) ??
+    optionalString(summary.value, "headline");
+  if (baseError) {
+    return baseError;
+  }
+
+  if (summary.value.counts !== undefined) {
+    const counts = validateObject(summary.value.counts, "workspace.summary.counts");
+    if (counts.ok === false) {
+      return counts.error;
+    }
+    for (const [key, value] of Object.entries(counts.value)) {
+      if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+        return `workspace.summary.counts.${key} must be a non-negative integer`;
+      }
+    }
+  }
+
+  return null;
+}
+
+function validateWorkspaceDetail(kind: MobileControlWorkspaceKind, input: unknown): string | null {
+  const detail = validateObject(input, "workspace.detail");
+  if (detail.ok === false) {
+    return detail.error;
+  }
+
+  const kindError = requireLiteral(detail.value, "kind", workspaceKinds);
+  if (kindError) {
+    return kindError;
+  }
+  if (detail.value.kind !== kind) {
+    return "workspace.detail.kind must match workspace.kind";
+  }
+
+  const data = validateObject(detail.value.data, "workspace.detail.data");
+  if (data.ok === false) {
+    return data.error;
+  }
+
+  switch (kind) {
+    case "sprintengine": {
+      const board = validateObject(data.value.board, "workspace.detail.data.board");
+      if (board.ok === false) {
+        return board.error;
+      }
+      return (
+        requireString(data.value, "sprintEngineId") ??
+        requireString(data.value, "snapshotVersion") ??
+        validateBoardCounts(board.value, "workspace.detail.data.board") ??
+        validateOptionalRoster(data.value.roster, "workspace.detail.data.roster") ??
+        validateOptionalRecordSummary(data.value.runSummary, "workspace.detail.data.runSummary") ??
+        validateOptionalRecordSummary(data.value.planReview, "workspace.detail.data.planReview")
+      );
+    }
+    case "switchboard":
+      return (
+        optionalNonNegativeInteger(data.value, "inboxCount") ??
+        optionalNumberRecord(data.value, "laneCounts") ??
+        optionalNonNegativeInteger(data.value, "activeExecutionCount") ??
+        validateOptionalArray(data.value.tasks, "workspace.detail.data.tasks", validateSwitchboardTaskSummary) ??
+        validateOptionalArray(data.value.inboxItems, "workspace.detail.data.inboxItems", validateSwitchboardTaskSummary) ??
+        validateOptionalArray(data.value.comments, "workspace.detail.data.comments", validateSwitchboardCommentSummary) ??
+        validateOptionalArray(data.value.evidence, "workspace.detail.data.evidence", validateSwitchboardEvidenceSummary) ??
+        validateOptionalArray(data.value.logs, "workspace.detail.data.logs", validateSwitchboardLogSummary)
+      );
+    case "watchtower":
+      return (
+        optionalNonNegativeInteger(data.value, "activeRunCount") ??
+        optionalString(data.value, "latestRunStatus") ??
+        optionalNonNegativeInteger(data.value, "generatedInboxCount") ??
+        validateOptionalArray(data.value.runs, "workspace.detail.data.runs", validateWatchtowerRunSummary) ??
+        validateOptionalArray(
+          data.value.generatedInboxItems,
+          "workspace.detail.data.generatedInboxItems",
+          validateWatchtowerGeneratedInboxSummary,
+        )
+      );
+    case "multiloop":
+      return (
+        optionalString(data.value, "loopId") ??
+        optionalNonNegativeInteger(data.value, "milestoneCount") ??
+        optionalNonNegativeInteger(data.value, "blockerCount") ??
+        optionalString(data.value, "linkedSprintEngineId") ??
+        validateOptionalArray(data.value.milestones, "workspace.detail.data.milestones", validateMultiloopMilestoneSummary) ??
+        validateOptionalArray(data.value.blockers, "workspace.detail.data.blockers", validateMultiloopBlockerSummary)
+      );
+  }
+}
+
+function validateSwitchboardTaskSummary(input: unknown, fieldName: string): string | null {
+  const task = validateObject(input, fieldName);
+  if (task.ok === false) {
+    return task.error;
+  }
+  return (
+    requireString(task.value, "taskId") ??
+    requireString(task.value, "identifier") ??
+    requireString(task.value, "title") ??
+    requireString(task.value, "status") ??
+    requireString(task.value, "lane") ??
+    requireString(task.value, "updatedAt") ??
+    requireIsoDate(task.value, "updatedAt") ??
+    optionalNullableNumber(task.value, "priority") ??
+    optionalNullableString(task.value, "claimedBy") ??
+    validateSwitchboardSourceSummary(task.value.source, `${fieldName}.source`)
+  );
+}
+
+function validateSwitchboardSourceSummary(input: unknown, fieldName: string): string | null {
+  const source = validateObject(input, fieldName);
+  if (source.ok === false) {
+    return source.error;
+  }
+  return (
+    requireString(source.value, "type") ??
+    optionalNullableString(source.value, "externalId") ??
+    optionalNullableString(source.value, "externalKey") ??
+    optionalNullableString(source.value, "externalUrl")
+  );
+}
+
+function validateSwitchboardCommentSummary(input: unknown, fieldName: string): string | null {
+  const comment = validateObject(input, fieldName);
+  if (comment.ok === false) {
+    return comment.error;
+  }
+  return (
+    requireString(comment.value, "taskId") ??
+    requireString(comment.value, "commentId") ??
+    requireString(comment.value, "kind") ??
+    requireString(comment.value, "body") ??
+    requireString(comment.value, "createdAt") ??
+    requireIsoDate(comment.value, "createdAt") ??
+    optionalNullableString(comment.value, "authorName") ??
+    optionalNullablePercentage(comment.value, "confidencePct")
+  );
+}
+
+function validateSwitchboardEvidenceSummary(input: unknown, fieldName: string): string | null {
+  const evidence = validateObject(input, fieldName);
+  if (evidence.ok === false) {
+    return evidence.error;
+  }
+  return (
+    requireString(evidence.value, "taskId") ??
+    optionalString(evidence.value, "summary") ??
+    requireNonNegativeInteger(evidence.value, "artifactCount") ??
+    requireNonNegativeInteger(evidence.value, "commandCount") ??
+    requireNonNegativeInteger(evidence.value, "touchedFileCount") ??
+    requireString(evidence.value, "updatedAt") ??
+    requireIsoDate(evidence.value, "updatedAt")
+  );
+}
+
+function validateSwitchboardLogSummary(input: unknown, fieldName: string): string | null {
+  const log = validateObject(input, fieldName);
+  if (log.ok === false) {
+    return log.error;
+  }
+  return (
+    optionalString(log.value, "taskId") ??
+    requireString(log.value, "executionId") ??
+    optionalNullableString(log.value, "status") ??
+    optionalNullableString(log.value, "agentId") ??
+    requireString(log.value, "startedAt") ??
+    requireIsoDate(log.value, "startedAt") ??
+    optionalNullableIsoDate(log.value, "completedAt") ??
+    optionalNullableString(log.value, "summary")
+  );
+}
+
+function validateWatchtowerRunSummary(input: unknown, fieldName: string): string | null {
+  const run = validateObject(input, fieldName);
+  if (run.ok === false) {
+    return run.error;
+  }
+  return (
+    requireString(run.value, "runId") ??
+    requireString(run.value, "status") ??
+    requireString(run.value, "preset") ??
+    requireString(run.value, "createdAt") ??
+    requireIsoDate(run.value, "createdAt") ??
+    optionalNullableIsoDate(run.value, "completedAt") ??
+    requireNonNegativeInteger(run.value, "validCount") ??
+    requireNonNegativeInteger(run.value, "invalidCount") ??
+    requireNonNegativeInteger(run.value, "generatedInboxCount") ??
+    requireNonNegativeInteger(run.value, "agentCount")
+  );
+}
+
+function validateWatchtowerGeneratedInboxSummary(input: unknown, fieldName: string): string | null {
+  const item = validateObject(input, fieldName);
+  if (item.ok === false) {
+    return item.error;
+  }
+  return (
+    requireString(item.value, "runId") ??
+    requireString(item.value, "taskId") ??
+    requireLiteral(item.value, "source", ["watchtower"] as const)
+  );
+}
+
+function validateMultiloopMilestoneSummary(input: unknown, fieldName: string): string | null {
+  const milestone = validateObject(input, fieldName);
+  if (milestone.ok === false) {
+    return milestone.error;
+  }
+  return (
+    requireString(milestone.value, "milestoneId") ??
+    requireString(milestone.value, "title") ??
+    optionalString(milestone.value, "status") ??
+    optionalIsoDate(milestone.value, "updatedAt") ??
+    optionalString(milestone.value, "linkedSprintEngineId")
+  );
+}
+
+function validateMultiloopBlockerSummary(input: unknown, fieldName: string): string | null {
+  const blocker = validateObject(input, fieldName);
+  if (blocker.ok === false) {
+    return blocker.error;
+  }
+  return (
+    requireString(blocker.value, "blockerId") ??
+    requireString(blocker.value, "title") ??
+    optionalString(blocker.value, "status") ??
+    optionalIsoDate(blocker.value, "updatedAt")
+  );
+}
+
 function validateCapabilityArray(input: unknown, fieldName: string): string | null {
   return validateStringLiteralArray(input, capabilities, fieldName);
+}
+
+function validateOptionalArray(
+  input: unknown,
+  fieldName: string,
+  validateItem: (item: unknown, itemFieldName: string) => string | null,
+): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  if (!Array.isArray(input)) {
+    return `${fieldName} must be an array`;
+  }
+  for (let index = 0; index < input.length; index += 1) {
+    const error = validateItem(input[index], `${fieldName}.${index}`);
+    if (error) {
+      return error;
+    }
+  }
+  return null;
 }
 
 function validateStringLiteralArray<const Values extends readonly string[]>(
@@ -827,6 +1549,35 @@ function requireNonNegativeInteger(record: Record<string, unknown>, field: strin
   return Number.isInteger(record[field]) && (record[field] as number) >= 0 ? null : `${field} must be a non-negative integer`;
 }
 
+function optionalNonNegativeInteger(record: Record<string, unknown>, field: string): string | null {
+  return record[field] === undefined ? null : requireNonNegativeInteger(record, field);
+}
+
+function optionalNullableNumber(record: Record<string, unknown>, field: string): string | null {
+  return record[field] === undefined || record[field] === null || typeof record[field] === "number"
+    ? null
+    : `${field} must be a number or null when provided`;
+}
+
+function optionalNumberRecord(record: Record<string, unknown>, field: string): string | null {
+  if (record[field] === undefined) {
+    return null;
+  }
+
+  const object = validateObject(record[field], field);
+  if (object.ok === false) {
+    return object.error;
+  }
+
+  for (const [key, value] of Object.entries(object.value)) {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+      return `${field}.${key} must be a non-negative integer`;
+    }
+  }
+
+  return null;
+}
+
 function requireIsoDate(record: Record<string, unknown>, field: string): string | null {
   const value = record[field];
   if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
@@ -840,6 +1591,18 @@ function optionalIsoDate(record: Record<string, unknown>, field: string): string
   return record[field] === undefined ? null : requireIsoDate(record, field);
 }
 
+function optionalNullableIsoDate(record: Record<string, unknown>, field: string): string | null {
+  return record[field] === undefined || record[field] === null ? null : requireIsoDate(record, field);
+}
+
+function optionalNullablePercentage(record: Record<string, unknown>, field: string): string | null {
+  if (record[field] === undefined || record[field] === null) {
+    return null;
+  }
+  const value = record[field];
+  return typeof value === "number" && value >= 0 && value <= 100 ? null : `${field} must be a percentage number or null when provided`;
+}
+
 function requireLiteral<const Values extends readonly string[]>(
   record: Record<string, unknown>,
   field: string,
@@ -848,8 +1611,54 @@ function requireLiteral<const Values extends readonly string[]>(
   return isOneOf(record[field], allowed) ? null : `${field} must be one of: ${allowed.join(", ")}`;
 }
 
+function optionalLiteral<const Values extends readonly string[]>(
+  record: Record<string, unknown>,
+  field: string,
+  allowed: Values,
+  fieldName: string,
+): string | null {
+  if (record[field] === undefined) {
+    return null;
+  }
+  return isOneOf(record[field], allowed) ? null : `${fieldName} must be one of: ${allowed.join(", ")}`;
+}
+
+function optionalPercentage(record: Record<string, unknown>, field: string): string | null {
+  if (record[field] === undefined) {
+    return null;
+  }
+  const value = record[field];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100
+    ? null
+    : `${field} must be a number between 0 and 100 when provided`;
+}
+
+function optionalNullableString(record: Record<string, unknown>, field: string): string | null {
+  if (record[field] === undefined || record[field] === null) {
+    return null;
+  }
+  return typeof record[field] === "string" && record[field].length > 0
+    ? null
+    : `${field} must be a non-empty string or null when provided`;
+}
+
+function requireLiteralNumber(record: Record<string, unknown>, field: string, expected: number): string | null {
+  return record[field] === expected ? null : `${field} must be ${expected}`;
+}
+
 function isOneOf<const Values extends readonly string[]>(input: unknown, values: Values): input is Values[number] {
   return typeof input === "string" && values.includes(input);
+}
+
+function validateBoardCounts(board: Record<string, unknown>, fieldName: string): string | null {
+  return (
+    requireNonNegativeInteger(board, "todo") ??
+    requireNonNegativeInteger(board, "ready") ??
+    requireNonNegativeInteger(board, "inProgress") ??
+    requireNonNegativeInteger(board, "needsInput") ??
+    requireNonNegativeInteger(board, "blocked") ??
+    requireNonNegativeInteger(board, "done")
+  )?.replace(/^/, `${fieldName}.`) ?? null;
 }
 
 function invalidPayload(message: string): ValidationResult<never> {

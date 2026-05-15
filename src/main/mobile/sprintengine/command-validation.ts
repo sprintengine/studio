@@ -20,6 +20,7 @@ const commandTypes = new Set<MobileControlCommandType>([
   'agent.followUp',
   'device.revoke',
 ])
+const worktreeIsolationValues = new Set(['required', 'preferred', 'disabled'])
 
 export function validateMobileControlCommand(input: unknown): ValidationResult<MobileControlCommand> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -84,7 +85,12 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
     case 'artifact.read':
       return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'artifactId') ?? requireString(payload, 'previewMode')
     case 'task.start':
-      return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'taskId') ?? requireString(payload, 'role')
+      return (
+        requireString(payload, 'sprintEngineId') ??
+        requireString(payload, 'taskId') ??
+        requireString(payload, 'role') ??
+        requireOneOf(payload, 'worktreeIsolation', worktreeIsolationValues)
+      )
     case 'agent.followUp':
       return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'agentId') ?? requireString(payload, 'text')
     case 'device.revoke':
@@ -100,6 +106,10 @@ function optionalString(record: Record<string, unknown>, field: string): string 
   return record[field] === undefined || (typeof record[field] === 'string' && record[field].length > 0)
     ? null
     : `${field} must be a non-empty string when provided`
+}
+
+function requireOneOf(record: Record<string, unknown>, field: string, allowed: Set<string>): string | null {
+  return typeof record[field] === 'string' && allowed.has(record[field]) ? null : `${field} must be one of: ${Array.from(allowed).join(', ')}`
 }
 
 function requireIsoDate(record: Record<string, unknown>, field: string): string | null {

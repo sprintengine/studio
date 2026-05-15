@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -6,6 +7,8 @@ import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedD
 import { MobileSprintEngineCommandService } from '../sprintengine/command'
 
 const now = new Date('2026-04-28T22:00:00.000Z')
+
+installPgStubForMultiauthMemoryStoreTests()
 
 void main()
 
@@ -84,12 +87,19 @@ async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise
 
 async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Promise<void> {
   const fixture = await writeSprintEngineFixture()
+  const serviceWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-command-cwd-'))
   const toolInvocations: Array<{ args: string[]; cwd: string }> = []
   const relay = new FakeRelayTransport([
     commandDelivery('cmd_approve', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'artifact.approve',
       payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
+      device: pairedDevice({ scopes: ['relay:artifact:review'] }),
+    }),
+    commandDelivery('cmd_request_changes', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'artifact.requestChanges',
+      payload: { sprintEngineId: 'relay-team', artifactId: 'A1', feedback: 'Sensitive reviewer feedback.' },
       device: pairedDevice({ scopes: ['relay:artifact:review'] }),
     }),
     commandDelivery('cmd_missing_device', {
@@ -113,7 +123,7 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
     commandDelivery('cmd_missing_capability', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'task.start',
-      payload: { sprintEngineId: 'relay-team', taskId: 'T1', role: 'developer' },
+      payload: { sprintEngineId: 'relay-team', taskId: 'T1', role: 'developer', worktreeIsolation: 'preferred' },
       device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
     }),
   ])
@@ -128,8 +138,7 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
       commandService: new MobileSprintEngineCommandService({
-        workspaceRoot: fixture.workspaceRoot,
-        statePaths: [fixture.statePath],
+        workspaceRoot: serviceWorkspaceRoot,
         now: () => now,
         execute: async (invocation) => {
           toolInvocations.push(invocation)
@@ -142,23 +151,52 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   )
 
   await bridge.updateSettings({ enabled: true })
-  await waitFor(() => relay.results.length === 5 && relay.snapshots.length === 1)
+  await waitFor(() => relay.results.length === 6 && relay.snapshots.length === 1)
   bridge.shutdown()
 
   assert.equal(relay.connects.length, 1)
   assert.equal(relay.connects[0].accessToken, 'desktop-access-token')
   assert.equal(relay.connects[0].commands.includes('artifact.approve'), true)
   assert.equal(relay.connects[0].commands.includes('task.start'), true)
-  assert.equal(toolInvocations.length, 1)
+  assert.equal(toolInvocations.length, 2)
   assert.equal(toolInvocations[0].cwd, fixture.workspaceRoot)
   assert.equal(relay.snapshots[0].snapshot.sprintEngines[0].sprintEngineId, 'relay-team')
 
   const resultByCommand = new Map(relay.results.map((result) => [result.commandId, result]))
   assert.equal(resultByCommand.get('cmd_approve')?.status, 'completed')
+  assert.equal(resultByCommand.get('cmd_request_changes')?.status, 'completed')
   assert.equal(resultByCommand.get('cmd_missing_device')?.resultCode, 'UNAUTHENTICATED')
   assert.equal(resultByCommand.get('cmd_revoked')?.resultCode, 'DEVICE_REVOKED')
   assert.equal(resultByCommand.get('cmd_wrong_session')?.resultCode, 'UNAUTHORIZED')
   assert.equal(resultByCommand.get('cmd_missing_capability')?.resultCode, 'UNAUTHORIZED')
+
+  const approveAudit = resultByCommand.get('cmd_approve')?.summary.audit as Record<string, unknown>
+  assert.equal(typeof approveAudit.auditId, 'string')
+  assert.equal(approveAudit.commandId, 'cmd_approve')
+  assert.equal(approveAudit.deviceId, 'pdv_phone_1')
+  assert.equal(approveAudit.commandType, 'artifact.approve')
+  assert.equal(approveAudit.status, 'accepted')
+  assert.equal(approveAudit.statePath, fixture.statePath)
+  assert.equal(approveAudit.artifactId, 'A1')
+  assert.equal(approveAudit.exitCode, 0)
+  assert.equal(typeof approveAudit.recordedAt, 'string')
+
+  const requestChangesSummary = resultByCommand.get('cmd_request_changes')?.summary ?? {}
+  const requestChangesAudit = requestChangesSummary.audit as Record<string, unknown>
+  assert.equal(requestChangesAudit.commandId, 'cmd_request_changes')
+  assert.deepEqual(requestChangesAudit.toolArgs, [
+    '--state',
+    fixture.statePath,
+    'artifact',
+    'request-changes',
+    '--artifact-id',
+    'A1',
+    '--id',
+    'mobile:pdv_phone_1',
+    '--feedback',
+    '[redacted]',
+  ])
+  assert.equal(JSON.stringify(requestChangesSummary).includes('Sensitive reviewer feedback.'), false)
 }
 
 async function assertDesktopRevocationUpdatesRelayAuthority(): Promise<void> {
@@ -642,6 +680,31 @@ function secretFromPairingUri(pairingUri: string): string {
     throw new Error('Pairing URI did not include a secret.')
   }
   return secret
+}
+
+function installPgStubForMultiauthMemoryStoreTests(): void {
+  const nodeRequire = createRequire(__filename)
+  const moduleLoader = nodeRequire('node:module') as {
+    _load: (request: string, parent: unknown, isMain: boolean) => unknown
+  }
+  const originalLoad = moduleLoader._load
+
+  moduleLoader._load = (request, parent, isMain) => {
+    if (request === 'pg') {
+      class Pool {
+        async query(): Promise<never> {
+          throw new Error('Postgres is not available in mobile bridge memory-store tests.')
+        }
+
+        async end(): Promise<void> {
+          return undefined
+        }
+      }
+      const pg = { Pool }
+      return { ...pg, default: pg }
+    }
+    return originalLoad(request, parent, isMain)
+  }
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

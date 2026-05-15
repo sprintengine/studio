@@ -114,6 +114,7 @@ const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
   commandService: terminalRuntime.commandService,
   snapshotService: mobileSnapshotService,
   statePathsProvider: () => discoverMobileSprintEngineStatePaths(mobileWorkspaceRoots),
+  workspaceRootsProvider: async () => mobileWorkspaceRoots,
 })
 
 configureSwitchboardSessionSpawner(terminalRuntime.spawnAgentSession)
