@@ -1288,7 +1288,11 @@ def reconcile_watchtower_execution(
 
     completed_at = now_iso()
     status = "completed" if exit_code == 0 else "abandoned"
-    error = None if exit_code == 0 else f"Process exited with code {exit_code}."
+    error = None if exit_code == 0 else (
+        f"Process exited with code {exit_code}."
+        if exit_code is not None
+        else "Process ended without reporting an exit code."
+    )
     completed = {**execution, "status": status, "completedAt": completed_at, "exitCode": exit_code, "error": error}
     update_execution_metadata(
         workspace,

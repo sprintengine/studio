@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ArrowRightIcon, PlusIcon, PriorityIcon, SpecialistActionIcon, SprintEngineRoleIcon, StatusIcon } from '../AppIcons'
 import { focusOrAddAgentSessionTab, hasAgentTab } from '../../utils/modelRegistry'
@@ -7,7 +7,6 @@ import {
   sprintEngineRoleAccent,
   sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
-import { useFlipReorder } from '../../utils/flipReorder'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
@@ -18,6 +17,8 @@ import {
   type ActionTone,
 } from '../ui/ActionFeedback'
 import {
+  BoardLane,
+  BoardLaneDropIndicator,
   CloseIconButton,
   DefinitionList,
   Drawer,
@@ -576,7 +577,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
               const isLegalDropTarget = Boolean(dragSource) && dragLegalTargets.has(status)
               const isSourceLane = dragSource?.from === status
               return (
-                <BoardLane
+                <SwitchboardLane
                   key={status}
                   status={status}
                   records={grouped[status] ?? []}
@@ -726,7 +727,7 @@ function emptyColumnLabel(status: SwitchboardTaskStatus): string {
   }
 }
 
-function BoardLane({
+function SwitchboardLane({
   status,
   records,
   executionStatusByTaskId,
@@ -759,80 +760,61 @@ function BoardLane({
   onCardDragStart: (record: SwitchboardTaskRecord) => void
   onCardDragEnd: () => void
 }) {
-  const listRef = useRef<HTMLOListElement | null>(null)
-  useFlipReorder(listRef, records.map((record) => record.task.id).join(','))
-  const dimmed = dragActive && !isLegalDropTarget && !isSourceLane
-  const laneClass = [
-    'flex h-full min-w-[260px] flex-1 flex-col transition-colors',
-    isLegalDropTarget ? 'ring-1 ring-[color:var(--accent-primary)]' : '',
-    dimmed ? 'opacity-40' : '',
-  ].filter(Boolean).join(' ')
-  const computeDropIndex = (clientY: number): number => {
-    const list = listRef.current
-    if (!list) return 0
-    const cards = list.querySelectorAll('[data-card="true"]')
-    for (let i = 0; i < cards.length; i += 1) {
-      const rect = cards[i].getBoundingClientRect()
-      if (clientY < rect.top + rect.height / 2) return i
-    }
-    return cards.length
-  }
+  const laneState =
+    isLegalDropTarget
+      ? 'legal-drop-target'
+      : dragActive && !isSourceLane
+        ? 'dimmed'
+        : isSourceLane
+          ? 'source'
+          : 'default'
   return (
-    <section
-      className={laneClass}
-      aria-label={`${statusLabel(status)} lane`}
-      onDragOver={(event) => {
-        if (!isLegalDropTarget) return
-        event.preventDefault()
-        event.dataTransfer.dropEffect = 'move'
-        onDragOverLane(computeDropIndex(event.clientY))
-      }}
-      onDragLeave={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
-        onDragLeaveLane()
-      }}
-      onDrop={(event) => {
-        if (!isLegalDropTarget) return
-        event.preventDefault()
-        onDropLane()
-      }}
+    <BoardLane
+      label={statusLabel(status)}
+      glyph={
+        <StatusIcon
+          status={status}
+          className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]"
+        />
+      }
+      count={records.length}
+      flipKey={records.map((record) => record.task.id).join(',')}
+      state={laneState}
+      dnd={
+        isLegalDropTarget
+          ? {
+              onDragOver: onDragOverLane,
+              onDragLeave: onDragLeaveLane,
+              onDrop: onDropLane,
+            }
+          : undefined
+      }
     >
-      <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <StatusIcon status={status} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
-          <span className="truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
-            {statusLabel(status)}
-          </span>
-        </span>
-        <span className="tabular-nums text-[11px] text-[color:var(--text-subtle)]">{records.length}</span>
-      </div>
-      <ol ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2">
-        {records.length === 0 ? (
-          <>
-            {dropIndex === 0 ? <DropIndicator /> : null}
-            <li className="m-1 rounded-[5px] px-2 py-3 text-[11px] leading-5 text-[color:var(--text-disabled)]">
-              {emptyColumnLabel(status)}
-            </li>
-          </>
-        ) : (
-          records.map((record, index) => (
-            <Fragment key={record.task.id}>
-              {dropIndex === index ? <DropIndicator /> : null}
-              <BoardCard
-                record={record}
-                executionStatus={executionStatusByTaskId.get(record.task.id) ?? null}
-                selected={selectedId === record.task.id}
-                justMoved={recentlyMovedId === record.task.id}
-                onSelect={() => onSelect(record.task.id)}
-                onDragStart={() => onCardDragStart(record)}
-                onDragEnd={onCardDragEnd}
-              />
-              {index === records.length - 1 && dropIndex === records.length ? <DropIndicator /> : null}
-            </Fragment>
-          ))
-        )}
-      </ol>
-    </section>
+      {records.length === 0 ? (
+        <>
+          {dropIndex === 0 ? <BoardLaneDropIndicator /> : null}
+          <li className="m-1 rounded-[5px] px-2 py-3 text-[11px] leading-5 text-[color:var(--text-disabled)]">
+            {emptyColumnLabel(status)}
+          </li>
+        </>
+      ) : (
+        records.map((record, index) => (
+          <Fragment key={record.task.id}>
+            {dropIndex === index ? <BoardLaneDropIndicator /> : null}
+            <BoardCard
+              record={record}
+              executionStatus={executionStatusByTaskId.get(record.task.id) ?? null}
+              selected={selectedId === record.task.id}
+              justMoved={recentlyMovedId === record.task.id}
+              onSelect={() => onSelect(record.task.id)}
+              onDragStart={() => onCardDragStart(record)}
+              onDragEnd={onCardDragEnd}
+            />
+            {index === records.length - 1 && dropIndex === records.length ? <BoardLaneDropIndicator /> : null}
+          </Fragment>
+        ))
+      )}
+    </BoardLane>
   )
 }
 
@@ -890,14 +872,6 @@ function BoardCard({
         />
       }
     />
-  )
-}
-
-function DropIndicator() {
-  return (
-    <li aria-hidden="true" className="-my-1 list-none">
-      <div className="h-[2px] rounded-full bg-[color:var(--accent-primary)]" />
-    </li>
   )
 }
 

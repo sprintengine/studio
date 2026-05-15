@@ -62,6 +62,12 @@ const EXCLUDED_DIRS = new Set(['__preview__', 'node_modules', 'dist', 'out'])
 
 // Canonical primitive paths. Detection rules below honour them.
 const TASKCARD_PATH = 'src/renderer/src/components/ui/TaskCard.tsx'
+// BoardLane is the canonical consumer of the TaskCard `data-task-card`
+// attribute — it queries the rendered DOM at drag-over time to compute the
+// drop index. The lint exempts BoardLane for the same reason it exempts
+// TaskCard itself: this is a primitive-to-primitive contract, not a
+// hand-rolled card.
+const BOARDLANE_PATH = 'src/renderer/src/components/ui/BoardLane.tsx'
 const STATUSDOT_PATH = 'src/renderer/src/components/ui/StatusDot.tsx'
 const POPOVER_PATH = 'src/renderer/src/components/ui/Popover.tsx'
 const TOOLTIP_PATH = 'src/renderer/src/components/ui/Tooltip.tsx'
@@ -260,8 +266,9 @@ for (const path of FILES) {
     })
   }
 
-  // (e) Hand-rolled task-card shapes outside TaskCard.tsx.
-  if (path !== TASKCARD_PATH) {
+  // (e) Hand-rolled task-card shapes outside TaskCard.tsx and BoardLane.tsx
+  // (BoardLane queries the canonical data-attribute by design — see header).
+  if (path !== TASKCARD_PATH && path !== BOARDLANE_PATH) {
     TASKCARD_DATA_ATTR.lastIndex = 0
     let attrMatch
     while ((attrMatch = TASKCARD_DATA_ATTR.exec(source))) {

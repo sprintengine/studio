@@ -26,10 +26,12 @@ export function ActionStatusChip({
   status,
   onDismiss,
   className = '',
+  wrap = false,
 }: {
   status: ActionStatus | null
   onDismiss?: () => void
   className?: string
+  wrap?: boolean
 }) {
   if (!status) return null
   const role = status.tone === 'error' ? 'alert' : 'status'
@@ -40,7 +42,9 @@ export function ActionStatusChip({
       key={status.nonce}
       role={role}
       aria-live={ariaLive}
-      className={`chip-enter inline-flex max-w-[280px] shrink-0 items-center gap-1.5 rounded border px-1.5 py-0.5 text-[10.5px] leading-4 ${className}`}
+      className={`chip-enter inline-flex shrink-0 gap-1.5 rounded border px-1.5 py-0.5 text-[10.5px] leading-4 ${
+        wrap ? 'max-w-full items-start' : 'max-w-[280px] items-center'
+      } ${className}`}
       style={{
         borderColor: TONE_COLOR_VAR[tone],
         backgroundColor: TONE_SOFT_VAR[tone],
@@ -54,7 +58,9 @@ export function ActionStatusChip({
       ) : (
         <StatusDot tone="neutral" />
       )}
-      <span className="min-w-0 truncate">{status.message}</span>
+      <span className={`min-w-0 ${wrap ? 'whitespace-normal break-words' : 'truncate'}`}>
+        {status.message}
+      </span>
       {onDismiss ? (
         <button
           type="button"

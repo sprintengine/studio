@@ -1179,6 +1179,7 @@ function WatchtowerActiveReviewAside({
             <ActionStatusChip
               status={runStatus}
               onDismiss={runStatus.tone === 'error' ? onDismissRunStatus : undefined}
+              wrap
             />
           </div>
         ) : null}

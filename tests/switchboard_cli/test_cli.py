@@ -664,6 +664,52 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertIn("still running", stderr_json(rejected)["message"])
         self.run_cli(["execution", "stop", *self.workspace_args(), execution_id, "--reason", "test cleanup"], check=False)
 
+    def test_watchtower_start_triage_ignores_stale_review_without_active_executions(self) -> None:
+        created = self.create_task(inbox=True, title="Triage candidate")
+        stale_agents = [
+            {
+                "agentId": "watchtower-stale-performance",
+                "specialistId": "performance",
+                "status": "failed",
+                "outputDir": "outputs/watchtower-stale-performance",
+                "reportPath": "reports/watchtower-stale-performance.md",
+                "executionId": "exec_stale",
+                "errorMessage": "Process ended without reporting an exit code.",
+            },
+            {
+                "agentId": "watchtower-stale-code-review",
+                "specialistId": "code-review",
+                "status": "pending",
+                "outputDir": "outputs/watchtower-stale-code-review",
+                "reportPath": "reports/watchtower-stale-code-review.md",
+            },
+        ]
+        self.run_cli(
+            [
+                "watchtower",
+                "run-create",
+                *self.workspace_args(),
+                "--preset",
+                "lean_code_review",
+                "--status",
+                "running",
+                "--agents-json",
+                json.dumps(stale_agents),
+            ]
+        )
+        command = f"{sys.executable} -c \"import sys; sys.stdin.read()\""
+
+        started = stdout_json(
+            self.run_cli(
+                ["watchtower", "start-triage", *self.workspace_args(), "--scope", "selected", "--task-id", created["id"]],
+                env={"SWITCHBOARD_LOCAL_PROCESS_COMMAND": command},
+            )
+        )
+
+        self.assertTrue(started["ok"])
+        self.assertEqual(started["run"]["preset"], "inbox_triage")
+        self.assertEqual(started["run"]["agents"][0]["specialistId"], "architect")
+
     def test_watchtower_start_triage_launches_architect_runtime_execution(self) -> None:
         created = self.create_task(inbox=True, title="Triage candidate")
         task_id = created["id"]

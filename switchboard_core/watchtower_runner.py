@@ -101,7 +101,7 @@ def start_watchtower_triage(
     with locked_runner(workspace):
         state = read_runner_state(workspace)
         ensure_runner_can_launch_watchtower(workspace, state)
-        active_review = active_watchtower_review_run(workspace)
+        active_review = active_watchtower_review_run(workspace, state)
         if active_review is not None:
             raise SwitchboardError(
                 f"Watchtower review {active_review['runId']} is still running. "
@@ -162,13 +162,31 @@ def _has_triage_comment(record: dict[str, Any]) -> bool:
     return any(isinstance(c, dict) and c.get("kind") == "triage" for c in comments)
 
 
-def active_watchtower_review_run(workspace: Path) -> dict[str, Any] | None:
+def active_watchtower_review_run(workspace: Path, state: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    if state is None:
+        active_execution_ids = None
+    else:
+        active_execution_ids = {
+            execution.get("executionId")
+            for execution in state.get("activeExecutions", [])
+            if (
+                isinstance(execution, dict)
+                and execution.get("status") in {"active", "launching"}
+                and isinstance(execution.get("executionId"), str)
+            )
+        }
     for run in list_watchtower_runs(workspace):
         if run.get("preset") == "inbox_triage":
             continue
-        if run.get("status") in {"pending", "running"}:
+        pending_or_running_agents = [
+            agent for agent in run.get("agents", [])
+            if isinstance(agent, dict) and agent.get("status") in {"pending", "running"}
+        ]
+        if not pending_or_running_agents and run.get("status") not in {"pending", "running"}:
+            continue
+        if active_execution_ids is None:
             return run
-        if any(agent.get("status") in {"pending", "running"} for agent in run.get("agents", [])):
+        if any(agent.get("executionId") in active_execution_ids for agent in pending_or_running_agents):
             return run
     return None
 

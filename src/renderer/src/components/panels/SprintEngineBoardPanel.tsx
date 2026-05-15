@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
+ BoardLane,
  CloseIconButton,
  PanelHeader,
  Tabs,
@@ -23,7 +24,6 @@ import {
  type Tone,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import { useFlipReorder } from '../../utils/flipReorder'
 import { Modal, ModalBody, ModalButton, ModalFooter } from '../ui/Modal'
 import { focusOrAddComponentTab } from '../../utils/modelRegistry'
 import {
@@ -93,22 +93,6 @@ function isEditableTarget(target: EventTarget | null): boolean {
  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
  if (target.isContentEditable) return true
  return false
-}
-
-function KanbanCardList({
- children,
- animateKey,
-}: {
- children: React.ReactNode
- animateKey: string
-}) {
- const ref = useRef<HTMLOListElement | null>(null)
- useFlipReorder(ref, animateKey)
- return (
- <ol ref={ref} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2">
- {children}
- </ol>
- )
 }
 
 const taskStateLabel: Record<SprintEngineTaskStatus, string> = {
@@ -1879,20 +1863,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  ) : null}
  {sprintEngineState.tasks.length > 0 ? boardColumns.map((column) => {
  return (
- <section
+ <BoardLane
  key={column.key}
- className="flex h-full min-w-[260px] flex-1 flex-col"
- aria-label={`${column.label} lane`}
+ label={column.label}
+ count={column.cards.length}
+ flipKey={column.cards.map((card) => card.id).join(',')}
  >
- <div className="flex items-center justify-between gap-2 px-2 py-1.5">
- <span className="truncate text-[12px] font-medium text-[color:var(--text-default)]">
- {column.label}
- </span>
- <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
- {column.cards.length}
- </span>
- </div>
- <KanbanCardList animateKey={column.cards.map((card) => card.id).join(',')}>
  {column.cards.map((task) => {
  // Kanban card surface is intentionally minimal — status dot, ID,
  // title, role glyph. All chips, attention quotes, artifact pills,
@@ -1937,12 +1913,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  })}
 
  {column.cards.length === 0 ? (
- <div className="m-1 rounded-[5px] px-2 py-3 text-[11px] leading-5 text-[color:var(--text-disabled)]">
+ <li className="m-1 rounded-[5px] px-2 py-3 text-[11px] leading-5 text-[color:var(--text-disabled)]">
  {emptyKanbanColumnLabel(column.key)}
- </div>
+ </li>
  ) : null}
- </KanbanCardList>
- </section>
+ </BoardLane>
  )
  }) : null}
  </div>
