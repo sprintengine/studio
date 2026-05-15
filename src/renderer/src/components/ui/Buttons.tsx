@@ -77,3 +77,31 @@ export function IconButton({ className, size = 'sm', children, type, ...rest }: 
     </button>
   )
 }
+
+// Canonical close affordance. Use everywhere a panel, aside, drawer, or
+// inspector needs a top-right X. Borderless on purpose — bordered/raised
+// variants compete with the surface they sit on and add a second radius
+// to the view, breaking the soul brief's ≤ 2 radii rule. The bordered
+// SprintEngine variant was retired here; do not reintroduce it.
+export function CloseIconButton({
+  size = 'sm',
+  ...rest
+}: Omit<IconButtonProps, 'children'>) {
+  return (
+    <IconButton {...rest} size={size}>
+      <svg
+        className="icon-sm"
+        viewBox="0 0 14 14"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+    </IconButton>
+  )
+}
