@@ -18,6 +18,12 @@ type TooltipProps = {
   /** Hover open delay. Focus opens immediately so keyboard users do not wait. */
   openDelayMs?: number
   className?: string
+  /**
+   * Classes applied to the wrapping span around the trigger. Use this when the
+   * default `inline-flex` would shrink the trigger to its content — e.g. a
+   * drop-target button inside a flex column that should fill the row.
+   */
+  wrapperClassName?: string
 }
 
 export function Tooltip({
@@ -26,6 +32,7 @@ export function Tooltip({
   children,
   openDelayMs = 200,
   className,
+  wrapperClassName,
 }: TooltipProps) {
   const id = useId()
   const [open, setOpen] = useState(false)
@@ -99,7 +106,7 @@ export function Tooltip({
   })
 
   return (
-    <span className="relative inline-flex">
+    <span className={`relative ${wrapperClassName ?? 'inline-flex'}`}>
       {trigger}
       {open ? (
         <span

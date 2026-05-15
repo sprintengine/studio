@@ -1,9 +1,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { ArrowRightIcon, PlusIcon, PriorityIcon, StatusIcon } from '../AppIcons'
+import { ArrowRightIcon, PlusIcon, PriorityIcon, SpecialistActionIcon, SprintEngineRoleIcon, StatusIcon } from '../AppIcons'
+import { focusOrAddAgentSessionTab, hasAgentTab } from '../../utils/modelRegistry'
+import {
+  soulRoleToSprintEngineRole,
+  sprintEngineRoleAccent,
+  sprintEngineRoleLabels,
+} from '../../utils/sprintengine'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
-import { hasAgentTab } from '../../utils/modelRegistry'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
   ActionStatusChip,
@@ -131,6 +136,24 @@ const RUNNER_LABEL: Record<RunnerStatusKind, string> = {
   unconfigured: 'Not started',
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  const value = hex.replace('#', '')
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+const RUNNING_EXECUTION_STATUSES: ReadonlySet<SwitchboardExecutionStatus> = new Set([
+  'launching',
+  'active',
+])
+
+type SwitchboardRunningEntry = {
+  execution: SwitchboardRunnerExecution & { kind: 'switchboard_task' }
+  record: SwitchboardTaskRecord | null
+}
+
 function confidenceTone(value: number): Tone {
   if (value >= 80) return 'good'
   if (value >= 50) return 'accent'
@@ -170,9 +193,26 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     return map
   }, [runner.state])
 
+  const runningExecutions = useMemo<SwitchboardRunningEntry[]>(() => {
+    const executions = runner.state?.activeExecutions ?? []
+    const taskByRecordId = new Map(tasks.map((record) => [record.task.id, record]))
+    const entries: SwitchboardRunningEntry[] = []
+    for (const execution of executions) {
+      if (!isSwitchboardTaskExecution(execution)) continue
+      const status = execution.status
+      if (status && !RUNNING_EXECUTION_STATUSES.has(status)) continue
+      entries.push({
+        execution,
+        record: taskByRecordId.get(execution.taskId) ?? null,
+      })
+    }
+    return entries
+  }, [runner.state, tasks])
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [runnerOpen, setRunnerOpen] = useState(false)
+  const [runningOpen, setRunningOpen] = useState(false)
   const [draft, setDraft] = useState<DraftTask>(emptyDraft)
   const [commentBody, setCommentBody] = useState('')
   const [dragSource, setDragSource] = useState<{ taskId: string; from: SwitchboardFolderStatus } | null>(null)
@@ -186,6 +226,12 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
     const handle = window.setTimeout(() => setRecentlyMovedId(null), 700)
     return () => window.clearTimeout(handle)
   }, [recentlyMovedId])
+
+  useEffect(() => {
+    if (runningExecutions.length === 0 && runningOpen) {
+      setRunningOpen(false)
+    }
+  }, [runningExecutions.length, runningOpen])
 
   const dragLegalTargets = useMemo(
     () => (dragSource ? new Set<SwitchboardTaskStatus>(legalMoveTargets(dragSource.from)) : new Set<SwitchboardTaskStatus>()),
@@ -485,6 +531,29 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
             message={`${problems.length} task file${problems.length === 1 ? '' : 's'} could not be parsed and was skipped.`}
           />
         ) : null}
+        {runningExecutions.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setRunningOpen(true)}
+            aria-label="Open running agents"
+            aria-pressed={runningOpen}
+            className="interactive flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-left text-[12px] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            <StatusDot tone="accent" pulse label="Agents running" />
+            <span className="font-medium text-[color:var(--text-strong)]">
+              {runningExecutions.length} task{runningExecutions.length === 1 ? '' : 's'} running
+            </span>
+            <span aria-hidden className="text-[color:var(--text-disabled)]">·</span>
+            <span className="min-w-0 flex-1 truncate text-[color:var(--text-muted)]">
+              {runningExecutions
+                .map((entry) => entry.record ? shortIdentifier(entry.record) : entry.execution.taskId)
+                .join(', ')}
+            </span>
+            <span className="shrink-0 font-medium text-[color:var(--accent-primary)]">
+              View
+            </span>
+          </button>
+        ) : null}
 
         <div className="flex min-h-0 flex-1 gap-1.5 overflow-x-auto px-1.5 py-2">
           {state.kind === 'loading' && boardTasks.length === 0 ? (
@@ -537,11 +606,21 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         </div>
       </section>
 
-      <aside
-        className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[color:var(--border-default)]"
-        aria-label="Selected task detail"
-      >
-        {selected ? (
+      {runningOpen && runningExecutions.length > 0 ? (
+        <SwitchboardRunningAgentsAside
+          entries={runningExecutions}
+          workspaceId={workspaceId}
+          workspaceRoot={folderPath}
+          onSelectTask={(taskId) => setSelectedId(taskId)}
+          onClose={() => setRunningOpen(false)}
+        />
+      ) : null}
+
+      {selected ? (
+        <aside
+          className="flex w-[42%] min-w-[320px] max-w-[520px] flex-col border-l border-[color:var(--border-default)]"
+          aria-label="Selected task detail"
+        >
           <BoardDetailPane
             record={selected}
             workspaceId={workspaceId}
@@ -564,11 +643,10 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
             commentStatus={feedback.statuses.comment ?? null}
             onDismissDetailStatus={() => feedback.dismiss('detail')}
             onDismissCommentStatus={() => feedback.dismiss('comment')}
+            onClose={() => setSelectedId(null)}
           />
-        ) : (
-          <EmptyDetail />
-        )}
-      </aside>
+        </aside>
+      ) : null}
 
       {runnerOpen ? (
         <RunnerDrawer
@@ -613,6 +691,33 @@ function BoardStatusBanner({
   )
 }
 
+function emptyColumnLabel(status: SwitchboardTaskStatus): string {
+  switch (status) {
+    case 'planning':
+      return 'Nothing being planned. New tasks start here while they’re being shaped.'
+    case 'todo':
+      return 'No todos waiting to start.'
+    case 'ready':
+      return 'Nothing staged for pickup.'
+    case 'in_progress':
+      return 'No work in progress.'
+    case 'testing':
+      return 'Nothing waiting on tests.'
+    case 'testing_in_progress':
+      return 'No tests running right now.'
+    case 'review':
+      return 'Nothing waiting on review.'
+    case 'review_in_progress':
+      return 'No reviews running right now.'
+    case 'done':
+      return 'Completed work collects here.'
+    case 'canceled':
+      return 'No canceled tasks.'
+    default:
+      return 'Nothing here yet.'
+  }
+}
+
 function BoardLane({
   status,
   records,
@@ -650,10 +755,8 @@ function BoardLane({
   useFlipReorder(listRef, records.map((record) => record.task.id).join(','))
   const dimmed = dragActive && !isLegalDropTarget && !isSourceLane
   const laneClass = [
-    'flex h-full w-[260px] shrink-0 flex-col rounded-[7px] transition-colors',
-    isLegalDropTarget
-      ? 'bg-[color:var(--bg-surface)] ring-1 ring-[color:var(--accent-primary)]'
-      : 'bg-[color:var(--bg-surface)]',
+    'flex h-full min-w-[260px] flex-1 flex-col transition-colors',
+    isLegalDropTarget ? 'ring-1 ring-[color:var(--accent-primary)]' : '',
     dimmed ? 'opacity-40' : '',
   ].filter(Boolean).join(' ')
   const computeDropIndex = (clientY: number): number => {
@@ -667,9 +770,8 @@ function BoardLane({
     return cards.length
   }
   return (
-    <div
+    <section
       className={laneClass}
-      role="group"
       aria-label={`${statusLabel(status)} lane`}
       onDragOver={(event) => {
         if (!isLegalDropTarget) return
@@ -696,11 +798,14 @@ function BoardLane({
         </span>
         <span className="tabular-nums text-[11px] text-[color:var(--text-subtle)]">{records.length}</span>
       </div>
-      <ol ref={listRef} className="flex-1 space-y-2 overflow-auto px-2 py-2">
+      <ol ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2">
         {records.length === 0 ? (
-          <li className="px-1 py-2 text-[11px] text-[color:var(--text-disabled)]">
-            {dropIndex === 0 ? <DropIndicator /> : 'Empty'}
-          </li>
+          <>
+            {dropIndex === 0 ? <DropIndicator /> : null}
+            <li className="m-1 rounded-[5px] px-2 py-3 text-[11px] leading-5 text-[color:var(--text-disabled)]">
+              {emptyColumnLabel(status)}
+            </li>
+          </>
         ) : (
           records.map((record, index) => (
             <Fragment key={record.task.id}>
@@ -719,7 +824,7 @@ function BoardLane({
           ))
         )}
       </ol>
-    </div>
+    </section>
   )
 }
 
@@ -754,7 +859,7 @@ function BoardCard({
 
   return (
     <TaskCard
-      variant="row"
+      variant="card"
       tone={cardTone}
       identifier={shortIdentifier(record)}
       title={task.title}
@@ -792,12 +897,12 @@ function BoardSkeleton() {
   return (
     <div aria-busy="true" aria-label="Loading board" className="flex h-full w-full gap-1.5">
       {BOARD_STATUS_ORDER.slice(0, 5).map((status, laneIdx) => (
-        <div key={status} className="flex h-full w-[260px] shrink-0 flex-col rounded-[7px] bg-[color:var(--bg-surface)]">
+        <section key={status} className="flex h-full min-w-[260px] flex-1 flex-col">
           <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
             <div className="skeleton-shimmer h-3 w-20 rounded bg-[color:var(--bg-hover)]" />
             <div className="skeleton-shimmer h-3 w-5 rounded bg-[color:var(--bg-hover)]" />
           </div>
-          <ol className="flex-1 space-y-2 px-2 py-2">
+          <ol className="min-h-0 flex-1 space-y-2 px-2 py-2">
             {Array.from({ length: 3 - (laneIdx % 2) }).map((_, cardIdx) => (
               <li key={cardIdx} className="rounded-[5px] border-l-2 border-transparent px-2.5 py-1.5">
                 <div className="skeleton-shimmer h-3 w-[85%] rounded bg-[color:var(--bg-hover)]" />
@@ -805,9 +910,134 @@ function BoardSkeleton() {
               </li>
             ))}
           </ol>
-        </div>
+        </section>
       ))}
     </div>
+  )
+}
+
+function SwitchboardRunningAgentsAside({
+  entries,
+  workspaceId,
+  workspaceRoot,
+  onSelectTask,
+  onClose,
+}: {
+  entries: SwitchboardRunningEntry[]
+  workspaceId: string
+  workspaceRoot: string | null
+  onSelectTask: (taskId: string) => void
+  onClose: () => void
+}) {
+  const terminalSessions = useTerminalSessions()
+  return (
+    <aside
+      aria-label="Running agents"
+      className="flex w-[38%] min-w-[320px] max-w-[520px] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-app)]"
+    >
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
+        <h3 className="truncate text-[13px] font-semibold tracking-tight text-[color:var(--text-strong)]">
+          Running agents
+        </h3>
+        <div className="flex shrink-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+          <span className="tabular-nums">
+            {entries.length} task{entries.length === 1 ? '' : 's'}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close running agents"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path
+                d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <ul className="min-h-0 flex-1 overflow-y-auto">
+        {entries.map((entry) => {
+          const role = soulRoleToSprintEngineRole(entry.execution.role)
+          const roleAccent = role ? sprintEngineRoleAccent[role] : null
+          const discStyle = roleAccent
+            ? { backgroundColor: hexToRgba(roleAccent, 0.18), color: roleAccent }
+            : undefined
+          const identifier = entry.record ? shortIdentifier(entry.record) : entry.execution.taskId
+          const title = entry.record?.task.title ?? entry.execution.taskId
+          const terminalState = describeExecutionTerminal(
+            terminalSessions,
+            workspaceId,
+            entry.execution.executionId
+          )
+          const canOpenTerminal =
+            terminalState.kind !== 'missing' && Boolean(workspaceRoot)
+          const terminalTabOpen =
+            terminalState.kind !== 'missing'
+              ? hasAgentTab(workspaceId, terminalState.agentId)
+              : false
+          const terminalButtonLabel = terminalTabOpen ? 'Focus' : 'Terminal'
+          const handleOpenTerminal = (): void => {
+            if (!canOpenTerminal) return
+            void focusOrAddAgentSessionTab(workspaceId, {
+              executionId: entry.execution.executionId,
+              fallbackName: role ? sprintEngineRoleLabels[role] : entry.execution.role,
+            })
+          }
+          return (
+            <li key={entry.execution.executionId} className="flex items-center gap-2 border-b border-[color:var(--border-default)] pr-3 last:border-b-0">
+              <button
+                type="button"
+                onClick={() => onSelectTask(entry.execution.taskId)}
+                aria-label={`Focus ${identifier} in board`}
+                className="interactive flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
+              >
+                <span
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                    role ? '' : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]'
+                  }`}
+                  // design-tokens-allow: role glyph is the documented exception to the one-accent rule; see knowledge/brand/panel-design-system.md.
+                  style={discStyle}
+                  aria-hidden="true"
+                >
+                  {role ? (
+                    <SprintEngineRoleIcon role={role} className="icon-md" />
+                  ) : (
+                    <SpecialistActionIcon icon="review" className="icon-md" />
+                  )}
+                </span>
+                <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                  <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+                    {identifier}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                    {title}
+                  </span>
+                </div>
+                <StatusDot tone="accent" pulse label="Running" />
+                <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-muted)]">
+                  {formatRelativeTime(entry.execution.startedAt)}
+                </span>
+              </button>
+              {canOpenTerminal ? (
+                <GhostButton
+                  size="sm"
+                  className="!h-6 shrink-0"
+                  onClick={handleOpenTerminal}
+                >
+                  {terminalButtonLabel}
+                </GhostButton>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+    </aside>
   )
 }
 
@@ -922,17 +1152,6 @@ function AttemptRow({
   )
 }
 
-function EmptyDetail() {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[color:var(--text-subtle)]">
-      <div className="text-[12px] text-[color:var(--text-muted)]">Detail</div>
-      <div className="text-[12px] text-[color:var(--text-muted)]">
-        Select a task to inspect its description, comments, and source.
-      </div>
-    </div>
-  )
-}
-
 function BoardDetailPane({
   record,
   workspaceId,
@@ -952,6 +1171,7 @@ function BoardDetailPane({
   commentStatus,
   onDismissDetailStatus,
   onDismissCommentStatus,
+  onClose,
 }: {
   record: SwitchboardTaskRecord
   workspaceId: string
@@ -971,6 +1191,7 @@ function BoardDetailPane({
   commentStatus: ActionStatus | null
   onDismissDetailStatus: () => void
   onDismissCommentStatus: () => void
+  onClose: () => void
 }) {
   const task = record.task
   const targets = legalMoveTargets(record.location.folderStatus)
@@ -1114,24 +1335,43 @@ function BoardDetailPane({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-[color:var(--border-default)] px-5 py-4">
-        <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
-          <span className="font-mono tabular-nums text-[12px] text-[color:var(--text-default)]">
-            {shortIdentifier(record)}
-          </span>
-          <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-          <span className="flex items-center gap-1.5">
-            <StatusIcon status={record.location.folderStatus} className="h-3 w-3 text-[color:var(--text-muted)]" />
-            {statusLabel(record.location.folderStatus)}
-          </span>
-          <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-          <span className="tabular-nums">{formatRelativeTime(task.updatedAt)}</span>
-          <ActionStatusChip
-            status={detailStatus}
-            onDismiss={detailStatus?.tone === 'error' ? onDismissDetailStatus : undefined}
-            className="ml-auto"
-          />
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+              <span className="font-mono tabular-nums text-[12px] text-[color:var(--text-default)]">
+                {shortIdentifier(record)}
+              </span>
+              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+              <span className="flex items-center gap-1.5">
+                <StatusIcon status={record.location.folderStatus} className="h-3 w-3 text-[color:var(--text-muted)]" />
+                {statusLabel(record.location.folderStatus)}
+              </span>
+              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+              <span className="tabular-nums">{formatRelativeTime(task.updatedAt)}</span>
+              <ActionStatusChip
+                status={detailStatus}
+                onDismiss={detailStatus?.tone === 'error' ? onDismissDetailStatus : undefined}
+                className="ml-auto"
+              />
+            </div>
+            <h3 className="mt-2 text-[15px] font-semibold leading-6 text-[color:var(--text-strong)]">{task.title}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close task detail"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path
+                d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
         </div>
-        <h3 className="mt-2 text-[15px] font-semibold leading-6 text-[color:var(--text-strong)]">{task.title}</h3>
         {canOpenTerminal || targets.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Task actions">
             {canOpenTerminal ? (

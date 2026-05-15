@@ -289,10 +289,19 @@ function getCliRuntimeSettings(
 }
 
 function getBundledSprintEngineToolPath(): string | null {
+  if (app.isPackaged) {
+    const packagedToolPath = join(process.resourcesPath, 'scripts', 'sprintengine_tool.py')
+    return existsSync(packagedToolPath) ? packagedToolPath : null
+  }
+
   const candidates = [
+    join(process.cwd(), 'scripts', 'sprintengine_tool.py'),
     join(process.cwd(), '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
+    join(app.getAppPath(), 'scripts', 'sprintengine_tool.py'),
     join(app.getAppPath(), '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
+    join(__dirname, '..', '..', 'scripts', 'sprintengine_tool.py'),
     join(__dirname, '..', '..', '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
+    join(__dirname, '..', '..', '..', 'scripts', 'sprintengine_tool.py'),
     join(__dirname, '..', '..', '..', '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
   ]
 

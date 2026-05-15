@@ -896,25 +896,30 @@ export default function WorkspaceSidebar({
       </div>
 
       {/* New workspace */}
-      <Tooltip content="New workspace (Ctrl+T) — drop a tab here to extract it">
+      <Tooltip
+        content="New workspace (Ctrl+T) — drop a tab here to extract it"
+        wrapperClassName={`mt-2 flex ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}
+      >
       <button
         type="button"
         onClick={onNewWorkspace}
         onDragOver={handleTabDragOverNew}
         onDragLeave={handleTabDragLeaveNew}
         onDrop={handleTabDropOnNew}
-        className={`mt-2 inline-flex h-[30px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-dashed text-[12px] font-medium transition-colors ${
+        className={`flex h-[34px] w-full shrink-0 items-center justify-center gap-2 rounded-md border border-dashed px-3 text-[12px] font-medium transition-colors ${
           tabDropTarget?.kind === 'new'
             ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
             : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-        } ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}
+        }`}
         aria-label="New workspace"
       >
-        <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
+        <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none">
           <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
         {!sidebarCollapsed && (
-          <span>{tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New workspace'}</span>
+          <span className="pointer-events-none">
+            {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New workspace'}
+          </span>
         )}
       </button>
       </Tooltip>

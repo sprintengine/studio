@@ -59,6 +59,7 @@
       "scripts/sprintengine_tool.py",
       "switchboard_core/**/*.py",
       "sprintengine_core/**/*.py",
+      "sprintengine_mcp/**/*.py",
       "!out/**/*.map"
     ],
     "extraResources": [
@@ -111,6 +112,13 @@
       {
         "from": "sprintengine_core",
         "to": "sprintengine_core",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
+        "from": "sprintengine_mcp",
+        "to": "sprintengine_mcp",
         "filter": [
           "**/*.py"
         ]

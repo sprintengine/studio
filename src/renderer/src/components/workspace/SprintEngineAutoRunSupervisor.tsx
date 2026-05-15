@@ -1179,6 +1179,7 @@ async function spawnAutoRunCandidate(
 
     let executionCwd = workspaceFolderPath
     let executionMode: 'current_workspace' | 'worktree' = 'current_workspace'
+    const autoState = getSprintEngineAutoState(workspace)
 
     const memoryConfig = resolveProjectKnowledgeConfig(
       workspaceFolderPath,
@@ -1215,6 +1216,7 @@ async function spawnAutoRunCandidate(
         sprintEngineStatePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
+        autonomousPlanningOverride: nextRun.role === 'architect' && autoState.autoApproveArtifacts,
       }),
       nextRun.label,
       sprintEngineRoleLabels[nextRun.role]

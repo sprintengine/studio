@@ -4595,7 +4595,7 @@ function SprintEngineArtifactInspector({
  const confidencePct = getArtifactConfidencePct(artifact, task)
  const mobileDecision = getMobileArtifactDecision(artifact)
  const autoApproval = getSprintEngineArtifactAutoApprovalEligibility(artifact)
- const canOpenArtifact = Boolean(artifact.path.trim()) && artifact.status !== 'draft'
+ const canOpenArtifact = Boolean(artifact.path.trim())
  const readyForReview = artifact.status === 'ready_for_review'
  const pending = actionState?.status === 'pending'
 
@@ -4811,7 +4811,7 @@ function SprintEngineArtifactList({
  const action = actions[artifact.id]
  const pending = action?.status === 'pending'
  const readyForReview = artifact.status === 'ready_for_review'
- const canOpenArtifact = Boolean(artifact.path.trim()) && artifact.status !== 'draft'
+ const canOpenArtifact = Boolean(artifact.path.trim())
  const autoApprovalEligibility = getSprintEngineArtifactAutoApprovalEligibility(artifact)
  const mobileDecision = getMobileArtifactDecision(artifact)
  const confidencePct = getArtifactConfidencePct(artifact, task)

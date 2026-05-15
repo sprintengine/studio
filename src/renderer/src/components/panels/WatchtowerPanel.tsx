@@ -21,7 +21,12 @@ import type {
   WatchtowerRun,
   WatchtowerRunAgent,
 } from '../../../../shared/switchboard'
-import { CommentIcon, PriorityIcon, SpecialistActionIcon } from '../AppIcons'
+import { CommentIcon, PriorityIcon, SpecialistActionIcon, SprintEngineRoleIcon } from '../AppIcons'
+import {
+  soulRoleToSprintEngineRole,
+  sprintEngineRoleAccent,
+  sprintEngineRoleLabels,
+} from '../../utils/sprintengine'
 import {
   confidenceLabel,
   confidenceToneClass,
@@ -38,7 +43,6 @@ import { focusOrAddFileTab, hasAgentTab } from '../../utils/modelRegistry'
 import { renderMarkdown } from '../../utils/markdown'
 import {
   DefinitionList,
-  Drawer,
   GhostButton,
   InboxRow,
   OverflowMenu,
@@ -129,6 +133,14 @@ function findTaskAttribution(
 
 function isTriageRun(run: WatchtowerRun): boolean {
   return run.preset === 'inbox_triage'
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const value = hex.replace('#', '')
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
 export type AgentTaskOutcome = {
@@ -330,11 +342,18 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
     void refreshRuns()
   }, [refreshRuns])
 
-  const hasActiveRun = useMemo(
-    () => runs.some((run) => run.status === 'running' || run.status === 'pending'
-      || run.agents.some((agent) => agent.status === 'running' || agent.status === 'pending')),
+  const activeRun = useMemo(
+    () => runs.find((run) => run.status === 'running' || run.status === 'pending'
+      || run.agents.some((agent) => agent.status === 'running' || agent.status === 'pending')) ?? null,
     [runs]
   )
+  const hasActiveRun = activeRun !== null
+  const liveRunningAgents = useMemo(() => {
+    if (!activeRun) return [] as WatchtowerRunAgent[]
+    return activeRun.agents.filter(
+      (agent) => agent.status === 'running' || agent.status === 'pending'
+    )
+  }, [activeRun])
 
   useEffect(() => {
     if (!hasActiveRun) return
@@ -415,7 +434,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           }
           setSelectedRunId(started.run.runId)
           await refreshRuns()
-          if (scope === 'all') setDrawerOpen(true)
+          setDrawerOpen(true)
           feedback.notify(
             feedbackKey,
             'success',
@@ -666,12 +685,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       {
         id: 'watchtower.open.active-review',
         label: 'Active review',
-        onSelect: () => {
-          // Focus the overflow trigger before the active-review Drawer mounts
-          // so the primitive captures it as the restore target on close.
-          document.querySelector<HTMLElement>('[aria-label="Watchtower overflow"]')?.focus()
-          setDrawerOpen(true)
-        },
+        onSelect: () => setDrawerOpen(true),
       },
       { kind: 'separator', id: 'sep-1' },
       {
@@ -753,6 +767,28 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             tone="warning"
             message={`${problems.length} task file${problems.length === 1 ? '' : 's'} could not be parsed. Folder reads continue.`}
           />
+        ) : null}
+        {activeRun ? (
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open active review"
+            className="interactive flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-left text-[12px] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            <StatusDot tone="warn" pulse label="Agents running" />
+            <span className="font-medium text-[color:var(--text-strong)]">
+              {isTriageRun(activeRun) ? 'Triage running' : 'Review running'}
+            </span>
+            <span aria-hidden className="text-[color:var(--text-disabled)]">·</span>
+            <span className="min-w-0 flex-1 truncate text-[color:var(--text-muted)]">
+              {liveRunningAgents.length > 0
+                ? liveRunningAgents.map(specialistShortLabel).join(', ')
+                : 'Architect spinning up…'}
+            </span>
+            <span className="shrink-0 font-medium text-[color:var(--accent-primary)]">
+              View
+            </span>
+          </button>
         ) : null}
         {inboxStatus ? (
           <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-1.5">
@@ -838,7 +874,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       </section>
 
       {drawerOpen ? (
-        <ActiveReviewDrawer
+        <WatchtowerActiveReviewAside
           onClose={() => setDrawerOpen(false)}
           runs={runs}
           selectedRun={selectedRun}
@@ -905,10 +941,6 @@ function specialistShortLabel(agent: WatchtowerRunAgent): string {
   } catch {
     return agent.specialistId
   }
-}
-
-function shortExecutionId(executionId: string): string {
-  return executionId.startsWith('exec_') ? `exec_${executionId.slice(-8)}` : executionId
 }
 
 function agentRowTone(agent: WatchtowerRunAgent, outcome: AgentTaskOutcome, triage: boolean): {
@@ -1092,7 +1124,7 @@ function WatchtowerFilePreview({
   )
 }
 
-function ActiveReviewDrawer({
+function WatchtowerActiveReviewAside({
   onClose,
   runs,
   selectedRun,
@@ -1134,15 +1166,39 @@ function ActiveReviewDrawer({
     : null
 
   return (
-    <Drawer open onClose={onClose} title="Active review" ariaLabel="Active review">
-      <Drawer.Body className="!p-0">
-        {selectedRun ? (
-          <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-2 text-[11px] text-[color:var(--text-muted)]">
+    <aside
+      aria-label="Active review"
+      className="flex w-[38%] min-w-[320px] max-w-[520px] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-app)]"
+    >
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
+        <h3 className="truncate text-[13px] font-semibold tracking-tight text-[color:var(--text-strong)]">
+          Active review
+        </h3>
+        <div className="flex shrink-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+          {selectedRun ? (
             <span className="tabular-nums">
               {runs.length} run{runs.length === 1 ? '' : 's'}
             </span>
-          </div>
-        ) : null}
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close active review"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path
+                d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {runStatus ? (
           <div className="px-3 pt-3">
             <ActionStatusChip
@@ -1172,11 +1228,24 @@ function ActiveReviewDrawer({
               ) : null
             }
           >
-            <ul className="flex flex-col gap-1.5">
+            <ul className="-mx-3">
+              {selectedRun.agents.length === 0 ? (
+                <li className="flex min-w-0 items-center gap-2.5 border-b border-[color:var(--border-default)] px-3 py-2.5">
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
+                    aria-hidden="true"
+                  >
+                    <SpecialistActionIcon icon="architecture" className="icon-md" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                    {triageRun ? 'Architect spinning up…' : 'Reviewers spinning up…'}
+                  </span>
+                  <StatusDot tone="warn" pulse label="Spinning up" />
+                </li>
+              ) : null}
               {selectedRun.agents.map((agent) => {
                 const outcome = agentOutcomes.get(agent.agentId) ?? { count: 0 }
                 const tone = agentRowTone(agent, outcome, triageRun)
-                const executionLabel = agent.executionId ? shortExecutionId(agent.executionId) : 'launch pending'
                 const terminalState = describeExecutionTerminal(
                   terminalSessions,
                   workspaceId,
@@ -1188,7 +1257,7 @@ function ActiveReviewDrawer({
                   terminalState.kind !== 'missing'
                     ? hasAgentTab(workspaceId, terminalState.agentId)
                     : false
-                const terminalButtonLabel = terminalTabOpen ? 'Focus terminal' : 'Open terminal'
+                const terminalButtonLabel = terminalTabOpen ? 'Focus' : 'Terminal'
                 const handleOpenTerminal = (): void => {
                   if (!canOpenTerminal || !agent.executionId) return
                   void import('../../utils/modelRegistry').then(({ focusOrAddAgentSessionTab }) => {
@@ -1198,38 +1267,72 @@ function ActiveReviewDrawer({
                     })
                   })
                 }
+                const action = agent.specialistId ? getSpecialistAction(agent.specialistId as SpecialistActionId) : null
+                const role = action ? soulRoleToSprintEngineRole(action.soulRole) : null
+                const displayLabel = role ? sprintEngineRoleLabels[role] : (action?.shortLabel ?? specialistShortLabel(agent))
+                const discStyle = role
+                  ? {
+                      backgroundColor: hexToRgba(sprintEngineRoleAccent[role], 0.18),
+                      color: sprintEngineRoleAccent[role],
+                    }
+                  : undefined
+                const hasError = Boolean(agent.errorMessage)
                 return (
                   <li
                     key={agent.agentId}
-                    className="rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5"
+                    className="border-b border-[color:var(--border-default)] last:border-b-0"
                   >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <StatusDot tone={tone.tone} pulse={tone.pulse} />
-                      <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-strong)]">
-                        {specialistShortLabel(agent)}
+                    <div className="flex min-w-0 items-center gap-2.5 px-3 py-2.5">
+                      <span
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                          role ? '' : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]'
+                        }`}
+                        // design-tokens-allow: role glyph is the documented exception to the one-accent rule; see knowledge/brand/panel-design-system.md.
+                        style={discStyle}
+                        aria-hidden="true"
+                      >
+                        {role ? (
+                          <SprintEngineRoleIcon role={role} className="icon-md" />
+                        ) : (
+                          <SpecialistActionIcon icon={action?.icon ?? 'review'} className="icon-md" />
+                        )}
                       </span>
-                      <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
-                        {tone.label}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
-                      <span className="shrink-0">Runtime</span>
-                      <span className="min-w-0 truncate font-mono tabular-nums">{executionLabel}</span>
+                      {hasError ? (
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <span className="block min-w-0 truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                            {displayLabel}
+                          </span>
+                          <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
+                            <StatusDot tone={tone.tone} pulse={tone.pulse} />
+                            <span
+                              className="min-w-0 flex-1 truncate text-[color:var(--tone-error)]"
+                              title={agent.errorMessage ?? undefined}
+                            >
+                              {agent.errorMessage}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                            {displayLabel}
+                          </span>
+                          <StatusDot tone={tone.tone} pulse={tone.pulse} />
+                          <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
+                            {tone.label}
+                          </span>
+                        </>
+                      )}
                       {canOpenTerminal ? (
                         <GhostButton
                           size="sm"
-                          className="ml-auto !h-6"
+                          className="!h-6 shrink-0"
                           onClick={handleOpenTerminal}
                         >
                           {terminalButtonLabel}
                         </GhostButton>
                       ) : null}
                     </div>
-                    {agent.errorMessage ? (
-                      <div className="mt-1 max-h-12 overflow-hidden text-[11px] leading-4 text-[color:var(--tone-error)]">
-                        {agent.errorMessage}
-                      </div>
-                    ) : null}
                   </li>
                 )
               })}
@@ -1296,8 +1399,8 @@ function ActiveReviewDrawer({
             )}
           </Section>
         ) : null}
-      </Drawer.Body>
-    </Drawer>
+      </div>
+    </aside>
   )
 }
 

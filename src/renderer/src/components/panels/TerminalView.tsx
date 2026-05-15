@@ -186,6 +186,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         workspaceRoot: folderReadyPath ?? undefined,
         rosterArgs: buildSprintEngineRosterCommandArgs(workspace.sprintEngineState),
         commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, workspace.sprintEngineState),
+        autonomousPlanningOverride: rosterAgent.role === 'architect' && Boolean(workspace.sprintEngineAutoState?.autoApproveArtifacts),
       }
     )
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label

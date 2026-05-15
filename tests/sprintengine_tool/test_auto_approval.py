@@ -25,6 +25,7 @@ APPROVED_AUTO_APPROVAL_KINDS = {
     "product_strategy",
     "requirements",
     "security_review",
+    "spec_review",
     "validation_report",
 }
 
@@ -174,13 +175,29 @@ def test_electron_auto_run_sends_approval_intent_instead_of_approving_directly()
     supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
         encoding="utf-8"
     )
-    main_source = (repo_root / "src/main/index.ts").read_text(encoding="utf-8")
+    artifacts_source = (repo_root / "src/main/sprintengine-artifacts.ts").read_text(encoding="utf-8")
 
     assert "sendArtifactApprovalToTerminal(agentSession.sessionId)" in supervisor_source
     assert "Sent the user approval intent to the responsible agent terminal." in supervisor_source
     assert "Artifact auto-approved" not in supervisor_source
-    assert "action: 'approve-intent'" in main_source
-    assert "id: mode === 'auto-run' ? 'auto-run' : actor.id" not in main_source
+    assert "action: 'approve-intent'" in artifacts_source
+    assert "id: mode === 'auto-run' ? 'auto-run' : actor.id" not in artifacts_source
+
+
+def test_sprintengine_auto_approval_marks_architect_startup_as_autonomous() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
+        encoding="utf-8"
+    )
+    prompt_source = (repo_root / "src/renderer/src/utils/agentPrompt.ts").read_text(encoding="utf-8")
+    terminal_view_source = (repo_root / "src/renderer/src/components/panels/TerminalView.tsx").read_text(encoding="utf-8")
+
+    assert "autonomousPlanningOverride: nextRun.role === 'architect' && autoState.autoApproveArtifacts" in supervisor_source
+    assert "autonomousPlanningOverride: rosterAgent.role === 'architect' && Boolean(workspace.sprintEngineAutoState?.autoApproveArtifacts)" in terminal_view_source
+    assert "## Autonomous Planning Override" in prompt_source
+    assert "Sprint Engine Approve all artifacts is enabled" in prompt_source
+    assert "Auto-run only controls agent spawning; Approve all artifacts is the signal to skip normal grilling." in prompt_source
+    assert "Do not pause for ordinary preference, naming, scope-shaping, or plan-review questions" in prompt_source
 
 
 def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
@@ -191,7 +208,7 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
 
     assert "function sendContinuationPromptsToIdleAgents" in supervisor_source
     assert "Sprint Engine roster runner found a ready" in supervisor_source
-    assert "sprintengine join --role ${role} --id ${agentId}" in supervisor_source
+    assert "sprintengine join --role ${task.role} --id ${agentId}" in supervisor_source
     assert "await sendContinuationPromptsToIdleAgents(" in supervisor_source
     assert "continuation-prompt-sent" in supervisor_source
 
@@ -220,8 +237,8 @@ def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
         encoding="utf-8"
     )
 
-    assert "const status = await window.api.terminalStatus(latestAgent.cliSessionId).catch(() => ({ running: false }))" in supervisor_source
-    assert "if (status.running) return 'skipped'" in supervisor_source
+    assert "const status = await window.api.terminalStatus(latestAgent.cliSessionId).catch(() => ({ processAlive: false }))" in supervisor_source
+    assert "if (status.processAlive) return 'skipped'" in supervisor_source
     assert "cliSessionId: undefined" in supervisor_source
     assert "if (!agent.cliSessionId)" in supervisor_source
     assert "agent.kind !== 'sprintengine'" in supervisor_source

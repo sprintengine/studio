@@ -1132,7 +1132,14 @@ export default function WorkspaceTopBar({
             }
             return (
             <div ref={specialistMenuRef} className="relative inline-flex">
-              <div className="inline-flex overflow-hidden rounded-md border border-[color:var(--color-6)] bg-[color:var(--bg-hover)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.025)]">
+              {/*
+               * Split-button frame: rounded border, no overflow-hidden. The Popover
+               * surface anchors to the chevron and must escape this frame — clipping
+               * here would hide the entire spawn-agent menu. Inner buttons round
+               * their own outer corners so the hover background still follows the
+               * frame's rounded corner.
+               */}
+              <div className="inline-flex rounded-md border border-[color:var(--color-6)] bg-[color:var(--bg-hover)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.025)]">
                 <Tooltip
                   placement="bottom"
                   content={
@@ -1150,7 +1157,7 @@ export default function WorkspaceTopBar({
                       }
                     }}
                     disabled={!activeWorkspaceId}
-                    className="inline-flex h-8 w-8 items-center justify-center text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-l-[5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
                     aria-label={
                       multiloopLaunchMenu
                         ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label}`
@@ -1183,7 +1190,7 @@ export default function WorkspaceTopBar({
                         ref={ref}
                         onClick={togglePopover}
                         disabled={!activeWorkspaceId}
-                        className="inline-flex h-8 w-6 items-center justify-center border-l border-[color:var(--color-6)] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
+                        className="inline-flex h-8 w-6 items-center justify-center rounded-r-[5px] border-l border-[color:var(--color-6)] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
                         aria-label="Spawn agent"
                         {...triggerProps}
                       >

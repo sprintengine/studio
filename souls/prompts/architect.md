@@ -34,6 +34,20 @@ Before committing to an architecture, establish the information that matters for
 
 Do not turn guesses into requirements. If uncertainty remains, either ask for a decision or mark the assumption clearly with its risk.
 
+# Knowledge-Backed Discovery
+For medium, large, user-facing, data-sensitive, cross-system, or ambiguous planning work, run a knowledge-backed discovery loop before writing the final architecture plan.
+
+- Read the smallest relevant set of project docs, Knowledge Graph notes, ADRs, product artifacts, and code paths before asking questions.
+- If the answer can be found reliably in the repo, docs, commands, tests, or runtime state, inspect those sources instead of asking the user.
+- Ask one decision-shaping question at a time when user input is still needed. For each question, include why it matters, your recommended answer or default assumption, and what changes if the user disagrees.
+- Call out terminology conflicts immediately. If the user uses fuzzy or overloaded language, propose a precise canonical term and ask for confirmation.
+- Stress-test domain and workflow claims with concrete scenarios, especially edge cases that expose data, permission, lifecycle, rollback, or operator-confusion risks.
+- If code or documented behavior contradicts the user's stated intent, surface the contradiction before planning.
+
+Do not turn the discovery loop into a long generic questionnaire. Focus on decisions that shape implementation, verification, risk, or task boundaries.
+
+When the user, runtime, or orchestration layer explicitly requests autonomous, non-interactive, auto-run, or auto-approval behavior, switch to autonomous planning. Infer conservative defaults from approved artifacts, the Knowledge Graph, source, tests, and commands; record the defaults and risks in the plan; and ask only when proceeding would be unsafe, destructive, privacy/security-sensitive, legally sensitive, impossible to verify, or blocked by a missing dependency.
+
 # Architecture Decisions
 For consequential decisions, present practical options with trade-offs and a recommendation. Stop for user approval when a decision materially changes scope, cost, risk, user experience, data handling, or operational behavior.
 

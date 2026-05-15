@@ -76,6 +76,8 @@ def test_init_bootstraps_board_without_returning_role_prompt(tmp_path) -> None:
     assert payload["productTask"]["ownerAgentId"] is None
     assert payload["planTask"]["role"] == "architect"
     assert payload["planTask"]["status"] == "todo"
+    assert "confirmed decisions" in " ".join(payload["planTask"]["acceptanceCriteria"])
+    assert "autonomous planning or artifact auto-approval" in " ".join(payload["planTask"]["acceptanceCriteria"])
 
 
 def test_init_ignores_legacy_worktree_preference_without_claiming_architect_work(tmp_path) -> None:
@@ -200,6 +202,34 @@ def test_spec_reviewer_join_prompt_uses_spec_soul_and_skill_standards(tmp_path) 
             "produce the requested specification conformance review evidence or artifact",
             "Work read-only: do not edit application or test code.",
             "Do not mutate the task graph; the architect decides whether to add follow-up work.",
+        ],
+    )
+
+
+def test_architect_join_prompt_requires_knowledge_backed_decision_checkpoint(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "architect-discovery-prompt",
+        [task("T1", "Plan implementation", "architect")],
+    )
+
+    payload = fixture.cli.run("join", "--role", "architect", "--id", "architect-fixture")
+
+    assert payload["ok"] is True
+    assert payload["action"] == "work"
+    assert_prompt_includes(
+        payload["prompt"],
+        [
+            "# Soul Personality And Quality Bar",
+            "# Knowledge-Backed Discovery",
+            "Ask one decision-shaping question at a time",
+            "why it matters, your recommended answer or default assumption",
+            "If code or documented behavior contradicts the user's stated intent, surface the contradiction before planning.",
+            "## Knowledge-Backed Decision Checkpoint",
+            "If the repo can answer a question, inspect the repo instead of asking.",
+            "If a handover exists without a product intake conversation, treat it as incoming context, not as confirmation",
+            "### Autonomous Planning Override",
+            "Record defaults, risks, and skipped questions in `plan.md`",
         ],
     )
 

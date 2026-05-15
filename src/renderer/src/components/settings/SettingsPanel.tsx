@@ -28,10 +28,13 @@ interface Props {
   onOpenSettingsTab?: (tabId: string) => void
   /**
    * `'panel'` (default) wraps the content in `WorkspacePanel` chrome.
-   * `'overlay'` renders the bare sidebar + content layout so a surrounding overlay
-   * can supply its own header and container.
+   * `'overlay'` renders the full-app Settings route layout (header + rail +
+   * content + optional right column). The surrounding overlay handles focus,
+   * Escape, and scroll-lock.
    */
   chrome?: 'panel' | 'overlay'
+  /** When `chrome='overlay'`, the surrounding dialog supplies its aria title id. */
+  titleId?: string
 }
 
 type UpdateAction = 'check' | 'download' | 'restart'
@@ -550,6 +553,7 @@ export default function SettingsPanel({
   initialTab = null,
   onOpenSettingsTab,
   chrome = 'panel',
+  titleId,
 }: Props) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeWorkspace = useWorkspaceStore((s) =>
@@ -1720,13 +1724,66 @@ export default function SettingsPanel({
 
   if (chrome === 'overlay') {
     return (
-      <div className="flex h-full min-h-0 flex-col md:flex-row">
-        <aside className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] p-1.5 md:w-48 md:border-b-0 md:border-r">
-          {sidebarNode}
-        </aside>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="w-full max-w-[760px] px-4 py-5">
-            {bodyContent}
+      <div className="flex h-full min-h-0 flex-col">
+        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-6 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={closeSettings}
+              className="interactive inline-flex items-center gap-1.5 text-[12px] font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
+            >
+              <svg
+                viewBox="0 0 12 12"
+                className="icon-xs"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M7.5 2.5L3.5 6l4 3.5" />
+              </svg>
+              <span>Back to workspace</span>
+            </button>
+            <span aria-hidden className="text-[color:var(--text-subtle)]">/</span>
+            <h2
+              id={titleId}
+              className="truncate text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]"
+            >
+              Settings
+            </h2>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <kbd className="hidden font-mono text-[11px] text-[color:var(--text-subtle)] sm:inline">
+              Esc
+            </kbd>
+            <button
+              type="button"
+              onClick={closeSettings}
+              aria-label="Close settings"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            >
+              <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path
+                  d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <aside className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] p-2 md:w-56 md:border-b-0 md:border-r md:p-3">
+            {sidebarNode}
+          </aside>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-[960px] px-8 py-8">
+              {bodyContent}
+            </div>
           </div>
         </div>
       </div>

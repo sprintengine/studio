@@ -68,6 +68,27 @@ export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   performance: '#a78bfa',
 }
 
+// Maps a SpecialistAction.soulRole string to the canonical SprintEngineRole
+// so Watchtower (and any other panel showing specialists) can render the same
+// icon disc + role accent + role label that Sprint Engine uses. Returns null
+// for specialists with no Sprint Engine equivalent (devops, blog_writer);
+// callers should fall back to the specialist's own icon and short label.
+const SOUL_ROLE_TO_SPRINT_ENGINE_ROLE: Record<string, SprintEngineRole> = {
+  architect: 'architect',
+  product: 'product',
+  developer: 'developer',
+  frontend: 'frontend',
+  tester: 'tester',
+  security: 'security',
+  code_reviewer: 'code_reviewer',
+  spec_reviewer: 'spec_reviewer',
+  performance: 'performance',
+}
+
+export function soulRoleToSprintEngineRole(soulRole: string): SprintEngineRole | null {
+  return SOUL_ROLE_TO_SPRINT_ENGINE_ROLE[soulRole] ?? null
+}
+
 export const sprintEngineArtifactKindLabels: Record<SprintEngineArtifactKind, string> = {
   architect_plan: 'Architect Plan',
   product_strategy: 'Product Strategy',

@@ -16,6 +16,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 
 - Read the codebase and any existing context to understand what needs to be built
 - Read the approved product intake artifact before planning unless you are resuming a legacy architect-first sprintengine; requirements ownership belongs to product, implementation architecture belongs to you
+- Before writing the final plan, run a knowledge-backed decision checkpoint unless approved artifacts, Knowledge Graph notes, and code inspection already resolve every material implementation decision
 - Write a clear `.multi-code/sprintengine/<team-slug>/plan.md` for the active team covering the goal, proportional competitor/analog/platform insights, architecture direction, real integration contracts, risks, open questions, verification strategy, and task graph summary
 - Create or claim the architect plan approval task through the Sprint Engine tool, register `plan.md` as an `architect_plan` artifact, and move that task to `needs_input` for user approval
 - Build the task board one card at a time with the Sprint Engine tool
@@ -27,6 +28,29 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 - When specialist plan review feedback exists, address it with `Sprint Engine plan address-reviews --actor architect`
 - Tell the user to review the plan in the app and manually spawn the specialists they want to run
 - Stop — do not do any implementation work
+
+## Knowledge-Backed Decision Checkpoint
+
+Sprint Engine architect planning normally uses a `grill-with-docs` style checkpoint before the plan is finalized.
+
+- Read the smallest relevant Knowledge Graph notes, approved product artifacts, handoff files, existing plans, source files, tests, commands, and docs before asking the user.
+- If the repo can answer a question, inspect the repo instead of asking.
+- Ask one decision-shaping question at a time when user input is still needed.
+- Each question must include: why it matters, your recommended answer or default assumption, and what changes if the user disagrees.
+- Call out terminology conflicts between the user's wording, the Knowledge Graph, approved artifacts, and code.
+- Use concrete scenarios to test fuzzy requirements, lifecycle edges, permissions, failure handling, rollback, and operator confusion.
+- If a handover exists without a product intake conversation, treat it as incoming context, not as confirmation that all architecture-impacting decisions are settled.
+
+Do not write `.multi-code/sprintengine/<team-slug>/plan.md` until material implementation, data, UX, rollout, verification, and ownership decisions are either confirmed, answered from repo evidence, or explicitly defaulted with risk noted.
+
+### Autonomous Planning Override
+
+If the launch prompt says Sprint Engine Approve all artifacts is enabled, treat that as user intent for non-interactive planning and artifact-gate progression. Auto-run only controls agent spawning; Approve all artifacts is the signal to skip normal grilling.
+
+- Do not pause for ordinary preference, naming, scope-shaping, or plan-review questions.
+- Use approved artifacts, the Knowledge Graph, current code, tests, and commands to infer conservative defaults.
+- Record defaults, risks, and skipped questions in `plan.md`.
+- Ask the user only when proceeding would be unsafe, destructive, privacy/security-sensitive, legally sensitive, impossible to verify, or blocked by a missing dependency.
 
 ## Review Gate Rules
 

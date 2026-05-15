@@ -257,7 +257,11 @@ expectIncludes(roleGlyph, 'sprintEngineRoleAccent[role]', 'RoleGlyph reads tone 
 expectIncludes(roleGlyph, 'knowledge/brand/panel-design-system.md', 'RoleGlyph documents itself against the panel design system contract')
 
 expectIncludes(switchboardPanel, '[aria-label="Switchboard overflow"]', 'Switchboard runner restores focus to overflow trigger')
-expectIncludes(watchtowerPanel, '[aria-label="Watchtower overflow"]', 'Watchtower review drawer restores focus to overflow trigger')
+expectIncludes(watchtowerPanel, 'aria-label="Active review"', 'Watchtower active review is a non-modal inline aside, not a Drawer')
+assert.ok(
+  !/<Drawer\b/.test(watchtowerPanel),
+  'Watchtower no longer uses the modal Drawer chrome — the active review is an inline aside that joins the flex row',
+)
 expectIncludes(sprintEnginePanel, '[aria-label="Sprint Engine overflow"]', 'Sprint Engine settings restores focus to overflow trigger')
 expectIncludes(sprintEnginePanel, 'role="tabpanel"', 'Sprint Engine views expose tabpanel semantics')
 expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-project"', 'Sprint Engine project panel is labelled by its tab')
