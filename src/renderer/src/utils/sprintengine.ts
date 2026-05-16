@@ -63,6 +63,18 @@ export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   performance: 'Performance Engineer',
 }
 
+/**
+ * Kanban column ordering and labels. Shared between the kanban view (orchestrator)
+ * and the inspector's task-status icon so both surfaces use the same vocabulary.
+ */
+export const sprintEngineTaskBoardColumns: { key: SprintEngineTaskBoardColumn; label: string }[] = [
+  { key: 'todo', label: 'Todo' },
+  { key: 'ready', label: 'Ready' },
+  { key: 'in_progress', label: 'In Progress' },
+  { key: 'needs_input', label: 'Needs Input' },
+  { key: 'done', label: 'Done' },
+]
+
 export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   architect: '#d4a757',
   product: '#e879a7',

@@ -9,7 +9,7 @@ import {
   MemoryGraphTooltip,
 } from '../memory/MemoryGraphHud'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { StatusDot } from '../ui'
+import { LoadingOverlay, StatusDot } from '../ui'
 import { Tooltip } from '../ui/Tooltip'
 
 type CursorPoint = { x: number; y: number }
@@ -271,7 +271,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
             message="Set a project-relative knowledge path in Settings → Knowledge to render the graph. Multicode never guesses a folder for you."
           />
         ) : loading ? (
-          <LoadingOverlay />
+          <LoadingOverlay label="Indexing knowledge…" />
         ) : indexResult && !indexResult.ok ? (
           <MemoryNotice
             tone="error"
@@ -362,17 +362,6 @@ function MemoryNotice({
           <div className="mt-2 text-xs leading-6 text-white/55">{message}</div>
         )}
         {hint ? <div className="mt-3 text-xs leading-6 text-white/55">{hint}</div> : null}
-      </div>
-    </div>
-  )
-}
-
-function LoadingOverlay() {
-  return (
-    <div className="flex h-full w-full items-center justify-center">
-      <div className="flex items-center gap-3 text-xs text-white/60">
-        <StatusDot tone="good" pulse size={8} />
-        <span>Indexing knowledge…</span>
       </div>
     </div>
   )

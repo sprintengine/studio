@@ -4,7 +4,7 @@ import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import { renderMarkdown } from '../../utils/markdown'
 import { TYPE_COLORS, bucketForNode } from './MemoryGraphCanvas'
 import { Tooltip } from '../ui/Tooltip'
-import { CloseIconButton } from '../ui'
+import { CloseIconButton, InlineNotice } from '../ui'
 
 type Props = {
   workspaceId: string
@@ -150,9 +150,7 @@ export default function MemoryPreviewPane({
         {!preview ? (
           <PaneNotice message="Loading preview…" />
         ) : !preview.ok ? (
-          <div className="rounded-[5px] border-l-2 border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] px-4 py-3 text-[13px] leading-6 text-[color:var(--tone-error)]">
-            {preview.message}
-          </div>
+          <InlineNotice tone="error" className="px-4 py-3">{preview.message}</InlineNotice>
         ) : preview.previewKind === 'markdown' ? (
           <article className="memory-markdown">
             {renderMarkdown(preview.content)}

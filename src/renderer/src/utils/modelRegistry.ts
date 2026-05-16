@@ -1,4 +1,5 @@
 import { Actions, DockLocation, Model, TabNode, TabSetNode, type IJsonModel } from 'flexlayout-react'
+import { basename, pathSeparatorFor } from './paths'
 
 const AGENT_TAB_SPAWN_FLASH_CLASS = 'agent-tab-spawn-flash'
 
@@ -318,10 +319,6 @@ function getFileTabPath(node: TabNode): string | null {
   return typeof config?.filePath === 'string' ? config.filePath : null
 }
 
-function pathSeparatorFor(path: string): '\\' | '/' {
-  return path.includes('\\') && !path.includes('/') ? '\\' : '/'
-}
-
 function isPathOrChild(path: string, parentPath: string): boolean {
   if (path === parentPath) return true
   const separator = pathSeparatorFor(parentPath)
@@ -333,10 +330,6 @@ function remapPath(path: string, fromPath: string, toPath: string): string {
   const separator = pathSeparatorFor(fromPath)
   const prefix = `${fromPath}${separator}`
   return path.startsWith(prefix) ? `${toPath}${path.slice(fromPath.length)}` : path
-}
-
-function basename(path: string): string {
-  return path.split(/[/\\]/).filter(Boolean).pop() ?? path
 }
 
 export function focusFileTab(workspaceId: string, filePath: string): boolean {

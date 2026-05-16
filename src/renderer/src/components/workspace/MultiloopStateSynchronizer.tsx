@@ -3,6 +3,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { MultiloopStateDisplayError } from '../../types/workspace'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { basename as getBaseName, parentPath as getParentDirectoryPath } from '../../utils/paths'
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
 
 const MULTILOOP_STATE_WATCH_DEBOUNCE_MS = 120
@@ -19,16 +20,6 @@ export type MultiloopStateSyncEventDetail =
 
 type MultiloopStateRefreshCause = 'initial' | 'watch' | 'recovery'
 const syncSnapshots = new Map<string, MultiloopStateSyncEventDetail>()
-
-function getParentDirectoryPath(path: string): string {
-  const normalized = path.replace(/[\\/]+$/, '')
-  const slashIndex = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
-  return slashIndex > 0 ? normalized.slice(0, slashIndex) : normalized
-}
-
-function getBaseName(path: string): string {
-  return path.split(/[/\\]/).filter(Boolean).pop() ?? path
-}
 
 function dispatchMultiloopStateSync(detail: MultiloopStateSyncEventDetail): void {
   syncSnapshots.set(detail.workspaceId, detail)

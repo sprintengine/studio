@@ -10,23 +10,121 @@
 //     changes signals from mobile actors).
 //   - Artifact summary / timestamp / tone / status-label helpers.
 //   - Sprint Engine inbox row tone + supporting-line resolvers.
-//   - `formatTimestamp` — colocated here because the inspector is the
-//     primary consumer; the orchestrator imports it back for its own task-
-//     detail row. A later cleanup may graduate it to `utils/time.ts`.
+//   - Inspector-shared types: selection, runtime-agent view, artifact &
+//     task-ready action states (consumed by both orchestrator and inspector).
+//   - Runtime-status and task-source/sync label formatters.
 
 import type {
   SprintEngineArtifact,
+  SprintEngineRole,
   SprintEngineTask,
 } from '../../types/workspace'
 import {
   getSprintEngineArtifactDependencyBlockers,
   sprintEngineArtifactKindLabels,
+  type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
+import { formatTimestamp } from '../../utils/time'
 import type { Tone } from '../ui'
 
-export function formatTimestamp(value: string | null): string {
-  if (!value) return 'Not started'
-  return new Date(value).toLocaleString()
+export { formatTimestamp }
+
+export type RuntimeAgentView = {
+  agentId: string
+  role: SprintEngineRole
+  status: string
+  currentTaskId: string | null
+}
+
+export type SprintEngineInspectorSelection =
+  | { kind: 'task'; task: SprintEngineTask }
+  | { kind: 'agent'; agent: SprintEngineAgentRosterItem }
+  | { kind: 'artifact'; artifact: SprintEngineArtifact }
+  | {
+      kind: 'artifact-preview'
+      artifact: { id: string; path: string; name: string; content: string }
+    }
+
+export type ArtifactActionKind = 'open' | 'approve' | 'requestChanges'
+
+export type ArtifactActionState = {
+  kind: ArtifactActionKind
+  status: 'pending' | 'success' | 'error'
+  message: string
+}
+
+export type TaskReadyActionState = {
+  status: 'pending' | 'success' | 'error'
+  message: string
+}
+
+export function runtimeStatusTone(status: string): Tone {
+  switch (status) {
+    case 'running':
+    case 'needs_input':
+      return 'warn'
+    case 'complete':
+      return 'good'
+    case 'error':
+      return 'error'
+    case 'planning':
+    case 'exited':
+    default:
+      return 'neutral'
+  }
+}
+
+export function runtimeStatusLabel(status: string): string {
+  switch (status) {
+    case 'needs_input':
+      return 'Needs Input'
+    case 'running':
+      return 'Running'
+    case 'planning':
+      return 'Planning'
+    case 'complete':
+      return 'Complete'
+    case 'exited':
+      return 'Exited'
+    case 'error':
+      return 'Error'
+    default:
+      return 'Idle'
+  }
+}
+
+export function formatTaskSourceLabel(task: SprintEngineTask): string {
+  if (!task.source) return 'Local'
+  if (task.source.type === 'github') {
+    return task.source.externalId ? `GitHub #${task.source.externalId}` : 'GitHub'
+  }
+  return task.source.type.charAt(0).toUpperCase() + task.source.type.slice(1)
+}
+
+export function formatTaskSyncStatusLabel(task: SprintEngineTask): string | null {
+  switch (task.source?.syncStatus) {
+    case 'local_changed':
+      return 'Local edits'
+    case 'remote_changed':
+      return 'Remote changed'
+    case 'conflict':
+      return 'Sync conflict'
+    default:
+      return null
+  }
+}
+
+export function formatTaskSyncStatusDescription(task: SprintEngineTask): string {
+  switch (task.source?.syncStatus) {
+    case 'local_changed':
+      return 'Local execution details differ from the last synced GitHub issue.'
+    case 'remote_changed':
+      return 'GitHub changed since the previous sync; this task was refreshed because local details were unchanged.'
+    case 'conflict':
+      return 'GitHub and local execution details both changed. Review the issue before starting work.'
+    default:
+      return ''
+  }
 }
 
 export function formatArtifactSummary(artifacts: SprintEngineArtifact[]): string {

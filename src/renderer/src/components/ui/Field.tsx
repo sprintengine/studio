@@ -25,6 +25,19 @@ type FieldProps = {
   className?: string
 }
 
+/**
+ * Standalone label, for layouts that don't fit the wrapped `Field` API
+ * (radio groups, segmented controls, label-above-non-control rows).
+ * Use `Field` itself whenever the label points at a single focusable control.
+ */
+function FieldLabel({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <span className={['text-[12px] font-medium text-[color:var(--text-default)]', className ?? ''].join(' ')}>
+      {children}
+    </span>
+  )
+}
+
 export function Field({ label, htmlFor, help, error, required, children, className }: FieldProps) {
   const helpId = help && !error ? `${htmlFor}-help` : undefined
   const errorId = error ? `${htmlFor}-error` : undefined
@@ -64,3 +77,5 @@ export function Field({ label, htmlFor, help, error, required, children, classNa
     </div>
   )
 }
+
+Field.Label = FieldLabel

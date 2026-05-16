@@ -17,6 +17,7 @@ import {
   type ActionTone,
 } from '../ui/ActionFeedback'
 import {
+  Banner,
   BoardLane,
   BoardLaneDropIndicator,
   CloseIconButton,
@@ -31,6 +32,7 @@ import {
   Select,
   SidePane,
   SidePaneHeader,
+  Skeleton,
   StatusDot,
   TaskCard,
   Tooltip,
@@ -866,14 +868,14 @@ function BoardSkeleton() {
       {BOARD_STATUS_ORDER.slice(0, 5).map((status, laneIdx) => (
         <section key={status} className="flex h-full min-w-[260px] flex-1 flex-col">
           <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
-            <div className="skeleton-shimmer h-3 w-20 rounded bg-[color:var(--bg-hover)]" />
-            <div className="skeleton-shimmer h-3 w-5 rounded bg-[color:var(--bg-hover)]" />
+            <Skeleton className="h-3 w-20 rounded bg-[color:var(--bg-hover)]" />
+            <Skeleton className="h-3 w-5 rounded bg-[color:var(--bg-hover)]" />
           </div>
           <ol className="min-h-0 flex-1 space-y-2 px-2 py-2">
             {Array.from({ length: 3 - (laneIdx % 2) }).map((_, cardIdx) => (
               <li key={cardIdx} className="rounded-[5px] border-l-2 border-transparent px-2.5 py-1.5">
-                <div className="skeleton-shimmer h-3 w-[85%] rounded bg-[color:var(--bg-hover)]" />
-                <div className="skeleton-shimmer mt-1.5 h-2.5 w-[60%] rounded bg-[color:var(--bg-hover)]" />
+                <Skeleton className="h-3 w-[85%] rounded bg-[color:var(--bg-hover)]" />
+                <Skeleton className="mt-1.5 h-2.5 w-[60%] rounded bg-[color:var(--bg-hover)]" />
               </li>
             ))}
           </ol>
@@ -1944,28 +1946,3 @@ function ExecutionsList({
   )
 }
 
-function Banner({
-  tone,
-  message,
-  onRetry,
-}: {
-  tone: 'error' | 'warn'
-  message: string
-  onRetry?: () => void
-}) {
-  const bgVar = tone === 'error' ? 'var(--tone-error-soft)' : 'var(--tone-warn-soft)'
-  return (
-    <div
-      className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2 text-[12px] text-[color:var(--text-strong)]"
-      style={{ backgroundColor: bgVar }}
-    >
-      <span className="flex min-w-0 items-center gap-2">
-        <StatusDot tone={tone === 'error' ? 'error' : 'warn'} />
-        <span className="min-w-0 truncate">{message}</span>
-      </span>
-      {onRetry ? (
-        <GhostButton onClick={onRetry}>Retry</GhostButton>
-      ) : null}
-    </div>
-  )
-}

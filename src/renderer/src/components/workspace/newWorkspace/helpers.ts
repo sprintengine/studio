@@ -1,9 +1,7 @@
 import type { SprintEngineSourcePlanKind } from '../../../types/workspace'
+import { basename } from '../../../utils/paths'
 
-export function basename(p: string): string {
-  const parts = p.split(/[/\\]/).filter(Boolean)
-  return parts[parts.length - 1] ?? ''
-}
+export { basename }
 
 export function folderKey(path: string): string {
   return path.trim().replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() || path

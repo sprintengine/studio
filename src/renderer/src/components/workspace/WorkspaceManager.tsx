@@ -9,10 +9,8 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   deriveWorkspaceLastOutputAt,
-  deriveWorkspaceDisplayActivity,
   deriveWorkspaceTerminalActivity,
   findLiveSession,
-  isLiveTerminal,
 } from '../../hooks/useTerminalSessions'
 import {
   MULTILOOP_ROLES,
@@ -21,7 +19,6 @@ import {
   getSpecialistAction,
   buildSpecialistSoulStartupPrompt,
   loadMultiloopPrompt,
-  type MultiloopRoleDescriptor,
 } from '../../specialists/specialistActions'
 import type {
   AgentCli,
@@ -38,11 +35,8 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { addAgentTabTiled, focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
-import { buildMultiloopLaunchContextLines, getActiveMultiloopMilestone, getMultiloopTasksForMilestone } from '../../utils/multiloop'
-import { isStarred } from '../../utils/highlight'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
-import { Tooltip } from '../ui/Tooltip'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import NewWorkspacePanel, { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
@@ -51,11 +45,22 @@ import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineStateSynchronizer from './SprintEngineStateSynchronizer'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
+import { WindowControls } from './WindowControls'
 import WorkspaceTopBar, {
   AGENT_SPAWN_PERMISSION_OPTIONS,
   type ChipPopoverForRole,
   type SessionItem,
 } from './WorkspaceTopBar'
+import {
+  buildMultiloopSpawnPrompt,
+  buildSidebarWorkspaceOrder,
+  getSessionItems,
+  getTerminalSessionsSignature,
+  getWorkspaceActivity,
+  hasActiveProPlan,
+  uniqueAgentName,
+  type WorkspaceActivity,
+} from './workspaceManagerHelpers'
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
@@ -76,203 +81,7 @@ const SPECIALIST_KEYBOARD_CODE_SHORTCUTS: Record<string, SpecialistActionId> = {
 }
 
 type WorkspacePanelComponent = 'explorer' | 'editor' | 'git' | 'memory-graph'
-type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
-type SessionStatus = 'needs-input' | 'working'
 
-function workspaceNeedsInput(workspace: Workspace): boolean {
-  return Object.values(workspace.sprintEngineState?.sprintEngineAgents ?? {}).some(
-    (agent) => agent.status === 'needs_input'
-  )
-}
-
-function getWorkspaceActivity(
-  workspace: Workspace,
-  terminalSessions: TerminalSessionSnapshot[]
-): WorkspaceActivity {
-  return deriveWorkspaceDisplayActivity(
-    workspace.id,
-    terminalSessions,
-    workspaceNeedsInput(workspace)
-  )
-}
-
-function hasActiveProPlan(authState: MulticodeAuthState): boolean {
-  return authState.entitlements?.plan.status === 'active' && authState.entitlements.plan.code.toLowerCase() === 'pro'
-}
-
-function uniqueAgentName(baseName: string, agents: Workspace['agents']): string {
-  const existingNames = new Set(Object.values(agents).map((agent) => agent.name))
-  if (!existingNames.has(baseName)) return baseName
-
-  let suffix = 2
-  while (existingNames.has(`${baseName} ${suffix}`)) suffix += 1
-  return `${baseName} ${suffix}`
-}
-
-function terminalSessionLabel(terminalId: string): string {
-  if (terminalId.startsWith('git-')) return 'Git terminal'
-  if (terminalId.startsWith('worktree-')) return 'Worktree terminal'
-  return 'Terminal'
-}
-
-function getSessionItems(
-  workspaces: Workspace[],
-  terminalSessions: TerminalSessionSnapshot[]
-): SessionItem[] {
-  return terminalSessions
-    .filter((session) => (
-      isLiveTerminal(session)
-      && typeof session.workspaceId === 'string'
-    ))
-    .flatMap((session): SessionItem[] => {
-      const workspace = workspaces.find((candidate) => candidate.id === session.workspaceId)
-      if (!workspace) return []
-
-      if (session.kind === 'agent') {
-        if (!session.agentId) return []
-        const agent = workspace.agents[session.agentId]
-        const runtime = workspace.sprintEngineState?.sprintEngineAgents[session.agentId]
-        const status: SessionStatus = runtime?.status === 'needs_input' ? 'needs-input' : 'working'
-        const specialistId = (agent?.kind === 'specialist' || agent?.kind === 'watchtower')
-          ? agent.specialistId ?? null
-          : null
-        const multiloopRole = agent?.kind === 'multiloop' ? agent.multiloopRole ?? null : null
-
-        return [{
-          workspace,
-          kind: session.kind,
-          agentId: session.agentId,
-          terminalId: null,
-          label: agent?.name || session.agentId,
-          cli: session.cli ?? agent?.cli ?? 'codex',
-          status,
-          role: runtime?.role ?? null,
-          specialistId,
-          multiloopRole,
-          taskId: runtime?.currentTaskId ?? null,
-          sessionId: session.sessionId,
-        }]
-      }
-
-      const terminalId = session.terminalId ?? session.sessionId.replace(/^terminal-/, '')
-      return [{
-        workspace,
-        kind: session.kind,
-        agentId: null,
-        terminalId,
-        label: terminalSessionLabel(terminalId),
-        cli: 'codex' as AgentCli,
-        status: 'working' as const,
-        role: null,
-        specialistId: null,
-        multiloopRole: null,
-        taskId: null,
-        sessionId: session.sessionId,
-      }]
-    })
-}
-
-// Reproduces the workspace order users see in the left sidebar so the
-// session manager dropdown matches: starred workspaces first (in their
-// stored order), then folder groups in first-occurrence order, with each
-// workspace appearing exactly once.
-function buildSidebarWorkspaceOrder(workspaces: Workspace[]): Map<string, number> {
-  const order = new Map<string, number>()
-  let index = 0
-
-  for (const workspace of workspaces) {
-    if (isStarred(workspace.highlight)) order.set(workspace.id, index++)
-  }
-
-  const seenFolders: string[] = []
-  const folderBuckets = new Map<string, Workspace[]>()
-  for (const workspace of workspaces) {
-    if (isStarred(workspace.highlight)) continue
-    const folderPath = workspace.folderPath ?? null
-    const key = folderPath
-      ? folderPath.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-      : '__no_folder__'
-    if (!folderBuckets.has(key)) {
-      seenFolders.push(key)
-      folderBuckets.set(key, [])
-    }
-    folderBuckets.get(key)!.push(workspace)
-  }
-  for (const key of seenFolders) {
-    for (const workspace of folderBuckets.get(key)!) {
-      order.set(workspace.id, index++)
-    }
-  }
-  return order
-}
-
-function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]): string {
-  return [...sessions]
-    .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
-    .map((session) => [
-      session.sessionId,
-      session.processAlive ? '1' : '0',
-      session.activity.kind,
-      session.kind,
-      session.workspaceId ?? '',
-      session.agentId ?? '',
-      session.terminalId ?? '',
-      session.cli ?? '',
-      session.cwd ?? '',
-      session.sprintEngineStatePath ?? '',
-      session.executionMode ?? '',
-      session.worktreeId ?? '',
-      session.worktreePath ?? '',
-    ].join('\u001f'))
-    .join('\u001e')
-}
-
-function toProjectRelativeStatePath(path: string | null | undefined, workspaceRoot: string | null | undefined): string {
-  if (!path) return 'multiloop/<loop>/state.json'
-
-  const normalizedPath = path.replace(/\\/g, '/')
-  const normalizedRoot = workspaceRoot?.replace(/\\/g, '/').replace(/\/+$/u, '')
-  if (normalizedRoot && (normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`))) {
-    return normalizedPath.slice(normalizedRoot.length).replace(/^\/+/u, '') || '.'
-  }
-
-  const multiloopIndex = normalizedPath.lastIndexOf('/multiloop/')
-  return multiloopIndex >= 0
-    ? normalizedPath.slice(multiloopIndex + 1)
-    : 'multiloop/<loop>/state.json'
-}
-
-function buildMultiloopSpawnPrompt({
-  soul,
-  multiloopPrompt,
-  workspace,
-  agentId,
-}: {
-  soul: MultiloopRoleDescriptor
-  multiloopPrompt: string
-  workspace: Workspace
-  agentId: string
-}): string {
-  const state = workspace.multiloopState
-  const currentMilestone = state ? getActiveMultiloopMilestone(state) : null
-  const readyTaskIdsForRole = state && currentMilestone
-    ? getMultiloopTasksForMilestone(state, currentMilestone.id)
-      .filter((task) => task.role === soul.role && task.status === 'ready')
-      .map((task) => task.id)
-    : []
-  const context = buildMultiloopLaunchContextLines({
-    roleLabel: soul.label,
-    role: soul.role,
-    agentId,
-    readyTaskIdsForRole,
-    loopName: state?.loop.displayName ?? workspace.multiloopContext?.loopName ?? workspace.name,
-    finalGoal: state?.loop.finalGoal ?? null,
-    currentMilestone,
-    statePath: toProjectRelativeStatePath(workspace.multiloopContext?.statePath, workspace.folderPath),
-  })
-
-  return [multiloopPrompt.trim(), ...context].join('\n')
-}
 
 export default function WorkspaceManager() {
   const dialog = useConfirmDialog()
@@ -1519,70 +1328,6 @@ export default function WorkspaceManager() {
   )
 }
 
-function WindowControls({ isMaximized }: { isMaximized: boolean }) {
-  const minimizeWindow = () => {
-    void window.api.windowMinimize()
-  }
-
-  const toggleWindowSize = () => {
-    void window.api.windowToggleMaximize()
-  }
-
-  const closeWindow = () => {
-    void window.api.windowClose()
-  }
-
-  return (
-    <div className="app-no-drag flex shrink-0 items-stretch" aria-label="Window controls">
-      <Tooltip content="Minimize" placement="bottom">
-        <button
-          type="button"
-          onClick={minimizeWindow}
-          className="inline-flex w-10 items-center justify-center text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:bg-[color:var(--bg-hover)] focus:text-[color:var(--text-strong)] focus:outline-none"
-          aria-label="Minimize window"
-        >
-          <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M3.5 8H12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </button>
-      </Tooltip>
-
-      <Tooltip content={isMaximized ? 'Restore' : 'Maximize'} placement="bottom">
-        <button
-          type="button"
-          onClick={toggleWindowSize}
-          className="inline-flex w-10 items-center justify-center text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:bg-[color:var(--bg-hover)] focus:text-[color:var(--text-strong)] focus:outline-none"
-          aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
-        >
-          {isMaximized ? (
-            <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M5.5 6.5H11.5V12.5H5.5V6.5Z" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M4.5 9.5H3.5V3.5H9.5V4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : (
-            <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M4 4H12V12H4V4Z" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          )}
-        </button>
-      </Tooltip>
-
-      <Tooltip content="Close" placement="bottom">
-        <button
-          type="button"
-          onClick={closeWindow}
-          // design-tokens-allow: Windows 11 OS-native close-button hover red; tokenising would replace the system-expected red with the Multicode tone palette
-          className="inline-flex w-10 items-center justify-center text-[color:var(--text-muted)] transition-colors hover:bg-[#c42b1c] hover:text-white focus:bg-[#c42b1c] focus:text-white focus:outline-none"
-          aria-label="Close window"
-        >
-          <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </button>
-      </Tooltip>
-    </div>
-  )
-}
 
 function getNextWorkspaceId(
   workspaces: Workspace[],

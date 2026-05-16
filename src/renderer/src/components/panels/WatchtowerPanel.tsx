@@ -43,6 +43,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { focusOrAddFileTab, hasAgentTab } from '../../utils/modelRegistry'
 import {
+  Banner,
   DefinitionList,
   FilePreviewPane,
   GhostButton,
@@ -54,6 +55,7 @@ import {
   Select,
   SidePane,
   SidePaneHeader,
+  Skeleton,
   StatusDot,
   type OverflowMenuItem,
   type Tone,
@@ -772,7 +774,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         ) : null}
         {problems.length > 0 ? (
           <Banner
-            tone="warning"
+            tone="warn"
             message={`${problems.length} task file${problems.length === 1 ? '' : 's'} could not be parsed. Folder reads continue.`}
           />
         ) : null}
@@ -1052,11 +1054,11 @@ function InboxSkeleton() {
         {Array.from({ length: 5 }).map((_, idx) => (
           <li key={idx} className="border-b border-[color:var(--border-subtle)] px-3 py-2">
             <div className="flex items-baseline gap-2">
-              <div className="skeleton-shimmer h-2.5 w-12 rounded bg-[color:var(--bg-surface-raised)]" />
-              <div className="skeleton-shimmer h-3 flex-1 rounded bg-[color:var(--bg-surface-raised)]" />
-              <div className="skeleton-shimmer h-2.5 w-10 rounded bg-[color:var(--bg-surface-raised)]" />
+              <Skeleton className="h-2.5 w-12 rounded bg-[color:var(--bg-surface-raised)]" />
+              <Skeleton className="h-3 flex-1 rounded bg-[color:var(--bg-surface-raised)]" />
+              <Skeleton className="h-2.5 w-10 rounded bg-[color:var(--bg-surface-raised)]" />
             </div>
-            <div className="skeleton-shimmer mt-1.5 h-2.5 w-[70%] rounded bg-[color:var(--bg-surface-raised)]" />
+            <Skeleton className="mt-1.5 h-2.5 w-[70%] rounded bg-[color:var(--bg-surface-raised)]" />
           </li>
         ))}
       </ul>
@@ -1841,32 +1843,3 @@ function CreateInboxDialog({
   )
 }
 
-function Banner({
-  tone,
-  message,
-  onRetry,
-}: {
-  tone: 'error' | 'warning'
-  message: string
-  onRetry?: () => void
-}) {
-  const toneVar = tone === 'error' ? '--tone-error' : '--tone-warn'
-  const softVar = tone === 'error' ? '--tone-error-soft' : '--tone-warn-soft'
-  return (
-    <div
-      className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2 text-[12px]"
-      style={{ backgroundColor: `var(${softVar})`, color: `var(${toneVar})` }}
-    >
-      <span className="min-w-0 truncate">{message}</span>
-      {onRetry ? (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="interactive shrink-0 rounded-[5px] border border-current bg-transparent px-2 py-0.5 text-[11px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-        >
-          Retry
-        </button>
-      ) : null}
-    </div>
-  )
-}

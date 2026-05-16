@@ -10,8 +10,13 @@ export type DefinitionItem = {
 
 type DefinitionListProps = {
   items: DefinitionItem[]
-  /** Two-column variant for wide inspector layouts; otherwise stack. */
-  layout?: 'stack' | 'two-column'
+  /**
+   * `stack` — vertical label/value pairs, single column.
+   * `two-column` — left-aligned terms beside flexible descriptions (default).
+   * `compact-grid` — auto-fit cells where each item stacks label above value;
+   *   intended for short stat groups inside a dialog or detail header.
+   */
+  layout?: 'stack' | 'two-column' | 'compact-grid'
   className?: string
 }
 
@@ -25,6 +30,24 @@ export function DefinitionList({ items, layout = 'two-column', className }: Defi
             <dd
               id={item.id}
               className="text-[12px] text-[color:var(--text-strong)] leading-[1.4]"
+            >
+              {item.description}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    )
+  }
+
+  if (layout === 'compact-grid') {
+    return (
+      <dl className={`grid gap-x-4 gap-y-3 sm:grid-cols-2 ${className ?? ''}`}>
+        {items.map((item, index) => (
+          <div key={item.id ?? index} className="min-w-0">
+            <dt className="text-[10px] text-[color:var(--text-disabled)]">{item.term}</dt>
+            <dd
+              id={item.id}
+              className="mt-1 text-[12px] font-medium text-[color:var(--text-strong)] [overflow-wrap:anywhere]"
             >
               {item.description}
             </dd>

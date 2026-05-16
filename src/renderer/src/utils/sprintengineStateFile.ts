@@ -15,18 +15,10 @@ import {
 // and read `state.yaml`, but it must never write or "sync back" Sprint Engine state.
 // All mutations must go through the sprintengine Python tool.
 
-function joinPath(basePath: string, child: string): string {
-  const sep = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/'
-  return `${basePath.replace(/[\\/]+$/, '')}${sep}${child}`
-}
+import { joinFilePath as joinPath, slugify } from './paths'
 
 export function slugifySprintEngineName(name: string | null | undefined): string {
-  const slug = (name ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return slug || 'sprintengine-team'
+  return slugify(name) || 'sprintengine-team'
 }
 
 export function getSprintEngineRootDirectoryPath(folderPath: string): string {

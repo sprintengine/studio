@@ -1,18 +1,9 @@
 import type { MultiloopStateReadResult } from '../types/workspace'
 import { parseMultiloopStateFileContent } from './multiloop'
-
-function joinPath(basePath: string, child: string): string {
-  const sep = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/'
-  return `${basePath.replace(/[\\/]+$/, '')}${sep}${child}`
-}
+import { joinFilePath as joinPath, slugify } from './paths'
 
 export function slugifyMultiloopName(name: string | null | undefined): string {
-  const slug = (name ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return slug || 'multiloop'
+  return slugify(name) || 'multiloop'
 }
 
 export function getMultiloopRootDirectoryPath(folderPath: string): string {

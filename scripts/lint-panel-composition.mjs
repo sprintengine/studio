@@ -67,6 +67,7 @@ const ALLOW_LIST = new Map([
   ['ContentSearchPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 8).'],
   ['MemoryGraphPanel.tsx', 'Graph canvas surface; rebuild scheduled in the app-wide audit plan.'],
   ['SprintEngineTaskGraphView.tsx', 'Sub-view of SprintEngineBoardPanel; rendered inside the parent panel\'s body, so PanelHeader is owned by the parent. Extracted to its own file for maintainability.'],
+  ['SprintEngineInspectorPanel.tsx', 'Inspector aside of SprintEngineBoardPanel; rendered as the right-hand detail pane, so PanelHeader chrome is owned by the parent panel. Extracted to its own file in Stage 2.1 of the app-wide dedup plan.'],
 ])
 
 const args = new Set(process.argv.slice(2))

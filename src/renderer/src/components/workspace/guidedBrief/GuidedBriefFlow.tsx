@@ -5,7 +5,7 @@ import {
   GuidedBriefWorkspaceError,
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
-import { CloseIconButton, StatusDot, Tooltip } from '../../ui'
+import { CloseIconButton, StatusDot, Tooltip, WizardProgress } from '../../ui'
 import { ConversationPane, type ConversationView } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
@@ -287,7 +287,7 @@ export function GuidedBriefFlow({
             · Guided brief{hasUi === 'no' ? ' · no UI' : ''}
           </span>
         </div>
-        <GuidedProgress total={progress.total} active={progress.active} done={progress.done} />
+        <WizardProgress total={progress.total} active={progress.active} done={progress.done} />
         {onClose ? (
           <CloseIconButton
             size="md"
@@ -505,37 +505,6 @@ function PrimaryButton({
     >
       {children}
     </button>
-  )
-}
-
-function GuidedProgress({ total, active, done }: { total: number; active: number; done: number }) {
-  return (
-    <div
-      role="progressbar"
-      aria-valuemin={1}
-      aria-valuemax={total}
-      aria-valuenow={Math.min(total, active + 1)}
-      aria-label={`Step ${Math.min(total, active + 1)} of ${total}`}
-      className="flex min-w-0 flex-1 items-center gap-1.5"
-    >
-      {Array.from({ length: total }).map((_, idx) => {
-        const isCurrent = idx === active
-        const isDone = idx < done && !isCurrent
-        return (
-          <span
-            key={idx}
-            aria-hidden="true"
-            className={`h-[3px] flex-1 rounded-full transition-colors duration-300 ${
-              isCurrent
-                ? 'bg-[color:var(--text-strong)]'
-                : isDone
-                  ? 'bg-[color:var(--text-disabled)]'
-                  : 'bg-[color:var(--border-default)]'
-            }`}
-          />
-        )
-      })}
-    </div>
   )
 }
 

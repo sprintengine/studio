@@ -49,7 +49,7 @@ import {
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
-import { CloseIconButton, Select } from '../ui'
+import { CloseIconButton, Field, Select, WizardProgress } from '../ui'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { SprintEngineRosterTable } from './newWorkspace/SprintEngineRosterTable'
@@ -60,6 +60,7 @@ import {
 } from './newWorkspace/useNewWorkspaceFolder'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
+import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
 
 const MAX_RECENT_FOLDERS = 6
 const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief']
@@ -176,27 +177,6 @@ const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
   security: 0,
 }
 
-const cliPermissionOptions: Array<{
-  value: SprintEngineCliPermissionPreset
-  label: string
-  hint: string
-}> = [
-  {
-    value: 'default',
-    label: 'Default permissions',
-    hint: 'Use the CLI default permission behavior. Agents will prompt before sensitive actions.',
-  },
-  {
-    value: 'auto_workspace',
-    label: 'Auto in workspace',
-    hint: 'Reduce prompts while keeping workspace-scoped guardrails where the CLI supports them.',
-  },
-  {
-    value: 'bypass_all',
-    label: 'Bypass permissions',
-    hint: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
-  },
-]
 
 export type NewWorkspacePanelInitialState = {
   mode?: CreationMode
@@ -1267,40 +1247,8 @@ export default function NewWorkspacePanel({
   )
 }
 
-function WizardProgress({ total, active }: { total: number; active: number }) {
-  return (
-    <div
-      role="progressbar"
-      aria-valuemin={1}
-      aria-valuemax={total}
-      aria-valuenow={Math.min(total, active + 1)}
-      aria-label={`Step ${Math.min(total, active + 1)} of ${total}`}
-      className="flex min-w-0 flex-1 items-center gap-1.5"
-    >
-      {Array.from({ length: total }).map((_, idx) => {
-        const isPast = idx < active
-        const isCurrent = idx === active
-        return (
-          <span
-            key={idx}
-            aria-hidden="true"
-            className={`h-[3px] flex-1 rounded-full transition-colors duration-300 ${
-              isCurrent ? 'bg-[color:var(--text-strong)]' : isPast ? 'bg-[color:var(--text-disabled)]' : 'bg-[color:var(--border-default)]'
-            }`}
-          />
-        )
-      })}
-    </div>
-  )
-}
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-[12px] font-medium text-[color:var(--text-default)]">
-      {children}
-    </span>
-  )
-}
+const FieldLabel = Field.Label
 
 function WorkspaceStep({
   name,
@@ -2080,91 +2028,6 @@ function SprintEngineRosterStep(props: {
         </div>
       </div>
     </div>
-  )
-}
-
-function CliPermissionPresetRow({
-  preset,
-  onChange,
-}: {
-  preset: SprintEngineCliPermissionPreset
-  onChange: (preset: SprintEngineCliPermissionPreset) => void
-}) {
-  const current = cliPermissionOptions.find((option) => option.value === preset) ?? cliPermissionOptions[0]
-  const isBypass = preset === 'bypass_all'
-  return (
-    <div className="flex flex-col gap-2 px-3.5 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="min-w-0">
-          <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Agent permissions</span>
-          <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-            How spawned agents handle CLI permission prompts.
-          </span>
-        </span>
-        <Select<SprintEngineCliPermissionPreset>
-          ariaLabel="CLI permission preset"
-          items={cliPermissionOptions.map((option) => ({ value: option.value, label: option.label }))}
-          value={preset}
-          onChange={onChange}
-          className="shrink-0"
-        />
-      </div>
-      <p
-        className={`text-[11px] leading-4 ${
-          isBypass ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
-        }`}
-      >
-        {current.hint}
-      </p>
-    </div>
-  )
-}
-
-function PathRadio({
-  checked,
-  label,
-  hint,
-  disabled,
-  onSelect,
-}: {
-  checked: boolean
-  label: string
-  hint: string
-  disabled?: boolean
-  onSelect: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={onSelect}
-      className={`
-        grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
-        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-        disabled:cursor-not-allowed disabled:opacity-55
-        ${checked
-          ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
-          : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
-      `}
-    >
-      <span
-        className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
-          checked ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--color-6)]'
-        }`}
-        aria-hidden="true"
-      >
-        {/* design-tokens-allow: inner glyph of a custom radio control — not a status dot */}
-        {checked ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
-      </span>
-      <span className="min-w-0">
-        <span className={`block text-[13px] font-semibold ${checked ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
-          {label}
-        </span>
-        <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">{hint}</span>
-      </span>
-    </button>
   )
 }
 

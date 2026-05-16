@@ -4,6 +4,7 @@ import { renderMarkdown } from '../../utils/markdown'
 import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import {
   GhostButton,
+  InlineNotice,
   OverflowMenu,
   PanelHeader,
   type OverflowMenuItem,
@@ -149,9 +150,7 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
             <div className="text-[13px] text-[color:var(--text-muted)]">Loading plan…</div>
           ) : null}
           {status === 'error' ? (
-            <div className="rounded-md border-l-2 border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] px-3 py-2 text-[13px] leading-6 text-[color:var(--tone-error)]">
-              {error ?? 'Failed to load plan.'}
-            </div>
+            <InlineNotice tone="error">{error ?? 'Failed to load plan.'}</InlineNotice>
           ) : null}
           {status === 'ready' && mode === 'preview' ? (
             <div className="mx-auto max-w-4xl text-[13px] leading-6 text-[color:var(--text-default)]">

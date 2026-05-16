@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { basename as getBaseName, parentPath as getParentDirectoryPath } from '../../utils/paths'
 import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
 
 const SPRINTENGINE_STATE_WATCH_DEBOUNCE_MS = 120
@@ -11,16 +12,6 @@ const SPRINTENGINE_STATE_RECOVERY_MAX_MS = 120_000
 const SPRINTENGINE_STATE_UNCHANGED_LOG_INTERVAL_MS = 30_000
 
 type SprintEngineStateRefreshCause = 'initial' | 'watch' | 'recovery'
-
-function getParentDirectoryPath(path: string): string {
-  const normalized = path.replace(/[\\/]+$/, '')
-  const slashIndex = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
-  return slashIndex > 0 ? normalized.slice(0, slashIndex) : normalized
-}
-
-function getBaseName(path: string): string {
-  return path.split(/[/\\]/).filter(Boolean).pop() ?? path
-}
 
 export default function SprintEngineStateSynchronizer({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)

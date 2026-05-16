@@ -3,6 +3,7 @@ import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace'
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
+import { basename, parentPath, pathJoin, samePath, trimPath } from '../../utils/paths'
 import { Select, StatusDot, type SelectItem, type Tone } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
@@ -40,34 +41,7 @@ type Props = {
 const terminalCols = 100
 const terminalRows = 30
 
-function trimPath(pathValue: string): string {
-  return pathValue.replace(/[\\/]+$/, '')
-}
-
-function samePath(a: string, b: string): boolean {
-  return trimPath(a).toLowerCase() === trimPath(b).toLowerCase()
-}
-
-function basename(pathValue: string): string {
-  const parts = trimPath(pathValue).split(/[\\/]+/).filter(Boolean)
-  return parts.at(-1) ?? pathValue
-}
-
-function parentPath(pathValue: string): string {
-  const trimmed = trimPath(pathValue)
-  const index = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  if (index <= 0) return trimmed
-  return trimmed.slice(0, index)
-}
-
-function pathJoin(basePath: string, ...segments: string[]): string {
-  const separator = basePath.includes('\\') ? '\\' : '/'
-  return [trimPath(basePath), ...segments.map((segment) => segment.replace(/^[\\/]+|[\\/]+$/g, ''))]
-    .filter(Boolean)
-    .join(separator)
-}
-
-function slugify(value: string): string {
+function slugifyWorktreeName(value: string): string {
   return value
     .trim()
     .toLowerCase()
@@ -77,7 +51,7 @@ function slugify(value: string): string {
 }
 
 function worktreeIdFromPath(pathValue: string): string {
-  return `worktree-${slugify(pathValue).replace(/[\\/.:]+/g, '-')}`
+  return `worktree-${slugifyWorktreeName(pathValue).replace(/[\\/.:]+/g, '-')}`
 }
 
 function defaultContainerPath(repoRoot: string): string {
@@ -150,7 +124,7 @@ export default function WorktreeManager({
   }, [baseRef, currentBranch])
 
   useEffect(() => {
-    const slug = slugify(worktreeName)
+    const slug = slugifyWorktreeName(worktreeName)
     if (!slug) {
       setBranchName('')
       return
@@ -255,7 +229,7 @@ export default function WorktreeManager({
   }
 
   const handleCreate = async () => {
-    const slug = slugify(worktreeName)
+    const slug = slugifyWorktreeName(worktreeName)
     const branch = branchName.trim()
     if (!slug || !branch) {
       setMessage({ tone: 'error', text: 'Enter a worktree name and branch.' })

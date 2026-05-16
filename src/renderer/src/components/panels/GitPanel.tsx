@@ -4,6 +4,7 @@ import { useGitStatus } from '../../hooks/useGitStatus'
 import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, focusOrAddGitConflictTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { isImageFile } from '../../utils/files'
+import { basename, samePath, trimPath } from '../../utils/paths'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { IconButton, InboxRow, PanelHeader, Select, StatusDot, Tooltip, type Tone } from '../ui'
@@ -129,20 +130,6 @@ function GitActionIcon({ kind }: { kind: GitActionIconKind }) {
 
 function sortedEntries(entries: GitStatusEntry[]): GitStatusEntry[] {
   return [...entries].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
-}
-
-function trimPath(pathValue: string): string {
-  return pathValue.replace(/[\\/]+$/, '')
-}
-
-function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
-  if (!a || !b) return false
-  return trimPath(a).toLowerCase() === trimPath(b).toLowerCase()
-}
-
-function basename(pathValue: string): string {
-  const parts = trimPath(pathValue).split(/[\\/]+/).filter(Boolean)
-  return parts.at(-1) ?? pathValue
 }
 
 function branchOrHeadLabel(branch: string | null, head: string | null): string {
