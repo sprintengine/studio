@@ -44,6 +44,13 @@ export type SprintEngineAgentRosterItem = {
   role: SprintEngineRole
 }
 
+export const sprintEngineTaskStateLabel: Record<SprintEngineTaskStatus, string> = {
+  todo: 'Todo',
+  in_progress: 'In Progress',
+  needs_input: 'Needs Input',
+  done: 'Done',
+}
+
 export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   architect: 'Architect',
   product: 'Product Strategist',
@@ -1090,4 +1097,18 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     tasks,
     artifacts: normalizeSprintEngineArtifacts(input.artifacts),
   }
+}
+
+/**
+ * Convert a `#rrggbb` hex string to an `rgba(...)` string with the given alpha.
+ * Colocated here because every caller pairs it with `sprintEngineRoleAccent`
+ * to render the role-tinted avatar / backplate documented in
+ * knowledge/brand/panel-design-system.md.
+ */
+export function hexToRgba(hex: string, alpha: number): string {
+  const value = hex.replace('#', '')
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }

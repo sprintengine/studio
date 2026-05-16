@@ -66,6 +66,7 @@ const ALLOW_LIST = new Map([
   ['GitConflictResolverPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 7).'],
   ['ContentSearchPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 8).'],
   ['MemoryGraphPanel.tsx', 'Graph canvas surface; rebuild scheduled in the app-wide audit plan.'],
+  ['SprintEngineTaskGraphView.tsx', 'Sub-view of SprintEngineBoardPanel; rendered inside the parent panel\'s body, so PanelHeader is owned by the parent. Extracted to its own file for maintainability.'],
 ])
 
 const args = new Set(process.argv.slice(2))

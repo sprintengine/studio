@@ -1,13 +1,13 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { ArrowRightIcon, PlusIcon, PriorityIcon, SpecialistActionIcon, SprintEngineRoleIcon, StatusIcon } from '../AppIcons'
+import { ArrowRightIcon, PlusIcon, PriorityIcon, SpecialistActionIcon, StatusIcon } from '../AppIcons'
 import { focusOrAddAgentSessionTab, hasAgentTab } from '../../utils/modelRegistry'
 import {
   soulRoleToSprintEngineRole,
-  sprintEngineRoleAccent,
   sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { isEditableTarget } from '../../utils/keyboard'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
   ActionStatusChip,
@@ -26,6 +26,7 @@ import {
   OverflowMenu,
   PanelHeader,
   PrimaryButton,
+  RoleAvatar,
   Section,
   Select,
   SidePane,
@@ -80,14 +81,6 @@ import type { McpSettings } from '../../types/workspace'
 
 type PendingKey = 'create' | 'move' | 'addComment' | 'refresh' | 'retry'
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
-  if (target.isContentEditable) return true
-  return false
-}
-
 type DraftTask = {
   title: string
   description: string
@@ -138,14 +131,6 @@ const RUNNER_LABEL: Record<RunnerStatusKind, string> = {
   paused: 'Paused',
   stopped: 'Stopped',
   unconfigured: 'Not started',
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const value = hex.replace('#', '')
-  const red = parseInt(value.slice(0, 2), 16)
-  const green = parseInt(value.slice(2, 4), 16)
-  const blue = parseInt(value.slice(4, 6), 16)
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
 const RUNNING_EXECUTION_STATUSES: ReadonlySet<SwitchboardExecutionStatus> = new Set([
@@ -924,10 +909,6 @@ function SwitchboardRunningAgentsAside({
       <ul className="min-h-0 flex-1 overflow-y-auto">
         {entries.map((entry) => {
           const role = soulRoleToSprintEngineRole(entry.execution.role)
-          const roleAccent = role ? sprintEngineRoleAccent[role] : null
-          const discStyle = roleAccent
-            ? { backgroundColor: hexToRgba(roleAccent, 0.18), color: roleAccent }
-            : undefined
           const identifier = entry.record ? shortIdentifier(entry.record) : entry.execution.taskId
           const title = entry.record?.task.title ?? entry.execution.taskId
           const terminalState = describeExecutionTerminal(
@@ -957,20 +938,16 @@ function SwitchboardRunningAgentsAside({
                 aria-label={`Focus ${identifier} in board`}
                 className="interactive flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
               >
-                <span
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                    role ? '' : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]'
-                  }`}
-                  // design-tokens-allow: role glyph is the documented exception to the one-accent rule; see knowledge/brand/panel-design-system.md.
-                  style={discStyle}
-                  aria-hidden="true"
-                >
-                  {role ? (
-                    <SprintEngineRoleIcon role={role} className="icon-md" />
-                  ) : (
+                {role ? (
+                  <RoleAvatar role={role} size="md" ariaLabel="" />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
+                  >
                     <SpecialistActionIcon icon="review" className="icon-md" />
-                  )}
-                </span>
+                  </span>
+                )}
                 <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
                   <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
                     {identifier}

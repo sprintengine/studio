@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { isEditableTarget } from '../../utils/keyboard'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
@@ -23,6 +24,7 @@ import type {
 } from '../../../../shared/switchboard'
 import { CommentIcon, PriorityIcon, SpecialistActionIcon, SprintEngineRoleIcon } from '../AppIcons'
 import {
+  hexToRgba,
   soulRoleToSprintEngineRole,
   sprintEngineRoleAccent,
   sprintEngineRoleLabels,
@@ -40,9 +42,9 @@ import { filterInboxTasks } from '../../utils/watchtower'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { focusOrAddFileTab, hasAgentTab } from '../../utils/modelRegistry'
-import { renderMarkdown } from '../../utils/markdown'
 import {
   DefinitionList,
+  FilePreviewPane,
   GhostButton,
   InboxRow,
   OverflowMenu,
@@ -53,7 +55,6 @@ import {
   SidePane,
   SidePaneHeader,
   StatusDot,
-  Tooltip,
   type OverflowMenuItem,
   type Tone,
 } from '../ui'
@@ -79,14 +80,6 @@ type PendingKey =
   | 'promote'
   | 'cancelTask'
   | 'addComment'
-
-function isEditableInboxTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
-  if (target.isContentEditable) return true
-  return false
-}
 
 type WatchtowerStartKind = 'review' | 'triage'
 
@@ -135,14 +128,6 @@ function findTaskAttribution(
 
 function isTriageRun(run: WatchtowerRun): boolean {
   return run.preset === 'inbox_triage'
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const value = hex.replace('#', '')
-  const red = parseInt(value.slice(0, 2), 16)
-  const green = parseInt(value.slice(2, 4), 16)
-  const blue = parseInt(value.slice(4, 6), 16)
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
 export type AgentTaskOutcome = {
@@ -603,7 +588,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
   const handleInboxKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {
-      if (isEditableInboxTarget(event.target)) return
+      if (isEditableTarget(event.target)) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
 
       if (event.key === 'c') {
@@ -852,8 +837,14 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       <section className="flex min-w-0 flex-1 flex-col" aria-label="Selected task detail">
         {selected ? (
           fileView ? (
-            <WatchtowerFilePreview
-              artifact={fileView}
+            <FilePreviewPane
+              title={
+                <span className="font-mono text-[12.5px] tabular-nums text-[color:var(--text-strong)]">
+                  {fileView.name}
+                </span>
+              }
+              path={fileView.path}
+              content={fileView.content}
               onBack={handleCloseFile}
               onPopOut={handlePopOutFile}
             />
@@ -1079,65 +1070,6 @@ function EmptyDetail() {
       <div className="text-[12px] font-semibold text-[color:var(--text-default)]">Triage</div>
       <div className="text-[12px] text-[color:var(--text-muted)]">
         Select an inbox task to inspect, edit, comment, or promote.
-      </div>
-    </div>
-  )
-}
-
-function WatchtowerFilePreview({
-  artifact,
-  onBack,
-  onPopOut,
-}: {
-  artifact: { path: string; name: string; content: string }
-  onBack: () => void
-  onPopOut: () => void
-}) {
-  const isMarkdown = artifact.path.toLowerCase().endsWith('.md')
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-5 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[12px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-            aria-label="Back to task detail"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
-              <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Back
-          </button>
-          <span
-            className="min-w-0 truncate font-mono text-[12.5px] tabular-nums text-[color:var(--text-strong)]"
-            title={artifact.path}
-          >
-            {artifact.name}
-          </span>
-        </div>
-        <Tooltip content="Open in editor tab">
-          <button
-            type="button"
-            onClick={onPopOut}
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-            aria-label="Open in editor tab"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
-              <path d="M9 3H13V7M13 3L7.5 8.5M6 4H4C3.45 4 3 4.45 3 5V12C3 12.55 3.45 13 4 13H11C11.55 13 12 12.55 12 12V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Open in editor
-          </button>
-        </Tooltip>
-      </header>
-      <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
-        {isMarkdown ? (
-          <div className="markdown-body">{renderMarkdown(artifact.content)}</div>
-        ) : (
-          <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[color:var(--text-default)]">
-            {artifact.content}
-          </pre>
-        )}
       </div>
     </div>
   )

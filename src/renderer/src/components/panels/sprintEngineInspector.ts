@@ -1,0 +1,205 @@
+// Sprint Engine inspector data helpers — pure formatters, tone resolvers,
+// and inbox-ordering logic. Split out of SprintEngineBoardPanel.tsx so the
+// orchestrator stays focused on state coordination and the inspector
+// rendering carries its own data shaping in a separately testable module.
+//
+// What lives here:
+//   - SOURCE_HANDOFF_ARTIFACT_ID — sentinel ID for the architect handover
+//     artifact that always sorts to the top of the inbox.
+//   - MobileArtifactDecision type + accessors (resolve approve / request-
+//     changes signals from mobile actors).
+//   - Artifact summary / timestamp / tone / status-label helpers.
+//   - Sprint Engine inbox row tone + supporting-line resolvers.
+//   - `formatTimestamp` — colocated here because the inspector is the
+//     primary consumer; the orchestrator imports it back for its own task-
+//     detail row. A later cleanup may graduate it to `utils/time.ts`.
+
+import type {
+  SprintEngineArtifact,
+  SprintEngineTask,
+} from '../../types/workspace'
+import {
+  getSprintEngineArtifactDependencyBlockers,
+  sprintEngineArtifactKindLabels,
+} from '../../utils/sprintengine'
+import type { Tone } from '../ui'
+
+export function formatTimestamp(value: string | null): string {
+  if (!value) return 'Not started'
+  return new Date(value).toLocaleString()
+}
+
+export function formatArtifactSummary(artifacts: SprintEngineArtifact[]): string {
+  const pendingCount = artifacts.filter((artifact) =>
+    artifact.status !== 'approved' && artifact.status !== 'superseded'
+  ).length
+  const approvedCount = artifacts.filter((artifact) => artifact.status === 'approved').length
+
+  if (pendingCount > 0 && approvedCount > 0) {
+    return `${pendingCount} pending, ${approvedCount} approved`
+  }
+  if (pendingCount > 0) {
+    return `${pendingCount} pending ${pendingCount === 1 ? 'artifact' : 'artifacts'}`
+  }
+  return `${approvedCount} approved ${approvedCount === 1 ? 'artifact' : 'artifacts'}`
+}
+
+export function artifactTimestampMs(artifact: SprintEngineArtifact): number {
+  const timestamp = artifact.updatedAt ?? artifact.createdAt
+  if (!timestamp) return 0
+  const parsed = Date.parse(timestamp)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+export const SOURCE_HANDOFF_ARTIFACT_ID = 'source-handoff'
+
+export function getSprintEngineInboxArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
+  return [...artifacts].sort((a, b) => {
+    const aIsHandoff = a.id === SOURCE_HANDOFF_ARTIFACT_ID
+    const bIsHandoff = b.id === SOURCE_HANDOFF_ARTIFACT_ID
+    if (aIsHandoff !== bIsHandoff) return aIsHandoff ? -1 : 1
+    const timestampDelta = artifactTimestampMs(b) - artifactTimestampMs(a)
+    if (timestampDelta !== 0) return timestampDelta
+    return a.title.localeCompare(b.title)
+  })
+}
+
+export type MobileArtifactDecision = {
+  action: string
+  actor: string
+  timestamp: string | null
+  note?: string
+}
+
+export function getMobileArtifactDecision(artifact: SprintEngineArtifact): MobileArtifactDecision | null {
+  const mobileHistory = [...artifact.reviewHistory]
+    .reverse()
+    .find((entry) => isMobileActor(entry.actor))
+
+  if (mobileHistory) {
+    return {
+      action: mobileHistory.action,
+      actor: mobileHistory.actor,
+      timestamp: mobileHistory.timestamp,
+      note: mobileHistory.note,
+    }
+  }
+
+  if (artifact.approvedBy && isMobileActor(artifact.approvedBy)) {
+    return {
+      action: 'approved',
+      actor: artifact.approvedBy,
+      timestamp: artifact.approvedAt ?? null,
+    }
+  }
+
+  if (artifact.changesRequestedBy && isMobileActor(artifact.changesRequestedBy)) {
+    return {
+      action: 'changes_requested',
+      actor: artifact.changesRequestedBy,
+      timestamp: artifact.changesRequestedAt ?? null,
+    }
+  }
+
+  return null
+}
+
+export function formatMobileArtifactDecision(decision: MobileArtifactDecision): string {
+  const parts = [
+    `Mobile ${mobileActionLabel(decision.action)} by ${formatMobileActor(decision.actor)}`,
+    decision.timestamp ? formatTimestamp(decision.timestamp) : null,
+    decision.note,
+  ].filter(Boolean)
+
+  return parts.join(' - ')
+}
+
+export function isMobileActor(actor: string): boolean {
+  return actor.trim().toLowerCase().startsWith('mobile:')
+}
+
+export function formatMobileActor(actor: string): string {
+  return actor.replace(/^mobile:/i, '').replace(/[_-]+/g, ' ') || 'mobile device'
+}
+
+export function mobileActionLabel(action: string): string {
+  switch (action) {
+    case 'approve':
+    case 'approved':
+      return 'approved'
+    case 'request_changes':
+    case 'requestChanges':
+    case 'changes_requested':
+      return 'requested changes'
+    default:
+      return action.replace(/[_-]+/g, ' ')
+  }
+}
+
+export function formatArtifactBlockerSummary(
+  blockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>,
+): string {
+  const artifactCount = blockers.reduce((total, blocker) => total + blocker.artifacts.length, 0)
+  const taskIds = blockers.map((blocker) => blocker.taskId).join(', ')
+  return `${artifactCount} ${artifactCount === 1 ? 'artifact' : 'artifacts'} from ${taskIds}`
+}
+
+export function artifactStatusTone(status: SprintEngineArtifact['status']): string {
+  switch (status) {
+    case 'approved':
+      return 'bg-[color:var(--tone-good-soft)] text-[color:var(--tone-good)]'
+    case 'ready_for_review':
+      return 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+    case 'changes_requested':
+      return 'bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn)]'
+    case 'superseded':
+      return 'bg-[color:var(--bg-hover)] text-[color:var(--text-disabled)]'
+    default:
+      return 'bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]'
+  }
+}
+
+// Inbox status idiom: one dot, five tones, in line with the brand rules
+// (aesthetic-north-star §4, primitives StatusDot contract). The tinted pill is
+// kept for the inspector's task detail (artifactStatusTone above) but the inbox
+// row resolves status to a Tone here.
+export function sprintEngineInboxRowTone(artifact: SprintEngineArtifact): Tone {
+  if (artifact.id === SOURCE_HANDOFF_ARTIFACT_ID) return 'accent'
+  switch (artifact.status) {
+    case 'approved':
+      return 'good'
+    case 'ready_for_review':
+      return 'warn'
+    case 'changes_requested':
+      return 'error'
+    case 'superseded':
+      return 'neutral'
+    default:
+      return 'accent'
+  }
+}
+
+export function sprintEngineInboxRowSupporting(
+  artifact: SprintEngineArtifact,
+  task: SprintEngineTask | undefined,
+): string {
+  if (artifact.id === SOURCE_HANDOFF_ARTIFACT_ID) return 'Architect handover'
+  const kind = sprintEngineArtifactKindLabels[artifact.kind]
+  const parts = [kind]
+  if (artifact.taskId) parts.push(artifact.taskId)
+  if (task?.title) parts.push(task.title)
+  return parts.join(' · ')
+}
+
+export function sprintEngineInboxEmptyMessage(runPhase: string): string {
+  if (runPhase === 'Running') {
+    return 'Run in flight. Artifacts will land here as workers finish tasks.'
+  }
+  if (runPhase === 'Complete') {
+    return 'Run complete. No artifacts were produced.'
+  }
+  if (runPhase === 'Tasked') {
+    return 'Tasks queued. Handover and artifacts will appear once workers start.'
+  }
+  return 'Inbox empty. The handover and any artifacts workers produce will appear here.'
+}
