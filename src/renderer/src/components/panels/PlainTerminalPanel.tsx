@@ -16,9 +16,16 @@ interface Props {
   terminalId: string
   cwdOverride?: string | null
   killOnUnmount?: boolean
+  shouldKillOnUnmount?: (sessionId: string) => boolean
 }
 
-export default function PlainTerminalPanel({ workspaceId, terminalId, cwdOverride = null, killOnUnmount = false }: Props) {
+export default function PlainTerminalPanel({
+  workspaceId,
+  terminalId,
+  cwdOverride = null,
+  killOnUnmount = false,
+  shouldKillOnUnmount,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(`terminal-${terminalId}`)
   const [isFileDragOver, setIsFileDragOver] = useState(false)
@@ -227,11 +234,11 @@ export default function PlainTerminalPanel({ workspaceId, terminalId, cwdOverrid
       terminalDiagnostics.dispose()
       outputQueue.dispose()
       term.dispose()
-      if (killOnUnmount) {
+      if (killOnUnmount || shouldKillOnUnmount?.(sessionId)) {
         void window.api.terminalKill(sessionId).catch(() => {})
       }
     }
-  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, sprintEngineContext?.statePath, terminalId, workspaceId, workspaceName])
+  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, shouldKillOnUnmount, sprintEngineContext?.statePath, terminalId, workspaceId, workspaceName])
 
   const folderBlocked = Boolean(!cwdOverride && savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {

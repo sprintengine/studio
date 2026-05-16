@@ -9,9 +9,10 @@ interface Props {
   workspaceId: string
   agentId: string
   sessionId?: string
+  shouldKillTerminalOnUnmount?: (sessionId: string) => boolean
 }
 
-export default function AgentPanel({ workspaceId, agentId, sessionId }: Props) {
+export default function AgentPanel({ workspaceId, agentId, sessionId, shouldKillTerminalOnUnmount }: Props) {
   const agent = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
@@ -51,7 +52,12 @@ export default function AgentPanel({ workspaceId, agentId, sessionId }: Props) {
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
       <div className={`relative flex-1 overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
         {hasStarted ? (
-          <TerminalView workspaceId={workspaceId} agentId={agentId} sessionId={sessionId} />
+          <TerminalView
+            workspaceId={workspaceId}
+            agentId={agentId}
+            sessionId={sessionId}
+            shouldKillOnUnmount={shouldKillTerminalOnUnmount}
+          />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
             {sprintEngineTerminalBlocked ? (

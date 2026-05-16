@@ -1271,7 +1271,7 @@ function GitLogCommitRow({ commit }: { commit: GitCommit }) {
 
   if (commit.commitWebUrl) {
     return (
-      <Tooltip content={`Open ${commit.shortHash} on GitHub`}>
+      <Tooltip content={`Open ${commit.shortHash} on GitHub`} wrapperClassName="block">
         <a
           href={commit.commitWebUrl}
           target="_blank"

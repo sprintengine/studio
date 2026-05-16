@@ -631,7 +631,7 @@ export default function WorkspaceManager() {
         if (workspaces.length > 0) setShowNewWorkspacePanel(false)
       } else if (key === 'w' && activeWorkspaceId) {
         event.preventDefault()
-        closeActiveLayoutTab(activeWorkspaceId)
+        closeActiveLayoutTab(activeWorkspaceId, terminalSessions)
       }
 
       const n = parseInt(event.key)
@@ -655,6 +655,7 @@ export default function WorkspaceManager() {
     sidebarCollapsed,
     setSidebarCollapsed,
     closeWorkspaceById,
+    terminalSessions,
   ])
 
   useEffect(() => {
@@ -1344,16 +1345,32 @@ function getNextWorkspaceId(
   return workspaces[nextIndex].id
 }
 
-function killTerminalForLayoutTab(workspaceId: string, node: TabNode): void {
+function killTerminalForLayoutTab(
+  workspaceId: string,
+  node: TabNode,
+  terminalSessions: TerminalSessionSnapshot[],
+): void {
   const state = useWorkspaceStore.getState()
   const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
   if (!workspace) return
 
-  const config = node.getConfig() as { agentId?: string; terminalId?: string } | undefined
+  const config = node.getConfig() as { agentId?: string; sessionId?: string; terminalId?: string } | undefined
   if (node.getComponent() === 'agent') {
     const agentId = config?.agentId ?? node.getId()
     const agent = workspace.agents[agentId]
-    if (agent?.cliSessionId) void window.api.terminalKill(agent.cliSessionId).catch(() => {})
+    const sessionIds = new Set<string>()
+    if (config?.sessionId) sessionIds.add(config.sessionId)
+    if (agent?.cliSessionId) sessionIds.add(agent.cliSessionId)
+    terminalSessions
+      .filter((session) =>
+        session.kind === 'agent'
+        && session.workspaceId === workspaceId
+        && session.agentId === agentId
+      )
+      .forEach((session) => sessionIds.add(session.sessionId))
+    sessionIds.forEach((sessionId) => {
+      void window.api.terminalKill(sessionId).catch(() => {})
+    })
     if (agent?.kind === 'sprintengine') state.setSprintEngineAutoEnabled(workspaceId, false)
     state.updateAgent(workspaceId, agentId, {
       cliStartRequested: false,
@@ -1366,11 +1383,24 @@ function killTerminalForLayoutTab(workspaceId: string, node: TabNode): void {
 
   if (node.getComponent() === 'terminal') {
     const terminalId = config?.terminalId ?? node.getId()
-    void window.api.terminalKill(`terminal-${terminalId}`).catch(() => {})
+    const sessionIds = new Set<string>([`terminal-${terminalId}`])
+    terminalSessions
+      .filter((session) =>
+        session.kind === 'terminal'
+        && session.workspaceId === workspaceId
+        && session.terminalId === terminalId
+      )
+      .forEach((session) => sessionIds.add(session.sessionId))
+    sessionIds.forEach((sessionId) => {
+      void window.api.terminalKill(sessionId).catch(() => {})
+    })
   }
 }
 
-function closeActiveLayoutTab(workspaceId: string): boolean {
+function closeActiveLayoutTab(
+  workspaceId: string,
+  terminalSessions: TerminalSessionSnapshot[],
+): boolean {
   const model = getModel(workspaceId)
   const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
   if (!model || !tabset) return false
@@ -1379,7 +1409,7 @@ function closeActiveLayoutTab(workspaceId: string): boolean {
   const selectedNode = tabset.getChildren()[selectedIndex]
   if (!(selectedNode instanceof TabNode) || !selectedNode.isEnableClose()) return false
 
-  killTerminalForLayoutTab(workspaceId, selectedNode)
+  killTerminalForLayoutTab(workspaceId, selectedNode, terminalSessions)
   model.doAction(Actions.deleteTab(selectedNode.getId()))
   return true
 }

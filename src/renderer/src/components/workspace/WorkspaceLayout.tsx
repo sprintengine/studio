@@ -204,6 +204,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   const renameInputRef = useRef<HTMLInputElement>(null)
   const skipNextRenameCommitRef = useRef(false)
   const hideTabWithoutCleanupRef = useRef(new Set<string>())
+  const killOnUnmountSessionIdsRef = useRef(new Set<string>())
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
@@ -228,6 +229,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     const caretPosition = input.value.length
     input.setSelectionRange(caretPosition, caretPosition)
   }, [renamingTabId])
+
+  const shouldKillTerminalOnUnmount = useCallback((sessionId: string) => {
+    const shouldKill = killOnUnmountSessionIdsRef.current.has(sessionId)
+    if (shouldKill) killOnUnmountSessionIdsRef.current.delete(sessionId)
+    return shouldKill
+  }, [])
 
   const startRename = useCallback((event: React.MouseEvent, node: TabNode) => {
     event.preventDefault()
@@ -348,6 +355,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
               workspaceId={workspaceId}
               agentId={config?.agentId ?? node.getId()}
               sessionId={config?.sessionId}
+              shouldKillTerminalOnUnmount={shouldKillTerminalOnUnmount}
             />
           )
         case 'editor':
@@ -377,6 +385,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             <PlainTerminalPanel
               workspaceId={workspaceId}
               terminalId={config?.terminalId ?? node.getId()}
+              shouldKillOnUnmount={shouldKillTerminalOnUnmount}
             />
           )))
         case 'sprintengine':
@@ -426,7 +435,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return <div className="h-full bg-[color:var(--bg-app)]" />
       }
     },
-    [onStartFuturePlan, workspaceId]
+    [onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(
@@ -440,8 +449,20 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       if (node.getComponent() === 'agent') {
         const agentId = config?.agentId ?? node.getId()
         const agent = workspace.agents[agentId]
-        const sessionId = config?.sessionId ?? agent?.cliSessionId
-        if (sessionId) void window.api.terminalKill(sessionId).catch(() => {})
+        const sessionIds = new Set<string>()
+        if (config?.sessionId) sessionIds.add(config.sessionId)
+        if (agent?.cliSessionId) sessionIds.add(agent.cliSessionId)
+        terminalSessions
+          .filter((session) =>
+            session.kind === 'agent'
+            && session.workspaceId === workspaceId
+            && session.agentId === agentId
+          )
+          .forEach((session) => sessionIds.add(session.sessionId))
+        sessionIds.forEach((sessionId) => {
+          killOnUnmountSessionIdsRef.current.add(sessionId)
+          void window.api.terminalKill(sessionId).catch(() => {})
+        })
         if (agent) {
           if (agent.kind === 'sprintengine') setSprintEngineAutoEnabled(workspaceId, false)
           updateAgent(workspaceId, agentId, {
@@ -457,10 +478,21 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
 
       if (node.getComponent() === 'terminal') {
         const terminalId = config?.terminalId ?? node.getId()
-        void window.api.terminalKill(`terminal-${terminalId}`).catch(() => {})
+        const sessionIds = new Set<string>([`terminal-${terminalId}`])
+        terminalSessions
+          .filter((session) =>
+            session.kind === 'terminal'
+            && session.workspaceId === workspaceId
+            && session.terminalId === terminalId
+          )
+          .forEach((session) => sessionIds.add(session.sessionId))
+        sessionIds.forEach((sessionId) => {
+          killOnUnmountSessionIdsRef.current.add(sessionId)
+          void window.api.terminalKill(sessionId).catch(() => {})
+        })
       }
     },
-    [closeFile, setSprintEngineAutoEnabled, updateAgent, workspace.agents, workspaceId]
+    [closeFile, setSprintEngineAutoEnabled, terminalSessions, updateAgent, workspace.agents, workspaceId]
   )
 
   const handleAction = useCallback(
@@ -517,12 +549,30 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     modelRef.current?.doAction(Actions.deleteTab(node.getId()))
   }, [])
 
+  const findTabNodeFromElement = useCallback((element: Element): TabNode | null => {
+    const tabButton = element.closest<HTMLElement>('.flexlayout__tab_button')
+    const tabPath = tabButton?.getAttribute('data-layout-path')
+    const model = modelRef.current
+    if (!tabPath || !model) return null
+
+    let result: TabNode | null = null
+    model.visitNodes((node) => {
+      if (result || !(node instanceof TabNode)) return
+      if (node.getPath() === tabPath) result = node
+    })
+    return result
+  }, [])
+
   const handleMouseDownCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 1) return
-    if (event.target instanceof Element && event.target.closest('.flexlayout__tab_button')) {
-      event.preventDefault()
-    }
-  }, [])
+    if (!(event.target instanceof Element)) return
+
+    const node = findTabNodeFromElement(event.target)
+    if (!node || !node.isEnableClose()) return
+    event.preventDefault()
+    event.stopPropagation()
+    modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+  }, [findTabNodeFromElement])
 
   const closeOtherTabsInSet = useCallback((node: TabNode) => {
     const parent = node.getParent()

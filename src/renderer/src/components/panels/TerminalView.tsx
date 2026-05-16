@@ -24,6 +24,7 @@ interface Props {
   workspaceId: string
   agentId: string
   sessionId?: string
+  shouldKillOnUnmount?: (sessionId: string) => boolean
 }
 
 type AgentExecutionRoot = {
@@ -114,7 +115,7 @@ function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
   return 'manual'
 }
 
-export default function TerminalView({ workspaceId, agentId, sessionId: attachedSessionId }: Props) {
+export default function TerminalView({ workspaceId, agentId, sessionId: attachedSessionId, shouldKillOnUnmount }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [isFileDragOver, setIsFileDragOver] = useState(false)
   const [dropError, setDropError] = useState<string | null>(null)
@@ -512,7 +513,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
     return () => {
       disposed = true
-      void window.api.terminalSetVisible(sessionId, false).catch(() => {})
+      if (shouldKillOnUnmount?.(sessionId)) {
+        void window.api.terminalKill(sessionId).catch(() => {})
+      } else {
+        void window.api.terminalSetVisible(sessionId, false).catch(() => {})
+      }
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       container.removeEventListener('mousedown', focusTerminal)
@@ -555,6 +560,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     mcpSettings,
     storedExecutionWorktreePath,
     updateAgent,
+    shouldKillOnUnmount,
   ])
 
   const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
