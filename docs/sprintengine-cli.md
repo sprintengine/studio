@@ -1,109 +1,219 @@
 # Sprint Engine CLI
 
-Sprint Engine is the local execution authority for specialist runs. Milestone 01 exposes current `swarm/<team>/state.yaml` runs through a deterministic, headless, read-only CLI while keeping existing Swarm write workflows compatible.
+Sprint Engine is the local execution authority for specialist runs. The CLI is
+the supported mutation boundary for task claiming, task status changes, evidence
+logging, artifact lifecycle, roster updates, migration, ready queue refresh, and
+projection reads.
 
-Use the repository virtual environment on Windows:
+Do not edit `.multi-code/sprintengine/<team>/state.yaml`, `run.yaml`, task JSON
+files, artifact JSON files, `events.jsonl`, metrics files, or lock files by
+hand. Use the CLI so locks, folder moves, activity, events, metrics, and
+`projection.json` stay synchronized.
 
-```powershell
-& .\.venv\Scripts\python.exe .\scripts\sprintengine_tool.py --help
-```
+## Command Portability
 
 On POSIX shells:
+
+```bash
+sprintengine --help
+```
+
+Direct Python fallback:
 
 ```bash
 .venv/bin/python scripts/sprintengine_tool.py --help
 ```
 
-The CLI prints JSON by default and accepts `--repo-root <path>` when inspecting a repository other than the current working directory.
+On Windows PowerShell:
 
-## Command Surface
+```powershell
+.\scripts\sprintengine.cmd --help
+```
 
-Milestone 01 supports read, status, and report commands:
+Windows direct Python fallback:
+
+```powershell
+& ".\.venv\Scripts\python.exe" ".\scripts\sprintengine_tool.py" --help
+```
+
+When calling `scripts/sprintengine_tool.py` directly, put global flags such as
+`--state <state-file>` before the command group.
+
+## Common Worker Flow
+
+Workers join the active run, read the plan returned by the directive, claim one
+ready task for their exact role, log evidence, then mark the task done:
 
 ```bash
-scripts/sprintengine_tool.py run list
-scripts/sprintengine_tool.py run status sprint:01-shared-domain-cli-readonly
-scripts/sprintengine_tool.py run inspect sprint:01-shared-domain-cli-readonly
-scripts/sprintengine_tool.py task list --run sprint:01-shared-domain-cli-readonly
-scripts/sprintengine_tool.py artifact list --run sprint:01-shared-domain-cli-readonly
-scripts/sprintengine_tool.py report export --run sprint:01-shared-domain-cli-readonly --format json
+sprintengine join --role developer --id developer-1
+sprintengine task next --role developer --id developer-1
+sprintengine task log --task-id T8 --id developer-1 --summary "Updated Sprint Engine docs" --file docs/sprintengine-cli.md --command "uv run --with pytest --with PyYAML python -m pytest tests/sprintengine_tool -q" --result "Passed"
+sprintengine task status --task-id T8 --status done --id developer-1 --confidence-pct 90 --hallucination-risk-pct 5
 ```
 
-Inspect help before first use and whenever scripting against a command:
+Use `sprintengine task next`, not manual file moves, for normal claiming. It
+claims under the state lock and refreshes folder-store materialization.
+
+## Command Groups
+
+Inspect help before scripting a command:
 
 ```bash
-scripts/sprintengine_tool.py run --help
-scripts/sprintengine_tool.py task list --help
-scripts/sprintengine_tool.py report export --help
+sprintengine --help
+sprintengine task next --help
+sprintengine artifact add --help
+sprintengine projection --help
 ```
 
-Unsupported write-like Sprint Engine commands such as `task claim`, `task status`, `artifact add`, `artifact approve`, `run create`, and `plan` return a nonzero error that states Milestone 01 is read-only. Existing Swarm mutation commands remain available through `scripts/swarm_tool.py` for compatibility.
+Current command groups:
 
-## Run Ids
+- `handover`: create a team bootstrap and handoff context.
+- `init`: initialize a run.
+- `recover`: run an integrity recovery audit prompt.
+- `migrate`: idempotently migrate `state.yaml` to the folder store.
+- `projection`: read the normalized run projection.
+- `roster`: add or list canonical roster members.
+- `join`: receive the role prompt and next directive.
+- `triage`: inspect architect-actionable blockers.
+- `task`: claim, update, release, log, comment, and refresh tasks.
+- `plan`: architect-owned task graph operations.
+- `artifact`: register and review artifacts.
+- `summary`: print final run summary.
+- `merge`: print post-run merge instructions.
 
-Sprint Engine discovers current Swarm team state files as runs. A state file at:
+## Folder Store And Projection
 
-```text
-swarm/01-shared-domain-cli-readonly/state.yaml
-```
+The folder store lives under `.multi-code/sprintengine/<team>/` and contains
+`run.yaml`, `events.jsonl`, `projection.json`, status folders under `tasks/`,
+status folders under `artifacts/`, `metrics/agent-feedback.jsonl`, and support
+folders such as `runner/`, `reviews/`, `validation/`, and `plan-reviews/`.
 
-is exposed as:
-
-```text
-sprint:01-shared-domain-cli-readonly
-```
-
-The current run id format is `sprint:<team-slug>`. The directory layout is not renamed in Milestone 01.
-
-## Canonical Schema
-
-The canonical schema is documented in `docs/sprintengine-schema.md` and implemented in `sprintengine_core/schema.py`.
-
-Top-level state contains:
-
-- `run`: run id, name, goal, status, updated timestamp, and source metadata.
-- `tasks`: execution units with role, status, owner, dependencies, owned paths, acceptance criteria, implementation notes, evidence, learned facts, and blockers. Owned paths are the primary edit surface and collision boundary; small required companion edits should be captured as evidence scope expansions.
-- `artifacts`: reviewable task outputs with kind, status, path, review history, approvals, and recommendations.
-- `agents`: specialist execution slots.
-- `events`: append-only run history.
-- `specialistRoles`: role registry references backed by Souls role prompts.
-- `autoRun`: local execution state only.
-- `source`: project-relative source metadata where practical.
-
-Readiness is derived: a task is ready when it is `todo`, has no owner, and all dependencies are `done`.
-
-## Headless Access And App Boundary
-
-`scripts/sprintengine_tool.py` is headless. It does not require desktop app login, Pro entitlements, daemon state, or renderer access. This is intentional so local automation and agents can inspect run state from a terminal.
-
-The Multicode app may require a signed-in session to create, launch, or supervise specialist workflows through the UI. That login gate belongs to the app boundary. Sprint Engine core and CLI must not import app auth, upgrade, or entitlement modules.
-
-## Swarm Compatibility
-
-Swarm remains the compatibility consumer for Milestone 01. Continue using Swarm commands for task and artifact mutations:
+The projection command is the stable read API:
 
 ```bash
-scripts/swarm_tool.py task next --role developer --id developer-1
-scripts/swarm_tool.py task log --task-id T8 --id developer-1 --summary "Updated docs" --file docs/sprintengine-cli.md --command "pytest ..." --result "Passed"
-scripts/swarm_tool.py task log --task-id T8 --id developer-1 --scope-expansion-json '{"path":"tests/sprintengine_tool/test_task_lifecycle.py","reason":"regression coverage for the documented companion-edit evidence contract","risk":"low"}'
-scripts/swarm_tool.py task status --task-id T8 --status done --id developer-1
+sprintengine projection
 ```
 
-Sprint Engine reads the same backing state and reports canonical execution objects without rewriting state files or changing timestamps.
+It reads real folder-store files for migrated and new runs. It includes run
+metadata, roster, tasks, board columns, artifacts, lock status, stale-lock
+warnings, activity, feedback, ready counts, needs-input counts, and run summary
+fields. It falls back to `state.yaml` only when reading an unmigrated run.
 
-## Output And Paths
+Renderer and mobile code should consume projection data or `projection.json`;
+they should not parse task folders, artifact folders, locks, events, metrics, or
+`state.yaml` directly for migrated runs.
 
-CLI output is deterministic JSON with sorted keys. Source metadata and examples should use project-relative paths such as:
+## Task Commands
+
+Typical task commands:
+
+```bash
+sprintengine task list --role developer
+sprintengine task next --role developer --id developer-1
+sprintengine task claim --task-id T3 --id developer-1
+sprintengine task status --task-id T3 --status needs_input --id developer-1 --needs-input-kind architect --needs-input-reason task_scope --needs-input-question "Does this task need a wider owned path?"
+sprintengine task resolve-input --task-id T3 --id architect --resolution "Scope narrowed; continue."
+sprintengine task release --task-id T3 --id architect --reason "Original worker inactive."
+sprintengine task log --task-id T3 --id developer-1 --summary "Implemented store projection" --file sprintengine_core/store.py --command "uv run --with pytest --with PyYAML python -m pytest tests/sprintengine_tool -q" --result "Passed"
+sprintengine task note --task-id T3 --id developer-1 --note "Blocked until artifact A1 is approved."
+sprintengine task comment --task-id T3 --id user --body "Please include migration notes."
+sprintengine task refresh-ready
+```
+
+Use `--scope-expansion-json` when evidence includes a touched file outside the
+task's owned paths:
+
+```bash
+sprintengine task log --task-id T3 --id developer-1 --scope-expansion-json '{"path":"src/shared/electron-api.ts","reason":"Expose projection read result type for renderer consumers.","risk":"low"}'
+```
+
+## Artifact Commands
+
+Artifacts are durable outputs tied to producing tasks:
+
+```bash
+sprintengine artifact add --task-id T1 --kind architect_plan --title "Architect plan" --path .multi-code/sprintengine/team/plan.md --created-by architect
+sprintengine artifact ready --artifact-id A1 --id architect
+sprintengine artifact list --task-id T1
+sprintengine artifact approve --artifact-id A1 --id user
+sprintengine artifact request-changes --artifact-id A1 --id user --feedback "Narrow the scope."
+```
+
+`sprintengine artifact add --ready` immediately registers an artifact as
+`ready_for_review` and moves the linked task to `needs_input` when human review
+is required.
+
+## Migration
+
+Run migration once or repeatedly; it is idempotent:
+
+```bash
+sprintengine migrate --actor architect
+```
+
+Migration writes folder-store files, creates `state.migration-backup.yaml`,
+records migration metadata in `run.yaml`, appends migration activity and events
+once, refreshes `tasks/ready/`, writes metrics JSONL, and emits
+`projection.json`.
+
+Compatibility note: after migration, `state.yaml` may remain present as a
+compatibility mirror, but projection reads should come from folder-store data.
+Only unmigrated runs should use the `state_yaml_fallback` projection source.
+
+## DAG Readiness
+
+Readiness is deterministic and dependency-aware. A task appears in `tasks/ready/`
+when every dependency is `done`, the task has no owner, the semantic status is
+`todo` or `changes_requested`, and dispatch allows dependency readiness.
+
+Refresh readiness explicitly with:
+
+```bash
+sprintengine task refresh-ready
+```
+
+Unknown dependencies and cycles fail with clear errors. Do not create readiness
+by moving task files by hand.
+
+## Locks And Recovery
+
+The CLI serializes mutations with lock files such as `state.yaml.lock` and
+`runner/ready.queue.lock`. The projection reports lock status and stale-lock
+warnings so app and mobile consumers do not need to inspect lock files.
+
+Use recovery when a run needs an integrity audit:
+
+```bash
+sprintengine recover
+```
+
+Recovery is for diagnosing and repairing run integrity through the tool
+boundary; it is not permission to edit store files manually.
+
+## Paths
+
+Use project-root-relative paths in task cards, evidence, artifacts, notes,
+review files, docs, and handoffs:
 
 ```text
-swarm/01-shared-domain-cli-readonly/state.yaml
 docs/sprintengine-cli.md
-sprintengine_core/cli.py
-souls/prompts/developer.md
+sprintengine_core/store.py
+.multi-code/sprintengine/team/reviews/code-review.md
 ```
 
-Avoid absolute or machine-specific paths in docs, task evidence, artifacts, reports, and scripts.
+Do not write absolute paths, home-directory paths, drive-letter paths, UNC
+paths, URLs, or `..` traversal into Sprint Engine records.
 
-## Packaging
+## Verification Commands
 
-The desktop package includes the Sprint Engine Python entry point, core Python modules, and `souls` resources needed by the role registry. See `docs/souls.md` for the Souls CLI and role mapping. Existing Swarm and Multiloop package resources remain intact.
+Use real CLI/core paths when validating Sprint Engine changes:
+
+```bash
+python3 -m py_compile sprintengine_core/tool.py sprintengine_core/store.py scripts/sprintengine_tool.py
+uv run --with pytest --with PyYAML python -m pytest tests/sprintengine_tool -q
+npx esbuild src/main/mobile/sprintengine/snapshot.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/mobile-sprintengine-snapshot.test.cjs && node node_modules/.cache/multicode/mobile-sprintengine-snapshot.test.cjs
+npx esbuild src/main/index.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/main-index.check.cjs
+```
+
+`npm run typecheck:app` is also useful when local frontend dependencies are
+installed.

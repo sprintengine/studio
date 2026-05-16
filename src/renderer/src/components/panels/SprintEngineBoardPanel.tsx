@@ -44,6 +44,7 @@ import { SprintEngineRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import {
  buildSprintEngineAgentRosterForState,
+ formatSprintEngineLockAge,
  getNextSprintEngineAgentId,
  getReviewableSprintEngineArtifacts,
  getSprintEngineArtifactDependencyBlockers,
@@ -2357,8 +2358,39 @@ function SprintEngineProjectView({
  return counts
  }, [roster])
 
+ const projectionUnavailable = sprintEngineState.projection?.source === 'unavailable'
+ const projectionErrorMessage = sprintEngineState.projection?.errorMessage
+ const lockWarnings = sprintEngineState.locks?.warnings ?? []
+ const hasProjectionBanner = projectionUnavailable || Boolean(projectionErrorMessage) || lockWarnings.length > 0
+
  return (
  <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
+ {hasProjectionBanner ? (
+ <div
+ role="status"
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
+ >
+ <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+ <span className="inline-flex items-center gap-1.5">
+ <StatusDot tone={projectionUnavailable ? 'error' : 'warn'} />
+ <span className="font-mono text-[11px] text-[color:var(--text-muted)]">
+ {projectionUnavailable ? 'Projection unavailable' : 'Projection warning'}
+ </span>
+ </span>
+ {projectionErrorMessage ? (
+ <span className="text-[color:var(--tone-error)] [overflow-wrap:anywhere]">
+ {projectionErrorMessage}
+ </span>
+ ) : null}
+ {lockWarnings.map((warning) => (
+ <span key={warning.name} className="text-[color:var(--tone-warn)]">
+ <span className="font-mono">{warning.name}</span>{' '}
+ stale {formatSprintEngineLockAge(warning.ageSeconds)}
+ </span>
+ ))}
+ </div>
+ </div>
+ ) : null}
  {/* Run-complete sits above the project header as a quiet Section, replacing
  the prior celebratory green banner. Visible only when allTasksDone. */}
  {allTasksDone ? (

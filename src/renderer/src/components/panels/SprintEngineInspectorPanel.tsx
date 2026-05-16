@@ -21,17 +21,22 @@ import {
 import type {
   SprintEngineArtifact,
   SprintEngineTask,
+  SprintEngineTaskActivityEntry,
   SprintEngineTaskBoardColumn,
   SprintEngineTaskFeedback,
   SprintEngineTaskFeedbackFinding,
   SprintEngineTaskFeedbackIssue,
 } from '../../types/workspace'
 import {
+  getOpenSprintEngineFeedbackFindings,
+  getOpenSprintEngineFeedbackIssues,
   getSprintEngineArtifactAutoApprovalEligibility,
   getSprintEngineArtifactDependencyBlockers,
+  getSprintEngineTaskActivityDescending,
   sprintEngineArtifactKindLabels,
   sprintEngineArtifactStatusLabels,
   sprintEngineRoleLabels,
+  sprintEngineTaskActivityLabels,
   sprintEngineTaskBoardColumns,
 } from '../../utils/sprintengine'
 import { formatRelativeTime } from '../../utils/switchboardBoard'
@@ -294,6 +299,100 @@ function RoleFindings({
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function ActivityTimeline({
+  entries,
+  emptyLabel,
+}: {
+  entries: SprintEngineTaskActivityEntry[]
+  emptyLabel: string
+}) {
+  if (entries.length === 0) {
+    return (
+      <div>
+        <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Activity</div>
+        <div className="text-[12px] text-[color:var(--text-disabled)]">{emptyLabel}</div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Activity</div>
+      <ol className="space-y-1.5 text-[12px] leading-5 text-[color:var(--text-default)]">
+        {entries.map((entry) => {
+          const timestamp = entry.timestamp
+          const absolute = timestamp ? new Date(timestamp).toLocaleString() : undefined
+          const relative = timestamp ? formatRelativeTime(timestamp) : '—'
+          const detail = entry.type === 'status_change' && entry.status
+            ? `${entry.message} (→ ${entry.status})`
+            : entry.message
+          return (
+            <li
+              key={entry.id}
+              className="grid grid-cols-[6.5rem_auto_minmax(0,1fr)_auto] items-baseline gap-2"
+            >
+              <span className="font-mono text-[10px] text-[color:var(--text-muted)]">
+                {sprintEngineTaskActivityLabels[entry.type]}
+              </span>
+              <span className="font-mono text-[11px] text-[color:var(--text-muted)]">{entry.actor}</span>
+              <span className="[overflow-wrap:anywhere]">{detail}</span>
+              <span
+                title={absolute}
+                className="tabular-nums font-mono text-[11px] text-[color:var(--text-disabled)]"
+              >
+                {relative}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+    </div>
+  )
+}
+
+function OpenFeedbackSummary({
+  issues,
+  findings,
+}: {
+  issues: SprintEngineTaskFeedbackIssue[]
+  findings: SprintEngineTaskFeedbackFinding[]
+}) {
+  if (issues.length === 0 && findings.length === 0) return null
+  return (
+    <div className="border-l border-[color:var(--tone-warn-soft)] pl-3">
+      <div className="mb-2 text-[10px] font-bold text-[color:var(--tone-warn)]">
+        Open Feedback ({issues.length + findings.length})
+      </div>
+      <ul className="space-y-1.5 text-[12px] leading-5 text-[color:var(--text-default)]">
+        {issues.map((issue) => (
+          <li key={issue.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2">
+            <span className="font-mono text-[10px] text-[color:var(--tone-warn)]">Issue</span>
+            <span className="[overflow-wrap:anywhere]">
+              <span className="font-semibold text-[color:var(--text-strong)]">{issue.title}</span>
+              {issue.detail ? <span className="ml-2 text-[color:var(--text-muted)]">{issue.detail}</span> : null}
+            </span>
+            <span className="font-mono text-[10px] uppercase text-[color:var(--text-disabled)]">
+              {feedbackIssueSeverityLabels[issue.severity]}
+            </span>
+          </li>
+        ))}
+        {findings.map((finding) => (
+          <li key={finding.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2">
+            <span className="font-mono text-[10px] text-[color:var(--tone-warn)]">Finding</span>
+            <span className="[overflow-wrap:anywhere]">
+              <span className="font-semibold text-[color:var(--text-strong)]">{finding.title}</span>
+              {finding.detail ? <span className="ml-2 text-[color:var(--text-muted)]">{finding.detail}</span> : null}
+            </span>
+            <span className="font-mono text-[10px] uppercase text-[color:var(--text-disabled)]">
+              {feedbackFindingSeverityLabels[finding.severity]}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -987,136 +1086,203 @@ export function SprintEngineInspectorPanel({
         </div>
       </header>
 
-      <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
-        <DefinitionList
-          layout="compact-grid"
-          items={[
-            { term: 'Source', description: formatTaskSourceLabel(selectedTask) },
-            { term: 'Owner', description: selectedTaskOwnerLabel },
-            { term: 'Dependencies', description: selectedTask.dependsOn.join(', ') || 'None' },
-            {
-              term: selectedTask.completedAt ? 'Completed' : 'Started',
-              description: formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt),
-            },
-          ]}
-        />
+      <SprintEngineTaskBody
+        selectedTask={selectedTask}
+        selectedTaskOwnerLabel={selectedTaskOwnerLabel}
+        selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
+        selectedTaskArtifacts={selectedTaskArtifacts}
+        selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
+        taskReadyActions={taskReadyActions}
+        artifactActions={artifactActions}
+        tasksById={tasksById}
+        onSelectTask={onSelectTask}
+        onOpenArtifact={onOpenArtifact}
+        onApproveArtifact={onApproveArtifact}
+        onRequestArtifactChanges={onRequestArtifactChanges}
+      />
+    </div>
+  )
+}
 
-        {selectedTask.source?.type === 'github' ? (
-          <div className="border-l border-[color:var(--border-strong)] pl-3">
-            <div className="text-[10px] font-bold text-[color:var(--text-disabled)]">GitHub Issue</div>
-            <div className="mt-1 truncate text-sm text-[color:var(--text-default)]">
-              {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
-              {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
-            </div>
-            {formatTaskSyncStatusLabel(selectedTask) ? (
-              <div className="mt-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
-                {formatTaskSyncStatusDescription(selectedTask)}
+function SprintEngineTaskBody({
+  selectedTask,
+  selectedTaskOwnerLabel,
+  selectedTaskNeedsInputNote,
+  selectedTaskArtifacts,
+  selectedTaskArtifactBlockers,
+  taskReadyActions,
+  artifactActions,
+  tasksById,
+  onSelectTask,
+  onOpenArtifact,
+  onApproveArtifact,
+  onRequestArtifactChanges,
+}: {
+  selectedTask: SprintEngineTask
+  selectedTaskOwnerLabel: string
+  selectedTaskNeedsInputNote: string | null
+  selectedTaskArtifacts: SprintEngineArtifact[]
+  selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
+  taskReadyActions: Record<string, TaskReadyActionState>
+  artifactActions: Record<string, ArtifactActionState>
+  tasksById: Record<string, SprintEngineTask>
+  onSelectTask: (taskId: string) => void
+  onOpenArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
+  onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
+  onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+}) {
+  const openIssues = getOpenSprintEngineFeedbackIssues(selectedTask.feedback)
+  const openFindings = getOpenSprintEngineFeedbackFindings(selectedTask.feedback)
+  const activityEntries = getSprintEngineTaskActivityDescending(selectedTask)
+
+  const readyActionMessage = taskReadyActions[selectedTask.id]?.message ?? null
+  const readyActionError = taskReadyActions[selectedTask.id]?.status === 'error'
+
+  return (
+    <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+      {selectedTaskNeedsInputNote ? (
+        <div className="border-l border-[color:var(--tone-warn-soft)] pl-3 text-sm text-[color:var(--tone-warn)]">
+          <div className="text-[10px] font-bold text-[color:var(--tone-warn)]">Needs Input</div>
+          <div className="mt-2 leading-6">{selectedTaskNeedsInputNote}</div>
+          <div className="mt-2 text-[12px] text-[color:var(--tone-warn)]">
+            Respond in the worker CLI to unblock this task.
+          </div>
+        </div>
+      ) : null}
+
+      {selectedTaskArtifactBlockers.length > 0 ? (
+        <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
+      ) : null}
+
+      <OpenFeedbackSummary issues={openIssues} findings={openFindings} />
+
+      {readyActionMessage ? (
+        <div
+          className={`border-l pl-3 text-[12px] leading-5 ${
+            readyActionError
+              ? 'border-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
+              : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)]'
+          }`}
+        >
+          {readyActionMessage}
+        </div>
+      ) : null}
+
+      <ActivityTimeline
+        entries={activityEntries}
+        emptyLabel="No activity recorded yet."
+      />
+
+      <details className="group" open>
+        <summary className="cursor-pointer list-none text-[10px] font-bold text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]">
+          <span className="mr-1 inline-block transition-transform group-open:rotate-90" aria-hidden="true">›</span>
+          Details
+        </summary>
+        <div className="mt-4 space-y-5">
+          <DefinitionList
+            layout="compact-grid"
+            items={[
+              { term: 'Source', description: formatTaskSourceLabel(selectedTask) },
+              { term: 'Owner', description: selectedTaskOwnerLabel },
+              { term: 'Dependencies', description: selectedTask.dependsOn.join(', ') || 'None' },
+              {
+                term: selectedTask.completedAt ? 'Completed' : 'Started',
+                description: formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt),
+              },
+            ]}
+          />
+
+          {selectedTask.source?.type === 'github' ? (
+            <div className="border-l border-[color:var(--border-strong)] pl-3">
+              <div className="text-[10px] font-bold text-[color:var(--text-disabled)]">GitHub Issue</div>
+              <div className="mt-1 truncate text-sm text-[color:var(--text-default)]">
+                {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
+                {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
               </div>
-            ) : null}
-            {selectedTask.source.externalUrl ? (
-              <button
-                type="button"
-                onClick={() => {
-                  window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
-                }}
-                className="mt-2 rounded px-2 py-1 text-[11px] font-semibold text-[color:var(--tone-warn)] interactive transition-colors hover:bg-[color:var(--tone-warn-soft)]"
-              >
-                Open Issue
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        {selectedTaskNeedsInputNote ? (
-          <div className="border-l border-[color:var(--tone-warn-soft)] pl-3 text-sm text-[color:var(--tone-warn)]">
-            <div className="text-[10px] font-bold text-[color:var(--tone-warn)]">Needs Input</div>
-            <div className="mt-2 leading-6">{selectedTaskNeedsInputNote}</div>
-            <div className="mt-2 text-[12px] text-[color:var(--tone-warn)]">
-              Respond in the worker CLI to unblock this task.
+              {formatTaskSyncStatusLabel(selectedTask) ? (
+                <div className="mt-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
+                  {formatTaskSyncStatusDescription(selectedTask)}
+                </div>
+              ) : null}
+              {selectedTask.source.externalUrl ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
+                  }}
+                  className="mt-2 rounded px-2 py-1 text-[11px] font-semibold text-[color:var(--tone-warn)] interactive transition-colors hover:bg-[color:var(--tone-warn-soft)]"
+                >
+                  Open Issue
+                </button>
+              ) : null}
             </div>
+          ) : null}
+
+          {selectedTask.triage ? (
+            <div className="border-l border-[color:var(--tone-warn)] pl-3 text-sm text-[color:var(--tone-warn)]">
+              <div className="text-[10px] font-bold text-[color:var(--tone-warn)]">Architect Triage</div>
+              <div className="mt-2 leading-6">{selectedTask.triage.summary}</div>
+            </div>
+          ) : null}
+
+          <div>
+            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Description</div>
+            <div>{selectedTask.description || 'No description recorded.'}</div>
           </div>
-        ) : null}
 
-        {selectedTaskArtifactBlockers.length > 0 ? (
-          <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
-        ) : null}
+          <SectionList
+            title="Acceptance Criteria"
+            items={selectedTask.acceptanceCriteria}
+            emptyLabel="No acceptance criteria recorded."
+          />
+          <SectionList title="Owned Paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
+          <SectionList
+            title="Implementation Notes"
+            items={selectedTask.implementationNotes}
+            emptyLabel="No implementation notes recorded."
+          />
+          <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
+          <SectionList
+            title="Comments"
+            items={selectedTask.comments.map((comment) => `${comment.actor}: ${comment.body}`)}
+            emptyLabel="No comments recorded."
+          />
 
-        {selectedTask.triage ? (
-          <div className="border-l border-[color:var(--tone-warn)] pl-3 text-sm text-[color:var(--tone-warn)]">
-            <div className="text-[10px] font-bold text-[color:var(--tone-warn)]">Architect Triage</div>
-            <div className="mt-2 leading-6">{selectedTask.triage.summary}</div>
+          <SprintEngineArtifactList
+            artifacts={selectedTaskArtifacts}
+            tasksById={tasksById}
+            actions={artifactActions}
+            emptyLabel="No review artifacts are attached to this task."
+            onSelectTask={onSelectTask}
+            onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
+            onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
+            onRequestArtifactChanges={onRequestArtifactChanges}
+          />
+
+          <div>
+            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Evidence Summary</div>
+            <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>
           </div>
-        ) : null}
 
-        {taskReadyActions[selectedTask.id]?.message ? (
-          <div
-            className={`border-l pl-3 text-[12px] leading-5 ${
-              taskReadyActions[selectedTask.id]?.status === 'error'
-                ? 'border-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
-                : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)]'
-            }`}
-          >
-            {taskReadyActions[selectedTask.id]?.message}
-          </div>
-        ) : null}
+          {selectedTask.feedback ? <AgentFeedback feedback={selectedTask.feedback} /> : null}
 
-        <div>
-          <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Description</div>
-          <div>{selectedTask.description || 'No description recorded.'}</div>
+          <SectionList
+            title="Commands Run"
+            items={selectedTask.evidence.commandsRan}
+            emptyLabel="No commands recorded."
+          />
+          <SectionList
+            title="Results"
+            items={selectedTask.evidence.results}
+            emptyLabel="No test or validation results recorded."
+          />
+          <SectionList
+            title="Touched Files"
+            items={selectedTask.evidence.touchedFiles}
+            emptyLabel="No touched files recorded."
+          />
         </div>
-
-        <SectionList
-          title="Acceptance Criteria"
-          items={selectedTask.acceptanceCriteria}
-          emptyLabel="No acceptance criteria recorded."
-        />
-        <SectionList title="Owned Paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
-        <SectionList
-          title="Implementation Notes"
-          items={selectedTask.implementationNotes}
-          emptyLabel="No implementation notes recorded."
-        />
-        <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
-        <SectionList
-          title="Comments"
-          items={selectedTask.comments.map((comment) => `${comment.actor}: ${comment.body}`)}
-          emptyLabel="No comments recorded."
-        />
-
-        <SprintEngineArtifactList
-          artifacts={selectedTaskArtifacts}
-          tasksById={tasksById}
-          actions={artifactActions}
-          emptyLabel="No review artifacts are attached to this task."
-          onSelectTask={onSelectTask}
-          onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
-          onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
-          onRequestArtifactChanges={onRequestArtifactChanges}
-        />
-
-        <div>
-          <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Evidence Summary</div>
-          <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>
-        </div>
-
-        {selectedTask.feedback ? <AgentFeedback feedback={selectedTask.feedback} /> : null}
-
-        <SectionList
-          title="Commands Run"
-          items={selectedTask.evidence.commandsRan}
-          emptyLabel="No commands recorded."
-        />
-        <SectionList
-          title="Results"
-          items={selectedTask.evidence.results}
-          emptyLabel="No test or validation results recorded."
-        />
-        <SectionList
-          title="Touched Files"
-          items={selectedTask.evidence.touchedFiles}
-          emptyLabel="No touched files recorded."
-        />
-      </div>
+      </details>
     </div>
   )
 }

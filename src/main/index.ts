@@ -207,6 +207,7 @@ registerSprintEngineIpc(ipcMain, {
   updateTask: sprintEngineArtifacts.updateTask,
   createTask: sprintEngineArtifacts.createTask,
   commentTask: sprintEngineArtifacts.commentTask,
+  readProjection: sprintEngineArtifacts.readProjection,
 })
 
 registerSwitchboardIpc(ipcMain, {

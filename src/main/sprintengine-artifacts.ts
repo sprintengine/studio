@@ -4,6 +4,7 @@ import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type {
   SprintEngineArtifactCommandResult,
+  SprintEngineProjectionReadResult,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
@@ -15,6 +16,7 @@ import type {
   SprintEngineArtifactReviewAction,
   SprintEngineArtifactReviewMode,
   SprintEngineArtifactReviewPayload,
+  SprintEngineProjectionReadPayload,
   SprintEngineTaskReadyPayload,
 } from './ipc/sprintengine-ipc'
 
@@ -424,6 +426,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
+  readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
 } {
   return {
     async openArtifact(payload) {
@@ -713,6 +716,16 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             tool: toolResult.response.result,
           },
         }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async readProjection(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
+        return { ok: true, data: JSON.parse(projectionContent) }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }

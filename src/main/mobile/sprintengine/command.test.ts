@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'fs/promises'
 import { platform, tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import {
   buildSprintEngineArtifactReviewArgs,
   mobileControlProtocolVersion,
@@ -32,6 +32,7 @@ async function main(): Promise<void> {
   await assertTaskStartUsesDesktopSessionOrchestration()
   await assertTaskStartUsesAuthorizedDiscoveredStateOutsideServiceCwd()
   await assertTaskStartRejectsBlockedDependencies()
+  await assertTaskStartConsultsProjectionWhenStateYamlIsStale()
   await assertFollowUpUsesKnownAgentSessionOrchestration()
   await assertFollowUpUsesAuthorizedDiscoveredStateOutsideServiceCwd()
   await assertFollowUpRejectsTerminalControlCharacters()
@@ -523,6 +524,68 @@ async function assertTaskStartRejectsBlockedDependencies(): Promise<void> {
   assert.equal(result.ok, false)
   assert.equal(result.ok === false ? result.error.code : '', 'task_not_ready')
   assert.equal(startCount, 0)
+}
+
+async function assertTaskStartConsultsProjectionWhenStateYamlIsStale(): Promise<void> {
+  // Folder-store runs may have a stale state.yaml (or one with the legacy
+  // pre-projection shape). The mobile command service must read readiness
+  // from projection.json so it observes the up-to-date board, not a stale
+  // mirror.
+  const fixture = await writeSprintEngineFixture(
+    'task-projection-team',
+    '.multi-code/sprintengine/task-projection-team/documents/requirements.md',
+    {
+      // Legacy state.yaml says T2 is still blocked by an unfinished T1.
+      tasks: [
+        task('T1', 'architect', 'todo'),
+        task('T2', 'developer', 'todo', { dependsOn: ['T1'] }),
+      ],
+    },
+  )
+
+  // Folder-store projection.json says T1 is done and T2 is ready (its
+  // status mirrors the board column while stateStatus carries the semantic
+  // value the readiness check needs).
+  await writeFile(join(dirname(fixture.statePath), 'projection.json'), JSON.stringify({
+    tasks: [
+      { id: 'T1', role: 'architect', status: 'done', stateStatus: 'done', dependsOn: [], ownerAgentId: null },
+      { id: 'T2', role: 'developer', status: 'ready', stateStatus: 'todo', dependsOn: ['T1'], ownerAgentId: null },
+    ],
+    artifacts: [],
+    roster: {},
+  }), 'utf8')
+
+  const starts: Parameters<MobileSprintEngineSessionOrchestrator['startTask']>[0][] = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: fixture.workspaceRoot,
+    statePaths: [fixture.statePath],
+    now: () => now,
+    execute: async () => {
+      throw new Error('Sprint Engine tool should not run for task starts')
+    },
+    sessionOrchestrator: {
+      startTask: async (request) => {
+        starts.push(request)
+        return { sessionId: 'session_projection', agentId: 'developer-1', executionMode: 'current_workspace' }
+      },
+      sendFollowUp: async () => {
+        throw new Error('follow-up should not run for task starts')
+      },
+    },
+  })
+
+  const result = await service.dispatch(command('task.start', {
+    sprintEngineId: 'task-projection-team',
+    taskId: 'T2',
+    role: 'developer',
+    worktreeIsolation: 'preferred',
+  }, {
+    idempotencyKey: 'mobile:device_1:task-projection',
+  }))
+
+  assert.equal(result.ok, true, result.ok === false ? result.error.message : undefined)
+  assert.equal(starts.length, 1)
+  assert.equal(starts[0].taskId, 'T2')
 }
 
 async function assertFollowUpUsesKnownAgentSessionOrchestration(): Promise<void> {

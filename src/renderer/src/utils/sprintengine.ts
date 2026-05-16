@@ -5,10 +5,17 @@ import type {
   SprintEngineArtifactReviewHistoryEntry,
   SprintEngineArtifactStatus,
   SprintEngineMockConfig,
+  SprintEngineProjectionLockReport,
+  SprintEngineProjectionLockWarning,
+  SprintEngineProjectionLocks,
+  SprintEngineProjectionMigration,
+  SprintEngineProjectionSource,
   SprintEngineRole,
   SprintEngineRoleCounts,
   SprintEngineRuntimeAgent,
   SprintEngineSkillMap,
+  SprintEngineTaskActivityEntry,
+  SprintEngineTaskActivityType,
   SprintEngineTaskDispatch,
   SprintEngineTaskDispatchMode,
   SprintEngineTaskDispatchStatus,
@@ -218,6 +225,44 @@ const sprintEngineTaskDispatchTriagedByValues: readonly SprintEngineTaskDispatch
 const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user', 'owner', 'artifact', 'tooling', 'verification', 'other']
 const sprintEngineNeedsInputReasons: readonly SprintEngineNeedsInputReason[] = ['task_scope', 'artifact_review', 'tooling', 'verification', 'product_decision', 'blocked_other']
 
+const sprintEngineTaskActivityTypes: readonly SprintEngineTaskActivityType[] = [
+  'comment',
+  'status_change',
+  'claim',
+  'evidence',
+  'feedback',
+  'needs_input',
+  'artifact',
+  'system',
+]
+
+const sprintEngineTaskBoardColumnSet: readonly SprintEngineTaskBoardColumn[] = [
+  'todo',
+  'ready',
+  'in_progress',
+  'needs_input',
+  'done',
+]
+
+export const sprintEngineTaskActivityLabels: Record<SprintEngineTaskActivityType, string> = {
+  comment: 'Comment',
+  status_change: 'Status',
+  claim: 'Claim',
+  evidence: 'Evidence',
+  feedback: 'Feedback',
+  needs_input: 'Needs Input',
+  artifact: 'Artifact',
+  system: 'System',
+}
+
+function isSprintEngineTaskActivityType(value: unknown): value is SprintEngineTaskActivityType {
+  return sprintEngineTaskActivityTypes.includes(value as SprintEngineTaskActivityType)
+}
+
+function isSprintEngineTaskBoardColumn(value: unknown): value is SprintEngineTaskBoardColumn {
+  return sprintEngineTaskBoardColumnSet.includes(value as SprintEngineTaskBoardColumn)
+}
+
 const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
   'architect_plan',
   'product_strategy',
@@ -282,6 +327,33 @@ function percentOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100
     ? value
     : undefined
+}
+
+function normalizeSprintEngineTaskActivity(input: unknown): SprintEngineTaskActivityEntry[] {
+  if (!Array.isArray(input)) return []
+  return input.flatMap((entry, index): SprintEngineTaskActivityEntry[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const record = entry as Record<string, unknown>
+    const type = record.type
+    const timestamp = stringOrNull(record.timestamp)?.trim()
+    if (!isSprintEngineTaskActivityType(type) || !timestamp) return []
+    const message = typeof record.message === 'string' ? record.message : ''
+    const id = stringOrNull(record.id)?.trim() || `activity-${index + 1}`
+    const actor = stringOrNull(record.actor)?.trim() || 'unknown'
+    const status = optionalTrimmedString(record.status)
+    const artifactId = optionalTrimmedString(record.artifactId)
+    const artifactStatus = optionalTrimmedString(record.artifactStatus)
+    return [{
+      id,
+      timestamp,
+      type,
+      actor,
+      message,
+      ...(status ? { status } : {}),
+      ...(artifactId ? { artifactId } : {}),
+      ...(artifactStatus ? { artifactStatus } : {}),
+    }]
+  })
 }
 
 function normalizeSprintEngineTaskComments(input: unknown): SprintEngineTaskComment[] {
@@ -939,6 +1011,11 @@ export function getSprintEngineTaskBoardColumn(
   task: SprintEngineTask,
   tasks: SprintEngineTask[]
 ): SprintEngineTaskBoardColumn {
+  // Folder-store projection: when the task carries an authoritative board column
+  // (or it lives in an in_progress/needs_input/done folder), trust that value.
+  if (task.boardColumn && isSprintEngineTaskBoardColumn(task.boardColumn)) {
+    return task.boardColumn
+  }
   if (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'done') {
     return task.status
   }
@@ -1066,14 +1143,25 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const source = normalizeSprintEngineTaskSource(task.source)
     const dispatch = normalizeSprintEngineTaskDispatch(task.dispatch)
     const needsInput = normalizeSprintEngineTaskNeedsInput(task.needsInput)
+    const activity = normalizeSprintEngineTaskActivity(task.activity)
+    const semanticStatus = (['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.stateStatus as SprintEngineTaskStatus)
+      ? task.stateStatus as SprintEngineTaskStatus
+      : null
+    const status: SprintEngineTaskStatus = semanticStatus
+      ?? ((['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SprintEngineTaskStatus)
+        ? task.status as SprintEngineTaskStatus
+        : 'todo' as const)
+    const boardColumn = isSprintEngineTaskBoardColumn(task.boardColumn) ? task.boardColumn : undefined
+    const folderStatus = optionalTrimmedString(task.folderStatus)
     return {
       id: task.id ?? `task-${index + 1}`,
       title: task.title ?? `Task ${index + 1}`,
       description: task.description ?? '',
       role: isSprintEngineRole(task.role) ? task.role : 'developer' as SprintEngineRole,
-      status: (['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SprintEngineTaskStatus)
-        ? task.status as SprintEngineTaskStatus
-        : 'todo' as const,
+      status,
+      ...(semanticStatus ? { stateStatus: semanticStatus } : {}),
+      ...(boardColumn ? { boardColumn } : {}),
+      ...(folderStatus ? { folderStatus } : {}),
       ...(source ? { source } : {}),
       ...(dispatch ? { dispatch } : {}),
       ownerAgentId: task.ownerAgentId ?? null,
@@ -1089,6 +1177,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       comments: normalizeSprintEngineTaskComments(task.comments),
       startedAt: task.startedAt ?? null,
       completedAt: task.completedAt ?? null,
+      ...(activity.length > 0 ? { activity } : {}),
     }
   })
 
@@ -1108,7 +1197,230 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     events: input.events ?? [],
     tasks,
     artifacts: normalizeSprintEngineArtifacts(input.artifacts),
+    ...(input.projection ? { projection: input.projection } : {}),
+    ...(input.locks ? { locks: input.locks } : {}),
+    ...(input.migration ? { migration: input.migration } : {}),
   }
+}
+
+function normalizeProjectionLockReports(value: unknown): SprintEngineProjectionLockReport[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry): SprintEngineProjectionLockReport[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const record = entry as Record<string, unknown>
+    const name = optionalTrimmedString(record.name)
+    if (!name) return []
+    const age = typeof record.ageSeconds === 'number' ? record.ageSeconds : null
+    const ownerRecord = record.owner && typeof record.owner === 'object' ? record.owner as Record<string, unknown> : null
+    const owner = ownerRecord
+      ? {
+          ...(typeof ownerRecord.pid === 'number' ? { pid: ownerRecord.pid } : {}),
+          ...(typeof ownerRecord.createdAt === 'string' ? { createdAt: ownerRecord.createdAt } : {}),
+        }
+      : null
+    return [{
+      name,
+      exists: Boolean(record.exists),
+      stale: Boolean(record.stale),
+      ageSeconds: age,
+      owner,
+    }]
+  })
+}
+
+function normalizeProjectionLockWarnings(value: unknown): SprintEngineProjectionLockWarning[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry): SprintEngineProjectionLockWarning[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const record = entry as Record<string, unknown>
+    const name = optionalTrimmedString(record.name)
+    const message = optionalTrimmedString(record.message)
+    if (!name || !message) return []
+    const age = typeof record.ageSeconds === 'number' ? record.ageSeconds : null
+    return [{ name, message, ageSeconds: age }]
+  })
+}
+
+function normalizeProjectionLocks(value: unknown): SprintEngineProjectionLocks | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const locks = normalizeProjectionLockReports(record.locks)
+  const warnings = normalizeProjectionLockWarnings(record.warnings)
+  if (locks.length === 0 && warnings.length === 0) return undefined
+  return { locks, warnings }
+}
+
+function normalizeProjectionMigration(value: unknown): SprintEngineProjectionMigration | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const source = optionalTrimmedString(record.source)
+  const createdAt = optionalTrimmedString(record.createdAt)
+  const updatedAt = optionalTrimmedString(record.updatedAt)
+  const migratedAt = optionalTrimmedString(record.migratedAt)
+  const backupPath = optionalTrimmedString(record.backupPath)
+  if (!source && !createdAt && !updatedAt && !migratedAt && !backupPath) return undefined
+  return {
+    ...(source ? { source } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+    ...(migratedAt ? { migratedAt } : {}),
+    ...(backupPath ? { backupPath } : {}),
+  }
+}
+
+function projectionSourceValue(value: unknown): SprintEngineProjectionSource {
+  return value === 'folder_store' || value === 'state_yaml_fallback' || value === 'unavailable'
+    ? value
+    : 'folder_store'
+}
+
+function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineRuntimeAgent> {
+  if (!value || typeof value !== 'object') return {}
+  const result: Record<string, SprintEngineRuntimeAgent> = {}
+  for (const [agentId, agent] of Object.entries(value as Record<string, unknown>)) {
+    if (!agent || typeof agent !== 'object') continue
+    const record = agent as Record<string, unknown>
+    if (!isSprintEngineRole(record.role)) continue
+    const status = record.status === 'running' || record.status === 'needs_input' || record.status === 'done'
+      ? record.status
+      : 'idle' as const
+    result[agentId] = {
+      role: record.role,
+      status,
+      currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
+    }
+  }
+  return result
+}
+
+/**
+ * Convert a folder-store `projection.json` payload into the SprintEngineState
+ * shape the renderer panels consume. The projection is the single source of
+ * truth for board columns, activity, lock warnings, and run metadata; the
+ * existing legacy `state.yaml` parser is a fallback when projection.json is
+ * not yet available (e.g. unmigrated runs).
+ */
+export function normalizeSprintEngineProjection(
+  input: unknown,
+  fallbackName?: string,
+): SprintEngineState | null {
+  if (!input || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  const runRecord = record.run && typeof record.run === 'object' ? record.run as Record<string, unknown> : {}
+
+  const roster = normalizeProjectionRoster(record.roster)
+  const rawTasks = Array.isArray(record.tasks) ? record.tasks : []
+  const rawArtifacts = Array.isArray(record.artifacts) ? record.artifacts : []
+  const rawActivity = Array.isArray(record.activity) ? record.activity : []
+
+  const events = rawActivity.flatMap((event): SprintEngineState['events'] => {
+    if (!event || typeof event !== 'object') return []
+    const e = event as Record<string, unknown>
+    if (typeof e.id !== 'string' || typeof e.timestamp !== 'string' || typeof e.type !== 'string' || typeof e.actor !== 'string') {
+      return []
+    }
+    return [{
+      id: e.id,
+      timestamp: e.timestamp,
+      type: e.type,
+      actor: e.actor,
+      message: typeof e.message === 'string' ? e.message : '',
+      ...(typeof e.targetAgentId === 'string' ? { targetAgentId: e.targetAgentId } : {}),
+      ...(typeof e.taskId === 'string' ? { taskId: e.taskId } : {}),
+      ...(typeof e.artifactId === 'string' ? { artifactId: e.artifactId } : {}),
+      ...(typeof e.notificationKind === 'string' ? { notificationKind: e.notificationKind } : {}),
+    }]
+  })
+
+  const fallbackRoleCounts = createDefaultSprintEngineRoleCounts()
+  for (const role of Object.keys(fallbackRoleCounts) as SprintEngineRole[]) fallbackRoleCounts[role] = 0
+  for (const agent of Object.values(roster)) {
+    if (isSprintEngineRole(agent.role)) fallbackRoleCounts[agent.role] += 1
+  }
+  const hasRosterCounts = Object.values(fallbackRoleCounts).some((count) => count > 0)
+  const roleCounts = hasRosterCounts ? fallbackRoleCounts : createDefaultSprintEngineRoleCounts()
+
+  const candidate: SprintEngineState = {
+    name: optionalTrimmedString(runRecord.name) ?? fallbackName ?? 'Sprint Engine Team',
+    goal: typeof runRecord.goal === 'string' ? runRecord.goal : '',
+    rosterConfigured: Boolean(runRecord.rosterConfigured),
+    updatedAt: optionalTrimmedString(runRecord.updatedAt) ?? optionalTrimmedString(record.updatedAt) ?? null,
+    roleCounts,
+    sprintEngineAgents: Object.keys(roster).length > 0
+      ? roster
+      : Object.fromEntries(buildSprintEngineAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
+    events,
+    tasks: rawTasks as SprintEngineState['tasks'],
+    artifacts: rawArtifacts as SprintEngineState['artifacts'],
+    projection: {
+      source: projectionSourceValue(record.source),
+      updatedAt: optionalTrimmedString(record.updatedAt) ?? null,
+      generatedAt: optionalTrimmedString(record.generatedAt) ?? null,
+    },
+    ...(normalizeProjectionLocks(record.locks) ? { locks: normalizeProjectionLocks(record.locks) } : {}),
+    ...(normalizeProjectionMigration(runRecord.migration) ? { migration: normalizeProjectionMigration(runRecord.migration) } : {}),
+  }
+
+  return normalizeSprintEngineState(candidate)
+}
+
+/**
+ * Newest-first activity for inspector display. The projection stores activity
+ * oldest-first; the inspector prioritizes the most recent handoff signal.
+ */
+export function getSprintEngineTaskActivityDescending(
+  task: Pick<SprintEngineTask, 'activity'>,
+): SprintEngineTaskActivityEntry[] {
+  const activity = task.activity ?? []
+  return [...activity].sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? ''))
+}
+
+/**
+ * Open feedback items the inspector should surface above secondary metadata —
+ * issues and findings whose status is still active (not applied/rejected/fixed).
+ */
+export function getOpenSprintEngineFeedbackIssues(
+  feedback: SprintEngineTaskFeedback | undefined,
+): SprintEngineTaskFeedbackIssue[] {
+  if (!feedback?.issues) return []
+  return feedback.issues.filter((issue) => {
+    const status = issue.status ?? 'new'
+    return status !== 'applied' && status !== 'rejected'
+  })
+}
+
+export function getOpenSprintEngineFeedbackFindings(
+  feedback: SprintEngineTaskFeedback | undefined,
+): SprintEngineTaskFeedbackFinding[] {
+  if (!feedback?.findings) return []
+  return feedback.findings.filter((finding) => {
+    const status = finding.status ?? 'open'
+    return status !== 'fixed' && status !== 'rejected'
+  })
+}
+
+export function hasOpenSprintEngineFeedback(
+  feedback: SprintEngineTaskFeedback | undefined,
+): boolean {
+  if (!feedback) return false
+  return getOpenSprintEngineFeedbackIssues(feedback).length > 0
+    || getOpenSprintEngineFeedbackFindings(feedback).length > 0
+}
+
+/**
+ * Convert a folder-store lock age (seconds) into a compact human label, e.g.
+ * `12s`, `4m`, `2h`. Used by the lock warning surface to communicate how long
+ * the stale lock has been held without leaking absolute timestamps.
+ */
+export function formatSprintEngineLockAge(ageSeconds: number | null | undefined): string {
+  if (typeof ageSeconds !== 'number' || !Number.isFinite(ageSeconds) || ageSeconds < 0) return 'unknown age'
+  if (ageSeconds < 60) return `${Math.round(ageSeconds)}s`
+  const minutes = ageSeconds / 60
+  if (minutes < 60) return `${Math.round(minutes)}m`
+  const hours = minutes / 60
+  if (hours < 24) return `${Math.round(hours * 10) / 10}h`
+  const days = hours / 24
+  return `${Math.round(days * 10) / 10}d`
 }
 
 /**

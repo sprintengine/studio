@@ -279,6 +279,64 @@ export type SprintEngineRuntimeAgent = {
   currentTaskId: string | null
 }
 
+export type SprintEngineTaskActivityType =
+  | 'comment'
+  | 'status_change'
+  | 'claim'
+  | 'evidence'
+  | 'feedback'
+  | 'needs_input'
+  | 'artifact'
+  | 'system'
+
+export type SprintEngineTaskActivityEntry = {
+  id: string
+  timestamp: string
+  type: SprintEngineTaskActivityType
+  actor: string
+  message: string
+  status?: string
+  artifactId?: string
+  artifactStatus?: string
+}
+
+export type SprintEngineProjectionSource = 'folder_store' | 'state_yaml_fallback' | 'unavailable'
+
+export type SprintEngineProjectionLockReport = {
+  name: string
+  exists: boolean
+  stale: boolean
+  ageSeconds: number | null
+  owner: { pid?: number; createdAt?: string } | null
+}
+
+export type SprintEngineProjectionLockWarning = {
+  name: string
+  message: string
+  ageSeconds: number | null
+}
+
+export type SprintEngineProjectionLocks = {
+  locks: SprintEngineProjectionLockReport[]
+  warnings: SprintEngineProjectionLockWarning[]
+}
+
+export type SprintEngineProjectionMigration = {
+  source?: string
+  createdAt?: string
+  updatedAt?: string
+  migratedAt?: string
+  backupPath?: string
+}
+
+export type SprintEngineProjectionStatus = {
+  source: SprintEngineProjectionSource
+  updatedAt: string | null
+  generatedAt: string | null
+  /** Set when the projection could not be loaded. */
+  errorMessage?: string
+}
+
 export type SprintEngineAutoPendingSpawn = {
   taskId: string
   agentId: string
@@ -574,6 +632,14 @@ export type SprintEngineTask = {
   comments: SprintEngineTaskComment[]
   startedAt: string | null
   completedAt: string | null
+  /** Folder-store column the task is materialized in. Authoritative when set. */
+  boardColumn?: SprintEngineTaskBoardColumn
+  /** Folder-store directory name the task currently lives under (e.g. "in_progress", "ready"). */
+  folderStatus?: string
+  /** Semantic status field embedded in the task file, mirrored from `status` for legacy callers. */
+  stateStatus?: SprintEngineTaskStatus
+  /** Canonical handoff timeline, oldest first. */
+  activity?: SprintEngineTaskActivityEntry[]
 }
 
 export type SprintEngineState = {
@@ -588,6 +654,12 @@ export type SprintEngineState = {
   events: SprintEngineEvent[]
   tasks: SprintEngineTask[]
   artifacts: SprintEngineArtifact[]
+  /** Present when the projection was loaded; describes load source / freshness / error. */
+  projection?: SprintEngineProjectionStatus
+  /** Folder-store lock reports + warnings (stale locks etc). */
+  locks?: SprintEngineProjectionLocks
+  /** Migration metadata recorded by the folder store. */
+  migration?: SprintEngineProjectionMigration
 }
 
 export type SprintEngineMockConfig = Pick<SprintEngineState, 'name' | 'goal' | 'roleCounts'>

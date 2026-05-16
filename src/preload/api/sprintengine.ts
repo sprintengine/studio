@@ -2,6 +2,7 @@ import { ipcRenderer } from 'electron'
 import type {
   ElectronApi,
   SprintEngineArtifactCommandResult,
+  SprintEngineProjectionReadResult,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
@@ -51,6 +52,10 @@ export const sprintEngineApi = {
     input: SprintEngineTaskCommentInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:comment', input),
+  readSprintEngineProjection: (
+    statePath: string
+  ): Promise<SprintEngineProjectionReadResult> =>
+    ipcRenderer.invoke('sprintengine:projection:read', { statePath }),
 } satisfies Pick<
   ElectronApi,
   | 'openSprintEngineArtifact'
@@ -62,4 +67,5 @@ export const sprintEngineApi = {
   | 'updateSprintEngineTask'
   | 'createSprintEngineTask'
   | 'commentSprintEngineTask'
+  | 'readSprintEngineProjection'
 >

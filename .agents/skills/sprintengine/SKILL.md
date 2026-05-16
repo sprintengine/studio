@@ -1,9 +1,9 @@
 ---
 name: sprintengine
-description: Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, and plan reviews for projects that use named `.multi-code/sprintengine/<team>/state.yaml` and `.multi-code/sprintengine/<team>/plan.md` files. Use when acting as a sprintengine architect or worker in this repo's sprintengine-mode workflow.
+description: Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, projections, migration, and plan reviews for projects that use named `.multi-code/sprintengine/<team>/` run stores and `plan.md` files. Use when acting as a sprintengine architect or worker in this repo's sprintengine-mode workflow.
 ---
 
-Use the bundled coordination command instead of hand-editing `.multi-code/sprintengine/state.yaml` or named `.multi-code/sprintengine/<team>/state.yaml` files.
+Use the bundled coordination command instead of hand-editing Sprint Engine store files. This includes `.multi-code/sprintengine/state.yaml`, named `.multi-code/sprintengine/<team>/state.yaml` files, `run.yaml`, `projection.json`, task JSON files, artifact JSON files, `events.jsonl`, `metrics/agent-feedback.jsonl`, runner status files, and lock files.
 
 Primary command:
 
@@ -22,7 +22,7 @@ API discovery:
 - On Windows, if `.\scripts\sprintengine.cmd` cannot run, immediately retry with the repo venv command: `& ".\.venv\Scripts\python.exe" ".\scripts\sprintengine_tool.py" --help`.
 - For Verify Progress / recovery audits, run `sprintengine recover` and follow the returned prompt. Recovery is an integrity pass: it must keep implementation work stopped, but it may tighten acceptance criteria, add missing real-integration/verification tasks, or fix dependencies when the existing plan would let fake product behavior count as done.
 - Before using a command group or action for the first time, run its `--help` and follow the exact flags shown by the tool.
-- Current command groups are `handover`, `init`, `recover`, `join`, `triage`, `task`, `plan`, `artifact`, and `summary`.
+- Current command groups are `handover`, `init`, `recover`, `migrate`, `projection`, `join`, `triage`, `task`, `plan`, `artifact`, `summary`, and `merge`.
 - Worker commands live under `sprintengine task`: use `task next`, `task claim`, `task status`, `task log`, `task note`, and `task list`.
 - `sprintengine task log` uses repeatable `--file`, `--command`, and `--result` flags. When a task requires a small directly related edit outside `ownedPaths`, also add repeatable `--scope-expansion-json '{"path":"<project-relative-path>","reason":"<why this companion edit is required>","risk":"<low|medium|high or short risk>"}'`.
 - When moving a task to `needs_input`, classify who must resolve it with `--needs-input-kind` (`architect`, `user`, or `owner`) plus `--needs-input-question`; add `--needs-input-reason` (`task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, or `blocked_other`) when available. Use `architect` for stale plans, impossible acceptance criteria, wrong paths, architectural scope mismatches, or artifact reviews so the UI can route the blocker to the architect. Legacy kind values (`artifact`, `tooling`, `verification`, `other`) are still accepted for compatibility but should not be used for new blockers.
@@ -31,6 +31,8 @@ API discovery:
 - Agent identity is the stable sprintengine slot id such as `frontend`, `product`, `developer-1`, or `developer-2`, not the Claude session id. If Claude restarts, reuse the same `--id` to continue that slot's active work.
 - If calling the Python script directly instead of the `sprintengine` function, put global `--state <path>` before the subcommand.
 - All file paths written into task cards, evidence, artifacts, reviews, plans, or handoffs must be relative to the project root. Never use absolute or machine-specific paths in `--path`, `--file`, artifact paths, markdown artifacts, or task notes.
+- For app, mobile, or read-only tooling, use `sprintengine projection` or the generated `projection.json` read contract. Do not parse `tasks/`, `artifacts/`, `events.jsonl`, metrics files, lock files, or legacy `state.yaml` directly for migrated runs.
+- Do not move files between task or artifact status folders by hand. Folder location, embedded status mirrors, ready queue materialization, activity, events, metrics, and projection updates must be produced by Sprint Engine commands.
 
 Worker workflow:
 
@@ -44,6 +46,7 @@ Worker workflow:
    - `sprintengine task status`
    - `sprintengine task note`
    - `sprintengine task log`
+   - `sprintengine artifact add` / `sprintengine artifact ready` when your task explicitly produces an artifact
 8. Before marking work `done`, publish:
    - summary
    - touched files
@@ -68,7 +71,7 @@ Architect workflow:
 11. During architect final review, never reopen completed tasks. If product, security, performance, code review, validation, or architect findings require follow-up work, create new tasks and also create a later architect final review task that depends on those follow-ups.
 12. During user review, revise the board with `Sprint Engine plan update-task`, `Sprint Engine plan delete-task`, `Sprint Engine plan add-dependency`, and `Sprint Engine plan remove-dependency`.
 13. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
-14. Do not manually edit `.multi-code/sprintengine/state.yaml`.
+14. Do not manually edit `.multi-code/sprintengine/state.yaml`, `run.yaml`, task files, artifact files, events, metrics, projections, runner files, or locks.
 
 Use plan reviews when the architect has drafted a complete plan and wants the specialist roster to critique it before execution:
 
@@ -99,6 +102,7 @@ Sprint Engine plan start-review --role frontend --id frontend
 Sprint Engine plan review-status
 Sprint Engine plan address-reviews --actor architect
 Sprint Engine plan list
+sprintengine projection
 sprintengine summary
 ```
 
@@ -112,9 +116,10 @@ Rules:
 - Use `sprintengine summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
 - Architect-created follow-up work from final review must be followed by another architect final review task. Completed tasks stay done; create new tasks for fixes or verification.
-- Plan reviewers write only their own markdown file in `plan-reviews/`; they do not update `state.yaml`, claim tasks, or change the task graph.
+- Plan reviewers write only their own markdown file in `plan-reviews/`; they do not update `state.yaml`, `run.yaml`, task files, artifact files, events, metrics, locks, claim tasks, or change the task graph.
 - Architects address plan reviews with `Sprint Engine plan address-reviews --actor architect`, then revise `plan.md` directly and task cards through `Sprint Engine plan` commands.
-- The app does not call the Python tool. The Python tool is for agents; the user manually spawns specialists from the UI.
+- App and mobile read paths should consume normalized Sprint Engine projections. They must not parse folder-store internals or mutate Sprint Engine files directly.
+- The Python tool is for agent and local coordination commands. UI review actions should focus or message the relevant agent terminal; that agent then uses the Sprint Engine tool.
 - Renderer, preload, and main-process UI IPC must not expose direct sprintengine Python mutations such as `sprintengine artifact approve`, `sprintengine artifact request-changes`, `sprintengine artifact ready`, `sprintengine task status`, or `Sprint Engine plan` updates. UI review actions should focus or message the relevant agent terminal; that agent then uses the Sprint Engine tool.
 - If `python3` or `PyYAML` is unavailable, report the blocker instead of silently hand-editing shared state.
 

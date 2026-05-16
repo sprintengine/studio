@@ -1,6 +1,7 @@
 import type { IpcMain } from 'electron'
 import type {
   SprintEngineArtifactCommandResult,
+  SprintEngineProjectionReadResult,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
@@ -23,6 +24,10 @@ export type SprintEngineTaskReadyPayload = {
   taskId: string
 }
 
+export type SprintEngineProjectionReadPayload = {
+  statePath: string
+}
+
 export type SprintEngineArtifactReviewAction = 'approve' | 'request-changes'
 export type SprintEngineArtifactReviewMode = 'user' | 'auto-run'
 
@@ -38,6 +43,7 @@ type SprintEngineIpcDependencies = {
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
+  readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
 }
 
 export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
@@ -75,5 +81,9 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:task:comment', async (_, payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.commentTask(payload)
+  })
+
+  ipcMain.handle('sprintengine:projection:read', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult> => {
+    return deps.readProjection(payload)
   })
 }

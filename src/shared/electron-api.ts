@@ -633,6 +633,10 @@ export type SprintEngineArtifactCommandResult =
   | { ok: true; data: unknown }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 
+export type SprintEngineProjectionReadResult =
+  | { ok: true; data: unknown }
+  | { ok: false; message: string }
+
 export type SprintEngineTaskMutationRole =
   | 'architect'
   | 'product'
@@ -1054,6 +1058,7 @@ export type ElectronApi = {
   updateSprintEngineTask: (input: SprintEngineTaskUpdateInput) => Promise<SprintEngineArtifactCommandResult>
   createSprintEngineTask: (input: SprintEngineTaskCreateInput) => Promise<SprintEngineArtifactCommandResult>
   commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
+  readSprintEngineProjection: (statePath: string) => Promise<SprintEngineProjectionReadResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>
   createSwitchboardTask: (input: SwitchboardCreateTaskInput) => Promise<SwitchboardMutationResult>

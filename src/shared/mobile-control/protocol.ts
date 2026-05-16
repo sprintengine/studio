@@ -264,6 +264,42 @@ export interface MobileControlArtifactSnapshot {
   path?: string;
 }
 
+export interface MobileControlSprintEngineLockReport {
+  name: string;
+  exists?: boolean;
+  stale?: boolean;
+  ageSeconds?: number | null;
+}
+
+export interface MobileControlSprintEngineLockWarning {
+  name: string;
+  message: string;
+  ageSeconds?: number | null;
+}
+
+export interface MobileControlSprintEngineLockState {
+  warnings?: MobileControlSprintEngineLockWarning[];
+  locks?: MobileControlSprintEngineLockReport[];
+}
+
+export interface MobileControlSprintEngineActivityEntry {
+  id?: string;
+  type?: string;
+  timestamp?: string;
+  actor?: string;
+  message?: string;
+}
+
+export interface MobileControlSprintEngineActivitySummary {
+  count: number;
+  latest?: MobileControlSprintEngineActivityEntry;
+}
+
+export interface MobileControlSprintEngineCounts {
+  ready?: number;
+  needsInput?: number;
+}
+
 export interface MobileControlSprintEngineSnapshot {
   sprintEngineId: string;
   name: string;
@@ -285,6 +321,12 @@ export interface MobileControlSprintEngineSnapshot {
   roster?: Record<string, MobileControlRosterEntry>;
   runSummary?: Record<string, string | number | boolean | null>;
   planReview?: Record<string, string | number | boolean | null>;
+  /** Folder-store lock reports and stale-lock warnings. Optional for back-compat. */
+  locks?: MobileControlSprintEngineLockState;
+  /** Latest projection activity entry plus total event count. */
+  activity?: MobileControlSprintEngineActivitySummary;
+  /** Headline counts mirrored from the projection's top-level counts block. */
+  counts?: MobileControlSprintEngineCounts;
 }
 
 export interface MobileControlWorkspaceSummary {
@@ -1026,8 +1068,84 @@ function validateSprintEngineSnapshot(input: unknown): string | null {
   return (
     validateOptionalRoster(sprintEngine.value.roster, "snapshot.sprintEngine.roster") ??
     validateOptionalRecordSummary(sprintEngine.value.runSummary, "snapshot.sprintEngine.runSummary") ??
-    validateOptionalRecordSummary(sprintEngine.value.planReview, "snapshot.sprintEngine.planReview")
+    validateOptionalRecordSummary(sprintEngine.value.planReview, "snapshot.sprintEngine.planReview") ??
+    validateOptionalLockState(sprintEngine.value.locks, "snapshot.sprintEngine.locks") ??
+    validateOptionalActivitySummary(sprintEngine.value.activity, "snapshot.sprintEngine.activity") ??
+    validateOptionalProjectionCounts(sprintEngine.value.counts, "snapshot.sprintEngine.counts")
   );
+}
+
+function validateOptionalLockState(input: unknown, fieldName: string): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const lockState = validateObject(input, fieldName);
+  if (lockState.ok === false) {
+    return lockState.error;
+  }
+  if (lockState.value.locks !== undefined) {
+    const locksError = requireArray(lockState.value, "locks");
+    if (locksError) return `${fieldName}.${locksError}`;
+    for (const [index, entry] of (lockState.value.locks as unknown[]).entries()) {
+      const lockReport = validateObject(entry, `${fieldName}.locks[${index}]`);
+      if (lockReport.ok === false) return lockReport.error;
+      const reportError =
+        requireString(lockReport.value, "name") ??
+        optionalNullableNumber(lockReport.value, "ageSeconds");
+      if (reportError) return `${fieldName}.locks[${index}].${reportError}`;
+    }
+  }
+  if (lockState.value.warnings !== undefined) {
+    const warningsError = requireArray(lockState.value, "warnings");
+    if (warningsError) return `${fieldName}.${warningsError}`;
+    for (const [index, entry] of (lockState.value.warnings as unknown[]).entries()) {
+      const warning = validateObject(entry, `${fieldName}.warnings[${index}]`);
+      if (warning.ok === false) return warning.error;
+      const warningError =
+        requireString(warning.value, "name") ??
+        requireString(warning.value, "message") ??
+        optionalNullableNumber(warning.value, "ageSeconds");
+      if (warningError) return `${fieldName}.warnings[${index}].${warningError}`;
+    }
+  }
+  return null;
+}
+
+function validateOptionalActivitySummary(input: unknown, fieldName: string): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const summary = validateObject(input, fieldName);
+  if (summary.ok === false) {
+    return summary.error;
+  }
+  const summaryError = requireNonNegativeInteger(summary.value, "count");
+  if (summaryError) return `${fieldName}.${summaryError}`;
+  if (summary.value.latest === undefined) return null;
+  const latest = validateObject(summary.value.latest, `${fieldName}.latest`);
+  if (latest.ok === false) return latest.error;
+  return (
+    optionalString(latest.value, "id") ??
+    optionalString(latest.value, "type") ??
+    optionalString(latest.value, "timestamp") ??
+    optionalString(latest.value, "actor") ??
+    optionalString(latest.value, "message")
+  );
+}
+
+function validateOptionalProjectionCounts(input: unknown, fieldName: string): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const counts = validateObject(input, fieldName);
+  if (counts.ok === false) {
+    return counts.error;
+  }
+  const readyError = counts.value.ready === undefined ? null : requireNonNegativeInteger(counts.value, "ready");
+  if (readyError) return `${fieldName}.${readyError}`;
+  const needsInputError = counts.value.needsInput === undefined ? null : requireNonNegativeInteger(counts.value, "needsInput");
+  if (needsInputError) return `${fieldName}.${needsInputError}`;
+  return null;
 }
 
 function validateOptionalRoster(input: unknown, fieldName: string): string | null {

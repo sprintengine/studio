@@ -1,0 +1,252 @@
+import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { validateSprintEngineStatePath } from './state-path'
+import {
+  assertKnownActiveSprintEngineAgent,
+  findReadySprintEngineTask,
+  findSprintEngineArtifact,
+  readRawSprintEngineState,
+} from './state-reader'
+
+void main()
+
+async function main(): Promise<void> {
+  await assertProjectionIsPreferredForState()
+  await assertStateYamlIsUsedWhenProjectionMissing()
+  await assertMalformedProjectionDoesNotFallBackToStateYaml()
+  await assertFindReadyTaskAcceptsProjectionReadyStatus()
+  await assertFindReadyTaskBlocksWhenDependencyNotDone()
+  await assertFindReadyTaskRejectsAlreadyOwnedTask()
+  await assertFindReadyTaskRejectsRoleMismatch()
+  await assertFindArtifactReadsFromProjection()
+  await assertActiveAgentResolvedViaProjectionRoster()
+  await assertIdleAgentResolvedViaProjectionRosterWithoutStateYaml()
+}
+
+async function writeFixture(state: {
+  stateContent?: string
+  projection?: Record<string, unknown> | null
+}): Promise<{ teamDirectory: string; statePath: string }> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'mobile-state-reader-'))
+  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'team')
+  await mkdir(teamDirectory, { recursive: true })
+  const statePath = join(teamDirectory, 'state.yaml')
+  await writeFile(statePath, state.stateContent ?? '{}', 'utf8')
+  if (state.projection !== null && state.projection !== undefined) {
+    await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify(state.projection), 'utf8')
+  }
+  return { teamDirectory, statePath }
+}
+
+async function assertProjectionIsPreferredForState(): Promise<void> {
+  const projection = {
+    tasks: [
+      { id: 'T1', role: 'developer', status: 'done', stateStatus: 'done', dependsOn: [] },
+      { id: 'T2', role: 'frontend', status: 'ready', stateStatus: 'todo', dependsOn: ['T1'] },
+    ],
+    artifacts: [{ id: 'A1', path: 'docs/notes.md', status: 'approved' }],
+    roster: { 'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' } },
+  }
+  const { statePath } = await writeFixture({
+    // legacy state file says T2 still has T1 as todo — projection wins
+    stateContent: JSON.stringify({
+      tasks: [
+        { id: 'T1', role: 'developer', status: 'todo', dependsOn: [] },
+        { id: 'T2', role: 'frontend', status: 'todo', dependsOn: ['T1'] },
+      ],
+      artifacts: [],
+      sprintEngineAgents: {},
+    }),
+    projection,
+  })
+  const validated = validateSprintEngineStatePath(statePath)
+  const raw = await readRawSprintEngineState(validated)
+  assert.equal(Array.isArray(raw.tasks), true)
+  assert.equal(raw.tasks?.length, 2)
+  assert.equal(raw.artifacts?.length, 1)
+  assert.deepEqual(Object.keys(raw.sprintEngineAgents ?? {}), ['developer-1'])
+}
+
+async function assertStateYamlIsUsedWhenProjectionMissing(): Promise<void> {
+  const { statePath } = await writeFixture({
+    stateContent: JSON.stringify({
+      tasks: [{ id: 'T1', role: 'developer', status: 'todo', dependsOn: [] }],
+      artifacts: [{ id: 'A1', path: 'docs/notes.md' }],
+      sprintEngineAgents: { 'developer-1': { role: 'developer', status: 'idle' } },
+    }),
+    projection: null,
+  })
+  const validated = validateSprintEngineStatePath(statePath)
+  const raw = await readRawSprintEngineState(validated)
+  assert.equal(raw.tasks?.length, 1)
+  assert.equal(raw.artifacts?.length, 1)
+  assert.equal(Object.keys(raw.sprintEngineAgents ?? {}).length, 1)
+}
+
+async function assertMalformedProjectionDoesNotFallBackToStateYaml(): Promise<void> {
+  const { teamDirectory, statePath } = await writeFixture({
+    stateContent: JSON.stringify({
+      tasks: [{ id: 'T1', role: 'developer', status: 'todo', dependsOn: [] }],
+      artifacts: [],
+      sprintEngineAgents: {},
+    }),
+    projection: null,
+  })
+  await writeFile(join(teamDirectory, 'projection.json'), '{"tasks":', 'utf8')
+  const validated = validateSprintEngineStatePath(statePath)
+
+  await assert.rejects(
+    () => readRawSprintEngineState(validated),
+    (error: Error) => error.message.includes('projection.json'),
+  )
+}
+
+async function assertFindReadyTaskAcceptsProjectionReadyStatus(): Promise<void> {
+  // Projection writes board column into `status` ("ready") and the semantic
+  // value into `stateStatus` ("todo"). The reader must still consider this
+  // task ready to start for the requested role.
+  const projection = {
+    tasks: [
+      { id: 'T1', role: 'developer', status: 'done', stateStatus: 'done', dependsOn: [] },
+      { id: 'T2', role: 'frontend', status: 'ready', stateStatus: 'todo', dependsOn: ['T1'] },
+    ],
+    artifacts: [],
+    roster: {},
+  }
+  const { statePath } = await writeFixture({ projection })
+  const validated = validateSprintEngineStatePath(statePath)
+  const task = await findReadySprintEngineTask(validated, 'T2', 'frontend')
+  assert.equal(task.id, 'T2')
+  assert.equal(task.status, 'todo')
+  assert.equal(task.ownerAgentId, null)
+}
+
+async function assertFindReadyTaskBlocksWhenDependencyNotDone(): Promise<void> {
+  const projection = {
+    tasks: [
+      { id: 'T1', role: 'developer', status: 'in_progress', stateStatus: 'in_progress', dependsOn: [] },
+      { id: 'T2', role: 'frontend', status: 'todo', stateStatus: 'todo', dependsOn: ['T1'] },
+    ],
+    artifacts: [],
+    roster: {},
+  }
+  const { statePath } = await writeFixture({ projection })
+  const validated = validateSprintEngineStatePath(statePath)
+  await assert.rejects(
+    () => findReadySprintEngineTask(validated, 'T2', 'frontend'),
+    (error: Error) => error.message.includes('blocked by dependency T1'),
+  )
+}
+
+async function assertFindReadyTaskRejectsAlreadyOwnedTask(): Promise<void> {
+  const projection = {
+    tasks: [
+      {
+        id: 'T1',
+        role: 'developer',
+        status: 'in_progress',
+        stateStatus: 'in_progress',
+        ownerAgentId: 'developer-1',
+        dependsOn: [],
+      },
+    ],
+    artifacts: [],
+    roster: {},
+  }
+  const { statePath } = await writeFixture({ projection })
+  const validated = validateSprintEngineStatePath(statePath)
+  await assert.rejects(
+    () => findReadySprintEngineTask(validated, 'T1', 'developer'),
+    (error: Error) => error.message.includes('already owned'),
+  )
+}
+
+async function assertFindReadyTaskRejectsRoleMismatch(): Promise<void> {
+  const projection = {
+    tasks: [
+      { id: 'T1', role: 'developer', status: 'ready', stateStatus: 'todo', dependsOn: [] },
+    ],
+    artifacts: [],
+    roster: {},
+  }
+  const { statePath } = await writeFixture({ projection })
+  const validated = validateSprintEngineStatePath(statePath)
+  await assert.rejects(
+    () => findReadySprintEngineTask(validated, 'T1', 'frontend'),
+    (error: Error) => error.message.includes('does not match'),
+  )
+}
+
+async function assertFindArtifactReadsFromProjection(): Promise<void> {
+  const projection = {
+    tasks: [],
+    artifacts: [
+      { id: 'A1', path: 'reviews/feedback.md', status: 'ready_for_review', kind: 'code_review' },
+    ],
+    roster: {},
+  }
+  const { statePath } = await writeFixture({ projection })
+  const validated = validateSprintEngineStatePath(statePath)
+  const artifact = await findSprintEngineArtifact(validated, 'A1')
+  assert.equal(artifact.id, 'A1')
+  assert.equal(artifact.path, 'reviews/feedback.md')
+}
+
+async function assertActiveAgentResolvedViaProjectionRoster(): Promise<void> {
+  const projection = {
+    tasks: [
+      { id: 'T1', role: 'developer', status: 'in_progress', stateStatus: 'in_progress', ownerAgentId: 'developer-1', dependsOn: [] },
+    ],
+    artifacts: [],
+    roster: { 'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' } },
+  }
+  const { statePath } = await writeFixture({ projection })
+  const validated = validateSprintEngineStatePath(statePath)
+  // Active agent on roster: resolves without throwing.
+  await assertKnownActiveSprintEngineAgent(validated, 'developer-1')
+
+  // Done agent on roster: should reject.
+  const doneFixture = await writeFixture({
+    projection: {
+      tasks: [],
+      artifacts: [],
+      roster: { 'developer-2': { role: 'developer', status: 'done', currentTaskId: null } },
+    },
+  })
+  const doneValidated = validateSprintEngineStatePath(doneFixture.statePath)
+  await assert.rejects(
+    () => assertKnownActiveSprintEngineAgent(doneValidated, 'developer-2'),
+    (error: Error) => error.message.includes('already done'),
+  )
+
+  // Agent missing from roster but owns an active task: resolves via task fallback.
+  const taskFixture = await writeFixture({
+    projection: {
+      tasks: [
+        { id: 'T2', role: 'frontend', status: 'in_progress', stateStatus: 'in_progress', ownerAgentId: 'frontend-7', dependsOn: [] },
+      ],
+      artifacts: [],
+      roster: {},
+    },
+  })
+  const taskValidated = validateSprintEngineStatePath(taskFixture.statePath)
+  await assertKnownActiveSprintEngineAgent(taskValidated, 'frontend-7')
+}
+
+async function assertIdleAgentResolvedViaProjectionRosterWithoutStateYaml(): Promise<void> {
+  const { statePath } = await writeFixture({
+    stateContent: '{"tasks":',
+    projection: {
+      tasks: [],
+      artifacts: [],
+      roster: { 'developer-idle': { role: 'developer', status: 'idle', currentTaskId: null } },
+    },
+  })
+  const validated = validateSprintEngineStatePath(statePath)
+  await assertKnownActiveSprintEngineAgent(validated, 'developer-idle')
+}
+
+// eslint-disable-next-line no-console
+console.log('state-reader.test.ts: ok')

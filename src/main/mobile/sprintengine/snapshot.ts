@@ -34,7 +34,7 @@ const mobileSnapshotCommandTypes = [
 
 export const defaultMobileSnapshotCommands: readonly MobileControlCommandType[] = mobileSnapshotCommandTypes
 
-type SprintEngineTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'done'
+type SprintEngineTaskStatus = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done'
 type MobileTaskStatus = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'blocked' | 'done'
 type MobileArtifactStatus = 'draft' | 'ready_for_review' | 'approved' | 'changes_requested'
 type MobileWorkspaceStatus = 'idle' | 'running' | 'needs_input' | 'blocked' | 'complete' | 'error' | 'unknown'
@@ -104,6 +104,18 @@ export type MobileSprintEngineSnapshot = {
   roster?: Record<string, { role?: string; status?: string; currentTaskId?: string | null }>
   runSummary?: Record<string, string | number | boolean | null>
   planReview?: Record<string, string | number | boolean | null>
+  locks?: {
+    warnings?: unknown[]
+    locks?: unknown[]
+  }
+  activity?: {
+    count: number
+    latest?: unknown
+  }
+  counts?: {
+    ready?: number
+    needsInput?: number
+  }
 }
 
 export type MobileWorkspaceSnapshot = {
@@ -461,12 +473,15 @@ export async function readSprintEngineSnapshot(statePathInput: string): Promise<
     throw new Error('Sprint Engine snapshot state path must point to a state.yaml file.')
   }
 
+  const teamDirectory = dirname(statePath)
+  const projectionSnapshot = await readSprintEngineProjectionSnapshot(statePath, teamDirectory)
+  if (projectionSnapshot) return projectionSnapshot
+
   const [content, stateStats] = await Promise.all([
     readFile(statePath, 'utf8'),
     stat(statePath),
   ])
   const parsed = JSON.parse(content) as RawSprintEngineState
-  const teamDirectory = dirname(statePath)
   const sprintEngineRootDirectory = dirname(teamDirectory)
   const workspacePath = dirname(dirname(sprintEngineRootDirectory))
   const sprintEngineId = basename(teamDirectory)
@@ -496,6 +511,56 @@ export async function readSprintEngineSnapshot(statePathInput: string): Promise<
     ...(normalizeRoster(parsed.sprintEngineAgents) ? { roster: normalizeRoster(parsed.sprintEngineAgents) } : {}),
     ...(recordSummary(parsed.runSummary ?? parsed.summary) ? { runSummary: recordSummary(parsed.runSummary ?? parsed.summary) } : {}),
     ...(recordSummary(parsed.planReview ?? parsed.planReviewState) ? { planReview: recordSummary(parsed.planReview ?? parsed.planReviewState) } : {}),
+  }
+}
+
+async function readSprintEngineProjectionSnapshot(
+  statePath: string,
+  teamDirectory: string
+): Promise<MobileSprintEngineSnapshot | null> {
+  let content: string
+  try {
+    content = await readFile(join(teamDirectory, 'projection.json'), 'utf8')
+  } catch {
+    return null
+  }
+  const projection = JSON.parse(content) as Record<string, unknown>
+  const run = recordObject(projection.run) ?? {}
+  const sprintEngineRootDirectory = dirname(teamDirectory)
+  const workspacePath = dirname(dirname(sprintEngineRootDirectory))
+  const sprintEngineId = stringOrNull(run.id) ?? basename(teamDirectory)
+  const updatedAt = isoStringOrNull(projection.updatedAt) ?? isoStringOrNull(run.updatedAt) ?? new Date().toISOString()
+  const tasks = normalizeTasks(projection.tasks)
+  const taskSnapshots = tasks.map((task) => toTaskSnapshot(task, tasks))
+  const artifacts = normalizeArtifacts(projection.artifacts)
+  const board = countBoard(taskSnapshots)
+  const locks = recordObject(projection.locks)
+  const activity = Array.isArray(projection.activity) ? projection.activity : []
+  const counts = recordObject(projection.counts)
+  const snapshotVersion = buildSnapshotVersion({
+    updatedAt,
+    source: projection.source,
+    tasks: taskSnapshots,
+    artifacts,
+    locks,
+  })
+
+  return {
+    sprintEngineId,
+    name: stringOrFallback(run.name, sprintEngineId),
+    workspacePath,
+    statePath,
+    planPath: stringOrNull(projection.planPath) ?? join(teamDirectory, 'plan.md'),
+    snapshotVersion,
+    updatedAt,
+    board,
+    tasks: taskSnapshots,
+    artifacts,
+    ...(normalizeRoster(projection.roster) ? { roster: normalizeRoster(projection.roster) } : {}),
+    ...(recordSummary(projection.runSummary) ? { runSummary: recordSummary(projection.runSummary) } : {}),
+    ...(locks ? { locks: { warnings: Array.isArray(locks.warnings) ? locks.warnings : [], locks: Array.isArray(locks.locks) ? locks.locks : [] } } : {}),
+    ...(activity.length > 0 ? { activity: { count: activity.length, latest: activity.at(-1) } } : {}),
+    ...(counts ? { counts: { ready: numberOrUndefined(counts.ready), needsInput: numberOrUndefined(counts.needsInput) } } : {}),
   }
 }
 
@@ -608,7 +673,7 @@ function toTaskSnapshot(task: NormalizedTask, tasks: NormalizedTask[]): MobileSp
 }
 
 function getMobileTaskStatus(task: NormalizedTask, tasks: NormalizedTask[]): MobileTaskStatus {
-  if (task.status === 'done' || task.status === 'in_progress' || task.status === 'needs_input') {
+  if (task.status === 'ready' || task.status === 'done' || task.status === 'in_progress' || task.status === 'needs_input') {
     return task.status
   }
 
@@ -1084,7 +1149,8 @@ function recordSummary(value: unknown): Record<string, string | number | boolean
 }
 
 function normalizeTaskStatus(value: unknown): SprintEngineTaskStatus {
-  if (value === 'in_progress' || value === 'needs_input' || value === 'done') return value
+  if (value === 'ready' || value === 'in_progress' || value === 'needs_input' || value === 'done') return value
+  if (value === 'changes_requested') return 'ready'
   return 'todo'
 }
 

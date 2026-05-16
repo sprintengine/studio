@@ -6,6 +6,11 @@ import {
   MobileSprintEngineSnapshotService,
   readSprintEngineSnapshot,
 } from './snapshot'
+import {
+  mobileControlProtocolVersion,
+  validateMobileControlSnapshot,
+  type MobileControlSnapshot,
+} from '../../../shared/mobile-control/protocol'
 import type { SwitchboardFolderStatus, SwitchboardTaskRecord, SwitchboardTaskStatus } from '../../../shared/switchboard'
 
 const generatedAt = '2026-04-28T19:30:00.000Z'
@@ -21,12 +26,68 @@ void main()
 
 async function main(): Promise<void> {
   await assertFixtureSnapshotMatchesDesktopBoardCounts()
+  await assertMigratedProjectionSnapshotIsPreferred()
+  await assertProjectionSnapshotPassesProtocolValidation()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotOmitsUnavailableWorkspaceKinds()
   await assertMalformedMultiloopStateIsSkipped()
   await assertSnapshotOmitsNonMobileStatePayloads()
   await assertSnapshotSkipsMalformedStateFiles()
   await assertPublishingIsThrottled()
+}
+
+async function assertProjectionSnapshotPassesProtocolValidation(): Promise<void> {
+  // The projection-derived snapshot now includes locks/activity/counts. This
+  // test pushes that snapshot through the public protocol validator so the
+  // shared contract guarantees the new optional fields stay well-formed.
+  const statePath = await writeStateText('not-real-state\n')
+  const teamDirectory = dirname(statePath)
+  await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    updatedAt: generatedAt,
+    run: {
+      id: 'protocol-team',
+      name: 'Protocol Team',
+      status: 'executing',
+      updatedAt: generatedAt,
+    },
+    tasks: [
+      { id: 'T1', title: 'Done', role: 'developer', status: 'done', stateStatus: 'done', dependsOn: [] },
+      { id: 'T2', title: 'Ready', role: 'developer', status: 'ready', stateStatus: 'todo', dependsOn: ['T1'] },
+    ],
+    artifacts: [
+      { id: 'A1', title: 'Review', kind: 'code_review', status: 'ready_for_review', taskId: 'T2', path: 'reviews/x.md' },
+    ],
+    roster: {
+      'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' },
+    },
+    locks: {
+      locks: [{ name: 'readyQueue', exists: true, stale: true, ageSeconds: 720 }],
+      warnings: [{ name: 'readyQueue', message: 'readyQueue lock appears stale.', ageSeconds: 720 }],
+    },
+    activity: [
+      { id: 'EVT-1', type: 'task_added', actor: 'architect', message: 'added T1', timestamp: generatedAt },
+    ],
+    counts: { ready: 1, needsInput: 0 },
+    runSummary: { status: 'executing' },
+  }), 'utf8')
+
+  const sprintEngineSnapshot = await readSprintEngineSnapshot(statePath)
+  assert.equal(sprintEngineSnapshot.locks?.warnings?.length, 1)
+  assert.equal(sprintEngineSnapshot.activity?.count, 1)
+  assert.equal(sprintEngineSnapshot.counts?.ready, 1)
+
+  const snapshot: MobileControlSnapshot = {
+    protocolVersion: mobileControlProtocolVersion,
+    generatedAt,
+    desktopSessionId: 'desktop-session-test',
+    sprintEngines: [sprintEngineSnapshot as unknown as MobileControlSnapshot['sprintEngines'][number]],
+    workspaces: [],
+  }
+  const validationResult = validateMobileControlSnapshot(snapshot)
+  assert.equal(validationResult.ok, true, validationResult.ok === false ? validationResult.error.message : undefined)
 }
 
 async function assertFixtureSnapshotMatchesDesktopBoardCounts(): Promise<void> {
@@ -63,6 +124,70 @@ async function assertFixtureSnapshotMatchesDesktopBoardCounts(): Promise<void> {
   assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T2')?.status, 'ready')
   assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T3')?.status, 'todo')
   assert.deepEqual(snapshot.artifacts.map((candidate) => candidate.artifactId), ['A1', 'A2'])
+}
+
+async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
+  const statePath = await writeStateText('{"sprintengine":')
+  const teamDirectory = dirname(statePath)
+  await writeFile(join(teamDirectory, 'projection.json'), `${JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    updatedAt: generatedAt,
+    run: {
+      id: 'team',
+      name: 'Migrated Projection',
+      status: 'executing',
+      updatedAt: generatedAt,
+    },
+    roster: {
+      'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T2' },
+    },
+    board: {
+      counts: { todo: 0, ready: 1, in_progress: 1, needs_input: 1, done: 1 },
+    },
+    tasks: [
+      { id: 'T1', title: 'Foundation', role: 'developer', status: 'done', dependsOn: [] },
+      { id: 'T2', title: 'Ready work', role: 'developer', status: 'ready', dependsOn: ['T1'] },
+      {
+        id: 'T3',
+        title: 'Waiting review',
+        role: 'developer',
+        status: 'needs_input',
+        dependsOn: ['T1'],
+        needsInput: { kind: 'architect', reason: 'artifact_review', question: 'Approve artifact?', artifactId: 'A1' },
+      },
+      { id: 'T4', title: 'Active work', role: 'developer', status: 'in_progress', dependsOn: ['T1'] },
+    ],
+    artifacts: [
+      { id: 'A1', title: 'Code review', kind: 'code_review', status: 'ready_for_review', taskId: 'T3', path: 'reviews/code.md' },
+    ],
+    locks: {
+      locks: [{ name: 'readyQueue', exists: true, stale: true, ageSeconds: 999 }],
+      warnings: [{ name: 'readyQueue', message: 'readyQueue lock appears stale.' }],
+    },
+    activity: [{ type: 'artifact_ready_for_review', timestamp: generatedAt }],
+    counts: { ready: 1, needsInput: 1 },
+    runSummary: { status: 'executing' },
+  }, null, 2)}\n`, 'utf8')
+
+  const snapshot = await readSprintEngineSnapshot(statePath)
+
+  assert.equal(snapshot.name, 'Migrated Projection')
+  assert.deepEqual(snapshot.board, {
+    todo: 0,
+    ready: 1,
+    inProgress: 1,
+    needsInput: 1,
+    blocked: 0,
+    done: 1,
+  })
+  assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T2')?.status, 'ready')
+  assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T3')?.needsInput?.artifactId, 'A1')
+  assert.equal(snapshot.artifacts[0].status, 'ready_for_review')
+  assert.equal(snapshot.locks?.warnings?.length, 1)
+  assert.equal(snapshot.activity?.count, 1)
+  assert.equal(snapshot.counts?.ready, 1)
 }
 
 async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {

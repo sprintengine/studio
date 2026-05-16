@@ -1,0 +1,869 @@
+"""Folder-backed Sprint Engine run store primitives."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import tempfile
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+try:
+    import yaml  # type: ignore
+except ImportError as exc:
+    raise SystemExit(
+        "PyYAML is required. Install with: python3 -m pip install pyyaml"
+    ) from exc
+
+
+TASK_STATUSES = (
+    "todo",
+    "ready",
+    "in_progress",
+    "changes_requested",
+    "needs_input",
+    "done",
+    "canceled",
+)
+ARTIFACT_STATUSES = (
+    "draft",
+    "recorded",
+    "ready_for_review",
+    "approved",
+    "changes_requested",
+    "superseded",
+)
+SUPPORT_DIRS = ("metrics", "plan-reviews", "reviews", "validation", "runner")
+RUN_FILE = "run.yaml"
+EVENTS_FILE = "events.jsonl"
+FEEDBACK_FILE = "metrics/agent-feedback.jsonl"
+PROJECTION_FILE = "projection.json"
+LOCK_STATE_FILES = ("runner/run.lock.json", "runner/ready.lock.json")
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def validate_status(value: str, allowed: Iterable[str], label: str) -> str:
+    status = str(value).strip()
+    valid = set(allowed)
+    if status not in valid:
+        raise ValueError(f"Invalid {label} status {status!r}; expected one of: {', '.join(sorted(valid))}.")
+    return status
+
+
+def validate_task_status(value: str) -> str:
+    return validate_status(value, TASK_STATUSES, "task")
+
+
+def validate_artifact_status(value: str) -> str:
+    return validate_status(value, ARTIFACT_STATUSES, "artifact")
+
+
+def validate_project_relative_path(value: str, *, field: str = "path") -> str:
+    raw = str(value).strip()
+    if not raw:
+        raise ValueError(f"{field} cannot be empty.")
+    path = Path(raw)
+    if path.is_absolute() or raw.startswith(("/", "\\")):
+        raise ValueError(f"{field} must use project-root-relative paths, not absolute paths: {raw}")
+    if re.match(r"^[A-Za-z]:[\\/]", raw) or raw.startswith("\\\\"):
+        raise ValueError(f"{field} must not use a machine-specific path: {raw}")
+    if raw == "~" or raw.startswith("~/") or raw.startswith("~\\"):
+        raise ValueError(f"{field} must not use a home-directory path: {raw}")
+    if "://" in raw:
+        raise ValueError(f"{field} must be a project-root-relative file path, not a URL: {raw}")
+    if any(part == ".." for part in path.parts):
+        raise ValueError(f"{field} must not traverse outside the project root: {raw}")
+    return path.as_posix()
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def atomic_write_json(path: Path, payload: Any) -> None:
+    atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def atomic_write_yaml(path: Path, payload: Any) -> None:
+    atomic_write_text(path, yaml.safe_dump(payload, sort_keys=False))
+
+
+def atomic_move(source: Path, destination: Path) -> None:
+    if not source.exists():
+        raise FileNotFoundError(source)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(source, destination)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def append_event(team_dir: Path, event: dict[str, Any]) -> Path:
+    append_jsonl(team_dir / EVENTS_FILE, event)
+    return team_dir / EVENTS_FILE
+
+
+def initialize_run_store(
+    team_dir: Path,
+    *,
+    name: str,
+    goal: str = "",
+    status: str = "planning",
+    roster_configured: bool = False,
+) -> Path:
+    team_dir.mkdir(parents=True, exist_ok=True)
+    for task_status in TASK_STATUSES:
+        (team_dir / "tasks" / task_status).mkdir(parents=True, exist_ok=True)
+    for artifact_status in ARTIFACT_STATUSES:
+        (team_dir / "artifacts" / artifact_status).mkdir(parents=True, exist_ok=True)
+    for support_dir in SUPPORT_DIRS:
+        (team_dir / support_dir).mkdir(parents=True, exist_ok=True)
+
+    run_path = team_dir / RUN_FILE
+    if not run_path.exists():
+        atomic_write_yaml(
+            run_path,
+            {
+                "schemaVersion": 1,
+                "name": name,
+                "goal": goal,
+                "status": status,
+                "rosterConfigured": roster_configured,
+                "graphPolicy": {"readiness": "dependency"},
+                "agents": {},
+                "roles": {},
+                "sprintengine": {
+                    "name": name,
+                    "goal": goal,
+                    "status": status,
+                    "rosterConfigured": roster_configured,
+                },
+                "tasks": [],
+                "artifacts": [],
+                "migration": {"source": "state.yaml-compat", "createdAt": now_iso()},
+            },
+        )
+    events_path = team_dir / EVENTS_FILE
+    if not events_path.exists():
+        atomic_write_text(events_path, "")
+    feedback_path = team_dir / FEEDBACK_FILE
+    if not feedback_path.exists():
+        atomic_write_text(feedback_path, "")
+    for lock_file in LOCK_STATE_FILES:
+        path = team_dir / lock_file
+        if not path.exists():
+            atomic_write_json(path, {"status": "idle", "updatedAt": now_iso()})
+    return run_path
+
+
+def task_filename(task_id: str, order: int | None = None) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(task_id).strip())
+    if not safe_id:
+        raise ValueError("Task id cannot be empty.")
+    if order is None:
+        return f"{safe_id}.json"
+    return f"{order:04d}-{safe_id}.json"
+
+
+def load_run_yaml(team_dir: Path) -> dict[str, Any]:
+    run_path = team_dir / RUN_FILE
+    if not run_path.exists():
+        return {}
+    loaded = yaml.safe_load(run_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Unexpected run.yaml shape in {run_path}")
+    return loaded
+
+
+def read_json_file(path: Path) -> dict[str, Any]:
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON file {path}: {exc.msg}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Unexpected JSON object shape in {path}")
+    return parsed
+
+
+def read_jsonl_file(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSONL record in {path}:{line_number}: {exc.msg}") from exc
+        if isinstance(parsed, dict):
+            records.append(parsed)
+    return records
+
+
+def task_graph_from_run(team_dir: Path) -> dict[str, list[str]]:
+    run = load_run_yaml(team_dir)
+    graph: dict[str, list[str]] = {}
+    for entry in run.get("tasks", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        task_id = str(entry.get("id") or "").strip()
+        if not task_id:
+            continue
+        graph[task_id] = [str(dep).strip() for dep in entry.get("dependsOn", []) or [] if str(dep).strip()]
+    return graph
+
+
+def task_graph_from_tasks(tasks: Iterable[dict[str, Any]]) -> dict[str, list[str]]:
+    graph: dict[str, list[str]] = {}
+    for task in tasks:
+        task_id = str(task.get("id") or "").strip()
+        if not task_id:
+            continue
+        graph[task_id] = [str(dep).strip() for dep in task.get("dependsOn", []) or [] if str(dep).strip()]
+    return graph
+
+
+def topological_task_ids(graph: dict[str, list[str]]) -> list[str]:
+    missing = sorted({dep for deps in graph.values() for dep in deps if dep not in graph})
+    if missing:
+        raise ValueError(f"Task graph references unknown dependencies: {', '.join(missing)}")
+
+    temporary: set[str] = set()
+    permanent: set[str] = set()
+    ordered: list[str] = []
+
+    def visit(task_id: str, trail: list[str]) -> None:
+        if task_id in permanent:
+            return
+        if task_id in temporary:
+            cycle_start = trail.index(task_id) if task_id in trail else 0
+            cycle = [*trail[cycle_start:], task_id]
+            raise ValueError(f"Task dependency cycle detected: {' -> '.join(cycle)}")
+        temporary.add(task_id)
+        for dep_id in sorted(graph.get(task_id, [])):
+            visit(dep_id, [*trail, task_id])
+        temporary.remove(task_id)
+        permanent.add(task_id)
+        ordered.append(task_id)
+
+    for task_id in sorted(graph):
+        visit(task_id, [])
+    return ordered
+
+
+def validate_acyclic_task_graph(tasks: Iterable[dict[str, Any]]) -> list[str]:
+    return topological_task_ids(task_graph_from_tasks(tasks))
+
+
+def task_is_ready_for_queue(tasks_by_id: dict[str, dict[str, Any]], task: dict[str, Any], graph: dict[str, list[str]]) -> bool:
+    if task.get("status") not in {"todo", "changes_requested"} or task.get("ownerAgentId"):
+        return False
+    dispatch = task.get("dispatch")
+    if isinstance(dispatch, dict) and dispatch.get("mode") == "manual" and dispatch.get("status") != "ready":
+        return False
+    for dep_id in graph.get(str(task.get("id")), []):
+        dependency = tasks_by_id.get(dep_id)
+        if dependency is None or dependency.get("status") != "done":
+            return False
+    return True
+
+
+def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
+    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
+    agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
+    roles = state.get("roles") if isinstance(state.get("roles"), dict) else {}
+    run = load_run_yaml(team_dir)
+    migration = run.get("migration") if isinstance(run.get("migration"), dict) else {}
+    run.update(
+        {
+            "schemaVersion": run.get("schemaVersion") or 1,
+            "name": sprintengine.get("name") or team_dir.name,
+            "goal": sprintengine.get("goal") or "",
+            "status": sprintengine.get("status") or "planning",
+            "rosterConfigured": bool(sprintengine.get("rosterConfigured")),
+            "graphPolicy": run.get("graphPolicy") or {"readiness": "dependency"},
+            "agents": agents,
+            "roles": roles,
+            "sprintengine": sprintengine,
+            "tasks": [
+                {
+                    "id": task.get("id"),
+                    "status": task.get("status"),
+                    "role": task.get("role"),
+                    "dependsOn": [str(dep) for dep in task.get("dependsOn", []) or []],
+                }
+                for task in state.get("tasks", []) or []
+                if isinstance(task, dict) and task.get("id")
+            ],
+            "artifacts": [
+                {
+                    "id": artifact.get("id"),
+                    "status": artifact.get("status"),
+                    "kind": artifact.get("kind"),
+                    "taskId": artifact.get("taskId"),
+                }
+                for artifact in state.get("artifacts", []) or []
+                if isinstance(artifact, dict) and artifact.get("id")
+            ],
+            "updatedAt": now_iso(),
+        }
+    )
+    run["migration"] = migration or {"source": "state.yaml-compat", "createdAt": now_iso()}
+    atomic_write_yaml(team_dir / RUN_FILE, run)
+
+
+def clear_task_status_folders(team_dir: Path) -> None:
+    for status in TASK_STATUSES:
+        folder = team_dir / "tasks" / status
+        folder.mkdir(parents=True, exist_ok=True)
+        for child in folder.glob("*.json"):
+            child.unlink()
+
+
+def clear_artifact_status_folders(team_dir: Path) -> None:
+    for status in ARTIFACT_STATUSES:
+        folder = team_dir / "artifacts" / status
+        folder.mkdir(parents=True, exist_ok=True)
+        for child in folder.glob("*.json"):
+            child.unlink()
+
+
+def status_folder_for_task(task: dict[str, Any], ready_ids: set[str]) -> str:
+    task_id = str(task.get("id") or "")
+    if task_id in ready_ids:
+        return "ready"
+    status = str(task.get("status") or "todo")
+    if status not in TASK_STATUSES or status == "ready":
+        status = "todo"
+    return status
+
+
+def write_materialized_task_files(team_dir: Path, tasks: list[dict[str, Any]], ordered_ids: list[str], ready_ids: set[str]) -> None:
+    clear_task_status_folders(team_dir)
+    order_by_id = {task_id: index + 1 for index, task_id in enumerate(ordered_ids)}
+    for task in tasks:
+        task_id = str(task.get("id") or "").strip()
+        if not task_id:
+            continue
+        folder_status = status_folder_for_task(task, ready_ids)
+        stored = dict(task)
+        stored["status"] = folder_status
+        if folder_status == "ready":
+            stored["stateStatus"] = task.get("status")
+        target = team_dir / "tasks" / folder_status / task_filename(task_id, order_by_id.get(task_id))
+        atomic_write_json(target, stored)
+
+
+def artifact_filename(artifact_id: str) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(artifact_id).strip())
+    if not safe_id:
+        raise ValueError("Artifact id cannot be empty.")
+    return f"{safe_id}.json"
+
+
+def status_folder_for_artifact(artifact: dict[str, Any]) -> str:
+    status = str(artifact.get("status") or "draft")
+    if status not in ARTIFACT_STATUSES:
+        status = "draft"
+    return status
+
+
+def write_materialized_artifact_files(team_dir: Path, artifacts: list[dict[str, Any]]) -> None:
+    clear_artifact_status_folders(team_dir)
+    for artifact in artifacts:
+        artifact_id = str(artifact.get("id") or "").strip()
+        if not artifact_id:
+            continue
+        folder_status = status_folder_for_artifact(artifact)
+        stored = dict(artifact)
+        stored["status"] = folder_status
+        target = team_dir / "artifacts" / folder_status / artifact_filename(artifact_id)
+        atomic_write_json(target, stored)
+
+
+def sync_events_jsonl(team_dir: Path, events: list[dict[str, Any]]) -> None:
+    lines = [json.dumps(event, sort_keys=True) for event in events if isinstance(event, dict)]
+    atomic_write_text(team_dir / EVENTS_FILE, ("\n".join(lines) + "\n") if lines else "")
+
+
+def refresh_ready_queue(team_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
+    tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
+    graph = task_graph_from_run(team_dir)
+    if set(graph) != {str(task.get("id")) for task in tasks if task.get("id")}:
+        graph = task_graph_from_tasks(tasks)
+    ordered_ids = topological_task_ids(graph)
+    tasks_by_id = {str(task.get("id")): task for task in tasks if task.get("id")}
+    ready_ids = {
+        task_id
+        for task_id in ordered_ids
+        if task_id in tasks_by_id and task_is_ready_for_queue(tasks_by_id, tasks_by_id[task_id], graph)
+    }
+    write_materialized_task_files(team_dir, tasks, ordered_ids, ready_ids)
+    return {"orderedTaskIds": ordered_ids, "readyTaskIds": [task_id for task_id in ordered_ids if task_id in ready_ids]}
+
+
+def sync_state_to_store(team_dir: Path, state: dict[str, Any], *, state_path: Path | None = None) -> dict[str, Any]:
+    initialize_run_store(
+        team_dir,
+        name=str(state.get("sprintengine", {}).get("name") or team_dir.name),
+        goal=str(state.get("sprintengine", {}).get("goal") or ""),
+        status=str(state.get("sprintengine", {}).get("status") or "planning"),
+        roster_configured=bool(state.get("sprintengine", {}).get("rosterConfigured")),
+    )
+    validate_acyclic_task_graph([task for task in state.get("tasks", []) or [] if isinstance(task, dict)])
+    with FolderLock(team_dir / "runner" / "ready.queue.lock"):
+        sync_run_yaml_from_state(team_dir, state)
+        refresh = refresh_ready_queue(team_dir, state)
+        write_materialized_artifact_files(team_dir, [artifact for artifact in state.get("artifacts", []) or [] if isinstance(artifact, dict)])
+        sync_events_jsonl(team_dir, [event for event in state.get("events", []) or [] if isinstance(event, dict)])
+        write_projection_file(team_dir, state, state_path=state_path)
+        return refresh
+
+
+def record_migration_metadata(team_dir: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+    run = load_run_yaml(team_dir)
+    existing = run.get("migration") if isinstance(run.get("migration"), dict) else {}
+    merged = {**existing, **metadata, "updatedAt": now_iso()}
+    if "createdAt" not in merged:
+        merged["createdAt"] = now_iso()
+    run["migration"] = merged
+    atomic_write_yaml(team_dir / RUN_FILE, run)
+    return merged
+
+
+def sync_feedback_metrics(team_dir: Path, records: list[dict[str, Any]]) -> Path:
+    output = team_dir / FEEDBACK_FILE
+    existing_records: list[dict[str, Any]] = []
+    if output.exists():
+        for line in output.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                existing_records.append(parsed)
+    if not records and not existing_records:
+        if not output.exists():
+            atomic_write_text(output, "")
+        return output
+    seen: set[str] = set()
+    unique_records: list[dict[str, Any]] = []
+    for record in [*existing_records, *records]:
+        key = json.dumps(record, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_records.append(record)
+    atomic_write_text(output, "".join(json.dumps(record, sort_keys=True) + "\n" for record in unique_records))
+    return output
+
+
+def materialized_ready_task_ids(team_dir: Path) -> list[str]:
+    ready_dir = team_dir / "tasks" / "ready"
+    if not ready_dir.exists():
+        return []
+    ready_ids: list[str] = []
+    for path in sorted(ready_dir.glob("*.json")):
+        try:
+            parsed = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid ready task file {path}: {exc.msg}") from exc
+        if not isinstance(parsed, dict) or not parsed.get("id"):
+            raise ValueError(f"Invalid ready task file {path}: missing task id")
+        ready_ids.append(str(parsed["id"]))
+    return ready_ids
+
+
+def _list_materialized_records(team_dir: Path, root: str, statuses: Iterable[str]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for status in statuses:
+        folder = team_dir / root / status
+        if not folder.exists():
+            continue
+        for path in sorted(folder.glob("*.json")):
+            record = read_json_file(path)
+            record.setdefault("status", status)
+            record["folderStatus"] = status
+            records.append(record)
+    return records
+
+
+def _tasks_from_folder_store(team_dir: Path) -> list[dict[str, Any]]:
+    tasks = _list_materialized_records(team_dir, "tasks", TASK_STATUSES)
+    return sorted(tasks, key=lambda task: str(task.get("id") or ""))
+
+
+def _artifacts_from_folder_store(team_dir: Path) -> list[dict[str, Any]]:
+    artifacts = _list_materialized_records(team_dir, "artifacts", ARTIFACT_STATUSES)
+    return sorted(artifacts, key=lambda artifact: str(artifact.get("id") or ""))
+
+
+def _semantic_task_from_folder_record(task: dict[str, Any]) -> dict[str, Any]:
+    semantic = dict(task)
+    folder_status = str(semantic.get("folderStatus") or semantic.get("status") or "todo")
+    semantic["status"] = str(semantic.get("stateStatus") or folder_status)
+    semantic.pop("folderStatus", None)
+    semantic.pop("stateStatus", None)
+    return semantic
+
+
+def _semantic_artifact_from_folder_record(artifact: dict[str, Any]) -> dict[str, Any]:
+    semantic = dict(artifact)
+    semantic["status"] = str(semantic.get("folderStatus") or semantic.get("status") or "draft")
+    semantic.pop("folderStatus", None)
+    return semantic
+
+
+def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
+    run = load_run_yaml(team_dir)
+    if not run:
+        raise FileNotFoundError(team_dir / RUN_FILE)
+
+    sprintengine = run.get("sprintengine") if isinstance(run.get("sprintengine"), dict) else {}
+    reconstructed_sprintengine = dict(sprintengine)
+    reconstructed_sprintengine.setdefault("name", run.get("name") or team_dir.name)
+    reconstructed_sprintengine.setdefault("goal", run.get("goal") or "")
+    reconstructed_sprintengine.setdefault("status", run.get("status") or "planning")
+    reconstructed_sprintengine.setdefault("rosterConfigured", bool(run.get("rosterConfigured")))
+    if isinstance(run.get("migration"), dict):
+        reconstructed_sprintengine.setdefault("migration", run["migration"])
+
+    agents = run.get("agents") if isinstance(run.get("agents"), dict) else {}
+    roles = run.get("roles") if isinstance(run.get("roles"), dict) else {}
+    task_order = {
+        str(entry.get("id")): index
+        for index, entry in enumerate(run.get("tasks", []) or [])
+        if isinstance(entry, dict) and entry.get("id")
+    }
+    tasks = [_semantic_task_from_folder_record(task) for task in _tasks_from_folder_store(team_dir)]
+    tasks.sort(key=lambda task: task_order.get(str(task.get("id") or ""), len(task_order)))
+    return {
+        "sprintengine": reconstructed_sprintengine,
+        "tasks": tasks,
+        "artifacts": [_semantic_artifact_from_folder_record(artifact) for artifact in _artifacts_from_folder_store(team_dir)],
+        "events": read_jsonl_file(team_dir / EVENTS_FILE),
+        "agents": agents,
+        "roles": roles,
+    }
+
+
+def _board_column_for_legacy_task(task: dict[str, Any], tasks_by_id: dict[str, dict[str, Any]]) -> str:
+    status = str(task.get("status") or "todo")
+    if status in {"in_progress", "needs_input", "done", "canceled"}:
+        return status
+    if status == "changes_requested":
+        return "changes_requested"
+    if task.get("ownerAgentId"):
+        return status if status in TASK_STATUSES else "todo"
+    dependencies = [str(dep) for dep in task.get("dependsOn", []) or [] if str(dep)]
+    if all(tasks_by_id.get(dep, {}).get("status") == "done" for dep in dependencies):
+        return "ready"
+    return "todo"
+
+
+def _normalize_projection_task(task: dict[str, Any], *, board_column: str) -> dict[str, Any]:
+    semantic_status = str(task.get("stateStatus") or task.get("status") or "todo")
+    projected = dict(task)
+    projected["status"] = board_column
+    projected["stateStatus"] = semantic_status
+    projected["boardColumn"] = board_column
+    projected.setdefault("dependsOn", [])
+    projected.setdefault("ownedPaths", [])
+    projected.setdefault("acceptanceCriteria", [])
+    projected.setdefault("implementationNotes", [])
+    projected.setdefault("notes", [])
+    projected.setdefault("evidence", {})
+    projected.setdefault("comments", [])
+    projected.setdefault("activity", [])
+    return projected
+
+
+def _build_board(tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    columns = {status: {"count": 0, "taskIds": []} for status in TASK_STATUSES}
+    for task in tasks:
+        column = str(task.get("boardColumn") or task.get("folderStatus") or task.get("status") or "todo")
+        if column not in columns:
+            column = "todo"
+        columns[column]["count"] += 1
+        if task.get("id"):
+            columns[column]["taskIds"].append(str(task["id"]))
+    return {
+        "columns": columns,
+        "counts": {status: data["count"] for status, data in columns.items()},
+        "readyTaskIds": list(columns["ready"]["taskIds"]),
+    }
+
+
+def _artifact_counts(artifacts: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {status: 0 for status in ARTIFACT_STATUSES}
+    for artifact in artifacts:
+        status = str(artifact.get("folderStatus") or artifact.get("status") or "draft")
+        if status in counts:
+            counts[status] += 1
+    return counts
+
+
+def _build_projection_run_summary(
+    run: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    artifacts: list[dict[str, Any]],
+    board: dict[str, Any],
+) -> dict[str, Any]:
+    completed = [task for task in tasks if task.get("stateStatus") == "done" or task.get("status") == "done"]
+    artifact_counts = _artifact_counts(artifacts)
+    return {
+        "goal": run.get("goal") or "",
+        "status": run.get("status") or "planning",
+        "tasks": {
+            "total": len(tasks),
+            "completed": len(completed),
+            "remaining": max(0, len(tasks) - len(completed)),
+            "ready": board["counts"].get("ready", 0),
+            "needsInput": board["counts"].get("needs_input", 0),
+        },
+        "artifacts": {
+            "total": len(artifacts),
+            "readyForReview": artifact_counts.get("ready_for_review", 0),
+            "approved": artifact_counts.get("approved", 0),
+            "changesRequested": artifact_counts.get("changes_requested", 0),
+        },
+        "completedTasks": [
+            {
+                "id": task.get("id"),
+                "title": task.get("title"),
+                "summary": (task.get("evidence") if isinstance(task.get("evidence"), dict) else {}).get("summary") or "",
+                "ownerAgentId": task.get("ownerAgentId"),
+                "completedAt": task.get("completedAt"),
+            }
+            for task in completed
+        ],
+    }
+
+
+def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]:
+    lock_paths = {
+        "state": (state_path or team_dir / "state.yaml").with_suffix(".yaml.lock"),
+        "readyQueue": team_dir / "runner" / "ready.queue.lock",
+    }
+    lock_reports = []
+    warnings = []
+    for name, path in lock_paths.items():
+        report = FolderLock(path).inspect()
+        entry = {
+            "name": name,
+            "exists": report.exists,
+            "stale": report.stale,
+            "ageSeconds": report.ageSeconds,
+            "owner": report.owner,
+        }
+        lock_reports.append(entry)
+        if report.stale:
+            warnings.append({"name": name, "message": f"{name} lock appears stale.", "ageSeconds": report.ageSeconds})
+
+    state_files = {}
+    for relative in LOCK_STATE_FILES:
+        path = team_dir / relative
+        if path.exists():
+            try:
+                state_files[Path(relative).stem] = read_json_file(path)
+            except ValueError:
+                state_files[Path(relative).stem] = {"status": "invalid"}
+    return {"locks": lock_reports, "states": state_files, "warnings": warnings}
+
+
+def _fallback_run_from_state(team_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
+    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
+    return {
+        "schemaVersion": 1,
+        "name": sprintengine.get("name") or team_dir.name,
+        "goal": sprintengine.get("goal") or "",
+        "status": sprintengine.get("status") or "planning",
+        "rosterConfigured": bool(sprintengine.get("rosterConfigured")),
+        "updatedAt": sprintengine.get("updatedAt") or now_iso(),
+        "migration": {"source": "state.yaml-legacy-read"},
+    }
+
+
+def build_projection(
+    team_dir: Path,
+    *,
+    state_path: Path | None = None,
+    fallback_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    folder_store_ready = (team_dir / RUN_FILE).exists() and (team_dir / "tasks").exists()
+    if folder_store_ready:
+        source = "folder_store"
+        run = load_run_yaml(team_dir)
+        raw_tasks = _tasks_from_folder_store(team_dir)
+        tasks = [_normalize_projection_task(task, board_column=str(task.get("folderStatus") or task.get("status") or "todo")) for task in raw_tasks]
+        artifacts = _artifacts_from_folder_store(team_dir)
+        events = read_jsonl_file(team_dir / EVENTS_FILE)
+        feedback = read_jsonl_file(team_dir / FEEDBACK_FILE)
+        roster = run.get("agents") if isinstance(run.get("agents"), dict) else {}
+        if not roster and isinstance(fallback_state, dict):
+            roster = fallback_state.get("agents", {})
+    else:
+        source = "state_yaml_fallback"
+        state = fallback_state or {}
+        run = _fallback_run_from_state(team_dir, state)
+        raw_tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
+        tasks_by_id = {str(task.get("id")): task for task in raw_tasks if task.get("id")}
+        tasks = [
+            _normalize_projection_task(task, board_column=_board_column_for_legacy_task(task, tasks_by_id))
+            for task in raw_tasks
+        ]
+        artifacts = [dict(artifact, folderStatus=artifact.get("status") or "draft") for artifact in state.get("artifacts", []) or [] if isinstance(artifact, dict)]
+        events = [event for event in state.get("events", []) or [] if isinstance(event, dict)]
+        feedback = []
+        roster = state.get("agents", {})
+
+    artifacts_by_task: dict[str, list[dict[str, Any]]] = {}
+    for artifact in artifacts:
+        task_id = str(artifact.get("taskId") or "")
+        if task_id:
+            artifacts_by_task.setdefault(task_id, []).append(artifact)
+    for task in tasks:
+        task_id = str(task.get("id") or "")
+        task["artifacts"] = artifacts_by_task.get(task_id, [])
+
+    board = _build_board(tasks)
+    locks = _projection_locks(team_dir, state_path)
+    updated_at = run.get("updatedAt") or now_iso()
+    projection = {
+        "ok": True,
+        "projectionVersion": 1,
+        "source": source,
+        "generatedAt": now_iso(),
+        "updatedAt": updated_at,
+        "run": {
+            "id": team_dir.name,
+            "name": run.get("name") or team_dir.name,
+            "goal": run.get("goal") or "",
+            "status": run.get("status") or "planning",
+            "rosterConfigured": bool(run.get("rosterConfigured")),
+            "updatedAt": updated_at,
+            "migration": run.get("migration") if isinstance(run.get("migration"), dict) else {},
+        },
+        "roster": roster if isinstance(roster, dict) else {},
+        "tasks": tasks,
+        "board": board,
+        "artifacts": artifacts,
+        "locks": locks,
+        "activity": events,
+        "feedback": feedback,
+        "counts": {
+            "tasks": board["counts"],
+            "ready": board["counts"].get("ready", 0),
+            "needsInput": board["counts"].get("needs_input", 0),
+            "artifacts": _artifact_counts(artifacts),
+        },
+        "runSummary": _build_projection_run_summary(run, tasks, artifacts, board),
+    }
+    if state_path is not None:
+        projection["statePath"] = str(state_path)
+        projection["planPath"] = str(team_dir / "plan.md")
+    return projection
+
+
+def write_projection_file(team_dir: Path, state: dict[str, Any], *, state_path: Path | None = None) -> Path:
+    projection = build_projection(team_dir, state_path=state_path, fallback_state=state)
+    atomic_write_json(team_dir / PROJECTION_FILE, projection)
+    return team_dir / PROJECTION_FILE
+
+
+@dataclass(frozen=True)
+class LockReport:
+    path: str
+    exists: bool
+    stale: bool
+    ageSeconds: float | None
+    owner: dict[str, Any] | None
+
+
+class FolderLock:
+    def __init__(self, path: Path, *, stale_after_seconds: float = 300.0, timeout: float = 30.0, poll: float = 0.2):
+        self.path = path
+        self.stale_after_seconds = stale_after_seconds
+        self.timeout = timeout
+        self.poll = poll
+        self.fd: int | None = None
+
+    def inspect(self) -> LockReport:
+        if not self.path.exists():
+            return LockReport(str(self.path), False, False, None, None)
+        age = max(0.0, time.time() - self.path.stat().st_mtime)
+        owner = None
+        try:
+            parsed = json.loads(self.path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                owner = parsed
+        except (OSError, json.JSONDecodeError):
+            owner = None
+        return LockReport(str(self.path), True, age > self.stale_after_seconds, age, owner)
+
+    def recover_stale(self) -> bool:
+        report = self.inspect()
+        if not report.exists or not report.stale:
+            return False
+        self.path.unlink()
+        return True
+
+    def acquire(self, *, recover_stale: bool = False) -> LockReport:
+        deadline = time.monotonic() + self.timeout
+        payload = json.dumps({"pid": os.getpid(), "createdAt": now_iso()})
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        while True:
+            try:
+                self.fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(self.fd, payload.encode("utf-8"))
+                return self.inspect()
+            except FileExistsError:
+                report = self.inspect()
+                if report.stale and recover_stale:
+                    self.recover_stale()
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for lock: {self.path}")
+                time.sleep(self.poll)
+
+    def release(self) -> None:
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def __enter__(self) -> "FolderLock":
+        self.acquire(recover_stale=True)
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        self.release()

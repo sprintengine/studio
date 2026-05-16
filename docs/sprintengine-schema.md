@@ -1,191 +1,294 @@
 # Sprint Engine Schema
 
-Sprint Engine is the execution-native core for local specialist runs. Milestone
-01 keeps the schema deliberately close to the existing `swarm/<team>/state.yaml`
-shape so Swarm compatibility can load current runs without migration.
+Sprint Engine is Multicode's local execution authority for specialist runs.
+Current runs use a folder-backed store under `.multi-code/sprintengine/<team>/`.
+The compatibility `state.yaml` file can still exist during staged migration, but
+new coordination code should treat the folder store and normalized projection as
+the durable read contract.
 
-The core schema lives in `sprintengine_core/schema.py`. Every object exposes
-`to_dict()` and returns a deterministic, JSON-compatible dictionary with stable
-field order.
+Agents and app code must not hand-edit Sprint Engine store files. Mutations go
+through the Sprint Engine CLI/tool boundary so locking, ready queue refresh,
+activity, artifacts, events, metrics, and projections stay coherent.
 
-## Top-Level State
+## Run Store Layout
 
-`SprintEngineState`:
+Each team folder contains these store files and directories:
 
-- `schemaVersion`: integer schema version.
-- `run`: `SprintRun` metadata.
-- `tasks`: ordered list of `SprintTask` objects.
-- `artifacts`: ordered list of `SprintArtifact` objects.
-- `agents`: ordered list of `SprintAgent` objects.
-- `events`: append-only ordered list of `SprintEvent` objects.
-- `specialistRoles`: role registry references used by execution tasks.
-- `autoRun`: optional `AutoRunState`.
-- `source`: optional `SourceMetadata`.
+```text
+.multi-code/sprintengine/<team>/
+  state.yaml
+  run.yaml
+  projection.json
+  events.jsonl
+  metrics/agent-feedback.jsonl
+  tasks/
+    todo/
+    ready/
+    in_progress/
+    changes_requested/
+    needs_input/
+    done/
+    canceled/
+  artifacts/
+    draft/
+    recorded/
+    ready_for_review/
+    approved/
+    changes_requested/
+    superseded/
+  plan-reviews/
+  reviews/
+  validation/
+  runner/
+```
 
-## Run
+`state.yaml` is the legacy compatibility file. It is not a safe manual editing
+surface. Folder-store files are also not safe manual editing surfaces. Use
+commands such as `sprintengine task next`, `sprintengine task log`,
+`sprintengine task status`, `sprintengine artifact add`, and
+`sprintengine migrate`.
 
-`SprintRun` identifies a run independently from its backing file.
+## `run.yaml`
 
-- `id`: canonical run id. Current Swarm-backed runs use `sprint:<team-slug>`.
-- `name`: display name or team slug.
-- `goal`: execution goal.
-- `status`: run phase such as `planning`, `planned`, `executing`, or
-  `completed`.
-- `updatedAt`: UTC ISO timestamp when known.
-- `source`: optional source metadata.
+`run.yaml` stores compact run metadata and graph mirrors:
 
-## Tasks
+- `schemaVersion`: folder-store schema version.
+- `name`: team display name.
+- `goal`: run goal.
+- `status`: run status such as `planning` or `executing`.
+- `rosterConfigured`: whether the run has an explicit role roster.
+- `graphPolicy`: graph/readiness policy metadata.
+- `tasks`: compact task graph entries with `id`, `status`, `role`, and
+  `dependsOn`.
+- `artifacts`: compact artifact entries with `id`, `status`, `kind`, and
+  `taskId`.
+- `migration`: source, backup path, counts, timestamps, and compatibility
+  metadata when the run has been migrated from `state.yaml`.
+- `updatedAt`: UTC timestamp of the latest store sync.
 
-`SprintTask` is the canonical execution unit.
+The graph mirror lets readiness refresh validate dependency references and
+cycles without requiring consumers to parse every task folder.
 
-- `id`, `title`, `description`: task identity and brief.
-- `role`: specialist role id.
-- `status`: one of `todo`, `in_progress`, `needs_input`, `done`.
-- `ownerAgentId`: agent id currently responsible for active work, or null.
-- `dependsOn`: task ids that must be done before this task is ready.
-- `ownedPaths`: project-relative file or directory paths that define the
-  task's primary edit surface and collision boundary. Workers should prefer
-  these paths, but small directly required companion edits may be logged as
-  evidence scope expansions when they are needed for correctness, integration,
-  type safety, tests, or cleaner structure.
-- `acceptanceCriteria`: behavior that must be proven before completion.
-- `implementationNotes`: task-scoped guidance.
-- `evidence`: summary, touched files, commands, and results.
-- `notes`: human or agent notes.
-- `needsInput`: optional routing metadata for `needs_input` tasks.
-  `kind` is one of `architect`, `user`, `artifact`, `tooling`,
-  `verification`, or `other`; `question` records the blocker;
-  `suggestedResolution`, `reportedBy`, and `reportedAt` are optional.
-- `learnedFacts`: execution facts discovered while doing the task.
-- `blockers`: concrete unresolved or resolved execution blockers.
-- `startedAt`, `completedAt`: UTC ISO timestamps or null.
-- `source`: optional source metadata.
+## Task Files
 
-Readiness is derived, not stored: a task is ready when it is `todo`, has no
-owner, and all dependencies are `done`.
+Task JSON files live under `tasks/<folder-status>/`. Folder location is the
+materialized board column; the embedded `status` field mirrors that folder for
+display and validation. A task in `tasks/ready/` can include `stateStatus` to
+show the semantic legacy status, usually `todo` or `changes_requested`.
 
-Sprint Engine does not add Multiloop planning fields to tasks. Planning state,
-roadmaps, milestones, entitlements, desktop login, and app-only automation
-policies stay outside the core schema.
+Supported task folders are:
 
-## Evidence And Reports
+- `todo`
+- `ready`
+- `in_progress`
+- `changes_requested`
+- `needs_input`
+- `done`
+- `canceled`
 
-`Evidence` mirrors current Swarm task evidence:
+Task records preserve the existing task card fields:
+
+- `id`, `title`, `description`, `role`
+- `status`, `stateStatus`, `ownerAgentId`
+- `dependsOn`
+- `ownedPaths`
+- `acceptanceCriteria`
+- `implementationNotes`
+- `evidence`
+- `notes`
+- `comments`
+- `dispatch`
+- `needsInput`
+- `feedback`
+- `startedAt`, `completedAt`
+- `activity`
+
+`ownedPaths`, evidence files, artifact paths, review paths, and notes must use
+project-root-relative paths. Do not write absolute paths or machine-specific
+paths into task records or evidence.
+
+## Activity Timeline
+
+`activity` is the task-local handoff timeline. Entries are structured objects
+with an `id`, UTC `timestamp`, `type`, `actor`, `message`, and optional
+task-specific metadata.
+
+Known activity types include:
+
+- `claim`
+- `status_change`
+- `comment`
+- `evidence`
+- `feedback`
+- `needs_input`
+- `artifact`
+- `system`
+
+Projection consumers should use activity as the inspector timeline and display
+newest activity first.
+
+## Evidence And Feedback
+
+Task `evidence` contains:
 
 - `summary`
 - `touchedFiles`
 - `commandsRan`
 - `results`
-- `scopeExpansions`: optional structured records for touched files outside
-  `ownedPaths`, each with `path`, `reason`, and optional `risk`.
+- `scopeExpansions`
 
-`SprintReport` is the export payload for read/status/report commands:
+`scopeExpansions` records project-relative paths outside the task's owned paths,
+with `path`, `reason`, and optional `risk`.
 
-- `runId`
-- `generatedAt`
-- `summary`
-- `evidence`
-- `source`
+Agent feedback is attached to task records and also exported to
+`metrics/agent-feedback.jsonl`. Metrics records use JSON Lines so each feedback
+payload is append-friendly and durable across syncs.
 
-## Artifacts
+## Needs Input
 
-`SprintArtifact` represents reviewable or durable task output.
+`needsInput` routes blocked work:
+
+- `kind`: actor who must act, normally `architect`, `user`, or `owner`.
+- `reason`: `task_scope`, `artifact_review`, `tooling`, `verification`,
+  `product_decision`, or `blocked_other`.
+- `question`: concrete unblock question.
+- `suggestedResolution`: optional proposed next step.
+- `artifactId`: optional artifact related to an artifact review blocker.
+- `reportedBy`, `reportedAt`: provenance metadata.
+
+Use `needs_input` through the CLI; do not move files between status folders by
+hand.
+
+## Artifact Files
+
+Artifact JSON files live under `artifacts/<artifact-status>/`. Supported
+artifact folders are:
+
+- `draft`
+- `recorded`
+- `ready_for_review`
+- `approved`
+- `changes_requested`
+- `superseded`
+
+Artifact records include:
 
 - `id`
-- `kind`: one of `architect_plan`, `product_strategy`, `requirements`,
+- `kind`: `architect_plan`, `product_strategy`, `requirements`,
   `html_mockup`, `design_notes`, `branding`, `security_review`, `code_review`,
-  `spec_review`, `performance_review`, `validation_report`.
+  `spec_review`, `performance_review`, or `validation_report`
 - `title`
-- `path`: project-relative artifact path.
-- `status`: one of `draft`, `ready_for_review`, `approved`,
-  `changes_requested`, `superseded`.
+- `path`
+- `status`
 - `createdBy`
 - `taskId`
-- `reviewHistory`: ordered review transitions.
-- `recommendedTasks`: follow-up task descriptions or ids.
-- `approvedBy`
-- `source`
+- `fingerprint`
+- `reviewHistory`
+- `recommendedTasks`
+- `createdAt`, `updatedAt`
+- `approvedBy`, `approvedAt`
 
-`ReviewHistoryEntry` records `action`, `actor`, `timestamp`, and optional
-`feedback`.
-
-## Agents
-
-`SprintAgent` records execution slots:
-
-- `id`
-- `role`
-- `status`: one of `idle`, `running`, `needs_input`, `done`.
-- `currentTaskId`
-- `source`
+Register artifacts through `sprintengine artifact add`, `sprintengine artifact
+ready`, `sprintengine artifact approve`, or `sprintengine artifact
+request-changes`.
 
 ## Events
 
-`SprintEvent` is append-only execution history:
+`events.jsonl` is append-only run history. Each line is a JSON object, normally
+with:
 
 - `id`
 - `timestamp`
 - `type`
 - `actor`
 - `message`
-- `taskId`
-- `artifactId`
-- `source`
+- optional task or artifact metadata
 
-## Specialist Role References
+Examples include `task_claimed`, `task_evidence_appended`,
+`task_status_changed`, `artifact_added`, `artifact_ready_for_review`,
+`artifact_approved`, and `folder_store_migrated`.
 
-`SpecialistRoleRef` points at canonical role registry entries:
+## Locks
 
-- `id`
-- `label`
-- `promptPath`
-- `expectedArtifactKinds`
-- `stopConditions`
+The store uses lock files to serialize high-risk operations:
 
-Milestone 01 uses Souls (`souls/prompts/*.md`) as the role prompt source. The
-execution schema must not load Sprint Engine roles from Multiloop prompt context.
+- `state.yaml.lock`: legacy compatibility state lock.
+- `runner/ready.queue.lock`: ready queue materialization lock.
+- `runner/run.lock.json`: run-level status marker.
+- `runner/ready.lock.json`: ready runner status marker.
 
-## Auto-Run State
+Consumers should not inspect lock files directly. `sprintengine projection`
+reports lock state and stale-lock warnings in the normalized projection.
 
-`AutoRunState` models local execution status only:
+## DAG Readiness
 
-- `status`: one of `idle`, `running`, `paused`, `stopped`, `completed`,
-  `failed`.
-- `enabled`
-- `requestedBy`
-- `startedAt`
-- `stoppedAt`
-- `lastError`
-- `source`
+`tasks/ready/` is a materialized deterministic queue. A task is ready when:
 
-Terminal spawning and desktop access policy remain in the app boundary, not in
-Sprint Engine core.
+- its semantic status is `todo` or `changes_requested`;
+- it has no `ownerAgentId`;
+- its dispatch mode allows dependency readiness;
+- every dependency in the run graph is `done`.
 
-## Source Metadata
+Readiness refresh rejects unknown dependencies and cycles. The CLI command is:
 
-`SourceMetadata` describes where an object came from:
+```bash
+sprintengine task refresh-ready
+```
 
-- `format`: for example `swarm-state`.
-- `path`: project-relative source path where practical, such as
-  `swarm/01-shared-domain-cli-readonly/state.yaml`.
-- `keyPath`: path inside the source document, such as `tasks[2]`.
-- `version`: source schema version when known.
+`sprintengine task next --role <role> --id <agent-id>` claims from the
+materialized ready queue under the Sprint Engine state lock and then refreshes
+store files.
 
-Persisted and reported paths should be project-relative. Absolute or
-machine-specific paths should be converted before they enter schema output.
+## Projection Boundary
 
-## Swarm Compatibility
+Consumers should use the normalized projection instead of reading folder files:
 
-Current `swarm/<team>/state.yaml` maps directly:
+```bash
+sprintengine projection
+```
 
-- `swarm` -> `SprintRun`
-- `tasks[]` -> `SprintTask[]`
-- `artifacts[]` -> `SprintArtifact[]`
-- `agents{}` -> `SprintAgent[]`
-- `events[]` -> `SprintEvent[]`
-- task `evidence` -> `Evidence`
-- task `notes`, `startedAt`, and `completedAt` keep their current meaning
+The projection reads real folder-store files for migrated and new runs. It
+falls back to legacy `state.yaml` only when the folder store has not been
+initialized.
 
-Swarm state remains the backing store for Milestone 01. Sprint Engine read-only
-commands should load this file and serialize canonical objects without rewriting
-state or updating timestamps.
+Projection fields include:
+
+- `projectionVersion`
+- `source`: `folder_store` or `state_yaml_fallback`
+- `generatedAt`, `updatedAt`
+- `run`
+- `roster`
+- `tasks`
+- `board`
+- `artifacts`
+- `locks`
+- `activity`
+- `feedback`
+- `counts`
+- `runSummary`
+- `statePath`, `planPath`
+
+`board.columns` and `board.counts` expose the current columns without requiring
+renderer or mobile code to inspect status folders. `locks.warnings` exposes
+stale-lock warnings without requiring direct lock-file reads.
+
+## Migration Compatibility
+
+`sprintengine migrate --actor <actor-id>` is idempotent. It creates the folder
+store from `state.yaml`, writes `state.migration-backup.yaml`, appends migration
+activity and events once, writes metrics records, refreshes the ready queue, and
+records migration metadata in `run.yaml`.
+
+After migration, reads should prefer folder-store projection data. The legacy
+`state.yaml` file can remain as a compatibility mirror during rollout.
+
+## Verification Commands
+
+Use focused backend and app checks when changing this contract:
+
+```bash
+python3 -m py_compile sprintengine_core/tool.py sprintengine_core/store.py scripts/sprintengine_tool.py
+uv run --with pytest --with PyYAML python -m pytest tests/sprintengine_tool -q
+npx esbuild src/main/mobile/sprintengine/snapshot.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/mobile-sprintengine-snapshot.test.cjs && node node_modules/.cache/multicode/mobile-sprintengine-snapshot.test.cjs
+npx esbuild src/main/index.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/main-index.check.cjs
+```

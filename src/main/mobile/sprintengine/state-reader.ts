@@ -1,4 +1,5 @@
 import { readFile } from 'fs/promises'
+import { dirname, join } from 'path'
 import { MobileSprintEngineCommandError } from './command-error'
 import { resolveSprintEngineArtifactFilePath } from './artifact-path'
 import type { ValidSprintEngineStatePath } from './state-path'
@@ -23,8 +24,39 @@ type RawSprintEngineState = {
   sprintEngineAgents?: Record<string, SprintEngineRuntimeAgentRecord>
 }
 
+/**
+ * Read the normalized Sprint Engine state used by mobile command readiness
+ * checks. The folder-store projection (`projection.json`) is the source of
+ * truth for migrated/new runs; the legacy `state.yaml` parser is the fallback
+ * for runs that have not been migrated yet. The projection's `roster` is
+ * translated to `sprintEngineAgents` so downstream readers see one shape.
+ */
 export async function readRawSprintEngineState(state: ValidSprintEngineStatePath): Promise<RawSprintEngineState> {
-  return JSON.parse(await readFile(state.statePath, 'utf8')) as RawSprintEngineState
+  const projectionPath = join(dirname(state.statePath), 'projection.json')
+  try {
+    const projectionContent = await readFile(projectionPath, 'utf8')
+    const projection = JSON.parse(projectionContent) as Record<string, unknown>
+    return {
+      tasks: Array.isArray(projection.tasks) ? projection.tasks : [],
+      artifacts: Array.isArray(projection.artifacts) ? projection.artifacts : [],
+      sprintEngineAgents: projection.roster && typeof projection.roster === 'object' && !Array.isArray(projection.roster)
+        ? projection.roster as Record<string, SprintEngineRuntimeAgentRecord>
+        : {},
+    }
+  } catch (error) {
+    if (!isFileNotFoundError(error)) {
+      throw new MobileSprintEngineCommandError(
+        'internal_error',
+        `Sprint Engine projection could not be read from projection.json: ${error instanceof Error ? error.message : String(error)}`,
+        false
+      )
+    }
+    return JSON.parse(await readFile(state.statePath, 'utf8')) as RawSprintEngineState
+  }
+}
+
+function isFileNotFoundError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
 }
 
 export async function findSprintEngineArtifact(

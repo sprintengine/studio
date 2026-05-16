@@ -5,6 +5,7 @@ import {
   OverflowMenu,
   PanelHeader,
   Section,
+  StatusDot,
   type DefinitionItem,
   type OverflowMenuItem,
 } from '../ui'
@@ -12,6 +13,14 @@ import {
   buildRunSummary,
   formatSprintEngineGoal,
 } from '../../utils/sprintengineRunSummary'
+import { formatSprintEngineLockAge } from '../../utils/sprintengine'
+import type { SprintEngineProjectionSource } from '../../types/workspace'
+
+const projectionSourceLabel: Record<SprintEngineProjectionSource, string> = {
+  folder_store: 'Folder store',
+  state_yaml_fallback: 'Legacy state.yaml',
+  unavailable: 'Projection unavailable',
+}
 
 type Props = {
   workspaceId: string
@@ -105,6 +114,8 @@ export default function SprintEngineRunSummaryPanel({ workspaceId, onClose }: Pr
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[960px] px-5 py-5">
+          <ProjectionStatusBanner state={sprintEngineState} />
+
           <div className="border-b border-[color:var(--border-default)] pb-4">
             <DefinitionList items={metrics} layout="two-column" />
           </div>
@@ -157,6 +168,57 @@ export default function SprintEngineRunSummaryPanel({ workspaceId, onClose }: Pr
         </div>
       </div>
     </section>
+  )
+}
+
+function ProjectionStatusBanner({
+  state,
+}: {
+  state: import('../../types/workspace').SprintEngineState
+}) {
+  const projection = state.projection
+  const lockWarnings = state.locks?.warnings ?? []
+  if (!projection && lockWarnings.length === 0) return null
+
+  const source: SprintEngineProjectionSource = projection?.source ?? 'folder_store'
+  const tone: 'good' | 'warn' | 'error' =
+    source === 'unavailable' || projection?.errorMessage
+      ? 'error'
+      : source === 'state_yaml_fallback' || lockWarnings.length > 0
+        ? 'warn'
+        : 'good'
+
+  return (
+    <div className="mb-4 border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-default)]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="inline-flex items-center gap-1.5">
+          <StatusDot tone={tone} />
+          <span className="font-mono text-[11px] text-[color:var(--text-muted)]">
+            Projection
+          </span>
+        </span>
+        <span className="text-[color:var(--text-default)]">{projectionSourceLabel[source]}</span>
+        {projection?.errorMessage ? (
+          <span className="text-[color:var(--tone-error)] [overflow-wrap:anywhere]">
+            {projection.errorMessage}
+          </span>
+        ) : null}
+      </div>
+      {lockWarnings.length > 0 ? (
+        <ul className="mt-1 space-y-0.5 text-[color:var(--tone-warn)]">
+          {lockWarnings.map((warning) => (
+            <li key={warning.name} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
+              <span className="font-mono text-[11px]">
+                {warning.name}
+              </span>
+              <span className="[overflow-wrap:anywhere]">
+                {warning.message} ({formatSprintEngineLockAge(warning.ageSeconds)})
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   )
 }
 

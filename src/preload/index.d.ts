@@ -86,6 +86,7 @@ import type {
   SoulPromptResult as SharedSoulPromptResult,
   SpecialistActionId as SharedSpecialistActionId,
   SprintEngineArtifactCommandResult as SharedSprintEngineArtifactCommandResult,
+  SprintEngineProjectionReadResult as SharedSprintEngineProjectionReadResult,
   SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
   SessionActivity as SharedSessionActivity,
   TerminalKind as SharedTerminalKind,
@@ -202,6 +203,7 @@ declare global {
   type WorkspaceFolderCheckResult = SharedWorkspaceFolderCheckResult
   type WindowState = SharedWindowState
   type SprintEngineArtifactCommandResult = SharedSprintEngineArtifactCommandResult
+  type SprintEngineProjectionReadResult = SharedSprintEngineProjectionReadResult
   type MultiloopInitInput = SharedMultiloopInitInput
   type MultiloopInitResult = SharedMultiloopInitResult
   type SessionUser = SharedSessionUser

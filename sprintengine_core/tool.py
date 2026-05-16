@@ -27,8 +27,10 @@ except ImportError as exc:
         "PyYAML is required. Install with: python3 -m pip install pyyaml"
     ) from exc
 
+from sprintengine_core import store as folder_store
 
-VALID_TASK_STATUSES = {"todo", "in_progress", "needs_input", "done"}
+
+VALID_TASK_STATUSES = {"todo", "in_progress", "changes_requested", "needs_input", "done", "canceled"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
 VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer", "spec_reviewer", "performance"}
 VALID_TASK_SOURCE_TYPES = {"local", "github", "jira", "linear"}
@@ -560,6 +562,15 @@ def backup_state_file(path: Path) -> Path:
     return backup
 
 
+def migration_backup_state_file(path: Path) -> Path:
+    if not path.exists():
+        raise SystemExit(f"State file not found: {path}")
+    backup = path.with_name("state.migration-backup.yaml")
+    if not backup.exists():
+        backup.write_bytes(path.read_bytes())
+    return backup
+
+
 # ---------------------------------------------------------------------------
 # State I/O
 # ---------------------------------------------------------------------------
@@ -729,6 +740,26 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
         f.write("\n")
 
 
+def folder_store_is_ready_for_state(path: Path) -> bool:
+    team_dir = path.parent
+    return (team_dir / folder_store.RUN_FILE).exists() and (team_dir / "tasks").exists()
+
+
+def load_mutation_state(path: Path, *, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if path.exists():
+        try:
+            return load_state(path)
+        except (SystemExit, Exception):
+            if folder_store_is_ready_for_state(path):
+                return folder_store.state_from_folder_store(path.parent)
+            raise
+    if folder_store_is_ready_for_state(path):
+        return folder_store.state_from_folder_store(path.parent)
+    if initial_state is not None:
+        return initial_state
+    return load_state(path)
+
+
 def run_command_checked(cwd: Path, args: List[str], *, allow_failure: bool = False, timeout: int = 120) -> subprocess.CompletedProcess[str]:
     try:
         completed = subprocess.run(
@@ -885,13 +916,20 @@ def commit_task_changes_if_needed(state: Dict[str, Any], state_path: Path, task:
     return sha
 
 
-def with_locked_state(path: Path, handler) -> Dict[str, Any]:
+def with_locked_state(path: Path, handler, *, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     lock = StateLock(path.with_suffix(f"{path.suffix}.lock"))
     with lock:
-        state = load_state(path)
+        state = load_mutation_state(path, initial_state=initial_state)
         result = handler(state)
         if result.get("write", True):
-            save_state(path, state)
+            try:
+                folder_store.sync_state_to_store(path.parent, state, state_path=path)
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
+            try:
+                save_state(path, state)
+            except OSError as exc:
+                result["stateMirrorWarning"] = f"Folder store updated, but state.yaml compatibility mirror could not be written: {exc}"
         result.pop("write", None)
         return result
 
@@ -933,6 +971,167 @@ def append_event(
     state["events"].append(event)
     state.setdefault("sprintengine", {})["updatedAt"] = now_iso()
     return event
+
+
+def append_task_activity(
+    task: Dict[str, Any],
+    activity_type: str,
+    actor: str,
+    message: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    activity = task.setdefault("activity", [])
+    if not isinstance(activity, list):
+        activity = []
+        task["activity"] = activity
+    entry = {
+        "id": next_activity_id(activity),
+        "timestamp": now_iso(),
+        "type": activity_type,
+        "actor": actor,
+        "message": message,
+    }
+    if extra:
+        entry.update({key: value for key, value in extra.items() if value is not None and value != ""})
+    activity.append(entry)
+    return entry
+
+
+def next_activity_id(activity: List[Any]) -> str:
+    max_index = 0
+    for entry in activity:
+        if not isinstance(entry, dict):
+            continue
+        raw_id = str(entry.get("id") or "")
+        match = re.fullmatch(r"ACT-(\d+)", raw_id)
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return f"ACT-{max_index + 1:03d}"
+
+
+def make_activity_entry(
+    index: int,
+    timestamp: Optional[str],
+    activity_type: str,
+    actor: str,
+    message: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    entry = {
+        "id": f"ACT-{index:03d}",
+        "timestamp": timestamp or now_iso(),
+        "type": activity_type,
+        "actor": actor,
+        "message": message,
+    }
+    if extra:
+        entry.update({key: value for key, value in extra.items() if value is not None and value != ""})
+    return entry
+
+
+def build_migration_activity_for_task(task: Dict[str, Any], artifacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    actor = str(task.get("ownerAgentId") or task.get("role") or "sprintengine")
+    timestamp = task.get("startedAt") or task.get("completedAt") or now_iso()
+    entries: List[Dict[str, Any]] = []
+
+    if task.get("ownerAgentId"):
+        entries.append(make_activity_entry(len(entries) + 1, task.get("startedAt") or timestamp, "claim", actor, f"{actor} owns {task.get('id')}."))
+    entries.append(make_activity_entry(len(entries) + 1, task.get("completedAt") or timestamp, "status_change", actor, f"Task migrated with status {task.get('status')}.", {"status": task.get("status")}))
+
+    evidence = task.get("evidence") if isinstance(task.get("evidence"), dict) else {}
+    if any(evidence.get(key) for key in ("summary", "touchedFiles", "commandsRan", "results", "scopeExpansions")):
+        entries.append(make_activity_entry(len(entries) + 1, task.get("completedAt") or timestamp, "evidence", actor, "Migrated existing task evidence."))
+
+    for note in task.get("notes", []) or []:
+        entries.append(make_activity_entry(len(entries) + 1, timestamp, "comment", actor, str(note)))
+
+    for comment in task.get("comments", []) or []:
+        if not isinstance(comment, dict):
+            continue
+        entries.append(make_activity_entry(
+            len(entries) + 1,
+            comment.get("createdAt") or timestamp,
+            "comment",
+            str(comment.get("actor") or actor),
+            str(comment.get("body") or ""),
+            {"commentId": comment.get("id"), "source": comment.get("source")},
+        ))
+
+    needs_input = task.get("needsInput") if isinstance(task.get("needsInput"), dict) else None
+    if needs_input:
+        entries.append(make_activity_entry(
+            len(entries) + 1,
+            needs_input.get("reportedAt") or timestamp,
+            "needs_input",
+            str(needs_input.get("reportedBy") or actor),
+            str(needs_input.get("question") or "Task migrated with needs_input metadata."),
+            {"artifactId": needs_input.get("artifactId"), "status": task.get("status")},
+        ))
+
+    if isinstance(task.get("feedback"), dict):
+        feedback = task["feedback"]
+        entries.append(make_activity_entry(
+            len(entries) + 1,
+            feedback.get("capturedAt") or timestamp,
+            "feedback",
+            str(feedback.get("agentId") or actor),
+            "Migrated existing feedback.",
+            {"feedbackKind": "self_report"},
+        ))
+    for assessment in task.get("feedbackAssessments", []) or []:
+        if not isinstance(assessment, dict):
+            continue
+        entries.append(make_activity_entry(
+            len(entries) + 1,
+            assessment.get("capturedAt") or timestamp,
+            "feedback",
+            str(assessment.get("agentId") or actor),
+            "Migrated existing feedback assessment.",
+            {"feedbackKind": "assessment"},
+        ))
+
+    for artifact in artifacts:
+        entries.append(make_activity_entry(
+            len(entries) + 1,
+            artifact.get("updatedAt") or artifact.get("createdAt") or timestamp,
+            "artifact",
+            str(artifact.get("createdBy") or actor),
+            f"Migrated artifact {artifact.get('id')}.",
+            {"artifactId": artifact.get("id"), "artifactStatus": artifact.get("status")},
+        ))
+
+    return entries
+
+
+def feedback_records_from_migrated_state(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        feedback = task.get("feedback")
+        if isinstance(feedback, dict):
+            records.append({
+                "schema_version": feedback.get("schemaVersion", FEEDBACK_SCHEMA_VERSION),
+                "captured_at": feedback.get("capturedAt") or now_iso(),
+                "source": feedback.get("source") or "migration",
+                "agent_id": feedback.get("agentId") or task.get("ownerAgentId") or task.get("role"),
+                "role": feedback.get("role") or task.get("role"),
+                "task_id": task.get("id"),
+                "payload": feedback,
+            })
+        for assessment in task.get("feedbackAssessments", []) or []:
+            if not isinstance(assessment, dict):
+                continue
+            records.append({
+                "schema_version": assessment.get("schemaVersion", FEEDBACK_SCHEMA_VERSION),
+                "captured_at": assessment.get("capturedAt") or now_iso(),
+                "source": assessment.get("source") or "migration",
+                "agent_id": assessment.get("agentId") or task.get("role"),
+                "role": assessment.get("role") or task.get("role"),
+                "task_id": task.get("id"),
+                "payload": assessment,
+            })
+    return records
 
 
 def append_agent_notification_event(
@@ -1051,6 +1250,7 @@ def assign_task(state: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> D
     task["startedAt"] = task.get("startedAt") or now_iso()
     agent = ensure_agent(state, agent_id, task.get("role"))
     set_agent_active(agent, task)
+    append_task_activity(task, "claim", agent_id, f"{agent_id} claimed {task.get('id')}.")
     return {"agent": agent}
 
 
@@ -1075,7 +1275,7 @@ def ensure_evidence(task: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def task_is_ready(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
-    if task.get("status") != "todo" or task.get("ownerAgentId"):
+    if task.get("status") not in {"todo", "changes_requested"} or task.get("ownerAgentId"):
         return False
     dispatch = task.get("dispatch")
     if isinstance(dispatch, dict) and dispatch.get("mode") == "manual" and dispatch.get("status") != "ready":
@@ -1085,6 +1285,28 @@ def task_is_ready(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
         if dep is None or dep.get("status") != "done":
             return False
     return True
+
+
+def refresh_materialized_ready_queue(state_path: Path, state: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return folder_store.sync_state_to_store(state_path.parent, state, state_path=state_path)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def read_ready_task_ids(state: Dict[str, Any]) -> List[str]:
+    tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
+    try:
+        ordered_ids = folder_store.validate_acyclic_task_graph(tasks)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    tasks_by_id = {str(task.get("id")): task for task in tasks if task.get("id")}
+    ready_ids: List[str] = []
+    for task_id in ordered_ids:
+        task = tasks_by_id.get(task_id)
+        if task and task_is_ready(state, task):
+            ready_ids.append(task_id)
+    return ready_ids
 
 
 def optional_non_empty_string(record: Dict[str, Any], key: str) -> Optional[str]:
@@ -1236,6 +1458,10 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     if status not in VALID_TASK_STATUSES:
         raise SystemExit(f"Task {task_id} has invalid status {status!r}.")
     ev = raw.get("evidence") if isinstance(raw.get("evidence"), dict) else {}
+    owned_paths = [str(i).strip() for i in raw.get("ownedPaths", []) if str(i).strip()]
+    touched_files = [str(i).strip() for i in ev.get("touchedFiles", []) if str(i).strip()]
+    reject_absolute_path_values(owned_paths, f"Task {task_id} ownedPaths")
+    reject_absolute_path_values(touched_files, f"Task {task_id} evidence.touchedFiles")
     task = {
         "id": task_id,
         "title": title,
@@ -1244,12 +1470,12 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         "status": status,
         "ownerAgentId": raw.get("ownerAgentId") or None,
         "dependsOn": [str(i).strip() for i in raw.get("dependsOn", []) if str(i).strip()],
-        "ownedPaths": [str(i).strip() for i in raw.get("ownedPaths", []) if str(i).strip()],
+        "ownedPaths": owned_paths,
         "acceptanceCriteria": [str(i).strip() for i in raw.get("acceptanceCriteria", []) if str(i).strip()],
         "implementationNotes": [str(i).strip() for i in raw.get("implementationNotes", []) if str(i).strip()],
         "evidence": {
             "summary": str(ev.get("summary", "")).strip(),
-            "touchedFiles": [str(i).strip() for i in ev.get("touchedFiles", []) if str(i).strip()],
+            "touchedFiles": touched_files,
             "commandsRan": [str(i).strip() for i in ev.get("commandsRan", []) if str(i).strip()],
             "results": [str(i).strip() for i in ev.get("results", []) if str(i).strip()],
             "scopeExpansions": normalize_scope_expansions(ev.get("scopeExpansions"), task_id),
@@ -1275,12 +1501,11 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
 def reject_absolute_path_values(values: Optional[List[str]], field: str) -> None:
     if not values:
         return
-    absolute_values = [str(value).strip() for value in values if Path(str(value).strip()).is_absolute()]
-    if absolute_values:
-        raise SystemExit(
-            f"{field} must use project-root-relative paths, not absolute paths: "
-            + ", ".join(absolute_values)
-        )
+    for value in values:
+        try:
+            folder_store.validate_project_relative_path(str(value), field=field)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
 
 
 def next_task_id(tasks: List[Dict[str, Any]]) -> str:
@@ -1323,6 +1548,10 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
     missing = [dep for dep in task["dependsOn"] if dep not in existing_ids]
     if missing:
         raise SystemExit(f"Unknown dependency for {task['id']}: {', '.join(missing)}")
+    try:
+        folder_store.validate_acyclic_task_graph([*state.get("tasks", []), task])
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     return task
 
 
@@ -1788,6 +2017,7 @@ def attach_feedback_payload(state: Dict[str, Any], feedback_payload: Dict[str, A
             assessments = []
         assessments.append(state_feedback)
         target_task["feedbackAssessments"] = assessments
+        append_task_activity(target_task, "feedback", actor, f"{actor} recorded reviewer feedback.", {"feedbackKind": "assessment"})
         append_event(
             state,
             "task_feedback_assessed",
@@ -1796,6 +2026,7 @@ def attach_feedback_payload(state: Dict[str, Any], feedback_payload: Dict[str, A
         )
         return
     target_task["feedback"] = state_feedback
+    append_task_activity(target_task, "feedback", actor, f"{actor} recorded feedback.", {"feedbackKind": "self_report"})
     append_event(state, "task_feedback_recorded", actor, f"{actor} recorded feedback for {target_task.get('id')}.")
 
 
@@ -1991,6 +2222,13 @@ def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, An
         agent = ensure_agent(state, owner_id, task.get("role"))
         agent["status"] = "needs_input"
         agent["currentTaskId"] = task.get("id")
+    append_task_activity(
+        task,
+        "needs_input",
+        str((artifact or {}).get("createdBy") or task.get("ownerAgentId") or task.get("role") or "agent"),
+        task["needsInput"]["question"],
+        {"artifactId": artifact_id},
+    )
 
 
 def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
@@ -2001,6 +2239,7 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
     task["status"] = "done"
     task.pop("needsInput", None)
     task["completedAt"] = now_iso()
+    append_task_activity(task, "status_change", str(task.get("ownerAgentId") or task.get("role") or "agent"), f"Task {task.get('id')} completed after artifact approval.", {"status": "done"})
     cleared = clear_task_refs(state, str(task.get("id")))
     owner_id = task.get("ownerAgentId")
     if owner_id:
@@ -2034,6 +2273,7 @@ def resolve_task_input(
     })
     task["needsInput"] = needs_input
     task.setdefault("notes", []).append(f"INPUT RESOLVED by {actor}: {resolution}")
+    append_task_activity(task, "needs_input", actor, f"Input resolved: {resolution}", {"status": "done" if complete else "in_progress"})
 
     if complete:
         task["status"] = "done"
@@ -2067,6 +2307,7 @@ def release_task_from_owner(state: Dict[str, Any], task: Dict[str, Any], actor: 
     task["completedAt"] = None
     task.pop("needsInput", None)
     task.setdefault("notes", []).append(f"RELEASED by {actor}: {reason}")
+    append_task_activity(task, "status_change", actor, f"Task released: {reason}", {"status": "todo"})
     return {"previousOwnerAgentId": previous_owner_id or None, "status": "todo"}
 
 
@@ -2087,12 +2328,14 @@ def reopen_task_for_artifact_changes(state: Dict[str, Any], task: Dict[str, Any]
         agent = ensure_agent(state, str(owner_id), task.get("role"))
         agent["status"] = "running"
         agent["currentTaskId"] = task.get("id")
+        append_task_activity(task, "status_change", str(owner_id), "Task reopened for artifact changes.", {"status": "in_progress"})
         return "in_progress"
 
     clear_task_refs(state, str(task.get("id")))
     task["ownerAgentId"] = None
     task["status"] = "todo"
     task.pop("needsInput", None)
+    append_task_activity(task, "status_change", str(task.get("role") or "agent"), "Task reopened for artifact changes.", {"status": "todo"})
     return "todo"
 
 
@@ -2875,7 +3118,12 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
             "actor": args.actor,
             "message": f"{args.actor} registered root handoff artifact {source_artifact['id']}.",
         })
-    save_state(state_path, initial)
+    def write_initial_state(state: Dict[str, Any]) -> Dict[str, Any]:
+        state.clear()
+        state.update(initial)
+        return {"ok": True}
+
+    with_locked_state(state_path, write_initial_state, initial_state={})
 
     init_command = f"sprintengine --state {json.dumps(str(state_path))} init"
     architect_startup_prompt = "\n\n".join([
@@ -2900,9 +3148,10 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
 def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     state_path = args.state
     default_name = default_swarm_name_for_state(state_path)
+    initial_state: Optional[Dict[str, Any]] = None
     if not state_path.exists():
         state_path.parent.mkdir(parents=True, exist_ok=True)
-        initial: Dict[str, Any] = {
+        initial_state = {
             "sprintengine": {
                 "name": default_name,
                 "goal": getattr(args, "goal", "") or "",
@@ -2915,7 +3164,6 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             "artifacts": [],
             "roles": {},
         }
-        save_state(state_path, initial)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         apply_agent_specs(state, getattr(args, "agent", None))
@@ -3011,19 +3259,18 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         recompute_phase(state)
         return {
             "ok": True,
+            "team": sprintengine.get("name") or default_name,
             "productGate": product_gate,
             "planGate": plan_gate,
         }
 
-    init_state = with_locked_state(state_path, run)
-    state = load_state(state_path)
-    sprintengine = state.setdefault("sprintengine", {})
+    init_state = with_locked_state(state_path, run, initial_state=initial_state)
     plan_gate = init_state["planGate"]
     product_gate = init_state.get("productGate")
     return {
         "ok": True,
         "action": "initialized",
-        "team": sprintengine.get("name") or default_name,
+        "team": init_state.get("team") or default_name,
         "statePath": str(state_path),
         "productTask": product_gate["task"] if product_gate else None,
         "productArtifact": product_gate["artifact"] if product_gate else None,
@@ -3206,6 +3453,71 @@ def cmd_recover(args: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
+def cmd_migrate(args: argparse.Namespace) -> Dict[str, Any]:
+    backup_path = migration_backup_state_file(args.state)
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        artifacts_by_task: Dict[str, List[Dict[str, Any]]] = {}
+        for artifact in state.get("artifacts", []) or []:
+            if isinstance(artifact, dict):
+                artifacts_by_task.setdefault(str(artifact.get("taskId") or ""), []).append(artifact)
+
+        activity_added = 0
+        for task in state.get("tasks", []) or []:
+            if not isinstance(task, dict):
+                continue
+            activity = task.get("activity")
+            if isinstance(activity, list) and activity:
+                continue
+            migrated_activity = build_migration_activity_for_task(task, artifacts_by_task.get(str(task.get("id") or ""), []))
+            if migrated_activity:
+                task["activity"] = migrated_activity
+                activity_added += len(migrated_activity)
+
+        refresh = refresh_materialized_ready_queue(args.state, state)
+        feedback_records = feedback_records_from_migrated_state(state)
+        feedback_path = folder_store.sync_feedback_metrics(args.state.parent, feedback_records)
+        migration_metadata = folder_store.record_migration_metadata(
+            args.state.parent,
+            {
+                "source": "state.yaml",
+                "statePath": args.state.name,
+                "backupPath": backup_path.name,
+                "taskCount": len([task for task in state.get("tasks", []) or [] if isinstance(task, dict)]),
+                "artifactCount": len([artifact for artifact in state.get("artifacts", []) or [] if isinstance(artifact, dict)]),
+                "eventCount": len([event for event in state.get("events", []) or [] if isinstance(event, dict)]),
+                "feedbackRecordCount": len(feedback_records),
+                "migratedAt": now_iso(),
+            },
+        )
+        event = next(
+            (candidate for candidate in state.get("events", []) if isinstance(candidate, dict) and candidate.get("type") == "folder_store_migrated"),
+            None,
+        )
+        if event is None:
+            event = append_event(
+                state,
+                "folder_store_migrated",
+                args.actor,
+                f"{args.actor} migrated state.yaml into the Sprint Engine folder store.",
+                {"backupPath": backup_path.name, "taskCount": migration_metadata.get("taskCount")},
+            )
+        return {
+            "ok": True,
+            "action": "migrated",
+            "backupPath": str(backup_path),
+            "runPath": str(args.state.parent / folder_store.RUN_FILE),
+            "readyTaskIds": refresh["readyTaskIds"],
+            "orderedTaskIds": refresh["orderedTaskIds"],
+            "feedbackMetricsPath": str(feedback_path),
+            "activityAdded": activity_added,
+            "event": event,
+            "migration": migration_metadata,
+        }
+
+    return with_locked_state(args.state, run)
+
+
 def cmd_roster_add(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         clean_id = args.id.strip()
@@ -3242,12 +3554,20 @@ def cmd_roster_list(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        ready_ids = read_ready_task_ids(state)
+        tasks_by_id = {
+            str(t.get("id")): t
+            for t in state.get("tasks", [])
+            if isinstance(t, dict) and t.get("id")
+        }
         ready = []
-        for t in state.get("tasks", []):
+        for task_id in ready_ids:
+            t = tasks_by_id.get(task_id)
+            if not t:
+                continue
             if getattr(args, "role", None) and t.get("role") != args.role:
                 continue
-            if task_is_ready(state, t):
-                ready.append({"id": t.get("id"), "title": t.get("title"), "role": t.get("role"), "dependsOn": t.get("dependsOn", [])})
+            ready.append({"id": t.get("id"), "title": t.get("title"), "role": t.get("role"), "dependsOn": t.get("dependsOn", [])})
         return {"ok": True, "readyTasks": ready, "write": False}
     return with_locked_state(args.state, run)
 
@@ -3261,8 +3581,15 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
         if active:
             return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "write": runtime["dirty"]}
 
-        for t in state.get("tasks", []):
-            if t.get("role") != args.role or not task_is_ready(state, t):
+        ready_ids = read_ready_task_ids(state)
+        tasks_by_id = {
+            str(t.get("id")): t
+            for t in state.get("tasks", [])
+            if isinstance(t, dict) and t.get("id")
+        }
+        for task_id in ready_ids:
+            t = tasks_by_id.get(task_id)
+            if not t or t.get("role") != args.role or not task_is_ready(state, t):
                 continue
             result = assign_task(state, t, args.id)
             recompute_phase(state)
@@ -3280,7 +3607,8 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         ensure_agent_in_roster(state, args.id, str(task.get("role") or ""))
         agent = ensure_agent(state, args.id, task.get("role"))
-        if not task_is_ready(state, task):
+        ready_ids = set(read_ready_task_ids(state))
+        if args.task_id not in ready_ids or not task_is_ready(state, task):
             return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
         result = assign_task(state, task, args.id)
         recompute_phase(state)
@@ -3360,6 +3688,13 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         feedback_payload = build_feedback_payload(args, state, args.state, task, actor)
         if feedback_payload:
             attach_feedback_payload(state, feedback_payload, actor)
+        append_task_activity(
+            task,
+            "status_change" if args.status != "needs_input" else "needs_input",
+            str(actor),
+            f"{actor} moved {args.task_id} to {args.status}.",
+            {"status": args.status},
+        )
         recompute_phase(state)
         event = append_event(state, "task_status_changed", actor, f"{actor} moved {args.task_id} to {args.status}.")
         return {
@@ -3613,16 +3948,30 @@ def cmd_task_ready(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_task_refresh_ready(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        refresh = refresh_materialized_ready_queue(args.state, state)
+        return {
+            "ok": True,
+            "readyTaskIds": refresh["readyTaskIds"],
+            "orderedTaskIds": refresh["orderedTaskIds"],
+        }
+
+    return with_locked_state(args.state, run)
+
+
 def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         ev = ensure_evidence(task)
         if getattr(args, "summary", None):
             ev["summary"] = args.summary
+        reject_absolute_path_values(args.file or [], "--file")
         add_unique_values(ev, "touchedFiles", args.file or [])
         add_unique_scope_expansions(ev, parse_scope_expansion_args(args, args.task_id))
         ev["commandsRan"].extend(args.command or [])
         ev["results"].extend(args.result or [])
+        append_task_activity(task, "evidence", args.id, f"{args.id} logged evidence for {args.task_id}.")
         event = append_event(state, "task_evidence_appended", args.id, f"{args.id} logged evidence for {args.task_id}.")
         return {"ok": True, "task": task, "event": event}
     return with_locked_state(args.state, run)
@@ -3632,6 +3981,7 @@ def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         task.setdefault("notes", []).append(args.note)
+        append_task_activity(task, "comment", args.id, f"{args.id} added a note to {args.task_id}.")
         event = append_event(state, "task_note_added", args.id, f"{args.id} added note to {args.task_id}.")
         return {"ok": True, "task": task, "event": event}
     return with_locked_state(args.state, run)
@@ -3656,6 +4006,7 @@ def cmd_task_comment(args: argparse.Namespace) -> Dict[str, Any]:
             "createdAt": now_iso(),
         }
         comments.append(comment)
+        append_task_activity(task, "comment", actor, body, {"commentId": comment["id"], "source": args.source})
         event = append_event(state, "task_comment_added", actor, f"{actor} commented on {args.task_id}.")
         return {"ok": True, "task": task, "comment": comment, "event": event}
     return with_locked_state(args.state, run)
@@ -3707,6 +4058,10 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             task["notes"] = []
         set_unique_list(task, "notes", args.task_note)
 
+        try:
+            folder_store.validate_acyclic_task_graph([candidate for candidate in state.get("tasks", []) if isinstance(candidate, dict)])
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         recompute_phase(state)
         event = append_event(state, "task_updated", args.actor, f"{args.actor} updated {args.task_id}.")
         return {"ok": True, "task": task, "event": event}
@@ -3731,11 +4086,16 @@ def cmd_plan_delete_task(args: argparse.Namespace) -> Dict[str, Any]:
                 if isinstance(candidate, dict):
                     candidate["dependsOn"] = [dep for dep in candidate.get("dependsOn", []) if dep != args.task_id]
 
-        clear_task_refs(state, args.task_id)
-        state["tasks"] = [
+        remaining = [
             candidate for candidate in state.get("tasks", [])
-            if not (isinstance(candidate, dict) and candidate.get("id") == args.task_id)
+            if isinstance(candidate, dict) and candidate.get("id") != args.task_id
         ]
+        try:
+            folder_store.validate_acyclic_task_graph(remaining)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        clear_task_refs(state, args.task_id)
+        state["tasks"] = remaining
         recompute_phase(state)
         event = append_event(state, "task_deleted", args.actor, f"{args.actor} deleted {args.task_id}.")
         return {"ok": True, "deletedTaskId": args.task_id, "unlinkedDependents": dependents if args.unlink_dependents else [], "event": event}
@@ -3755,6 +4115,25 @@ def cmd_plan_add_dependency(args: argparse.Namespace) -> Dict[str, Any]:
         if args.task_id in deps:
             raise SystemExit("A task cannot depend on itself.")
 
+        original_deps = list(task.get("dependsOn", []))
+        candidate_deps = list(original_deps)
+        for dep in deps:
+            if dep not in candidate_deps:
+                candidate_deps.append(dep)
+        candidate_tasks = []
+        for candidate in state.get("tasks", []):
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get("id") == args.task_id:
+                preview = dict(candidate)
+                preview["dependsOn"] = candidate_deps
+                candidate_tasks.append(preview)
+            else:
+                candidate_tasks.append(candidate)
+        try:
+            folder_store.validate_acyclic_task_graph(candidate_tasks)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         added = add_unique_values(task, "dependsOn", deps)
         recompute_phase(state)
         event = append_event(state, "task_dependencies_added", args.actor, f"{args.actor} added dependencies to {args.task_id}: {', '.join(added) or 'none'}.")
@@ -3767,6 +4146,22 @@ def cmd_plan_remove_dependency(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         ensure_task_can_be_replanned(task, args.force)
+        original_deps = list(task.get("dependsOn", []))
+        candidate_deps = [dep for dep in original_deps if dep not in (args.depends_on or [])]
+        candidate_tasks = []
+        for candidate in state.get("tasks", []):
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get("id") == args.task_id:
+                preview = dict(candidate)
+                preview["dependsOn"] = candidate_deps
+                candidate_tasks.append(preview)
+            else:
+                candidate_tasks.append(candidate)
+        try:
+            folder_store.validate_acyclic_task_graph(candidate_tasks)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         removed = remove_values(task, "dependsOn", args.depends_on or [])
         recompute_phase(state)
         event = append_event(state, "task_dependencies_removed", args.actor, f"{args.actor} removed dependencies from {args.task_id}: {', '.join(removed) or 'none'}.")
@@ -3872,10 +4267,13 @@ def cmd_artifact_add(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         artifact = build_artifact_from_args(args, state, args.state)
         state.setdefault("artifacts", []).append(artifact)
+        task = find_task(state, str(artifact.get("taskId")))
+        append_task_activity(task, "artifact", args.actor, f"{args.actor} registered artifact {artifact['id']}.", {"artifactId": artifact["id"], "artifactStatus": artifact["status"]})
         event = append_event(state, "artifact_added", args.actor, f"{args.actor} registered artifact {artifact['id']} for {artifact['taskId']}.")
         ready_result = None
         if args.ready:
             ready_result = set_artifact_ready(state, artifact, args.actor, args.state)
+            append_event(state, "artifact_ready_for_review", args.actor, f"{args.actor} marked artifact {artifact['id']} ready for review.")
         recompute_phase(state)
         return {"ok": True, "artifact": artifact, "ready": ready_result, "event": event}
 
@@ -3928,6 +4326,7 @@ def set_artifact_ready(
     artifact.pop("changesRequestedAt", None)
     append_artifact_history(artifact, "ready_for_review", actor)
     mark_task_needs_input_for_artifact(state, task, artifact)
+    append_task_activity(task, "artifact", actor, f"{actor} marked artifact {artifact.get('id')} ready for review.", {"artifactId": artifact.get("id"), "artifactStatus": artifact.get("status")})
     return {"taskId": task.get("id"), "taskStatus": task.get("status"), "artifactStatus": artifact.get("status")}
 
 
@@ -3973,6 +4372,7 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
         append_artifact_history(artifact, "approved", args.id)
         owner_id = str(task.get("ownerAgentId") or "").strip()
         task_completed = mark_task_done_if_artifacts_approved(state, task)
+        append_task_activity(task, "artifact", args.id, f"{args.id} approved artifact {args.artifact_id}.", {"artifactId": args.artifact_id, "artifactStatus": "approved"})
         recompute_phase(state)
         event = append_event(state, "artifact_approved", args.id, f"{args.id} approved artifact {args.artifact_id}.")
         notification = None
@@ -4021,6 +4421,7 @@ def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
         task.setdefault("notes", []).append(note)
         owner_id = str(task.get("ownerAgentId") or "").strip()
         reopened_status = reopen_task_for_artifact_changes(state, task)
+        append_task_activity(task, "artifact", args.id, f"{args.id} requested changes for artifact {args.artifact_id}.", {"artifactId": args.artifact_id, "artifactStatus": "changes_requested", "status": reopened_status})
         recompute_phase(state)
         event = append_event(state, "artifact_changes_requested", args.id, f"{args.id} requested changes for artifact {args.artifact_id}.")
         notification = append_agent_notification_event(
@@ -4050,6 +4451,21 @@ def cmd_summary(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_projection(args: argparse.Namespace) -> Dict[str, Any]:
+    fallback_state: Dict[str, Any] | None = None
+    folder_store_ready = (args.state.parent / folder_store.RUN_FILE).exists()
+    if args.state.exists():
+        try:
+            fallback_state = load_state(args.state)
+        except (SystemExit, Exception):
+            if not folder_store_ready:
+                raise
+    try:
+        return folder_store.build_projection(args.state.parent, state_path=args.state, fallback_state=fallback_state)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
@@ -4061,6 +4477,8 @@ Entry points (return full system prompt for the agent):
   sprintengine handover --name my-team --goal "..." --handover handover.md
   sprintengine init [--goal "..."]                                # bootstraps the board; agents claim ready tasks separately
   sprintengine recover
+  sprintengine migrate --actor architect
+  sprintengine projection
   sprintengine join --role developer --id developer-1
   sprintengine triage needs-input --id architect
   sprintengine merge start --id architect --target main
@@ -4081,6 +4499,7 @@ Task commands:
   sprintengine task log    --task-id T3 --id developer-1 --scope-expansion-json '{"path":"src/foo.test.ts","reason":"colocated regression test required for changed helper","risk":"low"}'
   sprintengine task note   --task-id T3 --id developer-1 --note "Blocked on X"
   sprintengine task list   --role developer
+  sprintengine task refresh-ready
 
 Plan commands (architect only):
   sprintengine plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
@@ -4109,6 +4528,7 @@ Artifact commands:
 
 Run summary:
   sprintengine summary
+  sprintengine projection
 
 Post-run merge:
   sprintengine merge start --id architect --target main
@@ -4229,6 +4649,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("recover", help="Start integrity recovery mode, backs up state and returns full prompt.")
     p.set_defaults(handler=cmd_recover)
 
+    # migrate
+    p = sub.add_parser("migrate", help="Idempotently migrate state.yaml into the folder-backed run store.")
+    p.add_argument("--actor", default="sprintengine", help="Actor id recorded on the migration event.")
+    p.set_defaults(handler=cmd_migrate)
+
+    # projection
+    p = sub.add_parser("projection", help="Read normalized Sprint Engine run projection.")
+    p.set_defaults(handler=cmd_projection)
+
     # roster
     roster_p = sub.add_parser("roster", help="Roster operations.")
     roster_sub = roster_p.add_subparsers(dest="action", required=True)
@@ -4301,6 +4730,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", default="user", help="Actor id.")
     p.add_argument("--triaged-by", default="user", choices=sorted(VALID_TASK_DISPATCH_TRIAGED_BY))
     p.set_defaults(handler=cmd_task_ready)
+
+    p = task_sub.add_parser("refresh-ready", help="Refresh the materialized ready queue from the run DAG.")
+    p.set_defaults(handler=cmd_task_refresh_ready)
 
     p = task_sub.add_parser("log", help="Log work evidence (files, commands, results).")
     p.add_argument("--task-id", required=True)

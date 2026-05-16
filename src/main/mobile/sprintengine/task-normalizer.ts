@@ -15,10 +15,14 @@ export function normalizeSprintEngineTasks(value: unknown): SprintEngineTaskReco
     if (typeof record.id !== 'string' || !record.id.trim()) return []
     if (typeof record.role !== 'string' || !record.role.trim()) return []
 
+    // Folder-store projection records carry the semantic value in `stateStatus`
+    // while `status` mirrors the board column ("ready", "changes_requested",
+    // etc.). Prefer `stateStatus` so command readiness checks keep operating in
+    // the legacy todo/in_progress/needs_input/done vocabulary.
     return [{
       id: record.id,
       role: record.role,
-      status: normalizeTaskStatus(record.status),
+      status: normalizeTaskStatus(record.stateStatus ?? record.status),
       ownerAgentId: typeof record.ownerAgentId === 'string' && record.ownerAgentId.trim()
         ? record.ownerAgentId
         : null,
