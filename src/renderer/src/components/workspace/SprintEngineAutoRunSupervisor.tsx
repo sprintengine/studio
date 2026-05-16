@@ -28,6 +28,10 @@ import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { focusOrAddAgentTab } from '../../utils/modelRegistry'
+import {
+  agentCliSupportsConversationResume,
+  agentCliUsesStableSessionIdForResume,
+} from '../../utils/agentCliResume'
 
 const AUTO_RUN_POLL_MS = 2000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
@@ -382,7 +386,7 @@ async function findRunningAgentSession(
     cliSessionId: runningSession.sessionId,
     cliStartRequested: true,
     cliHasLaunched: true,
-    cliResumeAvailable: (runningSession.cli ?? agent?.cli ?? 'codex') === 'codex',
+    cliResumeAvailable: agentCliSupportsConversationResume(runningSession.cli ?? agent?.cli),
     cli: runningSession.cli ?? agent?.cli ?? 'codex',
     kind: 'sprintengine',
   })
@@ -750,7 +754,7 @@ async function getRunningAutoRunAgentIds(
         cliSessionId: session.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: (session.cli ?? agent?.cli ?? 'codex') === 'codex',
+        cliResumeAvailable: agentCliSupportsConversationResume(session.cli ?? agent?.cli),
         cli: session.cli ?? agent?.cli ?? 'codex',
         kind: 'sprintengine',
       })
@@ -1029,7 +1033,7 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<vo
         cliSessionId: preferredSession.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: (preferredSession.cli ?? agent?.cli ?? 'codex') === 'codex',
+        cliResumeAvailable: agentCliSupportsConversationResume(preferredSession.cli ?? agent?.cli),
         cli: preferredSession.cli ?? agent?.cli ?? 'codex',
         kind: 'sprintengine',
       })
@@ -1080,12 +1084,14 @@ async function reconcileAutoRunPendingSpawns(
 
     changed = true
     if (pendingAgent && pendingAgent.cliStartRequested && !pendingAgentHasProcess) {
+      const preserveSessionId = pendingAgent.cliHasLaunched && agentCliUsesStableSessionIdForResume(pendingAgent.cli)
+      const canResume = pendingAgent.cliHasLaunched && agentCliSupportsConversationResume(pendingAgent.cli)
       useWorkspaceStore.getState().updateAgent(workspace.id, pending.agentId, {
-        cliSessionId: undefined,
-        cliStartRequested: false,
-        cliHasLaunched: false,
+        cliSessionId: preserveSessionId ? pendingAgent.cliSessionId : undefined,
+        cliStartRequested: preserveSessionId,
+        cliHasLaunched: preserveSessionId,
         cliOnboardingPromptSent: false,
-        cliResumeAvailable: false,
+        cliResumeAvailable: canResume ? pendingAgent.cliResumeAvailable ?? true : false,
       })
     }
   }
@@ -1166,14 +1172,14 @@ async function spawnAutoRunCandidate(
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
-        cliResumeAvailable: (latestAgent.cli ?? 'codex') === 'codex' ? latestAgent.cliResumeAvailable ?? true : false,
+        cliResumeAvailable: agentCliSupportsConversationResume(latestAgent.cli) ? latestAgent.cliResumeAvailable ?? true : false,
       })
     } else if (latestAgent?.cliStartRequested) {
       latestStateBeforeSpawn.updateAgent(workspace.id, nextRun.agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
-        cliResumeAvailable: (latestAgent.cli ?? 'codex') === 'codex' ? latestAgent.cliResumeAvailable ?? true : false,
+        cliResumeAvailable: agentCliSupportsConversationResume(latestAgent.cli) ? latestAgent.cliResumeAvailable ?? true : false,
       })
     }
 
@@ -1238,7 +1244,7 @@ async function spawnAutoRunCandidate(
       cliSessionId: sessionId,
       cliHasLaunched: true,
       cliOnboardingPromptSent: true,
-      cliResumeAvailable: selectedCli === 'codex',
+      cliResumeAvailable: agentCliSupportsConversationResume(selectedCli),
       cliLastExitCode: undefined,
       cliLastExitedAt: undefined,
       cli: selectedCli,
@@ -1790,7 +1796,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
-        cliResumeAvailable: (agent.cli ?? 'codex') === 'codex' ? agent.cliResumeAvailable ?? true : false,
+        cliResumeAvailable: agentCliSupportsConversationResume(agent.cli) ? agent.cliResumeAvailable ?? true : false,
       })
       continue
     }
@@ -1798,14 +1804,16 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     const status = await window.api.terminalStatus(agent.cliSessionId)
     if (status.processAlive) continue
 
+    const preserveSessionId = agent.cliHasLaunched && agentCliUsesStableSessionIdForResume(agent.cli)
+    const canResume = agent.cliHasLaunched && agentCliSupportsConversationResume(agent.cli)
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
-      cliSessionId: undefined,
-      cliStartRequested: false,
-      cliHasLaunched: false,
+      cliSessionId: preserveSessionId ? agent.cliSessionId : undefined,
+      cliStartRequested: preserveSessionId,
+      cliHasLaunched: preserveSessionId,
       cliOnboardingPromptSent: false,
       cliLastExitCode: null,
       cliLastExitedAt: Date.now(),
-      cliResumeAvailable: (agent.cli ?? 'codex') === 'codex' ? agent.cliResumeAvailable ?? true : false,
+      cliResumeAvailable: canResume ? agent.cliResumeAvailable ?? true : false,
     })
   }
 }

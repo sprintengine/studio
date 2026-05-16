@@ -36,6 +36,7 @@ import { addAgentTabTiled, focusOrAddAgentTab, focusOrAddComponentTab, focusOrAd
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
+import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import NewWorkspacePanel, { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
@@ -1043,7 +1044,7 @@ export default function WorkspaceManager() {
         cliSessionId: item.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: item.cli === 'codex' ? true : undefined,
+        cliResumeAvailable: agentCliSupportsConversationResume(item.cli) ? true : undefined,
       })
     }
 

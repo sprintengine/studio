@@ -62,6 +62,7 @@ import {
 import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
 import { publishDiagnostic, publishDiagnosticSync } from '../../utils/diagnostics'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
+import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { isEditableTarget } from '../../utils/keyboard'
 import { isAbsoluteFilePath, joinFilePath, basename as getBaseName, parentPath as getParentDirectoryPath } from '../../utils/paths'
 import {
@@ -1014,7 +1015,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  cliSessionId: runningSession.sessionId,
  cliStartRequested: true,
  cliHasLaunched: true,
- cliResumeAvailable: (runningSession.cli ?? agents[agentId]?.cli ?? 'codex') === 'codex',
+ cliResumeAvailable: agentCliSupportsConversationResume(runningSession.cli ?? agents[agentId]?.cli),
  cli: runningSession.cli ?? agents[agentId]?.cli ?? 'codex',
  })
  return runningSession.sessionId

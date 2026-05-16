@@ -72,6 +72,7 @@ import {
   setEditorBuffer,
 } from '../utils/editorBuffers'
 import { normalizeProjectRootKey } from '../utils/projectKnowledge'
+import { agentCliUsesStableSessionIdForResume } from '../utils/agentCliResume'
 
 const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
@@ -1331,6 +1332,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                   )
               )
               if (matchingLive) continue
+              if (
+                agent.cliSessionId
+                && agentCliUsesStableSessionIdForResume(agent.cli)
+                && agent.cliHasLaunched
+              ) {
+                agent.cliStartRequested = true
+                agent.cliResumeAvailable = true
+                continue
+              }
               agent.cliStartRequested = false
               agent.cliHasLaunched = false
               agent.cliSessionId = undefined

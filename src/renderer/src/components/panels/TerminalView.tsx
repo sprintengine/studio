@@ -16,6 +16,7 @@ import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
+import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import type { McpSettings } from '../../types/workspace'
 import { Toast } from '../ui/Toast'
 
@@ -492,7 +493,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         if (attachedSessionId) return
         updateAgent(workspaceId, agentId, {
           cliHasLaunched: true,
-          ...(cli === 'codex' ? { cliResumeAvailable: true } : {}),
+          ...(agentCliSupportsConversationResume(cli) ? { cliResumeAvailable: true } : {}),
           ...(launchInitialPrompt
             ? {
                 cliOnboardingPromptSent: true,

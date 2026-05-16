@@ -19,6 +19,10 @@ import { getActiveMultiloopMilestone } from '../../utils/multiloop'
 import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
 import { buildSprintEngineRosterCommandArgs, sprintEngineRoleLabels } from '../../utils/sprintengine'
 import {
+  agentCliSupportsConversationResume,
+  agentCliUsesStableSessionIdForResume,
+} from '../../utils/agentCliResume'
+import {
   buildMultiloopAutoStartupPrompt,
   selectMultiloopAutoRunCandidates,
   type MultiloopAutoRunCandidate,
@@ -178,12 +182,14 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     const status = await window.api.terminalStatus(agent.cliSessionId)
     if (status.processAlive) continue
 
+    const preserveSessionId = agentCliUsesStableSessionIdForResume(agent.cli)
+    const canResume = agentCliSupportsConversationResume(agent.cli)
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
-      cliSessionId: undefined,
-      cliStartRequested: false,
-      cliHasLaunched: false,
+      cliSessionId: preserveSessionId ? agent.cliSessionId : undefined,
+      cliStartRequested: preserveSessionId,
+      cliHasLaunched: preserveSessionId,
       cliOnboardingPromptSent: false,
-      cliResumeAvailable: (agent.cli ?? 'codex') === 'codex' ? agent.cliResumeAvailable ?? true : false,
+      cliResumeAvailable: canResume ? agent.cliResumeAvailable ?? true : false,
     })
   }
 }
@@ -337,7 +343,7 @@ async function spawnMultiloopAutoRunCandidate(
       cliSessionId: sessionId,
       cliHasLaunched: true,
       cliOnboardingPromptSent: true,
-      cliResumeAvailable: selectedCli === 'codex',
+      cliResumeAvailable: agentCliSupportsConversationResume(selectedCli),
       cli: selectedCli,
       cliPermissionPreset: workspace.multiloopAutoState.cliPermissionPreset,
       cliStartupPrompt: undefined,
