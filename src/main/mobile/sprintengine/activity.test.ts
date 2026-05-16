@@ -133,6 +133,7 @@ function sprintengine(
       todo: 0,
       ready: 0,
       inProgress: input.tasks.filter((candidate) => candidate.status === 'in_progress').length,
+      changesRequested: input.tasks.filter((candidate) => candidate.status === 'changes_requested').length,
       needsInput: input.tasks.filter((candidate) => candidate.status === 'needs_input').length,
       blocked: 0,
       done: input.tasks.filter((candidate) => candidate.status === 'done').length,

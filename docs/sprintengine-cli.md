@@ -52,7 +52,8 @@ sprintengine task status --task-id T8 --status done --id developer-1 --confidenc
 ```
 
 Use `sprintengine task next`, not manual file moves, for normal claiming. It
-claims under the state lock and refreshes folder-store materialization.
+claims under folder-store locks, prioritizes `changes_requested` rework before
+normal ready work, and refreshes folder-store materialization.
 
 ## Command Groups
 
@@ -156,15 +157,21 @@ records migration metadata in `run.yaml`, appends migration activity and events
 once, refreshes `tasks/ready/`, writes metrics JSONL, and emits
 `projection.json`.
 
-Compatibility note: after migration, `state.yaml` may remain present as a
-compatibility mirror, but projection reads should come from folder-store data.
-Only unmigrated runs should use the `state_yaml_fallback` projection source.
+Compatibility note: after migration, `run.yaml`, task files, artifact files,
+events, metrics, and `projection.json` are the authoritative run store.
+`state.yaml` may remain present as a compatibility mirror, but commands and
+projection reads prefer folder-store data when `run.yaml` and task folders
+exist. Only unmigrated runs should use the `state_yaml_fallback` projection
+source.
 
 ## DAG Readiness
 
-Readiness is deterministic and dependency-aware. A task appears in `tasks/ready/`
-when every dependency is `done`, the task has no owner, the semantic status is
-`todo` or `changes_requested`, and dispatch allows dependency readiness.
+Readiness is deterministic and dependency-aware. A normal `todo` task appears
+in `tasks/ready/` when every dependency is `done`, the task has no owner, and
+dispatch allows dependency readiness. A `changes_requested` task with the same
+readiness properties stays in `tasks/changes_requested/` and is still claimable;
+`task next` prioritizes that rework ahead of normal ready tasks without
+flattening it to `ready`.
 
 Refresh readiness explicitly with:
 
@@ -177,9 +184,11 @@ by moving task files by hand.
 
 ## Locks And Recovery
 
-The CLI serializes mutations with lock files such as `state.yaml.lock` and
-`runner/ready.queue.lock`. The projection reports lock status and stale-lock
-warnings so app and mobile consumers do not need to inspect lock files.
+The CLI serializes folder-store mutations with `runner/run.queue.lock`,
+materialization with `runner/ready.queue.lock`, and claim selection with
+`runner/claim.queue.lock`. `state.yaml.lock` is used only for legacy unmigrated
+runs. The projection reports lock status and stale-lock warnings so app and
+mobile consumers do not need to inspect lock files.
 
 Use recovery when a run needs an integrity audit:
 

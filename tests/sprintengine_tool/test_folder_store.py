@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -213,7 +214,7 @@ def test_ready_queue_excludes_blocked_active_terminal_and_manual_todo_tasks(tmp_
     state = read_state(fixture.state_path)
     get_task(state, "T3")["dependsOn"] = ["T1"]
     get_task(state, "T3")["status"] = "canceled"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
     payload = fixture.cli.run("task", "refresh-ready")
 
     assert payload["readyTaskIds"] == ["T2"]
@@ -225,7 +226,7 @@ def test_ready_queue_excludes_blocked_active_terminal_and_manual_todo_tasks(tmp_
     assert (fixture.team_dir / "tasks" / "canceled" / "0003-T3.json").is_file()
 
 
-def test_changes_requested_tasks_are_materialized_ready_for_original_role(tmp_path) -> None:
+def test_changes_requested_tasks_stay_in_changes_requested_folder_and_are_claimable(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "changes-requested-ready",
@@ -236,12 +237,107 @@ def test_changes_requested_tasks_are_materialized_ready_for_original_role(tmp_pa
     )
 
     listed = fixture.cli.run("task", "list", "--role", "developer")
+    refreshed = fixture.cli.run("task", "refresh-ready")
+
+    assert refreshed["readyTaskIds"] == ["T2"]
+    assert ready_queue_ids(fixture.team_dir) == []
+    assert (fixture.team_dir / "tasks" / "changes_requested" / "0002-T2.json").is_file()
+    stored = json.loads((fixture.team_dir / "tasks" / "changes_requested" / "0002-T2.json").read_text(encoding="utf-8"))
+    assert stored["status"] == "changes_requested"
     claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
 
     assert [entry["id"] for entry in listed["readyTasks"]] == ["T2"]
+    assert listed["readyTasks"][0]["status"] == "changes_requested"
     assert claimed["claimed"] is True
     assert claimed["task"]["id"] == "T2"
     assert claimed["task"]["status"] == "in_progress"
+
+
+def test_task_next_prioritizes_changes_requested_before_normal_ready(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "changes-requested-priority",
+        [
+            task("T1", "Dependency", "developer", "done"),
+            task("T2", "Normal ready", "developer", depends_on=["T1"]),
+            task("T3", "Needs revision", "developer", "changes_requested", depends_on=["T1"]),
+        ],
+    )
+    fixture.cli.run("task", "refresh-ready")
+
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == "T3"
+    assert (fixture.team_dir / "tasks" / "in_progress" / "0003-T3.json").is_file()
+    assert (fixture.team_dir / "tasks" / "ready" / "0002-T2.json").is_file()
+
+
+def test_projection_reports_changes_requested_distinctly(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "changes-requested-projection",
+        [
+            task("T1", "Dependency", "developer", "done"),
+            task("T2", "Needs revision", "developer", "changes_requested", depends_on=["T1"]),
+            task("T3", "Normal ready", "developer", depends_on=["T1"]),
+        ],
+    )
+    fixture.cli.run("task", "refresh-ready")
+
+    projection = fixture.cli.run("projection")
+    tasks = {task["id"]: task for task in projection["tasks"]}
+
+    assert projection["board"]["counts"]["changes_requested"] == 1
+    assert projection["counts"]["changesRequested"] == 1
+    assert tasks["T2"]["status"] == "changes_requested"
+    assert tasks["T2"]["stateStatus"] == "changes_requested"
+    assert tasks["T3"]["status"] == "ready"
+
+
+def test_folder_store_mutation_works_without_state_yaml(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "folder-store-no-state-yaml",
+        [
+            task("T1", "Dependency", "developer", "done"),
+            task("T2", "Implementation", "developer", depends_on=["T1"]),
+        ],
+    )
+    fixture.cli.run("task", "refresh-ready")
+    fixture.state_path.unlink()
+
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == "T2"
+    assert (fixture.team_dir / "tasks" / "in_progress" / "0002-T2.json").is_file()
+    assert fixture.state_path.is_file()
+
+
+def test_concurrent_task_next_claims_available_work_once(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "concurrent-claim",
+        [
+            task("T1", "Dependency", "developer", "done"),
+            task("T2", "Implementation", "developer", depends_on=["T1"]),
+        ],
+    )
+    fixture.cli.run("task", "refresh-ready")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(
+            lambda agent_id: fixture.cli.run("task", "next", "--role", "developer", "--id", agent_id),
+            ["developer-a", "developer-b"],
+        ))
+
+    claimed = [result for result in results if result["claimed"]]
+    not_claimed = [result for result in results if not result["claimed"]]
+    assert len(claimed) == 1
+    assert claimed[0]["task"]["id"] == "T2"
+    assert len(not_claimed) == 1
+    assert not_claimed[0]["reason"] == "no_ready_task"
 
 
 def test_task_list_reads_ready_tasks_without_rewriting_folder_store(tmp_path) -> None:
@@ -692,7 +788,7 @@ def test_projection_covers_empty_run_summary_and_board(tmp_path) -> None:
     state["tasks"] = []
     state["artifacts"] = []
     state["events"] = []
-    state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    store.sync_state_to_store(state_path.parent, state, state_path=state_path)
     SwarmCli(state_path).run("task", "refresh-ready")
 
     projection = SwarmCli(state_path).run("projection")

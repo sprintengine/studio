@@ -74,7 +74,9 @@ cycles without requiring consumers to parse every task folder.
 Task JSON files live under `tasks/<folder-status>/`. Folder location is the
 materialized board column; the embedded `status` field mirrors that folder for
 display and validation. A task in `tasks/ready/` can include `stateStatus` to
-show the semantic legacy status, usually `todo` or `changes_requested`.
+show the semantic status, usually `todo`. A task whose semantic status is
+`changes_requested` stays in `tasks/changes_requested/`; it remains claimable
+but is not flattened into normal ready work.
 
 Supported task folders are:
 
@@ -210,10 +212,17 @@ Examples include `task_claimed`, `task_evidence_appended`,
 
 ## Locks
 
+The folder store is the preferred mutation source when `run.yaml` and task
+folders exist. `state.yaml` is a compatibility mirror for legacy tools and may
+be absent or stale between writes; consumers should read `projection.json`, not
+`state.yaml`, for migrated runs.
+
 The store uses lock files to serialize high-risk operations:
 
-- `state.yaml.lock`: legacy compatibility state lock.
+- `runner/run.queue.lock`: run-level mutation lock for folder-store writes.
 - `runner/ready.queue.lock`: ready queue materialization lock.
+- `runner/claim.queue.lock`: narrow queue lock for task claim selection.
+- `state.yaml.lock`: legacy compatibility state lock for unmigrated runs.
 - `runner/run.lock.json`: run-level status marker.
 - `runner/ready.lock.json`: ready runner status marker.
 
@@ -222,7 +231,10 @@ reports lock state and stale-lock warnings in the normalized projection.
 
 ## DAG Readiness
 
-`tasks/ready/` is a materialized deterministic queue. A task is ready when:
+`tasks/ready/` is a materialized deterministic queue for normal `todo` work. A
+`changes_requested` task uses the same dependency and ownership readiness rules
+but stays in `tasks/changes_requested/` so reviewers, testers, and product
+flows can count rework separately. A task is claimable when:
 
 - its semantic status is `todo` or `changes_requested`;
 - it has no `ownerAgentId`;
@@ -235,9 +247,10 @@ Readiness refresh rejects unknown dependencies and cycles. The CLI command is:
 sprintengine task refresh-ready
 ```
 
-`sprintengine task next --role <role> --id <agent-id>` claims from the
-materialized ready queue under the Sprint Engine state lock and then refreshes
-store files.
+`sprintengine task next --role <role> --id <agent-id>` claims under the
+folder-store run lock plus the claim queue lock, prioritizing
+`changes_requested` rework before normal ready work without changing its status
+until the claim moves it to `in_progress`.
 
 ## Projection Boundary
 

@@ -18,7 +18,7 @@ import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
   getSprintEngineArtifactAutoApprovalEligibility,
-  getSprintEngineTaskBoardColumn,
+  isSprintEngineTaskLaunchable,
   sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
 import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
@@ -633,8 +633,7 @@ function pickNextAutoRuns(
   }
 
   const readyTasks = sprintEngineState.tasks.filter((task) =>
-    getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
-    && !task.ownerAgentId
+    isSprintEngineTaskLaunchable(task, sprintEngineState)
   )
   logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-tasks', {
     workspaceId: workspace.id,
@@ -947,8 +946,7 @@ async function sendContinuationPromptsToIdleAgents(
   if (continuationCapacity.agentIds.size === 0) return
 
   const readyTasks = sprintEngineState.tasks.filter((task) =>
-    getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
-    && !task.ownerAgentId
+    isSprintEngineTaskLaunchable(task, sprintEngineState)
   )
   if (readyTasks.length === 0) return
 
@@ -1070,7 +1068,7 @@ async function reconcileAutoRunPendingSpawns(
   for (const pending of pendingSpawns) {
     const pendingTask = sprintEngineState.tasks.find((task) => task.id === pending.taskId)
     const pendingTaskStillReady = pendingTask
-      ? getSprintEngineTaskBoardColumn(pendingTask, sprintEngineState.tasks) === 'ready' && !pendingTask.ownerAgentId
+      ? isSprintEngineTaskLaunchable(pendingTask, sprintEngineState)
       : false
     const pendingAgent = workspace.agents[pending.agentId]
     const pendingAgentHasProcess = await agentHasRunningProcess(workspace, pending.agentId)

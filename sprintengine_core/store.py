@@ -43,6 +43,9 @@ EVENTS_FILE = "events.jsonl"
 FEEDBACK_FILE = "metrics/agent-feedback.jsonl"
 PROJECTION_FILE = "projection.json"
 LOCK_STATE_FILES = ("runner/run.lock.json", "runner/ready.lock.json")
+RUN_LOCK_FILE = "runner/run.queue.lock"
+READY_QUEUE_LOCK_FILE = "runner/ready.queue.lock"
+CLAIM_QUEUE_LOCK_FILE = "runner/claim.queue.lock"
 
 
 def now_iso() -> str:
@@ -354,9 +357,11 @@ def clear_artifact_status_folders(team_dir: Path) -> None:
 
 def status_folder_for_task(task: dict[str, Any], ready_ids: set[str]) -> str:
     task_id = str(task.get("id") or "")
+    status = str(task.get("status") or "todo")
+    if status == "changes_requested":
+        return "changes_requested"
     if task_id in ready_ids:
         return "ready"
-    status = str(task.get("status") or "todo")
     if status not in TASK_STATUSES or status == "ready":
         status = "todo"
     return status
@@ -435,7 +440,7 @@ def sync_state_to_store(team_dir: Path, state: dict[str, Any], *, state_path: Pa
         roster_configured=bool(state.get("sprintengine", {}).get("rosterConfigured")),
     )
     validate_acyclic_task_graph([task for task in state.get("tasks", []) or [] if isinstance(task, dict)])
-    with FolderLock(team_dir / "runner" / "ready.queue.lock"):
+    with FolderLock(team_dir / READY_QUEUE_LOCK_FILE):
         sync_run_yaml_from_state(team_dir, state)
         refresh = refresh_ready_queue(team_dir, state)
         write_materialized_artifact_files(team_dir, [artifact for artifact in state.get("artifacts", []) or [] if isinstance(artifact, dict)])
@@ -617,6 +622,7 @@ def _build_board(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         "columns": columns,
         "counts": {status: data["count"] for status, data in columns.items()},
         "readyTaskIds": list(columns["ready"]["taskIds"]),
+        "changesRequestedTaskIds": list(columns["changes_requested"]["taskIds"]),
     }
 
 
@@ -645,6 +651,7 @@ def _build_projection_run_summary(
             "completed": len(completed),
             "remaining": max(0, len(tasks) - len(completed)),
             "ready": board["counts"].get("ready", 0),
+            "changesRequested": board["counts"].get("changes_requested", 0),
             "needsInput": board["counts"].get("needs_input", 0),
         },
         "artifacts": {
@@ -669,7 +676,9 @@ def _build_projection_run_summary(
 def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]:
     lock_paths = {
         "state": (state_path or team_dir / "state.yaml").with_suffix(".yaml.lock"),
-        "readyQueue": team_dir / "runner" / "ready.queue.lock",
+        "run": team_dir / RUN_LOCK_FILE,
+        "readyQueue": team_dir / READY_QUEUE_LOCK_FILE,
+        "claimQueue": team_dir / CLAIM_QUEUE_LOCK_FILE,
     }
     lock_reports = []
     warnings = []
@@ -780,6 +789,7 @@ def build_projection(
         "counts": {
             "tasks": board["counts"],
             "ready": board["counts"].get("ready", 0),
+            "changesRequested": board["counts"].get("changes_requested", 0),
             "needsInput": board["counts"].get("needs_input", 0),
             "artifacts": _artifact_counts(artifacts),
         },

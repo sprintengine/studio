@@ -50,6 +50,8 @@ import {
  getSprintEngineArtifactDependencyBlockers,
  getSprintEngineArtifactsByTaskId,
  getSprintEngineTaskBoardColumn,
+ isSprintEngineTaskClaimableColumn,
+ isSprintEngineTaskLaunchable,
  sprintEngineRoleAccent,
  sprintEngineRoleLabels,
  sprintEngineTaskBoardColumns,
@@ -503,9 +505,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  )
 
  const readyTasks = useMemo(() => (
- sprintEngineState?.tasks.filter(
- (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
- ) ?? []
+ sprintEngineState?.tasks.filter((task) => isSprintEngineTaskLaunchable(task, sprintEngineState)) ?? []
  ), [sprintEngineState])
 
  function startAgentTerminal(
@@ -1111,7 +1111,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  && !selectedTask.ownerAgentId
  && selectedTask.dispatch?.mode === 'manual'
  && selectedTask.dispatch.status !== 'ready'
- const selectedTaskCanSpawnWorker = selectedTaskBoardColumn === 'ready' && !selectedTask?.ownerAgentId
+ const selectedTaskCanSpawnWorker = isSprintEngineTaskClaimableColumn(selectedTaskBoardColumn) && !selectedTask?.ownerAgentId
  const selectedTaskCanManageWorker = selectedTask?.status === 'in_progress' || selectedTask?.status === 'needs_input'
  const selectedTaskOwnerHasLiveTerminal = selectedTask?.ownerAgentId
  ? isAgentTerminalLive(selectedTask.ownerAgentId)

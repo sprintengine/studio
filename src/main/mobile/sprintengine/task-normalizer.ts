@@ -1,7 +1,7 @@
 export type SprintEngineTaskRecord = {
   id: string
   role: string
-  status: 'todo' | 'in_progress' | 'needs_input' | 'done'
+  status: 'todo' | 'changes_requested' | 'in_progress' | 'needs_input' | 'done'
   ownerAgentId: string | null
   dependsOn: string[]
 }
@@ -17,8 +17,8 @@ export function normalizeSprintEngineTasks(value: unknown): SprintEngineTaskReco
 
     // Folder-store projection records carry the semantic value in `stateStatus`
     // while `status` mirrors the board column ("ready", "changes_requested",
-    // etc.). Prefer `stateStatus` so command readiness checks keep operating in
-    // the legacy todo/in_progress/needs_input/done vocabulary.
+    // etc.). Prefer `stateStatus` so command readiness checks keep the
+    // semantic changes_requested status instead of flattening it to ready.
     return [{
       id: record.id,
       role: record.role,
@@ -34,6 +34,6 @@ export function normalizeSprintEngineTasks(value: unknown): SprintEngineTaskReco
 }
 
 function normalizeTaskStatus(value: unknown): SprintEngineTaskRecord['status'] {
-  if (value === 'in_progress' || value === 'needs_input' || value === 'done') return value
+  if (value === 'changes_requested' || value === 'in_progress' || value === 'needs_input' || value === 'done') return value
   return 'todo'
 }

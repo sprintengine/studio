@@ -12,6 +12,7 @@ from helpers import (
     read_state,
     task,
 )
+from sprintengine_core import store
 from sprintengine_mcp import SprintEngineMcpServer
 
 
@@ -139,7 +140,7 @@ def test_superseded_artifacts_are_not_reviewable_or_approval_blocking(tmp_path) 
     state = read_state(fixture.state_path)
     old_artifact = get_artifact(state, "A1")
     old_artifact["status"] = "superseded"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
 
     ready_failure = fixture.cli.run_failure("artifact", "ready", "--artifact-id", "A1", "--id", "architect-fixture")
     assert "Superseded artifacts cannot be marked ready" in ready_failure.stderr

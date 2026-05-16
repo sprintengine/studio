@@ -53,6 +53,7 @@ export type SprintEngineAgentRosterItem = {
 
 export const sprintEngineTaskStateLabel: Record<SprintEngineTaskStatus, string> = {
   todo: 'Todo',
+  changes_requested: 'Changes Requested',
   in_progress: 'In Progress',
   needs_input: 'Needs Input',
   done: 'Done',
@@ -77,6 +78,7 @@ export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
 export const sprintEngineTaskBoardColumns: { key: SprintEngineTaskBoardColumn; label: string }[] = [
   { key: 'todo', label: 'Todo' },
   { key: 'ready', label: 'Ready' },
+  { key: 'changes_requested', label: 'Changes Requested' },
   { key: 'in_progress', label: 'In Progress' },
   { key: 'needs_input', label: 'Needs Input' },
   { key: 'done', label: 'Done' },
@@ -239,6 +241,7 @@ const sprintEngineTaskActivityTypes: readonly SprintEngineTaskActivityType[] = [
 const sprintEngineTaskBoardColumnSet: readonly SprintEngineTaskBoardColumn[] = [
   'todo',
   'ready',
+  'changes_requested',
   'in_progress',
   'needs_input',
   'done',
@@ -261,6 +264,14 @@ function isSprintEngineTaskActivityType(value: unknown): value is SprintEngineTa
 
 function isSprintEngineTaskBoardColumn(value: unknown): value is SprintEngineTaskBoardColumn {
   return sprintEngineTaskBoardColumnSet.includes(value as SprintEngineTaskBoardColumn)
+}
+
+export function isSprintEngineTaskClaimableColumn(column: SprintEngineTaskBoardColumn | null | undefined): boolean {
+  return column === 'ready' || column === 'changes_requested'
+}
+
+export function isSprintEngineTaskLaunchable(task: SprintEngineTask, sprintEngineState: SprintEngineState): boolean {
+  return !task.ownerAgentId && isSprintEngineTaskClaimableColumn(getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks))
 }
 
 const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
@@ -953,8 +964,8 @@ export function computeSprintEngineFocusAgentAvailability(
 
   if (!focusAgent) return { focusAgent: null, showFocusAgentAction: false }
 
-  const readyTasks = sprintEngineState.tasks.filter(
-    (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
+  const readyTasks = sprintEngineState.tasks.filter((task) =>
+    isSprintEngineTaskLaunchable(task, sprintEngineState)
   )
   const roleTaskLaunchSet = new Set<SprintEngineRole>()
   for (const role of SPRINT_ENGINE_FOCUS_WORKER_ROLES) {
@@ -1016,7 +1027,7 @@ export function getSprintEngineTaskBoardColumn(
   if (task.boardColumn && isSprintEngineTaskBoardColumn(task.boardColumn)) {
     return task.boardColumn
   }
-  if (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'done') {
+  if (task.status === 'changes_requested' || task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'done') {
     return task.status
   }
   const dependenciesDone = task.dependsOn.every((depId) =>
@@ -1144,11 +1155,11 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const dispatch = normalizeSprintEngineTaskDispatch(task.dispatch)
     const needsInput = normalizeSprintEngineTaskNeedsInput(task.needsInput)
     const activity = normalizeSprintEngineTaskActivity(task.activity)
-    const semanticStatus = (['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.stateStatus as SprintEngineTaskStatus)
+    const semanticStatus = (['todo', 'changes_requested', 'in_progress', 'needs_input', 'done'] as const).includes(task.stateStatus as SprintEngineTaskStatus)
       ? task.stateStatus as SprintEngineTaskStatus
       : null
     const status: SprintEngineTaskStatus = semanticStatus
-      ?? ((['todo', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SprintEngineTaskStatus)
+      ?? ((['todo', 'changes_requested', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SprintEngineTaskStatus)
         ? task.status as SprintEngineTaskStatus
         : 'todo' as const)
     const boardColumn = isSprintEngineTaskBoardColumn(task.boardColumn) ? task.boardColumn : undefined

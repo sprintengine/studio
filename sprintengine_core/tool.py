@@ -746,18 +746,19 @@ def folder_store_is_ready_for_state(path: Path) -> bool:
 
 
 def load_mutation_state(path: Path, *, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    if path.exists():
-        try:
-            return load_state(path)
-        except (SystemExit, Exception):
-            if folder_store_is_ready_for_state(path):
-                return folder_store.state_from_folder_store(path.parent)
-            raise
     if folder_store_is_ready_for_state(path):
         return folder_store.state_from_folder_store(path.parent)
+    if path.exists():
+        return load_state(path)
     if initial_state is not None:
         return initial_state
     return load_state(path)
+
+
+def mutation_lock_for_state(path: Path):
+    if folder_store_is_ready_for_state(path):
+        return folder_store.FolderLock(path.parent / folder_store.RUN_LOCK_FILE)
+    return StateLock(path.with_suffix(f"{path.suffix}.lock"))
 
 
 def run_command_checked(cwd: Path, args: List[str], *, allow_failure: bool = False, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -917,7 +918,7 @@ def commit_task_changes_if_needed(state: Dict[str, Any], state_path: Path, task:
 
 
 def with_locked_state(path: Path, handler, *, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    lock = StateLock(path.with_suffix(f"{path.suffix}.lock"))
+    lock = mutation_lock_for_state(path)
     with lock:
         state = load_mutation_state(path, initial_state=initial_state)
         result = handler(state)
@@ -1302,11 +1303,15 @@ def read_ready_task_ids(state: Dict[str, Any]) -> List[str]:
         raise SystemExit(str(exc)) from exc
     tasks_by_id = {str(task.get("id")): task for task in tasks if task.get("id")}
     ready_ids: List[str] = []
+    changes_requested_ids: List[str] = []
     for task_id in ordered_ids:
         task = tasks_by_id.get(task_id)
         if task and task_is_ready(state, task):
-            ready_ids.append(task_id)
-    return ready_ids
+            if task.get("status") == "changes_requested":
+                changes_requested_ids.append(task_id)
+            else:
+                ready_ids.append(task_id)
+    return [*changes_requested_ids, *ready_ids]
 
 
 def optional_non_empty_string(record: Dict[str, Any], key: str) -> Optional[str]:
@@ -3567,53 +3572,55 @@ def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
                 continue
             if getattr(args, "role", None) and t.get("role") != args.role:
                 continue
-            ready.append({"id": t.get("id"), "title": t.get("title"), "role": t.get("role"), "dependsOn": t.get("dependsOn", [])})
+            ready.append({"id": t.get("id"), "title": t.get("title"), "role": t.get("role"), "status": t.get("status"), "dependsOn": t.get("dependsOn", [])})
         return {"ok": True, "readyTasks": ready, "write": False}
     return with_locked_state(args.state, run)
 
 
 def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        ensure_agent_in_roster(state, args.id, args.role)
-        runtime = reconcile_agent(state, args.id, args.role)
-        agent = runtime["agent"]
-        active = runtime["activeTask"]
-        if active:
-            return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "write": runtime["dirty"]}
+        with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
+            ensure_agent_in_roster(state, args.id, args.role)
+            runtime = reconcile_agent(state, args.id, args.role)
+            agent = runtime["agent"]
+            active = runtime["activeTask"]
+            if active:
+                return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "write": runtime["dirty"]}
 
-        ready_ids = read_ready_task_ids(state)
-        tasks_by_id = {
-            str(t.get("id")): t
-            for t in state.get("tasks", [])
-            if isinstance(t, dict) and t.get("id")
-        }
-        for task_id in ready_ids:
-            t = tasks_by_id.get(task_id)
-            if not t or t.get("role") != args.role or not task_is_ready(state, t):
-                continue
-            result = assign_task(state, t, args.id)
-            recompute_phase(state)
-            event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {t.get('id')}.")
-            return {"ok": True, "claimed": True, "task": t, "agent": result["agent"], "event": event}
+            ready_ids = read_ready_task_ids(state)
+            tasks_by_id = {
+                str(t.get("id")): t
+                for t in state.get("tasks", [])
+                if isinstance(t, dict) and t.get("id")
+            }
+            for task_id in ready_ids:
+                t = tasks_by_id.get(task_id)
+                if not t or t.get("role") != args.role or not task_is_ready(state, t):
+                    continue
+                result = assign_task(state, t, args.id)
+                recompute_phase(state)
+                event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {t.get('id')}.")
+                return {"ok": True, "claimed": True, "task": t, "agent": result["agent"], "event": event}
 
-        phase_dirty = recompute_phase(state)
-        return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "write": runtime["dirty"] or phase_dirty}
+            phase_dirty = recompute_phase(state)
+            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "write": runtime["dirty"] or phase_dirty}
 
     return with_locked_state(args.state, run)
 
 
 def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        task = find_task(state, args.task_id)
-        ensure_agent_in_roster(state, args.id, str(task.get("role") or ""))
-        agent = ensure_agent(state, args.id, task.get("role"))
-        ready_ids = set(read_ready_task_ids(state))
-        if args.task_id not in ready_ids or not task_is_ready(state, task):
-            return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
-        result = assign_task(state, task, args.id)
-        recompute_phase(state)
-        event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {args.task_id}.")
-        return {"ok": True, "task": task, "agent": result["agent"], "event": event}
+        with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
+            task = find_task(state, args.task_id)
+            ensure_agent_in_roster(state, args.id, str(task.get("role") or ""))
+            agent = ensure_agent(state, args.id, task.get("role"))
+            ready_ids = set(read_ready_task_ids(state))
+            if args.task_id not in ready_ids or not task_is_ready(state, task):
+                return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
+            result = assign_task(state, task, args.id)
+            recompute_phase(state)
+            event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {args.task_id}.")
+            return {"ok": True, "task": task, "agent": result["agent"], "event": event}
     return with_locked_state(args.state, run)
 
 

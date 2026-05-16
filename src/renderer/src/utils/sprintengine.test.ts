@@ -5,6 +5,7 @@ import {
   getOpenSprintEngineFeedbackIssues,
   getSprintEngineTaskActivityDescending,
   getSprintEngineTaskBoardColumn,
+  isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
 } from './sprintengine'
 import type { SprintEngineTask } from '../types/workspace'
@@ -79,6 +80,27 @@ function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Recor
         completedAt: null,
         ownerAgentId: null,
       },
+      {
+        id: 'T3',
+        title: 'Rework task',
+        description: '',
+        role: 'developer',
+        status: 'changes_requested',
+        folderStatus: 'changes_requested',
+        stateStatus: 'changes_requested',
+        boardColumn: 'changes_requested',
+        ownedPaths: [],
+        dependsOn: ['T1'],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        notes: [],
+        comments: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        activity: [],
+        startedAt: null,
+        completedAt: null,
+        ownerAgentId: null,
+      },
     ],
     artifacts: [],
     locks: {
@@ -110,7 +132,7 @@ assert.equal(state!.projection?.generatedAt, '2026-05-16T20:00:00Z')
 assert.equal(state!.locks?.warnings.length, 1)
 assert.equal(state!.locks?.warnings[0]?.ageSeconds, 360)
 assert.equal(state!.migration?.source, 'state.yaml')
-assert.equal(state!.tasks.length, 2)
+assert.equal(state!.tasks.length, 3)
 
 const doneTask = state!.tasks.find((task) => task.id === 'T1')!
 assert.equal(doneTask.boardColumn, 'done')
@@ -126,9 +148,19 @@ assert.equal(readyTask.stateStatus, 'todo')
 // Semantic status mirrors stateStatus when present, not the board column.
 assert.equal(readyTask.status, 'todo')
 
+const changesRequestedTask = state!.tasks.find((task) => task.id === 'T3')!
+assert.equal(changesRequestedTask.boardColumn, 'changes_requested')
+assert.equal(changesRequestedTask.folderStatus, 'changes_requested')
+assert.equal(changesRequestedTask.stateStatus, 'changes_requested')
+assert.equal(changesRequestedTask.status, 'changes_requested')
+
 // getSprintEngineTaskBoardColumn prefers the projection's authoritative boardColumn.
 assert.equal(getSprintEngineTaskBoardColumn(readyTask, state!.tasks), 'ready')
+assert.equal(getSprintEngineTaskBoardColumn(changesRequestedTask, state!.tasks), 'changes_requested')
 assert.equal(getSprintEngineTaskBoardColumn(doneTask, state!.tasks), 'done')
+assert.equal(isSprintEngineTaskLaunchable(readyTask, state!), true)
+assert.equal(isSprintEngineTaskLaunchable(changesRequestedTask, state!), true)
+assert.equal(isSprintEngineTaskLaunchable(doneTask, state!), false)
 
 // Legacy task without a boardColumn falls back to the computed column.
 const legacyTask: SprintEngineTask = {

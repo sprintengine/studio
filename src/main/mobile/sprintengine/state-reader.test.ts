@@ -17,6 +17,7 @@ async function main(): Promise<void> {
   await assertStateYamlIsUsedWhenProjectionMissing()
   await assertMalformedProjectionDoesNotFallBackToStateYaml()
   await assertFindReadyTaskAcceptsProjectionReadyStatus()
+  await assertFindReadyTaskPreservesChangesRequestedStatus()
   await assertFindReadyTaskBlocksWhenDependencyNotDone()
   await assertFindReadyTaskRejectsAlreadyOwnedTask()
   await assertFindReadyTaskRejectsRoleMismatch()
@@ -120,6 +121,23 @@ async function assertFindReadyTaskAcceptsProjectionReadyStatus(): Promise<void> 
   const task = await findReadySprintEngineTask(validated, 'T2', 'frontend')
   assert.equal(task.id, 'T2')
   assert.equal(task.status, 'todo')
+  assert.equal(task.ownerAgentId, null)
+}
+
+async function assertFindReadyTaskPreservesChangesRequestedStatus(): Promise<void> {
+  const projection = {
+    tasks: [
+      { id: 'T1', role: 'developer', status: 'done', stateStatus: 'done', dependsOn: [] },
+      { id: 'T2', role: 'frontend', status: 'changes_requested', stateStatus: 'changes_requested', dependsOn: ['T1'] },
+    ],
+    artifacts: [],
+    roster: {},
+  }
+  const { statePath } = await writeFixture({ projection })
+  const validated = validateSprintEngineStatePath(statePath)
+  const task = await findReadySprintEngineTask(validated, 'T2', 'frontend')
+  assert.equal(task.id, 'T2')
+  assert.equal(task.status, 'changes_requested')
   assert.equal(task.ownerAgentId, null)
 }
 

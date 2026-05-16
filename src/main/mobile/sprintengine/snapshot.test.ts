@@ -117,6 +117,7 @@ async function assertFixtureSnapshotMatchesDesktopBoardCounts(): Promise<void> {
     todo: 1,
     ready: 1,
     inProgress: 1,
+    changesRequested: 0,
     needsInput: 1,
     blocked: 0,
     done: 2,
@@ -144,11 +145,12 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
       'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T2' },
     },
     board: {
-      counts: { todo: 0, ready: 1, in_progress: 1, needs_input: 1, done: 1 },
+      counts: { todo: 0, ready: 1, in_progress: 1, changes_requested: 1, needs_input: 1, done: 1 },
     },
     tasks: [
       { id: 'T1', title: 'Foundation', role: 'developer', status: 'done', dependsOn: [] },
       { id: 'T2', title: 'Ready work', role: 'developer', status: 'ready', dependsOn: ['T1'] },
+      { id: 'T2R', title: 'Rework', role: 'developer', status: 'changes_requested', stateStatus: 'changes_requested', dependsOn: ['T1'] },
       {
         id: 'T3',
         title: 'Waiting review',
@@ -167,7 +169,7 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
       warnings: [{ name: 'readyQueue', message: 'readyQueue lock appears stale.' }],
     },
     activity: [{ type: 'artifact_ready_for_review', timestamp: generatedAt }],
-    counts: { ready: 1, needsInput: 1 },
+    counts: { ready: 1, needsInput: 1, changesRequested: 1 },
     runSummary: { status: 'executing' },
   }, null, 2)}\n`, 'utf8')
 
@@ -178,16 +180,19 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
     todo: 0,
     ready: 1,
     inProgress: 1,
+    changesRequested: 1,
     needsInput: 1,
     blocked: 0,
     done: 1,
   })
   assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T2')?.status, 'ready')
+  assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T2R')?.status, 'changes_requested')
   assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T3')?.needsInput?.artifactId, 'A1')
   assert.equal(snapshot.artifacts[0].status, 'ready_for_review')
   assert.equal(snapshot.locks?.warnings?.length, 1)
   assert.equal(snapshot.activity?.count, 1)
   assert.equal(snapshot.counts?.ready, 1)
+  assert.equal(snapshot.counts?.changesRequested, 1)
 }
 
 async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {

@@ -33,9 +33,9 @@ export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend
 export type SprintEngineSkillMap = Record<SprintEngineRole, string[]>
 export type SprintEngineRoleCounts = Record<SprintEngineRole, number>
 
-export type SprintEngineTaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'done'
+export type SprintEngineTaskStatus = 'todo' | 'changes_requested' | 'in_progress' | 'needs_input' | 'done'
 
-export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done'
+export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'changes_requested' | 'in_progress' | 'needs_input' | 'done'
 
 export type SprintEngineNeedsInputKind = 'architect' | 'user' | 'owner' | 'artifact' | 'tooling' | 'verification' | 'other'
 export type SprintEngineNeedsInputReason =

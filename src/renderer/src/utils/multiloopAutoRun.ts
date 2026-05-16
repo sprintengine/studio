@@ -19,7 +19,7 @@ import {
 } from './multiloop'
 import {
   buildSprintEngineAgentRosterForState,
-  getSprintEngineTaskBoardColumn,
+  isSprintEngineTaskLaunchable,
   sprintEngineRoleLabels,
 } from './sprintengine'
 
@@ -353,8 +353,7 @@ function selectLinkedSprintEngineAutoRunCandidates({
 
 function isReadySprintEngineTask(task: SprintEngineTask, sprintEngineState: SprintEngineState): boolean {
   if (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'done') return false
-  if (task.ownerAgentId) return false
-  return getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
+  return isSprintEngineTaskLaunchable(task, sprintEngineState)
 }
 
 function emptySelection(reason: MultiloopAutoRunSelection['reason']): MultiloopAutoRunSelection {

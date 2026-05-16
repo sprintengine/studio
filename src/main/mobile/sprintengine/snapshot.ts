@@ -34,8 +34,8 @@ const mobileSnapshotCommandTypes = [
 
 export const defaultMobileSnapshotCommands: readonly MobileControlCommandType[] = mobileSnapshotCommandTypes
 
-type SprintEngineTaskStatus = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done'
-type MobileTaskStatus = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'blocked' | 'done'
+type SprintEngineTaskStatus = 'todo' | 'ready' | 'in_progress' | 'changes_requested' | 'needs_input' | 'done'
+type MobileTaskStatus = 'todo' | 'ready' | 'in_progress' | 'changes_requested' | 'needs_input' | 'blocked' | 'done'
 type MobileArtifactStatus = 'draft' | 'ready_for_review' | 'approved' | 'changes_requested'
 type MobileWorkspaceStatus = 'idle' | 'running' | 'needs_input' | 'blocked' | 'complete' | 'error' | 'unknown'
 
@@ -95,6 +95,7 @@ export type MobileSprintEngineSnapshot = {
     todo: number
     ready: number
     inProgress: number
+    changesRequested: number
     needsInput: number
     blocked: number
     done: number
@@ -115,6 +116,7 @@ export type MobileSprintEngineSnapshot = {
   counts?: {
     ready?: number
     needsInput?: number
+    changesRequested?: number
   }
 }
 
@@ -560,7 +562,7 @@ async function readSprintEngineProjectionSnapshot(
     ...(recordSummary(projection.runSummary) ? { runSummary: recordSummary(projection.runSummary) } : {}),
     ...(locks ? { locks: { warnings: Array.isArray(locks.warnings) ? locks.warnings : [], locks: Array.isArray(locks.locks) ? locks.locks : [] } } : {}),
     ...(activity.length > 0 ? { activity: { count: activity.length, latest: activity.at(-1) } } : {}),
-    ...(counts ? { counts: { ready: numberOrUndefined(counts.ready), needsInput: numberOrUndefined(counts.needsInput) } } : {}),
+    ...(counts ? { counts: { ready: numberOrUndefined(counts.ready), needsInput: numberOrUndefined(counts.needsInput), changesRequested: numberOrUndefined(counts.changesRequested) } } : {}),
   }
 }
 
@@ -606,6 +608,7 @@ function toSprintEngineWorkspaceSnapshot(sprintEngine: MobileSprintEngineSnapsho
         todo: sprintEngine.board.todo,
         ready: sprintEngine.board.ready,
         inProgress: sprintEngine.board.inProgress,
+        changesRequested: sprintEngine.board.changesRequested,
         needsInput: sprintEngine.board.needsInput,
         blocked: sprintEngine.board.blocked,
         done: sprintEngine.board.done,
@@ -629,7 +632,7 @@ function sprintEngineWorkspaceStatus(sprintEngine: MobileSprintEngineSnapshot): 
   if (sprintEngine.board.needsInput > 0) return 'needs_input'
   if (sprintEngine.board.blocked > 0) return 'blocked'
   if (sprintEngine.board.inProgress > 0) return 'running'
-  if (sprintEngine.board.ready > 0 || sprintEngine.board.todo > 0) return 'idle'
+  if (sprintEngine.board.changesRequested > 0 || sprintEngine.board.ready > 0 || sprintEngine.board.todo > 0) return 'idle'
   if (sprintEngine.board.done > 0) return 'complete'
   return 'unknown'
 }
@@ -673,7 +676,7 @@ function toTaskSnapshot(task: NormalizedTask, tasks: NormalizedTask[]): MobileSp
 }
 
 function getMobileTaskStatus(task: NormalizedTask, tasks: NormalizedTask[]): MobileTaskStatus {
-  if (task.status === 'ready' || task.status === 'done' || task.status === 'in_progress' || task.status === 'needs_input') {
+  if (task.status === 'ready' || task.status === 'done' || task.status === 'in_progress' || task.status === 'changes_requested' || task.status === 'needs_input') {
     return task.status
   }
 
@@ -688,6 +691,7 @@ function countBoard(tasks: MobileSprintEngineTaskSnapshot[]): MobileSprintEngine
     todo: 0,
     ready: 0,
     inProgress: 0,
+    changesRequested: 0,
     needsInput: 0,
     blocked: 0,
     done: 0,
@@ -700,6 +704,9 @@ function countBoard(tasks: MobileSprintEngineTaskSnapshot[]): MobileSprintEngine
         break
       case 'in_progress':
         board.inProgress += 1
+        break
+      case 'changes_requested':
+        board.changesRequested += 1
         break
       case 'needs_input':
         board.needsInput += 1
@@ -1149,8 +1156,7 @@ function recordSummary(value: unknown): Record<string, string | number | boolean
 }
 
 function normalizeTaskStatus(value: unknown): SprintEngineTaskStatus {
-  if (value === 'ready' || value === 'in_progress' || value === 'needs_input' || value === 'done') return value
-  if (value === 'changes_requested') return 'ready'
+  if (value === 'ready' || value === 'in_progress' || value === 'changes_requested' || value === 'needs_input' || value === 'done') return value
   return 'todo'
 }
 

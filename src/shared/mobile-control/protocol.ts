@@ -239,7 +239,7 @@ export interface MobileControlTaskSnapshot {
   taskId: string;
   title: string;
   role: string;
-  status: "todo" | "ready" | "in_progress" | "needs_input" | "blocked" | "done";
+  status: "todo" | "ready" | "in_progress" | "changes_requested" | "needs_input" | "blocked" | "done";
   ownerAgentId?: string;
   dependsOn: string[];
   needsInput?: MobileControlTaskNeedsInput;
@@ -298,6 +298,7 @@ export interface MobileControlSprintEngineActivitySummary {
 export interface MobileControlSprintEngineCounts {
   ready?: number;
   needsInput?: number;
+  changesRequested?: number;
 }
 
 export interface MobileControlSprintEngineSnapshot {
@@ -312,6 +313,7 @@ export interface MobileControlSprintEngineSnapshot {
     todo: number;
     ready: number;
     inProgress: number;
+    changesRequested: number;
     needsInput: number;
     blocked: number;
     done: number;
@@ -623,7 +625,7 @@ const errorCodes = [
 
 const artifactPreviewModes = ["text", "markdown", "restrictedHtml"] as const satisfies readonly ArtifactPreviewMode[];
 const devicePlatforms = ["ios", "android", "web"] as const satisfies readonly MobileControlDevicePlatform[];
-const taskStatuses = ["todo", "ready", "in_progress", "needs_input", "blocked", "done"] as const;
+const taskStatuses = ["todo", "ready", "in_progress", "changes_requested", "needs_input", "blocked", "done"] as const;
 const artifactStatuses = ["draft", "ready_for_review", "approved", "changes_requested"] as const;
 const presenceValues = ["online", "offline", "revoked"] as const;
 const severityValues = ["info", "warning", "error"] as const;
@@ -1044,6 +1046,7 @@ function validateSprintEngineSnapshot(input: unknown): string | null {
     requireNonNegativeInteger(board.value, "todo") ??
     requireNonNegativeInteger(board.value, "ready") ??
     requireNonNegativeInteger(board.value, "inProgress") ??
+    requireNonNegativeInteger(board.value, "changesRequested") ??
     requireNonNegativeInteger(board.value, "needsInput") ??
     requireNonNegativeInteger(board.value, "blocked") ??
     requireNonNegativeInteger(board.value, "done");
@@ -1145,6 +1148,8 @@ function validateOptionalProjectionCounts(input: unknown, fieldName: string): st
   if (readyError) return `${fieldName}.${readyError}`;
   const needsInputError = counts.value.needsInput === undefined ? null : requireNonNegativeInteger(counts.value, "needsInput");
   if (needsInputError) return `${fieldName}.${needsInputError}`;
+  const changesRequestedError = counts.value.changesRequested === undefined ? null : requireNonNegativeInteger(counts.value, "changesRequested");
+  if (changesRequestedError) return `${fieldName}.${changesRequestedError}`;
   return null;
 }
 
@@ -1773,6 +1778,7 @@ function validateBoardCounts(board: Record<string, unknown>, fieldName: string):
     requireNonNegativeInteger(board, "todo") ??
     requireNonNegativeInteger(board, "ready") ??
     requireNonNegativeInteger(board, "inProgress") ??
+    requireNonNegativeInteger(board, "changesRequested") ??
     requireNonNegativeInteger(board, "needsInput") ??
     requireNonNegativeInteger(board, "blocked") ??
     requireNonNegativeInteger(board, "done")
