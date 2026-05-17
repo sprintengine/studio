@@ -1377,6 +1377,7 @@ function killTerminalForLayoutTab(
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
       cliResumeAvailable: false,
+      cliSessionId: undefined,
     })
     return
   }

@@ -541,13 +541,18 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     [cleanupNode, setActiveFile, updateAgent, workspaceId]
   )
 
+  const closeTabWithCleanup = useCallback((node: TabNode) => {
+    cleanupNode(node)
+    modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+  }, [cleanupNode])
+
   const handleAuxMouseClick = useCallback<NodeMouseEvent>((node, event) => {
     if (event.button !== 1 || !(node instanceof TabNode) || !node.isEnableClose()) return
 
     event.preventDefault()
     event.stopPropagation()
-    modelRef.current?.doAction(Actions.deleteTab(node.getId()))
-  }, [])
+    closeTabWithCleanup(node)
+  }, [closeTabWithCleanup])
 
   const findTabNodeFromElement = useCallback((element: Element): TabNode | null => {
     const tabButton = element.closest<HTMLElement>('.flexlayout__tab_button')
@@ -571,8 +576,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     if (!node || !node.isEnableClose()) return
     event.preventDefault()
     event.stopPropagation()
-    modelRef.current?.doAction(Actions.deleteTab(node.getId()))
-  }, [findTabNodeFromElement])
+    closeTabWithCleanup(node)
+  }, [closeTabWithCleanup, findTabNodeFromElement])
 
   const closeOtherTabsInSet = useCallback((node: TabNode) => {
     const parent = node.getParent()
@@ -580,9 +585,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
 
     parent.getChildren().forEach((child) => {
       if (!(child instanceof TabNode) || child.getId() === node.getId() || !child.isEnableClose()) return
-      modelRef.current?.doAction(Actions.deleteTab(child.getId()))
+      closeTabWithCleanup(child)
     })
-  }, [])
+  }, [closeTabWithCleanup])
 
   const hideTab = useCallback((node: TabNode) => {
     if (node.getComponent() !== 'agent') return
