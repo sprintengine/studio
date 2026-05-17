@@ -11,6 +11,7 @@ import type {
   TerminalSpawnResult,
 } from '../shared/electron-api'
 import type { SwitchboardAgentSpawnDescriptor } from '../shared/switchboard'
+import { createAgentStreamWatcher } from './agent-stream-watcher'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -134,6 +135,83 @@ const pendingAgentSessionExitRecords = new Set<Promise<void>>()
 function descriptorPromptInput(prompt: string | undefined): string | undefined {
   if (!prompt) return undefined
   return process.platform === 'win32' ? `${prompt}\r\n\x1a\r\n` : `${prompt}\n\x04`
+}
+
+function descriptorPromptKeystrokes(prompt: string | undefined): string | undefined {
+  if (!prompt) return undefined
+  // Without an EOF, the agent reads the prompt as user input and waits for
+  // more (interactive subscription-billed mode). The trailing newline acts
+  // as the Enter key the agent's REPL expects.
+  return process.platform === 'win32' ? `${prompt}\r\n` : `${prompt}\n`
+}
+
+function installAgentLifecycleWatcher(
+  terminalSession: TerminalSession,
+  descriptor: SwitchboardAgentSpawnDescriptor,
+  injectionMode: 'positional-arg' | 'stdin-pipe' | 'send-after-ready'
+): void {
+  const completionMode = descriptor.completion?.mode ?? 'process-exit'
+  const needsReadinessWatch = injectionMode === 'send-after-ready'
+  const needsCompletionWatch = completionMode === 'output-sentinel'
+  if (!needsReadinessWatch && !needsCompletionWatch) return
+
+  let readinessPattern: RegExp | undefined
+  if (needsReadinessWatch && descriptor.injection?.readiness) {
+    try {
+      readinessPattern = new RegExp(descriptor.injection.readiness.pattern, 'm')
+    } catch (err) {
+      console.error(
+        `Invalid readiness regex from agent descriptor ${descriptor.executionId}: ${String(err)}`
+      )
+    }
+  }
+
+  const watcher = createAgentStreamWatcher({
+    readinessPattern,
+    completionSentinel:
+      completionMode === 'output-sentinel' ? descriptor.completion?.sentinel : undefined,
+  })
+
+  let readinessTimer: NodeJS.Timeout | null = null
+  if (needsReadinessWatch && descriptor.injection?.readiness?.timeoutMs) {
+    readinessTimer = setTimeout(() => {
+      // If readiness never fires, fall back to writing the prompt anyway so
+      // the autonomous runner does not stall forever on a quiet pty. The
+      // worst case is the prompt arrives before the agent's REPL is ready
+      // and the agent ignores it — which still beats a stuck session.
+      if (!terminalSession.isDisposed) {
+        const fallback = descriptorPromptKeystrokes(descriptor.prompt)
+        if (fallback) terminalSession.process.write(fallback)
+      }
+    }, descriptor.injection.readiness.timeoutMs)
+  }
+
+  terminalSession.process.onData((data: string) => {
+    const result = watcher.ingest(data)
+    if (result.readyMatched && needsReadinessWatch) {
+      if (readinessTimer) {
+        clearTimeout(readinessTimer)
+        readinessTimer = null
+      }
+      const keystrokes = descriptorPromptKeystrokes(descriptor.prompt)
+      if (keystrokes && !terminalSession.isDisposed) {
+        terminalSession.process.write(keystrokes)
+      }
+    }
+    if (result.completionMatched && needsCompletionWatch) {
+      // The agent has signalled it is done. Killing the pty triggers the
+      // existing onExit pathway, which records the agent session exit and
+      // tears the session down. We do not write an interactive /exit because
+      // the agent should already be quiescent at this point.
+      if (!terminalSession.isDisposed) {
+        try {
+          terminalSession.process.kill()
+        } catch {
+          // Best-effort: node-pty can race with the underlying process.
+        }
+      }
+    }
+  })
 }
 function sendTerminalEvent(
   sender: Electron.WebContents,
@@ -605,7 +683,21 @@ async function spawnAgentSessionFromDescriptor(input: {
       lastInputAt: null,
     }
 
-    attachTerminalSession(input.descriptor.executionId, terminalSession, descriptorPromptInput(input.descriptor.prompt))
+    const injectionMode = input.descriptor.injection?.mode ?? 'stdin-pipe'
+    let initialInput: string | undefined
+    if (injectionMode === 'stdin-pipe') {
+      initialInput = descriptorPromptInput(input.descriptor.prompt)
+    } else if (injectionMode === 'positional-arg') {
+      // The prompt is already part of the spawned argv; nothing to inject.
+      initialInput = undefined
+    } else {
+      // send-after-ready: we attach first, then inject once the readiness
+      // pattern fires (see installAgentLifecycleWatcher below).
+      initialInput = undefined
+    }
+
+    attachTerminalSession(input.descriptor.executionId, terminalSession, initialInput)
+    installAgentLifecycleWatcher(terminalSession, input.descriptor, injectionMode)
     return { ok: true, sessionId: input.descriptor.executionId }
   } catch (error) {
     const message = getTerminalErrorMessage(error)
