@@ -13,6 +13,7 @@ from .store import (
     execution_dir,
     execution_metadata_path,
     locked_runner,
+    materialize_runner_command,
     now_iso,
     read_all,
     read_runner_state,
@@ -20,6 +21,7 @@ from .store import (
     relative_to_switchboard_root,
     runner_command_for,
     validate_runner_capability,
+    with_turn_done_instruction,
     write_runner_state,
 )
 from .watchtower import (
@@ -351,6 +353,10 @@ def prepare_watchtower_agent(
         )
         kind = "watchtower_review"
 
+    prompt = with_turn_done_instruction(prompt)
+    materialized = materialize_runner_command(state, execution_id=execution_id, prompt=prompt)
+    if materialized:
+        command = materialized["command"]
     started_at = now_iso()
     current_dir = execution_dir(workspace, execution_id)
     current_dir.mkdir(parents=True, exist_ok=False)
@@ -398,7 +404,7 @@ def prepare_watchtower_agent(
         },
     )
     update_watchtower_agent(workspace, run["runId"], agent_id, status="running", execution_id=execution_id)
-    return execution, {
+    descriptor: dict[str, Any] = {
         "executionId": execution_id,
         "system": "watchtower",
         "workId": run["runId"],
@@ -410,6 +416,10 @@ def prepare_watchtower_agent(
         "prompt": prompt,
         "cli": state.get("cli", "codex"),
     }
+    if materialized:
+        descriptor["injection"] = materialized["injection"]
+        descriptor["completion"] = materialized["completion"]
+    return execution, descriptor
 
 
 def run_for_response(workspace: Path, run_id: str) -> dict[str, Any]:

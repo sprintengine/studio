@@ -15,16 +15,19 @@ from typing import Any
 from unittest.mock import patch
 
 from switchboard_core.store import (
+    AGENT_TURN_DONE_SENTINEL,
     active_github_claim_for_issue,
     create_execution_worktree,
     github_issue_branch_for_task,
     github_issue_ref_for_task,
+    materialize_runner_command,
     prepare_github_remote_claim,
     read_github_issue_comments,
     retire_github_remote_claim,
     runner_command_for,
     switchboard_markers_from_body,
     try_github_sync,
+    with_turn_done_instruction,
     SwitchboardError,
 )
 
@@ -139,19 +142,67 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertEqual(command, [str(codex), "exec", "--dangerously-bypass-approvals-and-sandbox", "-"])
 
-    def test_runner_command_for_claude_uses_non_interactive_print(self) -> None:
+    def test_runner_command_for_claude_uses_interactive_shape(self) -> None:
         claude = self.fake_cli_on_path("claude")
 
         with patch.dict(os.environ, {"PATH": str(self.workspace)}, clear=True):
             command = runner_command_for({"cli": "claude"})
 
-        self.assertEqual(command, [str(claude), "--print", "--permission-mode", "bypassPermissions"])
+        # The capability-check shape no longer includes `--print`. The full
+        # spawn argv (with --session-id and the positional prompt) is built
+        # per execution by materialize_runner_command.
+        self.assertEqual(command, [str(claude), "--permission-mode", "bypassPermissions"])
 
     def test_runner_command_for_override_is_preserved(self) -> None:
         with patch.dict(os.environ, {"SWITCHBOARD_LOCAL_PROCESS_COMMAND": "python3 -c pass"}, clear=True):
             command = runner_command_for({"cli": "codex"})
 
         self.assertEqual(command, ["python3", "-c", "pass"])
+
+    def test_materialize_runner_command_claude_uses_positional_prompt_and_sentinel(self) -> None:
+        claude = self.fake_cli_on_path("claude")
+        with patch.dict(os.environ, {"PATH": str(self.workspace)}, clear=True):
+            materialized = materialize_runner_command(
+                {"cli": "claude"},
+                execution_id="exec_abc",
+                prompt="do the work",
+            )
+
+        self.assertIsNotNone(materialized)
+        assert materialized is not None
+        self.assertEqual(
+            materialized["command"],
+            [str(claude), "--permission-mode", "bypassPermissions", "--session-id", "exec_abc", "do the work"],
+        )
+        self.assertEqual(materialized["injection"], {"mode": "positional-arg"})
+        self.assertEqual(
+            materialized["completion"],
+            {"mode": "output-sentinel", "sentinel": AGENT_TURN_DONE_SENTINEL},
+        )
+
+    def test_materialize_runner_command_codex_preserves_stdin_pipe(self) -> None:
+        codex = self.fake_cli_on_path("codex")
+        with patch.dict(os.environ, {"PATH": str(self.workspace)}, clear=True):
+            materialized = materialize_runner_command(
+                {"cli": "codex"},
+                execution_id="exec_xyz",
+                prompt="ignored for codex stdin path",
+            )
+
+        self.assertIsNotNone(materialized)
+        assert materialized is not None
+        self.assertEqual(
+            materialized["command"],
+            [str(codex), "exec", "--dangerously-bypass-approvals-and-sandbox", "-"],
+        )
+        self.assertEqual(materialized["injection"], {"mode": "stdin-pipe"})
+        self.assertEqual(materialized["completion"], {"mode": "process-exit"})
+
+    def test_with_turn_done_instruction_appends_sentinel_block(self) -> None:
+        out = with_turn_done_instruction("original body")
+        self.assertIn(AGENT_TURN_DONE_SENTINEL, out)
+        self.assertTrue(out.startswith("original body"))
+        self.assertIn("Turn completion signal", out)
 
     def test_switchboard_wrapper_works_outside_repo_cwd_without_pythonpath(self) -> None:
         if os.name == "nt":

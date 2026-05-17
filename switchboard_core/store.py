@@ -862,6 +862,10 @@ def next_publish_for_queue(queue: str) -> str:
 
 
 def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_id: str, run_workspace: Path | None = None) -> str:
+    return with_turn_done_instruction(_build_runner_prompt_body(workspace=workspace, task_id=task_id, queue=queue, execution_id=execution_id, run_workspace=run_workspace))
+
+
+def _build_runner_prompt_body(*, workspace: Path, task_id: str, queue: str, execution_id: str, run_workspace: Path | None = None) -> str:
     role = role_for_queue(queue)
     workspace_for_agent = (run_workspace or workspace).expanduser().resolve()
     workspace_root = workspace.expanduser().resolve()
@@ -925,7 +929,29 @@ def build_runner_prompt(*, workspace: Path, task_id: str, queue: str, execution_
     )
 
 
+AGENT_TURN_DONE_SENTINEL = "[sprint-engine:done]"
+
+
+def with_turn_done_instruction(prompt: str) -> str:
+    """Appends the standard end-of-turn sentinel instruction to an agent
+    prompt. The runtime watches the pty output for AGENT_TURN_DONE_SENTINEL
+    and tears the session down when it appears, replacing the legacy
+    --print process-exit signal so the agent can run interactively against
+    a Claude subscription instead of full-rate API billing."""
+    return (
+        prompt.rstrip("\n")
+        + "\n\nTurn completion signal:\n"
+        + f"- When you have finished your work for this turn, print this exact line on its own as the last thing you do: {AGENT_TURN_DONE_SENTINEL}\n"
+        + "- The runner uses that line to detect that your turn is complete and to release the session. Do not skip it."
+    )
+
+
 def runner_command_for(state: dict[str, Any]) -> list[str] | None:
+    """Capability check only: returns the runner argv shape used for resolving
+    whether the configured CLI is available on PATH. Prefer
+    :func:`materialize_runner_command` when constructing an actual launch
+    descriptor; this function is preserved for backward compatibility with
+    callers that only need to test resolvability."""
     override = os.environ.get("SWITCHBOARD_LOCAL_PROCESS_COMMAND") or os.environ.get("SWITCHBOARD_RUNNER_COMMAND")
     if override and override.strip():
         return shlex.split(override)
@@ -934,10 +960,70 @@ def runner_command_for(state: dict[str, Any]) -> list[str] | None:
     if not resolved:
         return None
     if cli == "codex":
+        # Codex retains its non-interactive stdin-pipe shape for now. Its
+        # billing model does not have the same subscription-vs-API split
+        # the Claude switch addresses; the migration to interactive +
+        # send-after-ready can land in a follow-up.
         return [resolved, "exec", "--dangerously-bypass-approvals-and-sandbox", "-"]
     if cli == "claude":
-        return [resolved, "--print", "--permission-mode", "bypassPermissions"]
+        # Claude now drives an interactive session with the prompt passed as
+        # a positional argument and a printed sentinel for completion. This
+        # routes the agent through the user's Claude subscription rather
+        # than full-rate API billing that `--print` incurs.
+        return [resolved, "--permission-mode", "bypassPermissions"]
     return [resolved]
+
+
+def materialize_runner_command(
+    state: dict[str, Any],
+    *,
+    execution_id: str,
+    prompt: str,
+) -> dict[str, Any] | None:
+    """Returns the spawn-descriptor fragments the Electron runtime needs for
+    a specific execution: command argv, injection mode, completion signal.
+    Distinct from :func:`runner_command_for` because the materialized argv
+    depends on the per-execution id and the rendered prompt."""
+    override = os.environ.get("SWITCHBOARD_LOCAL_PROCESS_COMMAND") or os.environ.get("SWITCHBOARD_RUNNER_COMMAND")
+    if override and override.strip():
+        return {
+            "command": shlex.split(override),
+            "injection": {"mode": "stdin-pipe"},
+            "completion": {"mode": "process-exit"},
+        }
+    cli = str(state.get("cli") or "codex")
+    resolved = shutil.which(cli)
+    if not resolved:
+        return None
+    if cli == "claude":
+        return {
+            "command": [
+                resolved,
+                "--permission-mode",
+                "bypassPermissions",
+                "--session-id",
+                execution_id,
+                prompt,
+            ],
+            "injection": {"mode": "positional-arg"},
+            "completion": {"mode": "output-sentinel", "sentinel": AGENT_TURN_DONE_SENTINEL},
+        }
+    if cli == "codex":
+        return {
+            "command": [
+                resolved,
+                "exec",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "-",
+            ],
+            "injection": {"mode": "stdin-pipe"},
+            "completion": {"mode": "process-exit"},
+        }
+    return {
+        "command": [resolved],
+        "injection": {"mode": "stdin-pipe"},
+        "completion": {"mode": "process-exit"},
+    }
 
 
 def validate_runner_capability(workspace: Path, state: dict[str, Any]) -> list[str]:
@@ -1332,8 +1418,8 @@ def prepare_electron_session_execution(
     if active_execution_count(state) >= state["maxConcurrency"]:
         return {"ok": True, "prepared": False, "message": "Runner concurrency is full.", "runner": runner_public_payload(state)}
 
-    command = runner_command_for(state)
-    if not command:
+    capability_command = runner_command_for(state)
+    if not capability_command:
         message = f"Runner CLI executable was not found: {state.get('cli', 'codex')}"
         state["lastError"] = message
         write_runner_state(workspace, state)
@@ -1374,6 +1460,12 @@ def prepare_electron_session_execution(
                 execution_id=execution_id,
                 run_workspace=run_workspace,
             )
+            materialized = materialize_runner_command(state, execution_id=execution_id, prompt=prompt)
+            if not materialized:
+                raise SwitchboardError(
+                    f"Runner CLI executable disappeared after capability check: {state.get('cli', 'codex')}"
+                )
+            command = materialized["command"]
             started_at = now_iso()
             execution_dir(workspace, execution_id).mkdir(parents=True, exist_ok=False)
             prompt_path = execution_dir(workspace, execution_id) / "prompt.txt"
@@ -1455,6 +1547,8 @@ def prepare_electron_session_execution(
                 "env": env,
                 "prompt": prompt,
                 "cli": state.get("cli", "codex"),
+                "injection": materialized["injection"],
+                "completion": materialized["completion"],
             },
             "runner": runner_public_payload(state),
         }
