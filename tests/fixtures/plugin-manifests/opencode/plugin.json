@@ -1,0 +1,84 @@
+{
+  "id": "opencode",
+  "displayName": "OpenCode",
+  "publisher": "sst-hq",
+  "version": 1,
+  "binary": "opencode",
+  "variables": {
+    "model": {
+      "type": "string",
+      "label": "Model",
+      "default": "claude-opus-4-7",
+      "required": true
+    },
+    "provider": {
+      "type": "enum",
+      "label": "Provider",
+      "options": ["anthropic", "openai", "google", "ollama"],
+      "default": "anthropic"
+    }
+  },
+  "permissionPresets": {
+    "default": {
+      "label": "Default (prompts for permissions)",
+      "args": []
+    },
+    "auto": {
+      "label": "Auto-approve edits",
+      "args": ["--auto-approve", "edit"]
+    },
+    "bypass": {
+      "label": "Bypass all approvals (dangerous)",
+      "args": ["--auto-approve", "all"]
+    }
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      "--session",
+      "{{sessionId}}"
+    ],
+    "env": {
+      "OPENCODE_PROVIDER": "{{provider}}",
+      "OPENCODE_MODEL": "{{model}}"
+    }
+  },
+  "resume": {
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      "--session",
+      "{{sessionId}}",
+      "--resume"
+    ]
+  },
+  "promptInjection": {
+    "mode": "send-after-ready",
+    "readiness": {
+      "type": "output-match",
+      "pattern": "❯\\s",
+      "timeoutMs": 15000
+    }
+  },
+  "completion": {
+    "mode": "mcp-signal",
+    "signalTool": "sprintengine.turn.done",
+    "fallback": {
+      "mode": "output-sentinel",
+      "sentinel": "[sprint-engine:done]"
+    }
+  },
+  "mcpConfig": {
+    "path": "~/.config/opencode/mcp.json",
+    "format": "opencode"
+  },
+  "capabilities": {
+    "resumeSession": true,
+    "sessionIdFromCaller": true,
+    "toolUse": true,
+    "mcpServers": true,
+    "imageInput": true
+  }
+}

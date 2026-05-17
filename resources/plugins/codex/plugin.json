@@ -1,0 +1,52 @@
+{
+  "id": "codex",
+  "displayName": "Codex",
+  "publisher": "openai",
+  "version": 1,
+  "binary": "codex",
+  "permissionPresets": {
+    "default": {
+      "label": "Default (Codex prompts for permissions)",
+      "args": []
+    },
+    "auto_workspace": {
+      "label": "Auto-approve workspace edits",
+      "args": ["--ask-for-approval", "never", "--sandbox", "workspace-write"]
+    },
+    "bypass_all": {
+      "label": "Bypass all approvals (dangerous)",
+      "args": ["--dangerously-bypass-approvals-and-sandbox"]
+    }
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ]
+  },
+  "resume": {
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      "resume"
+    ]
+  },
+  "promptInjection": {
+    "mode": "positional-arg"
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "mcpConfig": {
+    "path": "{{workspaceRoot}}/.codex/config.toml",
+    "format": "codex"
+  },
+  "capabilities": {
+    "resumeSession": true,
+    "sessionIdFromCaller": false,
+    "toolUse": true,
+    "mcpServers": true
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "generic-shell",
+  "displayName": "Generic Shell",
+  "publisher": "multicode",
+  "version": 1,
+  "binary": "sh",
+  "permissionPresets": {
+    "default": {
+      "label": "Default",
+      "args": []
+    }
+  },
+  "launch": {
+    "argv": ["{{binary}}"]
+  },
+  "promptInjection": {
+    "mode": "stdin-pipe"
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "capabilities": {
+    "resumeSession": false,
+    "sessionIdFromCaller": false,
+    "toolUse": false,
+    "mcpServers": false
+  }
+}
