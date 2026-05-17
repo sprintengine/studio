@@ -33,9 +33,83 @@ export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend
 export type SprintEngineSkillMap = Record<SprintEngineRole, string[]>
 export type SprintEngineRoleCounts = Record<SprintEngineRole, number>
 
-export type SprintEngineTaskStatus = 'todo' | 'changes_requested' | 'in_progress' | 'needs_input' | 'done'
+export type SprintEngineTaskStatus = 'todo' | 'changes_requested' | 'in_progress' | 'review' | 'testing' | 'product' | 'needs_input' | 'done'
 
-export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'changes_requested' | 'in_progress' | 'needs_input' | 'done'
+export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'changes_requested' | 'in_progress' | 'review' | 'testing' | 'product' | 'needs_input' | 'done'
+
+export type SprintEngineQualityGatePhase = 'review' | 'testing' | 'product'
+
+export type SprintEngineQualityGateStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'approved'
+  | 'changes_requested'
+  | 'blocked'
+  | 'skipped'
+
+export type SprintEngineQualityGateAttempt = {
+  id?: string
+  status?: SprintEngineQualityGateStatus
+  actor?: string
+  startedAt?: string
+  completedAt?: string
+  verdict?: string
+  note?: string
+}
+
+export type SprintEngineQualityGate = {
+  id: string
+  phase: SprintEngineQualityGatePhase
+  role: SprintEngineRole
+  status: SprintEngineQualityGateStatus
+  required: boolean
+  allowSelfReview: boolean
+  focus?: string
+  attempts: SprintEngineQualityGateAttempt[]
+}
+
+export type SprintEngineQualityGateSummary = {
+  total: number
+  required: number
+  openRequired: number
+  byPhase: Record<string, number>
+  byStatus: Record<string, number>
+}
+
+export type SprintEngineQualityPolicyGate = {
+  phase: SprintEngineQualityGatePhase
+  role: SprintEngineRole
+  required: boolean
+  focus?: string
+}
+
+export type SprintEngineQualityPolicy = {
+  enabled: boolean
+  rosterDriven: boolean
+  lifecyclePhases: SprintEngineQualityGatePhase[]
+  gates: Record<string, SprintEngineQualityPolicyGate>
+}
+
+export type SprintEngineTaskCommentType =
+  | 'implementation_summary'
+  | 'implementation_response'
+  | 'review_feedback'
+  | 'test_feedback'
+  | 'product_feedback'
+  | 'architect_feedback'
+  | 'needs_input'
+  | 'user_note'
+  | 'system_note'
+
+export type SprintEngineRecordedArtifact = {
+  id: string
+  kind?: string
+  title?: string
+  path?: string
+  gateId?: string
+  createdBy?: string
+  createdAt?: string
+}
 
 export type SprintEngineNeedsInputKind = 'architect' | 'user' | 'owner' | 'artifact' | 'tooling' | 'verification' | 'other'
 export type SprintEngineNeedsInputReason =
@@ -117,6 +191,11 @@ export type SprintEngineTaskComment = {
   source: 'user' | 'agent' | 'system'
   body: string
   createdAt: string
+  type?: SprintEngineTaskCommentType
+  authorAgentId?: string
+  authorRole?: SprintEngineRole
+  paths?: string[]
+  data?: Record<string, unknown>
 }
 
 export type SprintEngineTaskFeedbackScores = {
@@ -640,6 +719,16 @@ export type SprintEngineTask = {
   stateStatus?: SprintEngineTaskStatus
   /** Canonical handoff timeline, oldest first. */
   activity?: SprintEngineTaskActivityEntry[]
+  /** Configured quality gates derived from policy + roster. */
+  qualityGates?: SprintEngineQualityGate[]
+  /** Backend-computed aggregate of gate counts by phase/status. */
+  qualityGateSummary?: SprintEngineQualityGateSummary
+  /** Newest-first short list of recent comments (any type). */
+  latestComments?: SprintEngineTaskComment[]
+  /** Newest-first list of feedback comments whose data.status is still open. */
+  latestOpenFeedback?: SprintEngineTaskComment[]
+  /** Recorded review/test/product artifacts attached to gate attempts. */
+  recordedArtifacts?: SprintEngineRecordedArtifact[]
 }
 
 export type SprintEngineState = {
@@ -660,6 +749,8 @@ export type SprintEngineState = {
   locks?: SprintEngineProjectionLocks
   /** Migration metadata recorded by the folder store. */
   migration?: SprintEngineProjectionMigration
+  /** Roster-driven quality policy from run.yaml; drives lifecycle column visibility. */
+  qualityPolicy?: SprintEngineQualityPolicy
 }
 
 export type SprintEngineMockConfig = Pick<SprintEngineState, 'name' | 'goal' | 'roleCounts'>

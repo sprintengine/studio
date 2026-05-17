@@ -22,6 +22,7 @@ def write_state(state_path: Path) -> None:
                     "name": "compat",
                     "goal": "Verify Sprint Engine compatibility facade",
                     "status": "executing",
+                    "qualityPolicy": {"enabled": False},
                 },
                 "tasks": [
                     {

@@ -353,6 +353,14 @@ export function taskGraphStatusTone(
   boardColumn: SprintEngineTaskBoardColumn,
 ): string {
   if (boardColumn === 'ready') return 'text-[color:var(--tone-good)]'
+  if (
+    boardColumn === 'changes_requested'
+    || boardColumn === 'review'
+    || boardColumn === 'testing'
+    || boardColumn === 'product'
+  ) {
+    return 'text-[color:var(--tone-warn)]'
+  }
 
   switch (taskStatus) {
     case 'done':

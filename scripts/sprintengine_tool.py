@@ -168,6 +168,30 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
         return "sprintengine.task.next", {**base, "role": args.role, "id": args.id}
     if action == "claim":
         return "sprintengine.task.claim", {**base, "taskId": args.task_id, "id": args.id}
+    if action == "gate":
+        gate_action = args.gate_action
+        payload = {**base, "gateAction": gate_action}
+        for attr in (
+            "task_id",
+            "gate_id",
+            "role",
+            "id",
+            "verdict",
+            "summary",
+            "artifact_path",
+            "artifact_title",
+            "artifact_kind",
+            "needs_input_kind",
+            "needs_input_reason",
+            "needs_input_question",
+            "needs_input_suggested_resolution",
+        ):
+            if hasattr(args, attr):
+                payload[attr.replace("_", "")] = getattr(args, attr)
+        if hasattr(args, "required_action"):
+            payload["requiredAction"] = args.required_action or []
+        payload.update(_feedback_payload(args))
+        return "sprintengine.task.gate", payload
     if action == "status":
         payload = {**base, "taskId": args.task_id, "status": args.status, "id": args.id, "summary": args.summary}
         if getattr(args, "needs_input_kind", None):
@@ -197,10 +221,19 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "result": args.result or [],
             "scopeExpansionJson": args.scope_expansion_json or [],
         }
+    if action == "publish":
+        return "sprintengine.task.publish", {**base, "taskId": args.task_id, "id": args.id, "summary": args.summary, "path": args.path or []}
     if action == "note":
         return "sprintengine.task.note", {**base, "taskId": args.task_id, "id": args.id, "note": args.note}
     if action == "comment":
-        return "sprintengine.task.comment", {**base, "taskId": args.task_id, "id": args.id, "body": args.body, "source": args.source}
+        payload = {**base, "taskId": args.task_id, "id": args.id, "body": args.body, "source": args.source}
+        if getattr(args, "comment_action", None):
+            payload["commentAction"] = args.comment_action
+        if getattr(args, "comment_type", None):
+            payload["type"] = args.comment_type
+        if getattr(args, "path", None):
+            payload["path"] = args.path
+        return "sprintengine.task.comment", payload
     if action == "list":
         return "sprintengine.task.list", {**base, "role": args.role}
     raise SystemExit(f"MCP backend does not support task action: {action}")
@@ -220,6 +253,8 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "acceptance": args.acceptance or [],
             "note": args.note or [],
             "taskNote": args.task_note or [],
+            "productFacing": args.product_facing,
+            "notProductFacing": args.not_product_facing,
             "manualDispatch": args.manual_dispatch,
             "dispatchStatus": args.dispatch_status,
             "triagedBy": args.triaged_by,
@@ -241,6 +276,8 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "clearNotes": args.clear_notes,
             "taskNote": args.task_note,
             "clearTaskNotes": args.clear_task_notes,
+            "productFacing": args.product_facing,
+            "notProductFacing": args.not_product_facing,
             "force": args.force,
         }
     if action == "delete-task":
@@ -314,6 +351,14 @@ def _feedback_payload(args) -> dict:
         value = getattr(args, attr, None)
         if value is not None:
             payload[camel] = value
+    for attr, camel, _ in direct_tool.FEEDBACK_COUNT_FIELDS:
+        value = getattr(args, attr, None)
+        if value is not None:
+            payload[camel] = value
+    for attr in ("review_target_task_id", "review_target_agent_id", "review_target_execution_id"):
+        value = getattr(args, attr, None)
+        if value:
+            payload["".join(part.title() if index else part for index, part in enumerate(attr.split("_")))] = value
     if getattr(args, "top_friction", ""):
         payload["topFriction"] = args.top_friction
     if getattr(args, "suggested_improvement", ""):

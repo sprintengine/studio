@@ -27,6 +27,7 @@ void main()
 async function main(): Promise<void> {
   await assertFixtureSnapshotMatchesDesktopBoardCounts()
   await assertMigratedProjectionSnapshotIsPreferred()
+  await assertGatedProjectionSnapshotExposesQualityContext()
   await assertProjectionSnapshotPassesProtocolValidation()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotOmitsUnavailableWorkspaceKinds()
@@ -118,6 +119,9 @@ async function assertFixtureSnapshotMatchesDesktopBoardCounts(): Promise<void> {
     ready: 1,
     inProgress: 1,
     changesRequested: 0,
+    review: 0,
+    testing: 0,
+    product: 0,
     needsInput: 1,
     blocked: 0,
     done: 2,
@@ -181,6 +185,9 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
     ready: 1,
     inProgress: 1,
     changesRequested: 1,
+    review: 0,
+    testing: 0,
+    product: 0,
     needsInput: 1,
     blocked: 0,
     done: 1,
@@ -193,6 +200,152 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
   assert.equal(snapshot.activity?.count, 1)
   assert.equal(snapshot.counts?.ready, 1)
   assert.equal(snapshot.counts?.changesRequested, 1)
+}
+
+async function assertGatedProjectionSnapshotExposesQualityContext(): Promise<void> {
+  const statePath = await writeStateText('not-real-state\n')
+  const teamDirectory = dirname(statePath)
+  await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    updatedAt: generatedAt,
+    run: {
+      id: 'gated-team',
+      name: 'Gated Team',
+      status: 'executing',
+      updatedAt: generatedAt,
+      qualityPolicy: {
+        enabled: true,
+        rosterDriven: true,
+        lifecyclePhases: ['review', 'testing'],
+        gates: {
+          code_reviewer: { phase: 'review', role: 'code_reviewer', required: true },
+          tester: { phase: 'testing', role: 'tester', required: true },
+        },
+      },
+    },
+    tasks: [
+      {
+        id: 'G1',
+        title: 'Gated implementation',
+        role: 'developer',
+        status: 'review',
+        stateStatus: 'in_progress',
+        boardColumn: 'review',
+        dependsOn: [],
+        qualityGates: [
+          {
+            id: 'code_reviewer',
+            phase: 'review',
+            role: 'code_reviewer',
+            status: 'changes_requested',
+            required: true,
+            attempts: [
+              { id: 'A1', status: 'changes_requested', actor: 'code_reviewer', verdict: 'changes_requested' },
+            ],
+          },
+          {
+            id: 'tester',
+            phase: 'testing',
+            role: 'tester',
+            status: 'pending',
+            required: true,
+            attempts: [],
+          },
+        ],
+        qualityGateSummary: {
+          total: 2,
+          required: 2,
+          openRequired: 2,
+          byPhase: { review: 1, testing: 1 },
+          byStatus: { changes_requested: 1, pending: 1 },
+        },
+        latestComments: [
+          {
+            id: 'C1',
+            type: 'review_feedback',
+            actor: 'code_reviewer',
+            authorAgentId: 'code_reviewer',
+            authorRole: 'code_reviewer',
+            source: 'agent',
+            body: 'Need an extra null check.',
+            createdAt: generatedAt,
+          },
+        ],
+        latestOpenFeedback: [
+          {
+            id: 'C1',
+            type: 'review_feedback',
+            actor: 'code_reviewer',
+            authorAgentId: 'code_reviewer',
+            authorRole: 'code_reviewer',
+            source: 'agent',
+            body: 'Need an extra null check.',
+            createdAt: generatedAt,
+            data: { status: 'open' },
+          },
+        ],
+        recordedArtifacts: [
+          {
+            id: 'R1',
+            kind: 'code_review',
+            title: 'Code review pass 1',
+            path: '.multi-code/sprintengine/gated-team/reviews/code-review-1.md',
+            gateId: 'code_reviewer',
+            createdAt: generatedAt,
+          },
+        ],
+      },
+      {
+        id: 'TT1',
+        title: 'Testing phase task',
+        role: 'developer',
+        status: 'testing',
+        stateStatus: 'in_progress',
+        boardColumn: 'testing',
+        dependsOn: [],
+        qualityGates: [
+          { id: 'tester', phase: 'testing', role: 'tester', status: 'pending', required: true, attempts: [] },
+        ],
+      },
+      {
+        id: 'CR1',
+        title: 'Rework',
+        role: 'developer',
+        status: 'changes_requested',
+        stateStatus: 'changes_requested',
+        boardColumn: 'changes_requested',
+        dependsOn: [],
+      },
+    ],
+    artifacts: [],
+    roster: {},
+    activity: [],
+  }), 'utf8')
+
+  const snapshot = await readSprintEngineSnapshot(statePath)
+  assert.equal(snapshot.board.review, 1, 'review column counted from boardColumn')
+  assert.equal(snapshot.board.testing, 1, 'testing column counted from boardColumn')
+  assert.equal(snapshot.board.product, 0)
+  assert.equal(snapshot.board.changesRequested, 1, 'rework stays distinct from ready')
+  assert.equal(snapshot.qualityPolicy?.enabled, true)
+  assert.deepEqual(snapshot.qualityPolicy?.lifecyclePhases, ['review', 'testing'])
+
+  const gatedTask = snapshot.tasks.find((task) => task.taskId === 'G1')
+  assert.ok(gatedTask, 'gated task is present')
+  assert.equal(gatedTask!.status, 'review')
+  assert.equal(gatedTask!.qualityGateSummary?.total, 2)
+  assert.equal(gatedTask!.qualityGateSummary?.openRequired, 2)
+  assert.equal(gatedTask!.qualityGates?.length, 2)
+  assert.equal(gatedTask!.qualityGates?.[0].status, 'changes_requested')
+  assert.equal(gatedTask!.qualityGates?.[0].latestVerdict, 'changes_requested')
+  assert.equal(gatedTask!.qualityGates?.[0].attemptCount, 1)
+  assert.equal(gatedTask!.latestComments?.length, 1)
+  assert.equal(gatedTask!.latestOpenFeedback?.length, 1)
+  assert.equal(gatedTask!.latestOpenFeedback?.[0].type, 'review_feedback')
+  assert.equal(gatedTask!.recordedArtifacts?.length, 1)
+  assert.equal(gatedTask!.recordedArtifacts?.[0].gateId, 'code_reviewer')
 }
 
 async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {

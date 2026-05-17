@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict'
 import {
   formatSprintEngineLockAge,
+  getActiveSprintEngineLifecyclePhases,
+  getLatestSprintEngineTaskComment,
+  getOpenSprintEngineFeedbackComments,
   getOpenSprintEngineFeedbackFindings,
   getOpenSprintEngineFeedbackIssues,
+  getOpenSprintEngineQualityGates,
   getSprintEngineTaskActivityDescending,
   getSprintEngineTaskBoardColumn,
+  getSprintEngineTaskQualityGates,
+  getSprintEngineVisibleBoardColumns,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
 } from './sprintengine'
@@ -233,6 +239,228 @@ const unavailable = normalizeSprintEngineProjection({
   roster: {},
 })
 assert.equal(unavailable?.projection?.source, 'unavailable')
+
+// --- Quality gate projection normalization ---
+
+const gatedProjection = fakeProjection({
+  run: {
+    id: 'run-id',
+    name: 'Sample Run',
+    goal: 'Test goal',
+    status: 'executing',
+    rosterConfigured: true,
+    updatedAt: '2026-05-16T20:00:00Z',
+    qualityPolicy: {
+      enabled: true,
+      rosterDriven: true,
+      lifecyclePhases: ['review', 'testing'],
+      gates: {
+        code_reviewer: { phase: 'review', role: 'code_reviewer', required: true, focus: 'integration risk' },
+        tester: { phase: 'testing', role: 'tester', required: true },
+      },
+    },
+  },
+  tasks: [
+    {
+      id: 'G1',
+      title: 'Gated implementation',
+      description: 'Task waiting on review gate',
+      role: 'developer',
+      status: 'review',
+      folderStatus: 'review',
+      stateStatus: 'in_progress',
+      boardColumn: 'review',
+      ownedPaths: [],
+      dependsOn: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      notes: [],
+      comments: [
+        {
+          id: 'C1',
+          type: 'implementation_summary',
+          actor: 'developer-1',
+          authorAgentId: 'developer-1',
+          authorRole: 'developer',
+          source: 'agent',
+          body: 'Initial implementation complete; ready for review.',
+          createdAt: '2026-05-16T19:50:00Z',
+        },
+        {
+          id: 'C2',
+          type: 'review_feedback',
+          actor: 'code_reviewer',
+          authorAgentId: 'code_reviewer',
+          authorRole: 'code_reviewer',
+          source: 'agent',
+          body: 'Found a missing edge case in projection normalization.',
+          createdAt: '2026-05-16T19:55:00Z',
+          data: { status: 'open' },
+        },
+      ],
+      latestComments: [
+        {
+          id: 'C2',
+          type: 'review_feedback',
+          actor: 'code_reviewer',
+          authorAgentId: 'code_reviewer',
+          authorRole: 'code_reviewer',
+          source: 'agent',
+          body: 'Found a missing edge case in projection normalization.',
+          createdAt: '2026-05-16T19:55:00Z',
+          data: { status: 'open' },
+        },
+      ],
+      latestOpenFeedback: [
+        {
+          id: 'C2',
+          type: 'review_feedback',
+          actor: 'code_reviewer',
+          authorAgentId: 'code_reviewer',
+          authorRole: 'code_reviewer',
+          source: 'agent',
+          body: 'Found a missing edge case in projection normalization.',
+          createdAt: '2026-05-16T19:55:00Z',
+          data: { status: 'open' },
+        },
+      ],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      activity: [],
+      startedAt: '2026-05-16T19:30:00Z',
+      completedAt: null,
+      ownerAgentId: 'developer-1',
+      qualityGates: [
+        {
+          id: 'code_reviewer',
+          phase: 'review',
+          role: 'code_reviewer',
+          status: 'changes_requested',
+          required: true,
+          allowSelfReview: false,
+          focus: 'integration risk',
+          attempts: [
+            {
+              id: 'A1',
+              status: 'changes_requested',
+              actor: 'code_reviewer',
+              verdict: 'changes_requested',
+              startedAt: '2026-05-16T19:50:00Z',
+              completedAt: '2026-05-16T19:55:00Z',
+            },
+          ],
+        },
+        {
+          id: 'tester',
+          phase: 'testing',
+          role: 'tester',
+          status: 'pending',
+          required: true,
+          allowSelfReview: false,
+          attempts: [],
+        },
+      ],
+      qualityGateSummary: {
+        total: 2,
+        required: 2,
+        openRequired: 2,
+        byPhase: { review: 1, testing: 1 },
+        byStatus: { changes_requested: 1, pending: 1 },
+      },
+      recordedArtifacts: [
+        {
+          id: 'R1',
+          kind: 'code_review',
+          title: 'Code review pass 1',
+          path: '.multi-code/sprintengine/run-id/reviews/code-review-1.md',
+          gateId: 'code_reviewer',
+          createdBy: 'code_reviewer',
+          createdAt: '2026-05-16T19:55:00Z',
+        },
+      ],
+    },
+    {
+      id: 'CR1',
+      title: 'Rework after review',
+      description: 'Rework after a code review verdict',
+      role: 'developer',
+      status: 'changes_requested',
+      folderStatus: 'changes_requested',
+      stateStatus: 'changes_requested',
+      boardColumn: 'changes_requested',
+      ownedPaths: [],
+      dependsOn: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      notes: [],
+      comments: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      activity: [],
+      startedAt: null,
+      completedAt: null,
+      ownerAgentId: null,
+    },
+  ],
+})
+
+const gatedState = normalizeSprintEngineProjection(gatedProjection)
+assert.ok(gatedState, 'gated projection should normalize')
+assert.deepEqual(
+  gatedState!.qualityPolicy?.lifecyclePhases,
+  ['review', 'testing'],
+  'qualityPolicy.lifecyclePhases passes through normalization'
+)
+assert.equal(gatedState!.qualityPolicy?.gates.code_reviewer?.focus, 'integration risk')
+
+const gatedTask = gatedState!.tasks.find((task) => task.id === 'G1')!
+assert.equal(gatedTask.boardColumn, 'review', 'review boardColumn round-trips')
+assert.equal(gatedTask.status, 'in_progress', 'semantic stateStatus drives status while task lives in review folder')
+assert.equal(getSprintEngineTaskBoardColumn(gatedTask, gatedState!.tasks), 'review')
+
+const gates = getSprintEngineTaskQualityGates(gatedTask)
+assert.equal(gates.length, 2)
+assert.equal(gates[0].id, 'code_reviewer')
+assert.equal(gates[0].status, 'changes_requested')
+assert.equal(gates[0].attempts.length, 1)
+assert.equal(gates[0].attempts[0].verdict, 'changes_requested')
+assert.equal(getOpenSprintEngineQualityGates(gatedTask).length, 2, 'pending + changes_requested gates both count as open')
+
+const latestSummary = getLatestSprintEngineTaskComment(gatedTask, 'implementation_summary')
+assert.ok(latestSummary, 'implementation_summary surfaces via getLatestSprintEngineTaskComment')
+assert.equal(latestSummary!.actor, 'developer-1')
+
+const openFeedback = getOpenSprintEngineFeedbackComments(gatedTask)
+assert.equal(openFeedback.length, 1)
+assert.equal(openFeedback[0].type, 'review_feedback')
+assert.equal(openFeedback[0].authorAgentId, 'code_reviewer')
+
+assert.equal(gatedTask.recordedArtifacts?.length, 1)
+assert.equal(gatedTask.recordedArtifacts?.[0]?.gateId, 'code_reviewer')
+
+// changes_requested stays distinct from ready in the task graph + board projection.
+const reworkTask = gatedState!.tasks.find((task) => task.id === 'CR1')!
+assert.equal(reworkTask.status, 'changes_requested')
+assert.equal(getSprintEngineTaskBoardColumn(reworkTask, gatedState!.tasks), 'changes_requested')
+assert.equal(isSprintEngineTaskLaunchable(reworkTask, gatedState!), true, 'rework task is launchable')
+
+// Lifecycle phase column visibility: review appears because the gated task lives in
+// the review folder; testing appears because the policy declared it; product is
+// hidden because neither policy nor any active task requires it.
+const visiblePhases = getActiveSprintEngineLifecyclePhases(gatedState!)
+assert.deepEqual(visiblePhases, ['review', 'testing'])
+const visibleColumns = getSprintEngineVisibleBoardColumns(gatedState!).map((column) => column.key)
+assert.deepEqual(
+  visibleColumns,
+  ['todo', 'ready', 'changes_requested', 'in_progress', 'review', 'testing', 'needs_input', 'done'],
+)
+
+// When neither policy nor tasks call for lifecycle phases, the board hides
+// review/testing/product entirely.
+const ungatedState = normalizeSprintEngineProjection(fakeProjection())
+const ungatedVisibleColumns = getSprintEngineVisibleBoardColumns(ungatedState!).map((column) => column.key)
+assert.deepEqual(
+  ungatedVisibleColumns,
+  ['todo', 'ready', 'changes_requested', 'in_progress', 'needs_input', 'done'],
+)
 
 // eslint-disable-next-line no-console
 console.log('sprintengine.test.ts: ok')

@@ -23,15 +23,15 @@ API discovery:
 - For Verify Progress / recovery audits, run `sprintengine recover` and follow the returned prompt. Recovery is an integrity pass: it must keep implementation work stopped, but it may tighten acceptance criteria, add missing real-integration/verification tasks, or fix dependencies when the existing plan would let fake product behavior count as done.
 - Before using a command group or action for the first time, run its `--help` and follow the exact flags shown by the tool.
 - Current command groups are `handover`, `init`, `recover`, `migrate`, `projection`, `join`, `triage`, `task`, `plan`, `artifact`, `summary`, and `merge`.
-- Worker commands live under `sprintengine task`: use `task next`, `task claim`, `task status`, `task log`, `task note`, and `task list`.
+- Worker commands live under `sprintengine task`: use `task next`, `task claim`, `task publish`, `task status`, `task log`, `task comment`, `task gate`, `task note`, and `task list`.
 - `sprintengine task log` uses repeatable `--file`, `--command`, and `--result` flags. When a task requires a small directly related edit outside `ownedPaths`, also add repeatable `--scope-expansion-json '{"path":"<project-relative-path>","reason":"<why this companion edit is required>","risk":"<low|medium|high or short risk>"}'`.
 - When moving a task to `needs_input`, classify who must resolve it with `--needs-input-kind` (`architect`, `user`, or `owner`) plus `--needs-input-question`; add `--needs-input-reason` (`task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, or `blocked_other`) when available. Use `architect` for stale plans, impossible acceptance criteria, wrong paths, architectural scope mismatches, or artifact reviews so the UI can route the blocker to the architect. Legacy kind values (`artifact`, `tooling`, `verification`, `other`) are still accepted for compatibility but should not be used for new blockers.
 - Architects can triage architect-actionable blockers with `sprintengine triage needs-input --id architect`; this returns a bounded prompt for task-card or task-graph repair, not application-source implementation.
-- `sprintengine task status --status done` and `sprintengine artifact ready` accept optional `0`-`100` agent feedback flags such as `--confidence-pct`, `--task-clarity-pct`, and `--hallucination-risk-pct`, short text fields such as `--top-friction`, repeatable `--issue-json` prompt/process improvement signals, and repeatable `--finding-json` role-specific review findings. Omit them when unavailable; existing completion commands remain valid.
+- `sprintengine task status --status done`, `sprintengine task gate verdict`, and `sprintengine artifact ready` accept optional `0`-`100` agent feedback flags such as `--confidence-pct`, `--task-clarity-pct`, and `--hallucination-risk-pct`, short text fields such as `--top-friction`, repeatable `--issue-json` prompt/process improvement signals, and repeatable `--finding-json` role-specific review findings. Omit them when unavailable; existing completion commands remain valid.
 - Agent identity is the stable sprintengine slot id such as `frontend`, `product`, `developer-1`, or `developer-2`, not the Claude session id. If Claude restarts, reuse the same `--id` to continue that slot's active work.
 - If calling the Python script directly instead of the `sprintengine` function, put global `--state <path>` before the subcommand.
 - All file paths written into task cards, evidence, artifacts, reviews, plans, or handoffs must be relative to the project root. Never use absolute or machine-specific paths in `--path`, `--file`, artifact paths, markdown artifacts, or task notes.
-- For app, mobile, or read-only tooling, use `sprintengine projection` or the generated `projection.json` read contract. Do not parse `tasks/`, `artifacts/`, `events.jsonl`, metrics files, lock files, or legacy `state.yaml` directly for migrated runs.
+- For app, mobile, or read-only tooling, use `sprintengine projection` or the generated `projection.json` read contract. Do not parse `tasks/`, `artifacts/`, `events.jsonl`, metrics files, lock files, or legacy `state.yaml` directly for migrated runs. Projection tasks include quality gates, gate summaries, latest comments, latest open feedback, and recorded artifact references.
 - Do not move files between task or artifact status folders by hand. Folder location, embedded status mirrors, ready queue materialization, activity, events, metrics, and projection updates must be produced by Sprint Engine commands.
 
 Worker workflow:
@@ -46,6 +46,9 @@ Worker workflow:
    - `sprintengine task status`
    - `sprintengine task note`
    - `sprintengine task log`
+   - `sprintengine task publish` when implementation work is ready for quality gates or final completion
+   - `sprintengine task comment add/list` when adding or inspecting structured handoff comments
+   - `sprintengine task gate list/next/claim/verdict` when your role is reviewing, testing, or product-accepting a gate
    - `sprintengine artifact add` / `sprintengine artifact ready` when your task explicitly produces an artifact
 8. Before marking work `done`, publish:
    - summary
@@ -55,6 +58,17 @@ Worker workflow:
    - results
    - optional completion feedback percentages on the final status or artifact-ready command when you can assess them
 9. After marking one task `done`, stop. A fresh agent must be spawned for additional work.
+
+Quality gate workflow:
+
+- Status/folder column, claimability, and quality requirements are separate. `todo`, `ready`, `in_progress`, `review`, `testing`, `product`, `changes_requested`, `needs_input`, `done`, and `canceled` are board/lifecycle columns. Normal implementation claimability comes from `task next`; quality requirements live in `qualityGates`.
+- Implementers on gated tasks should log evidence and then run `sprintengine task publish --task-id <task-id> --id <agent-id> --summary "..."`. Publish creates an `implementation_summary` or `implementation_response` comment and routes the task to the next required phase or `done`.
+- Reviewers, testers, product reviewers, and architects should claim gates with `sprintengine task gate next --role <role> --id <agent-id>` or `sprintengine task gate claim --task-id <task-id> --gate-id <gate-id> --role <role> --id <agent-id>`.
+- Gate claim responses include the plan path, task card, owned paths, acceptance criteria, evidence, touched files, commands/results, linked artifacts, latest implementation summary/response, open feedback, prior attempts, and gate focus. Treat implementation summary/response comments as claims to audit against evidence, not as proof.
+- Submit results with `sprintengine task gate verdict`. Use `approved` when the gate passes, `changes_requested` or `failed` when rework is required, `blocked` when routed input is needed, and `skipped` only with a clear rationale. Add `--required-action` for concrete rework items when requesting changes or failing validation.
+- `blocked` verdicts require `--needs-input-question` and should classify the actor with `--needs-input-kind` plus `--needs-input-reason` where possible.
+- Gate verdicts may attach `--artifact-path`, `--artifact-title`, and `--artifact-kind` to create a `recorded` artifact. Recorded artifacts are durable and visible in projection, but they do not enter human approval queues and do not block by themselves. Use `artifact ready` only for artifacts that need human approval.
+- Gate verdict feedback metrics are attributed to the reviewed task, reviewer agent, phase, gate, and attempt. Include score/count flags when they are useful and grounded in actual review or validation.
 
 Architect workflow:
 
@@ -89,6 +103,15 @@ sprintengine task next --role frontend --id frontend-1
 sprintengine task claim --task-id T3 --id frontend-1
 sprintengine task status --task-id T3 --status in_progress --id frontend-1
 sprintengine task log --task-id T3 --id frontend-1 --summary "Updated board UI" --file src/renderer/src/components/panels/SprintEngineBoardPanel.tsx --file src/renderer/src/utils/sprintengine.ts --scope-expansion-json '{"path":"src/renderer/src/utils/sprintengine.ts","reason":"shared selector extracted to avoid duplicated panel/palette logic","risk":"low; covered by typecheck"}' --command "npm run typecheck" --result "Passed"
+sprintengine task publish --task-id T3 --id developer-1 --summary "Implementation is ready for gate review." --path sprintengine_core/tool.py
+sprintengine task comment add --task-id T3 --id user --source user --type user_note --body "Please include migration notes."
+sprintengine task comment list --task-id T3
+sprintengine task gate list --task-id T3
+sprintengine task gate next --role code_reviewer --id code-reviewer
+sprintengine task gate claim --task-id T3 --gate-id code_reviewer --role code_reviewer --id code-reviewer
+sprintengine task gate verdict --task-id T3 --gate-id code_reviewer --role code_reviewer --id code-reviewer --verdict approved --summary "Implementation matches the task and evidence is sufficient." --correctness-pct 92 --claims-checked 8
+sprintengine task gate verdict --task-id T3 --gate-id tester --role tester --id tester --verdict failed --summary "The rework path regressed." --required-action "Add a regression test and republish."
+sprintengine task gate verdict --task-id T3 --gate-id architect_review --role architect --id architect --verdict blocked --summary "Scope needs clarification." --needs-input-kind architect --needs-input-reason task_scope --needs-input-question "Should this task also own renderer projection types?"
 Sprint Engine plan add-task --title "Persist Sprint Engine state" --role developer --path src/renderer/src/store --acceptance "State tracks task ownership and evidence"
 Sprint Engine plan add-task --title "Review implementation quality" --role code_reviewer --depends-on T3 --path src/renderer/src/store --path .multi-code/sprintengine/<team>/reviews/code-review-1.md --description "Review-only the completed implementation for correctness, modularity, maintainability, and verification gaps. Produce direct review evidence or a code_review artifact with concrete findings and recommended follow-up work; do not edit application or test code." --acceptance "Reviewer logs review evidence and verification commands inspected or run" --acceptance "Findings include severity, impact, recommended fix, owner role, and verification steps" --acceptance "If no findings remain, reviewer records explicit approval and residual risk"
 Sprint Engine plan add-task --title "Spec review implementation" --role spec_reviewer --depends-on T3 --path .multi-code/sprintengine/<team>/reviews/spec-review-1.md --description "Review-only the completed implementation against the approved requirements, acceptance criteria, architect plan, implementation evidence, and tests. Produce a spec review artifact with requirement coverage, behavioral gaps, missing tests, verdict, and recommended follow-up tasks." --acceptance "Spec review records every material requirement as met, missing, partial, blocked, not applicable, or intentionally deferred" --acceptance "Findings include severity, requirement source, impact, recommended fix, and verification steps"

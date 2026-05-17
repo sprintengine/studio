@@ -50,11 +50,11 @@ import {
  getSprintEngineArtifactDependencyBlockers,
  getSprintEngineArtifactsByTaskId,
  getSprintEngineTaskBoardColumn,
+ getSprintEngineVisibleBoardColumns,
  isSprintEngineTaskClaimableColumn,
  isSprintEngineTaskLaunchable,
  sprintEngineRoleAccent,
  sprintEngineRoleLabels,
- sprintEngineTaskBoardColumns,
  sprintEngineTaskStateLabel,
  type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
@@ -86,7 +86,6 @@ import {
 } from './SprintEngineInspectorPanel'
 import { SprintEngineTaskGraphView } from './SprintEngineTaskGraphView'
 
-const columnMeta = sprintEngineTaskBoardColumns
 
 
 const addableRoles: SprintEngineRole[] = ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
@@ -612,7 +611,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const boardColumns = useMemo(() => {
  if (!sprintEngineState) return []
 
- return columnMeta.map((column) => ({
+ return getSprintEngineVisibleBoardColumns(sprintEngineState).map((column) => ({
  ...column,
  cards: sprintEngineState.tasks.filter(
  (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === column.key
@@ -1776,7 +1775,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  ? 'good'
  : task.status === 'needs_input'
  ? 'warn'
- : task.status === 'in_progress' || boardColumn === 'ready'
+ : task.status === 'in_progress'
+ || boardColumn === 'ready'
+ || boardColumn === 'changes_requested'
+ || boardColumn === 'review'
+ || boardColumn === 'testing'
+ || boardColumn === 'product'
  ? 'accent'
  : 'neutral'
  const taskSelected = selectedTaskId === task.id
@@ -2618,8 +2622,16 @@ function emptyKanbanColumnLabel(column: SprintEngineTaskBoardColumn): string {
  switch (column) {
  case 'ready':
  return 'No ready work. Waiting on dependencies or active workers.'
+ case 'changes_requested':
+ return 'No rework queued from reviewers or testers.'
  case 'in_progress':
  return 'No workers are actively claiming tasks.'
+ case 'review':
+ return 'No tasks awaiting review gates.'
+ case 'testing':
+ return 'No tasks awaiting test verification.'
+ case 'product':
+ return 'No tasks awaiting product acceptance.'
  case 'needs_input':
  return 'No blocked tasks or worker questions.'
  case 'done':

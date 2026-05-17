@@ -52,6 +52,34 @@ def add_ready_artifact(
     )
 
 
+def publish_and_approve_standard_gates(cli: SwarmCli, task_id: str, actor: str, summary: str) -> None:
+    cli.run("task", "publish", "--task-id", task_id, "--id", actor, "--summary", summary)
+    for gate_id, role in (
+        ("code_reviewer", "code_reviewer"),
+        ("spec_reviewer", "spec_reviewer"),
+        ("tester", "tester"),
+    ):
+        reviewer_id = f"{task_id.lower()}-{gate_id}"
+        cli.run("task", "gate", "claim", "--task-id", task_id, "--gate-id", gate_id, "--role", role, "--id", reviewer_id)
+        cli.run(
+            "task",
+            "gate",
+            "verdict",
+            "--task-id",
+            task_id,
+            "--gate-id",
+            gate_id,
+            "--role",
+            role,
+            "--id",
+            reviewer_id,
+            "--verdict",
+            "approved",
+            "--summary",
+            f"{gate_id} passed.",
+        )
+
+
 def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_final_follow_up(tmp_path) -> None:
     state_path = tmp_path / ".multi-code" / "sprintengine" / "full-run-mock" / "state.yaml"
     cli = SwarmCli(state_path)
@@ -156,17 +184,71 @@ def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_fi
     )
     cli.run(
         "task",
-        "status",
+        "publish",
         "--task-id",
         "T3",
-        "--status",
-        "done",
         "--id",
         "developer-full-run",
+        "--summary",
+        "Implementation ready for quality gates.",
+    )
+    cli.run("task", "gate", "claim", "--task-id", "T3", "--gate-id", "code_reviewer", "--role", "code_reviewer", "--id", "code-reviewer-gate")
+    cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T3",
+        "--gate-id",
+        "code_reviewer",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "code-reviewer-gate",
+        "--verdict",
+        "approved",
+        "--summary",
+        "Code review gate passed.",
         "--confidence-pct",
         "88",
         "--hallucination-risk-pct",
         "5",
+    )
+    cli.run("task", "gate", "claim", "--task-id", "T3", "--gate-id", "spec_reviewer", "--role", "spec_reviewer", "--id", "spec-reviewer-gate")
+    cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T3",
+        "--gate-id",
+        "spec_reviewer",
+        "--role",
+        "spec_reviewer",
+        "--id",
+        "spec-reviewer-gate",
+        "--verdict",
+        "approved",
+        "--summary",
+        "Spec review gate passed.",
+    )
+    cli.run("task", "gate", "claim", "--task-id", "T3", "--gate-id", "tester", "--role", "tester", "--id", "tester-gate")
+    cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T3",
+        "--gate-id",
+        "tester",
+        "--role",
+        "tester",
+        "--id",
+        "tester-gate",
+        "--verdict",
+        "approved",
+        "--summary",
+        "Validation gate passed.",
     )
 
     cli.run("task", "next", "--role", "code_reviewer", "--id", "reviewer-full-run")
@@ -266,7 +348,12 @@ def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_fi
         "--result",
         "Selected product final review; skipped security and performance with rationale.",
     )
-    cli.run("task", "status", "--task-id", "T6", "--status", "done", "--id", "architect-scheduler")
+    publish_and_approve_standard_gates(
+        cli,
+        "T6",
+        "architect-scheduler",
+        "Final review scheduling ready for gate checks.",
+    )
     assert_ready_tasks(cli, "product", ["T7"])
 
     cli.run("task", "next", "--role", "product", "--id", "product-final")
@@ -328,7 +415,12 @@ def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_fi
         "--result",
         "Follow-up developer task and later architect final review task created.",
     )
-    cli.run("task", "status", "--task-id", "T8", "--status", "done", "--id", "architect-final")
+    publish_and_approve_standard_gates(
+        cli,
+        "T8",
+        "architect-final",
+        "Architect final review follow-up ready for gate checks.",
+    )
 
     final_state = read_state(state_path)
     assert_task_status(final_state, "T3", "done")
