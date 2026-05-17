@@ -290,6 +290,14 @@ function validateMcpConfig(value: unknown, issues: PluginManifestValidationIssue
   if (typeof value.path !== 'string' || value.path.length === 0) {
     issues.push({ path: 'mcpConfig.path', message: 'mcpConfig.path must be a non-empty string.' })
   }
+  if ('userPath' in value && value.userPath !== undefined) {
+    if (typeof value.userPath !== 'string' || value.userPath.length === 0) {
+      issues.push({
+        path: 'mcpConfig.userPath',
+        message: 'mcpConfig.userPath must be a non-empty string when present.',
+      })
+    }
+  }
   if (typeof value.format !== 'string' || !(MCP_FORMATS as readonly string[]).includes(value.format)) {
     issues.push({
       path: 'mcpConfig.format',

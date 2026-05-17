@@ -77,6 +77,7 @@ export type PluginMcpConfigFormat = 'claude-code' | 'codex' | 'opencode' | 'gene
 
 export type PluginMcpConfigSpec = {
   path: string
+  userPath?: string
   format: PluginMcpConfigFormat
 }
 

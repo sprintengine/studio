@@ -39,7 +39,7 @@
     "lint:primitive-duplication": "node scripts/lint-primitive-duplication.mjs",
     "lint:primitive-duplication:report": "node scripts/lint-primitive-duplication.mjs --report",
     "verify:panels": "npm run lint && npm run test:renderer:switchboard-board && npm run test:renderer:ui-accessibility-contracts",
-    "verify:app": "npm run typecheck && npm run lint && npm run test:main:git-branch-actions && npm run test:main:plugin-render && npm run test:main:plugin-registry && npm run test:main:agent-launch-render && npm run test:renderer:markdown && npm run test:renderer:switchboard-board && npm run test:renderer:terminal-sessions && npm run test:renderer:ui-accessibility-contracts",
+    "verify:app": "npm run typecheck && npm run lint && npm run test:main:git-branch-actions && npm run test:main:plugin-render && npm run test:main:plugin-registry && npm run test:main:agent-launch-render && npm run test:main:mcp-config && npm run test:renderer:markdown && npm run test:renderer:switchboard-board && npm run test:renderer:terminal-sessions && npm run test:renderer:ui-accessibility-contracts",
     "icons": "node scripts/generate-icons.js",
     "postinstall": "node scripts/fix-node-pty-permissions.js"
   },

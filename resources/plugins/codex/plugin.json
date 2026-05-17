@@ -41,6 +41,7 @@
   },
   "mcpConfig": {
     "path": "{{workspaceRoot}}/.codex/config.toml",
+    "userPath": "{{home}}/.codex/config.toml",
     "format": "codex"
   },
   "capabilities": {
