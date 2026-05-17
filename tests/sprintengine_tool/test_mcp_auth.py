@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from helpers import create_team, read_state, task
+from helpers import create_team, read_state, task, write_state
 from sprintengine_mcp import SprintEngineMcpServer
 
 
@@ -116,6 +116,12 @@ def test_authenticated_mcp_user_can_invoke_task_tool_with_payload_agent_id(tmp_p
 
 def test_authenticated_mcp_user_can_invoke_plan_tool_without_architect_role(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-plan-auth", [task("T1", "Existing task", "developer")])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-a": {"role": "developer", "status": "idle", "currentTaskId": None},
+    }
+    write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     response = server.call_tool(

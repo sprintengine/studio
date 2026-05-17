@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 
-from helpers import REPO_ROOT, create_team, get_task, read_state, task
+from helpers import REPO_ROOT, create_team, get_task, read_state, task, write_state
 from sprintengine_mcp import SprintEngineMcpServer
 from sprintengine_mcp.schemas import TOOL_SCHEMAS
 
@@ -132,6 +132,12 @@ def test_mcp_task_ready_uses_core_and_emits_audit(tmp_path) -> None:
 
 def test_mcp_plan_add_task_can_create_manual_dispatch_local_task(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-plan-add-manual-task", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-a": {"role": "developer", "status": "idle", "currentTaskId": None},
+    }
+    write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     response = server.call_tool(
@@ -157,6 +163,36 @@ def test_mcp_plan_add_task_can_create_manual_dispatch_local_task(tmp_path) -> No
     assert get_task(state, task_record["id"])["dispatch"]["status"] == "todo"
 
 
+def test_mcp_plan_add_task_forwards_quality_gate_flags(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-plan-quality-flags", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
+        "code-reviewer": {"role": "code_reviewer", "status": "idle", "currentTaskId": None},
+    }
+    write_state(fixture.state_path, state)
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.plan.add_task",
+        {
+            "statePath": str(fixture.state_path),
+            "title": "Architect implementation",
+            "role": "architect",
+            "path": ["docs/sprintengine-cli.md"],
+            "producesImplementation": True,
+            "requireGate": ["code-reviewer"],
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    task_record = response["result"]["task"]
+    assert task_record["producesImplementation"] is True
+    assert [gate["id"] for gate in task_record["qualityGates"]] == ["code_reviewer"]
+
+
 def test_mcp_plan_update_task_edits_execution_details_and_preserves_source(tmp_path) -> None:
     task_record = task("T1", "Imported GitHub issue", "developer")
     task_record["source"] = {
@@ -170,6 +206,12 @@ def test_mcp_plan_update_task_edits_execution_details_and_preserves_source(tmp_p
     }
     task_record["dispatch"] = {"mode": "manual", "status": "todo", "triagedBy": "none"}
     fixture = create_team(tmp_path, "mcp-plan-update-details", [task_record])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "tester": {"role": "tester", "status": "idle", "currentTaskId": None},
+    }
+    write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     response = server.call_tool(

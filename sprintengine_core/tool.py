@@ -1371,6 +1371,18 @@ def create_task_comment(
     return comment
 
 
+def parse_json_object_arg(raw: Optional[str], flag: str) -> Dict[str, Any]:
+    if raw is None:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"{flag} must be valid JSON: {exc.msg}.") from exc
+    if not isinstance(parsed, dict):
+        raise SystemExit(f"{flag} must be a JSON object.")
+    return parsed
+
+
 def find_active_gate_claim(state: Dict[str, Any], agent_id: str, role: str) -> Optional[Dict[str, Any]]:
     for task in state.get("tasks", []) or []:
         if not isinstance(task, dict):
@@ -1473,6 +1485,13 @@ def phase_has_open_required_gates(task: Dict[str, Any], phase: str) -> bool:
     return False
 
 
+def task_has_required_gate_status(task: Dict[str, Any], statuses: set[str]) -> bool:
+    return any(
+        gate.get("required") is not False and gate.get("status") in statuses
+        for gate in task_quality_gates(task)
+    )
+
+
 def open_required_quality_gates(task: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [
         gate for gate in task_quality_gates(task)
@@ -1522,7 +1541,7 @@ def sync_product_quality_gate(task: Dict[str, Any], state: Dict[str, Any], polic
             "role": role,
             "status": "pending",
             "required": bool(spec.get("required", True)),
-            "allowSelfReview": False,
+            "allowSelfReview": True,
             "focus": str(spec.get("focus") or ""),
             "attempts": [],
         })
@@ -1534,7 +1553,7 @@ def sync_product_quality_gate(task: Dict[str, Any], state: Dict[str, Any], polic
         gate["role"] = role
         gate["required"] = bool(spec.get("required", True))
         gate.setdefault("status", "pending")
-        gate.setdefault("allowSelfReview", False)
+        gate.setdefault("allowSelfReview", True)
         gate.setdefault("attempts", [])
         gate["focus"] = str(spec.get("focus") or gate.get("focus") or "")
 
@@ -1554,6 +1573,7 @@ def current_gate_attempt(gate: Dict[str, Any], actor: str) -> Dict[str, Any]:
 
 def complete_gate_attempt(attempt: Dict[str, Any], verdict: str, summary: str) -> None:
     attempt["status"] = verdict
+    attempt["verdict"] = verdict
     attempt["completedAt"] = now_iso()
     attempt["summary"] = summary
 
@@ -1658,7 +1678,12 @@ def apply_gate_verdict(
         gate["status"] = "approved" if verdict == "approved" else "skipped"
         if verdict == "skipped":
             gate["skipRationale"] = clean_summary
-        next_status = next_status_after_gate_verdict(task, phase)
+        if task_has_required_gate_status(task, {"blocked"}):
+            next_status = "needs_input"
+        elif task_has_required_gate_status(task, {"changes_requested"}):
+            next_status = "changes_requested"
+        else:
+            next_status = next_status_after_gate_verdict(task, phase)
         task["status"] = next_status
         if next_status == "done":
             task["completedAt"] = now_iso()
@@ -1669,6 +1694,7 @@ def apply_gate_verdict(
     elif verdict in {"changes_requested", "failed"}:
         gate["status"] = "changes_requested"
         actions = [str(action).strip() for action in (required_actions or []) if str(action).strip()]
+        attempt["requiredActions"] = actions
         comment = create_task_comment(
             state,
             task,
@@ -1864,7 +1890,14 @@ def build_gate_review_prompt(
     return "\n".join(lines)
 
 
-def publish_task(state: Dict[str, Any], task: Dict[str, Any], actor: str, body: str, paths: Optional[List[str]] = None) -> Dict[str, Any]:
+def publish_task(
+    state: Dict[str, Any],
+    task: Dict[str, Any],
+    actor: str,
+    body: str,
+    paths: Optional[List[str]] = None,
+    data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     previous_status = str(task.get("status") or "")
     if previous_status not in {"in_progress", "changes_requested"}:
         raise SystemExit("Only in_progress or changes_requested tasks can be published.")
@@ -1879,7 +1912,7 @@ def publish_task(state: Dict[str, Any], task: Dict[str, Any], actor: str, body: 
             comment_type=comment_type,
             source="agent",
             paths=paths,
-            data={"feedbackCommentIds": feedback_ids},
+            data={**(data or {}), "feedbackCommentIds": feedback_ids},
         )
         reset_required_gates_for_rework(task)
     else:
@@ -1892,6 +1925,7 @@ def publish_task(state: Dict[str, Any], task: Dict[str, Any], actor: str, body: 
             comment_type=comment_type,
             source="agent",
             paths=paths,
+            data=data,
         )
 
     next_status = next_publish_status(task)
@@ -2158,6 +2192,8 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
     if "productFacing" in raw:
         task["productFacing"] = bool(raw.get("productFacing"))
+    if "producesImplementation" in raw:
+        task["producesImplementation"] = bool(raw.get("producesImplementation"))
     source = normalize_task_source(raw.get("source"), task_id)
     if source is not None:
         task["source"] = source
@@ -2196,8 +2232,109 @@ def next_task_id(tasks: List[Dict[str, Any]]) -> str:
     return f"T{index}"
 
 
+def canonical_quality_gate_id(value: str) -> str:
+    normalized = str(value or "").strip().replace("-", "_")
+    aliases = {
+        "architect": "architect_review",
+        "architect_review": "architect_review",
+        "frontend": "frontend_review",
+        "frontend_review": "frontend_review",
+        "code_review": "code_reviewer",
+        "code_reviewer": "code_reviewer",
+        "spec_review": "spec_reviewer",
+        "spec_reviewer": "spec_reviewer",
+        "validation": "tester",
+        "test": "tester",
+        "tester": "tester",
+        "product_acceptance": "product",
+        "product": "product",
+        "security_review": "security",
+        "security": "security",
+        "performance_review": "performance",
+        "performance": "performance",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def quality_gate_spec_for_id(gate_id: str, policy: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    canonical = canonical_quality_gate_id(gate_id)
+    gate_specs = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
+    if canonical == "architect_review":
+        spec = gate_specs.get("architect")
+        return {"id": "architect_review", **spec} if isinstance(spec, dict) else None
+    if canonical == "frontend_review":
+        return {
+            "id": "frontend_review",
+            "phase": "review",
+            "role": "frontend",
+            "required": True,
+            "focus": "UI behavior, accessibility, responsive behavior, status labels, and interaction correctness",
+        }
+    spec = gate_specs.get(canonical)
+    if isinstance(spec, dict):
+        return {"id": canonical, **spec}
+    return None
+
+
+def build_quality_gate_from_spec(gate_id: str, spec: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    role = str(spec.get("role") or "").strip()
+    if not role:
+        raise SystemExit(f"Quality gate {gate_id!r} has no role.")
+    if roster_is_configured(state) and role not in roster_roles(state):
+        raise SystemExit(f"Quality gate {gate_id!r} requires role {role!r}, which is not in this Sprint Engine roster.")
+    phase = str(spec.get("phase") or "").strip()
+    if phase not in {"review", "testing", "product"}:
+        raise SystemExit(f"Quality gate {gate_id!r} has invalid phase {phase!r}.")
+    return {
+        "id": canonical_quality_gate_id(str(spec.get("id") or gate_id)),
+        "phase": phase,
+        "role": role,
+        "status": "pending",
+        "required": bool(spec.get("required", True)),
+        "allowSelfReview": True,
+        "focus": str(spec.get("focus") or ""),
+        "attempts": [],
+    }
+
+
+def apply_quality_gate_cli_overrides(task: Dict[str, Any], state: Dict[str, Any], policy: Dict[str, Any], args: argparse.Namespace) -> None:
+    if getattr(args, "no_quality_gates", False):
+        task["qualityGates"] = []
+        return
+
+    gates = list(task.get("qualityGates", []) if isinstance(task.get("qualityGates"), list) else [])
+    if getattr(args, "no_review", False):
+        gates = [gate for gate in gates if gate.get("phase") != "review"]
+    if getattr(args, "no_testing", False):
+        gates = [gate for gate in gates if gate.get("phase") != "testing"]
+    if getattr(args, "no_product_acceptance", False):
+        gates = [gate for gate in gates if gate.get("phase") != "product" and canonical_quality_gate_id(str(gate.get("id") or "")) != "product"]
+
+    skip_ids = {canonical_quality_gate_id(value) for value in (getattr(args, "skip_gate", None) or [])}
+    if skip_ids:
+        gates = [gate for gate in gates if canonical_quality_gate_id(str(gate.get("id") or "")) not in skip_ids]
+
+    existing_ids = {canonical_quality_gate_id(str(gate.get("id") or "")) for gate in gates}
+    for required_id in getattr(args, "require_gate", None) or []:
+        canonical = canonical_quality_gate_id(required_id)
+        if canonical in existing_ids:
+            continue
+        spec = quality_gate_spec_for_id(canonical, policy)
+        if spec is None:
+            raise SystemExit(f"Unknown quality gate {required_id!r}.")
+        gates.append(build_quality_gate_from_spec(canonical, spec, state))
+        existing_ids.add(canonical)
+
+    task["qualityGates"] = gates
+
+
 def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dict[str, Any]:
     task_id = getattr(args, "task_id", None) or next_task_id(state.get("tasks", []))
+    if (
+        folder_store.normalize_quality_policy(state.get("sprintengine", {}).get("qualityPolicy") if isinstance(state.get("sprintengine"), dict) else {}).get("enabled", True)
+        and not roster_is_configured(state)
+    ):
+        raise SystemExit("Cannot add quality-gated Sprint Engine tasks before configuring a roster.")
     reject_absolute_path_values(getattr(args, "path", None), "--path")
     raw = {
         "id": task_id,
@@ -2221,6 +2358,8 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         raw["productFacing"] = True
     elif getattr(args, "not_product_facing", False):
         raw["productFacing"] = False
+    if getattr(args, "produces_implementation", False):
+        raw["producesImplementation"] = True
     if getattr(args, "manual_dispatch", False):
         raw["dispatch"] = {
             "mode": "manual",
@@ -2230,6 +2369,7 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
     task = normalize_task(raw)
     policy = folder_store.normalize_quality_fields(state)
     task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
+    apply_quality_gate_cli_overrides(task, state, policy, args)
     existing_ids = {str(t.get("id")) for t in state.get("tasks", []) if isinstance(t, dict)}
     if task["id"] in existing_ids:
         raise SystemExit(f"Task id already exists: {task['id']}")
@@ -2944,6 +3084,8 @@ def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, An
 def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
     linked_artifacts = blocking_artifacts_for_task(state, str(task.get("id")))
     if not linked_artifacts or any(a.get("status") != "approved" for a in linked_artifacts):
+        return False
+    if open_required_quality_gates(task):
         return False
 
     task["status"] = "done"
@@ -4028,17 +4170,68 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"stop and report the blocker id if one is visible."
         )
 
+    def gate_boundary_instruction() -> str:
+        return (
+            f"You are assigned role `{args.role}` as a quality-gate reviewer/tester/product reviewer. "
+            "Claim quality gates with `sprintengine task gate next`, not `sprintengine task next`. "
+            "A gate reviews another role's task while the task remains in its lifecycle folder; do not edit "
+            "application or test code unless the user explicitly changes your assignment."
+        )
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_agent_in_roster(state, args.id, args.role)
         runtime = reconcile_agent(state, args.id, args.role)
         agent = runtime["agent"]
         active = runtime["activeTask"]
+        active_gate = find_active_gate_claim(state, args.id, args.role)
+        pending_gates = [
+            {"task": task, "gate": gate}
+            for task in state.get("tasks", []) or []
+            if isinstance(task, dict)
+            for gate in task_quality_gates(task)
+            if gate_is_claimable_for_role(task, gate, args.role, args.id)
+        ]
         ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
+
+        prompt = load_prompt(args.role)
+        if active_gate:
+            task = active_gate["task"]
+            gate = active_gate["gate"]
+            directive = (
+                f"\n\n---\n"
+                f"## Your First Action\n"
+                f"You are agent `{args.id}` with role `{args.role}`.\n"
+                f"You already have active gate `{gate.get('id')}` on task `{task.get('id')}`: {task.get('title') or '(untitled task)'}.\n\n"
+                f"Run:\n```\nsprintengine task gate next --role {args.role} --id {args.id}\n```\n\n"
+                f"This reconnects you to your existing active gate and returns the full review context.\n\n"
+                f"{gate_boundary_instruction()}\n\n"
+                f"{worker_execution_workspace_block(state, args.state)}\n\n"
+                "When complete, submit the gate result with `sprintengine task gate verdict` and then stop.\n\n"
+                "**IMPORTANT: Do not edit .multi-code/sprintengine/state.yaml directly. "
+                "All updates must go through the Sprint Engine tool.**"
+            )
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_resume", "task": task, "gate": gate, "prompt": prompt + directive, "write": runtime["dirty"]}
+
+        if pending_gates:
+            first = pending_gates[0]
+            directive = (
+                f"\n\n---\n"
+                f"## Your First Action\n"
+                f"You are agent `{args.id}` with role `{args.role}`.\n"
+                f"There are **{len(pending_gates)} quality gate(s)** ready for your role.\n\n"
+                f"Run:\n```\nsprintengine task gate next --role {args.role} --id {args.id}\n```\n\n"
+                "The command atomically claims one gate and returns the plan, task, evidence, comments, artifacts, and gate focus.\n\n"
+                f"{gate_boundary_instruction()}\n\n"
+                f"{worker_execution_workspace_block(state, args.state)}\n\n"
+                "When complete, submit the gate result with `sprintengine task gate verdict` and then stop.\n\n"
+                "**IMPORTANT: Do not edit .multi-code/sprintengine/state.yaml directly. "
+                "All updates must go through the Sprint Engine tool.**"
+            )
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_work", "readyGateCount": len(pending_gates), "task": first["task"], "gate": first["gate"], "prompt": prompt + directive, "write": runtime["dirty"]}
 
         if not active and not ready:
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "stop", "message": f"No tasks are currently ready for the '{args.role}' role. Either all tasks are complete or dependencies are not yet resolved. Stop now.", "write": runtime["dirty"]}
 
-        prompt = load_prompt(args.role)
         if active:
             task_id = active.get("id")
             task_title = active.get("title") or "(untitled task)"
@@ -4851,7 +5044,8 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
-        result = publish_task(state, task, str(actor), args.summary, paths=args.path or [])
+        summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
+        result = publish_task(state, task, str(actor), args.summary, paths=args.path or [], data=summary_data)
         recompute_phase(state)
         event = append_event(state, "task_published", str(actor), f"{actor} published {args.task_id} to {result['nextStatus']}.")
         return {"ok": True, "task": task, "comment": result["comment"], "nextStatus": result["nextStatus"], "previousStatus": result["previousStatus"], "clearedAgents": result["clearedAgents"], "event": event}
@@ -4882,6 +5076,7 @@ def cmd_task_comment(args: argparse.Namespace) -> Dict[str, Any]:
             comment_type=comment_type,
             source=args.source,
             paths=args.path or [],
+            data=parse_json_object_arg(getattr(args, "data_json", None), "--data-json"),
         )
         event = append_event(state, "task_comment_added", actor, f"{actor} commented on {args.task_id}.")
         return {"ok": True, "task": task, "comment": comment, "event": event}
@@ -4949,12 +5144,15 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             task["productFacing"] = True
         elif args.not_product_facing:
             task["productFacing"] = False
+        if getattr(args, "produces_implementation", False):
+            task["producesImplementation"] = True
 
         policy = folder_store.normalize_quality_fields(state)
         task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
         if args.product_facing or args.not_product_facing:
             sync_product_quality_gate(task, state, policy)
             task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
+        apply_quality_gate_cli_overrides(task, state, policy, args)
 
         try:
             folder_store.validate_acyclic_task_graph([candidate for candidate in state.get("tasks", []) if isinstance(candidate, dict)])
@@ -5689,6 +5887,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", required=True, help="Agent id.")
     p.add_argument("--summary", required=True, help="Implementation summary or rework response body.")
     p.add_argument("--path", action="append", default=[], help="Project-root-relative path referenced by this handoff.")
+    p.add_argument("--summary-data-json", help="Structured implementation summary JSON object.")
     p.set_defaults(handler=cmd_task_publish)
 
     p = task_sub.add_parser("note", help="Add a freeform note to a task.")
@@ -5705,6 +5904,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--source", default="user", choices=["user", "agent", "system"])
     p.add_argument("--type", dest="comment_type", choices=sorted(VALID_TASK_COMMENT_TYPES))
     p.add_argument("--path", action="append", default=[], help="Project-root-relative path referenced by this comment.")
+    p.add_argument("--data-json", help="Structured comment data JSON object.")
     p.set_defaults(handler=lambda args: cmd_task_comment_list(args) if args.comment_action == "list" else cmd_task_comment(args))
 
     p = task_sub.add_parser("list", help="List ready tasks for a role.")
@@ -5726,8 +5926,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--acceptance", action="append", default=[], help="Acceptance criterion.")
     p.add_argument("--note", action="append", default=[], help="Repeatable implementation detail from the plan.")
     p.add_argument("--task-note", action="append", default=[], help="Repeatable task note.")
+    p.add_argument("--produces-implementation", action="store_true", help="Mark this task as implementation-producing even when its role is not developer/frontend.")
+    p.add_argument("--no-quality-gates", action="store_true", help="Disable quality gates for this task.")
+    p.add_argument("--no-review", action="store_true", help="Remove review-phase gates for this task.")
+    p.add_argument("--no-testing", action="store_true", help="Remove testing-phase gates for this task.")
     p.add_argument("--product-facing", action="store_true", help="Mark this task as requiring product acceptance when product is rostered.")
     p.add_argument("--not-product-facing", action="store_true", help="Persist that this task should not receive product acceptance by default.")
+    p.add_argument("--no-product-acceptance", action="store_true", help="Remove product acceptance gates for this task.")
+    p.add_argument("--require-gate", action="append", default=[], help="Require a named quality gate for this task.")
+    p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
     p.add_argument("--manual-dispatch", action="store_true", help="Create the task behind the manual Ready gate.")
     p.add_argument("--dispatch-status", choices=sorted(VALID_TASK_DISPATCH_STATUSES), default="todo")
     p.add_argument("--triaged-by", choices=sorted(VALID_TASK_DISPATCH_TRIAGED_BY), default="none")
@@ -5748,8 +5955,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clear-notes", action="store_true")
     p.add_argument("--task-note", action="append", help="Replace task notes with this repeatable list.")
     p.add_argument("--clear-task-notes", action="store_true")
+    p.add_argument("--produces-implementation", action="store_true", help="Mark this task as implementation-producing even when its role is not developer/frontend.")
+    p.add_argument("--no-quality-gates", action="store_true", help="Disable quality gates for this task.")
+    p.add_argument("--no-review", action="store_true", help="Remove review-phase gates for this task.")
+    p.add_argument("--no-testing", action="store_true", help="Remove testing-phase gates for this task.")
     p.add_argument("--product-facing", action="store_true", help="Mark this task as requiring product acceptance when product is rostered.")
     p.add_argument("--not-product-facing", action="store_true", help="Persist that this task should not receive product acceptance by default.")
+    p.add_argument("--no-product-acceptance", action="store_true", help="Remove product acceptance gates for this task.")
+    p.add_argument("--require-gate", action="append", default=[], help="Require a named quality gate for this task.")
+    p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=cmd_plan_update_task)
 

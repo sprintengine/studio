@@ -231,7 +231,7 @@ def normalize_quality_gate(raw: Any, fallback_id: str) -> dict[str, Any] | None:
         "role": role,
         "status": status,
         "required": _bool_value(raw.get("required"), True),
-        "allowSelfReview": _bool_value(raw.get("allowSelfReview"), False),
+        "allowSelfReview": _bool_value(raw.get("allowSelfReview"), True),
         "focus": str(raw.get("focus") or "").strip(),
         "attempts": _normalize_gate_attempts(raw.get("attempts")),
     }
@@ -245,9 +245,30 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
     if not policy.get("enabled", True):
         return []
     roster_configured = roster_is_configured_in_state(state)
+    if not roster_configured:
+        return []
+    if task.get("role") not in {"developer", "frontend"} and not _bool_value(task.get("producesImplementation"), False):
+        return []
     roster_roles = roster_roles_from_state(state)
     gate_specs = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
     selected: list[dict[str, Any]] = []
+
+    frontend_paths = (
+        "src/renderer/",
+        "src/main/mobile/",
+        "src/shared/mobile-control/",
+    )
+    if any(str(path).startswith(frontend_paths) for path in task.get("ownedPaths", []) or []) and "frontend" in roster_roles:
+        selected.append({
+            "id": "frontend_review",
+            "phase": "review",
+            "role": "frontend",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "UI behavior, accessibility, responsive behavior, status labels, and interaction correctness",
+            "attempts": [],
+        })
 
     for gate_id in ("code_reviewer", "spec_reviewer", "tester", "product"):
         spec = gate_specs.get(gate_id)
@@ -258,15 +279,13 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
             continue
         if roster_configured and role not in roster_roles:
             continue
-        if role == task.get("role"):
-            continue
         selected.append({
             "id": gate_id,
             "phase": spec["phase"],
             "role": role,
             "status": "pending",
             "required": bool(spec.get("required", True)),
-            "allowSelfReview": False,
+            "allowSelfReview": True,
             "focus": str(spec.get("focus") or ""),
             "attempts": [],
         })
@@ -281,7 +300,7 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
                 "role": role,
                 "status": "pending",
                 "required": bool(architect_spec.get("required", True)),
-                "allowSelfReview": False,
+                "allowSelfReview": True,
                 "focus": str(architect_spec.get("focus") or ""),
                 "attempts": [],
             })

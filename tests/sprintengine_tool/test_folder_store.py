@@ -105,6 +105,27 @@ def test_quality_policy_and_gates_skip_absent_roster_roles(tmp_path) -> None:
     assert task_record["qualityGates"] == []
 
 
+def test_plan_add_task_requires_configured_roster_for_quality_gated_runs(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "quality-no-unconfigured-plan-add",
+        [],
+    )
+
+    rejected = fixture.cli.run_failure(
+        "plan",
+        "add-task",
+        "--title",
+        "Touch Sprint Engine tool",
+        "--role",
+        "developer",
+        "--path",
+        "sprintengine_core/tool.py",
+    )
+
+    assert "Cannot add quality-gated Sprint Engine tasks before configuring a roster" in rejected.stderr
+
+
 def test_cross_cutting_tasks_get_architect_quality_gate_when_rostered(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
@@ -136,6 +157,132 @@ def test_cross_cutting_tasks_get_architect_quality_gate_when_rostered(tmp_path) 
     assert gate["role"] == "architect"
     assert gate["required"] is True
     assert gate["status"] == "pending"
+    assert gate["allowSelfReview"] is True
+
+
+def test_frontend_paths_get_frontend_review_gate_when_frontend_rostered(tmp_path) -> None:
+    fixture = create_team(tmp_path, "quality-frontend-review-gate", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "frontend": {"role": "frontend", "status": "idle", "currentTaskId": None},
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    added = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Update board UI",
+        "--role",
+        "developer",
+        "--path",
+        "src/renderer/src/components/panels/SprintEngineBoardPanel.tsx",
+    )
+
+    assert [gate["id"] for gate in added["task"]["qualityGates"]] == ["frontend_review"]
+    gate = added["task"]["qualityGates"][0]
+    assert gate["phase"] == "review"
+    assert gate["role"] == "frontend"
+    assert gate["allowSelfReview"] is True
+
+
+def test_produces_implementation_flag_opts_non_developer_task_into_gates(tmp_path) -> None:
+    fixture = create_team(tmp_path, "quality-produces-implementation-flag", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
+        "code-reviewer": {"role": "code_reviewer", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    added = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Architect edits workflow prompt",
+        "--role",
+        "architect",
+        "--path",
+        ".agents/skills/sprintengine/SKILL.md",
+        "--produces-implementation",
+    )
+
+    assert added["task"]["producesImplementation"] is True
+    assert [gate["id"] for gate in added["task"]["qualityGates"]] == ["architect_review", "code_reviewer"]
+
+
+def test_quality_gate_override_flags_filter_and_require_gates(tmp_path) -> None:
+    fixture = create_team(tmp_path, "quality-override-flags", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+        "code-reviewer": {"role": "code_reviewer", "status": "idle", "currentTaskId": None},
+        "tester": {"role": "tester", "status": "idle", "currentTaskId": None},
+        "product": {"role": "product", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    added = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Backend implementation",
+        "--role",
+        "developer",
+        "--path",
+        "sprintengine_core/tool.py",
+        "--product-facing",
+        "--no-review",
+        "--no-product-acceptance",
+        "--require-gate",
+        "tester",
+    )
+
+    assert [gate["id"] for gate in added["task"]["qualityGates"]] == ["tester"]
+    assert added["task"]["qualityGates"][0]["phase"] == "testing"
+
+
+def test_no_quality_gates_and_skip_gate_flags_persist_explicit_gate_list(tmp_path) -> None:
+    fixture = create_team(tmp_path, "quality-no-gates-skip-gate", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+        "code-reviewer": {"role": "code_reviewer", "status": "idle", "currentTaskId": None},
+        "tester": {"role": "tester", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    no_gates = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Docs-only implementation note",
+        "--role",
+        "developer",
+        "--path",
+        "docs/sprintengine-cli.md",
+        "--no-quality-gates",
+    )
+    skipped = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "CLI implementation",
+        "--role",
+        "developer",
+        "--path",
+        "sprintengine_core/tool.py",
+        "--skip-gate",
+        "code-reviewer",
+    )
+
+    assert no_gates["task"]["qualityGates"] == []
+    assert [gate["id"] for gate in skipped["task"]["qualityGates"]] == ["tester"]
 
 
 def test_product_rostered_internal_tasks_skip_product_gate_by_default(tmp_path) -> None:
