@@ -31,6 +31,7 @@ async function main(): Promise<void> {
     testArgvToPosixShellCommand()
     testBuildAgentShellCommandClaude()
     testBuildAgentShellCommandCodex()
+    testRenderArgvIncludesBinaryAsFirstElement()
   })
 
   console.log('agent-launch-render tests passed')
@@ -190,6 +191,35 @@ function testBuildAgentShellCommandClaude(): void {
     resumeOut,
     `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude command in Multicode Settings.'; else claude --resume sid_42; fi`
   )
+}
+
+function testRenderArgvIncludesBinaryAsFirstElement(): void {
+  // The PowerShell launch path relies on argv[0] being the binary so it can
+  // hand the tail to base64-encoded $arguments. Guard against regressions in
+  // the argv shape that would break Windows-native launches for Claude and
+  // any future plugin.
+  const claude = renderAgentLaunchArgv({
+    cli: 'claude',
+    sessionId: 'sid_win',
+    initialPrompt: 'do it',
+    cliPermissionPreset: 'auto_workspace',
+  })
+  assert.equal(claude.argv[0], 'claude')
+  assert.deepEqual(claude.argv.slice(1), [
+    '--permission-mode',
+    'auto',
+    '--session-id',
+    'sid_win',
+    'do it',
+  ])
+
+  const claudeOverride = renderAgentLaunchArgv({
+    cli: 'claude',
+    sessionId: 'sid_win',
+    cliRuntime: { command: 'C:/tools/claude.exe', useWsl: false },
+  })
+  assert.equal(claudeOverride.argv[0], 'C:/tools/claude.exe')
+  assert.equal(claudeOverride.binary, 'C:/tools/claude.exe')
 }
 
 function testBuildAgentShellCommandCodex(): void {
