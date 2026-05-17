@@ -253,6 +253,8 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "acceptance": args.acceptance or [],
             "note": args.note or [],
             "taskNote": args.task_note or [],
+            "productFacing": args.product_facing,
+            "notProductFacing": args.not_product_facing,
             "manualDispatch": args.manual_dispatch,
             "dispatchStatus": args.dispatch_status,
             "triagedBy": args.triaged_by,
@@ -274,6 +276,8 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "clearNotes": args.clear_notes,
             "taskNote": args.task_note,
             "clearTaskNotes": args.clear_task_notes,
+            "productFacing": args.product_facing,
+            "notProductFacing": args.not_product_facing,
             "force": args.force,
         }
     if action == "delete-task":

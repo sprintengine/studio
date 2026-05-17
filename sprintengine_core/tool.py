@@ -32,6 +32,7 @@ from sprintengine_core import store as folder_store
 
 VALID_TASK_STATUSES = {"todo", "in_progress", "review", "testing", "product", "changes_requested", "needs_input", "done", "canceled"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
+RUN_EXECUTING_TASK_STATUSES = ACTIVE_TASK_STATUSES | {"review", "testing", "product", "changes_requested"}
 VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer", "spec_reviewer", "performance"}
 VALID_TASK_COMMENT_TYPES = {
     "implementation_summary",
@@ -1480,10 +1481,62 @@ def open_required_quality_gates(task: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def task_status_done_requires_closed_gates(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
-    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
-    if sprintengine.get("rosterConfigured"):
-        return True
-    return str(task.get("status") or "") in {"review", "testing", "product", "changes_requested", "needs_input"}
+    del state
+    return bool(open_required_quality_gates(task))
+
+
+def sync_product_quality_gate(task: Dict[str, Any], state: Dict[str, Any], policy: Dict[str, Any]) -> None:
+    gates = task.setdefault("qualityGates", [])
+    if not isinstance(gates, list):
+        gates = []
+        task["qualityGates"] = gates
+
+    existing_index = next(
+        (
+            index
+            for index, gate in enumerate(gates)
+            if isinstance(gate, dict) and gate.get("id") == "product"
+        ),
+        None,
+    )
+
+    if not task.get("productFacing"):
+        if existing_index is not None:
+            gates.pop(existing_index)
+        return
+
+    gate_specs = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
+    spec = gate_specs.get("product")
+    if not isinstance(spec, dict):
+        return
+    role = str(spec.get("role") or "product")
+    if folder_store.roster_is_configured_in_state(state) and role not in folder_store.roster_roles_from_state(state):
+        return
+    if role == task.get("role"):
+        return
+
+    if existing_index is None:
+        gates.append({
+            "id": "product",
+            "phase": spec["phase"],
+            "role": role,
+            "status": "pending",
+            "required": bool(spec.get("required", True)),
+            "allowSelfReview": False,
+            "focus": str(spec.get("focus") or ""),
+            "attempts": [],
+        })
+        return
+
+    gate = gates[existing_index]
+    if isinstance(gate, dict):
+        gate["phase"] = spec["phase"]
+        gate["role"] = role
+        gate["required"] = bool(spec.get("required", True))
+        gate.setdefault("status", "pending")
+        gate.setdefault("allowSelfReview", False)
+        gate.setdefault("attempts", [])
+        gate["focus"] = str(spec.get("focus") or gate.get("focus") or "")
 
 
 def next_status_after_gate_verdict(task: Dict[str, Any], phase: str) -> str:
@@ -1872,9 +1925,9 @@ def state_has_active_gate(tasks: List[Dict[str, Any]]) -> bool:
 def recompute_phase(state: Dict[str, Any]) -> bool:
     sprintengine = state.setdefault("sprintengine", {})
     tasks = state.get("tasks", [])
-    if tasks and all(t.get("status") == "done" for t in tasks):
+    if tasks and all(t.get("status") in {"done", "canceled"} for t in tasks):
         return set_if_changed(sprintengine, "status", "completed")
-    if any(t.get("status") in ACTIVE_TASK_STATUSES for t in tasks) or state_has_active_gate(tasks):
+    if any(t.get("status") in RUN_EXECUTING_TASK_STATUSES for t in tasks) or state_has_active_gate(tasks):
         return set_if_changed(sprintengine, "status", "executing")
     return set_if_changed(sprintengine, "status", "planned" if tasks else "planning")
 
@@ -2103,6 +2156,8 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         "startedAt": raw.get("startedAt") or None,
         "completedAt": raw.get("completedAt") or None,
     }
+    if "productFacing" in raw:
+        task["productFacing"] = bool(raw.get("productFacing"))
     source = normalize_task_source(raw.get("source"), task_id)
     if source is not None:
         task["source"] = source
@@ -2160,6 +2215,12 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         "startedAt": None,
         "completedAt": None,
     }
+    if getattr(args, "product_facing", False) and getattr(args, "not_product_facing", False):
+        raise SystemExit("--product-facing and --not-product-facing cannot be used together.")
+    if getattr(args, "product_facing", False):
+        raw["productFacing"] = True
+    elif getattr(args, "not_product_facing", False):
+        raw["productFacing"] = False
     if getattr(args, "manual_dispatch", False):
         raw["dispatch"] = {
             "mode": "manual",
@@ -4882,8 +4943,18 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             task["notes"] = []
         set_unique_list(task, "notes", args.task_note)
 
+        if args.product_facing and args.not_product_facing:
+            raise SystemExit("--product-facing and --not-product-facing cannot be used together.")
+        if args.product_facing:
+            task["productFacing"] = True
+        elif args.not_product_facing:
+            task["productFacing"] = False
+
         policy = folder_store.normalize_quality_fields(state)
         task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
+        if args.product_facing or args.not_product_facing:
+            sync_product_quality_gate(task, state, policy)
+            task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
 
         try:
             folder_store.validate_acyclic_task_graph([candidate for candidate in state.get("tasks", []) if isinstance(candidate, dict)])
@@ -5655,6 +5726,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--acceptance", action="append", default=[], help="Acceptance criterion.")
     p.add_argument("--note", action="append", default=[], help="Repeatable implementation detail from the plan.")
     p.add_argument("--task-note", action="append", default=[], help="Repeatable task note.")
+    p.add_argument("--product-facing", action="store_true", help="Mark this task as requiring product acceptance when product is rostered.")
+    p.add_argument("--not-product-facing", action="store_true", help="Persist that this task should not receive product acceptance by default.")
     p.add_argument("--manual-dispatch", action="store_true", help="Create the task behind the manual Ready gate.")
     p.add_argument("--dispatch-status", choices=sorted(VALID_TASK_DISPATCH_STATUSES), default="todo")
     p.add_argument("--triaged-by", choices=sorted(VALID_TASK_DISPATCH_TRIAGED_BY), default="none")
@@ -5675,6 +5748,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clear-notes", action="store_true")
     p.add_argument("--task-note", action="append", help="Replace task notes with this repeatable list.")
     p.add_argument("--clear-task-notes", action="store_true")
+    p.add_argument("--product-facing", action="store_true", help="Mark this task as requiring product acceptance when product is rostered.")
+    p.add_argument("--not-product-facing", action="store_true", help="Persist that this task should not receive product acceptance by default.")
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=cmd_plan_update_task)
 

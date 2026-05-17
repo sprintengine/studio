@@ -148,9 +148,12 @@ def test_superseded_artifacts_are_not_reviewable_or_approval_blocking(tmp_path) 
     approve_failure = fixture.cli.run_failure("artifact", "approve", "--artifact-id", "A1", "--id", "user")
     assert "Superseded artifacts cannot be approved" in approve_failure.stderr
 
-    # A superseded artifact alone does not keep the producer task in review.
+        # A superseded artifact alone does not keep the producer task in review.
     state_after_failures = read_state(fixture.state_path)
-    get_task(state_after_failures, "T1")["status"] = "in_progress"
+    state_after_failures["sprintengine"]["qualityPolicy"] = {"enabled": False}
+    task_record = get_task(state_after_failures, "T1")
+    task_record["status"] = "in_progress"
+    task_record.pop("qualityGates", None)
     fixture.state_path.write_text(json.dumps(state_after_failures, indent=2) + "\n", encoding="utf-8")
 
     done = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "architect-fixture")

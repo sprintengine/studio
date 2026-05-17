@@ -243,6 +243,8 @@ class SprintEngineMcpServer:
                 acceptance=list(payload.get("acceptance") or []),
                 note=list(payload.get("note") or []),
                 task_note=list(payload.get("taskNote") or []),
+                product_facing=bool(payload.get("productFacing", False)),
+                not_product_facing=bool(payload.get("notProductFacing", False)),
                 manual_dispatch=bool(payload.get("manualDispatch", False)),
                 dispatch_status=payload.get("dispatchStatus") or "todo",
                 triaged_by=payload.get("triagedBy") or "none",
@@ -263,6 +265,8 @@ class SprintEngineMcpServer:
                 clear_notes=bool(payload.get("clearNotes", False)),
                 task_note=payload.get("taskNote"),
                 clear_task_notes=bool(payload.get("clearTaskNotes", False)),
+                product_facing=bool(payload.get("productFacing", False)),
+                not_product_facing=bool(payload.get("notProductFacing", False)),
                 force=bool(payload.get("force", False)),
             )
         elif tool_name == "sprintengine.plan.delete_task":

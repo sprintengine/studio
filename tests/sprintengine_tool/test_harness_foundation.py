@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from helpers import (
@@ -111,6 +113,9 @@ def test_feedback_assertions_cover_state_and_metrics_jsonl(tmp_path) -> None:
         "feedback-flow",
         [task("T1", "Implement behavior", "developer", "in_progress", owner="developer-fixture")],
     )
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["qualityPolicy"] = {"enabled": False}
+    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
     fixture.cli.run(
         "task",

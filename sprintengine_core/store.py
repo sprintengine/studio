@@ -195,6 +195,10 @@ def task_requires_architect_gate(task: dict[str, Any]) -> bool:
     return any(path.startswith(cross_cutting_prefixes) for path in paths)
 
 
+def task_requires_product_gate(task: dict[str, Any]) -> bool:
+    return _bool_value(task.get("productFacing"), False)
+
+
 def _normalize_gate_attempts(raw: Any) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         return []
@@ -250,6 +254,8 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
         if not isinstance(spec, dict):
             continue
         role = str(spec.get("role") or gate_id)
+        if gate_id == "product" and not task_requires_product_gate(task):
+            continue
         if roster_configured and role not in roster_roles:
             continue
         if role == task.get("role"):

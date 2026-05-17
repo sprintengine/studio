@@ -221,6 +221,9 @@ def test_gate_approved_verdict_waits_for_parallel_phase_gates_then_advances(tmp_
         "--summary",
         "Code review passed.",
     )
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["status"] = "planned"
+    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     second = fixture.cli.run(
         "task",
         "gate",
@@ -242,6 +245,7 @@ def test_gate_approved_verdict_waits_for_parallel_phase_gates_then_advances(tmp_
     assert first["nextStatus"] == "review"
     assert second["nextStatus"] == "testing"
     state = read_state(fixture.state_path)
+    assert state["sprintengine"]["status"] == "executing"
     task_record = get_task(state, "T1")
     assert task_record["status"] == "testing"
     assert [gate["status"] for gate in task_record["qualityGates"][:2]] == ["approved", "approved"]
@@ -250,6 +254,9 @@ def test_gate_approved_verdict_waits_for_parallel_phase_gates_then_advances(tmp_
 def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_requested(tmp_path) -> None:
     fixture = create_team(tmp_path, "gate-failed-feedback", [gated_review_task()])
     claim_gate(fixture, "code_reviewer", "code-reviewer")
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["status"] = "planned"
+    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
     verdict = fixture.cli.run(
         "task",
@@ -276,6 +283,7 @@ def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_request
     assert verdict["comment"]["data"]["status"] == "open"
     assert verdict["comment"]["data"]["requiredActions"] == ["Add validation before publish."]
     state = read_state(fixture.state_path)
+    assert state["sprintengine"]["status"] == "executing"
     assert_task_status(state, "T1", "changes_requested")
     assert get_task(state, "T1")["qualityGates"][0]["status"] == "changes_requested"
 

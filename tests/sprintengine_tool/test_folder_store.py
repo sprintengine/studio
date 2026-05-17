@@ -138,6 +138,88 @@ def test_cross_cutting_tasks_get_architect_quality_gate_when_rostered(tmp_path) 
     assert gate["status"] == "pending"
 
 
+def test_product_rostered_internal_tasks_skip_product_gate_by_default(tmp_path) -> None:
+    fixture = create_team(tmp_path, "quality-product-skips-internal", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+        "product": {"role": "product", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    added = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Refine internal CLI lifecycle",
+        "--role",
+        "developer",
+        "--path",
+        "sprintengine_core/tool.py",
+        "--not-product-facing",
+    )
+
+    assert added["task"]["productFacing"] is False
+    assert [gate["id"] for gate in added["task"]["qualityGates"]] == []
+
+
+def test_product_facing_tasks_get_product_gate_when_product_is_rostered(tmp_path) -> None:
+    fixture = create_team(tmp_path, "quality-product-facing-gate", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+        "product": {"role": "product", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    added = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Ship user-visible status panel",
+        "--role",
+        "developer",
+        "--path",
+        "src/renderer/src/components/StatusPanel.tsx",
+        "--product-facing",
+    )
+
+    assert added["task"]["productFacing"] is True
+    assert [gate["id"] for gate in added["task"]["qualityGates"]] == ["product"]
+    gate = added["task"]["qualityGates"][0]
+    assert gate["phase"] == "product"
+    assert gate["role"] == "product"
+    assert gate["required"] is True
+
+
+def test_plan_update_persists_product_facing_signal_and_recomputes_gates(tmp_path) -> None:
+    fixture = create_team(tmp_path, "quality-product-facing-update", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+        "product": {"role": "product", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+    added = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Tune status labels",
+        "--role",
+        "developer",
+        "--path",
+        "src/renderer/src/components/StatusPanel.tsx",
+    )
+
+    updated = fixture.cli.run("plan", "update-task", "--task-id", added["task"]["id"], "--product-facing")
+
+    assert updated["task"]["productFacing"] is True
+    assert [gate["id"] for gate in updated["task"]["qualityGates"]] == ["product"]
+
+
 def test_folder_store_path_validation_rejects_machine_specific_paths() -> None:
     rejected = [
         "/tmp/file.py",
