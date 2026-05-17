@@ -743,7 +743,16 @@ function evidenceSortKey(task: MultiloopTask): string {
 
 function sprintEngineTaskToMultiloopTask(task: SprintEngineTask, sprintEngineState: SprintEngineState, milestoneId: string): MultiloopTask {
   const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
-  const status = boardColumn === 'changes_requested' ? 'ready' : boardColumn
+  // Lifecycle gate columns (review/testing/product) and product-acceptance flows
+  // map to in_progress for legacy multiloop consumers that only understand the
+  // pre-gates status vocabulary. Changes-requested maps to ready so rework stays
+  // immediately claimable in the multiloop projection.
+  const status =
+    boardColumn === 'changes_requested'
+      ? 'ready'
+      : boardColumn === 'review' || boardColumn === 'testing' || boardColumn === 'product'
+      ? 'in_progress'
+      : boardColumn
   return {
     id: task.id,
     milestoneId,

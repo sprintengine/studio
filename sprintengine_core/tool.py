@@ -30,9 +30,20 @@ except ImportError as exc:
 from sprintengine_core import store as folder_store
 
 
-VALID_TASK_STATUSES = {"todo", "in_progress", "changes_requested", "needs_input", "done", "canceled"}
+VALID_TASK_STATUSES = {"todo", "in_progress", "review", "testing", "product", "changes_requested", "needs_input", "done", "canceled"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
 VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer", "spec_reviewer", "performance"}
+VALID_TASK_COMMENT_TYPES = {
+    "implementation_summary",
+    "implementation_response",
+    "review_feedback",
+    "test_feedback",
+    "product_feedback",
+    "architect_feedback",
+    "needs_input",
+    "user_note",
+    "system_note",
+}
 VALID_TASK_SOURCE_TYPES = {"local", "github", "jira", "linear"}
 VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "conflict"}
 VALID_TASK_DISPATCH_MODES = {"dependency", "manual"}
@@ -70,7 +81,8 @@ VALID_ARTIFACT_KINDS = {
     "performance_review",
     "validation_report",
 }
-VALID_ARTIFACT_STATUSES = {"draft", "ready_for_review", "approved", "changes_requested", "superseded"}
+VALID_ARTIFACT_STATUSES = {"draft", "recorded", "ready_for_review", "approved", "changes_requested", "superseded"}
+VALID_GATE_VERDICTS = {"approved", "changes_requested", "failed", "blocked", "skipped"}
 VALID_SOURCE_PLAN_KINDS = {"unknown", "product_plan", "architect_plan"}
 VALID_SOURCE_BUNDLE_KINDS = VALID_SOURCE_PLAN_KINDS | {"html_mockup", "design_notes", "generic_context"}
 APPROVAL_BLOCKING_ARTIFACT_STATUSES = VALID_ARTIFACT_STATUSES - {"superseded"}
@@ -747,6 +759,20 @@ def folder_store_is_ready_for_state(path: Path) -> bool:
 
 def load_mutation_state(path: Path, *, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if folder_store_is_ready_for_state(path):
+        if path.exists():
+            team_dir = path.parent
+            folder_paths = [
+                team_dir / folder_store.RUN_FILE,
+                team_dir / folder_store.EVENTS_FILE,
+                *sorted((team_dir / "tasks").glob("*/*.json")),
+                *sorted((team_dir / "artifacts").glob("*/*.json")),
+            ]
+            latest_folder_mtime = max((candidate.stat().st_mtime_ns for candidate in folder_paths if candidate.exists()), default=0)
+            if path.stat().st_mtime_ns > latest_folder_mtime:
+                try:
+                    return load_state(path)
+                except (Exception, SystemExit):
+                    pass
         return folder_store.state_from_folder_store(path.parent)
     if path.exists():
         return load_state(path)
@@ -1255,12 +1281,600 @@ def assign_task(state: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> D
     return {"agent": agent}
 
 
+def next_gate_attempt_id(gate: Dict[str, Any]) -> str:
+    attempts = gate.setdefault("attempts", [])
+    if not isinstance(attempts, list):
+        gate["attempts"] = []
+        attempts = gate["attempts"]
+    max_index = 0
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        match = re.fullmatch(r"GA-(\d+)", str(attempt.get("id") or ""))
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return f"GA-{max_index + 1:03d}"
+
+
+def task_quality_gates(task: Dict[str, Any]) -> List[Dict[str, Any]]:
+    gates = task.setdefault("qualityGates", [])
+    if not isinstance(gates, list):
+        task["qualityGates"] = []
+        return task["qualityGates"]
+    return [gate for gate in gates if isinstance(gate, dict)]
+
+
+def gate_attempts(gate: Dict[str, Any]) -> List[Dict[str, Any]]:
+    attempts = gate.setdefault("attempts", [])
+    if not isinstance(attempts, list):
+        gate["attempts"] = []
+        return gate["attempts"]
+    return attempts
+
+
+def next_comment_id(task: Dict[str, Any]) -> str:
+    comments = task.setdefault("comments", [])
+    if not isinstance(comments, list):
+        task["comments"] = []
+        comments = task["comments"]
+    max_index = 0
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        match = re.fullmatch(r"C(\d+)", str(comment.get("id") or ""))
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return f"C{max_index + 1}"
+
+
+def create_task_comment(
+    state: Dict[str, Any],
+    task: Dict[str, Any],
+    *,
+    actor: str,
+    body: str,
+    comment_type: str,
+    source: str = "agent",
+    paths: Optional[List[str]] = None,
+    data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    clean_body = str(body or "").strip()
+    if not clean_body:
+        raise SystemExit("Task comment body cannot be empty.")
+    if comment_type not in VALID_TASK_COMMENT_TYPES:
+        raise SystemExit(f"Invalid task comment type {comment_type!r}.")
+    clean_paths = [folder_store.validate_project_relative_path(path, field="--path") for path in (paths or []) if str(path).strip()]
+    author_role = str(state.get("agents", {}).get(actor, {}).get("role") or task.get("role") or "").strip()
+    comment = {
+        "id": next_comment_id(task),
+        "type": comment_type,
+        "actor": actor,
+        "authorAgentId": actor,
+        "authorRole": author_role,
+        "source": source,
+        "body": clean_body,
+        "createdAt": now_iso(),
+    }
+    if clean_paths:
+        comment["paths"] = clean_paths
+    if data:
+        comment["data"] = {key: value for key, value in data.items() if value not in (None, "", [])}
+    task.setdefault("comments", []).append(comment)
+    append_task_activity(
+        task,
+        "comment",
+        actor,
+        clean_body,
+        {"commentId": comment["id"], "commentType": comment_type, "source": source},
+    )
+    return comment
+
+
+def find_active_gate_claim(state: Dict[str, Any], agent_id: str, role: str) -> Optional[Dict[str, Any]]:
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        for gate in task_quality_gates(task):
+            if gate.get("role") != role or gate.get("status") != "in_progress":
+                continue
+            for attempt in reversed(gate_attempts(gate)):
+                if (
+                    isinstance(attempt, dict)
+                    and attempt.get("status") == "in_progress"
+                    and attempt.get("claimedBy") == agent_id
+                ):
+                    return {"task": task, "gate": gate, "attempt": attempt}
+    return None
+
+
+def gate_is_claimable_for_role(task: Dict[str, Any], gate: Dict[str, Any], role: str, agent_id: str) -> bool:
+    if gate.get("role") != role or gate.get("status") != "pending":
+        return False
+    if str(task.get("status") or "") != str(gate.get("phase") or ""):
+        return False
+    if gate.get("allowSelfReview") is False and task.get("ownerAgentId") == agent_id:
+        return False
+    return True
+
+
+def claim_gate_for_agent(state: Dict[str, Any], task: Dict[str, Any], gate: Dict[str, Any], role: str, agent_id: str) -> Dict[str, Any]:
+    if not gate_is_claimable_for_role(task, gate, role, agent_id):
+        raise SystemExit("Gate is not claimable for this role and agent.")
+    now = now_iso()
+    gate["status"] = "in_progress"
+    attempt = {
+        "id": next_gate_attempt_id(gate),
+        "status": "in_progress",
+        "role": role,
+        "claimedBy": agent_id,
+        "startedAt": now,
+    }
+    gate_attempts(gate).append(attempt)
+    agent = ensure_agent(state, agent_id, role)
+    agent["status"] = "running"
+    agent["currentTaskId"] = task.get("id")
+    agent["currentGateId"] = gate.get("id")
+    append_task_activity(
+        task,
+        "gate_claim",
+        agent_id,
+        f"{agent_id} claimed gate {gate.get('id')} on {task.get('id')}.",
+        {"gateId": gate.get("id"), "gateRole": role, "gatePhase": gate.get("phase"), "attemptId": attempt["id"]},
+    )
+    return {"task": task, "gate": gate, "attempt": attempt, "agent": agent}
+
+
+def gate_phase_order() -> List[str]:
+    return ["review", "testing", "product"]
+
+
+def reset_required_gates_for_rework(task: Dict[str, Any]) -> None:
+    for gate in task_quality_gates(task):
+        if gate.get("required") is False or gate.get("status") == "skipped":
+            continue
+        gate["status"] = "pending"
+        for attempt in gate_attempts(gate):
+            if isinstance(attempt, dict) and attempt.get("status") == "in_progress":
+                attempt["status"] = "superseded"
+                attempt["completedAt"] = now_iso()
+
+
+def feedback_comment_type_for_gate(gate: Dict[str, Any]) -> str:
+    role = str(gate.get("role") or "")
+    if role == "tester":
+        return "test_feedback"
+    if role == "product":
+        return "product_feedback"
+    if role == "architect":
+        return "architect_feedback"
+    return "review_feedback"
+
+
+def next_publish_status(task: Dict[str, Any]) -> str:
+    gates = task_quality_gates(task)
+    for phase in gate_phase_order():
+        if any(
+            gate.get("phase") == phase
+            and gate.get("required") is not False
+            and gate.get("status") in {"pending", "changes_requested", "blocked"}
+            for gate in gates
+        ):
+            return phase
+    return "done"
+
+
+def phase_has_open_required_gates(task: Dict[str, Any], phase: str) -> bool:
+    for gate in task_quality_gates(task):
+        if gate.get("phase") != phase or gate.get("required") is False:
+            continue
+        if gate.get("status") not in {"approved", "skipped"}:
+            return True
+    return False
+
+
+def open_required_quality_gates(task: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [
+        gate for gate in task_quality_gates(task)
+        if gate.get("required") is not False and gate.get("status") not in {"approved", "skipped"}
+    ]
+
+
+def task_status_done_requires_closed_gates(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
+    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
+    if sprintengine.get("rosterConfigured"):
+        return True
+    return str(task.get("status") or "") in {"review", "testing", "product", "changes_requested", "needs_input"}
+
+
+def next_status_after_gate_verdict(task: Dict[str, Any], phase: str) -> str:
+    if phase_has_open_required_gates(task, phase):
+        return phase
+    return next_publish_status(task)
+
+
+def current_gate_attempt(gate: Dict[str, Any], actor: str) -> Dict[str, Any]:
+    for attempt in reversed(gate_attempts(gate)):
+        if isinstance(attempt, dict) and attempt.get("status") == "in_progress" and attempt.get("claimedBy") == actor:
+            return attempt
+    raise SystemExit("No active gate attempt is claimed by this agent.")
+
+
+def complete_gate_attempt(attempt: Dict[str, Any], verdict: str, summary: str) -> None:
+    attempt["status"] = verdict
+    attempt["completedAt"] = now_iso()
+    attempt["summary"] = summary
+
+
+def set_gate_agent_idle(state: Dict[str, Any], actor: str, role: str) -> None:
+    agent = ensure_agent(state, actor, role)
+    agent["status"] = "idle"
+    agent["currentTaskId"] = None
+    agent.pop("currentGateId", None)
+
+
+def next_recorded_artifact_id(state: Dict[str, Any]) -> str:
+    return next_artifact_id(state.setdefault("artifacts", []))
+
+
+def recorded_artifact_kind_for_gate(gate: Dict[str, Any]) -> str:
+    role = str(gate.get("role") or "")
+    if role == "tester":
+        return "validation_report"
+    if role == "spec_reviewer":
+        return "spec_review"
+    if role == "performance":
+        return "performance_review"
+    if role == "security":
+        return "security_review"
+    if role == "product":
+        return "product_strategy"
+    return "code_review"
+
+
+def create_recorded_gate_artifact(
+    state: Dict[str, Any],
+    state_path: Path,
+    task: Dict[str, Any],
+    gate: Dict[str, Any],
+    actor: str,
+    *,
+    path: str,
+    title: str,
+    kind: Optional[str] = None,
+) -> Dict[str, Any]:
+    path_info = normalize_artifact_path(state_path, path, require_file=True)
+    now = now_iso()
+    artifact = {
+        "id": next_recorded_artifact_id(state),
+        "kind": kind or recorded_artifact_kind_for_gate(gate),
+        "title": title.strip() or f"{gate.get('role')} gate evidence",
+        "path": path_info["path"],
+        "status": "recorded",
+        "createdBy": actor,
+        "taskId": task.get("id"),
+        "fingerprint": file_fingerprint(path_info["absolutePath"]),
+        "reviewHistory": [{"action": "recorded", "actor": actor, "timestamp": now}],
+        "recommendedTasks": [],
+        "createdAt": now,
+        "updatedAt": now,
+        "gateId": gate.get("id"),
+    }
+    state.setdefault("artifacts", []).append(artifact)
+    return artifact
+
+
+def apply_gate_verdict(
+    state: Dict[str, Any],
+    state_path: Path,
+    task: Dict[str, Any],
+    gate: Dict[str, Any],
+    actor: str,
+    verdict: str,
+    summary: str,
+    *,
+    required_actions: Optional[List[str]] = None,
+    needs_input: Optional[Dict[str, str]] = None,
+    artifact_path: Optional[str] = None,
+    artifact_title: Optional[str] = None,
+    artifact_kind: Optional[str] = None,
+) -> Dict[str, Any]:
+    if verdict not in VALID_GATE_VERDICTS:
+        raise SystemExit(f"Invalid gate verdict {verdict!r}.")
+    clean_summary = str(summary or "").strip()
+    if not clean_summary:
+        raise SystemExit("--summary is required for gate verdicts.")
+    role = str(gate.get("role") or "")
+    attempt = current_gate_attempt(gate, actor)
+    complete_gate_attempt(attempt, verdict, clean_summary)
+    artifact = None
+    if artifact_path:
+        artifact = create_recorded_gate_artifact(
+            state,
+            state_path,
+            task,
+            gate,
+            actor,
+            path=artifact_path,
+            title=artifact_title or f"{gate.get('id')} evidence",
+            kind=artifact_kind,
+        )
+        attempt["artifactId"] = artifact["id"]
+
+    phase = str(gate.get("phase") or "")
+    if verdict in {"approved", "skipped"}:
+        gate["status"] = "approved" if verdict == "approved" else "skipped"
+        if verdict == "skipped":
+            gate["skipRationale"] = clean_summary
+        next_status = next_status_after_gate_verdict(task, phase)
+        task["status"] = next_status
+        if next_status == "done":
+            task["completedAt"] = now_iso()
+        else:
+            task["completedAt"] = None
+        task.pop("needsInput", None)
+        comment = None
+    elif verdict in {"changes_requested", "failed"}:
+        gate["status"] = "changes_requested"
+        actions = [str(action).strip() for action in (required_actions or []) if str(action).strip()]
+        comment = create_task_comment(
+            state,
+            task,
+            actor=actor,
+            body=clean_summary,
+            comment_type=feedback_comment_type_for_gate(gate),
+            source="agent",
+            data={
+                "status": "open",
+                "verdict": verdict,
+                "gateId": gate.get("id"),
+                "requiredActions": actions,
+                "artifactId": artifact.get("id") if artifact else None,
+            },
+        )
+        task["status"] = "changes_requested"
+        task["completedAt"] = None
+        task.pop("needsInput", None)
+        next_status = "changes_requested"
+    else:
+        if not needs_input or not needs_input.get("question"):
+            raise SystemExit("Blocked gate verdicts require --needs-input-question.")
+        gate["status"] = "blocked"
+        task["status"] = "needs_input"
+        task["completedAt"] = None
+        task["needsInput"] = {
+            "kind": needs_input.get("kind") or "architect",
+            "reason": needs_input.get("reason") or "blocked_other",
+            "question": needs_input["question"],
+            "reportedBy": actor,
+            "reportedAt": now_iso(),
+        }
+        if needs_input.get("suggestedResolution"):
+            task["needsInput"]["suggestedResolution"] = needs_input["suggestedResolution"]
+        comment = create_task_comment(
+            state,
+            task,
+            actor=actor,
+            body=clean_summary,
+            comment_type="needs_input",
+            source="agent",
+            data={"gateId": gate.get("id"), "verdict": verdict, "artifactId": artifact.get("id") if artifact else None},
+        )
+        next_status = "needs_input"
+    set_gate_agent_idle(state, actor, role)
+    append_task_activity(
+        task,
+        "gate_verdict",
+        actor,
+        f"{actor} submitted {verdict} for gate {gate.get('id')} on {task.get('id')}.",
+        {"gateId": gate.get("id"), "verdict": verdict, "status": task.get("status"), "artifactId": artifact.get("id") if artifact else None},
+    )
+    return {"attempt": attempt, "comment": comment, "artifact": artifact, "nextStatus": next_status}
+
+
+def open_feedback_comments(task: Dict[str, Any]) -> List[Dict[str, Any]]:
+    feedback_types = {"review_feedback", "test_feedback", "product_feedback", "architect_feedback"}
+    comments = task.get("comments") if isinstance(task.get("comments"), list) else []
+    return [
+        comment for comment in comments
+        if isinstance(comment, dict)
+        and comment.get("type") in feedback_types
+        and (not isinstance(comment.get("data"), dict) or comment["data"].get("status", "open") == "open")
+    ]
+
+
+def task_comments(task: Dict[str, Any]) -> List[Dict[str, Any]]:
+    comments = task.get("comments") if isinstance(task.get("comments"), list) else []
+    return [comment for comment in comments if isinstance(comment, dict)]
+
+
+def newest_comments(comments: List[Dict[str, Any]], limit: int = 5) -> List[Dict[str, Any]]:
+    return sorted(comments, key=lambda comment: str(comment.get("createdAt") or ""), reverse=True)[:limit]
+
+
+def comment_prompt_line(comment: Dict[str, Any]) -> str:
+    data = comment.get("data") if isinstance(comment.get("data"), dict) else {}
+    bits = [
+        str(comment.get("createdAt") or "unknown-time"),
+        str(comment.get("type") or "comment"),
+        str(comment.get("actor") or "unknown-actor"),
+    ]
+    if data.get("gateId"):
+        bits.append(f"gate={data.get('gateId')}")
+    if data.get("verdict"):
+        bits.append(f"verdict={data.get('verdict')}")
+    if data.get("status"):
+        bits.append(f"status={data.get('status')}")
+    actions = data.get("requiredActions") if isinstance(data.get("requiredActions"), list) else []
+    suffix = f" Required actions: {'; '.join(str(action) for action in actions if str(action).strip())}" if actions else ""
+    return f"- [{' | '.join(bits)}] {str(comment.get('body') or '').strip()}{suffix}"
+
+
+def latest_implementation_comment(task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    for comment in newest_comments(task_comments(task), limit=100):
+        if comment.get("type") in {"implementation_summary", "implementation_response"}:
+            return comment
+    return None
+
+
+def prompt_list(title: str, values: List[str], empty: str = "None.") -> List[str]:
+    lines = [f"## {title}"]
+    lines.extend(values if values else [empty])
+    return lines
+
+
+def build_rework_prompt(state_path: Path, task: Dict[str, Any]) -> str:
+    plan_path = plan_prompt_path(state_path)
+    open_feedback = newest_comments(open_feedback_comments(task), limit=10)
+    latest_comments = newest_comments(task_comments(task), limit=5)
+    return "\n".join([
+        "# Sprint Engine Task Context",
+        "",
+        f"Plan path: `{plan_path}`",
+        f"Task: `{task.get('id')}` - {task.get('title')}",
+        f"Status: `{task.get('status')}`",
+        "",
+        *prompt_list("Open Feedback (newest first)", [comment_prompt_line(comment) for comment in open_feedback]),
+        "",
+        *prompt_list("Latest Comments (newest first)", [comment_prompt_line(comment) for comment in latest_comments]),
+        "",
+        "Use the open feedback as the rework queue. Address newer feedback first when comments conflict, and publish an `implementation_response` when the changes are ready.",
+    ])
+
+
+def build_gate_review_prompt(
+    state: Dict[str, Any],
+    state_path: Path,
+    task: Dict[str, Any],
+    gate: Dict[str, Any],
+    attempt: Dict[str, Any],
+    actor: str,
+) -> str:
+    plan_path = plan_prompt_path(state_path)
+    evidence = ensure_evidence(task)
+    implementation_comment = latest_implementation_comment(task)
+    artifacts = artifacts_for_task(state, str(task.get("id") or ""))
+    recorded_artifacts = [artifact for artifact in artifacts if artifact.get("status") == "recorded"]
+    prior_attempts = [
+        attempt_record for attempt_record in gate_attempts(gate)
+        if isinstance(attempt_record, dict) and attempt_record.get("id") != attempt.get("id")
+    ]
+    gate_focus = str(gate.get("focus") or "").strip() or "Review the task against the gate role and phase."
+    lines = [
+        "# Sprint Engine Gate Review Context",
+        "",
+        f"Plan path: `{plan_path}`",
+        f"Reviewed task: `{task.get('id')}` - {task.get('title')}",
+        f"Task role: `{task.get('role')}`",
+        f"Task status: `{task.get('status')}`",
+        f"Gate: `{gate.get('id')}` phase=`{gate.get('phase')}` role=`{gate.get('role')}` attempt=`{attempt.get('id')}`",
+        f"Reviewer agent: `{actor}`",
+        f"Gate focus: {gate_focus}",
+        "",
+        *prompt_list("Task Card", [
+            f"- Description: {task.get('description') or ''}",
+            *[f"- Acceptance: {item}" for item in task.get("acceptanceCriteria", []) or []],
+            *[f"- Implementation note: {item}" for item in task.get("implementationNotes", []) or []],
+        ]),
+        "",
+        *prompt_list("Owned Paths", [f"- `{path}`" for path in task.get("ownedPaths", []) or []]),
+        "",
+        *prompt_list("Implementation Evidence", [
+            f"- Summary: {evidence.get('summary') or ''}",
+            *[f"- Touched file: `{path}`" for path in evidence.get("touchedFiles", []) or []],
+            *[f"- Command: `{cmd}`" for cmd in evidence.get("commandsRan", []) or []],
+            *[f"- Result: {result}" for result in evidence.get("results", []) or []],
+        ]),
+        "",
+        *prompt_list("Linked Artifacts", [
+            f"- {artifact.get('id')} `{artifact.get('kind')}` status=`{artifact.get('status')}` path=`{artifact.get('path')}` title={artifact.get('title')}"
+            for artifact in artifacts
+        ]),
+        "",
+        *prompt_list("Recorded Artifact References", [
+            f"- {artifact.get('id')} gate=`{artifact.get('gateId')}` path=`{artifact.get('path')}`"
+            for artifact in recorded_artifacts
+        ]),
+        "",
+        *prompt_list("Latest Implementation Summary Or Response", [comment_prompt_line(implementation_comment)] if implementation_comment else []),
+        "",
+        *prompt_list("Open Feedback (newest first)", [comment_prompt_line(comment) for comment in newest_comments(open_feedback_comments(task), limit=10)]),
+        "",
+        *prompt_list("Latest Comments (newest first)", [comment_prompt_line(comment) for comment in newest_comments(task_comments(task), limit=5)]),
+        "",
+        *prompt_list("Prior Gate Attempts", [
+            f"- {record.get('id')} status=`{record.get('status')}` by `{record.get('claimedBy')}` summary={record.get('summary') or ''}"
+            for record in prior_attempts
+        ]),
+        "",
+        "Audit implementation comments as claims, not proof. Use `sprintengine task gate verdict` when the gate review is complete.",
+    ]
+    return "\n".join(lines)
+
+
+def publish_task(state: Dict[str, Any], task: Dict[str, Any], actor: str, body: str, paths: Optional[List[str]] = None) -> Dict[str, Any]:
+    previous_status = str(task.get("status") or "")
+    if previous_status not in {"in_progress", "changes_requested"}:
+        raise SystemExit("Only in_progress or changes_requested tasks can be published.")
+    if previous_status == "changes_requested":
+        feedback_ids = [str(comment.get("id")) for comment in open_feedback_comments(task) if comment.get("id")]
+        comment_type = "implementation_response"
+        comment = create_task_comment(
+            state,
+            task,
+            actor=actor,
+            body=body,
+            comment_type=comment_type,
+            source="agent",
+            paths=paths,
+            data={"feedbackCommentIds": feedback_ids},
+        )
+        reset_required_gates_for_rework(task)
+    else:
+        comment_type = "implementation_summary"
+        comment = create_task_comment(
+            state,
+            task,
+            actor=actor,
+            body=body,
+            comment_type=comment_type,
+            source="agent",
+            paths=paths,
+        )
+
+    next_status = next_publish_status(task)
+    task["status"] = next_status
+    task.pop("needsInput", None)
+    if next_status == "done":
+        task["completedAt"] = now_iso()
+    else:
+        task["completedAt"] = None
+    cleared = clear_task_refs(state, str(task.get("id")))
+    append_task_activity(
+        task,
+        "status_change",
+        actor,
+        f"{actor} published {task.get('id')} to {next_status}.",
+        {"status": next_status, "fromStatus": previous_status, "commentId": comment["id"]},
+    )
+    return {"comment": comment, "nextStatus": next_status, "previousStatus": previous_status, "clearedAgents": cleared}
+
+
+def state_has_active_gate(tasks: List[Dict[str, Any]]) -> bool:
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        for gate in task_quality_gates(task):
+            if gate.get("status") == "in_progress":
+                return True
+    return False
+
+
 def recompute_phase(state: Dict[str, Any]) -> bool:
     sprintengine = state.setdefault("sprintengine", {})
     tasks = state.get("tasks", [])
     if tasks and all(t.get("status") == "done" for t in tasks):
         return set_if_changed(sprintengine, "status", "completed")
-    if any(t.get("status") in ACTIVE_TASK_STATUSES for t in tasks):
+    if any(t.get("status") in ACTIVE_TASK_STATUSES for t in tasks) or state_has_active_gate(tasks):
         return set_if_changed(sprintengine, "status", "executing")
     return set_if_changed(sprintengine, "status", "planned" if tasks else "planning")
 
@@ -1500,6 +2114,12 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         task["needsInput"] = needs_input
     if isinstance(raw.get("triage"), dict):
         task["triage"] = raw["triage"]
+    if isinstance(raw.get("qualityGates"), list):
+        task["qualityGates"] = [
+            gate
+            for index, raw_gate in enumerate(raw["qualityGates"])
+            if (gate := folder_store.normalize_quality_gate(raw_gate, f"gate-{index + 1}")) is not None
+        ]
     return task
 
 
@@ -1547,6 +2167,8 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
             "triagedBy": getattr(args, "triaged_by", None) or "none",
         }
     task = normalize_task(raw)
+    policy = folder_store.normalize_quality_fields(state)
+    task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
     existing_ids = {str(t.get("id")) for t in state.get("tasks", []) if isinstance(t, dict)}
     if task["id"] in existing_ids:
         raise SystemExit(f"Task id already exists: {task['id']}")
@@ -1911,21 +2533,31 @@ def build_feedback_payload(
     state_path: Path,
     task: Dict[str, Any],
     actor: str,
+    gate_context: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     if not feedback_args_present(args):
         return None
 
     parsed = parse_feedback_args(args)
     now = now_iso()
-    review_target = feedback_review_target(args, state, task)
+    if gate_context:
+        review_target = {
+            "task": task,
+            "taskId": str(task.get("id") or ""),
+            "agentId": str(task.get("ownerAgentId") or task.get("role") or ""),
+            "executionId": str(gate_context.get("attemptId") or ""),
+            "isReviewerAssessment": True,
+        }
+    else:
+        review_target = feedback_review_target(args, state, task)
     target_task = review_target["task"]
     role = str(target_task.get("role") or "")
-    reviewer_role = str(task.get("role") or "")
+    reviewer_role = str(gate_context.get("role") if gate_context else task.get("role") or "")
     task_id = str(review_target["taskId"])
     team_slug = str(state.get("sprintengine", {}).get("name") or state_path.parent.name)
     issues = parse_feedback_issue_args(args, task_id)
     findings = parse_feedback_finding_args(args, task_id)
-    source = "reviewer_assessment" if review_target["isReviewerAssessment"] else "agent_self_report"
+    source = "gate_verdict_assessment" if gate_context else "reviewer_assessment" if review_target["isReviewerAssessment"] else "agent_self_report"
     state_feedback = {
         "schemaVersion": FEEDBACK_SCHEMA_VERSION,
         "capturedAt": now,
@@ -1946,6 +2578,13 @@ def build_feedback_payload(
             "taskId": str(task.get("id") or ""),
             "agentId": actor,
             "role": reviewer_role,
+        }
+    if gate_context:
+        state_feedback["gate"] = {
+            "phase": gate_context.get("phase"),
+            "gateId": gate_context.get("gateId"),
+            "attemptId": gate_context.get("attemptId"),
+            "verdict": gate_context.get("verdict"),
         }
     state_feedback.update(parsed["textFields"])
 
@@ -1971,6 +2610,11 @@ def build_feedback_payload(
         record["reviewer_task_id"] = str(task.get("id") or "")
         record["reviewer_agent_id"] = actor
         record["reviewer_role"] = reviewer_role
+    if gate_context:
+        record["gate_phase"] = gate_context.get("phase")
+        record["gate_id"] = gate_context.get("gateId")
+        record["gate_attempt_id"] = gate_context.get("attemptId")
+        record["gate_verdict"] = gate_context.get("verdict")
     if issues:
         state_feedback["issues"] = issues
         record["issues"] = [
@@ -2658,6 +3302,13 @@ def ensure_plan_approval_gate(
 
 def plan_path_for_state(state_path: Path) -> Path:
     return state_path.parent / "plan.md"
+
+
+def plan_prompt_path(state_path: Path) -> str:
+    team_dir = state_path.parent
+    if team_dir.parent.name == SPRINTENGINE_DIR_NAME and team_dir.parent.parent.name == MULTICODE_DIR_NAME:
+        return f"{MULTICODE_DIR_NAME}/{SPRINTENGINE_DIR_NAME}/{team_dir.name}/plan.md"
+    return "plan.md"
 
 
 def plan_reviews_dir_for_state(state_path: Path) -> Path:
@@ -3577,6 +4228,145 @@ def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_task_gate_list(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        gates = []
+        for task in state.get("tasks", []) or []:
+            if not isinstance(task, dict):
+                continue
+            if getattr(args, "task_id", None) and task.get("id") != args.task_id:
+                continue
+            for gate in task_quality_gates(task):
+                if getattr(args, "role", None) and gate.get("role") != args.role:
+                    continue
+                gates.append({
+                    "taskId": task.get("id"),
+                    "taskTitle": task.get("title"),
+                    "taskStatus": task.get("status"),
+                    "id": gate.get("id"),
+                    "phase": gate.get("phase"),
+                    "role": gate.get("role"),
+                    "status": gate.get("status"),
+                    "required": gate.get("required"),
+                    "allowSelfReview": gate.get("allowSelfReview"),
+                    "focus": gate.get("focus"),
+                    "attempts": gate_attempts(gate),
+                })
+        return {"ok": True, "gates": gates, "write": False}
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
+            ensure_agent_in_roster(state, args.id, args.role)
+            active = find_active_gate_claim(state, args.id, args.role)
+            if active:
+                agent = ensure_agent(state, args.id, args.role)
+                agent["status"] = "running"
+                agent["currentTaskId"] = active["task"].get("id")
+                agent["currentGateId"] = active["gate"].get("id")
+                prompt = build_gate_review_prompt(state, args.state, active["task"], active["gate"], active["attempt"], args.id)
+                return {"ok": True, "claimed": True, "resumed": True, "task": active["task"], "gate": active["gate"], "attempt": active["attempt"], "agent": agent, "prompt": prompt}
+
+            for task in state.get("tasks", []) or []:
+                if not isinstance(task, dict):
+                    continue
+                for gate in task_quality_gates(task):
+                    if not gate_is_claimable_for_role(task, gate, args.role, args.id):
+                        continue
+                    result = claim_gate_for_agent(state, task, gate, args.role, args.id)
+                    recompute_phase(state)
+                    event = append_event(state, "task_gate_claimed", args.id, f"{args.id} claimed gate {gate.get('id')} on {task.get('id')}.")
+                    prompt = build_gate_review_prompt(state, args.state, task, gate, result["attempt"], args.id)
+                    return {"ok": True, "claimed": True, "resumed": False, **result, "prompt": prompt, "event": event}
+
+            phase_dirty = recompute_phase(state)
+            return {"ok": True, "claimed": False, "reason": "no_ready_gate", "message": f"No ready {args.role} gates. Stop.", "write": phase_dirty}
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_task_gate_claim(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
+            ensure_agent_in_roster(state, args.id, args.role)
+            task = find_task(state, args.task_id)
+            gate = next((candidate for candidate in task_quality_gates(task) if candidate.get("id") == args.gate_id), None)
+            if gate is None:
+                return {"ok": False, "error": "Gate not found.", "write": False}
+            if not gate_is_claimable_for_role(task, gate, args.role, args.id):
+                return {"ok": False, "error": "Gate is not claimable.", "task": {"id": task.get("id"), "status": task.get("status")}, "gate": {"id": gate.get("id"), "status": gate.get("status"), "role": gate.get("role"), "phase": gate.get("phase")}, "write": False}
+            result = claim_gate_for_agent(state, task, gate, args.role, args.id)
+            recompute_phase(state)
+            event = append_event(state, "task_gate_claimed", args.id, f"{args.id} claimed gate {gate.get('id')} on {task.get('id')}.")
+            prompt = build_gate_review_prompt(state, args.state, task, gate, result["attempt"], args.id)
+            return {"ok": True, **result, "prompt": prompt, "event": event}
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
+            ensure_agent_in_roster(state, args.id, args.role)
+            task = find_task(state, args.task_id)
+            gate = next((candidate for candidate in task_quality_gates(task) if candidate.get("id") == args.gate_id), None)
+            if gate is None:
+                return {"ok": False, "error": "Gate not found.", "write": False}
+            if gate.get("role") != args.role:
+                return {"ok": False, "error": "Gate role does not match caller role.", "write": False}
+            needs_input = None
+            if args.verdict == "blocked":
+                needs_input = {
+                    "kind": args.needs_input_kind or "architect",
+                    "reason": args.needs_input_reason or "blocked_other",
+                    "question": (args.needs_input_question or "").strip(),
+                    "suggestedResolution": (args.needs_input_suggested_resolution or "").strip(),
+                }
+            result = apply_gate_verdict(
+                state,
+                args.state,
+                task,
+                gate,
+                args.id,
+                args.verdict,
+                args.summary,
+                required_actions=args.required_action or [],
+                needs_input=needs_input,
+                artifact_path=args.artifact_path,
+                artifact_title=args.artifact_title,
+                artifact_kind=args.artifact_kind,
+            )
+            feedback_payload = build_feedback_payload(
+                args,
+                state,
+                args.state,
+                task,
+                args.id,
+                gate_context={
+                    "phase": gate.get("phase"),
+                    "gateId": gate.get("id"),
+                    "attemptId": result["attempt"].get("id"),
+                    "verdict": args.verdict,
+                    "role": args.role,
+                },
+            )
+            if feedback_payload:
+                attach_feedback_payload(state, feedback_payload, args.id)
+            recompute_phase(state)
+            event = append_event(state, "task_gate_verdict", args.id, f"{args.id} submitted {args.verdict} for gate {args.gate_id} on {args.task_id}.")
+            return {"ok": True, "task": task, "gate": gate, "attempt": result["attempt"], "comment": result["comment"], "artifact": result["artifact"], "nextStatus": result["nextStatus"], "event": event, "_feedbackRecord": feedback_payload["record"] if feedback_payload else None}
+
+    result = with_locked_state(args.state, run)
+    feedback_record = result.pop("_feedbackRecord", None)
+    if feedback_record:
+        result["feedbackRecorded"] = True
+        result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
+    return result
+
+
 def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
@@ -3585,7 +4375,7 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
             agent = runtime["agent"]
             active = runtime["activeTask"]
             if active:
-                return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "write": runtime["dirty"]}
+                return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "prompt": build_rework_prompt(args.state, active), "write": runtime["dirty"]}
 
             ready_ids = read_ready_task_ids(state)
             tasks_by_id = {
@@ -3600,7 +4390,7 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 result = assign_task(state, t, args.id)
                 recompute_phase(state)
                 event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {t.get('id')}.")
-                return {"ok": True, "claimed": True, "task": t, "agent": result["agent"], "event": event}
+                return {"ok": True, "claimed": True, "task": t, "agent": result["agent"], "prompt": build_rework_prompt(args.state, t), "event": event}
 
             phase_dirty = recompute_phase(state)
             return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "write": runtime["dirty"] or phase_dirty}
@@ -3646,6 +4436,18 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         )
         if args.status == "needs_input" and wants_needs_input_routing and not (args.needs_input_question or "").strip():
             raise SystemExit("--needs-input-question is required when writing routed needs_input metadata.")
+        if args.status == "done" and task_status_done_requires_closed_gates(state, task):
+            open_gates = open_required_quality_gates(task)
+            if open_gates:
+                gate_summary = ", ".join(
+                    f"{gate.get('id')}:{gate.get('status') or 'pending'}"
+                    for gate in open_gates
+                )
+                raise SystemExit(
+                    "Cannot mark task done while required quality gates remain open. "
+                    "Use `sprintengine task publish` and `sprintengine task gate verdict` to close required gates first. "
+                    f"Open gates: {gate_summary}."
+                )
         task["status"] = args.status
         if args.status == "needs_input" and wants_needs_input_routing:
             kind = args.needs_input_kind or "architect"
@@ -3984,6 +4786,18 @@ def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
+        result = publish_task(state, task, str(actor), args.summary, paths=args.path or [])
+        recompute_phase(state)
+        event = append_event(state, "task_published", str(actor), f"{actor} published {args.task_id} to {result['nextStatus']}.")
+        return {"ok": True, "task": task, "comment": result["comment"], "nextStatus": result["nextStatus"], "previousStatus": result["previousStatus"], "clearedAgents": result["clearedAgents"], "event": event}
+
+    return with_locked_state(args.state, run)
+
+
 def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
@@ -3997,25 +4811,28 @@ def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
 def cmd_task_comment(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
-        body = str(args.body or "").strip()
-        if not body:
-            raise SystemExit("Task comment body cannot be empty.")
         actor = args.id or "user"
-        comments = task.setdefault("comments", [])
-        if not isinstance(comments, list):
-            comments = []
-            task["comments"] = comments
-        comment = {
-            "id": f"C{len(comments) + 1}",
-            "actor": actor,
-            "source": args.source,
-            "body": body,
-            "createdAt": now_iso(),
-        }
-        comments.append(comment)
-        append_task_activity(task, "comment", actor, body, {"commentId": comment["id"], "source": args.source})
+        comment_type = args.comment_type or ("user_note" if args.source == "user" else "system_note" if args.source == "system" else "implementation_summary")
+        comment = create_task_comment(
+            state,
+            task,
+            actor=actor,
+            body=args.body,
+            comment_type=comment_type,
+            source=args.source,
+            paths=args.path or [],
+        )
         event = append_event(state, "task_comment_added", actor, f"{actor} commented on {args.task_id}.")
         return {"ok": True, "task": task, "comment": comment, "event": event}
+    return with_locked_state(args.state, run)
+
+
+def cmd_task_comment_list(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        comments = [comment for comment in task.get("comments", []) or [] if isinstance(comment, dict)]
+        return {"ok": True, "taskId": task.get("id"), "comments": comments, "write": False}
+
     return with_locked_state(args.state, run)
 
 
@@ -4064,6 +4881,9 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
         if args.clear_task_notes:
             task["notes"] = []
         set_unique_list(task, "notes", args.task_note)
+
+        policy = folder_store.normalize_quality_fields(state)
+        task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
 
         try:
             folder_store.validate_acyclic_task_graph([candidate for candidate in state.get("tasks", []) if isinstance(candidate, dict)])
@@ -4706,6 +5526,44 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", required=True, help="Agent id.")
     p.set_defaults(handler=cmd_task_claim)
 
+    gate_p = task_sub.add_parser("gate", help="Gate operations for review, testing, and product phases.")
+    gate_sub = gate_p.add_subparsers(dest="gate_action", required=True)
+
+    p = gate_sub.add_parser("list", help="List task quality gates.")
+    p.add_argument("--role", choices=sorted(VALID_ROLES))
+    p.add_argument("--task-id")
+    p.set_defaults(handler=cmd_task_gate_list)
+
+    p = gate_sub.add_parser("next", help="Claim the next pending gate for your role.")
+    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--id", required=True, help="Agent id.")
+    p.set_defaults(handler=cmd_task_gate_next)
+
+    p = gate_sub.add_parser("claim", help="Claim a specific task gate.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--gate-id", required=True)
+    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--id", required=True, help="Agent id.")
+    p.set_defaults(handler=cmd_task_gate_claim)
+
+    p = gate_sub.add_parser("verdict", help="Submit a verdict for an active task gate.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--gate-id", required=True)
+    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--id", required=True, help="Agent id.")
+    p.add_argument("--verdict", required=True, choices=sorted(VALID_GATE_VERDICTS))
+    p.add_argument("--summary", required=True, help="Verdict summary, feedback, skip rationale, or blocked reason.")
+    p.add_argument("--required-action", action="append", default=[], help="Required action for failed or changes_requested verdicts.")
+    p.add_argument("--artifact-path", help="Project-root-relative recorded artifact path for durable gate evidence.")
+    p.add_argument("--artifact-title", help="Title for recorded gate artifact evidence.")
+    p.add_argument("--artifact-kind", choices=sorted(VALID_ARTIFACT_KINDS), help="Kind for recorded gate artifact evidence.")
+    p.add_argument("--needs-input-kind", choices=sorted(VALID_NEEDS_INPUT_KINDS), help="Blocked verdict routing actor.")
+    p.add_argument("--needs-input-reason", choices=sorted(VALID_NEEDS_INPUT_REASONS), help="Blocked verdict reason.")
+    p.add_argument("--needs-input-question", help="Blocked verdict question.")
+    p.add_argument("--needs-input-suggested-resolution", help="Optional proposed unblock path.")
+    add_feedback_arguments(p)
+    p.set_defaults(handler=cmd_task_gate_verdict)
+
     p = task_sub.add_parser("status", help="Update task status.")
     p.add_argument("--task-id", required=True)
     p.add_argument("--status", required=True, choices=sorted(VALID_TASK_STATUSES))
@@ -4755,18 +5613,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(handler=cmd_task_log)
 
+    p = task_sub.add_parser("publish", help="Publish implementation handoff and route task to the next quality phase.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--id", required=True, help="Agent id.")
+    p.add_argument("--summary", required=True, help="Implementation summary or rework response body.")
+    p.add_argument("--path", action="append", default=[], help="Project-root-relative path referenced by this handoff.")
+    p.set_defaults(handler=cmd_task_publish)
+
     p = task_sub.add_parser("note", help="Add a freeform note to a task.")
     p.add_argument("--task-id", required=True)
     p.add_argument("--id", required=True, help="Agent id.")
     p.add_argument("--note", required=True)
     p.set_defaults(handler=cmd_task_note)
 
-    p = task_sub.add_parser("comment", help="Add a user-facing comment to a task.")
+    p = task_sub.add_parser("comment", help="Add or list structured task comments.")
+    p.add_argument("comment_action", nargs="?", choices=["add", "list"], default="add")
     p.add_argument("--task-id", required=True)
     p.add_argument("--id", default="user", help="Actor id.")
-    p.add_argument("--body", required=True)
+    p.add_argument("--body")
     p.add_argument("--source", default="user", choices=["user", "agent", "system"])
-    p.set_defaults(handler=cmd_task_comment)
+    p.add_argument("--type", dest="comment_type", choices=sorted(VALID_TASK_COMMENT_TYPES))
+    p.add_argument("--path", action="append", default=[], help="Project-root-relative path referenced by this comment.")
+    p.set_defaults(handler=lambda args: cmd_task_comment_list(args) if args.comment_action == "list" else cmd_task_comment(args))
 
     p = task_sub.add_parser("list", help="List ready tasks for a role.")
     p.add_argument("--role", choices=sorted(VALID_ROLES))

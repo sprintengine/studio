@@ -11,6 +11,71 @@ from fixtures import SwarmCli, assert_prompt_includes, create_team, read_state, 
 from helpers import write_state
 
 
+def gated_review_task() -> dict:
+    record = task(
+        "T1",
+        "Implement reviewed feature",
+        "developer",
+        "review",
+        owner="developer-fixture",
+        owned_paths=["sprintengine_core/tool.py"],
+    )
+    record["description"] = "Wire the reviewed feature into the real CLI path."
+    record["acceptanceCriteria"] = ["CLI exposes the feature.", "Tests cover the review path."]
+    record["implementationNotes"] = ["Reviewer prompts must treat summaries as claims."]
+    record["evidence"] = {
+        "summary": "Implemented the CLI feature.",
+        "touchedFiles": ["sprintengine_core/tool.py"],
+        "commandsRan": [".venv/bin/python -m pytest tests/sprintengine_tool/test_prompt_loading.py -q"],
+        "results": ["Passed."],
+        "scopeExpansions": [],
+    }
+    record["comments"] = [
+        {
+            "id": "C1",
+            "type": "implementation_summary",
+            "actor": "developer-fixture",
+            "authorAgentId": "developer-fixture",
+            "authorRole": "developer",
+            "source": "agent",
+            "body": "The feature is ready for review.",
+            "createdAt": "2026-05-17T00:00:00Z",
+        },
+        {
+            "id": "C2",
+            "type": "review_feedback",
+            "actor": "reviewer-old",
+            "authorAgentId": "reviewer-old",
+            "authorRole": "code_reviewer",
+            "source": "agent",
+            "body": "Older feedback should be below newer feedback.",
+            "createdAt": "2026-05-17T00:01:00Z",
+            "data": {"status": "open", "gateId": "code_reviewer", "verdict": "changes_requested"},
+        },
+    ]
+    record["qualityGates"] = [
+        {
+            "id": "code_reviewer",
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": False,
+            "focus": "correctness, maintainability, and evidence quality",
+            "attempts": [
+                {
+                    "id": "GA-001",
+                    "status": "changes_requested",
+                    "role": "code_reviewer",
+                    "claimedBy": "reviewer-old",
+                    "summary": "Missing one assertion.",
+                }
+            ],
+        }
+    ]
+    return record
+
+
 @pytest.fixture(autouse=True)
 def use_python_sprintengine_tool_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     if os.name != "nt":
@@ -204,6 +269,130 @@ def test_spec_reviewer_join_prompt_uses_spec_soul_and_skill_standards(tmp_path) 
             "Do not mutate the task graph; the architect decides whether to add follow-up work.",
         ],
     )
+
+
+def test_gate_claim_returns_contextual_reviewer_prompt(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "gate-context-prompt",
+        [gated_review_task()],
+    )
+    report_path = fixture.team_dir / "reviews" / "prior.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("# Prior Review\n", encoding="utf-8")
+    state = read_state(fixture.state_path)
+    state["artifacts"] = [
+        {
+            "id": "A1",
+            "kind": "code_review",
+            "title": "Prior Review",
+            "path": "reviews/prior.md",
+            "status": "recorded",
+            "createdBy": "reviewer-old",
+            "taskId": "T1",
+            "gateId": "code_reviewer",
+            "reviewHistory": [],
+            "recommendedTasks": [],
+            "createdAt": "2026-05-17T00:02:00Z",
+            "updatedAt": "2026-05-17T00:02:00Z",
+        }
+    ]
+    write_state(fixture.state_path, state)
+
+    payload = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-fixture")
+
+    assert payload["ok"] is True
+    assert payload["claimed"] is True
+    assert_prompt_includes(
+        payload["prompt"],
+        [
+            "# Sprint Engine Gate Review Context",
+            "Plan path: `.multi-code/sprintengine/gate-context-prompt/plan.md`",
+            "Reviewed task: `T1` - Implement reviewed feature",
+            "Gate: `code_reviewer` phase=`review` role=`code_reviewer` attempt=`GA-002`",
+            "Gate focus: correctness, maintainability, and evidence quality",
+            "Description: Wire the reviewed feature into the real CLI path.",
+            "Acceptance: CLI exposes the feature.",
+            "Touched file: `sprintengine_core/tool.py`",
+            "Command: `.venv/bin/python -m pytest tests/sprintengine_tool/test_prompt_loading.py -q`",
+            "A1 `code_review` status=`recorded`",
+            "Latest Implementation Summary Or Response",
+            "The feature is ready for review.",
+            "Open Feedback (newest first)",
+            "Older feedback should be below newer feedback.",
+            "Prior Gate Attempts",
+            "GA-001 status=`changes_requested`",
+            "Audit implementation comments as claims, not proof.",
+        ],
+    )
+
+
+def test_task_next_rework_prompt_orders_open_feedback_newest_first(tmp_path) -> None:
+    record = gated_review_task()
+    record["status"] = "changes_requested"
+    record["ownerAgentId"] = None
+    record["comments"].append({
+        "id": "C3",
+        "type": "review_feedback",
+        "actor": "reviewer-new",
+        "authorAgentId": "reviewer-new",
+        "authorRole": "code_reviewer",
+        "source": "agent",
+        "body": "Newest feedback should be handled first.",
+        "createdAt": "2026-05-17T00:03:00Z",
+        "data": {"status": "open", "gateId": "code_reviewer", "verdict": "changes_requested"},
+    })
+    fixture = create_team(tmp_path, "rework-prompt-order", [record])
+
+    payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+
+    assert payload["ok"] is True
+    prompt = payload["prompt"]
+    assert "Open Feedback (newest first)" in prompt
+    assert prompt.index("Newest feedback should be handled first.") < prompt.index("Older feedback should be below newer feedback.")
+    assert "publish an `implementation_response`" in prompt
+
+
+def test_projection_includes_gate_comments_feedback_and_recorded_artifacts(tmp_path) -> None:
+    record = gated_review_task()
+    fixture = create_team(tmp_path, "projection-gate-context", [record])
+    state = read_state(fixture.state_path)
+    state["artifacts"] = [
+        {
+            "id": "A1",
+            "kind": "code_review",
+            "title": "Recorded Review",
+            "path": "reviews/recorded.md",
+            "status": "recorded",
+            "createdBy": "reviewer-fixture",
+            "taskId": "T1",
+            "gateId": "code_reviewer",
+            "reviewHistory": [],
+            "recommendedTasks": [],
+            "createdAt": "2026-05-17T00:02:00Z",
+            "updatedAt": "2026-05-17T00:02:00Z",
+        }
+    ]
+    write_state(fixture.state_path, state)
+
+    payload = fixture.cli.run("projection")
+    projected = next(task for task in payload["tasks"] if task["id"] == "T1")
+
+    assert projected["qualityGates"][0]["id"] == "code_reviewer"
+    assert projected["qualityGateSummary"]["openRequired"] == 1
+    assert projected["latestComments"][0]["id"] == "C2"
+    assert projected["latestOpenFeedback"][0]["body"] == "Older feedback should be below newer feedback."
+    assert projected["recordedArtifacts"] == [
+        {
+            "id": "A1",
+            "kind": "code_review",
+            "title": "Recorded Review",
+            "path": "reviews/recorded.md",
+            "gateId": "code_reviewer",
+            "createdBy": "reviewer-fixture",
+            "createdAt": "2026-05-17T00:02:00Z",
+        }
+    ]
 
 
 def test_architect_join_prompt_requires_knowledge_backed_decision_checkpoint(tmp_path) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 
 from fixtures import (
     SwarmCli,
@@ -218,6 +219,235 @@ def test_task_status_rejects_needs_input_fields_for_other_statuses(tmp_path) -> 
     )
 
     assert "Needs-input fields are only supported with --status needs_input" in rejected.stderr
+
+
+def gated_task(status: str = "in_progress", owner: str | None = "developer-fixture") -> dict:
+    record = task("T1", "Gated implementation", "developer", status, owner=owner)
+    record["qualityGates"] = [
+        {
+            "id": "code-review",
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": False,
+            "focus": "Review implementation.",
+            "attempts": [],
+        },
+        {
+            "id": "test",
+            "phase": "testing",
+            "role": "tester",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": False,
+            "focus": "Validate behavior.",
+            "attempts": [],
+        },
+    ]
+    return record
+
+
+def test_task_publish_requires_summary_before_leaving_in_progress(tmp_path) -> None:
+    fixture = create_team(tmp_path, "publish-summary-required", [gated_task()])
+
+    rejected = fixture.cli.run_failure(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        " ",
+    )
+
+    assert "Task comment body cannot be empty" in rejected.stderr
+    state = read_state(fixture.state_path)
+    assert_task_status(state, "T1", "in_progress")
+
+
+def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tmp_path) -> None:
+    fixture = create_team(tmp_path, "publish-routes-review", [gated_task()])
+
+    payload = fixture.cli.run(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Implemented the backend path.",
+        "--path",
+        "sprintengine_core/tool.py",
+    )
+
+    assert payload["nextStatus"] == "review"
+    assert payload["comment"]["type"] == "implementation_summary"
+    assert payload["comment"]["id"] == "C1"
+    assert payload["comment"]["authorAgentId"] == "developer-fixture"
+    assert payload["comment"]["authorRole"] == "developer"
+    assert payload["comment"]["paths"] == ["sprintengine_core/tool.py"]
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "review"
+    assert task_record["completedAt"] is None
+    assert task_record["comments"][0]["body"] == "Implemented the backend path."
+
+
+def test_task_publish_skips_missing_phase_gates_and_can_complete(tmp_path) -> None:
+    record = gated_task()
+    record["qualityGates"] = [
+        {
+            "id": "test",
+            "phase": "testing",
+            "role": "tester",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": False,
+            "focus": "Validate behavior.",
+            "attempts": [],
+        }
+    ]
+    fixture = create_team(tmp_path, "publish-skips-review", [record])
+
+    first = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready for testing.")
+    state = read_state(fixture.state_path)
+    get_task(state, "T1")["qualityGates"][0]["status"] = "approved"
+    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    get_task(state, "T1")["status"] = "in_progress"
+    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    second = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Testing passed.")
+
+    assert first["nextStatus"] == "testing"
+    assert second["nextStatus"] == "done"
+    final_state = read_state(fixture.state_path)
+    assert_task_status(final_state, "T1", "done")
+    assert get_task(final_state, "T1")["completedAt"]
+
+
+def test_rework_publish_records_response_and_resets_required_gates(tmp_path) -> None:
+    record = gated_task("changes_requested", owner="developer-fixture")
+    record["qualityGates"][0]["status"] = "changes_requested"
+    record["qualityGates"][1]["status"] = "approved"
+    record["comments"] = [
+        {
+            "id": "C1",
+            "type": "review_feedback",
+            "actor": "code-reviewer",
+            "authorAgentId": "code-reviewer",
+            "authorRole": "code_reviewer",
+            "source": "agent",
+            "body": "Fix validation.",
+            "createdAt": "2026-05-17T00:00:00Z",
+            "data": {"status": "open"},
+        }
+    ]
+    fixture = create_team(tmp_path, "publish-rework-response", [record])
+
+    payload = fixture.cli.run(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Addressed the validation feedback.",
+    )
+
+    assert payload["nextStatus"] == "review"
+    assert payload["comment"]["type"] == "implementation_response"
+    assert payload["comment"]["data"]["feedbackCommentIds"] == ["C1"]
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
+
+
+def test_task_status_done_rejects_open_required_quality_gates(tmp_path) -> None:
+    for gate_status in ["pending", "in_progress", "changes_requested", "blocked"]:
+        record = gated_task()
+        record["qualityGates"][0]["status"] = gate_status
+        if gate_status == "in_progress":
+            record["qualityGates"][0]["attempts"] = [
+                {"id": "GA-001", "status": "in_progress", "role": "code_reviewer", "claimedBy": "code-reviewer"}
+            ]
+        fixture = create_team(tmp_path, f"done-rejects-{gate_status.replace('_', '-')}", [record])
+        state = read_state(fixture.state_path)
+        state["sprintengine"]["rosterConfigured"] = True
+        fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+        rejected = fixture.cli.run_failure(
+            "task",
+            "status",
+            "--task-id",
+            "T1",
+            "--status",
+            "done",
+            "--id",
+            "developer-fixture",
+        )
+
+        assert "Cannot mark task done while required quality gates remain open" in rejected.stderr
+        assert f"code-review:{gate_status}" in rejected.stderr
+        state = read_state(fixture.state_path)
+        task_record = get_task(state, "T1")
+        assert task_record["status"] == "in_progress"
+        assert task_record["completedAt"] is None
+        assert task_record["ownerAgentId"] == "developer-fixture"
+        assert task_record["qualityGates"][0]["status"] == gate_status
+
+
+def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
+    legacy = task("T1", "Legacy task", "developer", "in_progress", owner="developer-fixture")
+    fixture = create_team(tmp_path, "done-allows-legacy", [legacy])
+
+    payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
+
+    assert payload["ok"] is True
+    state = read_state(fixture.state_path)
+    assert_task_status(state, "T1", "done")
+
+    closed = gated_task(owner="developer-fixture")
+    closed["qualityGates"][0]["status"] = "approved"
+    closed["qualityGates"][1]["status"] = "skipped"
+    fixture = create_team(tmp_path, "done-allows-closed-gates", [closed])
+
+    payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
+
+    assert payload["ok"] is True
+    state = read_state(fixture.state_path)
+    assert_task_status(state, "T1", "done")
+
+
+def test_task_comment_add_and_list_use_structured_comment_shape(tmp_path) -> None:
+    fixture = create_team(tmp_path, "structured-task-comments", [task("T1", "Implementation", "developer")])
+
+    added = fixture.cli.run(
+        "task",
+        "comment",
+        "add",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--source",
+        "agent",
+        "--type",
+        "implementation_summary",
+        "--body",
+        "Implementation note.",
+        "--path",
+        "sprintengine_core/tool.py",
+    )
+    listed = fixture.cli.run("task", "comment", "list", "--task-id", "T1")
+
+    assert added["comment"]["id"] == "C1"
+    assert added["comment"]["type"] == "implementation_summary"
+    assert added["comment"]["authorAgentId"] == "developer-fixture"
+    assert added["comment"]["authorRole"] == "developer"
+    assert listed["comments"] == [added["comment"]]
 
 
 def test_task_status_todo_releases_owner_and_makes_task_claimable(tmp_path) -> None:

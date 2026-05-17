@@ -25,6 +25,9 @@ Each team folder contains these store files and directories:
     todo/
     ready/
     in_progress/
+    review/
+    testing/
+    product/
     changes_requested/
     needs_input/
     done/
@@ -58,6 +61,7 @@ commands such as `sprintengine task next`, `sprintengine task log`,
 - `status`: run status such as `planning` or `executing`.
 - `rosterConfigured`: whether the run has an explicit role roster.
 - `graphPolicy`: graph/readiness policy metadata.
+- `qualityPolicy`: roster-driven quality gate defaults and lifecycle policy.
 - `tasks`: compact task graph entries with `id`, `status`, `role`, and
   `dependsOn`.
 - `artifacts`: compact artifact entries with `id`, `status`, `kind`, and
@@ -73,16 +77,27 @@ cycles without requiring consumers to parse every task folder.
 
 Task JSON files live under `tasks/<folder-status>/`. Folder location is the
 materialized board column; the embedded `status` field mirrors that folder for
-display and validation. A task in `tasks/ready/` can include `stateStatus` to
-show the semantic status, usually `todo`. A task whose semantic status is
-`changes_requested` stays in `tasks/changes_requested/`; it remains claimable
-but is not flattened into normal ready work.
+display and validation. Folder/status columns, claimability, and quality
+requirements are related but distinct:
+
+- Folder/status columns show where the task sits on the board.
+- Claimability is computed from dependencies, ownership, dispatch, and status.
+- Quality requirements live in `qualityGates`; a task in `review`, `testing`,
+  or `product` can have several independent gates open at once.
+
+A task in `tasks/ready/` can include `stateStatus` to show the semantic status,
+usually `todo`. A task whose semantic status is `changes_requested` stays in
+`tasks/changes_requested/`; it remains claimable but is not flattened into
+normal ready work.
 
 Supported task folders are:
 
 - `todo`
 - `ready`
 - `in_progress`
+- `review`
+- `testing`
+- `product`
 - `changes_requested`
 - `needs_input`
 - `done`
@@ -99,6 +114,7 @@ Task records preserve the existing task card fields:
 - `evidence`
 - `notes`
 - `comments`
+- `qualityGates`
 - `dispatch`
 - `needsInput`
 - `feedback`
@@ -141,6 +157,71 @@ Task `evidence` contains:
 
 `scopeExpansions` records project-relative paths outside the task's owned paths,
 with `path`, `reason`, and optional `risk`.
+
+## Quality Policy And Gates
+
+`run.yaml` stores `qualityPolicy` for roster-driven quality behavior:
+
+- `enabled`: whether default gate derivation is active.
+- `rosterDriven`: whether missing roster roles should be skipped instead of
+  creating dead queues.
+- `lifecyclePhases`: normally `review`, `testing`, and `product`.
+- `gates`: default gate definitions keyed by gate id. Each definition includes
+  `phase`, `role`, `required`, and `focus`.
+
+Task `qualityGates` entries normalize to:
+
+- `id`: stable gate id such as `code_reviewer`, `spec_reviewer`, `tester`, or
+  `architect_review`.
+- `phase`: `review`, `testing`, or `product`.
+- `role`: reviewer/tester/product role that can claim the gate.
+- `status`: `pending`, `in_progress`, `approved`, `changes_requested`,
+  `blocked`, or `skipped`.
+- `required`: whether the phase must wait for this gate to become `approved` or
+  `skipped`.
+- `allowSelfReview`: whether the task owner may claim the gate.
+- `focus`: gate-specific review guidance.
+- `attempts`: gate claim/verdict history.
+- `skipRationale`: present when a gate is skipped.
+
+Gate attempts record durable reviewer activity:
+
+- `id`: `GA-001`, `GA-002`, and so on within the gate.
+- `status`: current or final verdict status.
+- `role`, `claimedBy`
+- `startedAt`, `completedAt`
+- `summary`
+- `artifactId`: optional recorded artifact linked to the verdict.
+
+Gate claiming is separate from task claiming and uses
+`runner/gate.queue.lock`. The task remains in its lifecycle folder while gate
+attempts are claimed and completed.
+
+Approved and skipped verdicts advance a phase only after all remaining required
+gates in that phase are `approved` or `skipped`. `changes_requested` and
+`failed` verdicts route the task to `changes_requested` with open feedback.
+`blocked` verdicts route the task to `needs_input`.
+
+## Task Comments
+
+Task comments are the human-readable handoff stream. Typed comments include:
+
+- `implementation_summary`
+- `implementation_response`
+- `review_feedback`
+- `test_feedback`
+- `product_feedback`
+- `architect_feedback`
+- `needs_input`
+- `user_note`
+- `system_note`
+
+New structured comments include `id`, `type`, `actor`, `authorAgentId`,
+`authorRole`, `source`, `body`, `createdAt`, optional `paths`, and optional
+structured `data`. Publish commands create implementation summary/response
+comments. Gate verdicts create feedback or needs-input comments. Open feedback
+comments use `data.status = "open"` and should be surfaced newest first for
+rework.
 
 Agent feedback is attached to task records and also exported to
 `metrics/agent-feedback.jsonl`. Metrics records use JSON Lines so each feedback
@@ -189,10 +270,16 @@ Artifact records include:
 - `recommendedTasks`
 - `createdAt`, `updatedAt`
 - `approvedBy`, `approvedAt`
+- `gateId`: optional gate id for recorded gate evidence.
 
 Register artifacts through `sprintengine artifact add`, `sprintengine artifact
 ready`, `sprintengine artifact approve`, or `sprintengine artifact
 request-changes`.
+
+`recorded` artifacts are durable gate evidence. They are visible in task
+projection data but do not enter human approval queues and do not block task
+completion by themselves. Use `ready_for_review` only for artifacts that require
+human approval.
 
 ## Events
 
@@ -222,6 +309,8 @@ The store uses lock files to serialize high-risk operations:
 - `runner/run.queue.lock`: run-level mutation lock for folder-store writes.
 - `runner/ready.queue.lock`: ready queue materialization lock.
 - `runner/claim.queue.lock`: narrow queue lock for task claim selection.
+- `runner/gate.queue.lock`: narrow queue lock for gate claim and verdict
+  selection.
 - `state.yaml.lock`: legacy compatibility state lock for unmigrated runs.
 - `runner/run.lock.json`: run-level status marker.
 - `runner/ready.lock.json`: ready runner status marker.
@@ -234,7 +323,8 @@ reports lock state and stale-lock warnings in the normalized projection.
 `tasks/ready/` is a materialized deterministic queue for normal `todo` work. A
 `changes_requested` task uses the same dependency and ownership readiness rules
 but stays in `tasks/changes_requested/` so reviewers, testers, and product
-flows can count rework separately. A task is claimable when:
+flows can count rework separately. A normal implementation task is claimable
+when:
 
 - its semantic status is `todo` or `changes_requested`;
 - it has no `ownerAgentId`;
@@ -251,6 +341,11 @@ sprintengine task refresh-ready
 folder-store run lock plus the claim queue lock, prioritizing
 `changes_requested` rework before normal ready work without changing its status
 until the claim moves it to `in_progress`.
+
+Lifecycle phase tasks are not claimed with `task next` by reviewers or testers.
+Use `sprintengine task gate next --role <role> --id <agent-id>` or
+`sprintengine task gate claim` to claim a gate attempt while the task remains in
+`review`, `testing`, or `product`.
 
 ## Projection Boundary
 
@@ -284,6 +379,19 @@ Projection fields include:
 `board.columns` and `board.counts` expose the current columns without requiring
 renderer or mobile code to inspect status folders. `locks.warnings` exposes
 stale-lock warnings without requiring direct lock-file reads.
+
+Each projected task includes gate and comment context for UI/mobile consumers:
+
+- `qualityGates`: normalized gate records.
+- `qualityGateSummary`: counts by phase/status plus required/open-required
+  totals.
+- `comments`: full task comment list.
+- `latestComments`: newest comments, bounded for inspector display.
+- `latestOpenFeedback`: newest open review/test/product/architect feedback.
+- `recordedArtifacts`: recorded artifact references linked to the task.
+
+Projection consumers should use these fields instead of parsing task folders,
+artifact folders, metrics files, or comments from folder internals.
 
 ## Migration Compatibility
 

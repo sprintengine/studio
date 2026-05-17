@@ -6,10 +6,27 @@ from helpers import (
     assert_feedback_record,
     create_team,
     get_task,
-    read_feedback_records,
     read_state,
+    read_feedback_records,
     task,
 )
+
+
+def review_phase_task() -> dict:
+    record = task("T1", "Implement gated feature", "developer", "review", owner="developer-fixture")
+    record["qualityGates"] = [
+        {
+            "id": "code_reviewer",
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": False,
+            "focus": "code quality",
+            "attempts": [],
+        }
+    ]
+    return record
 
 
 def test_done_status_records_feedback_scores_issues_findings_and_metrics_jsonl(tmp_path) -> None:
@@ -191,6 +208,67 @@ def test_done_status_records_reviewer_target_feedback_on_reviewed_task(tmp_path)
     assert record["reviewer_task_id"] == "T2"
     assert record["counts"]["claims_checked"] == 12
     assert "hallucination_pct" not in record
+
+
+def test_gate_verdict_records_queryable_feedback_metrics(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "gate-verdict-feedback",
+        [review_phase_task()],
+    )
+    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-fixture")
+
+    payload = fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "code_reviewer",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "reviewer-fixture",
+        "--verdict",
+        "approved",
+        "--summary",
+        "Implementation is correct.",
+        "--correctness-pct",
+        "93",
+        "--evidence-quality-pct",
+        "89",
+        "--claims-checked",
+        "7",
+        "--top-friction",
+        "Evidence was concise.",
+    )
+
+    assert payload["feedbackRecorded"] is True
+    state = read_state(fixture.state_path)
+    reviewed = get_task(state, "T1")
+    assessment = reviewed["feedbackAssessments"][0]
+    assert assessment["source"] == "gate_verdict_assessment"
+    assert assessment["gate"] == {
+        "phase": "review",
+        "gateId": "code_reviewer",
+        "attemptId": "GA-001",
+        "verdict": "approved",
+    }
+    assert assessment["scores"]["correctnessPct"] == 93
+    assert assessment["counts"]["claimsChecked"] == 7
+
+    record = assert_feedback_record(fixture.team_dir, "T1", "reviewer-fixture")
+    assert record["source"] == "gate_verdict_assessment"
+    assert record["task_id"] == "T1"
+    assert record["agent_id"] == "reviewer-fixture"
+    assert record["gate_phase"] == "review"
+    assert record["gate_id"] == "code_reviewer"
+    assert record["gate_attempt_id"] == "GA-001"
+    assert record["gate_verdict"] == "approved"
+    assert record["reviewer_role"] == "code_reviewer"
+    assert record["scores"]["correctness_pct"] == 93
+    assert record["counts"]["claims_checked"] == 7
 
 
 def test_reviewer_target_feedback_rejects_missing_target_task(tmp_path) -> None:

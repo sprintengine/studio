@@ -10,12 +10,21 @@ import type {
   SprintEngineProjectionLocks,
   SprintEngineProjectionMigration,
   SprintEngineProjectionSource,
+  SprintEngineQualityGate,
+  SprintEngineQualityGateAttempt,
+  SprintEngineQualityGatePhase,
+  SprintEngineQualityGateStatus,
+  SprintEngineQualityGateSummary,
+  SprintEngineQualityPolicy,
+  SprintEngineQualityPolicyGate,
+  SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCounts,
   SprintEngineRuntimeAgent,
   SprintEngineSkillMap,
   SprintEngineTaskActivityEntry,
   SprintEngineTaskActivityType,
+  SprintEngineTaskCommentType,
   SprintEngineTaskDispatch,
   SprintEngineTaskDispatchMode,
   SprintEngineTaskDispatchStatus,
@@ -55,8 +64,38 @@ export const sprintEngineTaskStateLabel: Record<SprintEngineTaskStatus, string> 
   todo: 'Todo',
   changes_requested: 'Changes Requested',
   in_progress: 'In Progress',
+  review: 'Review',
+  testing: 'Testing',
+  product: 'Product',
   needs_input: 'Needs Input',
   done: 'Done',
+}
+
+export const sprintEngineQualityGatePhaseLabels: Record<SprintEngineQualityGatePhase, string> = {
+  review: 'Review',
+  testing: 'Testing',
+  product: 'Product',
+}
+
+export const sprintEngineQualityGateStatusLabels: Record<SprintEngineQualityGateStatus, string> = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  approved: 'Approved',
+  changes_requested: 'Changes Requested',
+  blocked: 'Blocked',
+  skipped: 'Skipped',
+}
+
+export const sprintEngineTaskCommentTypeLabels: Record<SprintEngineTaskCommentType, string> = {
+  implementation_summary: 'Implementation Summary',
+  implementation_response: 'Implementation Response',
+  review_feedback: 'Review Feedback',
+  test_feedback: 'Test Feedback',
+  product_feedback: 'Product Feedback',
+  architect_feedback: 'Architect Feedback',
+  needs_input: 'Needs Input',
+  user_note: 'User Note',
+  system_note: 'System Note',
 }
 
 export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
@@ -80,9 +119,43 @@ export const sprintEngineTaskBoardColumns: { key: SprintEngineTaskBoardColumn; l
   { key: 'ready', label: 'Ready' },
   { key: 'changes_requested', label: 'Changes Requested' },
   { key: 'in_progress', label: 'In Progress' },
+  { key: 'review', label: 'Review' },
+  { key: 'testing', label: 'Testing' },
+  { key: 'product', label: 'Product' },
   { key: 'needs_input', label: 'Needs Input' },
   { key: 'done', label: 'Done' },
 ]
+
+const sprintEngineLifecyclePhaseColumns: SprintEngineQualityGatePhase[] = ['review', 'testing', 'product']
+
+function isSprintEngineQualityGatePhase(value: unknown): value is SprintEngineQualityGatePhase {
+  return value === 'review' || value === 'testing' || value === 'product'
+}
+
+function isSprintEngineQualityGateStatus(value: unknown): value is SprintEngineQualityGateStatus {
+  return (
+    value === 'pending'
+    || value === 'in_progress'
+    || value === 'approved'
+    || value === 'changes_requested'
+    || value === 'blocked'
+    || value === 'skipped'
+  )
+}
+
+function isSprintEngineTaskCommentType(value: unknown): value is SprintEngineTaskCommentType {
+  return (
+    value === 'implementation_summary'
+    || value === 'implementation_response'
+    || value === 'review_feedback'
+    || value === 'test_feedback'
+    || value === 'product_feedback'
+    || value === 'architect_feedback'
+    || value === 'needs_input'
+    || value === 'user_note'
+    || value === 'system_note'
+  )
+}
 
 export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   architect: '#d4a757',
@@ -243,6 +316,9 @@ const sprintEngineTaskBoardColumnSet: readonly SprintEngineTaskBoardColumn[] = [
   'ready',
   'changes_requested',
   'in_progress',
+  'review',
+  'testing',
+  'product',
   'needs_input',
   'done',
 ]
@@ -375,14 +451,145 @@ function normalizeSprintEngineTaskComments(input: unknown): SprintEngineTaskComm
     const body = stringOrNull(record.body)?.trim()
     if (!body) return []
     const source = record.source === 'agent' || record.source === 'system' ? record.source : 'user'
+    const type = isSprintEngineTaskCommentType(record.type) ? record.type : undefined
+    const authorAgentId = optionalTrimmedString(record.authorAgentId)
+    const authorRole = isSprintEngineRole(record.authorRole) ? record.authorRole : undefined
+    const paths = stringArray(record.paths)
+    const data = record.data && typeof record.data === 'object'
+      ? (record.data as Record<string, unknown>)
+      : undefined
     return [{
       id: stringOrNull(record.id) ?? `comment-${index + 1}`,
       actor: stringOrNull(record.actor) ?? 'user',
       source,
       body,
       createdAt: stringOrNull(record.createdAt) ?? '',
+      ...(type ? { type } : {}),
+      ...(authorAgentId ? { authorAgentId } : {}),
+      ...(authorRole ? { authorRole } : {}),
+      ...(paths.length > 0 ? { paths } : {}),
+      ...(data ? { data } : {}),
     }]
   })
+}
+
+function normalizeSprintEngineQualityGateAttempts(input: unknown): SprintEngineQualityGateAttempt[] {
+  if (!Array.isArray(input)) return []
+  return input.flatMap((attempt, index): SprintEngineQualityGateAttempt[] => {
+    if (!attempt || typeof attempt !== 'object') return []
+    const record = attempt as Record<string, unknown>
+    const id = optionalTrimmedString(record.id) ?? `attempt-${index + 1}`
+    const status = isSprintEngineQualityGateStatus(record.status) ? record.status : undefined
+    const actor = optionalTrimmedString(record.actor)
+    const startedAt = optionalTrimmedString(record.startedAt)
+    const completedAt = optionalTrimmedString(record.completedAt)
+    const verdict = optionalTrimmedString(record.verdict)
+    const note = optionalTrimmedString(record.note)
+    return [{
+      id,
+      ...(status ? { status } : {}),
+      ...(actor ? { actor } : {}),
+      ...(startedAt ? { startedAt } : {}),
+      ...(completedAt ? { completedAt } : {}),
+      ...(verdict ? { verdict } : {}),
+      ...(note ? { note } : {}),
+    }]
+  })
+}
+
+function normalizeSprintEngineQualityGates(input: unknown): SprintEngineQualityGate[] {
+  if (!Array.isArray(input)) return []
+  return input.flatMap((gate, index): SprintEngineQualityGate[] => {
+    if (!gate || typeof gate !== 'object') return []
+    const record = gate as Record<string, unknown>
+    const id = optionalTrimmedString(record.id) ?? `gate-${index + 1}`
+    const phase = isSprintEngineQualityGatePhase(record.phase) ? record.phase : null
+    const role = isSprintEngineRole(record.role) ? record.role : null
+    if (!phase || !role) return []
+    const status = isSprintEngineQualityGateStatus(record.status) ? record.status : 'pending'
+    const required = record.required !== false
+    const allowSelfReview = record.allowSelfReview === true
+    const focus = optionalTrimmedString(record.focus)
+    return [{
+      id,
+      phase,
+      role,
+      status,
+      required,
+      allowSelfReview,
+      ...(focus ? { focus } : {}),
+      attempts: normalizeSprintEngineQualityGateAttempts(record.attempts),
+    }]
+  })
+}
+
+function normalizeSprintEngineQualityGateSummary(input: unknown): SprintEngineQualityGateSummary | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const record = input as Record<string, unknown>
+  const numberOrZero = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : 0
+  const stringNumberRecord = (value: unknown): Record<string, number> => {
+    if (!value || typeof value !== 'object') return {}
+    const entries = Object.entries(value as Record<string, unknown>).flatMap(([key, raw]) =>
+      typeof raw === 'number' && Number.isFinite(raw) ? [[key, raw] as const] : []
+    )
+    return Object.fromEntries(entries)
+  }
+  return {
+    total: numberOrZero(record.total),
+    required: numberOrZero(record.required),
+    openRequired: numberOrZero(record.openRequired),
+    byPhase: stringNumberRecord(record.byPhase),
+    byStatus: stringNumberRecord(record.byStatus),
+  }
+}
+
+function normalizeSprintEngineRecordedArtifacts(input: unknown): SprintEngineRecordedArtifact[] {
+  if (!Array.isArray(input)) return []
+  return input.flatMap((artifact, index): SprintEngineRecordedArtifact[] => {
+    if (!artifact || typeof artifact !== 'object') return []
+    const record = artifact as Record<string, unknown>
+    const id = optionalTrimmedString(record.id) ?? `recorded-${index + 1}`
+    return [{
+      id,
+      ...(optionalTrimmedString(record.kind) ? { kind: optionalTrimmedString(record.kind)! } : {}),
+      ...(optionalTrimmedString(record.title) ? { title: optionalTrimmedString(record.title)! } : {}),
+      ...(optionalTrimmedString(record.path) ? { path: optionalTrimmedString(record.path)! } : {}),
+      ...(optionalTrimmedString(record.gateId) ? { gateId: optionalTrimmedString(record.gateId)! } : {}),
+      ...(optionalTrimmedString(record.createdBy) ? { createdBy: optionalTrimmedString(record.createdBy)! } : {}),
+      ...(optionalTrimmedString(record.createdAt) ? { createdAt: optionalTrimmedString(record.createdAt)! } : {}),
+    }]
+  })
+}
+
+function normalizeSprintEngineQualityPolicy(input: unknown): SprintEngineQualityPolicy | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const record = input as Record<string, unknown>
+  const lifecyclePhases = Array.isArray(record.lifecyclePhases)
+    ? record.lifecyclePhases.filter(isSprintEngineQualityGatePhase)
+    : []
+  const gatesRecord = record.gates && typeof record.gates === 'object'
+    ? record.gates as Record<string, unknown>
+    : {}
+  const gates: Record<string, SprintEngineQualityPolicyGate> = {}
+  for (const [gateId, raw] of Object.entries(gatesRecord)) {
+    if (!raw || typeof raw !== 'object') continue
+    const rawGate = raw as Record<string, unknown>
+    if (!isSprintEngineQualityGatePhase(rawGate.phase) || !isSprintEngineRole(rawGate.role)) continue
+    const focus = optionalTrimmedString(rawGate.focus)
+    gates[gateId] = {
+      phase: rawGate.phase,
+      role: rawGate.role,
+      required: rawGate.required !== false,
+      ...(focus ? { focus } : {}),
+    }
+  }
+  return {
+    enabled: record.enabled !== false,
+    rosterDriven: record.rosterDriven !== false,
+    lifecyclePhases,
+    gates,
+  }
 }
 
 function isFeedbackIssueCategory(value: unknown): value is SprintEngineTaskFeedbackIssueCategory {
@@ -1027,7 +1234,15 @@ export function getSprintEngineTaskBoardColumn(
   if (task.boardColumn && isSprintEngineTaskBoardColumn(task.boardColumn)) {
     return task.boardColumn
   }
-  if (task.status === 'changes_requested' || task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'done') {
+  if (
+    task.status === 'changes_requested'
+    || task.status === 'in_progress'
+    || task.status === 'review'
+    || task.status === 'testing'
+    || task.status === 'product'
+    || task.status === 'needs_input'
+    || task.status === 'done'
+  ) {
     return task.status
   }
   const dependenciesDone = task.dependsOn.every((depId) =>
@@ -1155,15 +1370,22 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const dispatch = normalizeSprintEngineTaskDispatch(task.dispatch)
     const needsInput = normalizeSprintEngineTaskNeedsInput(task.needsInput)
     const activity = normalizeSprintEngineTaskActivity(task.activity)
-    const semanticStatus = (['todo', 'changes_requested', 'in_progress', 'needs_input', 'done'] as const).includes(task.stateStatus as SprintEngineTaskStatus)
+    const taskStatusValues = ['todo', 'changes_requested', 'in_progress', 'review', 'testing', 'product', 'needs_input', 'done'] as const
+    const semanticStatus = taskStatusValues.includes(task.stateStatus as SprintEngineTaskStatus)
       ? task.stateStatus as SprintEngineTaskStatus
       : null
     const status: SprintEngineTaskStatus = semanticStatus
-      ?? ((['todo', 'changes_requested', 'in_progress', 'needs_input', 'done'] as const).includes(task.status as SprintEngineTaskStatus)
+      ?? (taskStatusValues.includes(task.status as SprintEngineTaskStatus)
         ? task.status as SprintEngineTaskStatus
         : 'todo' as const)
     const boardColumn = isSprintEngineTaskBoardColumn(task.boardColumn) ? task.boardColumn : undefined
     const folderStatus = optionalTrimmedString(task.folderStatus)
+    const taskRecord = task as unknown as Record<string, unknown>
+    const qualityGates = normalizeSprintEngineQualityGates(taskRecord.qualityGates)
+    const qualityGateSummary = normalizeSprintEngineQualityGateSummary(taskRecord.qualityGateSummary)
+    const latestComments = normalizeSprintEngineTaskComments(taskRecord.latestComments)
+    const latestOpenFeedback = normalizeSprintEngineTaskComments(taskRecord.latestOpenFeedback)
+    const recordedArtifacts = normalizeSprintEngineRecordedArtifacts(taskRecord.recordedArtifacts)
     return {
       id: task.id ?? `task-${index + 1}`,
       title: task.title ?? `Task ${index + 1}`,
@@ -1189,6 +1411,11 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       startedAt: task.startedAt ?? null,
       completedAt: task.completedAt ?? null,
       ...(activity.length > 0 ? { activity } : {}),
+      ...(qualityGates.length > 0 ? { qualityGates } : {}),
+      ...(qualityGateSummary ? { qualityGateSummary } : {}),
+      ...(latestComments.length > 0 ? { latestComments } : {}),
+      ...(latestOpenFeedback.length > 0 ? { latestOpenFeedback } : {}),
+      ...(recordedArtifacts.length > 0 ? { recordedArtifacts } : {}),
     }
   })
 
@@ -1211,6 +1438,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...(input.projection ? { projection: input.projection } : {}),
     ...(input.locks ? { locks: input.locks } : {}),
     ...(input.migration ? { migration: input.migration } : {}),
+    ...(input.qualityPolicy ? { qualityPolicy: input.qualityPolicy } : {}),
   }
 }
 
@@ -1370,6 +1598,9 @@ export function normalizeSprintEngineProjection(
     },
     ...(normalizeProjectionLocks(record.locks) ? { locks: normalizeProjectionLocks(record.locks) } : {}),
     ...(normalizeProjectionMigration(runRecord.migration) ? { migration: normalizeProjectionMigration(runRecord.migration) } : {}),
+    ...(normalizeSprintEngineQualityPolicy(runRecord.qualityPolicy)
+      ? { qualityPolicy: normalizeSprintEngineQualityPolicy(runRecord.qualityPolicy) }
+      : {}),
   }
 
   return normalizeSprintEngineState(candidate)
@@ -1432,6 +1663,93 @@ export function formatSprintEngineLockAge(ageSeconds: number | null | undefined)
   if (hours < 24) return `${Math.round(hours * 10) / 10}h`
   const days = hours / 24
   return `${Math.round(days * 10) / 10}d`
+}
+
+/**
+ * Lifecycle phases the board should currently surface as columns. A phase
+ * appears when the active `qualityPolicy.lifecyclePhases` includes it OR any
+ * task is currently materialized in that phase folder. Empty result means the
+ * board hides review/testing/product columns entirely (pre-gated runs and
+ * mock states keep their compact layout).
+ */
+export function getActiveSprintEngineLifecyclePhases(
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'qualityPolicy'> | null | undefined
+): SprintEngineQualityGatePhase[] {
+  if (!sprintEngineState) return []
+  const phasesFromPolicy = sprintEngineState.qualityPolicy?.enabled
+    ? new Set(sprintEngineState.qualityPolicy.lifecyclePhases)
+    : new Set<SprintEngineQualityGatePhase>()
+  const phasesFromTasks = new Set<SprintEngineQualityGatePhase>()
+  for (const task of sprintEngineState.tasks) {
+    const column = task.boardColumn
+    if (column && isSprintEngineQualityGatePhase(column)) phasesFromTasks.add(column)
+  }
+  return sprintEngineLifecyclePhaseColumns.filter(
+    (phase) => phasesFromPolicy.has(phase) || phasesFromTasks.has(phase)
+  )
+}
+
+/**
+ * Board columns the renderer should display for the current state. Lifecycle
+ * phase columns (review/testing/product) appear only when policy or active
+ * tasks demand them; the rest of the column vocabulary is fixed.
+ */
+export function getSprintEngineVisibleBoardColumns(
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'qualityPolicy'> | null | undefined
+): { key: SprintEngineTaskBoardColumn; label: string }[] {
+  const activePhases = new Set<SprintEngineQualityGatePhase>(
+    getActiveSprintEngineLifecyclePhases(sprintEngineState)
+  )
+  return sprintEngineTaskBoardColumns.filter((column) =>
+    !isSprintEngineQualityGatePhase(column.key) || activePhases.has(column.key)
+  )
+}
+
+export function getLatestSprintEngineTaskComment(
+  task: Pick<SprintEngineTask, 'comments' | 'latestComments'>,
+  type: SprintEngineTaskCommentType
+): SprintEngineTaskComment | undefined {
+  const pool: SprintEngineTaskComment[] = [
+    ...(task.latestComments ?? []),
+    ...(task.comments ?? []),
+  ]
+  let latest: SprintEngineTaskComment | undefined
+  for (const comment of pool) {
+    if (comment.type !== type) continue
+    if (!latest || (comment.createdAt ?? '').localeCompare(latest.createdAt ?? '') > 0) {
+      latest = comment
+    }
+  }
+  return latest
+}
+
+export function getOpenSprintEngineFeedbackComments(
+  task: Pick<SprintEngineTask, 'latestOpenFeedback'>
+): SprintEngineTaskComment[] {
+  return [...(task.latestOpenFeedback ?? [])].sort((a, b) =>
+    (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+  )
+}
+
+export function getSprintEngineTaskQualityGates(
+  task: Pick<SprintEngineTask, 'qualityGates'>
+): SprintEngineQualityGate[] {
+  return task.qualityGates ?? []
+}
+
+export function getSprintEngineQualityGatesByPhase(
+  task: Pick<SprintEngineTask, 'qualityGates'>,
+  phase: SprintEngineQualityGatePhase
+): SprintEngineQualityGate[] {
+  return getSprintEngineTaskQualityGates(task).filter((gate) => gate.phase === phase)
+}
+
+export function getOpenSprintEngineQualityGates(
+  task: Pick<SprintEngineTask, 'qualityGates'>
+): SprintEngineQualityGate[] {
+  return getSprintEngineTaskQualityGates(task).filter(
+    (gate) => gate.required && gate.status !== 'approved' && gate.status !== 'skipped'
+  )
 }
 
 /**

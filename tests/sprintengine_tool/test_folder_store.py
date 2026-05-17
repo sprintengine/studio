@@ -22,6 +22,8 @@ def test_init_creates_folder_store_layout(tmp_path) -> None:
     assert (team_dir / "events.jsonl").is_file()
     for status in store.TASK_STATUSES:
         assert (team_dir / "tasks" / status).is_dir()
+    for lifecycle_status in ("review", "testing", "product"):
+        assert (team_dir / "tasks" / lifecycle_status).is_dir()
     for status in store.ARTIFACT_STATUSES:
         assert (team_dir / "artifacts" / status).is_dir()
     for folder in store.SUPPORT_DIRS:
@@ -47,8 +49,93 @@ def test_handover_creates_folder_store_layout(tmp_path) -> None:
     assert payload["ok"] is True
     assert (state_path.parent / "run.yaml").is_file()
     assert (state_path.parent / "tasks" / "ready").is_dir()
+    assert (state_path.parent / "tasks" / "review").is_dir()
+    assert (state_path.parent / "tasks" / "testing").is_dir()
+    assert (state_path.parent / "tasks" / "product").is_dir()
     assert (state_path.parent / "artifacts" / "recorded").is_dir()
     assert (state_path.parent / "events.jsonl").is_file()
+
+
+def test_lifecycle_statuses_materialize_and_project_without_ready_claimability(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "quality-lifecycle-statuses",
+        [
+            task("T1", "In review", "developer", "review"),
+            task("T2", "In testing", "developer", "testing"),
+            task("T3", "In product", "developer", "product"),
+            task("T4", "Ready implementation", "developer"),
+        ],
+    )
+
+    payload = fixture.cli.run("task", "refresh-ready")
+    projection = fixture.cli.run("projection")
+
+    assert payload["readyTaskIds"] == ["T4"]
+    assert (fixture.team_dir / "tasks" / "review" / "0001-T1.json").is_file()
+    assert (fixture.team_dir / "tasks" / "testing" / "0002-T2.json").is_file()
+    assert (fixture.team_dir / "tasks" / "product" / "0003-T3.json").is_file()
+    assert projection["board"]["counts"]["review"] == 1
+    assert projection["board"]["counts"]["testing"] == 1
+    assert projection["board"]["counts"]["product"] == 1
+    assert projection["counts"]["tasks"]["review"] == 1
+    assert store.validate_task_status("review") == "review"
+
+
+def test_quality_policy_and_gates_skip_absent_roster_roles(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "quality-roster-skip",
+        [task("T1", "Normal implementation", "developer", owned_paths=["src/server.py"])],
+    )
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    projection = fixture.cli.run("projection")
+    task_record = next(record for record in projection["tasks"] if record["id"] == "T1")
+    run = store.load_run_yaml(fixture.team_dir)
+
+    assert run["qualityPolicy"]["rosterDriven"] is True
+    assert run["qualityPolicy"]["lifecyclePhases"] == ["review", "testing", "product"]
+    assert task_record["qualityGates"] == []
+
+
+def test_cross_cutting_tasks_get_architect_quality_gate_when_rostered(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "quality-architect-gate",
+        [],
+    )
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    added = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Touch Sprint Engine store",
+        "--role",
+        "developer",
+        "--path",
+        "sprintengine_core/store.py",
+    )
+    gate = added["task"]["qualityGates"][0]
+
+    assert [entry["id"] for entry in added["task"]["qualityGates"]] == ["architect_review"]
+    assert gate["phase"] == "review"
+    assert gate["role"] == "architect"
+    assert gate["required"] is True
+    assert gate["status"] == "pending"
 
 
 def test_folder_store_path_validation_rejects_machine_specific_paths() -> None:

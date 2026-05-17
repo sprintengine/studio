@@ -13,12 +13,15 @@ import type {
   SprintEngineRole,
   SprintEngineState,
   SprintEngineTask,
+  SprintEngineTaskBoardColumn,
+  SprintEngineTaskStatus,
 } from '../../types/workspace'
 import {
   getSprintEngineTaskBoardColumn,
   hexToRgba,
   sprintEngineRoleAccent,
   sprintEngineRoleLabels,
+  sprintEngineTaskBoardColumns,
   sprintEngineTaskStateLabel,
   type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
@@ -119,6 +122,26 @@ function TaskGraphLegendDot({ color, label }: { color: string; label: string }) 
  <span>{label}</span>
  </span>
  )
+}
+
+function taskGraphNodeStatusLabel(
+ taskStatus: SprintEngineTaskStatus,
+ boardColumn: SprintEngineTaskBoardColumn,
+): string {
+ // Preserve gated phase columns (review/testing/product) and rework over the
+ // semantic task status so the graph mirrors the board lane rather than
+ // flattening lifecycle phases back to ready/in_progress.
+ if (
+ boardColumn === 'ready'
+ || boardColumn === 'changes_requested'
+ || boardColumn === 'review'
+ || boardColumn === 'testing'
+ || boardColumn === 'product'
+ ) {
+ return sprintEngineTaskBoardColumns.find((column) => column.key === boardColumn)?.label
+ ?? sprintEngineTaskStateLabel[taskStatus]
+ }
+ return sprintEngineTaskStateLabel[taskStatus]
 }
 
 function taskGraphNodeStyle(
@@ -248,11 +271,20 @@ export function SprintEngineTaskGraphView({
  const canResetZoom = Math.abs(graphZoom - defaultTaskGraphZoom) >= 0.001
 
  const taskCount = sprintEngineState.tasks.length
+ const boardColumnByTaskId = useMemo(() => {
+ const map = new Map<string, ReturnType<typeof getSprintEngineTaskBoardColumn>>()
+ for (const task of sprintEngineState.tasks) {
+ map.set(task.id, getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks))
+ }
+ return map
+ }, [sprintEngineState.tasks])
  const readyCount = useMemo(
- () => sprintEngineState.tasks.filter(
- (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready'
- ).length,
- [sprintEngineState.tasks]
+ () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'ready').length,
+ [sprintEngineState.tasks, boardColumnByTaskId]
+ )
+ const changesRequestedCount = useMemo(
+ () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'changes_requested').length,
+ [sprintEngineState.tasks, boardColumnByTaskId]
  )
  const doneCount = useMemo(
  () => sprintEngineState.tasks.filter((task) => task.status === 'done').length,
@@ -263,6 +295,18 @@ export function SprintEngineTaskGraphView({
  (task) => task.status === 'in_progress' || task.status === 'needs_input'
  ).length,
  [sprintEngineState.tasks]
+ )
+ const reviewCount = useMemo(
+ () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'review').length,
+ [sprintEngineState.tasks, boardColumnByTaskId]
+ )
+ const testingCount = useMemo(
+ () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'testing').length,
+ [sprintEngineState.tasks, boardColumnByTaskId]
+ )
+ const productCount = useMemo(
+ () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'product').length,
+ [sprintEngineState.tasks, boardColumnByTaskId]
  )
 
  const hasWarning = graph.hasCycle || graph.missingDependencyCount > 0
@@ -414,9 +458,29 @@ export function SprintEngineTaskGraphView({
  <span className="font-semibold">{readyCount}</span> ready
  </span>
  ) : null}
+ {changesRequestedCount > 0 ? (
+ <span className="text-[color:var(--tone-warn)]">
+ <span className="font-semibold">{changesRequestedCount}</span> rework
+ </span>
+ ) : null}
  {inFlightCount > 0 ? (
  <span className="text-[color:var(--tone-warn)]">
  <span className="font-semibold">{inFlightCount}</span> in flight
+ </span>
+ ) : null}
+ {reviewCount > 0 ? (
+ <span className="text-[color:var(--tone-warn)]">
+ <span className="font-semibold">{reviewCount}</span> review
+ </span>
+ ) : null}
+ {testingCount > 0 ? (
+ <span className="text-[color:var(--tone-warn)]">
+ <span className="font-semibold">{testingCount}</span> testing
+ </span>
+ ) : null}
+ {productCount > 0 ? (
+ <span className="text-[color:var(--tone-warn)]">
+ <span className="font-semibold">{productCount}</span> product
  </span>
  ) : null}
  {doneCount > 0 ? (
@@ -659,7 +723,7 @@ export function SprintEngineTaskGraphView({
  <span
  className={`max-w-[92px] shrink-0 truncate rounded-full px-2 py-1 text-[10px] font-bold ${taskGraphStatusTone(task.status, boardColumn)}`}
  >
- {boardColumn === 'ready' ? 'Ready' : sprintEngineTaskStateLabel[task.status]}
+ {taskGraphNodeStatusLabel(task.status, boardColumn)}
  </span>
  </div>
 

@@ -24,6 +24,9 @@ TASK_STATUSES = (
     "todo",
     "ready",
     "in_progress",
+    "review",
+    "testing",
+    "product",
     "changes_requested",
     "needs_input",
     "done",
@@ -46,6 +49,47 @@ LOCK_STATE_FILES = ("runner/run.lock.json", "runner/ready.lock.json")
 RUN_LOCK_FILE = "runner/run.queue.lock"
 READY_QUEUE_LOCK_FILE = "runner/ready.queue.lock"
 CLAIM_QUEUE_LOCK_FILE = "runner/claim.queue.lock"
+GATE_QUEUE_LOCK_FILE = "runner/gate.queue.lock"
+STATE_COMPATIBILITY_KEYS = ("source", "sourceBundle")
+DEFAULT_QUALITY_POLICY = {
+    "enabled": True,
+    "rosterDriven": True,
+    "lifecyclePhases": ["review", "testing", "product"],
+    "gates": {
+        "architect": {
+            "phase": "review",
+            "role": "architect",
+            "required": True,
+            "focus": "architecture, state model, projection, CLI, and cross-cutting coordination risk",
+        },
+        "code_reviewer": {
+            "phase": "review",
+            "role": "code_reviewer",
+            "required": True,
+            "focus": "correctness, integration risk, maintainability, regressions, and evidence quality",
+        },
+        "spec_reviewer": {
+            "phase": "review",
+            "role": "spec_reviewer",
+            "required": True,
+            "focus": "requirements coverage, acceptance criteria, behavior gaps, and missing tests",
+        },
+        "tester": {
+            "phase": "testing",
+            "role": "tester",
+            "required": True,
+            "focus": "real-path validation, regression coverage, and reproducible verification",
+        },
+        "product": {
+            "phase": "product",
+            "role": "product",
+            "required": True,
+            "focus": "product acceptance and user-facing behavior",
+        },
+    },
+}
+GATE_PHASES = {"review", "testing", "product"}
+GATE_STATUSES = {"pending", "in_progress", "approved", "changes_requested", "blocked", "skipped"}
 
 
 def now_iso() -> str:
@@ -84,6 +128,186 @@ def validate_project_relative_path(value: str, *, field: str = "path") -> str:
     if any(part == ".." for part in path.parts):
         raise ValueError(f"{field} must not traverse outside the project root: {raw}")
     return path.as_posix()
+
+
+def _bool_value(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def normalize_quality_policy(raw: Any) -> dict[str, Any]:
+    policy = raw if isinstance(raw, dict) else {}
+    normalized = {
+        "enabled": _bool_value(policy.get("enabled"), True),
+        "rosterDriven": _bool_value(policy.get("rosterDriven"), True),
+        "lifecyclePhases": ["review", "testing", "product"],
+        "gates": {},
+    }
+    raw_gates = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
+    for key, defaults in DEFAULT_QUALITY_POLICY["gates"].items():
+        override = raw_gates.get(key) if isinstance(raw_gates.get(key), dict) else {}
+        phase = str(override.get("phase") or defaults["phase"]).strip()
+        role = str(override.get("role") or defaults["role"]).strip()
+        if phase not in GATE_PHASES:
+            phase = defaults["phase"]
+        normalized["gates"][key] = {
+            "phase": phase,
+            "role": role,
+            "required": _bool_value(override.get("required"), bool(defaults["required"])),
+            "focus": str(override.get("focus") or defaults["focus"]).strip(),
+        }
+    return normalized
+
+
+def roster_roles_from_state(state: dict[str, Any]) -> set[str]:
+    agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
+    return {
+        str(agent.get("role"))
+        for agent in agents.values()
+        if isinstance(agent, dict) and str(agent.get("role") or "").strip()
+    }
+
+
+def roster_is_configured_in_state(state: dict[str, Any]) -> bool:
+    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
+    return bool(sprintengine.get("rosterConfigured"))
+
+
+def task_requires_architect_gate(task: dict[str, Any]) -> bool:
+    paths = [str(path) for path in task.get("ownedPaths", []) or []]
+    cross_cutting_prefixes = (
+        "sprintengine_core/",
+        "scripts/sprintengine",
+        "src/renderer/src/utils/sprintengine",
+        "src/renderer/src/components/panels",
+        "src/main/mobile/sprintengine",
+        ".agents/skills/sprintengine",
+    )
+    return any(path.startswith(cross_cutting_prefixes) for path in paths)
+
+
+def _normalize_gate_attempts(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    attempts: list[dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        attempt = dict(entry)
+        status = str(attempt.get("status") or "").strip()
+        if status and status not in GATE_STATUSES:
+            attempt["status"] = "blocked"
+        attempts.append(attempt)
+    return attempts
+
+
+def normalize_quality_gate(raw: Any, fallback_id: str) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    gate_id = str(raw.get("id") or fallback_id).strip()
+    phase = str(raw.get("phase") or "").strip()
+    role = str(raw.get("role") or "").strip()
+    status = str(raw.get("status") or "pending").strip()
+    if not gate_id or phase not in GATE_PHASES or not role:
+        return None
+    if status not in GATE_STATUSES:
+        status = "pending"
+    gate = {
+        "id": gate_id,
+        "phase": phase,
+        "role": role,
+        "status": status,
+        "required": _bool_value(raw.get("required"), True),
+        "allowSelfReview": _bool_value(raw.get("allowSelfReview"), False),
+        "focus": str(raw.get("focus") or "").strip(),
+        "attempts": _normalize_gate_attempts(raw.get("attempts")),
+    }
+    skip_rationale = str(raw.get("skipRationale") or "").strip()
+    if skip_rationale:
+        gate["skipRationale"] = skip_rationale
+    return gate
+
+
+def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], policy: dict[str, Any]) -> list[dict[str, Any]]:
+    if not policy.get("enabled", True):
+        return []
+    roster_configured = roster_is_configured_in_state(state)
+    roster_roles = roster_roles_from_state(state)
+    gate_specs = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
+    selected: list[dict[str, Any]] = []
+
+    for gate_id in ("code_reviewer", "spec_reviewer", "tester", "product"):
+        spec = gate_specs.get(gate_id)
+        if not isinstance(spec, dict):
+            continue
+        role = str(spec.get("role") or gate_id)
+        if roster_configured and role not in roster_roles:
+            continue
+        if role == task.get("role"):
+            continue
+        selected.append({
+            "id": gate_id,
+            "phase": spec["phase"],
+            "role": role,
+            "status": "pending",
+            "required": bool(spec.get("required", True)),
+            "allowSelfReview": False,
+            "focus": str(spec.get("focus") or ""),
+            "attempts": [],
+        })
+
+    architect_spec = gate_specs.get("architect")
+    if isinstance(architect_spec, dict):
+        role = str(architect_spec.get("role") or "architect")
+        if (not roster_configured or role in roster_roles) and task_requires_architect_gate(task):
+            selected.insert(0, {
+                "id": "architect_review",
+                "phase": architect_spec["phase"],
+                "role": role,
+                "status": "pending",
+                "required": bool(architect_spec.get("required", True)),
+                "allowSelfReview": False,
+                "focus": str(architect_spec.get("focus") or ""),
+                "attempts": [],
+            })
+    return selected
+
+
+def normalize_task_quality_gates(task: dict[str, Any], state: dict[str, Any], policy: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_gates = task.get("qualityGates")
+    if isinstance(raw_gates, list):
+        normalized = [
+            gate
+            for index, raw_gate in enumerate(raw_gates)
+            if (gate := normalize_quality_gate(raw_gate, f"gate-{index + 1}")) is not None
+        ]
+    else:
+        normalized = derive_default_quality_gates(task, state, policy)
+    return normalized
+
+
+def normalize_quality_fields(state: dict[str, Any], run: dict[str, Any] | None = None) -> dict[str, Any]:
+    source_policy = None
+    if isinstance(run, dict):
+        source_policy = run.get("qualityPolicy")
+    if not isinstance(source_policy, dict):
+        sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
+        source_policy = sprintengine.get("qualityPolicy") if isinstance(sprintengine.get("qualityPolicy"), dict) else {}
+    policy = normalize_quality_policy(source_policy)
+    state.setdefault("sprintengine", {})["qualityPolicy"] = policy
+    for task in state.get("tasks", []) or []:
+        if isinstance(task, dict):
+            task["qualityGates"] = normalize_task_quality_gates(task, state, policy)
+    return policy
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -301,6 +525,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
     roles = state.get("roles") if isinstance(state.get("roles"), dict) else {}
     run = load_run_yaml(team_dir)
     migration = run.get("migration") if isinstance(run.get("migration"), dict) else {}
+    quality_policy = normalize_quality_fields(state, run)
     run.update(
         {
             "schemaVersion": run.get("schemaVersion") or 1,
@@ -309,6 +534,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "status": sprintengine.get("status") or "planning",
             "rosterConfigured": bool(sprintengine.get("rosterConfigured")),
             "graphPolicy": run.get("graphPolicy") or {"readiness": "dependency"},
+            "qualityPolicy": quality_policy,
             "agents": agents,
             "roles": roles,
             "sprintengine": sprintengine,
@@ -335,6 +561,9 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "updatedAt": now_iso(),
         }
     )
+    for key in STATE_COMPATIBILITY_KEYS:
+        if key in state:
+            run[key] = state[key]
     run["migration"] = migration or {"source": "state.yaml-compat", "createdAt": now_iso()}
     atomic_write_yaml(team_dir / RUN_FILE, run)
 
@@ -441,6 +670,7 @@ def sync_state_to_store(team_dir: Path, state: dict[str, Any], *, state_path: Pa
     )
     validate_acyclic_task_graph([task for task in state.get("tasks", []) or [] if isinstance(task, dict)])
     with FolderLock(team_dir / READY_QUEUE_LOCK_FILE):
+        normalize_quality_fields(state, load_run_yaml(team_dir))
         sync_run_yaml_from_state(team_dir, state)
         refresh = refresh_ready_queue(team_dir, state)
         write_materialized_artifact_files(team_dir, [artifact for artifact in state.get("artifacts", []) or [] if isinstance(artifact, dict)])
@@ -568,7 +798,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     }
     tasks = [_semantic_task_from_folder_record(task) for task in _tasks_from_folder_store(team_dir)]
     tasks.sort(key=lambda task: task_order.get(str(task.get("id") or ""), len(task_order)))
-    return {
+    state = {
         "sprintengine": reconstructed_sprintengine,
         "tasks": tasks,
         "artifacts": [_semantic_artifact_from_folder_record(artifact) for artifact in _artifacts_from_folder_store(team_dir)],
@@ -576,6 +806,11 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
         "agents": agents,
         "roles": roles,
     }
+    for key in STATE_COMPATIBILITY_KEYS:
+        if key in run:
+            state[key] = run[key]
+    normalize_quality_fields(state, run)
+    return state
 
 
 def _board_column_for_legacy_task(task: dict[str, Any], tasks_by_id: dict[str, dict[str, Any]]) -> str:
@@ -607,6 +842,71 @@ def _normalize_projection_task(task: dict[str, Any], *, board_column: str) -> di
     projected.setdefault("comments", [])
     projected.setdefault("activity", [])
     return projected
+
+
+def _projection_comment_time(comment: dict[str, Any]) -> str:
+    return str(comment.get("createdAt") or "")
+
+
+def _projection_latest_comments(task: dict[str, Any], limit: int = 5) -> list[dict[str, Any]]:
+    comments = task.get("comments") if isinstance(task.get("comments"), list) else []
+    clean_comments = [comment for comment in comments if isinstance(comment, dict)]
+    return sorted(clean_comments, key=_projection_comment_time, reverse=True)[:limit]
+
+
+def _projection_open_feedback(task: dict[str, Any], limit: int = 10) -> list[dict[str, Any]]:
+    feedback_types = {"review_feedback", "test_feedback", "product_feedback", "architect_feedback"}
+    comments = task.get("comments") if isinstance(task.get("comments"), list) else []
+    open_comments = []
+    for comment in comments:
+        if not isinstance(comment, dict) or comment.get("type") not in feedback_types:
+            continue
+        data = comment.get("data") if isinstance(comment.get("data"), dict) else {}
+        if data.get("status", "open") == "open":
+            open_comments.append(comment)
+    return sorted(open_comments, key=_projection_comment_time, reverse=True)[:limit]
+
+
+def _projection_quality_gate_summary(task: dict[str, Any]) -> dict[str, Any]:
+    gates = task.get("qualityGates") if isinstance(task.get("qualityGates"), list) else []
+    summary: dict[str, Any] = {
+        "total": 0,
+        "required": 0,
+        "openRequired": 0,
+        "byPhase": {},
+        "byStatus": {},
+    }
+    for gate in gates:
+        if not isinstance(gate, dict):
+            continue
+        status = str(gate.get("status") or "pending")
+        phase = str(gate.get("phase") or "unknown")
+        required = gate.get("required") is not False
+        summary["total"] += 1
+        if required:
+            summary["required"] += 1
+        if required and status not in {"approved", "skipped"}:
+            summary["openRequired"] += 1
+        summary["byPhase"][phase] = summary["byPhase"].get(phase, 0) + 1
+        summary["byStatus"][status] = summary["byStatus"].get(status, 0) + 1
+    return summary
+
+
+def _projection_recorded_artifacts(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    recorded = []
+    for artifact in artifacts:
+        if artifact.get("status") != "recorded":
+            continue
+        recorded.append({
+            "id": artifact.get("id"),
+            "kind": artifact.get("kind"),
+            "title": artifact.get("title"),
+            "path": artifact.get("path"),
+            "gateId": artifact.get("gateId"),
+            "createdBy": artifact.get("createdBy"),
+            "createdAt": artifact.get("createdAt"),
+        })
+    return recorded
 
 
 def _build_board(tasks: list[dict[str, Any]]) -> dict[str, Any]:
@@ -679,6 +979,7 @@ def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]
         "run": team_dir / RUN_LOCK_FILE,
         "readyQueue": team_dir / READY_QUEUE_LOCK_FILE,
         "claimQueue": team_dir / CLAIM_QUEUE_LOCK_FILE,
+        "gateQueue": team_dir / GATE_QUEUE_LOCK_FILE,
     }
     lock_reports = []
     warnings = []
@@ -737,6 +1038,7 @@ def build_projection(
         roster = run.get("agents") if isinstance(run.get("agents"), dict) else {}
         if not roster and isinstance(fallback_state, dict):
             roster = fallback_state.get("agents", {})
+        quality_policy = normalize_quality_policy(run.get("qualityPolicy") if isinstance(run.get("qualityPolicy"), dict) else {})
     else:
         source = "state_yaml_fallback"
         state = fallback_state or {}
@@ -751,6 +1053,7 @@ def build_projection(
         events = [event for event in state.get("events", []) or [] if isinstance(event, dict)]
         feedback = []
         roster = state.get("agents", {})
+        quality_policy = normalize_quality_policy(state.get("sprintengine", {}).get("qualityPolicy") if isinstance(state.get("sprintengine"), dict) else {})
 
     artifacts_by_task: dict[str, list[dict[str, Any]]] = {}
     for artifact in artifacts:
@@ -759,7 +1062,12 @@ def build_projection(
             artifacts_by_task.setdefault(task_id, []).append(artifact)
     for task in tasks:
         task_id = str(task.get("id") or "")
-        task["artifacts"] = artifacts_by_task.get(task_id, [])
+        linked_artifacts = artifacts_by_task.get(task_id, [])
+        task["artifacts"] = linked_artifacts
+        task["qualityGateSummary"] = _projection_quality_gate_summary(task)
+        task["latestComments"] = _projection_latest_comments(task)
+        task["latestOpenFeedback"] = _projection_open_feedback(task)
+        task["recordedArtifacts"] = _projection_recorded_artifacts(linked_artifacts)
 
     board = _build_board(tasks)
     locks = _projection_locks(team_dir, state_path)
@@ -778,6 +1086,7 @@ def build_projection(
             "rosterConfigured": bool(run.get("rosterConfigured")),
             "updatedAt": updated_at,
             "migration": run.get("migration") if isinstance(run.get("migration"), dict) else {},
+            "qualityPolicy": quality_policy,
         },
         "roster": roster if isinstance(roster, dict) else {},
         "tasks": tasks,

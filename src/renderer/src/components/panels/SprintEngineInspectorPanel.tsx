@@ -20,24 +20,34 @@ import {
 } from '../../utils/sprintengineRunSummary'
 import type {
   SprintEngineArtifact,
+  SprintEngineQualityGate,
+  SprintEngineQualityGatePhase,
+  SprintEngineRecordedArtifact,
   SprintEngineTask,
   SprintEngineTaskActivityEntry,
   SprintEngineTaskBoardColumn,
+  SprintEngineTaskComment,
   SprintEngineTaskFeedback,
   SprintEngineTaskFeedbackFinding,
   SprintEngineTaskFeedbackIssue,
 } from '../../types/workspace'
 import {
+  getLatestSprintEngineTaskComment,
+  getOpenSprintEngineFeedbackComments,
   getOpenSprintEngineFeedbackFindings,
   getOpenSprintEngineFeedbackIssues,
   getSprintEngineArtifactAutoApprovalEligibility,
   getSprintEngineArtifactDependencyBlockers,
   getSprintEngineTaskActivityDescending,
+  getSprintEngineTaskQualityGates,
   sprintEngineArtifactKindLabels,
   sprintEngineArtifactStatusLabels,
+  sprintEngineQualityGatePhaseLabels,
+  sprintEngineQualityGateStatusLabels,
   sprintEngineRoleLabels,
   sprintEngineTaskActivityLabels,
   sprintEngineTaskBoardColumns,
+  sprintEngineTaskCommentTypeLabels,
 } from '../../utils/sprintengine'
 import { formatRelativeTime } from '../../utils/switchboardBoard'
 import {
@@ -389,6 +399,180 @@ function OpenFeedbackSummary({
             </span>
             <span className="font-mono text-[10px] uppercase text-[color:var(--text-disabled)]">
               {feedbackFindingSeverityLabels[finding.severity]}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function qualityGateStatusTone(status: SprintEngineQualityGate['status']): 'good' | 'warn' | 'error' | 'accent' | 'neutral' {
+  switch (status) {
+    case 'approved':
+      return 'good'
+    case 'in_progress':
+      return 'accent'
+    case 'changes_requested':
+    case 'blocked':
+      return 'warn'
+    case 'skipped':
+      return 'neutral'
+    default:
+      return 'neutral'
+  }
+}
+
+function QualityGatesSection({ gates }: { gates: SprintEngineQualityGate[] }) {
+  if (gates.length === 0) {
+    return null
+  }
+
+  const phases: SprintEngineQualityGatePhase[] = ['review', 'testing', 'product']
+  const visiblePhases = phases.filter((phase) => gates.some((gate) => gate.phase === phase))
+
+  return (
+    <div>
+      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Quality Gates</div>
+      <ul className="space-y-2 text-[12px] leading-5">
+        {visiblePhases.flatMap((phase) =>
+          gates.filter((gate) => gate.phase === phase).map((gate) => {
+            const tone = qualityGateStatusTone(gate.status)
+            const attemptCount = gate.attempts.length
+            const latestAttempt = gate.attempts[gate.attempts.length - 1]
+            return (
+              <li key={`${phase}:${gate.id}`} className="grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-baseline gap-2">
+                <span className="mt-[0.35rem] inline-flex">
+                  <StatusDot tone={tone} />
+                </span>
+                <span className="font-mono text-[10px] uppercase tracking-normal text-[color:var(--text-muted)]">
+                  {sprintEngineQualityGatePhaseLabels[gate.phase]}
+                </span>
+                <span className="[overflow-wrap:anywhere]">
+                  <span className="font-semibold text-[color:var(--text-strong)]">{sprintEngineRoleLabels[gate.role]}</span>
+                  <span className="ml-2 text-[color:var(--text-disabled)]">
+                    {sprintEngineQualityGateStatusLabels[gate.status]}
+                  </span>
+                  {gate.required ? null : (
+                    <span className="ml-2 text-[color:var(--text-disabled)]">Optional</span>
+                  )}
+                  {gate.focus ? (
+                    <span className="ml-2 text-[color:var(--text-muted)]">{gate.focus}</span>
+                  ) : null}
+                  {latestAttempt?.verdict ? (
+                    <span className="ml-2 text-[color:var(--text-muted)]">
+                      Last verdict: {latestAttempt.verdict}
+                      {latestAttempt.actor ? ` (${latestAttempt.actor})` : ''}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="tabular-nums text-[10px] font-mono text-[color:var(--text-disabled)]">
+                  {attemptCount === 0 ? '—' : `${attemptCount} attempt${attemptCount === 1 ? '' : 's'}`}
+                </span>
+              </li>
+            )
+          })
+        )}
+      </ul>
+    </div>
+  )
+}
+
+function ImplementationHandoff({ task }: { task: SprintEngineTask }) {
+  const summary = getLatestSprintEngineTaskComment(task, 'implementation_summary')
+  const response = getLatestSprintEngineTaskComment(task, 'implementation_response')
+  if (!summary && !response) return null
+
+  return (
+    <div>
+      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Implementation Handoff</div>
+      <div className="space-y-3">
+        {summary ? <TaskCommentRow comment={summary} /> : null}
+        {response ? <TaskCommentRow comment={response} /> : null}
+      </div>
+    </div>
+  )
+}
+
+function OpenFeedbackComments({ comments }: { comments: SprintEngineTaskComment[] }) {
+  if (comments.length === 0) return null
+
+  return (
+    <div className="border-l border-[color:var(--tone-warn-soft)] pl-3">
+      <div className="mb-2 text-[10px] font-bold text-[color:var(--tone-warn)]">
+        Open Feedback Comments ({comments.length})
+      </div>
+      <div className="space-y-3">
+        {comments.map((comment) => (
+          <TaskCommentRow key={comment.id} comment={comment} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
+  const label = comment.type ? sprintEngineTaskCommentTypeLabels[comment.type] : 'Comment'
+  const authorLabel = comment.authorAgentId ?? comment.actor
+  const absolute = comment.createdAt ? new Date(comment.createdAt).toLocaleString() : undefined
+  const relative = comment.createdAt ? formatRelativeTime(comment.createdAt) : '—'
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px]">
+        <span className="font-mono text-[10px] uppercase tracking-normal text-[color:var(--text-muted)]">{label}</span>
+        <span className="font-mono text-[11px] text-[color:var(--text-muted)]">{authorLabel}</span>
+        {comment.authorRole ? (
+          <span className="text-[color:var(--text-disabled)]">{sprintEngineRoleLabels[comment.authorRole]}</span>
+        ) : null}
+        <span
+          title={absolute}
+          className="ml-auto tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]"
+        >
+          {relative}
+        </span>
+      </div>
+      <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+        {comment.body}
+      </div>
+      {comment.paths && comment.paths.length > 0 ? (
+        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+          {comment.paths.map((path) => (
+            <span key={path} className="font-mono text-[11px] text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
+              {path}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function RecordedArtifactsSection({ artifacts }: { artifacts: SprintEngineRecordedArtifact[] }) {
+  if (artifacts.length === 0) return null
+
+  return (
+    <div>
+      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Recorded Review Artifacts</div>
+      <ul className="space-y-1.5 text-[12px] leading-5">
+        {artifacts.map((artifact) => (
+          <li key={artifact.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2">
+            <span className="font-mono text-[10px] text-[color:var(--text-muted)]">{artifact.id}</span>
+            <span className="[overflow-wrap:anywhere]">
+              <span className="font-semibold text-[color:var(--text-strong)]">{artifact.title ?? artifact.path ?? artifact.id}</span>
+              {artifact.kind ? (
+                <span className="ml-2 text-[color:var(--text-disabled)]">{artifact.kind}</span>
+              ) : null}
+              {artifact.gateId ? (
+                <span className="ml-2 text-[color:var(--text-disabled)]">gate {artifact.gateId}</span>
+              ) : null}
+              {artifact.path ? (
+                <div className="mt-0.5 font-mono text-[11px] text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
+                  {artifact.path}
+                </div>
+              ) : null}
+            </span>
+            <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]">
+              {artifact.createdAt ? formatRelativeTime(artifact.createdAt) : '—'}
             </span>
           </li>
         ))}
@@ -1134,6 +1318,9 @@ function SprintEngineTaskBody({
   const openIssues = getOpenSprintEngineFeedbackIssues(selectedTask.feedback)
   const openFindings = getOpenSprintEngineFeedbackFindings(selectedTask.feedback)
   const activityEntries = getSprintEngineTaskActivityDescending(selectedTask)
+  const qualityGates = getSprintEngineTaskQualityGates(selectedTask)
+  const openFeedbackComments = getOpenSprintEngineFeedbackComments(selectedTask)
+  const recordedArtifacts = selectedTask.recordedArtifacts ?? []
 
   const readyActionMessage = taskReadyActions[selectedTask.id]?.message ?? null
   const readyActionError = taskReadyActions[selectedTask.id]?.status === 'error'
@@ -1155,6 +1342,14 @@ function SprintEngineTaskBody({
       ) : null}
 
       <OpenFeedbackSummary issues={openIssues} findings={openFindings} />
+
+      <OpenFeedbackComments comments={openFeedbackComments} />
+
+      <QualityGatesSection gates={qualityGates} />
+
+      <ImplementationHandoff task={selectedTask} />
+
+      <RecordedArtifactsSection artifacts={recordedArtifacts} />
 
       {readyActionMessage ? (
         <div

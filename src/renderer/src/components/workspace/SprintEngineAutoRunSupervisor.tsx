@@ -17,7 +17,9 @@ import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prep
 import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
+  getOpenSprintEngineQualityGates,
   getSprintEngineArtifactAutoApprovalEligibility,
+  getSprintEngineTaskBoardColumn,
   isSprintEngineTaskLaunchable,
   sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
@@ -574,9 +576,15 @@ function pickNextAutoRuns(
     return agent?.id ?? null
   }
 
-  const addCandidate = (task: SprintEngineTask, agentId: string, fallbackLabel: string) => {
+  const addCandidate = (
+    task: SprintEngineTask,
+    agentId: string,
+    fallbackLabel: string,
+    options2: { allowSharedTask?: boolean; agentRole?: SprintEngineRole } = {}
+  ) => {
     if (candidates.length >= options.limit) return false
-    if (pendingTaskIds.has(task.id) || selectedTaskIds.has(task.id)) return false
+    if (pendingTaskIds.has(task.id)) return false
+    if (!options2.allowSharedTask && selectedTaskIds.has(task.id)) return false
     if (
       pendingAgentIds.has(agentId)
       || selectedAgentIds.has(agentId)
@@ -589,7 +597,7 @@ function pickNextAutoRuns(
     candidates.push({
       agentId,
       label: workspace.agents[agentId]?.name ?? fallbackLabel,
-      role: task.role,
+      role: options2.agentRole ?? task.role,
       taskId: task.id,
     })
     selectedTaskIds.add(task.id)
@@ -708,6 +716,60 @@ function pickNextAutoRuns(
       selectedAgentRole: agent.role,
       candidateCount: candidates.length,
     })
+  }
+
+  // Lifecycle phase tasks (review/testing/product) keep auto-run running even
+  // when no implementation task is ready: each pending required gate maps to
+  // a reviewer/tester/product role, and we spawn an idle roster agent for that
+  // role so the spawned terminal's `sprintengine join` can decide whether a
+  // gate or other ready task is the next claim. We never claim the gate from
+  // the renderer — that stays a CLI-only mutation (`task gate next/claim`).
+  const gatedPhaseTasks = sprintEngineState.tasks.filter((task) => {
+    const column = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+    return column === 'review' || column === 'testing' || column === 'product'
+  })
+  logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-tasks', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    gatedTaskCount: gatedPhaseTasks.length,
+  })
+
+  for (const task of gatedPhaseTasks) {
+    if (candidates.length >= options.limit) break
+    const openGates = getOpenSprintEngineQualityGates(task)
+    for (const gate of openGates) {
+      if (candidates.length >= options.limit) break
+      const reviewerAgentId = findReusableRoleAgent(gate.role)
+      // Missing roster roles do not create dead launch queues — we simply skip
+      // the gate and the CLI verdict path stays the only completion route.
+      if (!reviewerAgentId) {
+        logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-no-roster-agent', {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          taskId: task.id,
+          gateId: gate.id,
+          gateRole: gate.role,
+        })
+        continue
+      }
+      const reviewerAgent = rosterById[reviewerAgentId] ?? {
+        id: reviewerAgentId,
+        label: reviewerAgentId,
+        role: gate.role,
+      }
+      addCandidate(task, reviewerAgent.id, reviewerAgent.label, {
+        allowSharedTask: true,
+        agentRole: gate.role,
+      })
+      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-result', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        taskId: task.id,
+        gateId: gate.id,
+        gateRole: gate.role,
+        selectedAgentId: reviewerAgent.id,
+      })
+    }
   }
 
   logPerfEvent('SprintEngineAutoRun', 'candidate-pick-end', {

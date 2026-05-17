@@ -34,8 +34,56 @@ const mobileSnapshotCommandTypes = [
 
 export const defaultMobileSnapshotCommands: readonly MobileControlCommandType[] = mobileSnapshotCommandTypes
 
-type SprintEngineTaskStatus = 'todo' | 'ready' | 'in_progress' | 'changes_requested' | 'needs_input' | 'done'
-type MobileTaskStatus = 'todo' | 'ready' | 'in_progress' | 'changes_requested' | 'needs_input' | 'blocked' | 'done'
+type SprintEngineTaskStatus = 'todo' | 'ready' | 'in_progress' | 'review' | 'testing' | 'product' | 'changes_requested' | 'needs_input' | 'done'
+type MobileTaskStatus = 'todo' | 'ready' | 'in_progress' | 'review' | 'testing' | 'product' | 'changes_requested' | 'needs_input' | 'blocked' | 'done'
+type MobileQualityGatePhase = 'review' | 'testing' | 'product'
+type MobileQualityGateStatus = 'pending' | 'in_progress' | 'approved' | 'changes_requested' | 'blocked' | 'skipped'
+type MobileTaskCommentType =
+  | 'implementation_summary'
+  | 'implementation_response'
+  | 'review_feedback'
+  | 'test_feedback'
+  | 'product_feedback'
+  | 'architect_feedback'
+  | 'needs_input'
+  | 'user_note'
+  | 'system_note'
+
+export type MobileSprintEngineQualityGateSummary = {
+  total: number
+  required: number
+  openRequired: number
+  byPhase: Partial<Record<MobileQualityGatePhase, number>>
+  byStatus: Partial<Record<MobileQualityGateStatus, number>>
+}
+
+export type MobileSprintEngineQualityGate = {
+  id: string
+  phase: MobileQualityGatePhase
+  role: string
+  status: MobileQualityGateStatus
+  required: boolean
+  attemptCount: number
+  latestVerdict?: string
+}
+
+export type MobileSprintEngineCommentSummary = {
+  id: string
+  type?: MobileTaskCommentType
+  actor: string
+  authorRole?: string
+  body: string
+  createdAt?: string
+}
+
+export type MobileSprintEngineRecordedArtifactSummary = {
+  id: string
+  kind?: string
+  title?: string
+  path?: string
+  gateId?: string
+  createdAt?: string
+}
 type MobileArtifactStatus = 'draft' | 'ready_for_review' | 'approved' | 'changes_requested'
 type MobileWorkspaceStatus = 'idle' | 'running' | 'needs_input' | 'blocked' | 'complete' | 'error' | 'unknown'
 
@@ -72,6 +120,11 @@ export type MobileSprintEngineTaskSnapshot = {
     requestedBy?: string
     reason?: string
   }
+  qualityGateSummary?: MobileSprintEngineQualityGateSummary
+  qualityGates?: MobileSprintEngineQualityGate[]
+  latestComments?: MobileSprintEngineCommentSummary[]
+  latestOpenFeedback?: MobileSprintEngineCommentSummary[]
+  recordedArtifacts?: MobileSprintEngineRecordedArtifactSummary[]
 }
 
 export type MobileSprintEngineArtifactSnapshot = {
@@ -96,9 +149,17 @@ export type MobileSprintEngineSnapshot = {
     ready: number
     inProgress: number
     changesRequested: number
+    review: number
+    testing: number
+    product: number
     needsInput: number
     blocked: number
     done: number
+  }
+  qualityPolicy?: {
+    enabled: boolean
+    rosterDriven: boolean
+    lifecyclePhases: MobileQualityGatePhase[]
   }
   tasks: MobileSprintEngineTaskSnapshot[]
   artifacts: MobileSprintEngineArtifactSnapshot[]
@@ -143,6 +204,7 @@ export type MobileWorkspaceSnapshot = {
       roster?: Record<string, { role?: string; status?: string; currentTaskId?: string | null }>
       runSummary?: Record<string, string | number | boolean | null>
       planReview?: Record<string, string | number | boolean | null>
+      qualityPolicy?: MobileSprintEngineSnapshot['qualityPolicy']
     }
   }
   | {
@@ -304,6 +366,7 @@ type NormalizedTask = {
   title: string
   role: string
   status: SprintEngineTaskStatus
+  boardColumn?: SprintEngineTaskStatus
   ownerAgentId: string | null
   dependsOn: string[]
   needsInput?: {
@@ -332,6 +395,11 @@ type NormalizedTask = {
     requestedBy?: string
     reason?: string
   }
+  qualityGateSummary?: MobileSprintEngineQualityGateSummary
+  qualityGates?: MobileSprintEngineQualityGate[]
+  latestComments?: MobileSprintEngineCommentSummary[]
+  latestOpenFeedback?: MobileSprintEngineCommentSummary[]
+  recordedArtifacts?: MobileSprintEngineRecordedArtifactSummary[]
 }
 
 type DesktopWorkspaceStateReaders = {
@@ -547,6 +615,8 @@ async function readSprintEngineProjectionSnapshot(
     locks,
   })
 
+  const qualityPolicy = normalizeQualityPolicy(run.qualityPolicy)
+
   return {
     sprintEngineId,
     name: stringOrFallback(run.name, sprintEngineId),
@@ -563,6 +633,7 @@ async function readSprintEngineProjectionSnapshot(
     ...(locks ? { locks: { warnings: Array.isArray(locks.warnings) ? locks.warnings : [], locks: Array.isArray(locks.locks) ? locks.locks : [] } } : {}),
     ...(activity.length > 0 ? { activity: { count: activity.length, latest: activity.at(-1) } } : {}),
     ...(counts ? { counts: { ready: numberOrUndefined(counts.ready), needsInput: numberOrUndefined(counts.needsInput), changesRequested: numberOrUndefined(counts.changesRequested) } } : {}),
+    ...(qualityPolicy ? { qualityPolicy } : {}),
   }
 }
 
@@ -578,6 +649,7 @@ function normalizeTasks(value: unknown): NormalizedTask[] {
       title: stringOrFallback(record.title, id),
       role: stringOrFallback(record.role, 'developer'),
       status: normalizeTaskStatus(record.status),
+      boardColumn: normalizeOptionalTaskStatus(record.boardColumn),
       ownerAgentId: typeof record.ownerAgentId === 'string' && record.ownerAgentId.trim()
         ? record.ownerAgentId
         : null,
@@ -587,6 +659,11 @@ function normalizeTasks(value: unknown): NormalizedTask[] {
       feedback: normalizeTaskFeedback(record.feedback),
       reviewSignals: normalizeReviewSignals(record),
       release: normalizeRelease(record.release ?? record.taskRelease),
+      qualityGateSummary: normalizeQualityGateSummary(record.qualityGateSummary),
+      qualityGates: normalizeQualityGates(record.qualityGates),
+      latestComments: normalizeMobileComments(record.latestComments),
+      latestOpenFeedback: normalizeMobileComments(record.latestOpenFeedback),
+      recordedArtifacts: normalizeMobileRecordedArtifacts(record.recordedArtifacts),
     }]
   })
 }
@@ -609,6 +686,9 @@ function toSprintEngineWorkspaceSnapshot(sprintEngine: MobileSprintEngineSnapsho
         ready: sprintEngine.board.ready,
         inProgress: sprintEngine.board.inProgress,
         changesRequested: sprintEngine.board.changesRequested,
+        review: sprintEngine.board.review,
+        testing: sprintEngine.board.testing,
+        product: sprintEngine.board.product,
         needsInput: sprintEngine.board.needsInput,
         blocked: sprintEngine.board.blocked,
         done: sprintEngine.board.done,
@@ -623,6 +703,7 @@ function toSprintEngineWorkspaceSnapshot(sprintEngine: MobileSprintEngineSnapsho
         ...(sprintEngine.roster ? { roster: sprintEngine.roster } : {}),
         ...(sprintEngine.runSummary ? { runSummary: sprintEngine.runSummary } : {}),
         ...(sprintEngine.planReview ? { planReview: sprintEngine.planReview } : {}),
+        ...(sprintEngine.qualityPolicy ? { qualityPolicy: sprintEngine.qualityPolicy } : {}),
       },
     },
   }
@@ -631,7 +712,15 @@ function toSprintEngineWorkspaceSnapshot(sprintEngine: MobileSprintEngineSnapsho
 function sprintEngineWorkspaceStatus(sprintEngine: MobileSprintEngineSnapshot): MobileWorkspaceStatus {
   if (sprintEngine.board.needsInput > 0) return 'needs_input'
   if (sprintEngine.board.blocked > 0) return 'blocked'
-  if (sprintEngine.board.inProgress > 0) return 'running'
+  // Lifecycle phase tasks (review/testing/product) are active gated work, not
+  // idle — count them alongside in-progress so the mobile summary status keeps
+  // signalling that gates still need to clear before the run completes.
+  if (
+    sprintEngine.board.inProgress > 0
+    || sprintEngine.board.review > 0
+    || sprintEngine.board.testing > 0
+    || sprintEngine.board.product > 0
+  ) return 'running'
   if (sprintEngine.board.changesRequested > 0 || sprintEngine.board.ready > 0 || sprintEngine.board.todo > 0) return 'idle'
   if (sprintEngine.board.done > 0) return 'complete'
   return 'unknown'
@@ -672,11 +761,35 @@ function toTaskSnapshot(task: NormalizedTask, tasks: NormalizedTask[]): MobileSp
     ...(task.feedback ? { feedback: task.feedback } : {}),
     ...(task.reviewSignals ? { reviewSignals: task.reviewSignals } : {}),
     ...(task.release ? { release: task.release } : {}),
+    ...(task.qualityGateSummary ? { qualityGateSummary: task.qualityGateSummary } : {}),
+    ...(task.qualityGates ? { qualityGates: task.qualityGates } : {}),
+    ...(task.latestComments ? { latestComments: task.latestComments } : {}),
+    ...(task.latestOpenFeedback ? { latestOpenFeedback: task.latestOpenFeedback } : {}),
+    ...(task.recordedArtifacts ? { recordedArtifacts: task.recordedArtifacts } : {}),
   }
 }
 
 function getMobileTaskStatus(task: NormalizedTask, tasks: NormalizedTask[]): MobileTaskStatus {
-  if (task.status === 'ready' || task.status === 'done' || task.status === 'in_progress' || task.status === 'changes_requested' || task.status === 'needs_input') {
+  // Lifecycle phase columns (review/testing/product) and rework are authoritative
+  // when present, so phase-aware mobile clients can render them as distinct lanes.
+  if (
+    task.boardColumn === 'review'
+    || task.boardColumn === 'testing'
+    || task.boardColumn === 'product'
+    || task.boardColumn === 'changes_requested'
+  ) {
+    return task.boardColumn
+  }
+  if (
+    task.status === 'ready'
+    || task.status === 'done'
+    || task.status === 'in_progress'
+    || task.status === 'review'
+    || task.status === 'testing'
+    || task.status === 'product'
+    || task.status === 'changes_requested'
+    || task.status === 'needs_input'
+  ) {
     return task.status
   }
 
@@ -692,6 +805,9 @@ function countBoard(tasks: MobileSprintEngineTaskSnapshot[]): MobileSprintEngine
     ready: 0,
     inProgress: 0,
     changesRequested: 0,
+    review: 0,
+    testing: 0,
+    product: 0,
     needsInput: 0,
     blocked: 0,
     done: 0,
@@ -707,6 +823,15 @@ function countBoard(tasks: MobileSprintEngineTaskSnapshot[]): MobileSprintEngine
         break
       case 'changes_requested':
         board.changesRequested += 1
+        break
+      case 'review':
+        board.review += 1
+        break
+      case 'testing':
+        board.testing += 1
+        break
+      case 'product':
+        board.product += 1
         break
       case 'needs_input':
         board.needsInput += 1
@@ -1156,8 +1281,183 @@ function recordSummary(value: unknown): Record<string, string | number | boolean
 }
 
 function normalizeTaskStatus(value: unknown): SprintEngineTaskStatus {
-  if (value === 'ready' || value === 'in_progress' || value === 'changes_requested' || value === 'needs_input' || value === 'done') return value
+  if (
+    value === 'ready'
+    || value === 'in_progress'
+    || value === 'changes_requested'
+    || value === 'review'
+    || value === 'testing'
+    || value === 'product'
+    || value === 'needs_input'
+    || value === 'done'
+  ) return value
   return 'todo'
+}
+
+function normalizeOptionalTaskStatus(value: unknown): SprintEngineTaskStatus | undefined {
+  if (typeof value !== 'string') return undefined
+  if (
+    value === 'ready'
+    || value === 'in_progress'
+    || value === 'changes_requested'
+    || value === 'review'
+    || value === 'testing'
+    || value === 'product'
+    || value === 'needs_input'
+    || value === 'done'
+    || value === 'todo'
+  ) return value
+  return undefined
+}
+
+function normalizeQualityGatePhase(value: unknown): MobileQualityGatePhase | undefined {
+  return value === 'review' || value === 'testing' || value === 'product' ? value : undefined
+}
+
+function normalizeQualityGateStatus(value: unknown): MobileQualityGateStatus | undefined {
+  return value === 'pending'
+    || value === 'in_progress'
+    || value === 'approved'
+    || value === 'changes_requested'
+    || value === 'blocked'
+    || value === 'skipped'
+    ? value
+    : undefined
+}
+
+function normalizeMobileCommentType(value: unknown): MobileTaskCommentType | undefined {
+  return value === 'implementation_summary'
+    || value === 'implementation_response'
+    || value === 'review_feedback'
+    || value === 'test_feedback'
+    || value === 'product_feedback'
+    || value === 'architect_feedback'
+    || value === 'needs_input'
+    || value === 'user_note'
+    || value === 'system_note'
+    ? value
+    : undefined
+}
+
+function truncateBody(value: string, max = 600): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1).trimEnd()}…`
+}
+
+function normalizeQualityGateSummary(value: unknown): MobileSprintEngineQualityGateSummary | undefined {
+  const record = recordObject(value)
+  if (!record) return undefined
+  const total = numberOrUndefined(record.total) ?? 0
+  const required = numberOrUndefined(record.required) ?? 0
+  const openRequired = numberOrUndefined(record.openRequired) ?? 0
+  const byPhase: Partial<Record<MobileQualityGatePhase, number>> = {}
+  const byPhaseRecord = recordObject(record.byPhase) ?? {}
+  for (const [phase, count] of Object.entries(byPhaseRecord)) {
+    const normalizedPhase = normalizeQualityGatePhase(phase)
+    if (!normalizedPhase) continue
+    const numericCount = numberOrUndefined(count)
+    if (numericCount === undefined) continue
+    byPhase[normalizedPhase] = numericCount
+  }
+  const byStatus: Partial<Record<MobileQualityGateStatus, number>> = {}
+  const byStatusRecord = recordObject(record.byStatus) ?? {}
+  for (const [status, count] of Object.entries(byStatusRecord)) {
+    const normalizedStatus = normalizeQualityGateStatus(status)
+    if (!normalizedStatus) continue
+    const numericCount = numberOrUndefined(count)
+    if (numericCount === undefined) continue
+    byStatus[normalizedStatus] = numericCount
+  }
+  if (total === 0 && required === 0 && openRequired === 0 && Object.keys(byPhase).length === 0 && Object.keys(byStatus).length === 0) {
+    return undefined
+  }
+  return { total, required, openRequired, byPhase, byStatus }
+}
+
+function normalizeQualityGates(value: unknown): MobileSprintEngineQualityGate[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const gates: MobileSprintEngineQualityGate[] = []
+  for (const raw of value) {
+    const record = recordObject(raw)
+    if (!record) continue
+    const phase = normalizeQualityGatePhase(record.phase)
+    const status = normalizeQualityGateStatus(record.status)
+    const id = stringOrNull(record.id)
+    const role = stringOrNull(record.role)
+    if (!id || !role || !phase || !status) continue
+    const attempts = Array.isArray(record.attempts) ? record.attempts : []
+    const latestAttempt = recordObject(attempts.at(-1))
+    const latestVerdict = latestAttempt ? stringOrNull(latestAttempt.verdict) ?? undefined : undefined
+    gates.push({
+      id,
+      phase,
+      role,
+      status,
+      required: record.required !== false,
+      attemptCount: attempts.length,
+      ...(latestVerdict ? { latestVerdict } : {}),
+    })
+  }
+  return gates.length > 0 ? gates : undefined
+}
+
+function normalizeMobileComment(raw: unknown): MobileSprintEngineCommentSummary | null {
+  const record = recordObject(raw)
+  if (!record) return null
+  const body = stringOrNull(record.body)?.trim()
+  if (!body) return null
+  const id = stringOrNull(record.id) ?? `comment-${Math.random().toString(36).slice(2, 8)}`
+  return {
+    id,
+    actor: stringOrNull(record.actor) ?? stringOrNull(record.authorAgentId) ?? 'unknown',
+    body: truncateBody(body),
+    ...(normalizeMobileCommentType(record.type) ? { type: normalizeMobileCommentType(record.type)! } : {}),
+    ...(stringOrNull(record.authorRole) ? { authorRole: stringOrNull(record.authorRole)! } : {}),
+    ...(stringOrNull(record.createdAt) ? { createdAt: stringOrNull(record.createdAt)! } : {}),
+  }
+}
+
+function normalizeMobileComments(value: unknown, max = 5): MobileSprintEngineCommentSummary[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const list = value.flatMap((raw) => {
+    const comment = normalizeMobileComment(raw)
+    return comment ? [comment] : []
+  })
+  return list.length > 0 ? list.slice(0, max) : undefined
+}
+
+function normalizeMobileRecordedArtifacts(value: unknown, max = 10): MobileSprintEngineRecordedArtifactSummary[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const list = value.flatMap((raw): MobileSprintEngineRecordedArtifactSummary[] => {
+    const record = recordObject(raw)
+    if (!record) return []
+    const id = stringOrNull(record.id)
+    if (!id) return []
+    return [{
+      id,
+      ...(stringOrNull(record.kind) ? { kind: stringOrNull(record.kind)! } : {}),
+      ...(stringOrNull(record.title) ? { title: stringOrNull(record.title)! } : {}),
+      ...(stringOrNull(record.path) ? { path: stringOrNull(record.path)! } : {}),
+      ...(stringOrNull(record.gateId) ? { gateId: stringOrNull(record.gateId)! } : {}),
+      ...(stringOrNull(record.createdAt) ? { createdAt: stringOrNull(record.createdAt)! } : {}),
+    }]
+  })
+  return list.length > 0 ? list.slice(0, max) : undefined
+}
+
+function normalizeQualityPolicy(value: unknown): MobileSprintEngineSnapshot['qualityPolicy'] | undefined {
+  const record = recordObject(value)
+  if (!record) return undefined
+  const lifecyclePhases = Array.isArray(record.lifecyclePhases)
+    ? record.lifecyclePhases.flatMap((entry) => {
+      const phase = normalizeQualityGatePhase(entry)
+      return phase ? [phase] : []
+    })
+    : []
+  return {
+    enabled: record.enabled !== false,
+    rosterDriven: record.rosterDriven !== false,
+    lifecyclePhases,
+  }
 }
 
 function normalizeArtifactStatus(value: unknown): MobileArtifactStatus | null {
