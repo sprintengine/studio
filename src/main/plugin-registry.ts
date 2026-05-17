@@ -1,5 +1,5 @@
 import { readFile, readdir, stat } from 'fs/promises'
-import { existsSync } from 'fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { isAbsolute, join, resolve } from 'path'
 
@@ -20,6 +20,7 @@ export type PluginRegistryOptions = {
 
 export type PluginRegistry = {
   load: () => Promise<PluginRegistryLoadReport>
+  loadSync: () => PluginRegistryLoadReport
   list: () => PluginRegistryListEntry[]
   get: (id: string) => LoadedPlugin | undefined
   validateManifestSource: (source: string) => PluginManifestValidationResult
@@ -112,37 +113,116 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
     return { loaded, rejected }
   }
 
+  function loadFromRootSync(
+    root: string,
+    source: 'bundled' | 'user'
+  ): PluginRegistryLoadReport {
+    const loaded: LoadedPlugin[] = []
+    const rejected: PluginRegistryLoadReport['rejected'] = []
+
+    if (!existsSync(root)) return { loaded, rejected }
+
+    let entries: string[] = []
+    try {
+      entries = readdirSync(root)
+    } catch {
+      return { loaded, rejected }
+    }
+
+    for (const entry of entries) {
+      const pluginRoot = join(root, entry)
+      try {
+        if (!statSync(pluginRoot).isDirectory()) continue
+      } catch {
+        continue
+      }
+
+      const manifestPath = join(pluginRoot, 'plugin.json')
+      if (!existsSync(manifestPath)) continue
+
+      let raw: string
+      try {
+        raw = readFileSync(manifestPath, 'utf-8')
+      } catch (err) {
+        rejected.push({
+          source,
+          manifestPath,
+          issues: [{ path: '', message: `Could not read plugin.json: ${formatError(err)}` }],
+        })
+        continue
+      }
+
+      const result = validateManifestSource(raw)
+      if (!result.ok) {
+        rejected.push({ source, manifestPath, issues: result.issues })
+        continue
+      }
+
+      if (result.manifest.id !== entry) {
+        rejected.push({
+          source,
+          manifestPath,
+          issues: [
+            {
+              path: 'id',
+              message: `Plugin id "${result.manifest.id}" does not match its containing directory "${entry}".`,
+            },
+          ],
+        })
+        continue
+      }
+
+      loaded.push({
+        manifest: result.manifest,
+        source,
+        manifestPath,
+        pluginRoot,
+      })
+    }
+
+    return { loaded, rejected }
+  }
+
+  function mergeBundledAndUser(
+    bundled: PluginRegistryLoadReport,
+    user: PluginRegistryLoadReport
+  ): PluginRegistryLoadReport {
+    plugins.clear()
+    const report: PluginRegistryLoadReport = {
+      loaded: [],
+      rejected: [...bundled.rejected, ...user.rejected],
+    }
+    for (const plugin of bundled.loaded) {
+      plugins.set(plugin.manifest.id, plugin)
+      report.loaded.push(plugin)
+    }
+    for (const plugin of user.loaded) {
+      const previous = plugins.get(plugin.manifest.id)
+      if (previous) {
+        const replacedIndex = report.loaded.findIndex((p) => p.manifest.id === plugin.manifest.id)
+        if (replacedIndex >= 0) report.loaded.splice(replacedIndex, 1)
+      }
+      plugins.set(plugin.manifest.id, plugin)
+      report.loaded.push(plugin)
+    }
+    return report
+  }
+
   return {
     async load(): Promise<PluginRegistryLoadReport> {
-      plugins.clear()
-
       const bundledRoot = resolveRoot(options.bundledRoot)
       const userRoot = resolveRoot(options.userRoot ?? defaultUserPluginRoot())
-
       const bundled = await loadFromRoot(bundledRoot, 'bundled')
       const user = await loadFromRoot(userRoot, 'user')
+      return mergeBundledAndUser(bundled, user)
+    },
 
-      const report: PluginRegistryLoadReport = {
-        loaded: [],
-        rejected: [...bundled.rejected, ...user.rejected],
-      }
-
-      // User plugins override bundled plugins of the same id.
-      for (const plugin of bundled.loaded) {
-        plugins.set(plugin.manifest.id, plugin)
-        report.loaded.push(plugin)
-      }
-      for (const plugin of user.loaded) {
-        const previous = plugins.get(plugin.manifest.id)
-        if (previous) {
-          const replacedIndex = report.loaded.findIndex((p) => p.manifest.id === plugin.manifest.id)
-          if (replacedIndex >= 0) report.loaded.splice(replacedIndex, 1)
-        }
-        plugins.set(plugin.manifest.id, plugin)
-        report.loaded.push(plugin)
-      }
-
-      return report
+    loadSync(): PluginRegistryLoadReport {
+      const bundledRoot = resolveRoot(options.bundledRoot)
+      const userRoot = resolveRoot(options.userRoot ?? defaultUserPluginRoot())
+      const bundled = loadFromRootSync(bundledRoot, 'bundled')
+      const user = loadFromRootSync(userRoot, 'user')
+      return mergeBundledAndUser(bundled, user)
     },
 
     list(): PluginRegistryListEntry[] {

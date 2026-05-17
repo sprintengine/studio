@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
+import { buildAgentShellCommand } from './agent-launch-render'
 import { withMulticodeCliPath } from './cli-install'
 
 export type ShellLaunchConfig = {
@@ -704,65 +705,12 @@ function buildAgentLaunchCommand(
   cliRuntime?: CliRuntimeSettings,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
 ): string {
-  if (cli === 'claude') {
-    return buildClaudeLaunchCommand(sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset)
-  }
-  return buildCodexLaunchCommand(resume, initialPrompt, cliRuntime, cliPermissionPreset)
-}
-
-function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
-  return [
-    `if ! command -v ${quotePosixCommand(command)} >/dev/null 2>&1; then`,
-    `echo ${quotePosix(`${cli === 'codex' ? 'Codex' : 'Claude'} CLI was not found. Check the ${cli} command in Multicode Settings.`)};`,
-    'else',
-  ].join(' ')
-}
-
-function buildCodexLaunchCommand(
-  resume = false,
-  initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
-): string {
-  const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
-  const configuredCommand = cliRuntime?.command?.trim()
-  const permissionArgs = getCliPermissionArgs('codex', cliPermissionPreset).map(quotePosixCommand)
-  const permissionArgText = permissionArgs.length ? ` ${permissionArgs.join(' ')}` : ''
-
-  return [
-    buildCommandAvailabilityCheck('codex', configuredCommand || 'codex'),
-    resume
-      ? `${quotePosixCommand(configuredCommand || 'codex')}${permissionArgText} resume;`
-      : `${quotePosixCommand(configuredCommand || 'codex')}${permissionArgText}${promptArg};`,
-    'fi',
-  ].join(' ')
-}
-
-function buildClaudeLaunchCommand(
-  sessionId: string,
-  resume = false,
-  initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
-): string {
-  const quotedSessionId = quotePosix(sessionId)
-  const claudeCommand = quotePosixCommand(cliRuntime?.command?.trim() || 'claude')
-  const configuredCommand = cliRuntime?.command?.trim() || 'claude'
-  const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
-  const permissionArgs = getCliPermissionArgs('claude', cliPermissionPreset).map(quotePosixCommand)
-  const permissionArgText = permissionArgs.length ? ` ${permissionArgs.join(' ')}` : ''
-
-  if (!resume) {
-    return [
-      buildCommandAvailabilityCheck('claude', configuredCommand),
-      `${claudeCommand}${permissionArgText} --session-id ${quotedSessionId}${promptArg};`,
-      'fi',
-    ].join(' ')
-  }
-
-  return [
-    buildCommandAvailabilityCheck('claude', configuredCommand),
-    `${claudeCommand}${permissionArgText} --resume ${quotedSessionId}${promptArg};`,
-    'fi',
-  ].join(' ')
+  return buildAgentShellCommand({
+    cli,
+    sessionId,
+    resume,
+    initialPrompt,
+    cliRuntime,
+    cliPermissionPreset,
+  })
 }
