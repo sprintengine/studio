@@ -10,6 +10,7 @@ import { registerGitIpc } from './ipc/git-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMcpIpc } from './ipc/mcp-ipc'
+import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMobileBridgeIpc } from './ipc/mobile-bridge-ipc'
 import { registerMultiloopIpc } from './ipc/multiloop-ipc'
@@ -35,6 +36,7 @@ import { MulticodeAuthBridge, parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createMcpConfigService } from './mcp-config-service'
+import { createSkillPackService } from './skill-pack-service'
 import { createTerminalRuntime } from './terminal-runtime'
 import { MulticodeUpdateService } from './update-service'
 import { createBuiltinSkillManager } from './builtin-skills'
@@ -94,6 +96,7 @@ if (!cliInstallResult.ok) {
 
 const multicodeAuth = new MulticodeAuthBridge()
 const mcpConfigService = createMcpConfigService()
+const skillPackService = createSkillPackService()
 const terminalRuntime = createTerminalRuntime({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
@@ -178,6 +181,7 @@ registerAuthIpc(ipcMain, multicodeAuth)
 
 registerBuiltinSkillsIpc(ipcMain, builtinSkillManager)
 registerMcpIpc(ipcMain, mcpConfigService)
+registerSkillPackIpc(ipcMain, skillPackService)
 
 registerMobileBridgeIpc(ipcMain, {
   bridge: mobileBridge,

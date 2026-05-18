@@ -306,6 +306,62 @@ export type McpSyncInput = {
   write?: boolean
 }
 
+export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'agents'
+export type SkillPackSource = 'bundled' | 'custom'
+
+export type SkillPackEntry = {
+  id: string
+  slug: string
+  name: string
+  category?: string
+  description?: string
+  version?: string
+  sourceUrl?: string
+  installedDirName?: string
+  harnesses: SkillPackHarness[]
+  source: SkillPackSource
+  installedAt?: string
+}
+
+export type SkillPackCatalogEntry = Omit<SkillPackEntry, 'source' | 'installedAt'> & {
+  recommended?: boolean
+  setupNotes?: string
+}
+
+export type SkillPackCatalogResult =
+  | { ok: true; packs: SkillPackCatalogEntry[] }
+  | { ok: false; message: string }
+
+export type SkillPackListInstalledInput = {
+  workspaceRoot: string
+}
+
+export type SkillPackListInstalledResult =
+  | { ok: true; installed: SkillPackEntry[] }
+  | { ok: false; message: string }
+
+export type SkillPackInstallInput = {
+  workspaceRoot: string
+  slug: string
+  harnesses?: SkillPackHarness[]
+  installedDirName?: string
+}
+
+export type SkillPackInstallResult =
+  | { ok: true; installed: SkillPackEntry; log: string }
+  | { ok: false; message: string; log?: string }
+
+export type SkillPackRemoveInput = {
+  workspaceRoot: string
+  slug: string
+  installedDirName?: string
+  harnesses?: SkillPackHarness[]
+}
+
+export type SkillPackRemoveResult =
+  | { ok: true; slug: string; log: string }
+  | { ok: false; message: string; log?: string }
+
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
 export type AgentSessionSystem = 'switchboard' | 'watchtower' | 'sprintengine' | 'manual'
@@ -1052,6 +1108,10 @@ export type ElectronApi = {
   mcpListCatalog: () => Promise<McpCatalogResult>
   mcpPreviewSync: (input: McpSyncInput) => Promise<McpSyncPreview>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
+  skillPackListCatalog: () => Promise<SkillPackCatalogResult>
+  skillPackListInstalled: (input: SkillPackListInstalledInput) => Promise<SkillPackListInstalledResult>
+  skillPackInstall: (input: SkillPackInstallInput) => Promise<SkillPackInstallResult>
+  skillPackRemove: (input: SkillPackRemoveInput) => Promise<SkillPackRemoveResult>
   openSprintEngineArtifact: (statePath: string, artifactPath: string) => Promise<SprintEngineArtifactCommandResult>
   approveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
   autoApproveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>

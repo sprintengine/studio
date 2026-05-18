@@ -847,6 +847,32 @@ export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'sour
   setupNotes?: string
 }
 
+export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'agents'
+export type SkillPackSource = 'bundled' | 'custom'
+
+export type SkillPackEntry = {
+  id: string
+  slug: string
+  name: string
+  category?: string
+  description?: string
+  version?: string
+  sourceUrl?: string
+  installedDirName?: string
+  harnesses: SkillPackHarness[]
+  source: SkillPackSource
+  installedAt?: string
+}
+
+export type SkillPackCatalogEntry = Omit<SkillPackEntry, 'source' | 'installedAt'> & {
+  recommended?: boolean
+  setupNotes?: string
+}
+
+export type SkillPackSettings = {
+  installed: Record<string, SkillPackEntry>
+}
+
 export type AgentExecution = {
   mode: AgentExecutionMode
   worktreeId: string | null
@@ -936,6 +962,7 @@ export type LearningSettings = {
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   mcp: McpSettings
+  skillPacks: SkillPackSettings
   lastSelectedCli: AgentCli
   lastSelectedSpecialist: SpecialistActionId
   lastSelectedMultiloopRole: MultiloopRole
